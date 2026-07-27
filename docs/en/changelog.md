@@ -13,19 +13,26 @@
   metadata once per fit. FISTA-LLA uses a gradient-only hot path, performs its
   finite/convergence transfer periodically, and releases loss-held training
   arrays before allocator cleanup.
-- The trusted gradient now uses backend-native reverse log-space scans
-  (`logaddexp.accumulate`, `torch.logcumsumexp`, and a CuPy RawKernel) instead
-  of Python predictor-range branching. The maintained counter requires zero
-  host-scalar conversions per trusted gradient while preserving stable suffix
-  risk sets after a maximum predictor departs.
+- The trusted gradient uses cancellation-safe scaled direct first moments in
+  adaptively bounded row blocks. This preserves both suffix denominators after
+  a maximum predictor departs and signed first moments near `1e15`; it retains
+  explicit predictor-range scalar checks instead of claiming a zero-sync path.
+  A row block is capped at 65,536 rows and two million moment elements, so the
+  removed signed-log scan cannot create an `O(n)` temporary workspace.
 - FISTA-LLA counts every completed proximal update, including the converged
   update, and its per-alpha path records cumulative work accurately. GPU event
   validation transfers one two-boolean status vector instead of the packed
   target; valid host `uint64` strata are normalized before Torch 2.0 conversion.
+  Complex `X`, time, event, start, stop, and coefficient inputs are rejected
+  before any real-valued cast on NumPy, CuPy, and Torch.
 - A machine-readable physical-P100 artifact records its exact clean source
-  commit, Cox/FISTA/fit source hashes, six synchronization/gradient comparisons,
-  and twelve SCAD/MCP coefficient/objective/KKT/finite-state results:
+  commit, Cox/FISTA/fit source hashes, 24 synchronization/gradient comparisons,
+  48 SCAD/MCP coefficient/objective/KKT/finite-state results, and two physical
+  GPU workspace measurements:
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`.
+  It labels fresh-process cold-start timing as unmeasured, records both the
+  first fit in the warmed process and the immediately repeated steady-state
+  fit, and states which initialization or compilation costs are excluded.
 - Ordinary right-censored Exact ties now use one segmented prefix DP across all
   strata. Delayed-entry GPU workloads with at least eight strata can use one
   memory-gated global batch; smaller cases use bounded per-stratum batches.
@@ -39,10 +46,9 @@
   NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
   3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new
   strata-count artifact completed with zero gate failures.
-- On the same P100 at `n=4096`, `p=12`, and 64 time bins, the updated stable
-  SCAD NumPy/CuPy/Torch medians were 0.121/0.0318/0.0341 seconds and MCP medians
-  were 0.105/0.0314/0.0324 seconds. The synchronization-free trusted scan kept
-  both GPU backends approximately 3-4x faster than NumPy.
+- The maintained P100 timing is synchronized and reported separately for the
+  correctness-first direct-moment head; earlier log-scan numbers are retained
+  only as superseded review history, not as current performance claims.
 
 ### Optimized (2026-07-26) — PR #80 stratified Exact composition
 

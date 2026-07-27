@@ -17,6 +17,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
+from statgpu.backends._utils import _is_complex_array
+
 
 def _backend_name(value: Any) -> str:
     module = type(value).__module__
@@ -112,7 +114,17 @@ def _exp_finite_float64(value: Any, backend: str, xp: Any):
     return xp.exp(xp.minimum(value, upper))
 
 
-def _as_backend_array(value: Any, backend: str, xp: Any, like: Any, *, integer=False):
+def _as_backend_array(
+    value: Any,
+    backend: str,
+    xp: Any,
+    like: Any,
+    *,
+    integer=False,
+    name="array",
+):
+    if _is_complex_array(value):
+        raise ValueError(f"{name} must be real-valued")
     if backend == "torch":
         dtype = xp.int64 if integer else like.dtype
         return xp.as_tensor(value, dtype=dtype, device=like.device)
@@ -1422,6 +1434,11 @@ def prepare_counting_process_inputs(
     strata: Optional[Any] = None,
 ) -> Tuple[Any, Any, Any, Any, Any]:
     """Normalize counting-process arrays without changing their backend."""
+    for name, value in (("X", X), ("stop", stop), ("event", event)):
+        if _is_complex_array(value):
+            raise ValueError(f"{name} must be real-valued")
+    if start is not None and _is_complex_array(start):
+        raise ValueError("start must be real-valued")
     backend, xp = _array_namespace(X)
     if backend == "torch":
         X = X.to(dtype=xp.float64)
@@ -1557,7 +1574,7 @@ def cox_counting_process_objective(
         X, stop, event, start=start, strata=strata
     )
     backend, xp = _array_namespace(X)
-    beta = _as_backend_array(beta, backend, xp, X).reshape(-1)
+    beta = _as_backend_array(beta, backend, xp, X, name="beta").reshape(-1)
     n_features = int(X.shape[1])
     if int(beta.shape[0]) != n_features:
         raise ValueError("beta must have shape (n_features,)")
@@ -1660,7 +1677,7 @@ def cox_baseline_hazard(
         X, stop, event, start=start, strata=strata
     )
     backend, xp = _array_namespace(X)
-    beta = _as_backend_array(beta, backend, xp, X).reshape(-1)
+    beta = _as_backend_array(beta, backend, xp, X, name="beta").reshape(-1)
     output: Dict[int, Dict[str, Any]] = {}
 
     for stratum in _unique_sorted(strata, backend, xp):
@@ -1856,7 +1873,7 @@ def counting_process_concordance(
         X, stop, event, start=start, strata=strata
     )
     backend, xp = _array_namespace(X)
-    beta = _as_backend_array(beta, backend, xp, X).reshape(-1)
+    beta = _as_backend_array(beta, backend, xp, X, name="beta").reshape(-1)
     if subject_id is None:
         if backend == "torch":
             subject_id = xp.arange(X.shape[0], dtype=xp.int64, device=X.device)

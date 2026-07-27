@@ -170,7 +170,7 @@ def test_gradient_preprocessed_extreme_departing_maximum(ties, backend):
 
 @pytest.mark.parametrize("ties", ["breslow", "efron"])
 @pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
-def test_gradient_preprocessed_has_no_host_scalar_sync(
+def test_gradient_preprocessed_records_only_predictor_range_sync(
     ties, backend, monkeypatch
 ):
     X, y, coef = _backend_extreme_survival_arrays(backend)
@@ -186,34 +186,258 @@ def test_gradient_preprocessed_has_no_host_scalar_sync(
     monkeypatch.setattr(cox_loss_module, "_to_float_scalar", recording_scalar)
     trusted = loss.gradient_preprocessed(coef)
     assert np.all(np.isfinite(_array_to_numpy(trusted)))
-    assert calls == []
+    # The trusted path skips repeated finite/denominator validation, but keeps
+    # one scalar range check for this two-row, extreme-predictor block. That
+    # synchronization is the correctness-first price of adaptive scaling.
+    assert len(calls) == 1
 
 
-@pytest.mark.parametrize("rows", [1, 255, 256, 257, 513])
-@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
-def test_reverse_logcumsumexp_matches_numpy(rows, backend):
-    rng = np.random.default_rng(302 + rows)
-    values_np = rng.normal(scale=300.0, size=(rows, 3))
-    values_np[::7, 1] = -np.inf
-    values_np[:, 2] = -np.inf
+def _backend_cancellation_arrays(backend, scale):
+    X = np.array(
+        [[-1.5], [0.5], [scale], [-scale + 1.0]], dtype=np.float64
+    )
+    y = np.array(
+        [[1.0, 0.0], [2.0, 1.0], [3.0, 0.0], [4.0, 0.0]],
+        dtype=np.float64,
+    )
+    coef = np.array([0.0], dtype=np.float64)
     if backend == "cupy":
         _require_device("cuda")
-        import cupy as xp
+        import cupy as cp
 
-        values = xp.asarray(values_np)
-    elif backend == "torch":
+        return cp.asarray(X), cp.asarray(y), cp.asarray(coef)
+    if backend == "torch":
         _require_device("torch")
-        import torch as xp
+        import torch
 
-        values = xp.as_tensor(values_np, dtype=xp.float64, device="cuda")
-    else:
-        xp = np
-        values = values_np
-    expected = np.logaddexp.accumulate(values_np[::-1], axis=0)[::-1]
-    actual = CoxPartialLikelihoodLoss._reverse_logcumsumexp(values, xp)
-    np.testing.assert_allclose(
-        _array_to_numpy(actual), expected, rtol=1e-13, atol=1e-13
+        return tuple(
+            torch.as_tensor(value, dtype=torch.float64, device="cuda")
+            for value in (X, y, coef)
+        )
+    return X, y, coef
+
+
+@pytest.mark.parametrize("scale", [1e8, 1e12, 1e15])
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_gradient_preprocessed_cancelling_signed_moments(
+    scale, ties, backend
+):
+    X, y, coef = _backend_cancellation_arrays(backend, scale)
+    loss = CoxPartialLikelihoodLoss(ties=ties)
+    X_pre, y_pre = loss.preprocess(X, y)
+
+    trusted = _array_to_numpy(loss.gradient_preprocessed(coef))
+    public = _array_to_numpy(loss.gradient(X_pre, y_pre, coef))
+    shared = _array_to_numpy(
+        -loss._shared_objective(coef, compute_derivatives=True)["score"]
+        / X.shape[0]
     )
+
+    assert np.all(np.isfinite(trusted))
+    np.testing.assert_allclose(trusted, [0.0], rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(trusted, public, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(trusted, shared, rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("scale", [1e8, 1e12, 1e15])
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+@pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
+def test_penalized_cox_cancelling_signed_moments_satisfies_kkt(
+    penalty, scale, ties, device
+):
+    _require_device(device)
+    backend = "numpy" if device == "cpu" else device
+    X, y, _ = _backend_cancellation_arrays(backend, scale)
+    model = PenalizedCoxPHModel(
+        penalty=penalty,
+        alpha=0.01,
+        ties=ties,
+        max_iter=5,
+        max_lla_iters=1,
+        tol=1e-8,
+        device=device,
+    )
+    model._init_coef = np.array([0.0])
+    model.fit(X, y)
+    assert model.n_iter_ > 0
+    assert np.all(np.isfinite(model.coef_))
+    np.testing.assert_allclose(model.coef_, [0.0], rtol=0.0, atol=1e-12)
+
+    audit_loss = CoxPartialLikelihoodLoss(ties=ties)
+    audit_loss.preprocess(X, y)
+    smooth_gradient = _array_to_numpy(
+        audit_loss.gradient_preprocessed(
+            _backend_cancellation_arrays(backend, scale)[2]
+        )
+    )
+    assert np.max(np.abs(smooth_gradient)) <= 1e-12
+    kkt_residual = np.maximum(np.abs(smooth_gradient) - model.alpha, 0.0)
+    assert np.max(kkt_residual) <= 1e-12
+
+
+def _to_review_backend(backend, value):
+    if backend == "cupy":
+        _require_device("cuda")
+        import cupy as cp
+
+        return cp.asarray(value)
+    if backend == "torch":
+        _require_device("torch")
+        import torch
+
+        return torch.as_tensor(value, device="cuda")
+    return np.asarray(value)
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize(
+    "field", ["X", "time", "event", "start", "stop", "coef", "beta"]
+)
+def test_complex_survival_inputs_are_rejected_before_real_cast(backend, field):
+    X_np = np.arange(6, dtype=np.float64).reshape(3, 2) / 10.0
+    time_np = np.array([1.0, 2.0, 3.0])
+    event_np = np.array([1.0, 0.0, 1.0])
+    start_np = np.array([0.0, 0.5, 1.0])
+    coef_np = np.array([0.1, -0.2])
+
+    X = _to_review_backend(backend, X_np)
+    time = _to_review_backend(backend, time_np)
+    event = _to_review_backend(backend, event_np)
+    start = _to_review_backend(backend, start_np)
+    coef = _to_review_backend(backend, coef_np)
+    complex_value = {
+        "X": X_np.astype(np.complex128) + 1j,
+        "time": time_np.astype(np.complex128) + 1j,
+        "event": event_np.astype(np.complex128) + 1j,
+        "start": start_np.astype(np.complex128) + 1j,
+        "stop": time_np.astype(np.complex128) + 1j,
+        "coef": coef_np.astype(np.complex128) + 1j,
+        "beta": coef_np.astype(np.complex128) + 1j,
+    }[field]
+    complex_value = _to_review_backend(backend, complex_value)
+
+    with pytest.raises(ValueError, match=rf"{field}.*real-valued"):
+        if field == "X":
+            CoxPartialLikelihoodLoss().preprocess(
+                complex_value, {"time": time, "event": event}
+            )
+        elif field in {"time", "event"}:
+            target = {"time": time, "event": event}
+            target[field] = complex_value
+            CoxPartialLikelihoodLoss().preprocess(X, target)
+        elif field in {"start", "stop"}:
+            prepare_counting_process_inputs(
+                X,
+                complex_value if field == "stop" else time,
+                event,
+                start=complex_value if field == "start" else start,
+            )
+        elif field == "coef":
+            loss = CoxPartialLikelihoodLoss()
+            X_pre, y_pre = loss.preprocess(
+                X, {"time": time, "event": event}
+            )
+            loss.gradient(X_pre, y_pre, complex_value)
+        else:
+            risk_sets.cox_counting_process_objective(
+                complex_value,
+                X,
+                time,
+                event,
+                start=start,
+                ties="breslow",
+            )
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_penalized_cox_rejects_complex_event_before_validation_cast(backend):
+    X = _to_review_backend(
+        backend, np.arange(6, dtype=np.float64).reshape(3, 2) / 10.0
+    )
+    time = _to_review_backend(backend, np.array([1.0, 2.0, 3.0]))
+    event = _to_review_backend(
+        backend, np.array([1.0 + 2.0j, 0.0 + 3.0j, 1.0 + 0.0j])
+    )
+    with pytest.raises(ValueError, match="event.*real-valued"):
+        PenalizedCoxPHModel._validate_event_target(
+            {"time": time, "event": event}
+        )
+
+
+def test_trusted_gradient_direct_moment_blocks_are_bounded(monkeypatch):
+    n = 140_000
+    X = np.linspace(-1.0, 1.0, n, dtype=np.float64).reshape(-1, 1)
+    y = np.column_stack(
+        (
+            np.arange(1, n + 1, dtype=np.float64),
+            np.r_[np.zeros(n - 1), 1.0],
+        )
+    )
+    loss = CoxPartialLikelihoodLoss(ties="breslow")
+    loss.preprocess(X, y)
+    scanned_shapes = []
+    original = CoxPartialLikelihoodLoss._reverse_cumsum
+
+    def recording_reverse_cumsum(values, xp):
+        scanned_shapes.append(tuple(values.shape))
+        return original(values, xp)
+
+    monkeypatch.setattr(
+        CoxPartialLikelihoodLoss,
+        "_reverse_cumsum",
+        staticmethod(recording_reverse_cumsum),
+    )
+    gradient = loss.gradient_preprocessed(np.zeros(1))
+    assert np.all(np.isfinite(gradient))
+    assert scanned_shapes
+    assert max(shape[0] for shape in scanned_shapes) <= 65_536
+    assert max(int(np.prod(shape)) for shape in scanned_shapes) <= 2_000_000
+
+
+@pytest.mark.gpu
+@pytest.mark.memory
+@pytest.mark.parametrize("device", ["cuda", "torch"])
+def test_trusted_gradient_physical_gpu_workspace_is_bounded(device):
+    _require_device(device)
+    n = 300_000
+    X_np = np.linspace(-1.0, 1.0, n, dtype=np.float64).reshape(-1, 1)
+    y_np = np.column_stack(
+        (
+            np.arange(1, n + 1, dtype=np.float64),
+            np.r_[np.zeros(n - 1), 1.0],
+        )
+    )
+    if device == "cuda":
+        import cupy as cp
+
+        pool = cp.get_default_memory_pool()
+        X, y = cp.asarray(X_np), cp.asarray(y_np)
+        loss = CoxPartialLikelihoodLoss(ties="breslow")
+        loss.preprocess(X, y)
+        cp.cuda.Stream.null.synchronize()
+        baseline = pool.total_bytes()
+        gradient = loss.gradient_preprocessed(cp.zeros(1, dtype=cp.float64))
+        cp.cuda.Stream.null.synchronize()
+        workspace_bytes = max(0, pool.total_bytes() - baseline)
+    else:
+        import torch
+
+        X = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+        y = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+        loss = CoxPartialLikelihoodLoss(ties="breslow")
+        loss.preprocess(X, y)
+        torch.cuda.synchronize()
+        baseline = torch.cuda.memory_allocated()
+        torch.cuda.reset_peak_memory_stats()
+        gradient = loss.gradient_preprocessed(
+            torch.zeros(1, dtype=torch.float64, device="cuda")
+        )
+        torch.cuda.synchronize()
+        workspace_bytes = max(0, torch.cuda.max_memory_allocated() - baseline)
+    assert np.all(np.isfinite(_array_to_numpy(gradient)))
+    assert workspace_bytes <= 64 * 1024 * 1024
 
 
 @pytest.mark.parametrize("penalty", ["scad", "mcp"])

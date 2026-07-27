@@ -124,6 +124,17 @@ def _to_float_scalar(x: Any) -> float:
     return float(x)
 
 
+def _is_complex_array(value: Any) -> bool:
+    """Return whether an array-like value has a complex dtype without casting."""
+    is_complex = getattr(value, "is_complex", None)
+    if callable(is_complex):
+        return bool(is_complex())
+    dtype = getattr(value, "dtype", None)
+    if getattr(dtype, "kind", None) == "c":
+        return True
+    return bool(np.iscomplexobj(value))
+
+
 def scatter_add_1d(target, indices, values):
     """Scatter-add 1D values to target array at given indices.
 

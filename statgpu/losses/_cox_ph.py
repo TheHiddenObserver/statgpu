@@ -17,99 +17,15 @@ from statgpu.backends._array_ops import (
     _xp_asarray,
     _xp_zeros,
 )
-from statgpu.backends._utils import _to_float_scalar, _to_numpy
+from statgpu.backends._utils import (
+    _is_complex_array,
+    _to_float_scalar,
+    _to_numpy,
+)
 from statgpu.survival._risk_sets import cox_counting_process_objective
 
 from ._base import LossBase
 from ._registry import register_loss
-
-
-_CUPY_REVERSE_LOGCUMSUMEXP_KERNEL = None
-
-
-def _cupy_reverse_logcumsumexp(values, xp):
-    """Run a stable reverse log-scan without host-side range decisions."""
-    global _CUPY_REVERSE_LOGCUMSUMEXP_KERNEL
-    if _CUPY_REVERSE_LOGCUMSUMEXP_KERNEL is None:
-        _CUPY_REVERSE_LOGCUMSUMEXP_KERNEL = xp.RawKernel(
-            r"""
-            __device__ __forceinline__ double log_add_exp(
-                const double left, const double right
-            ) {
-                if (isinf(left) && left < 0.0) return right;
-                if (isinf(right) && right < 0.0) return left;
-                const double maximum = fmax(left, right);
-                return maximum + log1p(exp(-fabs(left - right)));
-            }
-
-            extern "C" __global__ void reverse_logcumsumexp_f64(
-                const double* values,
-                double* output,
-                const long long rows,
-                const long long channels
-            ) {
-                const int channel = blockIdx.x;
-                const int thread = threadIdx.x;
-                if (channel >= channels) return;
-
-                __shared__ double scan[256];
-                __shared__ double tail;
-                const double negative_infinity =
-                    -__longlong_as_double(0x7ff0000000000000ULL);
-                if (thread == 0) tail = negative_infinity;
-                __syncthreads();
-
-                for (long long chunk_end = rows; chunk_end > 0;
-                     chunk_end -= blockDim.x) {
-                    const int chunk_size = (int)min(
-                        (long long)blockDim.x, chunk_end
-                    );
-                    const long long row = chunk_end - 1 - thread;
-                    scan[thread] = thread < chunk_size
-                        ? values[row * channels + channel]
-                        : negative_infinity;
-                    __syncthreads();
-
-                    for (int offset = 1; offset < blockDim.x; offset <<= 1) {
-                        double combined = scan[thread];
-                        if (thread < chunk_size && thread >= offset) {
-                            combined = log_add_exp(
-                                scan[thread], scan[thread - offset]
-                            );
-                        }
-                        __syncthreads();
-                        if (thread < chunk_size && thread >= offset) {
-                            scan[thread] = combined;
-                        }
-                        __syncthreads();
-                    }
-
-                    if (thread < chunk_size) {
-                        output[row * channels + channel] =
-                            log_add_exp(scan[thread], tail);
-                    }
-                    __syncthreads();
-                    if (thread == 0) {
-                        tail = log_add_exp(scan[chunk_size - 1], tail);
-                    }
-                    __syncthreads();
-                }
-            }
-            """,
-            "reverse_logcumsumexp_f64",
-        )
-
-    original_shape = values.shape
-    rows = int(values.shape[0])
-    channels = int(values.size // max(rows, 1))
-    values_contiguous = xp.ascontiguousarray(values).reshape(rows, channels)
-    output = xp.empty_like(values_contiguous)
-    _CUPY_REVERSE_LOGCUMSUMEXP_KERNEL(
-        (channels,),
-        (256,),
-        (values_contiguous, output, np.int64(rows), np.int64(channels)),
-    )
-    return output.reshape(original_shape)
 
 
 def _build_efron_pre_numpy(time_np, event_np):
@@ -248,13 +164,17 @@ class CoxPartialLikelihoodLoss(LossBase):
     def preprocess(self, X, y):
         """Validate, center, and stably sort right-censored survival data."""
         self.release_fit_cache()
+        self._reject_complex(X, "X")
         xp = _get_xp(X)
         if isinstance(y, dict):
             if "time" not in y or "event" not in y:
                 raise ValueError("survival y dict must contain time and event")
+            self._reject_complex(y["time"], "time")
+            self._reject_complex(y["event"], "event")
             time = _xp_asarray(y["time"], dtype=xp.float64, ref_arr=X)
             event = _xp_asarray(y["event"], dtype=xp.float64, ref_arr=X)
         else:
+            self._reject_complex(y, "y")
             y_arr = _xp_asarray(y, dtype=xp.float64, ref_arr=X)
             if y_arr.ndim != 2 or int(y_arr.shape[1]) != 2:
                 raise ValueError("y must be dict or (n, 2) array")
@@ -419,6 +339,17 @@ class CoxPartialLikelihoodLoss(LossBase):
                 "CoxPartialLikelihoodLoss does not support sample_weight"
             )
 
+    @staticmethod
+    def _reject_complex(value, name):
+        if _is_complex_array(value):
+            raise ValueError(f"{name} must be real-valued")
+
+    def _coerce_coef(self, coef, xp):
+        self._reject_complex(coef, "coef")
+        return _xp_asarray(
+            coef, dtype=xp.float64, ref_arr=self._X_sorted
+        ).reshape(-1)
+
     def _zero_objective(self, *, compute_derivatives: bool):
         xp = _get_xp(self._X_sorted)
         result = {
@@ -435,6 +366,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         return result
 
     def _validate_coef(self, coef_dev, *, finite=True):
+        self._reject_complex(coef_dev, "coef")
         xp = _get_xp(self._X_sorted)
         n_features = int(self._X_sorted.shape[1])
         if int(coef_dev.ndim) != 1 or int(coef_dev.shape[0]) != n_features:
@@ -460,9 +392,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
         xp = _get_xp(self._X_sorted)
-        coef_dev = _xp_asarray(
-            coef, dtype=xp.float64, ref_arr=self._X_sorted
-        ).reshape(-1)
+        coef_dev = self._coerce_coef(coef, xp)
         self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         loglik, _, _ = self._objective_from_eta_backend(
@@ -474,9 +404,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
         xp = _get_xp(self._X_sorted)
-        coef_dev = _xp_asarray(
-            coef, dtype=xp.float64, ref_arr=self._X_sorted
-        ).reshape(-1)
+        coef_dev = self._coerce_coef(coef, xp)
         self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         _, score, _ = self._objective_from_eta_backend(
@@ -488,15 +416,15 @@ class CoxPartialLikelihoodLoss(LossBase):
         """Return a stable gradient from the active solver-owned fit cache.
 
         The trusted solver path skips duplicate scalar validity checks, but it
-        retains stable risk-set scaling through a backend-native log-space
-        suffix scan. No predictor-dependent host branching is performed.
+        retains the scaled direct-moment risk-set calculation used by the
+        public gradient. Predictor-range checks may synchronize a device
+        scalar; this is required until an associative signed-moment scan is
+        available.
         """
         if not self._sorted or self._preprocessed_target is None:
             raise RuntimeError("Cox fit cache is not active")
         xp = _get_xp(self._X_sorted)
-        coef_dev = _xp_asarray(
-            coef, dtype=xp.float64, ref_arr=self._X_sorted
-        ).reshape(-1)
+        coef_dev = self._coerce_coef(coef, xp)
         self._validate_coef(coef_dev, finite=False)
         eta = self._X_sorted @ coef_dev
         _, score, _ = self._objective_from_eta_backend(
@@ -513,9 +441,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
         xp = _get_xp(self._X_sorted)
-        coef_dev = _xp_asarray(
-            coef, dtype=xp.float64, ref_arr=self._X_sorted
-        ).reshape(-1)
+        coef_dev = self._coerce_coef(coef, xp)
         self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         loglik, score, _ = self._objective_from_eta_backend(
@@ -528,9 +454,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
         xp = _get_xp(self._X_sorted)
-        coef_dev = _xp_asarray(
-            coef, dtype=xp.float64, ref_arr=self._X_sorted
-        ).reshape(-1)
+        coef_dev = self._coerce_coef(coef, xp)
         self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         _, score, loglik_hessian = self._objective_from_eta_backend(
@@ -553,7 +477,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._ensure_sorted(X, y)
         xp = _get_xp(self._X_sorted)
         coef_dev = (
-            _xp_asarray(coef, dtype=xp.float64, ref_arr=self._X_sorted).reshape(-1)
+            self._coerce_coef(coef, xp)
             if coef is not None
             else _xp_zeros(
                 self._X_sorted.shape[1],
@@ -579,92 +503,6 @@ class CoxPartialLikelihoodLoss(LossBase):
         if xp.__name__ == "torch":
             return xp.cumsum(values.flip(0), dim=0).flip(0)
         return xp.cumsum(values[::-1], axis=0)[::-1]
-
-    @staticmethod
-    def _reverse_logcumsumexp(values, xp):
-        """Return an axis-zero reverse log-cumulative-exp on every backend."""
-        if xp.__name__ == "torch":
-            return xp.logcumsumexp(values.flip(0), dim=0).flip(0)
-        if xp.__name__ == "cupy":
-            return _cupy_reverse_logcumsumexp(values, xp)
-        return xp.logaddexp.accumulate(values[::-1], axis=0)[::-1]
-
-    def _suffix_group_moments_logscan(self, eta, X, xp):
-        """Compute suffix moments without predictor-dependent host decisions.
-
-        The trusted FISTA-LLA path works in log space. Signed first moments are
-        represented as the difference between positive and negative log-sums,
-        which avoids both risk-set underflow and GPU-to-host scalar checks.
-        Feature chunks bound temporary storage for wide designs.
-        """
-        n, p = int(X.shape[0]), int(X.shape[1])
-        first_indices_backend = self._backend_group_metadata(xp, X)[0]
-        risk_mean = _backend_zeros(
-            (int(first_indices_backend.shape[0]), p), xp, X
-        )
-        if int(first_indices_backend.shape[0]) == 0:
-            return _backend_zeros((0,), xp, X), risk_mean
-        if p == 0:
-            risk_log_sum = self._reverse_logcumsumexp(eta, xp)[
-                first_indices_backend
-            ]
-            return risk_log_sum, risk_mean
-
-        max_chunk_columns = max(1, 2_000_000 // max(n, 1))
-        risk_log_sum = None
-        for column_lo in range(0, p, max_chunk_columns):
-            column_hi = min(column_lo + max_chunk_columns, p)
-            X_block = X[:, column_lo:column_hi]
-            abs_X = xp.abs(X_block)
-            safe_abs_X = xp.where(abs_X > 0, abs_X, xp.ones_like(abs_X))
-            weighted_log_abs = eta.reshape(-1, 1) + xp.log(safe_abs_X)
-            negative_infinity = xp.full_like(weighted_log_abs, float("-inf"))
-
-            positive_terms = xp.where(
-                X_block > 0, weighted_log_abs, negative_infinity
-            )
-            negative_terms = xp.where(
-                X_block < 0, weighted_log_abs, negative_infinity
-            )
-            terms = [positive_terms, negative_terms]
-            denominator_offset = 0
-            if risk_log_sum is None:
-                terms.insert(0, eta.reshape(-1, 1))
-                denominator_offset = 1
-            combined_terms = (
-                xp.cat(terms, dim=1)
-                if xp.__name__ == "torch"
-                else xp.concatenate(terms, axis=1)
-            )
-            selected_log_sums = self._reverse_logcumsumexp(
-                combined_terms, xp
-            )[first_indices_backend]
-            if risk_log_sum is None:
-                risk_log_sum = selected_log_sums[:, 0]
-            block_width = column_hi - column_lo
-            positive_log_sum = selected_log_sums[
-                :, denominator_offset : denominator_offset + block_width
-            ]
-            negative_log_sum = selected_log_sums[
-                :, denominator_offset + block_width :
-            ]
-            positive_mean = xp.exp(
-                positive_log_sum - risk_log_sum.reshape(-1, 1)
-            )
-            negative_mean = xp.exp(
-                negative_log_sum - risk_log_sum.reshape(-1, 1)
-            )
-            risk_mean[:, column_lo:column_hi] = positive_mean - negative_mean
-
-        # A singleton suffix has an exactly known mean. Preserve that identity
-        # instead of introducing a log/exp round trip at the final row.
-        singleton_suffix = first_indices_backend == (n - 1)
-        risk_mean = xp.where(
-            singleton_suffix.reshape(-1, 1),
-            X[-1].reshape(1, -1),
-            risk_mean,
-        )
-        return risk_log_sum, risk_mean
 
     @staticmethod
     def _stable_segment_boundaries(eta, xp, max_block_rows):
@@ -704,11 +542,11 @@ class CoxPartialLikelihoodLoss(LossBase):
         A single global shift is fast but can underflow after the observation
         attaining that shift leaves a later risk set. Re-scanning every risk
         set avoids the underflow at quadratic cost. This routine instead
-        uses reverse cumulative sums in adaptively bounded segments for public
-        calls. Trusted solver calls instead use a backend-native log-space scan
-        with no predictor-dependent host branch. Both paths are stable;
-        ``validate_finite_state`` selects the validation boundary and scan
-        implementation, never an unstable risk-set calculation.
+        uses reverse cumulative sums in adaptively bounded segments. Trusted
+        solver calls use the same signed direct-moment calculation so large
+        positive and negative first moments are never reconstructed by
+        subtracting exponentiated log-sums. ``validate_finite_state`` controls
+        redundant scalar error checks, never the stable risk-set calculation.
         """
         n, p = int(X.shape[0]), int(X.shape[1])
         n_groups = int(len(first_indices))
@@ -716,8 +554,6 @@ class CoxPartialLikelihoodLoss(LossBase):
         risk_mean = _backend_zeros((n_groups, p), xp, X)
         if n_groups == 0:
             return risk_log_sum, risk_mean
-        if not validate_finite_state:
-            return self._suffix_group_moments_logscan(eta, X, xp)
         if validate_finite_state and not bool(
             _to_float_scalar(xp.all(xp.isfinite(eta)))
         ):

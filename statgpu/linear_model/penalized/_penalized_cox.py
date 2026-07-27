@@ -10,7 +10,11 @@ import numbers
 import numpy as np
 from statgpu._config import Device
 from statgpu.backends._array_ops import _xp as _get_xp
-from statgpu.backends._utils import _to_float_scalar, _to_numpy
+from statgpu.backends._utils import (
+    _is_complex_array,
+    _to_float_scalar,
+    _to_numpy,
+)
 
 from ._base import PenalizedGeneralizedLinearModel
 
@@ -434,8 +438,12 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         if isinstance(y, dict):
             if "time" not in y or "event" not in y:
                 raise ValueError("survival y dict must contain time and event")
+            if _is_complex_array(y["time"]):
+                raise ValueError("time must be real-valued")
             event_raw = y["event"]
         else:
+            if _is_complex_array(y):
+                raise ValueError("y must be real-valued")
             target_xp = _get_xp(y)
             target = (
                 y
@@ -448,6 +456,8 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
                 )
             event_raw = target[:, 1]
 
+        if _is_complex_array(event_raw):
+            raise ValueError("event must be real-valued")
         xp = _get_xp(event_raw)
         if xp.__name__ == "torch":
             event = event_raw.to(dtype=xp.float64)
@@ -491,6 +501,10 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
                 formula = None
                 data = None
 
+            if X is not None and _is_complex_array(X):
+                raise ValueError("X must be real-valued")
+            if self._init_coef is not None and _is_complex_array(self._init_coef):
+                raise ValueError("coef must be real-valued")
             if y is not None:
                 self._validate_event_target(y)
 

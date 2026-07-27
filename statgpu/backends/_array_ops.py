@@ -9,6 +9,7 @@ a single code path for all backends.
 import numpy as np
 
 from statgpu.backends._base import _resolve_backend
+from statgpu.backends._utils import _is_complex_array
 
 
 def _xp(arr):
@@ -502,6 +503,8 @@ def _xp_asarray(arr, dtype, ref_arr):
 
     Handles numpy→cupy, numpy→torch, and same-backend dtype casts.
     """
+    if _is_complex_array(arr):
+        raise ValueError("complex input cannot be converted to a real dtype")
     xp = _xp(ref_arr)
     if xp.__name__ == "torch":
         import torch

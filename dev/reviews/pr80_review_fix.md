@@ -443,24 +443,29 @@ Follow-up validation and performance evidence:
   selection passed **32 tests**;
 - local affected Cox/survival matrix: **253 passed, 90 optional GPU skips, 0
   failed**; documentation contracts still pass for 122 files;
-- at `n=4096`, `p=12`, 64 time bins, SCAD NumPy/CuPy/Torch medians were
+- at the superseded zero-sync head, `n=4096`, `p=12`, 64 time bins, SCAD
+  NumPy/CuPy/Torch medians were
   `0.121/0.0318/0.0341` seconds and MCP medians were
-  `0.105/0.0314/0.0324` seconds. Both GPU backends remain approximately 3-4x
-  faster than NumPy after replacing adaptive trusted-gradient branching;
-- `penalized_cox_trusted_gradient_pr80_20260727.json` is `complete` with zero
+  `0.105/0.0314/0.0324` seconds. These measurements are retained as review
+  history and are not a claim about the later cancellation-safe head;
+- the earlier `penalized_cox_trusted_gradient_pr80_20260727.json` was `complete` with zero
   gate failures from clean commit `bbbf4b9`. Across its 6 gradient and 12 fit
   cases, every trusted gradient records zero host-scalar conversions, every fit
   records five iterations, maximum gradient/coefficient/KKT differences are
-  zero, and maximum cross-backend objective difference is `7.13e-12`.
+  zero, and maximum cross-backend objective difference is `7.13e-12`. It is
+  superseded by the signed-moment-cancellation artifact described below.
 
 ## 2026-07-27 Remaining P2/P3 Follow-up
 
-- [MEDIUM][PERF][fixed] `statgpu/losses/_cox_ph.py`: trusted gradients still
+- [MEDIUM][PERF][superseded] `statgpu/losses/_cox_ph.py`: trusted gradients still
   called `_stable_segment_boundaries()`, synchronizing every predictor-range
   decision. NumPy now uses reverse `logaddexp.accumulate`, Torch uses
   `logcumsumexp`, and CuPy uses a fixed-topology parallel RawKernel. A maintained
   counter requires zero `_to_float_scalar` calls per trusted gradient; public
-  validation retains its independently stable adaptive implementation.
+  validation retains its independently stable adaptive implementation. The next
+  review found that separating positive and negative log moments is not stable
+  under strong cancellation; the zero-sync implementation was removed rather
+  than preserving a performance claim with an incorrect gradient.
 - [MEDIUM][BACKEND][fixed] `statgpu/survival/_risk_sets.py`: Torch 2.0 rejected
   every NumPy `uint64` strata input before inspecting its range. Representable
   host unsigned labels are now range-checked and converted to int64 before
@@ -490,7 +495,45 @@ Physical-P100 evidence for this follow-up:
   `0.121/0.0318/0.0341` seconds and MCP medians were
   `0.105/0.0314/0.0324` seconds. The trusted-gradient medians under an extreme
   predictor range were `0.00851/0.00175/0.00342` seconds, with maximum gradient
-  difference from the public stable path below `1.59e-13`.
+  difference from the public stable path below `1.59e-13`. These timings belong
+  to the superseded signed-log implementation.
+
+## 2026-07-27 Signed-Moment Cancellation Follow-up
+
+- [CRITICAL][BUG][fixed] `statgpu/losses/_cox_ph.py`: the zero-sync trusted
+  gradient stored positive and negative first moments as separate log-sums and
+  reconstructed their difference. When both moments were approximately `1e15`
+  but their signed difference was order one, the two logs rounded together and
+  the valid zero gradient became `-0.125`. The trusted path now reuses the
+  cancellation-safe scaled direct-moment calculation. Regressions cover scales
+  `1e8`, `1e12`, and `1e15`, Breslow/Efron, trusted/public/shared parity, and
+  actual SCAD/MCP coefficient, finite-state, iteration, and KKT behavior on all
+  three backends.
+- [HIGH][API/BACKEND][fixed] public Cox normalization boundaries cast complex
+  arrays to float before validation, silently discarding their imaginary parts.
+  `X`, time, event, start, stop, and coefficient/beta inputs are now rejected
+  before casting for NumPy, CuPy, and Torch. Penalized-Cox event validation and
+  initialization follow the same contract.
+- [MEDIUM][PERF][fixed] the removed signed-log path materialized multiple
+  full-length positive/negative/log-scan buffers and had no byte ceiling when
+  `p=1`. The retained direct-moment path caps each scan at 65,536 rows and two
+  million moment elements. Structural tests enforce both limits; physical-GPU
+  tests gate additional allocator/active workspace at 64 MiB for `n=300,000`.
+- [LOW][ARTIFACT/DOC][fixed]
+  `benchmark_penalized_cox_trusted_gradient.py` no longer labels its fit timing
+  as an unspecified latency. It explicitly records that fresh-process cold start
+  is unmeasured, whether gradient work ran before fitting, the first fit in that
+  warmed process, a repeated steady-state fit, and whether CuPy RawKernel JIT is
+  applicable. The regenerated artifact also records predictor-range sync counts
+  rather than requiring a misleading zero.
+
+Local evidence before the physical-GPU rerun:
+
+- focused cancellation, complex-boundary, and bounded-block selection:
+  **31 passed, 60 optional GPU skips, 0 failed**;
+- CPU artifact dry run: 8 trusted/public/shared comparisons and 16 SCAD/MCP fit
+  cases had zero gradient, coefficient, objective, and KKT gate differences;
+  its only expected failure was the dirty-worktree audit used during development.
 
 ## Validation Evidence
 

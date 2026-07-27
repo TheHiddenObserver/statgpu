@@ -12,17 +12,22 @@
 - Penalized Cox SCAD/MCP 现在每次拟合只预处理、排序和传输一次 survival 分组元数据；
   FISTA-LLA 使用只计算梯度的热路径，按周期合并有限性与收敛状态传输，并在 allocator
   清理前释放 loss 持有的训练数组。
-- trusted gradient 现改用 backend-native 的反向 log-space scan
-  （`logaddexp.accumulate`、`torch.logcumsumexp` 及 CuPy RawKernel），不再由 Python
-  根据 predictor range 分支；维护的 counter 要求每次 trusted gradient 的 host scalar
-  转换次数为零，同时保持最大 predictor 离开后续风险集时的数值稳定性。
+- trusted gradient 现使用有界行分块内的 scaled direct first moment，既保持最大
+  predictor 离开后续风险集时的 denominator 稳定性，也避免在约 `1e15` 的正负矩之间
+  发生灾难性消减。该路径明确保留 predictor-range scalar check，不再宣称 zero-sync；
+  每个行块最多 65,536 行、两百万个 moment 元素，因此已移除的 signed-log scan 不会
+  再产生随完整 `n` 增长的临时工作区。
 - FISTA-LLA 会计入包含最终收敛更新在内的每次 proximal update，并准确记录各 alpha
   的累计迭代数。GPU event 校验只传输一个含两个 boolean 的状态向量，不再复制完整
   packed target；Torch 2.0 转换前会先规范化合法的 host `uint64` strata。
+  NumPy、CuPy、Torch 的 `X`、time、event、start、stop 与 coefficient 复数输入均在
+  转为实数之前明确拒绝。
 - machine-readable 的物理 P100 产物记录其精确 clean source commit、Cox/FISTA/fit
-  源码哈希、6 组同步次数与 gradient 对齐，以及 12 组 SCAD/MCP
-  coefficient/objective/KKT/finite-state 结果：
+  源码哈希、24 组同步次数与 gradient 对齐、48 组 SCAD/MCP
+  coefficient/objective/KKT/finite-state 结果及 2 组物理 GPU 工作区测量：
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`。
+  产物明确标注 fresh-process cold-start 未测量，同时分别记录 warm process 中的首次
+  fit 与紧接着的 steady-state fit，并说明未计入的初始化或编译成本。
 - 普通 right-censored Exact ties 在所有 strata 上使用一次分段前缀 DP。带 delayed
   entry 且 strata 数量至少为 8 的 GPU 工作负载可使用受内存门禁保护的全局 batch；
   较小场景使用有界的逐-stratum batch。
@@ -33,9 +38,8 @@
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
   NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
   3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。
-- 在同一 P100 的 `n=4096`、`p=12`、64 个 time bin 场景中，更新后的稳定 SCAD
-  NumPy/CuPy/Torch 中位时间为 0.121/0.0318/0.0341 秒，MCP 为
-  0.105/0.0314/0.0324 秒；无同步 trusted scan 仍使两个 GPU 后端约比 NumPy 快 3-4 倍。
+- 维护中的 P100 用时会针对 correctness-first direct-moment head 重新同步测量；先前
+  log-scan 的数字只保留为已被后续修复取代的审查历史，不再作为当前性能声明。
 
 ### 优化（2026-07-26）— PR #80 分层 Exact 组合路径
 
