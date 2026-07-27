@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from statgpu._config import Device
 from statgpu.survival import CoxPH
 
 
@@ -129,6 +130,10 @@ def test_adapter_validation_failure_clears_stale_fit_state(invalid):
         ("ties", "not-a-tie-method", "ties must be"),
         ("cov_type", "not-a-covariance", "cov_type must be"),
         ("inference_mode", "not-an-inference-mode", "inference_mode must be"),
+        ("device", "not-a-device", "device must be"),
+        ("compute_inference", "False", "compute_inference must be"),
+        ("compute_cindex", "False", "compute_cindex must be"),
+        ("gpu_memory_cleanup", "False", "gpu_memory_cleanup must be"),
     ],
 )
 def test_invalid_direct_control_mutation_is_rejected_and_clears_stale_state(
@@ -158,6 +163,9 @@ def test_mutated_controls_are_canonicalized_before_fit():
         inference_mode="STRICT",
         penalty="0.1",
         tol="1e-7",
+        compute_inference=0,
+        compute_cindex=1,
+        gpu_memory_cleanup=0,
     )
     model.fit(X, stop, event)
 
@@ -166,7 +174,27 @@ def test_mutated_controls_are_canonicalized_before_fit():
     assert model.inference_mode == "strict"
     assert model.penalty == pytest.approx(0.1)
     assert model.tol == pytest.approx(1e-7)
+    assert model.compute_inference is False
+    assert model.compute_cindex is True
+    assert model.gpu_memory_cleanup is False
+    assert model.device is Device.CPU
+    assert model._bse is None
+    assert model._cindex is not None
     assert np.all(np.isfinite(model.coef_))
+
+
+def test_set_params_truthy_boolean_string_is_rejected_at_fit():
+    X, stop, event = _stable_sample(seed=2284, p=1)
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    )
+    model.set_params(compute_inference="False")
+
+    with pytest.raises(ValueError, match="compute_inference must be"):
+        model.fit(X, stop, event)
+
+    assert model._fitted is False
+    assert model.coef_ is None
 
 
 def test_scalar_X_has_public_validation_error():
