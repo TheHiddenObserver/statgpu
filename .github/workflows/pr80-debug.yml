@@ -1,0 +1,40 @@
+name: PR80 Boundary Debug
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  boundary-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install -e ".[validation,formula]" >/dev/null
+      - name: Run boundary tests
+        id: pytest
+        shell: bash
+        run: |
+          set +e
+          python -m pytest dev/tests/test_pr80_fit_boundary.py -vv --tb=long > pr80-boundary.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          cat pr80-boundary.log
+          exit 0
+      - name: Upload boundary log
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr80-boundary-log
+          path: pr80-boundary.log
+          if-no-files-found: error
+      - name: Enforce boundary tests
+        if: steps.pytest.outputs.status != '0'
+        run: exit 1
