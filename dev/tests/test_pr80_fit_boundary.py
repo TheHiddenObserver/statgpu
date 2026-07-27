@@ -131,14 +131,14 @@ def test_adapter_validation_failure_clears_stale_fit_state(invalid):
         ("inference_mode", "not-an-inference-mode", "inference_mode must be"),
     ],
 )
-def test_invalid_mutated_control_is_rejected_and_clears_stale_state(
+def test_invalid_direct_control_mutation_is_rejected_and_clears_stale_state(
     parameter, value, message
 ):
     X, stop, event = _stable_sample(seed=2282, p=1)
     model = CoxPH(
         device="cpu", compute_inference=False, compute_cindex=False
     ).fit(X, stop, event)
-    model.set_params(**{parameter: value})
+    setattr(model, parameter, value)
 
     with pytest.raises(ValueError, match=message):
         model.fit(X, stop, event)
