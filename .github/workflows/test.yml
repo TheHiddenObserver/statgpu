@@ -94,6 +94,7 @@ jobs:
             dev/tests/test_penalized_cox_completion.py \
             dev/tests/test_pr80_all_censored_loss.py \
             dev/tests/test_pr80_post_review_fixes.py \
+            dev/tests/test_pr80_fit_boundary.py \
             dev/tests/test_survival_risk_sets.py \
             dev/tests/test_distributions_backend.py \
             dev/tests/test_penalties_and_exports.py \
@@ -198,6 +199,7 @@ jobs:
             statgpu/semiparametric \
             statgpu/solvers/_fista_lla.py \
             statgpu/survival/_cox.py \
+            statgpu/survival/_cox_fit_adapter.py \
             statgpu/survival/_cox_counting.py \
             statgpu/survival/_cox_cv.py \
             statgpu/survival/_cox_score.py \
