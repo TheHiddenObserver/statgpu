@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 import statgpu  # noqa: E402
 from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
 from statgpu.losses import CoxPartialLikelihoodLoss  # noqa: E402
+from statgpu.losses import _cox_ph as cox_loss_module  # noqa: E402
 
 
 DEVICE_NAMES = {"cpu": "numpy", "cuda": "cupy", "torch": "torch"}
@@ -126,7 +127,19 @@ def _gradient_case(device: str, ties: str):
     X, y, coef = _extreme_data(device)
     loss = CoxPartialLikelihoodLoss(ties=ties)
     X_pre, y_pre = loss.preprocess(X, y)
-    trusted = _to_numpy(loss.gradient_preprocessed(coef)).astype(np.float64)
+    host_scalar_sync_calls = 0
+    original_to_float_scalar = cox_loss_module._to_float_scalar
+
+    def counting_to_float_scalar(value):
+        nonlocal host_scalar_sync_calls
+        host_scalar_sync_calls += 1
+        return original_to_float_scalar(value)
+
+    cox_loss_module._to_float_scalar = counting_to_float_scalar
+    try:
+        trusted = _to_numpy(loss.gradient_preprocessed(coef)).astype(np.float64)
+    finally:
+        cox_loss_module._to_float_scalar = original_to_float_scalar
     public = _to_numpy(loss.gradient(X_pre, y_pre, coef)).astype(np.float64)
     shared = _to_numpy(
         -loss._shared_objective(coef, compute_derivatives=True)["score"]
@@ -140,6 +153,7 @@ def _gradient_case(device: str, ties: str):
         "public_gradient": public.tolist(),
         "shared_gradient": shared.tolist(),
         "trusted_finite": bool(np.all(np.isfinite(trusted))),
+        "trusted_host_scalar_sync_calls": host_scalar_sync_calls,
         "trusted_public_max_abs": float(np.max(np.abs(trusted - public))),
         "trusted_shared_max_abs": float(np.max(np.abs(trusted - shared))),
     }
@@ -285,6 +299,7 @@ def main() -> int:
             "coefficient_max_abs_vs_numpy": 1e-12,
             "objective_abs_vs_numpy": 1e-10,
             "kkt_max_abs": 1e-8,
+            "trusted_host_scalar_sync_calls": 0,
         },
         "gradient_cases": [],
         "fit_cases": [],
@@ -298,6 +313,10 @@ def main() -> int:
         for device in args.devices:
             result = _gradient_case(device, ties)
             report["gradient_cases"].append(result)
+            if result["trusted_host_scalar_sync_calls"] != 0:
+                failures.append(
+                    f"gradient/{ties}/{result['backend']}: host scalar sync"
+                )
             for metric in (
                 "trusted_public_max_abs",
                 "trusted_shared_max_abs",

@@ -13,18 +13,25 @@
   metadata once per fit. FISTA-LLA uses a gradient-only hot path, performs its
   finite/convergence transfer periodically, and releases loss-held training
   arrays before allocator cleanup.
-- The trusted gradient still performs adaptive predictor-range segmentation.
-  This numerical scaling is independent of duplicate finite-state checks and
-  prevents a departing maximum predictor from underflowing a later risk set.
-- A machine-readable physical-P100 artifact records clean commit `4f3a452`,
-  exact Cox/FISTA/fit source hashes, six gradient comparisons, and twelve
-  SCAD/MCP coefficient/objective/KKT/finite-state results:
+- The trusted gradient now uses backend-native reverse log-space scans
+  (`logaddexp.accumulate`, `torch.logcumsumexp`, and a CuPy RawKernel) instead
+  of Python predictor-range branching. The maintained counter requires zero
+  host-scalar conversions per trusted gradient while preserving stable suffix
+  risk sets after a maximum predictor departs.
+- FISTA-LLA counts every completed proximal update, including the converged
+  update, and its per-alpha path records cumulative work accurately. GPU event
+  validation transfers one two-boolean status vector instead of the packed
+  target; valid host `uint64` strata are normalized before Torch 2.0 conversion.
+- A machine-readable physical-P100 artifact records its exact clean source
+  commit, Cox/FISTA/fit source hashes, six synchronization/gradient comparisons,
+  and twelve SCAD/MCP coefficient/objective/KKT/finite-state results:
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`.
 - Ordinary right-censored Exact ties now use one segmented prefix DP across all
   strata. Delayed-entry GPU workloads with at least eight strata can use one
   memory-gated global batch; smaller cases use bounded per-stratum batches.
 - Fractional, non-finite, or out-of-int64-range strata are rejected before
-  integer conversion, including oversized unsigned labels.
+  integer conversion, including oversized unsigned labels; representable
+  `uint64` labels are accepted consistently by NumPy, CuPy, and Torch.
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` selects `auto`, `native`, or
   `channelwise`; conservative `auto` enables the split scan only on the
   benchmarked Torch 2.0 + Pascal/P100 combination.
@@ -32,6 +39,10 @@
   NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
   3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new
   strata-count artifact completed with zero gate failures.
+- On the same P100 at `n=4096`, `p=12`, and 64 time bins, the updated stable
+  SCAD NumPy/CuPy/Torch medians were 0.121/0.0318/0.0341 seconds and MCP medians
+  were 0.105/0.0314/0.0324 seconds. The synchronization-free trusted scan kept
+  both GPU backends approximately 3-4x faster than NumPy.
 
 ### Optimized (2026-07-26) — PR #80 stratified Exact composition
 

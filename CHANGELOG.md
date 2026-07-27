@@ -5,21 +5,10 @@ All notable changes to statgpu are documented here, organized by date and PR.
 ## 2026-07-27
 
 ### PR #80 — Cox review-fix follow-up
-
-- Reused one Cox preprocessing cache across SCAD/MCP FISTA-LLA iterations,
-  removed unused objective transfers and hot-loop GPU synchronizations, and
-  released loss-held training arrays after fit.
-- Added segmented multi-stratum right-censored Exact evaluation, bounded
-  delayed-entry batching, strict strata validation, and a conservative
-  Torch/P100 channel-scan policy with explicit overrides.
-- Added maintained delayed-entry/strata and strata-count benchmark artifacts;
-  the final physical-P100 related matrix passed 169 tests.
-- Kept adaptive risk-set scaling active inside the trusted SCAD/MCP gradient,
-  preventing underflow when the maximum predictor leaves a later risk set.
-- Reject strata labels outside the signed-int64 domain before backend casting,
-  preventing overflow from silently merging distinct strata.
-- Added a clean-commit, machine-readable NumPy/CuPy/Torch artifact for the
-  extreme-range SCAD/MCP trusted-gradient, objective, and KKT regression.
+- Reused Cox preprocessing across SCAD/MCP iterations and removed redundant objective, metadata, finite-check, and predictor-range transfers.
+- Added backend-native stable trusted-gradient scans, accurate FISTA-LLA iteration counts, and consistent signed-int64 strata normalization.
+- Added optimized stratified Exact and delayed-entry batching paths with maintained P100/R benchmark artifacts.
+- Added three-backend precision, synchronization, transfer-scope, performance, and clean-commit audit coverage.
 
 ## 2026-07-26
 

@@ -663,6 +663,10 @@ def fista_lla_path(
                             coef = inner_pen.proximal(w_tilde, step, backend=backend)
                             y_k = coef + beta_mom * (coef - coef_old)
 
+                        # Count every completed proximal update, including the
+                        # update that satisfies the convergence criterion.
+                        total_iter += 1
+
                         # Convergence check
                         if iteration % _conv_check_freq == 0:
                             _conv_dev = _abs_sum_dev(coef - coef_old)
@@ -702,8 +706,6 @@ def fista_lla_path(
                             if L_new > L * 1.5 or L_new < L / 1.5:
                                 L = max(L_new, L_base * 0.1)
                                 step = 1.0 / L
-
-                        total_iter += 1
 
                     # LLA convergence check
                     delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))

@@ -451,6 +451,45 @@ Follow-up validation and performance evidence:
   cases, maximum gradient, coefficient, and KKT differences are zero; maximum
   cross-backend objective difference is `7.13e-12`.
 
+## 2026-07-27 Remaining P2/P3 Follow-up
+
+- [MEDIUM][PERF][fixed] `statgpu/losses/_cox_ph.py`: trusted gradients still
+  called `_stable_segment_boundaries()`, synchronizing every predictor-range
+  decision. NumPy now uses reverse `logaddexp.accumulate`, Torch uses
+  `logcumsumexp`, and CuPy uses a fixed-topology parallel RawKernel. A maintained
+  counter requires zero `_to_float_scalar` calls per trusted gradient; public
+  validation retains its independently stable adaptive implementation.
+- [MEDIUM][BACKEND][fixed] `statgpu/survival/_risk_sets.py`: Torch 2.0 rejected
+  every NumPy `uint64` strata input before inspecting its range. Representable
+  host unsigned labels are now range-checked and converted to int64 before
+  `torch.as_tensor`; oversized values remain rejected on all three backends.
+- [MEDIUM][SOLVER/API][fixed] `statgpu/solvers/_fista_lla.py`: the generic path
+  incremented `total_iter` after the convergence break. It now counts each
+  completed proximal update first. The regression verifies cumulative path
+  counts `[1, 2, 3, 4, 5]` across NumPy, CuPy, and Torch.
+- [MEDIUM][PERF/BACKEND][fixed]
+  `statgpu/linear_model/penalized/_penalized_cox.py`: estimator validation copied
+  the complete packed GPU target to the host before loss preprocessing. It now
+  validates event values on the selected backend and transfers only the two
+  booleans `invalid` and `has_event`.
+- [LOW][DOC][fixed] `statgpu/losses/_cox_ph.py` now states that public Hessian
+  evaluation uses the specialized right-censored implementation; the shared
+  counting-process objective is an independent compatibility baseline.
+- [LOW][DOC][fixed] the root PR #80 follow-up changelog is reduced to four
+  one-line bullets. Detailed algorithms, validation, and timings remain in the
+  EN/CN changelogs and this report.
+
+Physical-P100 evidence for this follow-up:
+
+- the focused correctness/synchronization/iteration/uint64/event-transfer
+  selection passed **32 tests**, and scan boundary sizes 1/255/256/257/513
+  passed **30 tests** across NumPy, CuPy, and Torch;
+- at `n=4096`, `p=12`, and 64 time bins, SCAD NumPy/CuPy/Torch medians were
+  `0.121/0.0318/0.0341` seconds and MCP medians were
+  `0.105/0.0314/0.0324` seconds. The trusted-gradient medians under an extreme
+  predictor range were `0.00851/0.00175/0.00342` seconds, with maximum gradient
+  difference from the public stable path below `1.59e-13`.
+
 ## Validation Evidence
 
 - Final follow-up local Cox/survival matrix: **255 passed, 54 skipped, 0

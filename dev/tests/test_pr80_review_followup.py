@@ -13,8 +13,12 @@ from dev.benchmarks.benchmark_exact_ties_scaling import (
     make_scaling_data,
     summarize_runs,
 )
+from statgpu.linear_model.penalized import _penalized_cox as penalized_cox_module
 from statgpu.linear_model import PenalizedCoxPHModel
 from statgpu.losses import CoxPartialLikelihoodLoss
+from statgpu.losses import _cox_ph as cox_loss_module
+from statgpu.penalties import SCADPenalty
+from statgpu.solvers._fista_lla import fista_lla_path
 from statgpu.survival import _risk_sets as risk_sets
 from statgpu.survival._risk_sets import prepare_counting_process_inputs
 
@@ -164,6 +168,54 @@ def test_gradient_preprocessed_extreme_departing_maximum(ties, backend):
     np.testing.assert_allclose(trusted_np, shared_np, rtol=0.0, atol=1e-12)
 
 
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_gradient_preprocessed_has_no_host_scalar_sync(
+    ties, backend, monkeypatch
+):
+    X, y, coef = _backend_extreme_survival_arrays(backend)
+    loss = CoxPartialLikelihoodLoss(ties=ties)
+    loss.preprocess(X, y)
+    calls = []
+    original = cox_loss_module._to_float_scalar
+
+    def recording_scalar(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(cox_loss_module, "_to_float_scalar", recording_scalar)
+    trusted = loss.gradient_preprocessed(coef)
+    assert np.all(np.isfinite(_array_to_numpy(trusted)))
+    assert calls == []
+
+
+@pytest.mark.parametrize("rows", [1, 255, 256, 257, 513])
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_reverse_logcumsumexp_matches_numpy(rows, backend):
+    rng = np.random.default_rng(302 + rows)
+    values_np = rng.normal(scale=300.0, size=(rows, 3))
+    values_np[::7, 1] = -np.inf
+    values_np[:, 2] = -np.inf
+    if backend == "cupy":
+        _require_device("cuda")
+        import cupy as xp
+
+        values = xp.asarray(values_np)
+    elif backend == "torch":
+        _require_device("torch")
+        import torch as xp
+
+        values = xp.as_tensor(values_np, dtype=xp.float64, device="cuda")
+    else:
+        xp = np
+        values = values_np
+    expected = np.logaddexp.accumulate(values_np[::-1], axis=0)[::-1]
+    actual = CoxPartialLikelihoodLoss._reverse_logcumsumexp(values, xp)
+    np.testing.assert_allclose(
+        _array_to_numpy(actual), expected, rtol=1e-13, atol=1e-13
+    )
+
+
 @pytest.mark.parametrize("penalty", ["scad", "mcp"])
 @pytest.mark.parametrize("ties", ["breslow", "efron"])
 @pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
@@ -186,7 +238,53 @@ def test_penalized_cox_extreme_departing_maximum_stays_finite(
     model._init_coef = np.array([1.0])
     model.fit(X, y)
     assert np.all(np.isfinite(model.coef_))
+    assert model.n_iter_ > 0
     np.testing.assert_allclose(model.coef_, [1.0], rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_fista_lla_counts_each_converged_update_and_continuation(backend):
+    X, y, _ = _backend_extreme_survival_arrays(backend)
+    loss = CoxPartialLikelihoodLoss(ties="breslow")
+    alpha_path = np.array([0.05, 0.04, 0.03, 0.02, 0.01])
+    _, _, total_iter, path = fista_lla_path(
+        loss,
+        SCADPenalty(alpha=0.01),
+        X,
+        y,
+        alpha_path=alpha_path,
+        max_lla_per_step=1,
+        max_iter=5,
+        tol=1e-6,
+        fit_intercept=False,
+        return_path=True,
+    )
+    assert total_iter == 5
+    np.testing.assert_array_equal(path["n_iter"], [1, 2, 3, 4, 5])
+
+
+@pytest.mark.parametrize("device", ["cuda", "torch"])
+def test_gpu_event_validation_transfers_only_status_scalars(device, monkeypatch):
+    _require_device(device)
+    _, y_np = _survival_data(n=32, p=2)
+    if device == "cuda":
+        import cupy as cp
+
+        y = cp.asarray(y_np)
+    else:
+        import torch
+
+        y = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+    transferred_shapes = []
+    original = penalized_cox_module._to_numpy
+
+    def recording_to_numpy(value):
+        transferred_shapes.append(tuple(value.shape))
+        return original(value)
+
+    monkeypatch.setattr(penalized_cox_module, "_to_numpy", recording_to_numpy)
+    PenalizedCoxPHModel._validate_event_target(y)
+    assert transferred_shapes == [(2,)]
 
 
 @pytest.mark.gpu
@@ -337,6 +435,31 @@ def test_int64_boundary_strata_are_preserved(backend):
         X, stop, event, strata=strata
     )
     np.testing.assert_array_equal(_array_to_numpy(actual), strata.cpu().numpy() if backend == "torch" else _array_to_numpy(strata))
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_valid_uint64_strata_are_accepted(backend):
+    X = np.arange(6, dtype=np.float64).reshape(3, 2)
+    stop = np.array([1.0, 2.0, 3.0])
+    event = np.array([1.0, 0.0, 1.0])
+    strata = np.array([0, 1, 1], dtype=np.uint64)
+    if backend == "cupy":
+        _require_device("cuda")
+        import cupy as cp
+
+        X, stop, event, strata = map(cp.asarray, (X, stop, event, strata))
+    elif backend == "torch":
+        _require_device("torch")
+        import torch
+
+        X = torch.as_tensor(X, dtype=torch.float64, device="cuda")
+        stop = torch.as_tensor(stop, dtype=torch.float64, device="cuda")
+        event = torch.as_tensor(event, dtype=torch.float64, device="cuda")
+        # Exercise the Torch 2.0 host-uint64 normalization boundary.
+    *_, actual = prepare_counting_process_inputs(
+        X, stop, event, strata=strata
+    )
+    np.testing.assert_array_equal(_array_to_numpy(actual), [0, 1, 1])
 
 
 def test_channelwise_scan_env_parsing_and_auto_gate(monkeypatch):

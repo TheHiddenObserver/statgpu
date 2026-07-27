@@ -1437,6 +1437,21 @@ def prepare_counting_process_inputs(
         if strata is None:
             strata = xp.zeros(stop.shape[0], dtype=xp.int64, device=X.device)
         else:
+            # Torch 2.0 cannot construct a tensor directly from NumPy uint64,
+            # even when every label is representable by int64. Normalize safe
+            # host unsigned inputs before handing them to Torch.
+            if not xp.is_tensor(strata):
+                try:
+                    strata_host = np.asarray(strata)
+                except (TypeError, ValueError):
+                    strata_host = None
+                if strata_host is not None and strata_host.dtype.kind == "u":
+                    if np.any(strata_host > np.iinfo(np.int64).max):
+                        raise ValueError(
+                            "strata must contain integer-valued labels within "
+                            "int64 range"
+                        )
+                    strata = strata_host.astype(np.int64, copy=False)
             try:
                 strata_raw = xp.as_tensor(strata, device=X.device)
             except (TypeError, ValueError, RuntimeError, OverflowError) as exc:

@@ -12,22 +12,30 @@
 - Penalized Cox SCAD/MCP 现在每次拟合只预处理、排序和传输一次 survival 分组元数据；
   FISTA-LLA 使用只计算梯度的热路径，按周期合并有限性与收敛状态传输，并在 allocator
   清理前释放 loss 持有的训练数组。
-- trusted gradient 仍会执行自适应 predictor-range 分段；该数值缩放与重复 finite-state
-  检查相互独立，避免最大 predictor 离开后续风险集时发生 underflow。
-- 新增 machine-readable 的物理 P100 产物，记录 clean commit `4f3a452`、Cox/FISTA/
-  fit 源码哈希、6 组 gradient 对齐及 12 组 SCAD/MCP coefficient/objective/KKT/
-  finite-state 结果：
+- trusted gradient 现改用 backend-native 的反向 log-space scan
+  （`logaddexp.accumulate`、`torch.logcumsumexp` 及 CuPy RawKernel），不再由 Python
+  根据 predictor range 分支；维护的 counter 要求每次 trusted gradient 的 host scalar
+  转换次数为零，同时保持最大 predictor 离开后续风险集时的数值稳定性。
+- FISTA-LLA 会计入包含最终收敛更新在内的每次 proximal update，并准确记录各 alpha
+  的累计迭代数。GPU event 校验只传输一个含两个 boolean 的状态向量，不再复制完整
+  packed target；Torch 2.0 转换前会先规范化合法的 host `uint64` strata。
+- machine-readable 的物理 P100 产物记录其精确 clean source commit、Cox/FISTA/fit
+  源码哈希、6 组同步次数与 gradient 对齐，以及 12 组 SCAD/MCP
+  coefficient/objective/KKT/finite-state 结果：
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`。
 - 普通 right-censored Exact ties 在所有 strata 上使用一次分段前缀 DP。带 delayed
   entry 且 strata 数量至少为 8 的 GPU 工作负载可使用受内存门禁保护的全局 batch；
   较小场景使用有界的逐-stratum batch。
 - strata 在转为整数前会拒绝小数、非有限值和超出 int64 范围的标签，包括过大的
-  unsigned 标签。
+  unsigned 标签；可由 int64 表示的 `uint64` 标签在 NumPy、CuPy、Torch 中均会接受。
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` 支持 `auto`、`native` 和 `channelwise`；
   保守的 `auto` 只在已有实测证据的 Torch 2.0 + Pascal/P100 组合启用分通道扫描。
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
   NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
   3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。
+- 在同一 P100 的 `n=4096`、`p=12`、64 个 time bin 场景中，更新后的稳定 SCAD
+  NumPy/CuPy/Torch 中位时间为 0.121/0.0318/0.0341 秒，MCP 为
+  0.105/0.0314/0.0324 秒；无同步 trusted scan 仍使两个 GPU 后端约比 NumPy 快 3-4 倍。
 
 ### 优化（2026-07-26）— PR #80 分层 Exact 组合路径
 

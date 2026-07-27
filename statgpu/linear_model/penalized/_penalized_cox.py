@@ -9,6 +9,7 @@ __all__ = ["PenalizedCoxPHModel"]
 import numbers
 import numpy as np
 from statgpu._config import Device
+from statgpu.backends._array_ops import _xp as _get_xp
 from statgpu.backends._utils import _to_float_scalar, _to_numpy
 
 from ._base import PenalizedGeneralizedLinearModel
@@ -427,6 +428,44 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         feature_names = [name for name in column_names if name != "Intercept"]
         return X_array, y_array, design_info, has_intercept, feature_names
 
+    @staticmethod
+    def _validate_event_target(y):
+        """Validate event values while transferring only two status scalars."""
+        if isinstance(y, dict):
+            if "time" not in y or "event" not in y:
+                raise ValueError("survival y dict must contain time and event")
+            event_raw = y["event"]
+        else:
+            target_xp = _get_xp(y)
+            target = (
+                y
+                if target_xp.__name__ == "torch"
+                else target_xp.asarray(y)
+            )
+            if target.ndim != 2 or int(target.shape[1]) != 2:
+                raise ValueError(
+                    "y must be (n, 2) array with columns [time, event]"
+                )
+            event_raw = target[:, 1]
+
+        xp = _get_xp(event_raw)
+        if xp.__name__ == "torch":
+            event = event_raw.to(dtype=xp.float64)
+        else:
+            event = xp.asarray(event_raw, dtype=xp.float64)
+        invalid = xp.any(
+            ~xp.isfinite(event) | ((event != 0) & (event != 1))
+        )
+        has_event = xp.any(event == 1)
+        status = xp.stack((invalid, has_event))
+        invalid_host, has_event_host = np.asarray(
+            _to_numpy(status), dtype=bool
+        )
+        if bool(invalid_host):
+            raise ValueError("event must contain only 0/1 finite values")
+        if not bool(has_event_host):
+            raise ValueError("at least one observed event is required")
+
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
         """Fit without allowing a failed refit to expose stale coefficients."""
         self._reset_fit_state()
@@ -453,23 +492,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
                 data = None
 
             if y is not None:
-                if isinstance(y, dict):
-                    if "time" not in y or "event" not in y:
-                        raise ValueError("survival y dict must contain time and event")
-                    event = np.asarray(_to_numpy(y["event"]), dtype=np.float64)
-                else:
-                    y_array = np.asarray(_to_numpy(y), dtype=np.float64)
-                    if y_array.ndim != 2 or y_array.shape[1] != 2:
-                        raise ValueError(
-                            "y must be (n, 2) array with columns [time, event]"
-                        )
-                    event = y_array[:, 1]
-                if not np.all(np.isfinite(event)) or np.any(
-                    (event != 0) & (event != 1)
-                ):
-                    raise ValueError("event must contain only 0/1 finite values")
-                if not np.any(event == 1):
-                    raise ValueError("at least one observed event is required")
+                self._validate_event_target(y)
 
             result = super().fit(
                 X=X,
