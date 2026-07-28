@@ -20,7 +20,9 @@ from statgpu.survival._cox_fit_adapter import (
     _is_native_backend_array,
     _normalize_boolean_control,
     _normalize_mutable_fit_controls,
+    _PreencodedCoxLabels,
 )
+from statgpu.survival._cox_errors import CoxCandidateNumericalError
 from statgpu.survival._cox_counting import _score_test_statistic
 from statgpu.survival._cox_inference import (
     _invert_information_cupy,
@@ -242,79 +244,8 @@ class CoxPH(BaseEstimator):
         if self.penalty < 0:
             raise ValueError("penalty must be non-negative")
         
-        # Fitted attributes
-        self.coef_ = None
-        self.hazard_ratios_ = None
-        
-        # Internal storage for inference
-        self._time = None
-        self._event = None
-        self._X = None
-        self._entry = None
-        self._nobs = None
-        self._nevents = None
-        self._bse = None
-        self._zvalues = None
-        self._tvalues = None
-        self._pvalues = None
-        self._conf_int = None
-        self._params = None
-        self._inference_result = None
-        self._log_likelihood = None
-        self._log_likelihood_null = None
-        self._iterations = 0
-        self._converged = False
-        self._termination_reason = None
-        self._final_kkt_inf = None
-        self._final_kkt_normalized = None
-        self._penalized_objective = None
-        self._objective_history = []
-        self._var_matrix = None
-        self._score_test_stat = None
-        self.score_test_available_ = False
-        self.score_test_failure_reason_ = None
-        self._baseline_hazard = None
-        self._baseline_cumulative_hazard = None
-        self._baseline_log_hazard = None
-        self._baseline_log_cumulative_hazard = None
-        self._unique_times = None
-        self._cindex = None
-        self._feature_names = None
-        self._wald_test_stat = None
-        self._wald_test_pvalue = None
-        self._lr_test_stat = None
-        self._lr_test_pvalue = None
-        self._score_test_pvalue = None
-        self.converged_ = False
-        self.termination_reason_ = None
-        self.n_iter_ = 0
-        self.final_kkt_inf_ = None
-        self.final_kkt_normalized_ = None
-        self.inference_method_ = None
-        self.inference_backend_ = None
-        self.inference_approximate_ = False
-        self.inference_fallback_reason_ = None
-        self.full_host_transfer_performed_ = False
-        # Efron only: cached (uft, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft); depends only on sorted time/event.
-        self._efron_pre = None
-        # Efron optimization: True when all failure groups are singletons (no ties),
-        # in which case Efron equals Breslow and we can use faster vectorized paths.
-        self._efron_all_singletons = False
-        # Efron only: cached CSR packed indices for GPU kernels.
-        # (enter_ptr, enter_ind, exit_ptr, exit_ind, fail_ptr, fail_ind, first_idx_uft, nuft)
-        self._efron_pre_csr = None
-        # Breslow only: cached (first_idx_uft, counts_uft) on CPU.
-        self._breslow_pre = None
-        # Breslow only: cached (first_idx_uft_gpu, counts_uft_gpu) on GPU.
-        self._breslow_pre_gpu = None
-        self._baseline_by_stratum = None
-        self._strata = None
-        self._strata_labels = None
-        self._subject_id = None
-        self._is_counting_process = False
-        self._fit_call = None
-        self._stop_reason = None
-        self._objective_history = None
+        # Keep fitted-state initialization and failed-refit cleanup identical.
+        self._reset_fit_state()
 
     def _reset_fit_state(self):
         """Clear data-dependent state before every fit attempt.
@@ -385,38 +316,6 @@ class CoxPH(BaseEstimator):
         self._stop_reason = None
         self._objective_history = None
 
-        # Data-dependent risk-set caches must not survive a refit.
-        for attr in (
-            "_efron_pre",
-            "_efron_pre_csr",
-            "_efron_pre_csr_gpu",
-            "_breslow_pre",
-            "_breslow_pre_gpu",
-            "_breslow_pre_torch",
-            "_breslow_counts_f_gpu",
-            "_breslow_first_idx_np",
-            "_breslow_counts_np",
-            "_event_idx_gpu",
-            "_event_X_sum_gpu",
-            "_entry_fail_groups_np",
-            "_entry_fail_times_np",
-            "_entry_order_np",
-            "_entry_add_end_np",
-            "_entry_rem_end_np",
-            "_entry_fail_groups_gpu",
-            "_entry_fail_times_gpu",
-            "_entry_order_gpu",
-            "_entry_add_end_np_gpu",
-            "_entry_rem_end_np_gpu",
-            "_entry_fail_groups_torch",
-            "_entry_fail_times_torch",
-            "_entry_order_torch",
-            "_entry_add_end_np_torch",
-            "_entry_rem_end_np_torch",
-        ):
-            setattr(self, attr, None)
-        self._efron_all_singletons = False
-
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
         if not self.gpu_memory_cleanup:
@@ -446,24 +345,6 @@ class CoxPH(BaseEstimator):
             self._cleanup_torch_memory()
         except Exception:
             pass
-
-    @staticmethod
-    def _extract_convergence_status(result):
-        """Best-effort convergence extraction from statsmodels results."""
-        conv_attr = getattr(result, "converged", None)
-        if conv_attr is not None:
-            return bool(conv_attr)
-
-        mle_retvals = getattr(result, "mle_retvals", None)
-        if isinstance(mle_retvals, dict):
-            conv_attr = mle_retvals.get("converged")
-            if conv_attr is not None:
-                return bool(conv_attr)
-        elif mle_retvals is not None:
-            conv_attr = getattr(mle_retvals, "converged", None)
-            if conv_attr is not None:
-                return bool(conv_attr)
-        return None
 
     def _validate_optimization_controls(self):
         """Validate mutable optimization controls before every fit attempt."""
@@ -560,7 +441,7 @@ class CoxPH(BaseEstimator):
             if not np.all(np.isfinite(coef)) or not np.isfinite(
                 self._log_likelihood
             ):
-                raise FloatingPointError(
+                raise CoxCandidateNumericalError(
                     "CoxPH fit produced non-finite coefficients or log-likelihood"
                 )
             if self.compute_inference and any(
@@ -798,6 +679,11 @@ class CoxPH(BaseEstimator):
         """Encode arbitrary labels without collapsing non-integral device values."""
         if values is None:
             return None, None
+        if isinstance(values, _PreencodedCoxLabels):
+            codes = values.codes
+            if getattr(codes, "ndim", None) != 1 or int(codes.shape[0]) != n_samples:
+                raise ValueError(f"{name} must have shape (n_samples,)")
+            return codes, values.labels.copy()
         module = type(values).__module__
         if module.startswith("cupy"):
             import cupy as cp

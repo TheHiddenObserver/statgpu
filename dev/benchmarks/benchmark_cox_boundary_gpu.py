@@ -45,6 +45,7 @@ SOURCE_FILES = (
     "statgpu/survival/__init__.py",
     "statgpu/survival/_cox.py",
     "statgpu/survival/_cox_cv.py",
+    "statgpu/survival/_cox_errors.py",
     "statgpu/survival/_cox_fit_adapter.py",
     "statgpu/survival/_cox_inference.py",
     "statgpu/survival/_cox_legacy.py",
@@ -59,6 +60,7 @@ SOURCE_FILES = (
     "dev/tests/test_pr80_fit_boundary.py",
     "dev/tests/test_pr80_cv_fit_boundary.py",
     "dev/tests/test_pr80_cox_stability_review.py",
+    "dev/tests/test_cox_cv.py",
 )
 
 TARGETED_TEST_FILES = (
@@ -69,6 +71,7 @@ TARGETED_TEST_FILES = (
     "dev/tests/test_pr80_fit_boundary.py",
     "dev/tests/test_pr80_cv_fit_boundary.py",
     "dev/tests/test_pr80_cox_stability_review.py",
+    "dev/tests/test_cox_cv.py",
 )
 
 
@@ -238,19 +241,29 @@ def _case_cv(name: str, xp) -> dict:
         else:
             constructor_rejections[parameter] = False
     model = CoxPHCV(
-        penalties=np.array([0.1]),
+        penalties=np.array([0.1, 0.01]),
         cv=2,
         device="cpu",
         compute_inference=False,
         gpu_memory_cleanup=True,
         max_iter=60,
+        random_state=2293,
     )
     model.set_params(device=device)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    strata = _array(name, xp, np.arange(X_np.shape[0]) % 3)
+    cluster = _array(name, xp, np.arange(X_np.shape[0]) % 5)
+    subject_id = _array(name, xp, np.arange(X_np.shape[0]))
     started = time.perf_counter()
     model.fit(
-        _array(name, xp, X_np),
-        _array(name, xp, stop_np),
-        _array(name, xp, event_np),
+        X,
+        stop,
+        event,
+        strata=strata,
+        cluster=cluster,
+        subject_id=subject_id,
     )
     _sync(name, xp)
     fit_seconds = time.perf_counter() - started
@@ -293,6 +306,21 @@ def _case_cv(name: str, xp) -> dict:
         "inner_cuda": 0,
         "inner_torch": 0,
     }
+    transfer_provenance = (
+        model.cv_full_host_transfer_performed_ is True
+        and model.final_refit_full_host_transfer_performed_ is False
+        and model.full_host_transfer_performed_ is True
+        and model.orchestration_device_ == "cpu"
+        and model.cv_results_["input_backends"] == (
+            "cupy" if name == "cupy" else "torch-device",
+        )
+    )
+    candidate_label_preparation = (
+        model.cv_results_["fold_backend_preparation_count"] == 2
+        and model.cv_results_["candidate_cluster_used"] is False
+        and model.cv_results_["candidate_subject_id_used"] is False
+        and model.cv_results_["candidate_strata_preencoded"] is True
+    )
     passed = (
         model.device is expected
         and model.estimator_ is not None
@@ -302,6 +330,8 @@ def _case_cv(name: str, xp) -> dict:
         and all(constructor_rejections.values())
         and final_refit_skips_cindex
         and single_cleanup_owner
+        and transfer_provenance
+        and candidate_label_preparation
     )
     return {
         "backend": name,
@@ -311,6 +341,29 @@ def _case_cv(name: str, xp) -> dict:
         "final_refit_skips_training_cindex": final_refit_skips_cindex,
         "cleanup_operations_after_predict": cleanup_operations_after_predict,
         "single_cleanup_owner": single_cleanup_owner,
+        "transfer_provenance": transfer_provenance,
+        "cv_full_host_transfer_performed": (
+            model.cv_full_host_transfer_performed_
+        ),
+        "final_refit_full_host_transfer_performed": (
+            model.final_refit_full_host_transfer_performed_
+        ),
+        "full_host_transfer_performed": model.full_host_transfer_performed_,
+        "orchestration_device": model.orchestration_device_,
+        "input_backends": model.cv_results_["input_backends"],
+        "candidate_label_preparation": candidate_label_preparation,
+        "fold_backend_preparation_count": model.cv_results_[
+            "fold_backend_preparation_count"
+        ],
+        "candidate_cluster_used": model.cv_results_[
+            "candidate_cluster_used"
+        ],
+        "candidate_subject_id_used": model.cv_results_[
+            "candidate_subject_id_used"
+        ],
+        "candidate_strata_preencoded": model.cv_results_[
+            "candidate_strata_preencoded"
+        ],
         "finite": bool(np.all(np.isfinite(model.coef_))),
         "passed": bool(passed),
     }
@@ -767,7 +820,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 4,
+        "schema_version": 5,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

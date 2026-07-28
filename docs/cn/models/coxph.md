@@ -153,6 +153,11 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 - `inference_fallback_reason_`；
 - `full_host_transfer_performed_`。
 
+对于 `CoxPHCV`，`full_host_transfer_performed_` 描述整个 fit，包括在 host
+上组织的 fold 构造与 penalty 选择。`cv_full_host_transfer_performed_` 与
+`final_refit_full_host_transfer_performed_` 分别标记 CV 与最终重拟合阶段是否
+将完整的 device input 移到 host；`orchestration_device_` 记录 CV 编排设备。
+
 ## 参数
 
 | 参数 | 默认值 | 说明 |
@@ -224,6 +229,13 @@ cv_model = CoxPHCV(
 - provenance：`inference_method_`、`inference_backend_`、
   `inference_approximate_`、`inference_fallback_reason_`、
   `full_host_transfer_performed_`。
+
+`CoxPHCV` 还会公开 `cv_full_host_transfer_performed_`、
+`final_refit_full_host_transfer_performed_` 与 `orchestration_device_`，避免数据移动审计
+将 host CV 选择与最终重拟合混淆。
+若有限输入的候选返回非有限系数或 likelihood，`CoxPH` 会抛出
+`CoxCandidateNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
+候选，输入、allocator、CUDA 与非预期 runtime 错误仍原样传播。
 
 ## 验证
 

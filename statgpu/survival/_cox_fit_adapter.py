@@ -17,6 +17,16 @@ _COVARIANCE_TYPES = ("nonrobust", "hc0", "hc1", "cluster")
 _INFERENCE_MODES = ("strict", "approx")
 
 
+class _PreencodedCoxLabels:
+    """Internal backend-native group codes with host display labels."""
+
+    __slots__ = ("codes", "labels")
+
+    def __init__(self, codes, labels):
+        self.codes = codes
+        self.labels = np.asarray(labels).copy()
+
+
 def _is_native_backend_array(value) -> bool:
     """Return whether slicing ``value`` preserves a CuPy/Torch backend."""
     return type(value).__module__.startswith(_NATIVE_ARRAY_MODULES)
@@ -112,6 +122,7 @@ def _normalize_mutable_cv_controls(estimator) -> None:
 
 __all__ = [
     "_is_native_backend_array",
+    "_PreencodedCoxLabels",
     "_normalize_boolean_control",
     "_normalize_mutable_fit_controls",
     "_normalize_mutable_cv_controls",

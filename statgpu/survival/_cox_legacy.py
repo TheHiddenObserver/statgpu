@@ -4112,11 +4112,43 @@ class _LegacyCoxReferenceMixin:
 class _LegacyCoxReference(_LegacyCoxReferenceMixin):
     """Test-only composition adapter around a canonical Cox estimator.
 
-    Historical numerical methods execute on this adapter while all fitted
-    state remains owned by ``estimator``. Method overrides stay local to the
-    adapter, keeping regression tests explicit without polluting the public
-    estimator MRO.
+    Historical numerical methods execute on this adapter. Canonical fitted
+    state remains owned by ``estimator`` while legacy-only risk-set caches stay
+    local to the adapter, keeping regression tests explicit without polluting
+    the public estimator MRO or reset contract.
     """
+
+    _legacy_local_state = frozenset(
+        {
+            "_efron_pre",
+            "_efron_all_singletons",
+            "_efron_pre_csr",
+            "_efron_pre_csr_gpu",
+            "_breslow_pre",
+            "_breslow_pre_gpu",
+            "_breslow_pre_torch",
+            "_breslow_counts_f_gpu",
+            "_breslow_first_idx_np",
+            "_breslow_counts_np",
+            "_event_idx_gpu",
+            "_event_X_sum_gpu",
+            "_entry_fail_groups_np",
+            "_entry_fail_times_np",
+            "_entry_order_np",
+            "_entry_add_end_np",
+            "_entry_rem_end_np",
+            "_entry_fail_groups_gpu",
+            "_entry_fail_times_gpu",
+            "_entry_order_gpu",
+            "_entry_add_end_np_gpu",
+            "_entry_rem_end_np_gpu",
+            "_entry_fail_groups_torch",
+            "_entry_fail_times_torch",
+            "_entry_order_torch",
+            "_entry_add_end_np_torch",
+            "_entry_rem_end_np_torch",
+        }
+    )
 
     def __init__(self, estimator):
         object.__setattr__(self, "_estimator", estimator)
@@ -4125,7 +4157,7 @@ class _LegacyCoxReference(_LegacyCoxReferenceMixin):
         return getattr(self._estimator, name)
 
     def __setattr__(self, name, value):
-        if name == "_estimator" or any(
+        if name == "_estimator" or name in self._legacy_local_state or any(
             name in cls.__dict__ for cls in type(self).__mro__
         ):
             object.__setattr__(self, name, value)

@@ -9,9 +9,10 @@ import numpy as np
 import pytest
 
 from statgpu.inference import ParameterInferenceResult
-from statgpu.survival import CoxPH, CoxPHCV
+from statgpu.survival import CoxCandidateNumericalError, CoxPH, CoxPHCV
 from statgpu.survival import _cox as cox_module
 from statgpu.survival import _cox_score as cox_score_module
+from statgpu.survival._cox_fit_adapter import _PreencodedCoxLabels
 from statgpu.survival._cox_legacy import (
     _LegacyCoxReference,
     _LegacyCoxReferenceMixin,
@@ -392,6 +393,18 @@ def test_legacy_reference_methods_live_only_in_composition_adapter():
     assert all(not hasattr(CoxPH, name) for name in legacy_methods)
     reference = _LegacyCoxReference(CoxPH(compute_inference=False))
     assert isinstance(reference, _LegacyCoxReferenceMixin)
+    legacy_cache_names = (
+        "_efron_pre",
+        "_breslow_pre",
+        "_entry_fail_groups_np",
+        "_event_idx_gpu",
+    )
+    canonical = reference._estimator
+    assert all(not hasattr(canonical, name) for name in legacy_cache_names)
+    reference._efron_pre = object()
+    assert "_efron_pre" in reference.__dict__
+    assert not hasattr(canonical, "_efron_pre")
+    assert not hasattr(CoxPH, "_extract_convergence_status")
 
     canonical_source = inspect.getsource(cox_module)
     assert "_cox_legacy" not in canonical_source
@@ -401,6 +414,41 @@ def test_legacy_reference_methods_live_only_in_composition_adapter():
     assert CoxPH._fit_counting_process_dispatch.__module__ == (
         "statgpu.survival._cox"
     )
+
+
+def test_public_fit_uses_candidate_numerical_error_for_nonfinite_result(
+    monkeypatch,
+):
+    model = CoxPH(compute_inference=False)
+
+    def nonfinite_fit_impl(**kwargs):
+        model.coef_ = np.array([np.nan])
+        model._log_likelihood = 0.0
+        return model
+
+    monkeypatch.setattr(model, "_fit_impl", nonfinite_fit_impl)
+    X = np.ones((3, 1), dtype=np.float64)
+    stop = np.arange(1.0, 4.0)
+    event = np.array([1.0, 0.0, 1.0])
+    with pytest.raises(CoxCandidateNumericalError, match="non-finite"):
+        model.fit(X, stop, event)
+    assert model.coef_ is None
+    assert model._fitted is False
+
+
+def test_preencoded_cv_strata_bypass_refactorization(monkeypatch):
+    codes = np.array([0, 1, 1, 0], dtype=np.int64)
+    prepared = _PreencodedCoxLabels(codes, np.array(["a", "b"]))
+
+    def unexpected_unique(*args, **kwargs):
+        raise AssertionError("preencoded CV strata were factorized again")
+
+    monkeypatch.setattr(np, "unique", unexpected_unique)
+    actual_codes, actual_labels = CoxPH._encode_group_labels(
+        prepared, codes.shape[0], "strata"
+    )
+    assert actual_codes is codes
+    assert np.array_equal(actual_labels, ["a", "b"])
 
 
 def test_public_survival_import_does_not_load_legacy_module():

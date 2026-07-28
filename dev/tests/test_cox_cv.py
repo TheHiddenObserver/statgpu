@@ -13,8 +13,11 @@ from statgpu.survival._cox_cv import (
     _compute_partial_likelihood,
     _env_float,
     _env_int,
+    _prepare_cox_cv_fold_backend,
     _select_coxph_penalty_cv,
 )
+from statgpu.survival._cox_errors import CoxCandidateNumericalError
+from statgpu.survival._cox_fit_adapter import _PreencodedCoxLabels
 
 
 def _make_survival_data(n_samples=180, n_features=5, seed=123):
@@ -67,6 +70,10 @@ def test_coxphcv_supports_entry_and_cluster_cpu():
     assert model.penalty_ >= 0.0
     assert np.all(np.isfinite(model.coef_))
     assert model.effective_device_ == "cpu"
+    assert model.cv_full_host_transfer_performed_ is False
+    assert model.final_refit_full_host_transfer_performed_ is False
+    assert model.full_host_transfer_performed_ is False
+    assert model.orchestration_device_ == "cpu"
     assert np.all(model.cv_results_["candidate_complete"])
     assert model.estimator_._entry is not None
 
@@ -263,6 +270,43 @@ def test_coxphcv_fit_exception_is_not_swallowed(monkeypatch):
         )
 
 
+def test_coxphcv_excludes_only_candidate_numerical_errors(monkeypatch):
+    """A local non-finite fit excludes one penalty without hiding hard errors."""
+
+    class CandidateCoxPH:
+        def __init__(self, *, penalty, **kwargs):
+            self.penalty = float(penalty)
+            self._converged = True
+            self._iterations = 1
+
+        def fit(self, X, *args, **kwargs):
+            if np.isclose(self.penalty, 1.0):
+                raise CoxCandidateNumericalError("non-finite candidate")
+            self.coef_ = np.zeros(X.shape[1], dtype=np.float64)
+            return self
+
+    X, time, event = _make_survival_data(n_samples=36, seed=811)
+    monkeypatch.setattr(cox_cv_module, "CoxPH", CandidateCoxPH)
+    best, details = _select_coxph_penalty_cv(
+        X,
+        time,
+        event,
+        penalties=np.array([1.0, 0.1]),
+        cv_folds=3,
+        random_state=3,
+        device="cpu",
+        return_details=True,
+        cache_key="candidate-numerical-error-is-excluded",
+    )
+
+    assert best == pytest.approx(0.1)
+    assert np.array_equal(details["candidate_complete"], [False, True])
+    assert all(
+        str(reason).startswith("CoxCandidateNumericalError:")
+        for reason in details["failure_path"][0]
+    )
+
+
 def test_coxphcv_all_candidates_invalid_raise(monkeypatch):
     """Finite shared-fold evidence is required; no first-penalty fallback."""
 
@@ -386,12 +430,20 @@ def test_coxphcv_passes_counting_arrays_to_fold_fits_and_refit(monkeypatch):
             strata=None,
             subject_id=None,
         ):
+            strata_values = getattr(strata, "codes", strata)
             fit_records.append(
                 {
                     "n": int(X.shape[0]),
                     "entry": entry,
                     "start": None if start is None else np.asarray(start).copy(),
-                    "strata": None if strata is None else np.asarray(strata).copy(),
+                    "strata": (
+                        None
+                        if strata_values is None
+                        else np.asarray(strata_values).copy()
+                    ),
+                    "strata_preencoded": isinstance(
+                        strata, _PreencodedCoxLabels
+                    ),
                     "subject_id": (
                         None if subject_id is None else np.asarray(subject_id).copy()
                     ),
@@ -425,11 +477,13 @@ def test_coxphcv_passes_counting_arrays_to_fold_fits_and_refit(monkeypatch):
         assert record["entry"] is None
         assert record["start"].shape == (record["n"],)
         assert record["strata"].shape == (record["n"],)
-        assert record["subject_id"].shape == (record["n"],)
+        assert record["strata_preencoded"] is True
+        assert record["subject_id"] is None
     final_record = fit_records[-1]
     assert final_record["n"] == X.shape[0]
     assert np.array_equal(final_record["start"], start)
     assert np.array_equal(final_record["strata"], strata)
+    assert final_record["strata_preencoded"] is False
     assert np.array_equal(final_record["subject_id"], subject_id)
     assert model.estimator_ is not None
 
@@ -466,7 +520,7 @@ def test_coxphcv_rejects_entry_and_start_together():
 
 @pytest.mark.parametrize("device", ["cuda", "torch"])
 def test_coxphcv_counting_process_gpu_passthrough(device):
-    """GPU counting-process CV keeps its requested backend when available."""
+    """GPU input transfer provenance covers CV and final refit separately."""
     if device == "cuda":
         cp = pytest.importorskip("cupy")
         try:
@@ -482,6 +536,20 @@ def test_coxphcv_counting_process_gpu_passthrough(device):
     X, stop, event, start, strata, subject_id = _make_counting_process_data(
         n_subjects=12, seed=911
     )
+    strata = np.repeat(np.arange(12) % 2, 2).astype(np.int64)
+    subject_id = np.repeat(np.arange(12), 2).astype(np.int64)
+    if device == "cuda":
+        X, stop, event, start, strata, subject_id = (
+            cp.asarray(value)
+            for value in (X, stop, event, start, strata, subject_id)
+        )
+        expected_input_backend = "cupy"
+    else:
+        X, stop, event, start, strata, subject_id = (
+            torch.as_tensor(value, device="cuda")
+            for value in (X, stop, event, start, strata, subject_id)
+        )
+        expected_input_backend = "torch-device"
     model = CoxPHCV(
         penalties=[0.05],
         cv=2,
@@ -501,6 +569,12 @@ def test_coxphcv_counting_process_gpu_passthrough(device):
 
     assert model.effective_device_ == device
     assert model.cv_results_["grouped_by_subject"] is True
+    assert model.cv_results_["input_backends"] == (expected_input_backend,)
+    assert model.cv_results_["cv_full_host_transfer_performed"] is True
+    assert model.cv_full_host_transfer_performed_ is True
+    assert model.final_refit_full_host_transfer_performed_ is False
+    assert model.full_host_transfer_performed_ is True
+    assert model.orchestration_device_ == "cpu"
     assert np.all(np.isfinite(model.coef_))
 
 
@@ -640,6 +714,66 @@ def test_coxphcv_backend_preparation_error_is_not_swallowed(monkeypatch):
             device="cuda",
             cache_key="backend-preparation-error",
         )
+
+
+def test_coxphcv_fold_backend_preparation_includes_strata_once(monkeypatch):
+    """Likelihood labels are prepared once per fold, not once per penalty."""
+    prepare_calls = 0
+    fit_records = []
+    real_prepare = _prepare_cox_cv_fold_backend
+
+    def recording_prepare(*args, **kwargs):
+        nonlocal prepare_calls
+        prepare_calls += 1
+        return real_prepare(*args, **kwargs)
+
+    class RecordingCoxPH:
+        def __init__(self, *, penalty, **kwargs):
+            self.penalty = float(penalty)
+            self._converged = True
+            self._iterations = 1
+
+        def fit(self, X, *args, cluster=None, strata=None, subject_id=None, **kwargs):
+            fit_records.append((cluster, strata, subject_id))
+            self.coef_ = np.zeros(X.shape[1], dtype=np.float64)
+            return self
+
+    X, time, event = _make_survival_data(n_samples=36, seed=851)
+    strata = np.repeat(np.array(["a", "b", "c"]), 12)
+    subject = np.arange(X.shape[0])
+    cluster = np.arange(X.shape[0]) % 4
+    monkeypatch.setattr(
+        cox_cv_module, "_prepare_cox_cv_fold_backend", recording_prepare
+    )
+    monkeypatch.setattr(cox_cv_module, "CoxPH", RecordingCoxPH)
+
+    _, details = _select_coxph_penalty_cv(
+        X,
+        time,
+        event,
+        cluster=cluster,
+        strata=strata,
+        subject_id=subject,
+        penalties=np.array([1.0, 0.1, 0.01]),
+        cv_folds=3,
+        random_state=4,
+        device="cpu",
+        return_details=True,
+        cache_key="fold-label-preparation-once",
+    )
+
+    assert prepare_calls == 3
+    assert details["fold_backend_preparation_count"] == 3
+    assert details["candidate_cluster_used"] is False
+    assert details["candidate_subject_id_used"] is False
+    assert details["candidate_strata_preencoded"] is True
+    assert len(fit_records) == 9
+    for cluster_fit, strata_fit, subject_fit in fit_records:
+        assert cluster_fit is None
+        assert subject_fit is None
+        assert isinstance(strata_fit, _PreencodedCoxLabels)
+        assert isinstance(strata_fit.codes, np.ndarray)
+        assert strata_fit.codes.dtype == np.int64
 
 
 def test_coxphcv_cache_reuses_complete_diagnostics(monkeypatch):

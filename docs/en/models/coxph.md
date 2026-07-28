@@ -171,6 +171,13 @@ Inference provenance is exposed through:
 - `inference_fallback_reason_`;
 - `full_host_transfer_performed_`.
 
+For `CoxPHCV`, `full_host_transfer_performed_` describes the complete fit,
+including host-orchestrated fold construction and selection. The more specific
+`cv_full_host_transfer_performed_` and
+`final_refit_full_host_transfer_performed_` attributes identify which phase
+moved a full device-resident input to the host; `orchestration_device_` records
+where CV orchestration ran.
+
 ## Parameters
 
 | Parameter | Default | Description |
@@ -245,6 +252,14 @@ models apply their saved design transformation before prediction.
 - provenance: `inference_method_`, `inference_backend_`,
   `inference_approximate_`, `inference_fallback_reason_`,
   `full_host_transfer_performed_`.
+
+`CoxPHCV` additionally exposes `cv_full_host_transfer_performed_`,
+`final_refit_full_host_transfer_performed_`, and `orchestration_device_` so
+data-movement audits do not confuse host CV selection with the final refit.
+If a finite-input candidate returns non-finite fitted coefficients or
+likelihood, `CoxPH` raises `CoxCandidateNumericalError` (a
+`FloatingPointError` subclass); `CoxPHCV` excludes only that candidate while
+letting input, allocator, CUDA, and unexpected runtime errors propagate.
 
 ## Validation
 

@@ -13,13 +13,20 @@ import os
 import numpy as np
 
 from statgpu._config import Device, get_device
-from statgpu.backends import _to_numpy
+from statgpu.backends import (
+    _is_cupy_array,
+    _is_torch_array,
+    _to_numpy,
+    get_backend,
+)
 from statgpu.backends._utils import _require_real_array
 from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
 from statgpu.survival._cox import CoxPH
+from statgpu.survival._cox_errors import CoxCandidateNumericalError
 from statgpu.survival._cox_fit_adapter import (
     _normalize_boolean_control,
     _normalize_mutable_cv_controls,
+    _PreencodedCoxLabels,
 )
 from statgpu.survival._risk_sets import cox_counting_process_objective
 
@@ -30,6 +37,82 @@ from statgpu.survival._risk_sets import cox_counting_process_objective
 
 _COXPH_CV_CACHE_MAXSIZE = int(64)
 _COXPH_CV_CACHE = CVCache(maxsize=_COXPH_CV_CACHE_MAXSIZE)
+
+
+def _array_storage_backend(value) -> str:
+    """Describe where an input array resides before CV host orchestration."""
+    if value is None:
+        return "none"
+    if _is_cupy_array(value):
+        return "cupy"
+    if _is_torch_array(value):
+        device = getattr(value, "device", None)
+        device_type = getattr(device, "type", str(device).split(":", 1)[0])
+        return "torch-cpu" if str(device_type) == "cpu" else "torch-device"
+    return "numpy"
+
+
+def _cv_backend_for_device(fit_device: str):
+    """Resolve an explicit Cox CV backend without cross-framework fallback."""
+    if fit_device == Device.CPU.value:
+        return get_backend("numpy", device="cpu")
+    if fit_device == Device.CUDA.value:
+        return get_backend("cupy", device="cuda")
+    if fit_device == Device.TORCH.value:
+        backend = get_backend("torch", device="cuda")
+        if not backend.is_available():
+            raise RuntimeError(
+                "device='torch' requires torch.cuda.is_available() to be "
+                "True; no Torch CPU fallback is performed."
+            )
+        return backend
+    raise ValueError(f"unsupported Cox CV fit device: {fit_device!r}")
+
+
+def _prepare_cox_cv_fold_backend(
+    backend,
+    *,
+    X_train,
+    time_train,
+    event_train,
+    entry_train,
+    strata_train,
+    X_test,
+    time_test,
+    event_test,
+    entry_test,
+    strata_test,
+):
+    """Move every likelihood-relevant fold array to one backend once."""
+    convert = backend.asarray
+    return {
+        "X_fit": convert(X_train, dtype=backend.float64),
+        "time_fit": convert(time_train, dtype=backend.float64),
+        "event_fit": convert(event_train, dtype=backend.int32),
+        "entry_fit": (
+            None
+            if entry_train is None
+            else convert(entry_train, dtype=backend.float64)
+        ),
+        "strata_fit": (
+            None
+            if strata_train is None
+            else convert(strata_train, dtype=backend.int64)
+        ),
+        "X_score": convert(X_test, dtype=backend.float64),
+        "time_score": convert(time_test, dtype=backend.float64),
+        "event_score": convert(event_test, dtype=backend.int32),
+        "entry_score": (
+            None
+            if entry_test is None
+            else convert(entry_test, dtype=backend.float64)
+        ),
+        "strata_score": (
+            None
+            if strata_test is None
+            else convert(strata_test, dtype=backend.int64)
+        ),
+    }
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -684,9 +767,30 @@ def _select_coxph_penalty_cv(
     start_supplied = start is not None
     start_values = entry if entry_supplied else start
 
-    # Fold construction and diagnostics are orchestrated on the host. Explicit
-    # GPU modes convert each fold once, then keep both candidate fitting and
-    # held-out partial-likelihood scoring on the requested backend.
+    input_backends = tuple(
+        sorted(
+            {
+                _array_storage_backend(value)
+                for value in (
+                    X,
+                    time,
+                    event,
+                    start_values,
+                    cluster,
+                    strata,
+                    subject_id,
+                )
+                if value is not None
+            }
+        )
+    )
+    cv_full_host_transfer_performed = any(
+        name in {"cupy", "torch-device"} for name in input_backends
+    )
+
+    # Fold construction and diagnostics are orchestrated on the host. Each
+    # evaluation batch converts every fold's likelihood arrays once, then
+    # reuses them across its candidate subset for fitting and held-out scoring.
     _require_real_array(X, "X")
     _require_real_array(time, "time")
     _require_real_array(event, "event")
@@ -733,8 +837,11 @@ def _select_coxph_penalty_cv(
     if subject_np is not None and subject_np.shape[0] != n_samples:
         raise ValueError("subject_id must have shape (n_samples,)")
     strata_codes_np = None
+    strata_labels_np = None
     if strata_np is not None:
-        _, strata_codes_np = np.unique(strata_np, return_inverse=True)
+        strata_labels_np, strata_codes_np = np.unique(
+            strata_np, return_inverse=True
+        )
         strata_codes_np = strata_codes_np.astype(np.int64, copy=False)
 
     # Generate penalty grid
@@ -878,6 +985,15 @@ def _select_coxph_penalty_cv(
 
     cached_result = _coxcv_cache_get(cache_key_eff)
     if cached_result is not None:
+        # Provenance describes this invocation, not the invocation that first
+        # populated an explicit or automatic result cache.
+        cached_result["input_backends"] = input_backends
+        cached_result["cv_full_host_transfer_performed"] = bool(
+            cv_full_host_transfer_performed
+        )
+        cached_result["full_host_transfer_performed"] = bool(
+            cv_full_host_transfer_performed
+        )
         if return_details:
             return cached_result["penalty"], cached_result
         return cached_result["penalty"]
@@ -895,6 +1011,8 @@ def _select_coxph_penalty_cv(
         (n_penalties_actual, n_folds), "not_evaluated", dtype=object
     )
     failure_path[:, ~fold_valid] = "fold_has_no_train_or_test_events"
+    cv_backend = _cv_backend_for_device(fit_device)
+    fold_backend_preparation_count = 0
 
     def _reset_penalty_indices(penalty_indices: np.ndarray) -> None:
         penalty_indices = np.unique(
@@ -931,6 +1049,7 @@ def _select_coxph_penalty_cv(
         fit_max_iter: int,
         fit_tol: float,
     ) -> None:
+        nonlocal fold_backend_preparation_count
         if penalty_indices.size == 0:
             return
         penalty_indices = np.unique(np.asarray(penalty_indices, dtype=np.int64))
@@ -942,105 +1061,46 @@ def _select_coxph_penalty_cv(
             event_train, event_test = event_np[train_idx], event_np[test_idx]
             entry_train = None if entry_np is None else entry_np[train_idx]
             entry_test = None if entry_np is None else entry_np[test_idx]
-            cluster_train = None if cluster_np is None else cluster_np[train_idx]
-            strata_train = None if strata_np is None else strata_np[train_idx]
-            strata_test = None if strata_np is None else strata_np[test_idx]
+            strata_train_codes = (
+                None
+                if strata_codes_np is None
+                else strata_codes_np[train_idx]
+            )
             strata_test_codes = (
                 None
                 if strata_codes_np is None
                 else strata_codes_np[test_idx]
             )
-            subject_train = None if subject_np is None else subject_np[train_idx]
-            X_fit = X_train
-            time_fit = time_train
-            event_fit = event_train
-            entry_fit = entry_train
-            cluster_fit = cluster_train
-            X_score = X_test
-            time_score = time_test
-            event_score = event_test
-            entry_score = entry_test
-            strata_score = strata_test_codes
-
-            # Prepare one fold per explicit backend and reuse it across the
-            # penalty path. Import/conversion failures propagate: explicit GPU
-            # requests never fall back to NumPy or switch GPU frameworks.
-            if fit_device == Device.CUDA.value:
-                import cupy as cp
-
-                X_fit = cp.asarray(X_train, dtype=cp.float64)
-                time_fit = cp.asarray(time_train, dtype=cp.float64)
-                event_fit = cp.asarray(event_train, dtype=cp.int32)
-                entry_fit = (
-                    None
-                    if entry_train is None
-                    else cp.asarray(entry_train, dtype=cp.float64)
+            fold_arrays = _prepare_cox_cv_fold_backend(
+                cv_backend,
+                X_train=X_train,
+                time_train=time_train,
+                event_train=event_train,
+                entry_train=entry_train,
+                strata_train=strata_train_codes,
+                X_test=X_test,
+                time_test=time_test,
+                event_test=event_test,
+                entry_test=entry_test,
+                strata_test=strata_test_codes,
+            )
+            fold_backend_preparation_count += 1
+            X_fit = fold_arrays["X_fit"]
+            time_fit = fold_arrays["time_fit"]
+            event_fit = fold_arrays["event_fit"]
+            entry_fit = fold_arrays["entry_fit"]
+            strata_fit = (
+                None
+                if fold_arrays["strata_fit"] is None
+                else _PreencodedCoxLabels(
+                    fold_arrays["strata_fit"], strata_labels_np
                 )
-                X_score = cp.asarray(X_test, dtype=cp.float64)
-                time_score = cp.asarray(time_test, dtype=cp.float64)
-                event_score = cp.asarray(event_test, dtype=cp.int32)
-                entry_score = (
-                    None
-                    if entry_test is None
-                    else cp.asarray(entry_test, dtype=cp.float64)
-                )
-                strata_score = (
-                    None
-                    if strata_test_codes is None
-                    else cp.asarray(strata_test_codes, dtype=cp.int64)
-                )
-            elif fit_device == Device.TORCH.value:
-                import torch
-
-                if not torch.cuda.is_available():
-                    raise RuntimeError(
-                        "device='torch' requires torch.cuda.is_available() "
-                        "to be True; no Torch CPU fallback is performed."
-                    )
-                torch_device = "cuda"
-                X_fit = torch.as_tensor(
-                    X_train, dtype=torch.float64, device=torch_device
-                )
-                time_fit = torch.as_tensor(
-                    time_train, dtype=torch.float64, device=torch_device
-                )
-                event_fit = torch.as_tensor(
-                    event_train, dtype=torch.int32, device=torch_device
-                )
-                entry_fit = (
-                    None
-                    if entry_train is None
-                    else torch.as_tensor(
-                        entry_train, dtype=torch.float64, device=torch_device
-                    )
-                )
-                X_score = torch.as_tensor(
-                    X_test, dtype=torch.float64, device=torch_device
-                )
-                time_score = torch.as_tensor(
-                    time_test, dtype=torch.float64, device=torch_device
-                )
-                event_score = torch.as_tensor(
-                    event_test, dtype=torch.int32, device=torch_device
-                )
-                entry_score = (
-                    None
-                    if entry_test is None
-                    else torch.as_tensor(
-                        entry_test,
-                        dtype=torch.float64,
-                        device=torch_device,
-                    )
-                )
-                strata_score = (
-                    None
-                    if strata_test_codes is None
-                    else torch.as_tensor(
-                        strata_test_codes,
-                        dtype=torch.int64,
-                        device=torch_device,
-                    )
-                )
+            )
+            X_score = fold_arrays["X_score"]
+            time_score = fold_arrays["time_score"]
+            event_score = fold_arrays["event_score"]
+            entry_score = fold_arrays["entry_score"]
+            strata_score = fold_arrays["strata_score"]
 
             prev_coef = None
             for penalty_idx in penalty_indices:
@@ -1063,12 +1123,20 @@ def _select_coxph_penalty_cv(
                         time_fit,
                         event_fit,
                         entry=entry_fit if entry_supplied else None,
-                        cluster=cluster_fit,
+                        # Candidate fits do not compute inference or C-index.
+                        # Cluster and subject labels therefore have no role in
+                        # the likelihood after fold construction.
+                        cluster=None,
                         init_coef=prev_coef,
                         start=entry_fit if start_supplied else None,
-                        strata=strata_train,
-                        subject_id=subject_train,
+                        strata=strata_fit,
+                        subject_id=None,
                     )
+                except CoxCandidateNumericalError as exc:
+                    failure_path[penalty_idx, fold_idx] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    continue
                 except Exception as exc:
                     failure_path[penalty_idx, fold_idx] = (
                         f"{type(exc).__name__}: {exc}"
@@ -1096,18 +1164,13 @@ def _select_coxph_penalty_cv(
                         event_test,
                         coef_np,
                         entry=entry_test,
-                        strata=strata_test,
+                        strata=strata_test_codes,
                         ties=ties,
                     )
                 else:
-                    if fit_device == Device.CUDA.value:
-                        coef_score = cp.asarray(coef_np, dtype=cp.float64)
-                    else:
-                        coef_score = torch.as_tensor(
-                            coef_np,
-                            dtype=torch.float64,
-                            device=torch_device,
-                        )
+                    coef_score = cv_backend.asarray(
+                        coef_np, dtype=cv_backend.float64
+                    )
                     score_result = cox_counting_process_objective(
                         coef_score,
                         X_score,
@@ -1275,6 +1338,19 @@ def _select_coxph_penalty_cv(
         "effective_device": fit_device,
         "scoring_device": fit_device,
         "orchestration_device": "cpu",
+        "input_backends": input_backends,
+        "cv_full_host_transfer_performed": bool(
+            cv_full_host_transfer_performed
+        ),
+        "full_host_transfer_performed": bool(
+            cv_full_host_transfer_performed
+        ),
+        "fold_backend_preparation_count": int(
+            fold_backend_preparation_count
+        ),
+        "candidate_cluster_used": False,
+        "candidate_subject_id_used": False,
+        "candidate_strata_preencoded": strata_codes_np is not None,
         "grouped_by_subject": subject_np is not None,
         "uses_start": entry_np is not None,
         "uses_strata": strata_np is not None,
@@ -1461,6 +1537,9 @@ class CoxPHCV(CVEstimatorBase):
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
+        self.cv_full_host_transfer_performed_ = False
+        self.final_refit_full_host_transfer_performed_ = False
+        self.orchestration_device_ = None
         self._params = None
         self._bse = None
         self._zvalues = None
@@ -1492,6 +1571,9 @@ class CoxPHCV(CVEstimatorBase):
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
+        self.cv_full_host_transfer_performed_ = False
+        self.final_refit_full_host_transfer_performed_ = False
+        self.orchestration_device_ = None
         self._params = None
         self._bse = None
         self._zvalues = None
@@ -1663,6 +1745,12 @@ class CoxPHCV(CVEstimatorBase):
         self.effective_device_ = str(
             details.get("effective_device", fit_device_name)
         )
+        self.cv_full_host_transfer_performed_ = bool(
+            details.get("cv_full_host_transfer_performed", False)
+        )
+        self.orchestration_device_ = str(
+            details.get("orchestration_device", "cpu")
+        )
 
         # Fit final model on full data with best penalty
         # CoxPHCV owns cleanup at its public prediction/scoring boundary. The
@@ -1702,9 +1790,15 @@ class CoxPHCV(CVEstimatorBase):
             ("inference_fallback_reason_", None),
             ("score_test_available_", False),
             ("score_test_failure_reason_", None),
-            ("full_host_transfer_performed_", False),
         ):
             setattr(self, attribute, getattr(final_model, attribute, default))
+        self.final_refit_full_host_transfer_performed_ = bool(
+            getattr(final_model, "full_host_transfer_performed_", False)
+        )
+        self.full_host_transfer_performed_ = bool(
+            self.cv_full_host_transfer_performed_
+            or self.final_refit_full_host_transfer_performed_
+        )
         for attribute in (
             "_params",
             "_bse",

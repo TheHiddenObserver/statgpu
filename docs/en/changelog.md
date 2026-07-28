@@ -54,6 +54,14 @@
   synthetic R call. Canonical Cox and final `CoxPHCV` refits now publish the
   shared `ParameterInferenceResult` contract and its parameter, z, p-value,
   and confidence-interval fields.
+- `CoxPHCV` now reports full host transfers across the complete selection plus
+  refit workflow, with separate CV/refit provenance. A dedicated candidate
+  numerical exception lets CV exclude a non-finite penalty without swallowing
+  input, CUDA, allocator, or programming errors. Fold strata are factorized and
+  moved through the shared backend once per fold evaluation, while cluster and
+  subject labels no longer enter candidate fits that compute neither inference
+  nor concordance. Canonical `CoxPH` fitted state is initialized through one
+  reset contract; historical risk-set caches now live only on the test adapter.
 - Low-level concordance validates `subject_id` as finite, exactly integral
   int64 codes before conversion. Survival risk-set normalization reuses the
   shared backend array, scalar, zeros, eye, and integer-code helpers; public

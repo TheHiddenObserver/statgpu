@@ -5,9 +5,44 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**COMPLETE.** The local review-fix implementation, complete CPU gates,
-exact-source physical CuPy/Torch refresh, evidence push, and hosted CI all pass.
-No CRITICAL, HIGH, or active MEDIUM finding remains open.
+**PARTIAL_REMOTE_PENDING.** The current post-closure review fixes and all local
+CPU/documentation gates pass, and the user has authorized the exact-source
+workflow. The physical CuPy/Torch artifact below still predates this delta;
+P100 refresh, evidence write-back, push, and hosted-CI follow-up are in progress.
+
+## Current post-closure delta
+
+- Starting local and remote head: `fd6d7952c7f7810506395ade46953eacda98f91c`.
+- Review mode remains `.claude/skills/code-review.md` `auto-fix` under
+  `dev/AGENTS.md` and `.claude/workflows/new-module-dev.md`.
+- `CoxPHCV.full_host_transfer_performed_` now covers host-orchestrated CV as
+  well as final refit. Separate `cv_full_host_transfer_performed_`,
+  `final_refit_full_host_transfer_performed_`, `orchestration_device_`, and
+  invocation-specific cached provenance make the data movement auditable.
+- Public `CoxPH` raises `CoxCandidateNumericalError` only when a finite-input fit
+  returns non-finite fitted coefficients or likelihood. CV catches only this
+  subtype, records the failed penalty/fold, and continues; input, OOM, CUDA,
+  backend, and unexpected runtime exceptions keep their original type.
+- CV factorizes strata once, moves train/test codes through `BackendBase` once
+  per fold evaluation, and passes an internal preencoded-label carrier so each
+  candidate skips `unique` and H2D label work. Candidate fits omit cluster and
+  subject labels because inference and training concordance are disabled. The
+  unstratified right-censored fast kernel is enabled when otherwise eligible;
+  stratified candidates correctly retain the shared stratified objective rather
+  than falsely claiming that the unstratified kernel supports strata.
+- Canonical `CoxPH` now initializes all fitted state through `_reset_fit_state()`.
+  Legacy Efron/Breslow/entry caches are owned only by the explicit test adapter,
+  and the unused statsmodels convergence extractor was removed.
+- Local validation for this delta: `1454 passed, 436 skipped`; documentation
+  links affected `0` files; contracts passed for `122` maintained files;
+  `compileall`, benchmark CLI parsing, `git diff --check`, and `pyflakes` pass.
+- The maintained P100 runner is upgraded to schema 5, hashes the new exception
+  and CV test sources, runs `test_cox_cv.py`, and records per-backend transfer
+  provenance plus label-preparation counts. The schema-5 JSON will be generated
+  from the first clean source commit in the authorized remote step.
+
+The sections below retain the exact-source evidence for the preceding schema-4
+cycle as historical baseline; they are not evidence for the uncommitted delta.
 
 ## Reviewed source and mode
 
@@ -233,7 +268,7 @@ completion cases record legacy isolation. Its SHA-256 is
 - The earlier one-command full-tree run also reached `1438 passed, 434 skipped`
   before the shell wrapper timeout; the split runs include the new isolation test.
 
-## Hosted CI
+## Hosted CI (preceding schema-4 baseline)
 
 GitHub Actions run
 `https://github.com/TheHiddenObserver/statgpu/actions/runs/30369118924`
@@ -258,8 +293,10 @@ completed successfully for evidence commit `89e4307c4015`. The required
 
 ## Skipped and deferred work
 
-- No active physical-GPU or hosted-CI gate was skipped. The exact-source P100
-  artifact passed all CuPy/Torch cases and 159 required tests; hosted run
-  `30369118924` passed all seven required jobs.
+- For the preceding schema-4 cycle, no physical-GPU or hosted-CI gate was
+  skipped: its artifact passed all CuPy/Torch cases and 159 required tests, and
+  hosted run `30369118924` passed all seven required jobs.
+- For the current post-closure delta, exact-source P100 JSON, evidence commit,
+  push, and hosted CI are in progress under the user's authorization.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.

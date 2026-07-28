@@ -30,6 +30,12 @@
   counting-process、strata、subject、cluster 与 ties 元数据，不再伪造 R 调用。规范
   Cox 路径与 `CoxPHCV` 最终重拟合现在统一发布 `ParameterInferenceResult`，并同步
   parameter、z、p-value 和置信区间字段。
+- `CoxPHCV` 现在会对 CV 选择与最终重拟合的完整流程报告 full-host-transfer
+  provenance，并分别暴露 CV/refit 字段。专用的 candidate numerical exception 使 CV
+  可以排除非有限 penalty，但不会吞掉 input、CUDA、allocator 或编程错误。strata
+  在每个 fold 中只 factorize 并通过 shared backend 准备一次；不计算 inference/C-index
+  的 candidate fit 不再传入 cluster 或 subject label。规范 `CoxPH` 通过单一 reset
+  contract 初始化状态，历史 risk-set cache 仅保留在测试 adapter 中。
 - low-level concordance 会在转换前验证 `subject_id` 是否为有限、严格整数且在 int64
   范围内。survival risk-set 规范化复用了共享 backend 的数组、标量、zeros、eye 与
   integer-code helper；公开 fit 边界逻辑直接定义在 estimator 上，不再通过 import-time
