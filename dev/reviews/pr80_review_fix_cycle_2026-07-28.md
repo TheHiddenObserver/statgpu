@@ -5,10 +5,9 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**BLOCKED_NEEDS_USER_APPROVAL.** All active local gates pass at the
-`local-full` tier. Producing exact-source physical-GPU evidence requires a clean
-commit, and commit/push/remote execution require explicit user authorization.
-No commit, push, PR update, merge, or release action is claimed by this report.
+**COMPLETE.** All active local and physical-GPU gates pass at the `remote-full`
+tier. The remaining legacy-code extraction is a recorded non-blocking MEDIUM
+maintenance follow-up; no CRITICAL or HIGH finding remains open.
 
 ## Reviewed source and mode
 
@@ -17,7 +16,8 @@ No commit, push, PR update, merge, or release action is claimed by this report.
 - Review mode: `.claude/skills/code-review.md` `auto-fix`.
 - Development contract: `.claude/workflows/new-module-dev.md`.
 - Repository conventions: `dev/AGENTS.md`.
-- Current fixes are an uncommitted worktree diff over the starting head.
+- Exact-source production, test, and P100 runner commit:
+  `fe06a4cf1e96e0dc5e8c74de2c763bf92b5ebdb6`.
 
 ## Impact classification
 
@@ -45,17 +45,17 @@ No commit, push, PR update, merge, or release action is claimed by this report.
 
 | Contract | NumPy | CuPy | Torch | Evidence |
 | --- | --- | --- | --- | --- |
-| public predict/score cleanup, success and failure | passed | test collected; physical pending | test collected; physical pending | `test_pr80_completion_contract_followup.py` |
+| public predict/score cleanup, success and failure | passed | passed on P100 | passed on P100 | `test_pr80_completion_contract_followup.py` |
 | truthful matrix/formula summary | passed | backend-neutral | backend-neutral | matrix plus `Surv(start, stop, event)`, categorical interaction, strata |
-| `ParameterInferenceResult` state | passed | test collected; physical pending | test collected; physical pending | direct Cox and CV final refit |
-| fractional/non-finite/overflow `subject_id` rejection | passed | test collected; physical pending | test collected; physical pending | low-level concordance tests |
-| representable host `uint64` codes | passed | test collected; physical pending | test collected; physical pending | low-level concordance tests |
-| one post-loop C-index scalar synchronization | passed | test collected; physical pending | test collected; physical pending | forced 1-by-2 tile counter |
+| `ParameterInferenceResult` state | passed | passed on P100 | passed on P100 | direct Cox and CV final refit |
+| fractional/non-finite/overflow `subject_id` rejection | passed | passed on P100 | passed on P100 | low-level concordance tests |
+| representable host `uint64` codes | passed | passed on P100 | passed on P100 | low-level concordance tests |
+| one post-loop C-index scalar synchronization | passed | passed on P100 | passed on P100 | forced 1-by-2 tile counter |
 | public fit isolation from legacy methods | passed | same canonical dispatcher | same canonical dispatcher | legacy methods monkeypatched to fail |
 
 CuPy and Torch are unavailable on the local Windows runner. Their active tests
-are parameterized, collected, and included in the maintained P100 runner; they
-are not reported as physically executed in this uncommitted state.
+were therefore executed through the maintained Paramiko P100 runner from the
+clean detached exact-source commit recorded above.
 
 ## Objective scaling, precision, convergence, and formula
 
@@ -118,16 +118,16 @@ Impact: many-event GPU scoring could become synchronization-bound.
 Fix: all three counts remain backend-native through the tile loop and `_sync_scalars` performs one stacked device-to-host transfer after the loop.
 Evidence: forced tiny tiles preserve the exact result and record one three-value synchronization at `dev/tests/test_pr80_completion_contract_followup.py:261`.
 
-## Performance and physical evidence plan
+## Performance and physical evidence
 
-No new timing claim is made from the local CPU run. The performance contract is
+No new comparative timing claim is made. The performance contract is
 structural: one ordinary-concordance host synchronization per score call. The
-schema-v4 maintained runner adds a physical `completion_contract` case for both
-CuPy and Torch covering cleanup, complex rejection, summary metadata,
+schema-v4 maintained runner executed the physical `completion_contract` case
+for both CuPy and Torch, covering cleanup, complex rejection, summary metadata,
 `subject_id`, one-sync scoring, inference results, backend reuse, and absence of
 the import-time adapter.
 
-After explicit commit/remote authorization, run from a clean detached commit:
+Executed from clean detached commit `fe06a4cf1e96`:
 
 ```text
 /root/miniconda3/envs/myconda/bin/python dev/benchmarks/benchmark_cox_boundary_gpu.py \
@@ -135,10 +135,12 @@ After explicit commit/remote authorization, run from a clean detached commit:
   --run-targeted-tests
 ```
 
-The resulting artifact must report the exact commit, clean source state,
-source hashes, CuPy/Torch versions and GPU, targeted pytest result, every case
-as passed, and `gate_failures=[]` before this report can advance to
-`remote-full`.
+The resulting artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`.
+It records schema 4, `source_clean=true`, 19 Git-blob-verified source hashes,
+CuPy 13.6.0 and Torch 2.0.0+cu117 on Tesla P100-SXM2-16GB, `154 passed` targeted
+tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
+`823df8aff42bb238ae3e3575207e535da7da3c403ac23b16beb16d21243c09bb`.
 
 ## Local validation
 
@@ -161,15 +163,13 @@ as passed, and `gate_failures=[]` before this report can advance to
 - `dev/reviews/pr80_review_fix_cycle_2026-07-28.md`
 - `dev/tests/test_pr80_completion_contract_followup.py`
 - `docs/en/changelog.md`, `docs/cn/changelog.md`
+- `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`
 - `statgpu/backends/_array_ops.py`, `statgpu/backends/_utils.py`
 - `statgpu/survival/__init__.py`, `_cox.py`, `_cox_cv.py`,
   `_cox_fit_adapter.py`, `_cox_score.py`, `_risk_sets.py`
 
 ## Skipped and deferred work
 
-- Exact-source CuPy/Torch physical execution is pending explicit authorization
-  for the prerequisite commit and remote run.
-- GitHub Actions and push are not run without explicit authorization.
 - Extraction/deletion of the legacy Cox reference block is recorded as a
   non-blocking MEDIUM maintenance follow-up, not misreported as closed.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;

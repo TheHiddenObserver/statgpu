@@ -127,6 +127,13 @@
   CuPy/Torch were 2.65x/3.91x faster than NumPy for SCAD and 2.73x/3.97x for
   MCP. The artifact labels these as warm, synchronized timings rather than
   fresh-process latency.
+- The schema-v4 exact-source completion artifact passed 154 targeted tests on
+  CuPy 13.6.0 and Torch 2.0.0+cu117 on a Tesla P100. It verifies public cleanup
+  on success and failure, truthful summaries, shared inference results,
+  integer subject codes, one ordinary-concordance scalar transfer, direct
+  backend reuse, and absence of import-time method replacement, with
+  `source_clean=true`, 19 Git-blob-verified hashes, and `gate_failures=[]`:
+  `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`.
 
 ### Optimized (2026-07-26) — PR #80 stratified Exact composition
 
