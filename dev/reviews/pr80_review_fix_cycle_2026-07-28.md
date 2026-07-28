@@ -38,11 +38,32 @@ P100 refresh, evidence write-back, push, and hosted-CI follow-up are in progress
   `compileall`, benchmark CLI parsing, `git diff --check`, and `pyflakes` pass.
 - The maintained P100 runner is upgraded to schema 5, hashes the new exception
   and CV test sources, runs `test_cox_cv.py`, and records per-backend transfer
-  provenance plus label-preparation counts. The schema-5 JSON will be generated
-  from the first clean source commit in the authorized remote step.
+  provenance plus label-preparation counts. The exact-source schema-5 refresh
+  passed and is recorded below; evidence commit, push, and hosted CI remain.
 
-The sections below retain the exact-source evidence for the preceding schema-4
-cycle as historical baseline; they are not evidence for the uncommitted delta.
+The next section records the current schema-5 evidence. Later schema-4 sections
+remain as the exact historical baseline for the preceding cycle.
+
+## Current schema-5 physical-GPU evidence
+
+- Exact clean source commit:
+  `7b4a33820b4acd80313df0c97a0127c18d219e3c`.
+- Paramiko remote worktree:
+  `/root/statgpu-pr80-7b4a338-20260728T185325Z`.
+- Environment: Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch
+  2.0.0+cu117, Tesla P100-SXM2-16GB.
+- Command:
+  `/root/miniconda3/envs/myconda/bin/python dev/benchmarks/benchmark_cox_boundary_gpu.py --output results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729.json --run-targeted-tests`.
+- Targeted physical matrix: `225 passed, 1 warning in 16.06s`; every CuPy and
+  Torch case passed and `gate_failures=[]`.
+- The artifact contains 23 source SHA-256 values. Independent local comparison
+  with the exact commit's Git blobs found zero mismatches; `source_clean=true`.
+- Artifact SHA-256:
+  `e66abaa3782c15e50218bd83be5200d4f8f2db1806e8a17fec9b8349895d90c5`.
+- Both GPU backends report truthful full-transfer provenance: CV `true`, final
+  refit `false`, whole fit `true`, orchestration `cpu`. Each reports two fold
+  preparations, preencoded strata, no candidate cluster/subject use, one outer
+  cleanup round, zero inner cleanup rounds, and finite coefficients.
 
 ## Reviewed source and mode
 
@@ -296,7 +317,8 @@ completed successfully for evidence commit `89e4307c4015`. The required
 - For the preceding schema-4 cycle, no physical-GPU or hosted-CI gate was
   skipped: its artifact passed all CuPy/Torch cases and 159 required tests, and
   hosted run `30369118924` passed all seven required jobs.
-- For the current post-closure delta, exact-source P100 JSON, evidence commit,
-  push, and hosted CI are in progress under the user's authorization.
+- For the current post-closure delta, the exact-source P100 JSON passes;
+  evidence commit, push, and hosted CI are in progress under the user's
+  authorization.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
