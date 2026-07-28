@@ -1,9 +1,9 @@
 # PR #80 Review-Fix Report
 
-> Review date: 2026-07-27<br>
+> Review date: 2026-07-28<br>
 > Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
 > Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
-> Current risk-set SHA-256: `0770b7b71462d57426234b9e1a7772b4f02a1098a2d7abd2827f04a72540a12b`<br>
+> Current risk-set SHA-256: `eee6900332526d5e68815e46d6d43a0f52e981760b724c10f98740fc56eeb3da`<br>
 > Current Cox-loss SHA-256: `7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea`<br>
 > Current FISTA-LLA SHA-256: `3c9a665d0d46bebc32c6e43dbd2f777d989fe09114f73a2c7ae1e9bdb1642536`<br>
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
@@ -18,6 +18,9 @@
 > Penalized-Cox trusted-gradient artifact SHA-256: `8956b71e09ac5036e726f913e4665767919edb6ae497d00dc0f34f83da35d51c`<br>
 > Ordinary-Cox stability artifact SHA-256: `29855aa68b78f93dfc233b4fa45ff813ccf7875e2eb197ab22ae753c551b6f3e`<br>
 > Exact-kernel physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
+> Boundary/workspace artifact source commit: `16695feec8d4187b591d8a24d8977de543fd33c3`<br>
+> Boundary/workspace artifact SHA-256: `e876d0cc8760486259aff967c1ed6de0a4fc3915cd9aac8c745ec2940b9ca41d`<br>
+> Boundary adapter SHA-256: `c6742e20dd57c8dc5a36dbe594e7ce040effae4217939538ab39df0fb338f9d3`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
 > Status: `COMPLETE` for source review; external GPU-CI wiring remains an infrastructure action
@@ -737,3 +740,63 @@ Repository-hosted CI still lacks a CUDA runner. The maintained physical-GPU gate
 is ready and passes under `STATGPU_REQUIRE_PHYSICAL_GPU=1`, but making it nightly
 or required needs repository-level runner/credential provisioning; no
 unconfigured self-hosted job was added to this PR.
+
+## Public Boundary and Extreme Single-Group Follow-up
+
+Impact classification: backend=`three-backend`; survival objective=Breslow/Efron
+counting process; CV=`CoxPHCV`; inference=`compatibility contract`; formula=
+unchanged; performance/memory=`active`; documentation=`active`; validation tier=
+`remote-full`.
+
+- [HIGH][TEST][fixed] `dev/tests/test_pr80_fit_boundary.py:13` - The new CuPy
+  boundary tests called `getDeviceCount()` without handling an installed CuPy
+  package paired with an unavailable driver.
+  Impact: a legitimate CPU-only validation environment failed instead of
+  skipping physical-CUDA cases.
+  Fix: CuPy runtime failures now produce explicit skips; the same robustness was
+  added to adjacent PR79/PR80 test helpers.
+  Evidence: the full no-CuPy CPU tree passed **1391 tests**, with 412 optional
+  skips and zero failures.
+- [MEDIUM][API][fixed] `docs/en/models/coxph.md:154` -
+  `inference_mode="approx"` was documented as selecting a legacy approximate
+  Efron sandwich although the unified public fit always uses exact
+  counting-process residuals.
+  Impact: users could infer an algorithm choice that no longer occurs.
+  Fix: `approx` remains a backward-compatible alias; both modes use exact
+  inference and successful fits report `inference_approximate_=False`.
+  Evidence: existing strict/approx provenance regressions and the expanded
+  physical-GPU matrix passed.
+- [MEDIUM][DOC][fixed] `docs/en/models/coxph.md:47` - The strata text described
+  the low-level signed-int64 contract as if it applied to public estimators.
+  Impact: documented support was narrower than actual `CoxPH`/`CoxPHCV`
+  factorization of host strings/objects and finite backend numeric labels.
+  Fix: public factorization and low-level numeric-code contracts are now
+  distinguished in English and Chinese.
+  Evidence: string-host and fractional-device strata regressions remain green.
+- [MEDIUM][PERF][fixed] `statgpu/survival/_risk_sets.py:298` - A dense
+  Breslow/Efron delayed-entry batch was clamped to at least one failure group,
+  so an extreme single stratum could exceed the intended temporary-workspace
+  ceiling.
+  Impact: the selected GPU backend could OOM on a statistically valid, very
+  large single risk set.
+  Fix: `STATGPU_COX_GROUP_MAX_BYTES` (512 MiB default) now estimates live masks,
+  weights, residual buffers, and second moments before allocation. Oversized
+  groups use a stable multi-pass row-streaming moment calculation on the same
+  backend.
+  Evidence: forced 256-byte Torch CPU parity covers Breslow/Efron likelihood,
+  score, information, and residuals; the P100 audit forced 4096 bytes at
+  `n=8192`, `p=3`, with maximum information differences of `1.33e-14` for
+  CuPy and `1.20e-14` for Torch.
+
+Physical validation used the clean detached source commit
+`16695feec8d4187b591d8a24d8977de543fd33c3` on a Tesla
+P100-SXM2-16GB with Python 3.9.16, CuPy 13.6.0, and Torch 2.0.0+cu117.
+The focused boundary matrix passed **85 tests**; the expanded Cox,
+counting-process, CV, and penalized matrix passed **504 tests**. The
+machine-readable artifact has `gate_failures=[]`, exact source hashes, commands,
+timings, and device metadata:
+`results/benchmark_frontend_sources/coxph_boundary_workspace_pr80_20260728.json`.
+
+Exit status: `COMPLETE`. No unresolved CRITICAL/HIGH finding remains in this
+follow-up. Repository-hosted CUDA CI remains an infrastructure item; the
+maintained physical-GPU runner and artifact close the PR-level evidence gate.
