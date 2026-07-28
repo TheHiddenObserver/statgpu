@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 import hashlib
+import inspect
+import io
 import json
 import os
 from pathlib import Path
@@ -22,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 from statgpu._config import Device  # noqa: E402
 from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
+from statgpu.survival import _cox_score as cox_score  # noqa: E402
 from statgpu.survival import _risk_sets as risk_sets  # noqa: E402
 from statgpu.survival._concordance import (  # noqa: E402
     MAX_CONCORDANCE_PAIR_ENTRIES,
@@ -34,7 +38,11 @@ from statgpu.survival._risk_sets import (  # noqa: E402
 
 
 SOURCE_FILES = (
+    ".github/workflows/test.yml",
+    "statgpu/backends/_array_ops.py",
+    "statgpu/backends/_utils.py",
     "statgpu/linear_model/penalized/_penalized_cox.py",
+    "statgpu/survival/__init__.py",
     "statgpu/survival/_cox.py",
     "statgpu/survival/_cox_cv.py",
     "statgpu/survival/_cox_fit_adapter.py",
@@ -43,6 +51,7 @@ SOURCE_FILES = (
     "statgpu/survival/_risk_sets.py",
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
+    "dev/tests/test_pr80_completion_contract_followup.py",
     "dev/tests/test_pr80_constructor_boundaries.py",
     "dev/tests/test_pr80_workspace_estimator.py",
     "dev/tests/test_pr80_fit_boundary.py",
@@ -52,6 +61,7 @@ SOURCE_FILES = (
 
 TARGETED_TEST_FILES = (
     "dev/tests/test_pr80_complete_review_cycle.py",
+    "dev/tests/test_pr80_completion_contract_followup.py",
     "dev/tests/test_pr80_constructor_boundaries.py",
     "dev/tests/test_pr80_workspace_estimator.py",
     "dev/tests/test_pr80_fit_boundary.py",
@@ -559,6 +569,140 @@ def _case_concordance_boundaries(name: str, xp) -> dict:
     }
 
 
+def _case_completion_contract(name: str, xp) -> dict:
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=2410, n=72, p=2)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    model = CoxPH(
+        device=device,
+        compute_inference=True,
+        compute_cindex=False,
+        gpu_memory_cleanup=True,
+        max_iter=80,
+        tol=1e-8,
+    ).fit(X, stop, event)
+
+    cleanup_calls = {"cuda": 0, "torch": 0}
+
+    def cleanup_cuda():
+        cleanup_calls["cuda"] += 1
+
+    def cleanup_torch():
+        cleanup_calls["torch"] += 1
+
+    model._cleanup_cuda_memory = cleanup_cuda
+    model._cleanup_torch_memory = cleanup_torch
+    model.predict_risk_score(X[:4])
+    success_cleanup = dict(cleanup_calls)
+    complex_rejected = False
+    try:
+        model.predict_hazard_ratio(
+            _array(
+                name,
+                xp,
+                X_np[:4].astype(np.complex128) + 1j,
+                complex_value=True,
+            )
+        )
+    except ValueError as exc:
+        complex_rejected = "real-valued" in str(exc)
+    error_cleanup = {
+        key: cleanup_calls[key] - success_cleanup[key]
+        for key in cleanup_calls
+    }
+
+    summary_buffer = io.StringIO()
+    with redirect_stdout(summary_buffer):
+        model.summary()
+    summary_text = summary_buffer.getvalue()
+    summary_truthful = all(
+        token in summary_text
+        for token in (
+            "interface='matrix'",
+            "counting_process=False",
+            "stratified=False",
+        )
+    ) and "coxph(formula = Surv(time, event) ~ ." not in summary_text
+
+    invalid_subject = np.arange(X_np.shape[0], dtype=np.float64)
+    invalid_subject[0] = 0.1
+    subject_rejected = False
+    try:
+        counting_process_concordance(
+            _array(name, xp, model.coef_),
+            X,
+            stop,
+            event,
+            subject_id=invalid_subject,
+        )
+    except ValueError as exc:
+        subject_rejected = "subject_id" in str(exc) and "integer-valued" in str(exc)
+
+    sync_calls = []
+    original_sync = cox_score._sync_scalars
+    original_tiles = cox_score._concordance_tile_shape
+
+    def recording_sync(*values, backend):
+        sync_calls.append({"values": len(values), "backend": backend})
+        return original_sync(*values, backend=backend)
+
+    cox_score._sync_scalars = recording_sync
+    cox_score._concordance_tile_shape = lambda _events, _samples: (1, 2)
+    try:
+        score_value = model.score(X, stop, event)
+    finally:
+        cox_score._sync_scalars = original_sync
+        cox_score._concordance_tile_shape = original_tiles
+
+    inference_result = model._inference_result
+    inference_contract = all(
+        (
+            inference_result is not None,
+            type(inference_result).__name__ == "ParameterInferenceResult",
+            np.allclose(model._params, model.coef_),
+            np.allclose(inference_result.bse, model._bse),
+            np.allclose(inference_result.pvalues, model._pvalues),
+            np.allclose(inference_result.conf_int, model._conf_int),
+        )
+    )
+    dispatch_source = inspect.getsource(CoxPH._fit_counting_process_dispatch)
+    direct_backend_imports_absent = (
+        "import cupy" not in dispatch_source
+        and "import torch" not in dispatch_source
+    )
+    import_time_adapter_absent = CoxPH.fit.__module__ == "statgpu.survival._cox"
+    passed = all(
+        (
+            success_cleanup == {"cuda": 1, "torch": 1},
+            error_cleanup == {"cuda": 1, "torch": 1},
+            complex_rejected,
+            summary_truthful,
+            subject_rejected,
+            sync_calls == [{"values": 3, "backend": name}],
+            np.isfinite(score_value),
+            inference_contract,
+            direct_backend_imports_absent,
+            import_time_adapter_absent,
+        )
+    )
+    return {
+        "backend": name,
+        "cleanup_calls_after_success": success_cleanup,
+        "cleanup_calls_after_error": error_cleanup,
+        "complex_prediction_rejected": complex_rejected,
+        "summary_truthful": summary_truthful,
+        "fractional_subject_id_rejected": subject_rejected,
+        "ordinary_concordance_sync_calls": sync_calls,
+        "concordance": score_value,
+        "inference_result_contract": inference_contract,
+        "direct_backend_imports_absent": direct_backend_imports_absent,
+        "import_time_adapter_absent": import_time_adapter_absent,
+        "passed": bool(passed),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -567,7 +711,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -598,6 +742,7 @@ def main() -> int:
                 "single_group_workspace": _case_workspace(name, xp),
                 "wide_workspace_route": _case_wide_workspace_route(name, xp),
                 "concordance_boundaries": _case_concordance_boundaries(name, xp),
+                "completion_contract": _case_completion_contract(name, xp),
             }
             report["backends"][name] = {
                 "version": xp.__version__,

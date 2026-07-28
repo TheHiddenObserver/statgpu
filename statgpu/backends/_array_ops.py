@@ -244,10 +244,12 @@ def _sync_scalars(*dev_vals, backend):
         stacked = torch.stack(
             [torch.as_tensor(v, device=device, dtype=dtype) for v in dev_vals]
         )
-        return tuple(stacked[i].item() for i in range(len(dev_vals)))
+        host = stacked.detach().cpu().numpy()
+        return tuple(float(value) for value in host)
     import cupy as cp
     stacked = cp.stack([cp.asarray(v) for v in dev_vals])
-    return tuple(float(stacked[i]) for i in range(len(dev_vals)))
+    host = cp.asnumpy(stacked)
+    return tuple(float(value) for value in host)
 
 
 def _abs_sum(x):

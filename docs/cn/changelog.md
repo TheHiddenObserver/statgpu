@@ -7,7 +7,7 @@
 
 ## 2026-07
 
-### 修复与优化（2026-07-27）— PR #80 后续审查
+### 修复（2026-07-27）— PR #80 后续审查
 
 - 所有公开 `CoxPH.fit()` 现在统一使用稳定的 shared risk-set objective。普通
   nonrobust Breslow/Efron 使用有界 suffix-moment 快速路径，在保持近线性行扩展的同时，
@@ -22,6 +22,19 @@
   拒绝 complex 输入。score test 通过 `score_test_available_` 与
   `score_test_failure_reason_` 暴露可用状态；device 错误原样传播，null information
   奇异则明确记录。ordinary 与 counting-process concordance 在无可比较 pair 时统一返回 `0.5`。
+
+- `CoxPH(gpu_memory_cleanup=True)` 现在会在每个公开预测和评分调用结束后执行两类
+  allocator 清理钩子，异常退出也不例外。摘要会输出真实的矩阵或 formula 接口，以及
+  counting-process、strata、subject、cluster 与 ties 元数据，不再伪造 R 调用。规范
+  Cox 路径与 `CoxPHCV` 最终重拟合现在统一发布 `ParameterInferenceResult`，并同步
+  parameter、z、p-value 和置信区间字段。
+- low-level concordance 会在转换前验证 `subject_id` 是否为有限、严格整数且在 int64
+  范围内。survival risk-set 规范化复用了共享 backend 的数组、标量、zeros、eye 与
+  integer-code helper；公开 fit 边界逻辑直接定义在 estimator 上，不再通过 import-time
+  adapter 安装。
+
+### 验证（2026-07-27）— PR #80 后续审查
+
 - exact clean commit 的 P100 产物在 `n=4096`、`p=12` 下记录了同步的
   NumPy/CuPy/Torch 中位时间：continuous Breslow 为 0.1003/0.0367/0.0373 秒，
   continuous Efron 为 0.2316/0.0501/0.0488 秒，heavy-ties Breslow 为
@@ -47,18 +60,28 @@
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`。
   产物明确标注 fresh-process cold-start 未测量，同时分别记录 warm process 中的首次
   fit 与紧接着的 steady-state fit，并说明未计入的初始化或编译成本。
+
+### 优化（2026-07-27）— PR #80 后续审查
+
 - 普通 right-censored Exact ties 在所有 strata 上使用一次分段前缀 DP。带 delayed
   entry 且 strata 数量至少为 8 的 GPU 工作负载可使用受内存门禁保护的全局 batch；
   较小场景使用有界的逐-stratum batch。
+
+### 修复（2026-07-27）— PR #80 后续审查
+
 - strata 在转为整数前会拒绝小数、非有限值和超出 int64 范围的标签，包括过大的
   unsigned 标签；可由 int64 表示的 `uint64` 标签在 NumPy、CuPy、Torch 中均会接受。
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` 支持 `auto`、`native` 和 `channelwise`；
   保守的 `auto` 只在已有实测证据的 Torch 2.0 + Pascal/P100 组合启用分通道扫描。
-- 公开 Cox fit adapter 会保留 packed CuPy/Torch target，重新校验可变的 device 与
+
+- 公开 Cox fit 边界会保留 packed CuPy/Torch target，重新校验可变的 device 与
   boolean control，在 cast 前拒绝 complex prediction 输入，并在 refit 失败后事务性
   清理状态。`inference_mode="approx"` 现明确记录为统一精确推断路径的
   compatibility-only alias；公开 estimator 的 strata 文档也与实际支持的可 factorize
   host 标签保持一致。
+
+### 优化（2026-07-27）— PR #80 后续审查
+
 - `STATGPU_COX_GROUP_MAX_BYTES` 现在会在分配前约束 Breslow/Efron delayed-entry
   failure-group 工作区。若单个 risk set 已超过上限，则使用数值稳定的 backend-native
   row-streaming moment fallback，不再因最小 dense batch size 为 1 而产生无界工作区。
@@ -70,6 +93,11 @@
   边界场景使用了两个 sample tile，普通、counting-process 与 penalized 的全删失评分
   均返回 `0.5`：
   `results/benchmark_frontend_sources/coxph_concordance_boundary_pr80_20260728.json`。
+- ordinary concordance 现在会在当前 backend 上累积全部 tile 计数，并仅在循环结束后
+  批量传输一次标量，不再为每个 tile 触发三次 host synchronization。
+
+### 验证（2026-07-27）— PR #80 后续审查
+
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
   NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
   3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。

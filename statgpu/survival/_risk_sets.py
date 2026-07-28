@@ -17,54 +17,40 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from statgpu.backends._utils import _is_complex_array
+from statgpu.backends import (
+    _get_xp,
+    _resolve_backend,
+    _to_float_scalar,
+    xp_asarray,
+    xp_eye,
+    xp_zeros,
+)
+from statgpu.backends._utils import (
+    _is_complex_array,
+    _normalize_integer_codes,
+)
 from statgpu.survival._concordance import concordance_tile_shape
 
 
-def _backend_name(value: Any) -> str:
-    module = type(value).__module__
-    if module.startswith("cupy"):
-        return "cupy"
-    if module.startswith("torch"):
-        return "torch"
-    return "numpy"
-
-
 def _array_namespace(value: Any):
-    name = _backend_name(value)
-    if name == "cupy":
-        import cupy as cp
-
-        return name, cp
-    if name == "torch":
-        import torch
-
-        return name, torch
-    return name, np
+    name = _resolve_backend("auto", value)
+    return name, _get_xp(name)
 
 
 def _scalar_int(value: Any) -> int:
-    if hasattr(value, "item"):
-        return int(value.item())
-    return int(value)
+    return int(_to_float_scalar(value))
 
 
 def _scalar_bool(value: Any) -> bool:
-    if hasattr(value, "item"):
-        return bool(value.item())
-    return bool(value)
+    return bool(_to_float_scalar(value))
 
 
 def _zeros(backend: str, xp: Any, shape: Tuple[int, ...], like: Any):
-    if backend == "torch":
-        return xp.zeros(shape, dtype=like.dtype, device=like.device)
-    return xp.zeros(shape, dtype=like.dtype)
+    return xp_zeros(shape, like.dtype, xp, ref_arr=like)
 
 
 def _eye(backend: str, xp: Any, n: int, like: Any):
-    if backend == "torch":
-        return xp.eye(n, dtype=like.dtype, device=like.device)
-    return xp.eye(n, dtype=like.dtype)
+    return xp_eye(n, like.dtype, xp, ref_arr=like)
 
 
 def _unique_sorted(values: Any, backend: str, xp: Any):
@@ -126,11 +112,8 @@ def _as_backend_array(
 ):
     if _is_complex_array(value):
         raise ValueError(f"{name} must be real-valued")
-    if backend == "torch":
-        dtype = xp.int64 if integer else like.dtype
-        return xp.as_tensor(value, dtype=dtype, device=like.device)
     dtype = xp.int64 if integer else like.dtype
-    return xp.asarray(value, dtype=dtype)
+    return xp_asarray(value, dtype=dtype, xp=xp, ref_arr=like)
 
 
 def _as_float(mask: Any, backend: str, like: Any):
@@ -1743,53 +1726,17 @@ def prepare_counting_process_inputs(
             if start is None
             else xp.as_tensor(start, dtype=X.dtype, device=X.device)
         )
-        if strata is None:
-            strata = xp.zeros(stop.shape[0], dtype=xp.int64, device=X.device)
-        else:
-            # Torch 2.0 cannot construct a tensor directly from NumPy uint64,
-            # even when every label is representable by int64. Normalize safe
-            # host unsigned inputs before handing them to Torch.
-            if not xp.is_tensor(strata):
-                try:
-                    strata_host = np.asarray(strata)
-                except (TypeError, ValueError):
-                    strata_host = None
-                if strata_host is not None and strata_host.dtype.kind == "u":
-                    if np.any(strata_host > np.iinfo(np.int64).max):
-                        raise ValueError(
-                            "strata must contain integer-valued labels within "
-                            "int64 range"
-                        )
-                    strata = strata_host.astype(np.int64, copy=False)
-            try:
-                strata_raw = xp.as_tensor(strata, device=X.device)
-            except (TypeError, ValueError, RuntimeError, OverflowError) as exc:
-                raise ValueError(
-                    "strata must contain integer-valued labels within int64 range"
-                ) from exc
-            if strata_raw.ndim != 1 or int(strata_raw.shape[0]) != int(stop.shape[0]):
-                raise ValueError("strata must have shape (n_samples,)")
-            if strata_raw.is_complex():
-                raise ValueError("strata must contain integer-valued labels")
-            if strata_raw.is_floating_point():
-                invalid = (
-                    ~xp.isfinite(strata_raw)
-                    | (strata_raw != xp.round(strata_raw))
-                    | (strata_raw < -float(1 << 63))
-                    | (strata_raw >= float(1 << 63))
-                )
-                if _scalar_bool(xp.any(invalid)):
-                    raise ValueError(
-                        "strata must contain finite integer-valued labels "
-                        "within int64 range"
-                    )
-            elif str(strata_raw.dtype).rsplit(".", 1)[-1].startswith("uint"):
-                if _scalar_bool(xp.any(strata_raw > (1 << 63) - 1)):
-                    raise ValueError(
-                        "strata must contain integer-valued labels within "
-                        "int64 range"
-                    )
-            strata = strata_raw.to(dtype=xp.int64)
+        strata = (
+            xp.zeros(stop.shape[0], dtype=xp.int64, device=X.device)
+            if strata is None
+            else _normalize_integer_codes(
+                strata,
+                xp=xp,
+                ref_arr=X,
+                expected_size=int(stop.shape[0]),
+                name="strata",
+            )
+        )
     else:
         X = xp.asarray(X, dtype=xp.float64)
         stop = xp.asarray(stop, dtype=xp.float64)
@@ -1799,34 +1746,17 @@ def prepare_counting_process_inputs(
             if start is None
             else xp.asarray(start, dtype=xp.float64)
         )
-        if strata is None:
-            strata = xp.zeros(stop.shape[0], dtype=xp.int64)
-        else:
-            strata_raw = xp.asarray(strata)
-            if strata_raw.ndim != 1 or int(strata_raw.shape[0]) != int(stop.shape[0]):
-                raise ValueError("strata must have shape (n_samples,)")
-            kind = strata_raw.dtype.kind
-            if kind not in "biuf":
-                raise ValueError("strata must contain numeric integer-valued labels")
-            if kind == "f":
-                invalid = (
-                    ~xp.isfinite(strata_raw)
-                    | (strata_raw != xp.rint(strata_raw))
-                    | (strata_raw < -float(1 << 63))
-                    | (strata_raw >= float(1 << 63))
-                )
-                if _scalar_bool(xp.any(invalid)):
-                    raise ValueError(
-                        "strata must contain finite integer-valued labels "
-                        "within int64 range"
-                    )
-            elif kind == "u" and _scalar_bool(
-                xp.any(strata_raw > (1 << 63) - 1)
-            ):
-                raise ValueError(
-                    "strata must contain integer-valued labels within int64 range"
-                )
-            strata = strata_raw.astype(xp.int64, copy=False)
+        strata = (
+            xp.zeros(stop.shape[0], dtype=xp.int64)
+            if strata is None
+            else _normalize_integer_codes(
+                strata,
+                xp=xp,
+                ref_arr=X,
+                expected_size=int(stop.shape[0]),
+                name="strata",
+            )
+        )
     _validate_counting_process_inputs(
         X, stop, event, start, strata, require_event=bool(require_event)
     )
@@ -2179,11 +2109,13 @@ def counting_process_concordance(
         else:
             subject_id = xp.arange(X.shape[0], dtype=xp.int64)
     else:
-        subject_id = _as_backend_array(
-            subject_id, backend, xp, X, integer=True
+        subject_id = _normalize_integer_codes(
+            subject_id,
+            xp=xp,
+            ref_arr=X,
+            expected_size=int(X.shape[0]),
+            name="subject_id",
         ).reshape(-1)
-        if int(subject_id.shape[0]) != int(X.shape[0]):
-            raise ValueError("subject_id must have shape (n_samples,)")
 
     X_centered = _center_within_strata(X, strata, backend, xp)
     risk_score = X_centered @ beta
@@ -2227,8 +2159,8 @@ def counting_process_concordance(
             tied = tied + _sum(
                 comparison & (risk_i == risk_j), backend, xp
             )
-    if _scalar_bool(permissible == 0):
-        if backend == "torch":
-            return xp.as_tensor(0.5, dtype=X.dtype, device=X.device)
-        return xp.asarray(0.5, dtype=X.dtype)
-    return (concordant + 0.5 * tied) / permissible
+    no_pairs = permissible == 0
+    safe_permissible = permissible + _as_float(no_pairs, backend, X)
+    value = (concordant + 0.5 * tied) / safe_permissible
+    neutral = xp_asarray(0.5, dtype=X.dtype, xp=xp, ref_arr=X)
+    return xp.where(no_pairs, neutral, value)

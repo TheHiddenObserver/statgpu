@@ -7,7 +7,7 @@
 
 ## 2026-07
 
-### Fixed and optimized (2026-07-27) — PR #80 follow-up review
+### Fixed (2026-07-27) — PR #80 follow-up review
 
 - Penalized Cox SCAD/MCP now preprocesses, sorts, and transfers survival-group
   metadata once per fit. FISTA-LLA uses a gradient-only hot path, performs its
@@ -43,6 +43,22 @@
   propagate, while singular null information is recorded explicitly. Both
   ordinary and counting-process concordance return `0.5` when no comparable
   pair exists.
+
+- `CoxPH(gpu_memory_cleanup=True)` now runs both allocator cleanup hooks after
+  every public prediction and scoring call, including exceptional exits.
+  Summaries report the actual matrix or formula interface and the fitted
+  counting-process, strata, subject, cluster, and ties metadata instead of a
+  synthetic R call. Canonical Cox and final `CoxPHCV` refits now publish the
+  shared `ParameterInferenceResult` contract and its parameter, z, p-value,
+  and confidence-interval fields.
+- Low-level concordance validates `subject_id` as finite, exactly integral
+  int64 codes before conversion. Survival risk-set normalization reuses the
+  shared backend array, scalar, zeros, eye, and integer-code helpers; public
+  fit boundary handling is defined directly on the estimator rather than
+  installed by an import-time adapter.
+
+### Validation (2026-07-27) — PR #80 follow-up review
+
 - The exact clean-commit P100 artifact at `n=4096`, `p=12` records synchronized
   NumPy/CuPy/Torch medians of 0.1003/0.0367/0.0373 seconds for continuous
   Breslow, 0.2316/0.0501/0.0488 for continuous Efron,
@@ -58,21 +74,31 @@
   It labels fresh-process cold-start timing as unmeasured, records both the
   first fit in the warmed process and the immediately repeated steady-state
   fit, and states which initialization or compilation costs are excluded.
+
+### Optimized (2026-07-27) — PR #80 follow-up review
+
 - Ordinary right-censored Exact ties now use one segmented prefix DP across all
   strata. Delayed-entry GPU workloads with at least eight strata can use one
   memory-gated global batch; smaller cases use bounded per-stratum batches.
+
+### Fixed (2026-07-27) — PR #80 follow-up review
+
 - Fractional, non-finite, or out-of-int64-range strata are rejected before
   integer conversion, including oversized unsigned labels; representable
   `uint64` labels are accepted consistently by NumPy, CuPy, and Torch.
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` selects `auto`, `native`, or
   `channelwise`; conservative `auto` enables the split scan only on the
   benchmarked Torch 2.0 + Pascal/P100 combination.
-- Public Cox fit adapters preserve packed CuPy/Torch targets, revalidate mutable
+
+- Public Cox fit boundaries preserve packed CuPy/Torch targets, revalidate mutable
   device and boolean controls, reject complex prediction inputs before casting,
   and transactionally clear failed-refit state. `inference_mode="approx"` is
   documented as a compatibility-only alias for the exact unified inference
   path, and public estimators document their broader factorized host-label
   support for strata.
+
+### Optimized (2026-07-27) — PR #80 follow-up review
+
 - `STATGPU_COX_GROUP_MAX_BYTES` now gates the Breslow/Efron delayed-entry
   failure-group workspace before allocation. An oversized single risk set uses
   a stable backend-native row-streaming moment fallback rather than allocating
@@ -85,6 +111,12 @@
   ceiling; the physical `n=2,000,001` boundary used two sample tiles, while
   ordinary, counting-process, and penalized all-censored scoring returned `0.5`:
   `results/benchmark_frontend_sources/coxph_concordance_boundary_pr80_20260728.json`.
+- Ordinary concordance now accumulates all tile counts on the active backend
+  and performs one batched scalar transfer after the loop, instead of three
+  host synchronizations per tile.
+
+### Validation (2026-07-27) — PR #80 follow-up review
+
 - The maintained delayed-entry + 3-strata P100 benchmark reached
   NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
   3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new

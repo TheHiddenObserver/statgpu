@@ -1,133 +1,176 @@
-# PR #80 Review-Fix Cycle Addendum — 2026-07-28
+# PR #80 Review-Fix Cycle — 2026-07-28
 
-This addendum supersedes the `Current ... SHA-256` metadata and the unconditional
-`COMPLETE` status at the top of `dev/reviews/pr80_review_fix.md` for source
-changes made after its recorded boundary/workspace artifact.
+This report supersedes the unconditional completion statement in the earlier
+PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
-## Reviewed source
+## Hard exit status
 
-- Earlier complete-review head: `1e1a139770d33e27692f6f1cf2719e0815d9ec68`
-- Latest user-updated head for this follow-up: `26dc26ea38fe2abf16b7fe9fc4659049572275cc`
-- Exact-source production, test, and P100 runner head: `d551039b43ab4f95026e61bf2ccb3e7a112a1450`
-- Compatibility target: `master` at `7ccf6163d30a9078bf80107c4d16e08943a56a1e`
+**BLOCKED_NEEDS_USER_APPROVAL.** All active local gates pass at the
+`local-full` tier. Producing exact-source physical-GPU evidence requires a clean
+commit, and commit/push/remote execution require explicit user authorization.
+No commit, push, PR update, merge, or release action is claimed by this report.
 
-## Findings closed before the complete review
+## Reviewed source and mode
 
-1. **Constructor boolean coercion.** `CoxPH` converted truthy strings such as
-   `compute_cindex="False"` and `gpu_memory_cleanup="False"` with `bool(...)`,
-   making them `True` before fit-time validation could reject them. Public
-   `CoxPH` and `CoxPHCV` constructors now accept only actual booleans or integer
-   `0`/`1` controls and reject truthy strings before constructor coercion.
-2. **Wide delayed-entry workspace underestimation.** The dense Breslow/Efron
-   workspace estimator counted row-scalar and `p x p` tensors but omitted the
-   possible `n x p` weighted-design intermediate used by optimized three-operand
-   `einsum` contraction paths. The estimate now conservatively includes two
-   row-feature buffers so wide models select the row-streaming fallback before
-   exceeding `STATGPU_COX_GROUP_MAX_BYTES`.
-3. **Coverage gaps.** Regression gates cover constructor boundaries, signature
-   preservation, the wide-model estimate, and forced row-streaming parity for
-   Breslow/Efron with delayed entry, multiple failure times, multiple strata,
-   score residuals, and log-likelihood-only evaluation.
+- Remote and local starting head:
+  `f17d83fcce3c17fdb7546ac1d844e56efe66935a`.
+- Review mode: `.claude/skills/code-review.md` `auto-fix`.
+- Development contract: `.claude/workflows/new-module-dev.md`.
+- Repository conventions: `dev/AGENTS.md`.
+- Current fixes are an uncommitted worktree diff over the starting head.
 
-## Findings closed in the complete review
+## Impact classification
 
-1. **[MEDIUM][MEMORY] Ordinary public concordance workspace.**
-   `statgpu/survival/_cox_score.py` allowed one chunk to contain 128 million
-   event-by-row pair entries. Several boolean pair matrices can coexist, so a
-   public `score()` call could allocate several hundred MiB even though the
-   shared counting-process concordance path used a two-million-entry bound.
-   The ordinary path now uses the same two-million-entry ceiling through a
-   separately tested batch-size helper.
-2. **[MEDIUM][API/CORRECTNESS] All-censored scoring inconsistency.** Ordinary
-   right-censored `CoxPH.score()` returned the neutral C-index `0.5` for an
-   all-censored scoring set, while start-stop, stratified, subject-grouped, and
-   penalized-Cox scoring reached fit-oriented validation and raised
-   `at least one observed event is required`. The counting-process input
-   normalizer now retains event-required validation by default but allows the
-   concordance-only caller to set `require_event=False`. Likelihood, fitting,
-   baseline, and loss APIs still require at least one event.
-3. **[MEDIUM][PERFORMANCE] Hidden final-refit C-index in `CoxPHCV`.** Fold
-   candidates already disabled training concordance, but the selected full-data
-   refit inherited `CoxPH(compute_cindex=True)`. This added an unrequested
-   pairwise pass after cross-validation even though `CoxPHCV.score()` computes
-   evaluation concordance on demand. The final estimator now explicitly uses
-   `compute_cindex=False`; its public score contract is unchanged.
-4. **[MEDIUM][API] Penalized-Cox truthy-string booleans.**
-   `PenalizedCoxPHModel` still accepted strings for `gpu_memory_cleanup`,
-   `compute_inference`, and `lla`, interpreting nonempty strings as true in
-   downstream control flow. Constructor and `set_params` boundaries now accept
-   only actual booleans or integer `0`/`1`, while preserving the supplied 0/1
-   objects for sklearn clone identity checks. The no-intercept contract uses the
-   same validation.
-5. **[TEST] New complete-review gates.**
-   `dev/tests/test_pr80_complete_review_cycle.py` covers the bounded ordinary
-   pair workspace, neutral all-censored scoring through ordinary/counting and
-   penalized APIs, NumPy/CuPy/Torch counting-concordance parametrization,
-   `CoxPHCV` final-refit behavior, penalized constructor/set-parameter rejection,
-   and sklearn clone compatibility. The file is part of the maintained Python
-   3.9–3.12 regression matrix.
-6. **[MEDIUM][PERFORMANCE] The concordance pair ceiling was not a hard cap.**
-   The prior event-only batching forced a minimum batch size of one. For more
-   than two million scoring rows, one event could therefore still allocate a
-   comparison matrix wider than the documented two-million-entry limit in both
-   ordinary and counting-process scoring. A shared two-dimensional event/row
-   tile helper now guarantees `event_tile * sample_tile <= 2,000,000`, including
-   the one-event, `n > 2,000,000` case. Forced tiny-tile tests verify numerical
-   parity for both scoring implementations, and structural tests cover up to
-   20 million rows without allocating the full comparison matrix.
-7. **[MEDIUM][ARTIFACT] Final-source physical-GPU evidence was stale.**
-   The earlier artifact predated the wide-workspace estimate, public boundary
-   wrapper, final-refit C-index change, and concordance hard-cap correction. The
-   schema-v3 refresh now hashes every affected Cox source, runner, and targeted
-   regression file; records the exact clean commit and the physical pytest
-   command/result; and exercises the hard-cap boundary on an actual
-   2,000,001-row GPU scoring input.
+| Axis | Status | Reason |
+| --- | --- | --- |
+| Public API | active | prediction/scoring cleanup, summary metadata, errors |
+| Backend | active | shared backend helpers, dtype/device normalization, synchronization |
+| Survival | active | Cox risk-set and concordance primitives |
+| Inference | active | shared result container and estimator state |
+| CV | active | `CoxPHCV` final-refit inference propagation |
+| Formula | active | summary must preserve the fitted formula contract |
+| Benchmark/performance | active | ordinary concordance synchronization changed |
+| Docs/process | active | changelog categories and completion matrix |
+| Loss, penalty, solver | inactive | no loss definition, penalty rule, or optimizer step changed |
 
-## Validation
+## Capability decisions
 
-GitHub Actions run `30336940628` (run number 719) passed after the production
-fixes, and run `30337146649` (run number 720) passed after adding the explicit
-three-backend concordance regression:
+| Component | Backend | CV | Inference | Formula | Benchmark |
+| --- | --- | --- | --- | --- | --- |
+| `CoxPH` | three-backend | non-tunable | supported | supported | required |
+| `CoxPHCV` | three-backend | supported | supported after final refit | matrix-facing wrapper | required |
+| counting-process concordance | three-backend | non-tunable | estimation metric | not formula-facing | required |
 
-- full CPU test tree;
-- Python 3.9, 3.10, 3.11, and 3.12 regression matrices;
-- static/compile contracts and complete test collection;
-- documentation contracts.
+## Public and architecture-specific matrix
 
-Temporary write-enabled patch workflow, patch script, and trigger files were
-removed before these final validation heads. The follow-up diff from
-`26dc26ea38fe2abf16b7fe9fc4659049572275cc` through the tested source commit
-contains only the shared concordance tile helper, its two scoring integrations,
-regressions, maintained CI registration, and the expanded evidence runner.
+| Contract | NumPy | CuPy | Torch | Evidence |
+| --- | --- | --- | --- | --- |
+| public predict/score cleanup, success and failure | passed | test collected; physical pending | test collected; physical pending | `test_pr80_completion_contract_followup.py` |
+| truthful matrix/formula summary | passed | backend-neutral | backend-neutral | matrix plus `Surv(start, stop, event)`, categorical interaction, strata |
+| `ParameterInferenceResult` state | passed | test collected; physical pending | test collected; physical pending | direct Cox and CV final refit |
+| fractional/non-finite/overflow `subject_id` rejection | passed | test collected; physical pending | test collected; physical pending | low-level concordance tests |
+| representable host `uint64` codes | passed | test collected; physical pending | test collected; physical pending | low-level concordance tests |
+| one post-loop C-index scalar synchronization | passed | test collected; physical pending | test collected; physical pending | forced 1-by-2 tile counter |
+| public fit isolation from legacy methods | passed | same canonical dispatcher | same canonical dispatcher | legacy methods monkeypatched to fail |
 
-The exact-source follow-up additionally passed the full local CPU suite
-(`1425 passed, 414 skipped`), the focused PR #80/risk/penalized suite
-(`205 passed, 135 skipped`), the Cox phase/CV suite (`103 passed, 10 skipped`),
-documentation contracts for 122 maintained files, compilation, and diff checks.
+CuPy and Torch are unavailable on the local Windows runner. Their active tests
+are parameterized, collected, and included in the maintained P100 runner; they
+are not reported as physically executed in this uncommitted state.
 
-## Physical-GPU evidence
+## Objective scaling, precision, convergence, and formula
 
-The schema-v3 P100 artifact
-`results/benchmark_frontend_sources/coxph_concordance_boundary_pr80_20260728.json`
-was generated from clean detached commit
-`d551039b43ab4f95026e61bf2ccb3e7a112a1450` on a Tesla P100-SXM2-16GB with
-CuPy 13.6.0 and Torch 2.0.0+cu117. It records `gate_failures=[]`, source hashes
-for every affected Cox implementation and test file, and a machine-readable
-physical-GPU pytest result of `121 passed in 8.89s` under
-`STATGPU_REQUIRE_PHYSICAL_GPU=1`.
+- The Cox partial log-likelihood remains the sum of event contributions from
+  the shared counting-process objective. This review does not change its
+  statistical definition.
+- Ridge fitting remains
+  `log_partial_likelihood - penalty * ||beta||^2`, with score adjustment
+  `-2 * penalty * beta`. There is no new sample-count normalization or external
+  penalty remapping in this cycle.
+- Formula construction remains Patsy-based with the Cox intercept removed.
+  The added summary regression preserves the exact
+  `Surv(start, stop, event)` formula string, categorical term, interaction,
+  strata flag, and counting-process flag.
+- Existing coefficient, objective, information, KKT, R-alignment, and
+  convergence gates remain green in the complete local suite. New inference
+  tests require finite parameters, standard errors, z statistics, p-values,
+  confidence intervals, and shared-result parity.
 
-Both GPU backends selected row streaming for the wide `n=4096`, `p=128`,
-8 MiB workspace case and matched NumPy within `4.441e-15`. Public ordinary,
-counting-process, and penalized all-censored scoring each returned `0.5`; the
-CV final refit skipped hidden training concordance; complex prediction and
-truthy-string boundaries were rejected. The actual `n=2,000,001` concordance
-case used one event tile and two row tiles, with a maximum of exactly 2,000,000
-pair entries per tile. The local artifact SHA-256 is
-`682f6e8507d082a07393c68641079ff4df007963f4b20bccaeb28a28b5fdd536`.
+## Findings
 
-## Exit status
+[MEDIUM][API/PERF][fixed] statgpu/survival/_cox.py:35 - GPU cleanup did not cover public Cox prediction and scoring.
+Impact: allocator pools could retain large temporary tiles during the estimator lifetime.
+Fix: a shared `try/finally` decorator now covers hazard, risk, survival, and score methods; `predict()` delegates to the decorated hazard method.
+Evidence: success and exception-path mock tests at `dev/tests/test_pr80_completion_contract_followup.py:43` and `:63`.
 
-**COMPLETE REVIEW: APPROVE FROM SOURCE/CORRECTNESS PERSPECTIVE.**
+[MEDIUM][BUG/API][fixed] statgpu/survival/_cox.py:5438 - `summary()` printed a synthetic fixed R call.
+Impact: matrix, start-stop, strata, subject, and formula fits produced misleading reproduction metadata.
+Fix: fit stores structured call metadata and summary renders only the actual interface and supported flags.
+Evidence: matrix and formula summary tests at `dev/tests/test_pr80_completion_contract_followup.py:83` and `:108`.
 
-No unresolved CRITICAL, HIGH, or actionable MEDIUM finding remains in the
-reviewed scope. PR merge and release remain outside this review-fix cycle.
+[MEDIUM][BACKEND/MAINT][fixed] statgpu/survival/_risk_sets.py:35 - survival duplicated generic backend primitives.
+Impact: device, dtype, scalar, and array rules could drift from the shared backend layer.
+Fix: risk-set normalization now reuses shared backend resolution, namespace, scalar, zeros, eye, cast, and integer-code helpers; canonical fit uses one `BackendBase` object.
+Evidence: complete local suite, three-backend parameterization, and source guard against direct CuPy/Torch imports in the canonical dispatcher.
+
+[MEDIUM][INFER/MAINT][fixed] statgpu/survival/_cox.py:1474 - canonical inference did not publish the shared result contract.
+Impact: `_params`, `_tvalues`, serialization, and final-CV-refit state diverged from other inferential estimators.
+Fix: Cox constructs and applies `ParameterInferenceResult`, uses `norm.ppf(0.975)`, and CV copies the shared result and public inference arrays.
+Evidence: direct and CV inference tests at `dev/tests/test_pr80_completion_contract_followup.py:138` and `:167`.
+
+[MEDIUM][BUG/INTERNAL][fixed] statgpu/survival/_risk_sets.py:2112 - low-level concordance silently truncated fractional `subject_id` values.
+Impact: distinct subjects could be merged and valid comparison pairs incorrectly removed.
+Fix: shared integer-code normalization rejects complex, nonnumeric, fractional, non-finite, and out-of-int64 inputs before conversion while accepting safe host `uint64` values.
+Evidence: three-backend cases at `dev/tests/test_pr80_completion_contract_followup.py:217` and `:238`.
+
+[MEDIUM][MAINT/EXT][deferred] statgpu/survival/_cox.py:1520 - canonical and legacy Cox reference implementations still coexist.
+Impact: the 5,500-line module remains difficult to extend and inactive code can attract misplaced fixes.
+Fix: the public path is explicitly marked canonical, import-time method replacement was removed, and a test makes every legacy entry point fail while public fit succeeds.
+Evidence: `dev/tests/test_pr80_completion_contract_followup.py:290` and call-site search show legacy-only internal calls.
+Deferred work: move reference implementations to `_cox_legacy.py` or remove them in a dedicated refactor; doing that inside this correctness cycle would create a large, high-risk deletion unrelated to public behavior.
+
+[MEDIUM][DOC/PROCESS][fixed] dev/reviews/pr80_review_fix_cycle_2026-07-28.md:1 - the completion report lacked required workflow decisions and used invalid changelog categories.
+Impact: prior approval wording did not demonstrate the active capability and validation matrix.
+Fix: this report records impact, capability, backend, CV, inference, formula, scaling, performance, review, skipped work, and hard status; bilingual changelogs use only Fixed/Optimized/Validation categories for this cycle.
+Evidence: documentation contracts pass for 122 maintained files.
+
+[LOW][PERF][fixed] statgpu/survival/_cox_score.py:181 - ordinary concordance synchronized three scalars per tile.
+Impact: many-event GPU scoring could become synchronization-bound.
+Fix: all three counts remain backend-native through the tile loop and `_sync_scalars` performs one stacked device-to-host transfer after the loop.
+Evidence: forced tiny tiles preserve the exact result and record one three-value synchronization at `dev/tests/test_pr80_completion_contract_followup.py:261`.
+
+## Performance and physical evidence plan
+
+No new timing claim is made from the local CPU run. The performance contract is
+structural: one ordinary-concordance host synchronization per score call. The
+schema-v4 maintained runner adds a physical `completion_contract` case for both
+CuPy and Torch covering cleanup, complex rejection, summary metadata,
+`subject_id`, one-sync scoring, inference results, backend reuse, and absence of
+the import-time adapter.
+
+After explicit commit/remote authorization, run from a clean detached commit:
+
+```text
+/root/miniconda3/envs/myconda/bin/python dev/benchmarks/benchmark_cox_boundary_gpu.py \
+  --output results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json \
+  --run-targeted-tests
+```
+
+The resulting artifact must report the exact commit, clean source state,
+source hashes, CuPy/Torch versions and GPU, targeted pytest result, every case
+as passed, and `gate_failures=[]` before this report can advance to
+`remote-full`.
+
+## Local validation
+
+- Complete CPU tree, split only to stay inside the command time limit:
+  `900 passed, 235 skipped` plus `538 passed, 199 skipped`; aggregate
+  `1438 passed, 434 skipped`.
+- Focused Cox/PR80 matrix: `262 passed, 148 skipped`.
+- Documentation links: zero affected files.
+- Documentation contracts: 122 maintained files passed.
+- `compileall`, benchmark CLI parsing, `git diff --check`, and `pyflakes` on all
+  changed Python files passed.
+- The earlier one-command full-tree run also reached `1438 passed, 434 skipped`
+  before the shell wrapper timeout; the two split runs provide clean exit codes.
+
+## Changed files
+
+- `.github/workflows/test.yml`
+- `CHANGELOG.md`
+- `dev/benchmarks/benchmark_cox_boundary_gpu.py`
+- `dev/reviews/pr80_review_fix_cycle_2026-07-28.md`
+- `dev/tests/test_pr80_completion_contract_followup.py`
+- `docs/en/changelog.md`, `docs/cn/changelog.md`
+- `statgpu/backends/_array_ops.py`, `statgpu/backends/_utils.py`
+- `statgpu/survival/__init__.py`, `_cox.py`, `_cox_cv.py`,
+  `_cox_fit_adapter.py`, `_cox_score.py`, `_risk_sets.py`
+
+## Skipped and deferred work
+
+- Exact-source CuPy/Torch physical execution is pending explicit authorization
+  for the prerequisite commit and remote run.
+- GitHub Actions and push are not run without explicit authorization.
+- Extraction/deletion of the legacy Cox reference block is recorded as a
+  non-blocking MEDIUM maintenance follow-up, not misreported as closed.
+- `inference_mode="approx"` remains the documented compatibility-only no-op;
+  changing or removing that public option is outside this cycle.

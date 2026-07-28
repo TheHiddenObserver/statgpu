@@ -6,6 +6,7 @@ counting-process risk sets, and Newton-Raphson optimization.
 """
 
 from typing import Optional, Union
+from functools import wraps
 import numbers
 import os
 import numpy as np
@@ -15,6 +16,12 @@ from statgpu._config import Device
 from statgpu.backends import _to_float_scalar
 from statgpu.backends._utils import _require_real_array
 from statgpu.inference._distributions_backend import chi2, norm
+from statgpu.inference._results import ParameterInferenceResult
+from statgpu.survival._cox_fit_adapter import (
+    _is_native_backend_array,
+    _normalize_boolean_control,
+    _normalize_mutable_fit_controls,
+)
 from statgpu.survival._cox_counting import (
     _is_singular_linalg_error,
     _score_test_statistic,
@@ -23,6 +30,19 @@ from statgpu.survival._cox_counting import (
 
 
 _DEFAULT_BRESLOW_HESSIAN_MAX_BYTES = 512 * 1024 * 1024
+
+
+def _cleanup_after_public_gpu_work(method):
+    """Run both estimator cleanup hooks after public prediction/scoring work."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+
+    return wrapped
 
 
 def _breslow_hessian_max_bytes():
@@ -405,6 +425,14 @@ class CoxPH(BaseEstimator):
     """
 
     _estimator_type = "regressor"
+    _canonical_fit_path = "counting_process"
+    _legacy_reference_methods = (
+        "_fit_cpu",
+        "_fit_gpu",
+        "_fit_torch",
+        "_compute_inference_cpu",
+        "_compute_cindex",
+    )
 
     def __sklearn_tags__(self):
         """Expose sklearn tags for packed two/three-column survival targets."""
@@ -439,6 +467,12 @@ class CoxPH(BaseEstimator):
         penalty: float = 0.0,
         inference_mode: str = 'strict',
     ):
+        for name, value in (
+            ("compute_inference", compute_inference),
+            ("compute_cindex", compute_cindex),
+            ("gpu_memory_cleanup", gpu_memory_cleanup),
+        ):
+            _normalize_boolean_control(value, name)
         super().__init__(device=device, n_jobs=n_jobs)
         ties_normalized = str(ties).lower()
         cov_type_normalized = str(cov_type).lower()
@@ -495,8 +529,11 @@ class CoxPH(BaseEstimator):
         self._nevents = None
         self._bse = None
         self._zvalues = None
+        self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._params = None
+        self._inference_result = None
         self._log_likelihood = None
         self._log_likelihood_null = None
         self._iterations = 0
@@ -549,6 +586,7 @@ class CoxPH(BaseEstimator):
         self._strata_labels = None
         self._subject_id = None
         self._is_counting_process = False
+        self._fit_call = None
         self._stop_reason = None
         self._objective_history = None
 
@@ -570,8 +608,11 @@ class CoxPH(BaseEstimator):
         self._nevents = None
         self._bse = None
         self._zvalues = None
+        self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._params = None
+        self._inference_result = None
         self._log_likelihood = None
         self._log_likelihood_null = None
         self._iterations = 0
@@ -614,6 +655,7 @@ class CoxPH(BaseEstimator):
         self._strata_labels = None
         self._subject_id = None
         self._is_counting_process = False
+        self._fit_call = None
         self._stop_reason = None
         self._objective_history = None
 
@@ -733,7 +775,15 @@ class CoxPH(BaseEstimator):
         """Fit and clear all state if validation or inference fails."""
         self._reset_fit_state()
         try:
-            self._validate_optimization_controls()
+            _normalize_mutable_fit_controls(self)
+            if formula is None and X is not None:
+                x_shape = getattr(X, "shape", None)
+                if x_shape is None:
+                    x_shape = np.asarray(X).shape
+                if len(x_shape) not in (1, 2):
+                    raise ValueError("X must be a one- or two-dimensional array")
+                if len(x_shape) == 2 and int(x_shape[1]) < 1:
+                    raise ValueError("X must contain at least one feature")
             _require_real_array(X, "X")
             if formula is None and event is None and time is not None:
                 _require_real_array(time, "packed survival target")
@@ -744,7 +794,9 @@ class CoxPH(BaseEstimator):
             _require_real_array(start, "start")
             _require_real_array(init_coef, "init_coef")
             if formula is None and event is None and time is not None:
-                target = np.asarray(self._to_numpy(time), dtype=np.float64)
+                target = time
+                if not _is_native_backend_array(target):
+                    target = np.asarray(target)
                 if target.ndim != 2 or target.shape[1] not in (2, 3):
                     raise ValueError(
                         "When event is omitted, time must be a survival target "
@@ -776,6 +828,8 @@ class CoxPH(BaseEstimator):
                 strata=strata,
                 subject_id=subject_id,
             )
+            if not self._is_counting_process:
+                self._entry = None
             coef = np.asarray(self.coef_, dtype=np.float64)
             if not np.all(np.isfinite(coef)) or not np.isfinite(
                 self._log_likelihood
@@ -966,6 +1020,15 @@ class CoxPH(BaseEstimator):
         _require_real_array(event, "event")
         _require_real_array(entry, "entry/start")
         _require_real_array(init_coef, "init_coef")
+        self._fit_call = {
+            "interface": "formula" if formula is not None else "matrix",
+            "formula": None if formula is None else str(formula),
+            "counting_process": entry is not None or subject_id is not None,
+            "stratified": strata is not None,
+            "subject_grouped": subject_id is not None,
+            "clustered": cluster is not None,
+            "ties": self.ties,
+        }
         device = self._get_compute_device()
 
         # The shared counting-process objective is the canonical implementation
@@ -1103,86 +1166,43 @@ class CoxPH(BaseEstimator):
                 "use cov_type='nonrobust'"
             )
 
-        if device == Device.CUDA:
-            import cupy as xp
-
-            Xb = xp.asarray(self._to_array(X), dtype=xp.float64)
-            stopb = xp.asarray(self._to_array(time), dtype=xp.float64)
-            eventb = xp.asarray(self._to_array(event), dtype=xp.float64)
-            startb = (
-                xp.zeros_like(stopb)
-                if entry is None
-                else xp.asarray(self._to_array(entry), dtype=xp.float64)
+        backend_name = {
+            Device.CPU: "numpy",
+            Device.CUDA: "cupy",
+            Device.TORCH: "torch",
+        }[device]
+        compute_backend = self._get_backend(backend=backend_name)
+        backend = compute_backend.name
+        xp = compute_backend.xp
+        Xb = compute_backend.asarray(X, dtype=compute_backend.float64)
+        stopb = compute_backend.asarray(time, dtype=compute_backend.float64)
+        eventb = compute_backend.asarray(event, dtype=compute_backend.float64)
+        startb = (
+            compute_backend.zeros(stopb.shape, dtype=compute_backend.float64)
+            if entry is None
+            else compute_backend.asarray(entry, dtype=compute_backend.float64)
+        )
+        stratab = (
+            compute_backend.zeros((n_samples,), dtype=compute_backend.int64)
+            if strata_encoded is None
+            else compute_backend.asarray(
+                strata_encoded, dtype=compute_backend.int64
             )
-            stratab = (
-                xp.zeros(n_samples, dtype=xp.int64)
-                if strata_encoded is None
-                else xp.asarray(strata_encoded, dtype=xp.int64)
+        )
+        clusterb = (
+            None
+            if cluster_encoded is None
+            else compute_backend.asarray(
+                cluster_encoded, dtype=compute_backend.int64
             )
-            clusterb = (
-                None
-                if cluster_encoded is None
-                else xp.asarray(cluster_encoded, dtype=xp.int64)
+        )
+        subjectb = (
+            None
+            if subject_encoded is None
+            else compute_backend.asarray(
+                subject_encoded, dtype=compute_backend.int64
             )
-            subjectb = (
-                None
-                if subject_encoded is None
-                else xp.asarray(subject_encoded, dtype=xp.int64)
-            )
-            backend = "cupy"
-        elif device == Device.TORCH:
-            import torch as xp
-
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(dtype=xp.float64)
-            stopb = self._to_array(time, Device.TORCH, backend="torch").to(dtype=xp.float64)
-            eventb = self._to_array(event, Device.TORCH, backend="torch").to(dtype=xp.float64)
-            startb = (
-                xp.zeros_like(stopb)
-                if entry is None
-                else self._to_array(entry, Device.TORCH, backend="torch").to(dtype=xp.float64)
-            )
-            stratab = (
-                xp.zeros(n_samples, dtype=xp.int64, device=Xb.device)
-                if strata_encoded is None
-                else xp.as_tensor(strata_encoded, dtype=xp.int64, device=Xb.device)
-            )
-            clusterb = (
-                None
-                if cluster_encoded is None
-                else xp.as_tensor(cluster_encoded, dtype=xp.int64, device=Xb.device)
-            )
-            subjectb = (
-                None
-                if subject_encoded is None
-                else xp.as_tensor(subject_encoded, dtype=xp.int64, device=Xb.device)
-            )
-            backend = "torch"
-        else:
-            xp = np
-            Xb = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
-            stopb = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
-            eventb = np.asarray(self._to_array(event, Device.CPU), dtype=np.float64)
-            startb = (
-                np.zeros_like(stopb)
-                if entry is None
-                else np.asarray(self._to_array(entry, Device.CPU), dtype=np.float64)
-            )
-            stratab = (
-                np.zeros(n_samples, dtype=np.int64)
-                if strata_encoded is None
-                else np.asarray(strata_encoded, dtype=np.int64)
-            )
-            clusterb = (
-                None
-                if cluster_encoded is None
-                else np.asarray(cluster_encoded, dtype=np.int64)
-            )
-            subjectb = (
-                None
-                if subject_encoded is None
-                else np.asarray(subject_encoded, dtype=np.int64)
-            )
-            backend = "numpy"
+        )
 
         if Xb.ndim == 1:
             Xb = Xb.reshape(-1, 1)
@@ -1219,17 +1239,8 @@ class CoxPH(BaseEstimator):
             ),
         )
 
-        def to_numpy(value):
-            if backend == "cupy":
-                return xp.asnumpy(value)
-            if backend == "torch":
-                return value.detach().cpu().numpy()
-            return np.asarray(value)
-
-        def scalar(value):
-            if hasattr(value, "item"):
-                return float(value.item())
-            return float(value)
+        to_numpy = compute_backend.to_numpy
+        scalar = _to_float_scalar
 
         self.coef_ = to_numpy(result["coef"]).astype(np.float64, copy=False)
         self.hazard_ratios_ = np.exp(self.coef_)
@@ -1268,12 +1279,9 @@ class CoxPH(BaseEstimator):
 
         information = result["information"]
         if self.penalty > 0:
-            if backend == "torch":
-                identity = xp.eye(
-                    information.shape[0], dtype=information.dtype, device=information.device
-                )
-            else:
-                identity = xp.eye(information.shape[0], dtype=information.dtype)
+            identity = compute_backend.eye(
+                information.shape[0], dtype=information.dtype
+            )
             information = information + 2.0 * self.penalty * identity
         if self.compute_inference:
             if backend == "torch":
@@ -1328,8 +1336,12 @@ class CoxPH(BaseEstimator):
             self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
             self._zvalues = self.coef_ / (self._bse + 1e-30)
             self._pvalues = 2.0 * norm.sf(np.abs(self._zvalues))
+            ci_quantile = float(norm.ppf(0.975))
             self._conf_int = np.column_stack(
-                [self.coef_ - 1.96 * self._bse, self.coef_ + 1.96 * self._bse]
+                [
+                    self.coef_ - ci_quantile * self._bse,
+                    self.coef_ + ci_quantile * self._bse,
+                ]
             )
             self._lr_test_stat = 2.0 * (
                 self._log_likelihood - self._log_likelihood_null
@@ -1367,8 +1379,10 @@ class CoxPH(BaseEstimator):
             self._var_matrix = None
             self._bse = None
             self._zvalues = None
+            self._tvalues = None
             self._pvalues = None
             self._conf_int = None
+            self._inference_result = None
             self._lr_test_stat = None
             self._lr_test_pvalue = None
             self._wald_test_stat = None
@@ -1457,6 +1471,27 @@ class CoxPH(BaseEstimator):
             self.inference_backend_ = backend
             self.inference_approximate_ = False
             self.inference_fallback_reason_ = None
+            inference_result = ParameterInferenceResult(
+                method=self.inference_method_,
+                feature_names=list(self._feature_names),
+                params=self.coef_,
+                bse=self._bse,
+                statistic=self._zvalues,
+                statistic_name="z",
+                pvalues=self._pvalues,
+                conf_int=self._conf_int,
+                cov_type=self.cov_type,
+                distribution="normal",
+                metadata={
+                    "inference_backend": backend,
+                    "approximate": False,
+                    "ties": self.ties,
+                },
+            )
+            inference_result.apply_to(self)
+        else:
+            self._params = self.coef_.copy()
+            self._inference_result = None
         if not self._converged:
             import warnings
 
@@ -1482,6 +1517,9 @@ class CoxPH(BaseEstimator):
         self.final_kkt_normalized_ = self._final_kkt_normalized
         self.concordance_ = self._cindex
     
+    # Legacy reference implementations below are retained only for targeted
+    # regression comparisons. Public ``fit`` never dispatches to this block;
+    # the canonical path is ``_fit_counting_process_dispatch`` above.
     def _fit_cpu(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """Fit using CPU (NumPy)."""
         if entry is not None:
@@ -5397,8 +5435,35 @@ class CoxPH(BaseEstimator):
             + np.log(max(int(self._nevents), 1)) * len(self.coef_)
         )
 
+    def _format_fit_call(self):
+        """Return only fitted-call details that the estimator can guarantee."""
+        call = self._fit_call or {
+            "interface": "matrix",
+            "formula": None,
+            "counting_process": bool(self._is_counting_process),
+            "stratified": self._strata is not None,
+            "subject_grouped": self._subject_id is not None,
+            "clustered": self.cov_type == "cluster",
+            "ties": self.ties,
+        }
+        parts = []
+        if call["interface"] == "formula":
+            parts.append(f"formula={call['formula']!r}")
+        else:
+            parts.append("interface='matrix'")
+        parts.extend(
+            [
+                f"ties={call['ties']!r}",
+                f"counting_process={bool(call['counting_process'])}",
+                f"stratified={bool(call['stratified'])}",
+                f"subject_grouped={bool(call['subject_grouped'])}",
+                f"clustered={bool(call['clustered'])}",
+            ]
+        )
+        return f"CoxPH({', '.join(parts)})"
+
     def summary(self):
-        """Print summary table similar to R's summary(coxph())."""
+        """Print a fitted CoxPH summary with truthful call metadata."""
         if not self._fitted:
             raise RuntimeError("Model has not been fitted yet.")
         
@@ -5406,7 +5471,7 @@ class CoxPH(BaseEstimator):
         print("                     Cox Proportional Hazards Model")
         print("=" * 80)
         print("Call:")
-        print(f"  coxph(formula = Surv(time, event) ~ ., ties = '{self.ties}')")
+        print(f"  {self._format_fit_call()}")
         print()
         print(f"  n= {self._nobs}, number of events= {int(self._nevents)}")
         print(f"  covariance type= {self.cov_type}")
@@ -5463,6 +5528,7 @@ class CoxPH(BaseEstimator):
     
     def _prepare_prediction_X(self, X):
         """Normalize prediction input on the estimator's active backend."""
+        _require_real_array(X, "X")
         if self._design_info is not None:
             try:
                 import pandas as pd
@@ -5501,20 +5567,24 @@ class CoxPH(BaseEstimator):
             raise ValueError("X contains NaN or infinite values")
         return X_arr, backend, backend.asarray(self.coef_, dtype=backend.float64)
 
+    @_cleanup_after_public_gpu_work
     def predict_hazard_ratio(self, X):
         """Predict backend-native hazard ratios ``exp(X @ coef_)``."""
         self._check_is_fitted()
         X_arr, backend, coef = self._prepare_prediction_X(X)
         return backend.xp.exp(X_arr @ coef)
 
+    @_cleanup_after_public_gpu_work
     def predict_risk_score(self, X):
         """Predict backend-native linear risk scores ``X @ coef_``."""
         self._check_is_fitted()
         X_arr, _, coef = self._prepare_prediction_X(X)
         return X_arr @ coef
 
+    @_cleanup_after_public_gpu_work
     def predict_survival(self, X, times=None, strata=None):
         """Predict backend-native survival curves for each requested stratum."""
+        _require_real_array(times, "times")
         self._check_is_fitted()
         X_arr, backend, coef = self._prepare_prediction_X(X)
         xp = backend.xp
@@ -5593,6 +5663,7 @@ class CoxPH(BaseEstimator):
         """Alias for predict_hazard_ratio."""
         return self.predict_hazard_ratio(X)
     
+    @_cleanup_after_public_gpu_work
     def score(self, X, time, event=None, start=None, strata=None, subject_id=None):
         """Compute a backend-native Harrell-style concordance index."""
         from statgpu.survival._cox_score import score as _score_impl

@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from statgpu.backends import _to_float_scalar
+from statgpu.backends._array_ops import _sync_scalars
 from statgpu.backends._utils import _require_real_array
 from statgpu.survival._concordance import (
     MAX_CONCORDANCE_PAIR_ENTRIES,
@@ -152,7 +153,9 @@ def score(
     if n_events == 0:
         return 0.5
 
-    concordant = permissible = tied_risk = 0.0
+    concordant = backend.zeros((), dtype=backend.float64)
+    tied_risk = backend.zeros((), dtype=backend.float64)
+    permissible = backend.zeros((), dtype=backend.float64)
     event_tile, sample_tile = _concordance_tile_shape(n_events, n_samples)
     for batch_start in range(0, n_events, event_tile):
         batch_end = min(batch_start + event_tile, n_events)
@@ -171,10 +174,16 @@ def score(
                 (time_i < time_j)
                 | ((time_i == time_j) & (event_j == 0))
             ) & (idx[:, None] != sample_idx[None, :])
-            concordant += _to_float_scalar(xp.sum(perm & (risk_i > risk_j)))
-            tied_risk += _to_float_scalar(xp.sum(perm & (risk_i == risk_j)))
-            permissible += _to_float_scalar(xp.sum(perm))
+            concordant = concordant + xp.sum(perm & (risk_i > risk_j))
+            tied_risk = tied_risk + xp.sum(perm & (risk_i == risk_j))
+            permissible = permissible + xp.sum(perm)
 
+    concordant, tied_risk, permissible = _sync_scalars(
+        concordant,
+        tied_risk,
+        permissible,
+        backend=backend.name,
+    )
     if permissible <= 0:
         return 0.5
     return float((concordant + 0.5 * tied_risk) / permissible)

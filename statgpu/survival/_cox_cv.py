@@ -17,6 +17,10 @@ from statgpu.backends import _to_numpy
 from statgpu.backends._utils import _require_real_array
 from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
 from statgpu.survival._cox import CoxPH
+from statgpu.survival._cox_fit_adapter import (
+    _normalize_boolean_control,
+    _normalize_mutable_cv_controls,
+)
 from statgpu.survival._risk_sets import cox_counting_process_objective
 
 
@@ -1488,6 +1492,8 @@ class CoxPHCV(CVEstimatorBase):
         gpu_memory_cleanup: bool = False,
         random_state: Optional[int] = None,
     ):
+        _normalize_boolean_control(compute_inference, "compute_inference")
+        _normalize_boolean_control(gpu_memory_cleanup, "gpu_memory_cleanup")
         super().__init__(
             cv=cv,
             random_state=random_state,
@@ -1541,6 +1547,13 @@ class CoxPHCV(CVEstimatorBase):
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
+        self._params = None
+        self._bse = None
+        self._zvalues = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
 
     def _reset_fit_state(self):
         """Remove every fitted/CV artifact before a new public fit attempt."""
@@ -1565,6 +1578,13 @@ class CoxPHCV(CVEstimatorBase):
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
+        self._params = None
+        self._bse = None
+        self._zvalues = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -1769,6 +1789,23 @@ class CoxPHCV(CVEstimatorBase):
             ("full_host_transfer_performed_", False),
         ):
             setattr(self, attribute, getattr(final_model, attribute, default))
+        for attribute in (
+            "_params",
+            "_bse",
+            "_zvalues",
+            "_tvalues",
+            "_pvalues",
+            "_conf_int",
+        ):
+            value = getattr(final_model, attribute, None)
+            setattr(
+                self,
+                attribute,
+                None if value is None else np.asarray(value).copy(),
+            )
+        self._inference_result = copy.deepcopy(
+            getattr(final_model, "_inference_result", None)
+        )
         self._fitted = True
 
         return self
@@ -1814,6 +1851,7 @@ class CoxPHCV(CVEstimatorBase):
         """
         self._reset_fit_state()
         try:
+            _normalize_mutable_cv_controls(self)
             time, event, entry, start = _unpack_survival_target(
                 time, event, entry=entry, start=start
             )

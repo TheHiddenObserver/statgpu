@@ -141,6 +141,94 @@ def _require_real_array(value: Any, name: str) -> None:
         raise ValueError(f"{name} must be real-valued")
 
 
+def _normalize_integer_codes(
+    value: Any,
+    *,
+    xp: Any,
+    ref_arr: Any,
+    expected_size: Optional[int] = None,
+    name: str = "labels",
+):
+    """Validate and convert backend-native integer codes without truncation.
+
+    Floating inputs must be finite and exactly integral. Unsigned values are
+    checked before the signed-int64 cast, including host ``uint64`` inputs for
+    Torch versions that cannot construct such tensors directly.
+    """
+    if _is_complex_array(value):
+        raise ValueError(f"{name} must contain numeric integer-valued codes")
+
+    is_torch = getattr(xp, "__name__", "") == "torch"
+    candidate = value
+    if is_torch and not xp.is_tensor(candidate):
+        try:
+            host = np.asarray(candidate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} must contain numeric integer-valued codes within int64 range"
+            ) from exc
+        if host.dtype.kind == "u":
+            if np.any(host > np.iinfo(np.int64).max):
+                raise ValueError(
+                    f"{name} must contain integer-valued codes within int64 range"
+                )
+            candidate = host.astype(np.int64, copy=False)
+
+    try:
+        raw = xp_asarray(candidate, xp=xp, ref_arr=ref_arr)
+    except (TypeError, ValueError, RuntimeError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must contain numeric integer-valued codes within int64 range"
+        ) from exc
+
+    if getattr(raw, "ndim", None) != 1 or (
+        expected_size is not None and int(raw.shape[0]) != int(expected_size)
+    ):
+        raise ValueError(f"{name} must have shape (n_samples,)")
+
+    if is_torch:
+        if raw.is_complex():
+            raise ValueError(f"{name} must contain numeric integer-valued codes")
+        if raw.is_floating_point():
+            invalid = (
+                ~xp.isfinite(raw)
+                | (raw != xp.round(raw))
+                | (raw < -float(1 << 63))
+                | (raw >= float(1 << 63))
+            )
+            if bool(xp.any(invalid).item()):
+                raise ValueError(
+                    f"{name} must contain finite integer-valued codes within int64 range"
+                )
+        elif str(raw.dtype).rsplit(".", 1)[-1].startswith("uint") and bool(
+            xp.any(raw > (1 << 63) - 1).item()
+        ):
+            raise ValueError(
+                f"{name} must contain integer-valued codes within int64 range"
+            )
+        return raw.to(dtype=xp.int64)
+
+    kind = getattr(raw.dtype, "kind", None)
+    if kind is None or kind not in "biuf":
+        raise ValueError(f"{name} must contain numeric integer-valued codes")
+    if kind == "f":
+        invalid = (
+            ~xp.isfinite(raw)
+            | (raw != xp.rint(raw))
+            | (raw < -float(1 << 63))
+            | (raw >= float(1 << 63))
+        )
+        if bool(xp.any(invalid).item()):
+            raise ValueError(
+                f"{name} must contain finite integer-valued codes within int64 range"
+            )
+    elif kind == "u" and bool(xp.any(raw > (1 << 63) - 1).item()):
+        raise ValueError(
+            f"{name} must contain integer-valued codes within int64 range"
+        )
+    return raw.astype(xp.int64, copy=False)
+
+
 def scatter_add_1d(target, indices, values):
     """Scatter-add 1D values to target array at given indices.
 
@@ -148,7 +236,6 @@ def scatter_add_1d(target, indices, values):
     Returns a new array with values added at specified indices.
     """
     if hasattr(target, 'scatter_add_'):  # torch
-        import torch
         result = target.clone()
         result.scatter_add_(0, indices.long(), values)
         return result
