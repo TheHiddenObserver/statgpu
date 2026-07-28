@@ -5,9 +5,11 @@ import pytest
 
 from statgpu.linear_model import PenalizedCoxPHModel
 from statgpu.survival import CoxPH, CoxPHCV
+from statgpu.survival import _cox_score as cox_score_module
+from statgpu.survival import _risk_sets as risk_sets
 from statgpu.survival._cox_score import (
     _MAX_CONCORDANCE_PAIR_ENTRIES,
-    _concordance_batch_size,
+    _concordance_tile_shape,
 )
 from statgpu.survival._risk_sets import counting_process_concordance
 
@@ -42,11 +44,57 @@ def _backend_arrays(backend, *values):
     return tuple(np.asarray(value) for value in values)
 
 
-def test_ordinary_concordance_batch_is_bounded():
-    batch = _concordance_batch_size(100_000, 1_000)
-    assert batch == 2_000
-    assert batch * 1_000 <= _MAX_CONCORDANCE_PAIR_ENTRIES
-    assert _concordance_batch_size(0, 1_000) == 1
+@pytest.mark.parametrize(
+    ("n_events", "n_samples"),
+    [
+        (100_000, 1_000),
+        (1, _MAX_CONCORDANCE_PAIR_ENTRIES + 1),
+        (10, 10 * _MAX_CONCORDANCE_PAIR_ENTRIES),
+        (0, 1_000),
+    ],
+)
+def test_concordance_pair_tiles_obey_hard_entry_bound(n_events, n_samples):
+    event_tile, sample_tile = _concordance_tile_shape(n_events, n_samples)
+    assert event_tile >= 1
+    assert sample_tile >= 1
+    assert event_tile * sample_tile <= _MAX_CONCORDANCE_PAIR_ENTRIES
+    assert sample_tile <= max(n_samples, 1)
+
+
+def test_ordinary_concordance_two_axis_tiling_matches_default(monkeypatch):
+    X, stop, event = _fit_sample(seed=2404)
+    fitted = CoxPH(
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=80,
+        tol=1e-7,
+    ).fit(X, stop, event)
+    expected = fitted.score(X, stop, event)
+    monkeypatch.setattr(
+        cox_score_module,
+        "_concordance_tile_shape",
+        lambda _n_events, _n_samples: (1, 2),
+    )
+    assert fitted.score(X, stop, event) == pytest.approx(expected, abs=1e-15)
+
+
+def test_counting_concordance_two_axis_tiling_matches_default(monkeypatch):
+    X, stop, event = _fit_sample(seed=2405)
+    beta = np.array([0.2, -0.1])
+    start = np.zeros(stop.shape[0], dtype=np.float64)
+    strata = np.arange(stop.shape[0], dtype=np.int64) % 2
+    expected = counting_process_concordance(
+        beta, X, stop, event, start=start, strata=strata
+    )
+    monkeypatch.setattr(
+        risk_sets,
+        "concordance_tile_shape",
+        lambda _n_events, _n_samples: (1, 2),
+    )
+    actual = counting_process_concordance(
+        beta, X, stop, event, start=start, strata=strata
+    )
+    assert float(actual) == pytest.approx(float(expected), abs=1e-15)
 
 
 def test_all_censored_concordance_is_neutral_across_public_paths():

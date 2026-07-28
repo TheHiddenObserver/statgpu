@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 from statgpu.backends._utils import _is_complex_array
+from statgpu.survival._concordance import concordance_tile_shape
 
 
 def _backend_name(value: Any) -> str:
@@ -2191,25 +2192,41 @@ def counting_process_concordance(
     permissible = _zeros(backend, xp, (), X)
     event_rows = _nonzero(event == 1, backend, xp)
     n_events = int(event_rows.shape[0])
-    max_pair_entries = 2_000_000
-    batch_size = max(1, min(n_events, max_pair_entries // max(int(X.shape[0]), 1)))
-    for batch_start in range(0, n_events, batch_size):
-        rows = event_rows[batch_start : batch_start + batch_size]
+    n_samples = int(X.shape[0])
+    event_tile, sample_tile = concordance_tile_shape(n_events, n_samples)
+    for batch_start in range(0, n_events, event_tile):
+        rows = event_rows[batch_start : batch_start + event_tile]
         failure_time = stop[rows].reshape(-1, 1)
-        comparison = (
-            (strata.reshape(1, -1) == strata[rows].reshape(-1, 1))
-            & (start.reshape(1, -1) < failure_time)
-            & (
-                (stop.reshape(1, -1) > failure_time)
-                | ((stop.reshape(1, -1) == failure_time) & (event.reshape(1, -1) == 0))
-            )
-            & (subject_id.reshape(1, -1) != subject_id[rows].reshape(-1, 1))
-        )
         risk_i = risk_score[rows].reshape(-1, 1)
-        risk_j = risk_score.reshape(1, -1)
-        permissible = permissible + _sum(comparison, backend, xp)
-        concordant = concordant + _sum(comparison & (risk_i > risk_j), backend, xp)
-        tied = tied + _sum(comparison & (risk_i == risk_j), backend, xp)
+        for sample_start in range(0, n_samples, sample_tile):
+            sample_end = min(sample_start + sample_tile, n_samples)
+            sample_slice = slice(sample_start, sample_end)
+            comparison = (
+                (
+                    strata[sample_slice].reshape(1, -1)
+                    == strata[rows].reshape(-1, 1)
+                )
+                & (start[sample_slice].reshape(1, -1) < failure_time)
+                & (
+                    (stop[sample_slice].reshape(1, -1) > failure_time)
+                    | (
+                        (stop[sample_slice].reshape(1, -1) == failure_time)
+                        & (event[sample_slice].reshape(1, -1) == 0)
+                    )
+                )
+                & (
+                    subject_id[sample_slice].reshape(1, -1)
+                    != subject_id[rows].reshape(-1, 1)
+                )
+            )
+            risk_j = risk_score[sample_slice].reshape(1, -1)
+            permissible = permissible + _sum(comparison, backend, xp)
+            concordant = concordant + _sum(
+                comparison & (risk_i > risk_j), backend, xp
+            )
+            tied = tied + _sum(
+                comparison & (risk_i == risk_j), backend, xp
+            )
     if _scalar_bool(permissible == 0):
         if backend == "torch":
             return xp.as_tensor(0.5, dtype=X.dtype, device=X.device)

@@ -12,20 +12,14 @@ import numpy as np
 
 from statgpu.backends import _to_float_scalar
 from statgpu.backends._utils import _require_real_array
+from statgpu.survival._concordance import (
+    MAX_CONCORDANCE_PAIR_ENTRIES,
+    concordance_tile_shape,
+)
 
 
-_MAX_CONCORDANCE_PAIR_ENTRIES = 2_000_000
-
-
-def _concordance_batch_size(n_events: int, n_samples: int) -> int:
-    """Bound pairwise concordance temporaries to a small fixed workspace."""
-    return max(
-        1,
-        min(
-            int(n_events),
-            _MAX_CONCORDANCE_PAIR_ENTRIES // max(int(n_samples), 1),
-        ),
-    )
+_MAX_CONCORDANCE_PAIR_ENTRIES = MAX_CONCORDANCE_PAIR_ENTRIES
+_concordance_tile_shape = concordance_tile_shape
 
 
 def score(
@@ -159,24 +153,27 @@ def score(
         return 0.5
 
     concordant = permissible = tied_risk = 0.0
-    chunk_size = _concordance_batch_size(n_events, n_samples)
-    for batch_start in range(0, n_events, chunk_size):
-        batch_end = min(batch_start + chunk_size, n_events)
+    event_tile, sample_tile = _concordance_tile_shape(n_events, n_samples)
+    for batch_start in range(0, n_events, event_tile):
+        batch_end = min(batch_start + event_tile, n_events)
         idx = event_idx[batch_start:batch_end]
         time_i = time_arr[idx, None]
         risk_i = risk_score[idx, None]
-        perm = (time_i < time_arr[None, :]) | (
-            (time_i == time_arr[None, :]) & (event_arr[None, :] == 0)
-        )
-        rows = backend.arange(batch_end - batch_start, dtype=backend.int64)
-        perm[rows, idx] = False
-        concordant += _to_float_scalar(
-            xp.sum(perm & (risk_i > risk_score[None, :]))
-        )
-        tied_risk += _to_float_scalar(
-            xp.sum(perm & (risk_i == risk_score[None, :]))
-        )
-        permissible += _to_float_scalar(xp.sum(perm))
+        for sample_start in range(0, n_samples, sample_tile):
+            sample_end = min(sample_start + sample_tile, n_samples)
+            time_j = time_arr[None, sample_start:sample_end]
+            risk_j = risk_score[None, sample_start:sample_end]
+            event_j = event_arr[None, sample_start:sample_end]
+            sample_idx = backend.arange(
+                sample_start, sample_end, dtype=backend.int64
+            )
+            perm = (
+                (time_i < time_j)
+                | ((time_i == time_j) & (event_j == 0))
+            ) & (idx[:, None] != sample_idx[None, :])
+            concordant += _to_float_scalar(xp.sum(perm & (risk_i > risk_j)))
+            tied_risk += _to_float_scalar(xp.sum(perm & (risk_i == risk_j)))
+            permissible += _to_float_scalar(xp.sum(perm))
 
     if permissible <= 0:
         return 0.5

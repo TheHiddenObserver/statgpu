@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -19,19 +20,43 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from statgpu._config import Device  # noqa: E402
+from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
 from statgpu.survival import _risk_sets as risk_sets  # noqa: E402
+from statgpu.survival._concordance import (  # noqa: E402
+    MAX_CONCORDANCE_PAIR_ENTRIES,
+    concordance_tile_shape,
+)
 from statgpu.survival._risk_sets import (  # noqa: E402
+    counting_process_concordance,
     cox_counting_process_objective,
 )
 
 
 SOURCE_FILES = (
+    "statgpu/linear_model/penalized/_penalized_cox.py",
     "statgpu/survival/_cox.py",
     "statgpu/survival/_cox_cv.py",
     "statgpu/survival/_cox_fit_adapter.py",
+    "statgpu/survival/_concordance.py",
+    "statgpu/survival/_cox_score.py",
     "statgpu/survival/_risk_sets.py",
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
+    "dev/tests/test_pr80_complete_review_cycle.py",
+    "dev/tests/test_pr80_constructor_boundaries.py",
+    "dev/tests/test_pr80_workspace_estimator.py",
+    "dev/tests/test_pr80_fit_boundary.py",
+    "dev/tests/test_pr80_cv_fit_boundary.py",
+    "dev/tests/test_pr80_cox_stability_review.py",
+)
+
+TARGETED_TEST_FILES = (
+    "dev/tests/test_pr80_complete_review_cycle.py",
+    "dev/tests/test_pr80_constructor_boundaries.py",
+    "dev/tests/test_pr80_workspace_estimator.py",
+    "dev/tests/test_pr80_fit_boundary.py",
+    "dev/tests/test_pr80_cv_fit_boundary.py",
+    "dev/tests/test_pr80_cox_stability_review.py",
 )
 
 
@@ -216,6 +241,10 @@ def _case_cv(name: str, xp) -> dict:
     )
     _sync(name, xp)
     fit_seconds = time.perf_counter() - started
+    final_refit_skips_cindex = (
+        model.estimator_.compute_cindex is False
+        and model.estimator_.concordance_ is None
+    )
     passed = (
         model.device is expected
         and model.estimator_ is not None
@@ -223,12 +252,14 @@ def _case_cv(name: str, xp) -> dict:
         and model.effective_device_ == device
         and bool(np.all(np.isfinite(model.coef_)))
         and all(constructor_rejections.values())
+        and final_refit_skips_cindex
     )
     return {
         "backend": name,
         "fit_seconds": fit_seconds,
         "effective_device": model.effective_device_,
         "constructor_truthy_strings_rejected": constructor_rejections,
+        "final_refit_skips_training_cindex": final_refit_skips_cindex,
         "finite": bool(np.all(np.isfinite(model.coef_))),
         "passed": bool(passed),
     }
@@ -430,14 +461,113 @@ def _case_wide_workspace_route(name: str, xp) -> dict:
     }
 
 
+def _case_concordance_boundaries(name: str, xp) -> dict:
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=2406, n=72, p=2)
+    X = _array(name, xp, X_np)
+    target = _array(name, xp, np.column_stack((stop_np, event_np)))
+    model = CoxPH(
+        device=device,
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=80,
+        tol=1e-7,
+    ).fit(X, target)
+
+    X_score_np = X_np[:6]
+    stop_score_np = np.arange(1, 7, dtype=np.float64)
+    censored_np = np.zeros(6, dtype=np.float64)
+    X_score = _array(name, xp, X_score_np)
+    stop_score = _array(name, xp, stop_score_np)
+    censored = _array(name, xp, censored_np)
+    ordinary_value = model.score(X_score, stop_score, censored)
+    counting_value = model.score(
+        X_score,
+        stop_score,
+        censored,
+        start=_array(name, xp, np.zeros(6)),
+        strata=_array(name, xp, np.array([0, 0, 0, 1, 1, 1])),
+    )
+
+    penalized = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.2,
+        device=device,
+        max_iter=80,
+        tol=1e-6,
+        compute_inference=False,
+    ).fit(X, target)
+    penalized_value = penalized.score(
+        X_score,
+        _array(name, xp, np.column_stack((stop_score_np, censored_np))),
+    )
+    penalized_constructor_rejected = False
+    try:
+        PenalizedCoxPHModel(device=device, lla="False")
+    except ValueError as exc:
+        penalized_constructor_rejected = "lla must be" in str(exc)
+
+    large_n = MAX_CONCORDANCE_PAIR_ENTRIES + 1
+    event_tile, sample_tile = concordance_tile_shape(1, large_n)
+    X_large_np = np.linspace(0.0, 1.0, large_n).reshape(-1, 1)
+    stop_large_np = np.full(large_n, 2.0)
+    stop_large_np[0] = 1.0
+    event_large_np = np.zeros(large_n)
+    event_large_np[0] = 1.0
+    start_large_np = np.zeros(large_n)
+    started = time.perf_counter()
+    large_value_raw = counting_process_concordance(
+        _array(name, xp, np.array([0.25])),
+        _array(name, xp, X_large_np),
+        _array(name, xp, stop_large_np),
+        _array(name, xp, event_large_np),
+        start=_array(name, xp, start_large_np),
+    )
+    _sync(name, xp)
+    large_seconds = time.perf_counter() - started
+    large_value = float(np.asarray(_numpy(name, large_value_raw)))
+
+    passed = all(
+        (
+            ordinary_value == 0.5,
+            counting_value == 0.5,
+            penalized_value == 0.5,
+            penalized_constructor_rejected,
+            event_tile * sample_tile <= MAX_CONCORDANCE_PAIR_ENTRIES,
+            sample_tile < large_n,
+            large_value == 0.0,
+        )
+    )
+    return {
+        "backend": name,
+        "all_censored_public_coxph": ordinary_value,
+        "all_censored_counting_coxph": counting_value,
+        "all_censored_penalized_cox": penalized_value,
+        "penalized_truthy_string_rejected": penalized_constructor_rejected,
+        "large_pair_case": {
+            "n_events": 1,
+            "n_samples": large_n,
+            "event_tile": event_tile,
+            "sample_tile": sample_tile,
+            "tile_entries": event_tile * sample_tile,
+            "limit_entries": MAX_CONCORDANCE_PAIR_ENTRIES,
+            "comparison_tiles": (large_n + sample_tile - 1) // sample_tile,
+            "concordance": large_value,
+            "seconds": large_seconds,
+        },
+        "passed": passed,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
+    parser.add_argument("--run-targeted-tests", action="store_true")
     args = parser.parse_args()
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -448,7 +578,11 @@ def main() -> int:
         "numpy": np.__version__,
         "backends": {},
         "gate_failures": [],
-        "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path>",
+        "command": (
+            "python dev/benchmarks/benchmark_cox_boundary_gpu.py "
+            "--output <path>"
+            + (" --run-targeted-tests" if args.run_targeted_tests else "")
+        ),
     }
     for name in ("cupy", "torch"):
         try:
@@ -463,6 +597,7 @@ def main() -> int:
                 "cv_device_normalization": _case_cv(name, xp),
                 "single_group_workspace": _case_workspace(name, xp),
                 "wide_workspace_route": _case_wide_workspace_route(name, xp),
+                "concordance_boundaries": _case_concordance_boundaries(name, xp),
             }
             report["backends"][name] = {
                 "version": xp.__version__,
@@ -477,6 +612,46 @@ def main() -> int:
                 "error": f"{type(exc).__name__}: {exc}"
             }
             report["gate_failures"].append(f"{name}:execution")
+
+    if args.run_targeted_tests:
+        test_command = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            *TARGETED_TEST_FILES,
+        ]
+        test_env = os.environ.copy()
+        test_env["STATGPU_REQUIRE_PHYSICAL_GPU"] = "1"
+        completed = subprocess.run(
+            test_command,
+            cwd=REPO_ROOT,
+            env=test_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        test_output = "\n".join(
+            part.strip() for part in (completed.stdout, completed.stderr) if part.strip()
+        )
+        summary_line = next(
+            (line for line in reversed(test_output.splitlines()) if " passed" in line),
+            "",
+        )
+        passed_match = re.search(r"(\d+) passed", summary_line)
+        report["targeted_tests"] = {
+            "command": "STATGPU_REQUIRE_PHYSICAL_GPU=1 "
+            + " ".join(test_command),
+            "returncode": completed.returncode,
+            "passed_count": (
+                int(passed_match.group(1)) if passed_match is not None else None
+            ),
+            "summary": summary_line,
+            "output_tail": "\n".join(test_output.splitlines()[-20:]),
+            "passed": completed.returncode == 0,
+        }
+        if completed.returncode != 0:
+            report["gate_failures"].append("targeted_tests")
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

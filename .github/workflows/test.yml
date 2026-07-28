@@ -202,6 +202,7 @@ jobs:
             statgpu/penalties/_base.py \
             statgpu/semiparametric \
             statgpu/solvers/_fista_lla.py \
+            statgpu/survival/_concordance.py \
             statgpu/survival/_cox.py \
             statgpu/survival/_cox_fit_adapter.py \
             statgpu/survival/_cox_counting.py \
