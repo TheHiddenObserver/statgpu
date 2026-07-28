@@ -10,6 +10,28 @@ from statgpu.survival import CoxPHCV
 from statgpu.survival import _cox_cv as cox_cv_module
 
 
+def _require_backend(device):
+    if device == "cuda":
+        cp = pytest.importorskip("cupy")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
+        return cp
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+    return torch
+
+
+def _on_backend(device, value):
+    xp = _require_backend(device)
+    if device == "cuda":
+        return xp.asarray(value)
+    return xp.as_tensor(value, dtype=xp.float64, device="cuda")
+
+
 def _cv_sample(seed=2290, n=48, p=2):
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
@@ -108,4 +130,33 @@ def test_cv_controls_are_canonicalized_before_fitting():
     assert model.device is Device.CPU
     assert model.estimator_ is not None
     assert model.estimator_._bse is None
+    assert np.all(np.isfinite(model.coef_))
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize(
+    ("device", "expected"),
+    [("cuda", Device.CUDA), ("torch", Device.TORCH)],
+)
+def test_cv_gpu_device_normalization_reaches_final_refit(device, expected):
+    _require_backend(device)
+    X_np, stop_np, event_np = _cv_sample(seed=2293, n=36, p=2)
+    X = _on_backend(device, X_np)
+    stop = _on_backend(device, stop_np)
+    event = _on_backend(device, event_np)
+    model = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        device="cpu",
+        compute_inference=False,
+        max_iter=50,
+    )
+    model.set_params(device=device)
+    model.fit(X, stop, event)
+
+    assert model.device is expected
+    assert model.estimator_ is not None
+    assert model.estimator_.device is expected
+    assert model.effective_device_ == device
+    assert model._fitted is True
     assert np.all(np.isfinite(model.coef_))

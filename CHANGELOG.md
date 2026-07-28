@@ -9,7 +9,7 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Unified CoxPH on stable risk-set objectives with a bounded ordinary suffix fast path, and restored cancellation-safe penalized moments.
 - Added Breslow Hessian workspace gates, preserved device/runtime solver errors, rejected complex high-level inputs, and unified no-pair scoring.
 - Added optimized stratified Exact and delayed-entry batching paths with maintained P100/R benchmark artifacts.
-- Added three-backend precision, synchronization, memory, error-contract, performance, and clean-commit audit coverage.
+- Hardened public fit boundaries and bounded oversized delayed-entry failure groups with backend-native row streaming and physical-GPU audit coverage.
 
 ## 2026-07-26
 

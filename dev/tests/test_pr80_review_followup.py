@@ -35,8 +35,11 @@ def _survival_data(n=56, p=4, seed=8181):
 def _require_device(device):
     if device == "cuda":
         cp = pytest.importorskip("cupy")
-        if cp.cuda.runtime.getDeviceCount() == 0:
-            pytest.skip("CuPy CUDA unavailable")
+        try:
+            if cp.cuda.runtime.getDeviceCount() == 0:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
     elif device == "torch":
         torch = pytest.importorskip("torch")
         if not torch.cuda.is_available():

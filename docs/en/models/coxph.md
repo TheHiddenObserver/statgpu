@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-07-27<br>
+> Last updated: 2026-07-28<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -44,8 +44,11 @@ likelihoods. `ties="exact"` evaluates the exact tied-event denominator with an
 elementary-symmetric dynamic program. The same counting-process risk-set engine
 is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
 inference, which keeps the `(start, stop]` convention consistent across backends.
-Strata labels must be numeric, integer-valued, finite, and representable as
-signed int64 values; validation occurs before any NumPy/CuPy/Torch cast.
+The public `CoxPH` and `CoxPHCV` estimators factorize one-dimensional labels:
+host strings/objects and finite numeric CuPy/Torch labels are encoded internally
+as consecutive int64 codes. Low-level counting-process primitives do not
+factorize labels and therefore require finite integer-valued numeric codes
+representable as signed int64.
 
 For ordinary right-censored Exact fits, the risk sets are nested within each
 stratum. StatGPU sorts rows by stratum and decreasing stop time, then reuses one
@@ -80,6 +83,13 @@ mask work. The separate 512 MiB ceiling is controlled by
 stratum before the memory-bounded per-group path; score-residual requests and
 conservative numerical-range gates also retain the normalized implementation.
 These are explicit algorithmic fallbacks, never implicit CPU fallbacks.
+
+For Breslow/Efron delayed-entry objectives,
+`STATGPU_COX_GROUP_MAX_BYTES` controls the dense failure-group workspace
+(512 MiB by default). If even one failure group exceeds the ceiling,
+the selected GPU backend uses a stable multi-pass row-streaming moment
+calculation. This keeps an extreme single stratum/risk set bounded instead of
+letting the minimum batch size allocate an unbounded `O(n)` mask.
 
 Full-fit inference also constructs a Breslow baseline hazard. For ordinary
 right-censored rows, StatGPU now sorts each stratum by decreasing stop time and
@@ -142,10 +152,11 @@ counting-process score residuals; it does not require statsmodels. Repeated rows
 are summed by `subject_id` before forming HC0/HC1 meat, and cluster covariance is
 summed by `cluster`.
 
-`inference_mode="strict"` is the default. `inference_mode="approx"` is an
-explicit opt-in to the legacy event-row Efron sandwich approximation when that
-legacy path is used. Approximate inference is identified by the public
-provenance fields and is never silently selected.
+`inference_mode="strict"` is the default. `inference_mode="approx"` remains
+accepted for backward compatibility, but the unified public fit path treats it
+as a compatibility-only alias and still computes the exact counting-process
+score sandwich. Consequently successful public fits report
+`inference_approximate_=False` and no approximation fallback reason.
 
 Exact ties currently support model-based (`cov_type="nonrobust"`) inference only.
 Requesting HC0, HC1, or cluster inference with `ties="exact"` raises
@@ -172,7 +183,7 @@ Inference provenance is exposed through:
 | `compute_cindex` | `True` | Compute training concordance |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`, `"hc0"`, `"hc1"`, or `"cluster"` |
 | `penalty` | `0.0` | Non-negative L2 penalty |
-| `inference_mode` | `"strict"` | `"strict"` or explicit `"approx"` |
+| `inference_mode` | `"strict"` | `"strict"` or compatibility alias `"approx"`; both are exact |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy/Torch cache cleanup |
 
 ## Support Matrix

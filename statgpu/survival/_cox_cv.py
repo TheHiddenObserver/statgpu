@@ -1407,7 +1407,9 @@ class CoxPHCV(CVEstimatorBase):
     cov_type : str, default='nonrobust'
         Covariance estimator.
     inference_mode : {'strict', 'approx'}, default='strict'
-        Robust-inference policy forwarded to the final CoxPH estimator.
+        Compatibility control forwarded to the final CoxPH estimator.
+        ``'approx'`` is currently an alias for the exact counting-process
+        inference path.
     gpu_memory_cleanup : bool, default=False
         Whether to free backend caches after public prediction/scoring calls
         and when the estimator is destroyed. Fit-time caches are retained.

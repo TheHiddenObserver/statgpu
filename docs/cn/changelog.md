@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-27<br>
+> 最后更新：2026-07-28<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -54,6 +54,14 @@
   unsigned 标签；可由 int64 表示的 `uint64` 标签在 NumPy、CuPy、Torch 中均会接受。
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` 支持 `auto`、`native` 和 `channelwise`；
   保守的 `auto` 只在已有实测证据的 Torch 2.0 + Pascal/P100 组合启用分通道扫描。
+- 公开 Cox fit adapter 会保留 packed CuPy/Torch target，重新校验可变的 device 与
+  boolean control，在 cast 前拒绝 complex prediction 输入，并在 refit 失败后事务性
+  清理状态。`inference_mode="approx"` 现明确记录为统一精确推断路径的
+  compatibility-only alias；公开 estimator 的 strata 文档也与实际支持的可 factorize
+  host 标签保持一致。
+- `STATGPU_COX_GROUP_MAX_BYTES` 现在会在分配前约束 Breslow/Efron delayed-entry
+  failure-group 工作区。若单个 risk set 已超过上限，则使用数值稳定的 backend-native
+  row-streaming moment fallback，不再因最小 dense batch size 为 1 而产生无界工作区。
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
   NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
   3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。

@@ -387,8 +387,9 @@ class CoxPH(BaseEstimator):
     penalty : float, default=0.0
         Non-negative L2 penalty.
     inference_mode : {'strict', 'approx'}, default='strict'
-        Robust-inference policy. Strict mode requires exact score residuals;
-        approximate Efron event-row residuals require explicit opt-in.
+        Robust-inference compatibility control. Both values currently use the
+        exact counting-process score sandwich; ``'approx'`` remains accepted
+        for backward compatibility and does not select an approximate path.
     
     Attributes
     ----------

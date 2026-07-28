@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-27<br>
+> Last updated: 2026-07-28<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -67,6 +67,16 @@
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` selects `auto`, `native`, or
   `channelwise`; conservative `auto` enables the split scan only on the
   benchmarked Torch 2.0 + Pascal/P100 combination.
+- Public Cox fit adapters preserve packed CuPy/Torch targets, revalidate mutable
+  device and boolean controls, reject complex prediction inputs before casting,
+  and transactionally clear failed-refit state. `inference_mode="approx"` is
+  documented as a compatibility-only alias for the exact unified inference
+  path, and public estimators document their broader factorized host-label
+  support for strata.
+- `STATGPU_COX_GROUP_MAX_BYTES` now gates the Breslow/Efron delayed-entry
+  failure-group workspace before allocation. An oversized single risk set uses
+  a stable backend-native row-streaming moment fallback rather than allocating
+  an unbounded minimum-size dense batch.
 - The maintained delayed-entry + 3-strata P100 benchmark reached
   NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
   3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new

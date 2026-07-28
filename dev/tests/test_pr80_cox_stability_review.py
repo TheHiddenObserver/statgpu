@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
+from numpy.testing import assert_allclose
 import numpy as np
 import pytest
 
@@ -13,13 +14,17 @@ from statgpu.survival._cox import _estimate_breslow_tensor_bytes
 from statgpu.survival import _cox_counting as cox_counting
 from statgpu.survival._cox_counting import _score_test_statistic, _solve
 from statgpu.survival._cox_cv import _compute_partial_likelihood
+from statgpu.survival import _risk_sets as risk_sets
 
 
 def _require_device(device):
     if device == "cuda":
         cp = pytest.importorskip("cupy")
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("CuPy CUDA unavailable")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
         return cp
     if device == "torch":
         torch = pytest.importorskip("torch")
@@ -389,3 +394,64 @@ def test_cupy_breslow_workspace_gate_matches_vectorized(monkeypatch):
     )
     cp.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
     assert model._last_breslow_hessian_strategy_ == "cupy_streaming"
+
+
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+def test_delayed_entry_single_group_uses_bounded_streaming_workspace(
+    ties, monkeypatch
+):
+    torch = pytest.importorskip("torch")
+    rng = np.random.default_rng(2294)
+    X_np = rng.normal(size=(96, 3))
+    stop_np = np.full(96, 5.0)
+    stop_np[4:] = 6.0
+    event_np = np.zeros(96)
+    event_np[:4] = 1.0
+    start_np = rng.uniform(0.0, 4.0, size=96)
+    beta_np = np.array([0.2, -0.15, 0.1])
+
+    reference = risk_sets.cox_counting_process_objective(
+        beta_np,
+        X_np,
+        stop_np,
+        event_np,
+        start=start_np,
+        ties=ties,
+        score_residuals=True,
+    )
+
+    calls = []
+    original = risk_sets._streamed_stratum_group_objective
+
+    def recorded(*args, **kwargs):
+        calls.append(kwargs["max_workspace_bytes"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        risk_sets, "_streamed_stratum_group_objective", recorded
+    )
+    monkeypatch.setenv("STATGPU_COX_GROUP_MAX_BYTES", "256")
+    result = risk_sets.cox_counting_process_objective(
+        torch.as_tensor(beta_np, dtype=torch.float64),
+        torch.as_tensor(X_np, dtype=torch.float64),
+        torch.as_tensor(stop_np, dtype=torch.float64),
+        torch.as_tensor(event_np, dtype=torch.float64),
+        start=torch.as_tensor(start_np, dtype=torch.float64),
+        ties=ties,
+        score_residuals=True,
+    )
+
+    assert calls == [256]
+    assert_allclose(
+        result["log_likelihood"].numpy(),
+        reference["log_likelihood"],
+        rtol=1e-11,
+        atol=1e-11,
+    )
+    for name in ("score", "information", "score_residuals"):
+        assert_allclose(
+            result[name].numpy(),
+            reference[name],
+            rtol=1e-10,
+            atol=1e-10,
+        )

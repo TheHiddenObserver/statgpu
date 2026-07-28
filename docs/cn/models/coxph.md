@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-07-27<br>
+> 最后更新：2026-07-28<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -41,8 +41,10 @@ $$
 `ties="exact"` 通过 elementary-symmetric 动态规划计算 Exact 分母。
 delayed entry、strata、Exact ties、L2 惩罚拟合与 GPU 稳健推断共用同一套
 计数过程风险集引擎，因此三个后端遵循一致的 `(start, stop]` 约定。
-strata 标签必须是数值、整数值、有限且可由有符号 int64 表示；NumPy/CuPy/Torch
-都会在任何类型转换前执行该校验。
+公开 `CoxPH` 与 `CoxPHCV` estimator 会 factorize 一维标签：host 字符串/对象以及
+有限的 CuPy/Torch 数值标签都会在内部编码为连续 int64 code。低层
+counting-process primitive 不执行 factorize，因此要求数值 code 有限、整数值且
+可由有符号 int64 表示。
 
 对于普通 right-censored Exact 拟合，风险集在各 stratum 内具有嵌套结构。
 StatGPU 先按 stratum、再按 stop time 降序排列样本，并在 NumPy、CuPy、Torch 上让
@@ -70,6 +72,12 @@ batch，避免计算跨 stratum 的空掩码。独立的 512 MiB 上限由
 `STATGPU_EXACT_BATCH_MAX_BYTES` 控制。全局批量工作区超限时先按 stratum 重试，
 再使用逐组内存受限路径；构造 score residuals 或触发保守数值范围门禁时也保留
 normalized 实现。这些都是显式算法回退，不会隐式回退到 CPU。
+
+对于 Breslow/Efron delayed-entry objective，
+`STATGPU_COX_GROUP_MAX_BYTES` 控制密集 failure-group 工作区，默认
+512 MiB。如果单个 failure group 已超过上限，所选 GPU 后端会改用
+数值稳定的多遍 row-streaming moment 计算，从而避免最小 batch size 为 1 时仍分配
+不受限的 `O(n)` mask。
 
 完整拟合的推断阶段还需要构造 Breslow baseline hazard。对于普通右删失行，
 StatGPU 现在在每个 stratum 内按 stop time 降序排列，并通过一次 log-risk 前缀
@@ -127,9 +135,10 @@ Breslow 与 Efron 的 strict 稳健推断使用 statgpu 内部的精确计数过
 residual，不依赖 statsmodels。同一受试者的重复行会先按 `subject_id` 汇总再
 形成 HC0/HC1 meat；cluster 协方差按 `cluster` 汇总。
 
-`inference_mode="strict"` 是默认值。`inference_mode="approx"` 仅用于显式选择
-旧路径的 event-row Efron sandwich 近似。近似推断会写入公开 provenance 字段，
-不会被静默启用。
+`inference_mode="strict"` 是默认值。为保持向后兼容，公开 API 仍接受
+`inference_mode="approx"`，但统一 fit 路径会把它作为 compatibility-only alias，
+继续计算精确的 counting-process score sandwich。因此成功拟合会报告
+`inference_approximate_=False`，且没有 approximation fallback reason。
 
 Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 `ties="exact"` 下请求 HC0、HC1 或 cluster 推断，会抛出
@@ -156,7 +165,7 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 | `compute_cindex` | `True` | 计算训练集 concordance |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
 | `penalty` | `0.0` | 非负 L2 惩罚 |
-| `inference_mode` | `"strict"` | `"strict"` 或显式 `"approx"` |
+| `inference_mode` | `"strict"` | `"strict"` 或兼容别名 `"approx"`；两者均执行精确推断 |
 | `gpu_memory_cleanup` | `False` | 尝试释放 CuPy/Torch 缓存 |
 
 ## 支持矩阵

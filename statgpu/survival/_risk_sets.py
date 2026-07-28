@@ -295,6 +295,251 @@ def _group_max_1d(
     return output
 
 
+def _cox_group_workspace_max_bytes() -> int:
+    """Return the dense Breslow/Efron group-workspace ceiling.
+
+    A single oversized failure group selects the row-streaming fallback before
+    allocating an ``O(n)`` dense mask.
+    """
+    return _nonnegative_env_int(
+        "STATGPU_COX_GROUP_MAX_BYTES",
+        512 * 1024 * 1024,
+        1 << 50,
+    )
+
+
+def _estimate_dense_group_workspace_bytes(
+    n_rows: int,
+    n_features: int,
+    itemsize: int,
+    *,
+    compute_derivatives: bool,
+    score_residuals: bool,
+) -> int:
+    """Conservatively estimate one dense failure-group workspace."""
+    # risk/failure masks coexist with their floating forms, masked/shifted
+    # predictors, risk/failure weights, and (for residuals) hazard weights.
+    # Moment evaluation additionally holds several batch-by-p-by-p tensors.
+    row_buffers = 8 if score_residuals else 6
+    row_bytes = max(int(n_rows), 1) * (
+        2 + row_buffers * int(itemsize)
+    )
+    moment_bytes = 0
+    if compute_derivatives:
+        moment_bytes = (
+            6 * max(int(n_features) * int(n_features), 1) * int(itemsize)
+        )
+    return row_bytes + moment_bytes
+
+
+def _streamed_stratum_group_objective(
+    eta: Any,
+    X: Any,
+    stop: Any,
+    event: Any,
+    start: Any,
+    failure_times: Any,
+    *,
+    ties: str,
+    score_residuals: bool,
+    compute_derivatives: bool,
+    max_workspace_bytes: int,
+) -> Dict[str, Any]:
+    """Evaluate one stratum with bounded row chunks.
+
+    This path is used when even a one-failure-group dense batch would exceed
+    ``STATGPU_COX_GROUP_MAX_BYTES``. Each group uses a first pass for its
+    risk-set shift, a second pass for stable moments, and (only when requested)
+    a third pass for score residuals. The selected backend is retained
+    throughout; this is an algorithmic memory fallback, not a CPU fallback.
+    """
+    backend, xp = _array_namespace(X)
+    n_rows, n_features = int(X.shape[0]), int(X.shape[1])
+    itemsize = X.element_size() if backend == "torch" else int(X.dtype.itemsize)
+    fixed_bytes = itemsize * (
+        16
+        + 8 * n_features
+        + (6 * n_features * n_features if compute_derivatives else 0)
+    )
+    bytes_per_row = 2 + itemsize * (
+        8 + (2 * n_features if compute_derivatives else 0)
+    )
+    available = max(1, int(max_workspace_bytes) - fixed_bytes)
+    row_batch_size = max(
+        1, min(n_rows, available // max(bytes_per_row, 1))
+    )
+
+    loglik = _zeros(backend, xp, (), X)
+    score = (
+        _zeros(backend, xp, (n_features,), X)
+        if compute_derivatives
+        else None
+    )
+    information = (
+        _zeros(backend, xp, (n_features, n_features), X)
+        if compute_derivatives
+        else None
+    )
+    residuals = (
+        _zeros(backend, xp, (n_rows, n_features), X)
+        if score_residuals
+        else None
+    )
+
+    for failure_time in failure_times:
+        eta_shift = _zeros(backend, xp, (), X) - float("inf")
+        d = _zeros(backend, xp, (), X)
+        fail_eta_sum = _zeros(backend, xp, (), X)
+        fail_x_sum = (
+            _zeros(backend, xp, (n_features,), X)
+            if compute_derivatives
+            else None
+        )
+
+        for row_start in range(0, n_rows, row_batch_size):
+            row_stop = min(row_start + row_batch_size, n_rows)
+            sl = slice(row_start, row_stop)
+            risk = (start[sl] < failure_time) & (
+                stop[sl] >= failure_time
+            )
+            fail = (event[sl] == 1) & (stop[sl] == failure_time)
+            fail_float = _as_float(fail, backend, X)
+            masked_eta = xp.where(
+                risk,
+                eta[sl],
+                xp.full_like(eta[sl], -float("inf")),
+            )
+            eta_shift = xp.maximum(
+                eta_shift, _max(masked_eta, backend, xp)
+            )
+            d = d + _sum(fail_float, backend, xp)
+            fail_eta_sum = fail_eta_sum + _sum(
+                fail_float * eta[sl], backend, xp
+            )
+            if compute_derivatives:
+                fail_x_sum = fail_x_sum + fail_float @ X[sl]
+
+        d_int = _scalar_int(d)
+        if d_int < 1:
+            continue
+        if not _scalar_bool(xp.isfinite(eta_shift)):
+            raise FloatingPointError(
+                "empty Cox risk set at an observed failure time"
+            )
+
+        s0 = _zeros(backend, xp, (), X)
+        e0 = _zeros(backend, xp, (), X)
+        if compute_derivatives:
+            s1 = _zeros(backend, xp, (n_features,), X)
+            e1 = _zeros(backend, xp, (n_features,), X)
+            s2 = _zeros(
+                backend, xp, (n_features, n_features), X
+            )
+            e2 = _zeros(
+                backend, xp, (n_features, n_features), X
+            )
+
+        for row_start in range(0, n_rows, row_batch_size):
+            row_stop = min(row_start + row_batch_size, n_rows)
+            sl = slice(row_start, row_stop)
+            risk = (start[sl] < failure_time) & (
+                stop[sl] >= failure_time
+            )
+            fail = (event[sl] == 1) & (stop[sl] == failure_time)
+            fail_float = _as_float(fail, backend, X)
+            shifted_eta = xp.where(
+                risk,
+                eta[sl] - eta_shift,
+                xp.full_like(eta[sl], -float("inf")),
+            )
+            weights = _exp(shifted_eta, xp)
+            fail_weights = weights * fail_float
+            s0 = s0 + _sum(weights, backend, xp)
+            e0 = e0 + _sum(fail_weights, backend, xp)
+            if compute_derivatives:
+                X_chunk = X[sl]
+                s1 = s1 + weights @ X_chunk
+                e1 = e1 + fail_weights @ X_chunk
+                s2 = s2 + X_chunk.T @ (
+                    weights.reshape(-1, 1) * X_chunk
+                )
+                e2 = e2 + X_chunk.T @ (
+                    fail_weights.reshape(-1, 1) * X_chunk
+                )
+
+        if _scalar_bool(s0 <= 0):
+            raise FloatingPointError(
+                "non-positive Cox risk-set denominator"
+            )
+        loglik = loglik + fail_eta_sum
+
+        if residuals is not None:
+            xbar = s1 / s0
+            hazard_scale = d / s0
+            for row_start in range(0, n_rows, row_batch_size):
+                row_stop = min(row_start + row_batch_size, n_rows)
+                sl = slice(row_start, row_stop)
+                risk = (start[sl] < failure_time) & (
+                    stop[sl] >= failure_time
+                )
+                fail = (event[sl] == 1) & (
+                    stop[sl] == failure_time
+                )
+                shifted_eta = xp.where(
+                    risk,
+                    eta[sl] - eta_shift,
+                    xp.full_like(eta[sl], -float("inf")),
+                )
+                weights = _exp(shifted_eta, xp)
+                residual_weight = (
+                    _as_float(fail, backend, X)
+                    - weights * hazard_scale
+                )
+                residuals[sl] = (
+                    residuals[sl]
+                    + residual_weight.reshape(-1, 1)
+                    * (X[sl] - xbar)
+                )
+
+        if ties == "breslow":
+            loglik = loglik - d * (_log(s0, xp) + eta_shift)
+            if compute_derivatives:
+                mean = s1 / s0
+                score = score + fail_x_sum - d * mean
+                information = information + d * (
+                    s2 / s0 - _outer(mean, mean, backend, xp)
+                )
+            continue
+
+        if compute_derivatives:
+            score = score + fail_x_sum
+        for substep in range(d_int):
+            frac = float(substep) / d
+            denom = s0 - frac * e0
+            if _scalar_bool(denom <= 0):
+                raise FloatingPointError(
+                    "non-positive Cox risk-set denominator"
+                )
+            loglik = loglik - (_log(denom, xp) + eta_shift)
+            if compute_derivatives:
+                mean = (s1 - frac * e1) / denom
+                second = (s2 - frac * e2) / denom
+                score = score - mean
+                information = information + (
+                    second - _outer(mean, mean, backend, xp)
+                )
+
+    result = {"log_likelihood": loglik}
+    if compute_derivatives:
+        result["score"] = score
+        result["information"] = 0.5 * (
+            information + information.T
+        )
+    if residuals is not None:
+        result["score_residuals"] = residuals
+    return result
+
+
 def _batched_group_objective(
     eta: Any,
     X: Any,
@@ -330,25 +575,63 @@ def _batched_group_objective(
     # ``batch x p x p`` second-moment tensors in addition to several risk-set
     # views, while log-likelihood-only evaluation creates no p-squared tensor.
     # Accounting for both terms prevents wide models from exhausting GPU memory.
-    max_batch_entries = 2_000_000
+    max_workspace_bytes = _cox_group_workspace_max_bytes()
+    itemsize = (
+        X.element_size() if backend == "torch" else int(X.dtype.itemsize)
+    )
     for stratum in _unique_sorted(strata, backend, xp):
         stratum_idx = _nonzero(strata == stratum, backend, xp)
-        Xs = X[stratum_idx] if compute_derivatives else None
-        stops = stop[stratum_idx]
-        starts = start[stratum_idx]
-        events = event[stratum_idx]
-        etas = eta[stratum_idx]
+        n_stratum = int(stratum_idx.shape[0])
+        full_stratum = n_stratum == n_samples
+        Xs_all = X if full_stratum else X[stratum_idx]
+        Xs = Xs_all if compute_derivatives else None
+        stops = stop if full_stratum else stop[stratum_idx]
+        starts = start if full_stratum else start[stratum_idx]
+        events = event if full_stratum else event[stratum_idx]
+        etas = eta if full_stratum else eta[stratum_idx]
         failure_times = _unique_sorted(stops[events == 1], backend, xp)
         n_groups = int(failure_times.shape[0])
         if n_groups == 0:
             continue
 
-        n_stratum = int(stratum_idx.shape[0])
-        entries_per_group = 4 * max(n_stratum, 1)
-        if compute_derivatives:
-            entries_per_group += 2 * max(n_features * n_features, 1)
+        group_workspace_bytes = _estimate_dense_group_workspace_bytes(
+            n_stratum,
+            n_features,
+            itemsize,
+            compute_derivatives=compute_derivatives,
+            score_residuals=score_residuals,
+        )
+        if group_workspace_bytes > max_workspace_bytes:
+            streamed = _streamed_stratum_group_objective(
+                etas,
+                Xs_all,
+                stops,
+                events,
+                starts,
+                failure_times,
+                ties=ties,
+                score_residuals=score_residuals,
+                compute_derivatives=compute_derivatives,
+                max_workspace_bytes=max_workspace_bytes,
+            )
+            loglik = loglik + streamed["log_likelihood"]
+            if compute_derivatives:
+                score = score + streamed["score"]
+                information = information + streamed["information"]
+            if residuals is not None:
+                if full_stratum:
+                    residuals = streamed["score_residuals"]
+                else:
+                    residuals[stratum_idx] = streamed[
+                        "score_residuals"
+                    ]
+            continue
+
+        batch_size_limit = max_workspace_bytes // max(
+            group_workspace_bytes, 1
+        )
         batch_size = max(
-            1, min(n_groups, max_batch_entries // max(entries_per_group, 1))
+            1, min(n_groups, batch_size_limit)
         )
         residual_stratum = (
             _zeros(backend, xp, (n_stratum, n_features), X)

@@ -119,8 +119,11 @@ def test_cpu_cupy_torch_termination_contract_matches(backend):
     device = 'cpu'
     if backend == 'cupy':
         cp = pytest.importorskip('cupy')
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA unavailable')
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip('CuPy CUDA unavailable')
+        except Exception as exc:
+            pytest.skip(f'CuPy CUDA unavailable: {exc}')
         X_backend = cp.asarray(X)
         device = 'cuda'
     elif backend == 'torch':
@@ -279,8 +282,11 @@ def test_gpu_prediction_is_native_and_does_not_require_full_host_transfer(backen
     X, time, event = _cox_sample(n=55, p=2)
     if backend == 'cupy':
         xp = pytest.importorskip('cupy')
-        if xp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA unavailable')
+        try:
+            if xp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip('CuPy CUDA unavailable')
+        except Exception as exc:
+            pytest.skip(f'CuPy CUDA unavailable: {exc}')
         X_backend = xp.asarray(X)
         model = CoxPH(device='cuda', compute_cindex=False)
         native_type = xp.ndarray
@@ -317,8 +323,11 @@ def test_rbf_complex_inputs_fail_consistently(backend):
         X_backend = xp.as_tensor(X)
     else:
         xp = pytest.importorskip('cupy')
-        if xp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA unavailable')
+        try:
+            if xp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip('CuPy CUDA unavailable')
+        except Exception as exc:
+            pytest.skip(f'CuPy CUDA unavailable: {exc}')
         X_backend = xp.asarray(X)
     with pytest.raises(ValueError, match='complex-valued'):
         rbf_kernel(X_backend, xp=xp)
@@ -375,8 +384,11 @@ def test_cox_chi_square_tests_use_distribution_survival_function(monkeypatch):
 @pytest.mark.gpu
 def test_cupy_gaussian_inference_uses_cholesky_solves(monkeypatch):
     cp = pytest.importorskip('cupy')
-    if cp.cuda.runtime.getDeviceCount() < 1:
-        pytest.skip('CuPy CUDA unavailable')
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip('CuPy CUDA unavailable')
+    except Exception as exc:
+        pytest.skip(f'CuPy CUDA unavailable: {exc}')
     from statgpu.backends._gpu_inference_cupy import compute_inference_gpu
 
     monkeypatch.setattr(

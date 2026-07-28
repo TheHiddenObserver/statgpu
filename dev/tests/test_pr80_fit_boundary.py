@@ -13,8 +13,11 @@ from statgpu.survival import CoxPH
 def _require_backend(device):
     if device == "cuda":
         cp = pytest.importorskip("cupy")
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("CuPy CUDA unavailable")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
         return cp
     if device == "torch":
         torch = pytest.importorskip("torch")
@@ -259,3 +262,39 @@ def test_predict_survival_rejects_complex_times_before_cast(device):
 
     with pytest.raises(ValueError, match="times must be real-valued"):
         model.predict_survival(X[:2], times=complex_times)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize(
+    ("device", "expected"),
+    [("cuda", Device.CUDA), ("torch", Device.TORCH)],
+)
+def test_gpu_device_normalization_and_failed_refit_cleanup(device, expected):
+    _require_backend(device)
+    X_np, stop_np, event_np = _stable_sample(seed=2285, n=48, p=2)
+    X = _on_backend(device, X_np)
+    target = _on_backend(device, np.column_stack((stop_np, event_np)))
+    model = CoxPH(
+        device="cpu",
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=60,
+    )
+    model.set_params(device=device)
+    model.fit(X, target)
+
+    assert model.device is expected
+    assert model._fitted is True
+    assert np.all(np.isfinite(model.coef_))
+
+    complex_X = _on_backend(
+        device, X_np.astype(np.complex128) + 1j
+    )
+    with pytest.raises(ValueError, match="X must be real-valued"):
+        model.fit(complex_X, target)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model._X is None
+    assert model._time is None
+    assert model._event is None
