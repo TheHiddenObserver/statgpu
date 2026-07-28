@@ -319,10 +319,15 @@ def _estimate_dense_group_workspace_bytes(
     """Conservatively estimate one dense failure-group workspace."""
     # risk/failure masks coexist with their floating forms, masked/shifted
     # predictors, risk/failure weights, and (for residuals) hazard weights.
-    # Moment evaluation additionally holds several batch-by-p-by-p tensors.
+    # Three-operand einsum implementations may contract ``bn,ni`` first,
+    # materializing a batch-by-row-by-feature weighted design before the
+    # final p-by-p moment. Count two such row-feature buffers conservatively
+    # so wide models select streaming before backend-specific contraction
+    # paths can exceed the advertised workspace ceiling.
     row_buffers = 8 if score_residuals else 6
+    derivative_row_buffers = 2 * max(int(n_features), 0) if compute_derivatives else 0
     row_bytes = max(int(n_rows), 1) * (
-        2 + row_buffers * int(itemsize)
+        2 + (row_buffers + derivative_row_buffers) * int(itemsize)
     )
     moment_bytes = 0
     if compute_derivatives:
