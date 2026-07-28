@@ -5,10 +5,9 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**BLOCKED_REMOTE_CI.** The local review-fix implementation, complete CPU gates,
-and exact-source physical CuPy/Torch refresh pass. The evidence commit must be
-pushed and its hosted CI must reach a successful terminal state before this
-cycle returns to `COMPLETE`.
+**COMPLETE.** The local review-fix implementation, complete CPU gates,
+exact-source physical CuPy/Torch refresh, evidence push, and hosted CI all pass.
+No CRITICAL, HIGH, or active MEDIUM finding remains open.
 
 ## Reviewed source and mode
 
@@ -19,6 +18,8 @@ cycle returns to `COMPLETE`.
 - Repository conventions: `dev/AGENTS.md`.
 - Exact-source production, test, and P100 runner commit:
   `2daf5c6178562308d5e4a6fc41e24c96a0e73e25`.
+- Pushed evidence commit:
+  `89e4307c4015b60db375b7a49cf4d819ba4a57e7`.
 
 ## Impact classification
 
@@ -232,6 +233,14 @@ completion cases record legacy isolation. Its SHA-256 is
 - The earlier one-command full-tree run also reached `1438 passed, 434 skipped`
   before the shell wrapper timeout; the split runs include the new isolation test.
 
+## Hosted CI
+
+GitHub Actions run
+`https://github.com/TheHiddenObserver/statgpu/actions/runs/30369118924`
+completed successfully for evidence commit `89e4307c4015`. The required
+`docs-contracts`, `static-contracts`, `full-cpu-suite`, and Python 3.9, 3.10,
+3.11, and 3.12 regression-matrix jobs all reached successful terminal states.
+
 ## Changed files
 
 - `.github/workflows/test.yml`
@@ -249,8 +258,8 @@ completion cases record legacy isolation. Its SHA-256 is
 
 ## Skipped and deferred work
 
-- No active physical-GPU case was skipped. The exact-source P100 artifact
-  passed all CuPy/Torch cases and 159 required tests; hosted CI remains pending
-  until the evidence commit is pushed.
+- No active physical-GPU or hosted-CI gate was skipped. The exact-source P100
+  artifact passed all CuPy/Torch cases and 159 required tests; hosted run
+  `30369118924` passed all seven required jobs.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
