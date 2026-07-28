@@ -77,10 +77,11 @@
   failure-group workspace before allocation. An oversized single risk set uses
   a stable backend-native row-streaming moment fallback rather than allocating
   an unbounded minimum-size dense batch.
-  The exact clean-source P100 audit passed 85 focused and 504 expanded tests;
-  at `n=8192`, `p=3`, and a forced 4096-byte workspace, CuPy/Torch differed
-  from the NumPy information matrix by at most `1.33e-14`/`1.20e-14`:
-  `results/benchmark_frontend_sources/coxph_boundary_workspace_pr80_20260728.json`.
+  The final exact-source P100 refresh passed 104 targeted tests. At `n=4096`,
+  `p=128`, and an 8 MiB limit, the old 1,056,768-byte estimate selected dense
+  while the corrected 9,445,376-byte estimate selected streaming. CuPy and
+  Torch both recorded the streaming route and matched NumPy within `3.997e-15`:
+  `results/benchmark_frontend_sources/coxph_boundary_workspace_pr80_20260728_refresh.json`.
 - The maintained delayed-entry + 3-strata P100 benchmark reached
   NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
   3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new
