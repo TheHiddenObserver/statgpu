@@ -1,0 +1,243 @@
+name: PR80 Complete Review Patch
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.repository == 'TheHiddenObserver/statgpu' && github.head_ref == 'codex/survival-gpu-completion'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/survival-gpu-completion
+      - name: Apply final review fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file_path = Path(path)
+              text = file_path.read_text(encoding='utf-8')
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f'expected block not found in {path}')
+              file_path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Bound ordinary public concordance workspace.
+          replace_once(
+              'statgpu/survival/_cox_score.py',
+              '''from statgpu.backends._utils import _require_real_array\n\n\ndef score(\n''',
+              '''from statgpu.backends._utils import _require_real_array\n\n\n_MAX_CONCORDANCE_PAIR_ENTRIES = 2_000_000\n\n\ndef _concordance_batch_size(n_events: int, n_samples: int) -> int:\n    """Bound pairwise concordance temporaries to a small fixed workspace."""\n    return max(\n        1,\n        min(\n            int(n_events),\n            _MAX_CONCORDANCE_PAIR_ENTRIES // max(int(n_samples), 1),\n        ),\n    )\n\n\ndef score(\n''',
+          )
+          replace_once(
+              'statgpu/survival/_cox_score.py',
+              '''    chunk_size = max(1, min(n_events, int(128e6 / max(n_samples, 1))))\n''',
+              '''    chunk_size = _concordance_batch_size(n_events, n_samples)\n''',
+          )
+
+          # Fit-oriented counting-process validation requires events, whereas a
+          # concordance scoring set with no events has the neutral value 0.5.
+          replace_once(
+              'statgpu/survival/_risk_sets.py',
+              '''def _validate_counting_process_inputs(\n    X: Any,\n    stop: Any,\n    event: Any,\n    start: Any,\n    strata: Any,\n) -> None:\n''',
+              '''def _validate_counting_process_inputs(\n    X: Any,\n    stop: Any,\n    event: Any,\n    start: Any,\n    strata: Any,\n    *,\n    require_event: bool = True,\n) -> None:\n''',
+          )
+          replace_once(
+              'statgpu/survival/_risk_sets.py',
+              '''    if _scalar_int(_sum(event, backend, xp)) == 0:\n        raise ValueError("at least one observed event is required")\n''',
+              '''    if require_event and _scalar_int(_sum(event, backend, xp)) == 0:\n        raise ValueError("at least one observed event is required")\n''',
+          )
+          replace_once(
+              'statgpu/survival/_risk_sets.py',
+              '''def prepare_counting_process_inputs(\n    X: Any,\n    stop: Any,\n    event: Any,\n    *,\n    start: Optional[Any] = None,\n    strata: Optional[Any] = None,\n) -> Tuple[Any, Any, Any, Any, Any]:\n''',
+              '''def prepare_counting_process_inputs(\n    X: Any,\n    stop: Any,\n    event: Any,\n    *,\n    start: Optional[Any] = None,\n    strata: Optional[Any] = None,\n    require_event: bool = True,\n) -> Tuple[Any, Any, Any, Any, Any]:\n''',
+          )
+          replace_once(
+              'statgpu/survival/_risk_sets.py',
+              '''    _validate_counting_process_inputs(X, stop, event, start, strata)\n''',
+              '''    _validate_counting_process_inputs(\n        X, stop, event, start, strata, require_event=bool(require_event)\n    )\n''',
+          )
+          risk_path = Path('statgpu/survival/_risk_sets.py')
+          risk_text = risk_path.read_text(encoding='utf-8')
+          marker = 'def counting_process_concordance('
+          before, tail = risk_text.split(marker, 1)
+          old_call = '''    X, stop, event, start, strata = prepare_counting_process_inputs(\n        X, stop, event, start=start, strata=strata\n    )\n'''
+          new_call = '''    X, stop, event, start, strata = prepare_counting_process_inputs(\n        X,\n        stop,\n        event,\n        start=start,\n        strata=strata,\n        require_event=False,\n    )\n'''
+          if new_call not in tail:
+              if old_call not in tail:
+                  raise SystemExit('concordance prepare call not found')
+              tail = tail.replace(old_call, new_call, 1)
+              risk_path.write_text(before + marker + tail, encoding='utf-8')
+
+          # CoxPHCV exposes score() on demand; avoid an unrequested O(n^2)
+          # training concordance calculation during the final full-data refit.
+          replace_once(
+              'statgpu/survival/_cox_cv.py',
+              '''            compute_inference=bool(self.compute_inference),\n            cov_type=cov_type_name,\n''',
+              '''            compute_inference=bool(self.compute_inference),\n            compute_cindex=False,\n            cov_type=cov_type_name,\n''',
+          )
+
+          # Penalized Cox should follow the same strict boolean boundary as CoxPH.
+          replace_once(
+              'statgpu/linear_model/penalized/_penalized_cox.py',
+              '''from ._base import PenalizedGeneralizedLinearModel\n\n\nclass PenalizedCoxPHModel''',
+              '''from ._base import PenalizedGeneralizedLinearModel\n\n\ndef _validate_boolean_control(value, name):\n    """Accept booleans or integer 0/1 without interpreting truthy strings."""\n    if isinstance(value, (bool, np.bool_)):\n        return\n    if isinstance(value, (int, np.integer)) and int(value) in (0, 1):\n        return\n    raise ValueError(f"{name} must be a boolean or integer 0/1")\n\n\nclass PenalizedCoxPHModel''',
+          )
+          replace_once(
+              'statgpu/linear_model/penalized/_penalized_cox.py',
+              '''    ):\n        if fit_intercept:\n            raise ValueError(\n''',
+              '''    ):\n        for name, value in (\n            ("fit_intercept", fit_intercept),\n            ("gpu_memory_cleanup", gpu_memory_cleanup),\n            ("compute_inference", compute_inference),\n            ("lla", lla),\n        ):\n            _validate_boolean_control(value, name)\n        if bool(fit_intercept):\n            raise ValueError(\n''',
+          )
+          replace_once(
+              'statgpu/linear_model/penalized/_penalized_cox.py',
+              '''    def set_params(self, **params):\n        """Set estimator parameters while preserving the no-intercept contract."""\n        if params.get("fit_intercept", False):\n''',
+              '''    def set_params(self, **params):\n        """Set estimator parameters while preserving the no-intercept contract."""\n        for name in (\n            "fit_intercept",\n            "gpu_memory_cleanup",\n            "compute_inference",\n            "lla",\n        ):\n            if name in params:\n                _validate_boolean_control(params[name], name)\n        if bool(params.get("fit_intercept", False)):\n''',
+          )
+
+          test_path = Path('dev/tests/test_pr80_complete_review_cycle.py')
+          test_path.write_text(r'''"""Regression gates from the final complete PR80 review cycle."""
+
+import numpy as np
+import pytest
+
+from statgpu.linear_model import PenalizedCoxPHModel
+from statgpu.survival import CoxPH, CoxPHCV
+from statgpu.survival._cox_score import (
+    _MAX_CONCORDANCE_PAIR_ENTRIES,
+    _concordance_batch_size,
+)
+from statgpu.survival._risk_sets import counting_process_concordance
+
+
+def _fit_sample(seed=2401, n=36, p=2):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, p))
+    stop = np.arange(1, n + 1, dtype=np.float64)
+    event = np.ones(n, dtype=np.float64)
+    event[::5] = 0.0
+    event[0] = 1.0
+    return X, stop, event
+
+
+def test_ordinary_concordance_batch_is_bounded():
+    batch = _concordance_batch_size(100_000, 1_000)
+    assert batch == 2_000
+    assert batch * 1_000 <= _MAX_CONCORDANCE_PAIR_ENTRIES
+    assert _concordance_batch_size(0, 1_000) == 1
+
+
+def test_all_censored_concordance_is_neutral_across_public_paths():
+    X, stop, event = _fit_sample(p=1)
+    fitted = CoxPH(
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=80,
+        tol=1e-7,
+    ).fit(X, stop, event)
+    X_score = X[:6]
+    stop_score = np.arange(1, 7, dtype=np.float64)
+    censored = np.zeros(6, dtype=np.float64)
+
+    assert fitted.score(X_score, stop_score, censored) == 0.5
+    assert fitted.score(
+        X_score,
+        stop_score,
+        censored,
+        start=np.zeros(6),
+        strata=np.array([0, 0, 0, 1, 1, 1]),
+    ) == 0.5
+    assert float(
+        counting_process_concordance(
+            fitted.coef_,
+            X_score,
+            stop_score,
+            censored,
+            start=np.zeros(6),
+            strata=np.array([0, 0, 0, 1, 1, 1]),
+        )
+    ) == 0.5
+
+
+def test_penalized_cox_all_censored_score_is_neutral():
+    X, stop, event = _fit_sample(seed=2402, p=1)
+    model = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.2,
+        max_iter=80,
+        tol=1e-6,
+        compute_inference=False,
+    ).fit(X, np.column_stack((stop, event)))
+    target = np.column_stack((stop[:5], np.zeros(5)))
+    assert model.score(X[:5], target) == 0.5
+
+
+def test_coxphcv_final_refit_skips_hidden_training_concordance():
+    X, stop, event = _fit_sample(seed=2403)
+    model = CoxPHCV(
+        penalties=np.array([1.0]),
+        cv=2,
+        random_state=0,
+        compute_inference=False,
+        max_iter=100,
+        tol=1e-6,
+        device="cpu",
+    ).fit(X, stop, event)
+    assert model.estimator_.compute_cindex is False
+    assert model.estimator_.concordance_ is None
+    assert np.isfinite(model.score(X, stop, event))
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["fit_intercept", "gpu_memory_cleanup", "compute_inference", "lla"],
+)
+def test_penalized_cox_rejects_truthy_string_boolean_controls(name):
+    with pytest.raises(ValueError, match=rf"{name} must be a boolean"):
+        PenalizedCoxPHModel(**{name: "False"})
+
+    model = PenalizedCoxPHModel()
+    with pytest.raises(ValueError, match=rf"{name} must be a boolean"):
+        model.set_params(**{name: "False"})
+
+
+def test_penalized_cox_accepts_integer_boolean_controls_and_clones():
+    sklearn = pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    model = PenalizedCoxPHModel(
+        fit_intercept=0,
+        gpu_memory_cleanup=0,
+        compute_inference=0,
+        lla=1,
+    )
+    cloned = clone(model)
+    assert cloned.fit_intercept == 0
+    assert cloned.gpu_memory_cleanup == 0
+    assert cloned.compute_inference == 0
+    assert cloned.lla == 1
+''', encoding='utf-8')
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Review fixes already applied"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            statgpu/survival/_cox_score.py \
+            statgpu/survival/_risk_sets.py \
+            statgpu/survival/_cox_cv.py \
+            statgpu/linear_model/penalized/_penalized_cox.py \
+            dev/tests/test_pr80_complete_review_cycle.py
+          git commit -m "Fix final Cox review findings"
+          git push origin HEAD:codex/survival-gpu-completion
