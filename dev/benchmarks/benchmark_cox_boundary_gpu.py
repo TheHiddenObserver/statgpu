@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from statgpu._config import Device  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
+from statgpu.survival import _risk_sets as risk_sets  # noqa: E402
 from statgpu.survival._risk_sets import (  # noqa: E402
     cox_counting_process_objective,
 )
@@ -103,6 +104,18 @@ def _case_boundary(name: str, xp) -> dict:
     X_np, stop_np, event_np = _sample()
     X = _array(name, xp, X_np)
     target = _array(name, xp, np.column_stack((stop_np, event_np)))
+    constructor_rejections = {}
+    for parameter in (
+        "compute_inference",
+        "compute_cindex",
+        "gpu_memory_cleanup",
+    ):
+        try:
+            CoxPH(device=device, **{parameter: "False"})
+        except ValueError as exc:
+            constructor_rejections[parameter] = parameter in str(exc)
+        else:
+            constructor_rejections[parameter] = False
     model = CoxPH(
         device="cpu",
         compute_inference=True,
@@ -155,6 +168,7 @@ def _case_boundary(name: str, xp) -> dict:
         "complex_prediction_rejected": complex_rejected,
         "device_normalized": device_normalized,
         "failed_refit_cleared": failed_refit_cleared,
+        "constructor_truthy_strings_rejected": constructor_rejections,
         "finite": finite,
         "passed": all(
             (
@@ -162,6 +176,7 @@ def _case_boundary(name: str, xp) -> dict:
                 complex_rejected,
                 device_normalized,
                 failed_refit_cleared,
+                all(constructor_rejections.values()),
                 finite,
             )
         ),
@@ -172,6 +187,19 @@ def _case_cv(name: str, xp) -> dict:
     device = "cuda" if name == "cupy" else "torch"
     expected = Device.CUDA if name == "cupy" else Device.TORCH
     X_np, stop_np, event_np = _sample(seed=2293, n=36, p=2)
+    constructor_rejections = {}
+    for parameter in ("compute_inference", "gpu_memory_cleanup"):
+        try:
+            CoxPHCV(
+                penalties=np.array([0.1]),
+                cv=2,
+                device=device,
+                **{parameter: "False"},
+            )
+        except ValueError as exc:
+            constructor_rejections[parameter] = parameter in str(exc)
+        else:
+            constructor_rejections[parameter] = False
     model = CoxPHCV(
         penalties=np.array([0.1]),
         cv=2,
@@ -194,11 +222,13 @@ def _case_cv(name: str, xp) -> dict:
         and model.estimator_.device is expected
         and model.effective_device_ == device
         and bool(np.all(np.isfinite(model.coef_)))
+        and all(constructor_rejections.values())
     )
     return {
         "backend": name,
         "fit_seconds": fit_seconds,
         "effective_device": model.effective_device_,
+        "constructor_truthy_strings_rejected": constructor_rejections,
         "finite": bool(np.all(np.isfinite(model.coef_))),
         "passed": bool(passed),
     }
@@ -273,6 +303,133 @@ def _case_workspace(name: str, xp) -> dict:
     }
 
 
+def _case_wide_workspace_route(name: str, xp) -> dict:
+    rng = np.random.default_rng(2304)
+    n, p = 4096, 128
+    workspace_limit = 8 * 1024 * 1024
+    X_np = rng.normal(size=(n, p))
+    stop_np = np.full(n, 6.0)
+    stop_np[:4] = 5.0
+    event_np = np.zeros(n)
+    event_np[:4] = 1.0
+    start_np = rng.uniform(0.0, 4.0, size=n)
+    beta_np = np.linspace(0.08, -0.04, p)
+    itemsize = np.dtype(np.float64).itemsize
+
+    # This is the exact pre-fdc5f00 estimate. It omitted the two possible
+    # n-by-p weighted-design intermediates used by three-operand einsum.
+    old_estimate = n * (2 + 8 * itemsize) + 6 * p * p * itemsize
+    corrected_estimate = risk_sets._estimate_dense_group_workspace_bytes(
+        n,
+        p,
+        itemsize,
+        compute_derivatives=True,
+        score_residuals=True,
+    )
+    routing_boundary_passed = (
+        old_estimate <= workspace_limit < corrected_estimate
+    )
+
+    previous = os.environ.get("STATGPU_COX_GROUP_MAX_BYTES")
+    os.environ["STATGPU_COX_GROUP_MAX_BYTES"] = str(1 << 50)
+    try:
+        reference = cox_counting_process_objective(
+            beta_np,
+            X_np,
+            stop_np,
+            event_np,
+            start=start_np,
+            ties="efron",
+            score_residuals=True,
+        )
+    finally:
+        if previous is None:
+            os.environ.pop("STATGPU_COX_GROUP_MAX_BYTES", None)
+        else:
+            os.environ["STATGPU_COX_GROUP_MAX_BYTES"] = previous
+
+    streaming_calls = []
+    original_streamed = risk_sets._streamed_stratum_group_objective
+
+    def recording_streamed(*args, **kwargs):
+        streaming_calls.append(
+            {
+                "n": int(args[1].shape[0]),
+                "p": int(args[1].shape[1]),
+                "workspace_limit_bytes": int(kwargs["max_workspace_bytes"]),
+            }
+        )
+        return original_streamed(*args, **kwargs)
+
+    risk_sets._streamed_stratum_group_objective = recording_streamed
+    os.environ["STATGPU_COX_GROUP_MAX_BYTES"] = str(workspace_limit)
+    try:
+        started = time.perf_counter()
+        result = cox_counting_process_objective(
+            _array(name, xp, beta_np),
+            _array(name, xp, X_np),
+            _array(name, xp, stop_np),
+            _array(name, xp, event_np),
+            start=_array(name, xp, start_np),
+            ties="efron",
+            score_residuals=True,
+        )
+        _sync(name, xp)
+        seconds = time.perf_counter() - started
+    finally:
+        risk_sets._streamed_stratum_group_objective = original_streamed
+        if previous is None:
+            os.environ.pop("STATGPU_COX_GROUP_MAX_BYTES", None)
+        else:
+            os.environ["STATGPU_COX_GROUP_MAX_BYTES"] = previous
+
+    differences = {
+        key: float(
+            np.max(
+                np.abs(
+                    np.asarray(reference[key])
+                    - np.asarray(_numpy(name, result[key]))
+                )
+            )
+        )
+        for key in ("score", "information", "score_residuals")
+    }
+    differences["log_likelihood"] = float(
+        abs(
+            float(reference["log_likelihood"])
+            - float(np.asarray(_numpy(name, result["log_likelihood"])))
+        )
+    )
+    route_was_streamed = streaming_calls == [
+        {
+            "n": n,
+            "p": p,
+            "workspace_limit_bytes": workspace_limit,
+        }
+    ]
+    passed = (
+        routing_boundary_passed
+        and route_was_streamed
+        and max(differences.values()) <= 1e-9
+    )
+    return {
+        "backend": name,
+        "n": n,
+        "p": p,
+        "workspace_limit_bytes": workspace_limit,
+        "old_estimate_bytes": old_estimate,
+        "corrected_estimate_bytes": corrected_estimate,
+        "old_estimate_selects_dense": old_estimate <= workspace_limit,
+        "corrected_estimate_selects_streaming": (
+            corrected_estimate > workspace_limit
+        ),
+        "observed_streaming_calls": streaming_calls,
+        "seconds": seconds,
+        "max_abs_differences": differences,
+        "passed": passed,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -280,7 +437,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -305,6 +462,7 @@ def main() -> int:
                 "public_boundary": _case_boundary(name, xp),
                 "cv_device_normalization": _case_cv(name, xp),
                 "single_group_workspace": _case_workspace(name, xp),
+                "wide_workspace_route": _case_wide_workspace_route(name, xp),
             }
             report["backends"][name] = {
                 "version": xp.__version__,
