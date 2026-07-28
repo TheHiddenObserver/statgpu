@@ -19,6 +19,15 @@ from statgpu.backends._utils import (
 from ._base import PenalizedGeneralizedLinearModel
 
 
+def _validate_boolean_control(value, name):
+    """Accept booleans or integer 0/1 without interpreting truthy strings."""
+    if isinstance(value, (bool, np.bool_)):
+        return
+    if isinstance(value, (int, np.integer)) and int(value) in (0, 1):
+        return
+    raise ValueError(f"{name} must be a boolean or integer 0/1")
+
+
 class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
     _SUPPORTED_PENALTY_NAMES = frozenset(
         {
@@ -130,7 +139,14 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         max_lla_iters=50,
         lla_tol=1e-6,
     ):
-        if fit_intercept:
+        for name, value in (
+            ("fit_intercept", fit_intercept),
+            ("gpu_memory_cleanup", gpu_memory_cleanup),
+            ("compute_inference", compute_inference),
+            ("lla", lla),
+        ):
+            _validate_boolean_control(value, name)
+        if bool(fit_intercept):
             raise ValueError(
                 "PenalizedCoxPHModel does not fit an intercept because the "
                 "Cox partial likelihood cannot identify one; set "
@@ -210,7 +226,15 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
 
     def set_params(self, **params):
         """Set estimator parameters while preserving the no-intercept contract."""
-        if params.get("fit_intercept", False):
+        for name in (
+            "fit_intercept",
+            "gpu_memory_cleanup",
+            "compute_inference",
+            "lla",
+        ):
+            if name in params:
+                _validate_boolean_control(params[name], name)
+        if bool(params.get("fit_intercept", False)):
             raise ValueError(
                 "PenalizedCoxPHModel does not fit an intercept because the "
                 "Cox partial likelihood cannot identify one; set "

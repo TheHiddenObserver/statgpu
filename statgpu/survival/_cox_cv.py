@@ -1738,6 +1738,7 @@ class CoxPHCV(CVEstimatorBase):
             device=fit_device_name,
             n_jobs=self.n_jobs,
             compute_inference=bool(self.compute_inference),
+            compute_cindex=False,
             cov_type=cov_type_name,
             inference_mode=str(self.inference_mode).lower(),
             gpu_memory_cleanup=bool(self.gpu_memory_cleanup),

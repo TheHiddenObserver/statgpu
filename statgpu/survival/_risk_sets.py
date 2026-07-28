@@ -1686,6 +1686,8 @@ def _validate_counting_process_inputs(
     event: Any,
     start: Any,
     strata: Any,
+    *,
+    require_event: bool = True,
 ) -> None:
     if getattr(X, "ndim", None) != 2:
         raise ValueError("X must be a 2-dimensional array")
@@ -1709,7 +1711,7 @@ def _validate_counting_process_inputs(
         raise ValueError("start times must be non-negative")
     if _scalar_bool(_sum(stop <= start, backend, xp) > 0):
         raise ValueError("each row must satisfy start < stop")
-    if _scalar_int(_sum(event, backend, xp)) == 0:
+    if require_event and _scalar_int(_sum(event, backend, xp)) == 0:
         raise ValueError("at least one observed event is required")
 
 
@@ -1720,6 +1722,7 @@ def prepare_counting_process_inputs(
     *,
     start: Optional[Any] = None,
     strata: Optional[Any] = None,
+    require_event: bool = True,
 ) -> Tuple[Any, Any, Any, Any, Any]:
     """Normalize counting-process arrays without changing their backend."""
     for name, value in (("X", X), ("stop", stop), ("event", event)):
@@ -1823,7 +1826,9 @@ def prepare_counting_process_inputs(
                     "strata must contain integer-valued labels within int64 range"
                 )
             strata = strata_raw.astype(xp.int64, copy=False)
-    _validate_counting_process_inputs(X, stop, event, start, strata)
+    _validate_counting_process_inputs(
+        X, stop, event, start, strata, require_event=bool(require_event)
+    )
     event = event.to(dtype=xp.int64) if backend == "torch" else event.astype(xp.int64)
     return X, stop, event, start, strata
 
@@ -2158,7 +2163,12 @@ def counting_process_concordance(
     at the same time.  Rows belonging to the same subject are never compared.
     """
     X, stop, event, start, strata = prepare_counting_process_inputs(
-        X, stop, event, start=start, strata=strata
+        X,
+        stop,
+        event,
+        start=start,
+        strata=strata,
+        require_event=False,
     )
     backend, xp = _array_namespace(X)
     beta = _as_backend_array(beta, backend, xp, X, name="beta").reshape(-1)

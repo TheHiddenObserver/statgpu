@@ -14,6 +14,20 @@ from statgpu.backends import _to_float_scalar
 from statgpu.backends._utils import _require_real_array
 
 
+_MAX_CONCORDANCE_PAIR_ENTRIES = 2_000_000
+
+
+def _concordance_batch_size(n_events: int, n_samples: int) -> int:
+    """Bound pairwise concordance temporaries to a small fixed workspace."""
+    return max(
+        1,
+        min(
+            int(n_events),
+            _MAX_CONCORDANCE_PAIR_ENTRIES // max(int(n_samples), 1),
+        ),
+    )
+
+
 def score(
     self,
     X,
@@ -145,7 +159,7 @@ def score(
         return 0.5
 
     concordant = permissible = tied_risk = 0.0
-    chunk_size = max(1, min(n_events, int(128e6 / max(n_samples, 1))))
+    chunk_size = _concordance_batch_size(n_events, n_samples)
     for batch_start in range(0, n_events, chunk_size):
         batch_end = min(batch_start + chunk_size, n_events)
         idx = event_idx[batch_start:batch_end]
