@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import wraps
+import inspect
 
 import numpy as np
 
@@ -28,6 +29,22 @@ def _normalize_boolean_control(value, name: str) -> bool:
     if isinstance(value, (int, np.integer)) and int(value) in (0, 1):
         return bool(value)
     raise ValueError(f"{name} must be a boolean or integer 0/1")
+
+
+def _validate_constructor_boolean_controls(
+    original_init, args, kwargs, names
+) -> None:
+    """Reject truthy strings before an estimator constructor can coerce them.
+
+    The validation is intentionally non-mutating.  Integer ``0``/``1`` values
+    remain the exact constructor objects supplied by the caller, preserving the
+    legacy scikit-learn clone identity contract for estimators that store their
+    constructor parameters verbatim.
+    """
+    bound = inspect.signature(original_init).bind(*args, **kwargs)
+    for name in names:
+        if name in bound.arguments:
+            _normalize_boolean_control(bound.arguments[name], name)
 
 
 def _normalize_device_control(value) -> Device:
@@ -116,10 +133,27 @@ def install_coxph_fit_adapter(coxph_class) -> None:
     while ordinary array-likes (including pandas DataFrames) retain the historical
     NumPy normalization contract. Adapter-level validation is transactional: a
     failed refit clears any previously fitted state just like ``CoxPH.fit``.
-    Mutable sklearn-style parameters are normalized and revalidated before every
-    fit. Prediction adapters reject complex arrays before a real-dtype cast can
-    discard their imaginary components.
+    Constructor and mutable sklearn-style boolean parameters reject truthy strings;
+    mutable controls are normalized and revalidated before every fit. Prediction
+    adapters reject complex arrays before a real-dtype cast can discard their
+    imaginary components.
     """
+    original_init = coxph_class.__init__
+    if not getattr(original_init, "_statgpu_validated_boolean_constructor", False):
+
+        @wraps(original_init)
+        def init(*args, **kwargs):
+            _validate_constructor_boolean_controls(
+                original_init,
+                args,
+                kwargs,
+                ("compute_inference", "compute_cindex", "gpu_memory_cleanup"),
+            )
+            original_init(*args, **kwargs)
+
+        init._statgpu_validated_boolean_constructor = True
+        coxph_class.__init__ = init
+
     original_fit = coxph_class.fit
     if not getattr(original_fit, "_statgpu_backend_native_packed_target", False):
 
@@ -229,44 +263,59 @@ def install_coxph_fit_adapter(coxph_class) -> None:
 
 
 def install_coxphcv_fit_adapter(coxphcv_class) -> None:
-    """Install transactional fit-time validation on ``CoxPHCV`` exactly once."""
-    original_fit = coxphcv_class.fit
-    if getattr(original_fit, "_statgpu_validated_cv_controls", False):
-        return
+    """Install constructor and transactional fit validation on ``CoxPHCV``."""
+    original_init = coxphcv_class.__init__
+    if not getattr(original_init, "_statgpu_validated_boolean_constructor", False):
 
-    @wraps(original_fit)
-    def fit(
-        self,
-        X,
-        time,
-        event=None,
-        entry=None,
-        cluster=None,
-        *,
-        start=None,
-        strata=None,
-        subject_id=None,
-    ):
-        self._reset_fit_state()
-        try:
-            _normalize_mutable_cv_controls(self)
-            return original_fit(
-                self,
-                X,
-                time,
-                event=event,
-                entry=entry,
-                cluster=cluster,
-                start=start,
-                strata=strata,
-                subject_id=subject_id,
+        @wraps(original_init)
+        def init(*args, **kwargs):
+            _validate_constructor_boolean_controls(
+                original_init,
+                args,
+                kwargs,
+                ("compute_inference", "gpu_memory_cleanup"),
             )
-        except Exception:
-            self._reset_fit_state()
-            raise
+            original_init(*args, **kwargs)
 
-    fit._statgpu_validated_cv_controls = True
-    coxphcv_class.fit = fit
+        init._statgpu_validated_boolean_constructor = True
+        coxphcv_class.__init__ = init
+
+    original_fit = coxphcv_class.fit
+    if not getattr(original_fit, "_statgpu_validated_cv_controls", False):
+
+        @wraps(original_fit)
+        def fit(
+            self,
+            X,
+            time,
+            event=None,
+            entry=None,
+            cluster=None,
+            *,
+            start=None,
+            strata=None,
+            subject_id=None,
+        ):
+            self._reset_fit_state()
+            try:
+                _normalize_mutable_cv_controls(self)
+                return original_fit(
+                    self,
+                    X,
+                    time,
+                    event=event,
+                    entry=entry,
+                    cluster=cluster,
+                    start=start,
+                    strata=strata,
+                    subject_id=subject_id,
+                )
+            except Exception:
+                self._reset_fit_state()
+                raise
+
+        fit._statgpu_validated_cv_controls = True
+        coxphcv_class.fit = fit
 
 
 __all__ = ["install_coxph_fit_adapter", "install_coxphcv_fit_adapter"]
