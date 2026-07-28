@@ -41,7 +41,7 @@
             "n_events": 1,
             "n_samples": 2000001,
             "sample_tile": 2000000,
-            "seconds": 0.05164894461631775,
+            "seconds": 0.05073356628417969,
             "tile_entries": 2000000
           },
           "passed": true,
@@ -49,6 +49,12 @@
         },
         "cv_device_normalization": {
           "backend": "cupy",
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
           "constructor_truthy_strings_rejected": {
             "compute_inference": true,
             "gpu_memory_cleanup": true
@@ -56,8 +62,9 @@
           "effective_device": "cuda",
           "final_refit_skips_training_cindex": true,
           "finite": true,
-          "fit_seconds": 0.09359145164489746,
-          "passed": true
+          "fit_seconds": 0.09253841638565063,
+          "passed": true,
+          "single_cleanup_owner": true
         },
         "public_boundary": {
           "backend": "cupy",
@@ -70,7 +77,7 @@
           "device_normalized": true,
           "failed_refit_cleared": true,
           "finite": true,
-          "fit_seconds": 1.1253018081188202,
+          "fit_seconds": 2.490584075450897,
           "packed_target_stayed_native": true,
           "passed": true
         },
@@ -85,7 +92,7 @@
           "n": 8192,
           "p": 3,
           "passed": true,
-          "seconds": 0.4476124048233032,
+          "seconds": 0.4334889054298401,
           "workspace_limit_bytes": 4096
         },
         "wide_workspace_route": {
@@ -110,7 +117,7 @@
           "old_estimate_selects_dense": true,
           "p": 128,
           "passed": true,
-          "seconds": 0.016178488731384277,
+          "seconds": 0.016422003507614136,
           "workspace_limit_bytes": 8388608
         }
       },
@@ -158,7 +165,7 @@
             "n_events": 1,
             "n_samples": 2000001,
             "sample_tile": 2000000,
-            "seconds": 0.03640124201774597,
+            "seconds": 0.03484529256820679,
             "tile_entries": 2000000
           },
           "passed": true,
@@ -166,6 +173,12 @@
         },
         "cv_device_normalization": {
           "backend": "torch",
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
           "constructor_truthy_strings_rejected": {
             "compute_inference": true,
             "gpu_memory_cleanup": true
@@ -173,8 +186,9 @@
           "effective_device": "torch",
           "final_refit_skips_training_cindex": true,
           "finite": true,
-          "fit_seconds": 0.04301828145980835,
-          "passed": true
+          "fit_seconds": 0.04182344675064087,
+          "passed": true,
+          "single_cleanup_owner": true
         },
         "public_boundary": {
           "backend": "torch",
@@ -187,7 +201,7 @@
           "device_normalized": true,
           "failed_refit_cleared": true,
           "finite": true,
-          "fit_seconds": 0.19134783744812012,
+          "fit_seconds": 0.18872874975204468,
           "packed_target_stayed_native": true,
           "passed": true
         },
@@ -202,7 +216,7 @@
           "n": 8192,
           "p": 3,
           "passed": true,
-          "seconds": 0.21429643034934998,
+          "seconds": 0.22207146883010864,
           "workspace_limit_bytes": 4096
         },
         "wide_workspace_route": {
@@ -227,7 +241,7 @@
           "old_estimate_selects_dense": true,
           "p": 128,
           "passed": true,
-          "seconds": 0.007516920566558838,
+          "seconds": 0.007570475339889526,
           "workspace_limit_bytes": 8388608
         }
       },
@@ -241,14 +255,14 @@
   "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
   "schema_version": 4,
   "source_clean": true,
-  "source_commit": "698cf4c8e44ea80d5589ebc77316bc084e80fd69",
+  "source_commit": "2daf5c6178562308d5e4a6fc41e24c96a0e73e25",
   "source_sha256": {
     ".github/workflows/test.yml": "6f430f624fac2753a056f6815dbad7e6ba7fd477ad66614b8f139a63e8d2bb1d",
-    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "bff5faa8ac827c75f695d465dcc895bde3640aca952f3c236dbd1f54d6f4e03e",
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "4d9360965b3369621eef7c232cb0ef9240124e0ff153fb0897124ab176f49efa",
     "dev/tests/test_pr80_complete_review_cycle.py": "8dd9075dfe43c2fb1a8caf529bf99cb5c870972e605b2a1b7a1dcb5764e67c82",
-    "dev/tests/test_pr80_completion_contract_followup.py": "ac9328cb1dc40fe3c0ac7bea97384850bbb0e9e99c21fc5a144277d46eb6f881",
+    "dev/tests/test_pr80_completion_contract_followup.py": "1ef68bffbbfc84aa077baf5edc29436bb342a340edbd52c34cc38a12817b0de8",
     "dev/tests/test_pr80_constructor_boundaries.py": "0f1942065e0ffa3050982ce0a30a9111ad5d289024c9121b3e5506fcdd1cbc33",
-    "dev/tests/test_pr80_cox_stability_review.py": "7b21320a2bae2c8cc087314efc5095e7a897eabde2706f55359fc14aaf215043",
+    "dev/tests/test_pr80_cox_stability_review.py": "f9e2d407a1bf2ad5493a07150354297220857b90dc6334b009274a4c0de56ac4",
     "dev/tests/test_pr80_cv_fit_boundary.py": "f910f4d2d3a633c403bbb122fc8a2f8f824fd260fcbedae34a22edc6a56efa84",
     "dev/tests/test_pr80_fit_boundary.py": "81997784fc2754ad3d087b93b7ed459538143a60f003ba5781a8c7c7e99e8440",
     "dev/tests/test_pr80_workspace_estimator.py": "30ef8f5d9f3db9f8a66d33d0e97af0a1dcac36be3617de523d71de303698247a",
@@ -257,20 +271,21 @@
     "statgpu/linear_model/penalized/_penalized_cox.py": "660f721dcedcc2ba4ee3a671a232f8c6edbb9b319bcb80612daa59e9f984f2da",
     "statgpu/survival/__init__.py": "626b6a516c9e4234524875751d29341a7d4723c8cd803245a50541ab21220eed",
     "statgpu/survival/_concordance.py": "e07c113d7d362bb3098a7f91fe67d218fd190d03529134d1806f9aeccecf15fa",
-    "statgpu/survival/_cox.py": "8b4e340da742d97a73b0aa66b8da8d7c1a0e52f7c20d74d07be6c2dfc8746958",
-    "statgpu/survival/_cox_cv.py": "371cd79ac6dbf1a704dc12691d254f6ac54684a4985bfa47b120c916c45b78dc",
+    "statgpu/survival/_cox.py": "7e0ccb34021272f6a2d3e97989f59ba82ae2e4f2140c38761d04138871fb9b90",
+    "statgpu/survival/_cox_cv.py": "58f3644b8019472a7f517aa43482bd99ba78c696ae5986ef2d4065a465d70682",
     "statgpu/survival/_cox_fit_adapter.py": "63b71065990854caf7b4cfda79c72e8f3f12c3b1ee53fc2a3e06f4de18c43c52",
-    "statgpu/survival/_cox_legacy.py": "91163c02756b901f83be401f53af25a9d2bd02c8949d8f8d936b7b58efc1c60e",
+    "statgpu/survival/_cox_inference.py": "2ca2a12e99da49670ffa5597bda73b6ef05b63ec684cc0db3da2a0d785d02488",
+    "statgpu/survival/_cox_legacy.py": "610357bf7d82183ccca9b80f4f8431e845120a66ff8a9d8279fde20c5e46cae0",
     "statgpu/survival/_cox_score.py": "c954ed93712d5d705e5dae509c64f035c4724450dd73e4dfd165e87d6e914fd5",
-    "statgpu/survival/_risk_sets.py": "4269b81347158fc06c1ff7c6092ee14c1833c359a210cd350dd6d1338e94c7f7"
+    "statgpu/survival/_risk_sets.py": "294c15eb62632bca638a850b6be3273b8d34d333d8e9dc0dec940c178c9cf65a"
   },
   "targeted_tests": {
     "command": "STATGPU_REQUIRE_PHYSICAL_GPU=1 /root/miniconda3/envs/myconda/bin/python -m pytest -q dev/tests/test_pr80_complete_review_cycle.py dev/tests/test_pr80_completion_contract_followup.py dev/tests/test_pr80_constructor_boundaries.py dev/tests/test_pr80_workspace_estimator.py dev/tests/test_pr80_fit_boundary.py dev/tests/test_pr80_cv_fit_boundary.py dev/tests/test_pr80_cox_stability_review.py",
-    "output_tail": "........................................................................ [ 46%]\n........................................................................ [ 92%]\n...........                                                              [100%]\n=============================== warnings summary ===============================\ndev/tests/test_pr80_completion_contract_followup.py::test_summary_preserves_exact_formula_call\n  /root/statgpu-pr80-legacy-AqpYtA/statgpu/survival/_cox.py:774: RuntimeWarning: CoxPH did not converge after 100 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n155 passed, 1 warning in 12.75s",
+    "output_tail": "........................................................................ [ 45%]\n........................................................................ [ 90%]\n...............                                                          [100%]\n=============================== warnings summary ===============================\ndev/tests/test_pr80_completion_contract_followup.py::test_summary_preserves_exact_formula_call\n  /root/statgpu-pr80-2daf5c6-exact/statgpu/survival/_cox.py:745: RuntimeWarning: CoxPH did not converge after 100 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n159 passed, 1 warning in 14.01s",
     "passed": true,
-    "passed_count": 155,
+    "passed_count": 159,
     "returncode": 0,
-    "summary": "155 passed, 1 warning in 12.75s"
+    "summary": "159 passed, 1 warning in 14.01s"
   },
   "validation_tier": "remote-full"
 }

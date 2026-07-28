@@ -117,11 +117,12 @@
   direct-moment SCAD 的 NumPy/CuPy/Torch 中位时间为 0.08350/0.03148/0.02137 秒，
   MCP 为 0.08469/0.03100/0.02133 秒。CuPy/Torch 对 SCAD 的提速为 2.65/3.91 倍，
   对 MCP 为 2.73/3.97 倍；产物明确将其标为同步 warm timing，而不是 fresh-process latency。
-- schema-v4 exact-source completion 产物在 Tesla P100 上使用 CuPy 13.6.0 与
-  Torch 2.0.0+cu117，通过 155 项定向测试。它验证了公开清理的正常和异常路径、真实
-  summary、共享 inference result、整数 subject code、ordinary concordance 单次标量
-  传输、直接 backend 复用、不存在 import-time method replacement，以及私有 legacy
-  mixin 隔离；同时记录 `source_clean=true`、20 个经 Git blob 校验的源码哈希和
+- 刷新的 schema-v4 exact-source completion 产物在 Tesla P100 上使用 CuPy 13.6.0 与
+  Torch 2.0.0+cu117，通过 159 项定向测试。它验证了公开清理的正常和异常路径、
+  `CoxPHCV` 外层单一清理 ownership、真实 summary、共享无状态 inference result、整数
+  subject code、ordinary concordance 单次标量传输、直接 backend 复用、不存在
+  import-time method replacement，以及私有 legacy 组合隔离；同时记录
+  `source_clean=true`、21 个经 Git blob 校验的源码哈希和
   `gate_failures=[]`：
   `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`。
 

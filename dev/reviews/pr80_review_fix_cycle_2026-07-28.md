@@ -5,10 +5,10 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**BLOCKED_PHYSICAL_GPU_EVIDENCE.** The new local review-fix implementation and
-CPU gates are complete and the user authorized the exact-source commit,
-physical CuPy/Torch refresh, evidence commit, push, and CI tracking. This cycle
-returns to `COMPLETE` only after the refreshed artifact and remote CI pass.
+**BLOCKED_REMOTE_CI.** The local review-fix implementation, complete CPU gates,
+and exact-source physical CuPy/Torch refresh pass. The evidence commit must be
+pushed and its hosted CI must reach a successful terminal state before this
+cycle returns to `COMPLETE`.
 
 ## Reviewed source and mode
 
@@ -17,9 +17,8 @@ returns to `COMPLETE` only after the refreshed artifact and remote CI pass.
 - Review mode: `.claude/skills/code-review.md` `auto-fix`.
 - Development contract: `.claude/workflows/new-module-dev.md`.
 - Repository conventions: `dev/AGENTS.md`.
-- Previous exact-source production, test, and P100 runner commit:
-  `698cf4c8e44ea80d5589ebc77316bc084e80fd69`. Its artifact remains valid for
-  that commit, but is not exact-source evidence for the current working tree.
+- Exact-source production, test, and P100 runner commit:
+  `2daf5c6178562308d5e4a6fc41e24c96a0e73e25`.
 
 ## Impact classification
 
@@ -165,6 +164,13 @@ backend, and device.
 [LOW][DOC/API][fixed] `CoxPHCV.predict()` documented only `ndarray`. Its return
 contract now explicitly lists NumPy, CuPy, and Torch native arrays.
 
+[LOW][EVIDENCE][fixed] the first refreshed runner stored a live cleanup-counter
+dictionary after evaluating its gate. `CoxPHCV.__del__` later mutated that same
+object, so the JSON could report `single_cleanup_owner=true` beside a count of
+two. The runner now snapshots counters at the public-call boundary. The
+accepted rerun records outer CUDA/Torch hooks exactly once and inner hooks zero
+times for both CuPy and Torch.
+
 ### Held-out likelihood performance comparison
 
 The selected shared-owner fast path was compared with the exact pre-change
@@ -188,14 +194,12 @@ regression.
 
 ## Performance and physical evidence
 
-The prior schema-v4 maintained runner executed the physical
-`completion_contract` case for both CuPy and Torch, covering cleanup, complex
-rejection, summary metadata, `subject_id`, one-sync scoring, inference results,
-backend reuse, absence of the import-time adapter, and private legacy-mixin
-isolation. It is historical evidence for the commit below, not an exact-source
-claim for this follow-up.
+The schema-v4 maintained runner executed every physical case for both CuPy and
+Torch, covering public and CV cleanup ownership, complex rejection, summary
+metadata, `subject_id`, one-sync scoring, inference results, backend reuse,
+bounded row streaming, wide-workspace routing, and public legacy isolation.
 
-Executed from clean detached commit `698cf4c8e44e`:
+Executed through Paramiko from clean detached commit `2daf5c617856`:
 
 ```text
 /root/miniconda3/envs/myconda/bin/python dev/benchmarks/benchmark_cox_boundary_gpu.py \
@@ -203,17 +207,14 @@ Executed from clean detached commit `698cf4c8e44e`:
   --run-targeted-tests
 ```
 
-The resulting historical artifact is
+The resulting artifact is
 `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`.
-It records schema 4, `source_clean=true`, 20 Git-blob-verified source hashes,
-CuPy 13.6.0 and Torch 2.0.0+cu117 on Tesla P100-SXM2-16GB, `155 passed` targeted
-tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
-`d6df8c00ac9f27d356bab7c062d1f2e0f1398f2e4e5460bf8bd1544e8d4e43a1`.
-
-The refreshed runner hashes `_cox_inference.py` as a 21st governed source and
-checks single CV cleanup ownership, an inference-free public MRO/import graph,
-and the existing physical contracts. It must be run from the new clean commit
-before this report can claim current CuPy/Torch evidence.
+It records schema 4, `source_clean=true`, 21 Git-blob-verified source hashes,
+CuPy 13.6.0 and Torch 2.0.0+cu117 on Tesla P100-SXM2-16GB, `159 passed` targeted
+tests, every backend case passed, and `gate_failures=[]`. Both backend CV cases
+record outer CUDA/Torch cleanup once and guarded inner cleanup zero times; both
+completion cases record legacy isolation. Its SHA-256 is
+`aea9931b7dd00cfdccf8bdf18060244b929eb3392234c1c23f8ee2d178d9f0c5`.
 
 ## Local validation
 
@@ -248,9 +249,8 @@ before this report can claim current CuPy/Torch evidence.
 
 ## Skipped and deferred work
 
-- The current source has not yet received an exact-source physical-GPU refresh.
-  The previous artifact remains valid only for commit `698cf4c8e44e`; the user
-  authorized remote execution, evidence write-back, commits, push, and CI
-  tracking for the current follow-up.
+- No active physical-GPU case was skipped. The exact-source P100 artifact
+  passed all CuPy/Torch cases and 159 required tests; hosted CI remains pending
+  until the evidence commit is pushed.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
