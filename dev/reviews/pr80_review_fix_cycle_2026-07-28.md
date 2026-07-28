@@ -5,10 +5,9 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**BLOCKED_NEEDS_USER_APPROVAL.** The legacy extraction passes the complete local
-CPU and static gates. Its exact-source physical-GPU artifact refresh requires a
-clean commit and the user-authorized remote/push workflow; no CRITICAL or HIGH
-finding remains open.
+**COMPLETE.** All active local and physical-GPU gates pass at the `remote-full`
+tier. The legacy extraction is covered by exact-source CuPy/Torch evidence; no
+CRITICAL or HIGH finding remains open.
 
 ## Reviewed source and mode
 
@@ -18,7 +17,7 @@ finding remains open.
 - Development contract: `.claude/workflows/new-module-dev.md`.
 - Repository conventions: `dev/AGENTS.md`.
 - Exact-source production, test, and P100 runner commit:
-  `fe06a4cf1e96e0dc5e8c74de2c763bf92b5ebdb6`.
+  `698cf4c8e44ea80d5589ebc77316bc084e80fd69`.
 
 ## Impact classification
 
@@ -130,10 +129,10 @@ No new comparative timing claim is made. The performance contract is
 structural: one ordinary-concordance host synchronization per score call. The
 schema-v4 maintained runner executed the physical `completion_contract` case
 for both CuPy and Torch, covering cleanup, complex rejection, summary metadata,
-`subject_id`, one-sync scoring, inference results, backend reuse, and absence of
-the import-time adapter.
+`subject_id`, one-sync scoring, inference results, backend reuse, absence of the
+import-time adapter, and private legacy-mixin isolation.
 
-Executed from clean detached commit `fe06a4cf1e96`:
+Executed from clean detached commit `698cf4c8e44e`:
 
 ```text
 /root/miniconda3/envs/myconda/bin/python dev/benchmarks/benchmark_cox_boundary_gpu.py \
@@ -143,10 +142,10 @@ Executed from clean detached commit `fe06a4cf1e96`:
 
 The resulting artifact is
 `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`.
-It records schema 4, `source_clean=true`, 19 Git-blob-verified source hashes,
-CuPy 13.6.0 and Torch 2.0.0+cu117 on Tesla P100-SXM2-16GB, `154 passed` targeted
+It records schema 4, `source_clean=true`, 20 Git-blob-verified source hashes,
+CuPy 13.6.0 and Torch 2.0.0+cu117 on Tesla P100-SXM2-16GB, `155 passed` targeted
 tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
-`823df8aff42bb238ae3e3575207e535da7da3c403ac23b16beb16d21243c09bb`.
+`d6df8c00ac9f27d356bab7c062d1f2e0f1398f2e4e5460bf8bd1544e8d4e43a1`.
 
 ## Local validation
 
@@ -159,7 +158,7 @@ tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
 - `compileall`, benchmark CLI parsing, `git diff --check`, and `pyflakes` on all
   changed Python files passed.
 - The earlier one-command full-tree run also reached `1438 passed, 434 skipped`
-  before the shell wrapper timeout; the two split runs provide clean exit codes.
+  before the shell wrapper timeout; the split runs include the new isolation test.
 
 ## Changed files
 
@@ -176,8 +175,7 @@ tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
 
 ## Skipped and deferred work
 
-- The committed schema-v4 P100 artifact predates the mechanical legacy split.
-  The maintained runner now hashes `_cox_legacy.py` and checks mixin isolation;
-  refresh it from the clean source commit before restoring `remote-full`.
+- No active physical-GPU validation was skipped; the refreshed schema-v4
+  artifact hashes `_cox_legacy.py` and passes mixin isolation on both backends.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
