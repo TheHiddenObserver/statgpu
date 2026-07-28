@@ -5,10 +5,9 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**PARTIAL_REMOTE_PENDING.** The current post-closure review fixes and all local
-CPU/documentation gates pass, and the user has authorized the exact-source
-workflow. The physical CuPy/Torch artifact below still predates this delta;
-P100 refresh, evidence write-back, push, and hosted-CI follow-up are in progress.
+**COMPLETE.** The current post-closure review fixes, complete local CPU and
+documentation gates, exact-source physical CuPy/Torch refresh, evidence push,
+and hosted CI all pass. No CRITICAL, HIGH, or active MEDIUM finding remains.
 
 ## Current post-closure delta
 
@@ -48,6 +47,8 @@ remain as the exact historical baseline for the preceding cycle.
 
 - Exact clean source commit:
   `7b4a33820b4acd80313df0c97a0127c18d219e3c`.
+- Pushed evidence commit:
+  `eef4010db37925e64f6422ffda93e074785e8d47`.
 - Paramiko remote worktree:
   `/root/statgpu-pr80-7b4a338-20260728T185325Z`.
 - Environment: Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch
@@ -64,6 +65,14 @@ remain as the exact historical baseline for the preceding cycle.
   refit `false`, whole fit `true`, orchestration `cpu`. Each reports two fold
   preparations, preencoded strata, no candidate cluster/subject use, one outer
   cleanup round, zero inner cleanup rounds, and finite coefficients.
+
+## Current hosted CI
+
+GitHub Actions run
+`https://github.com/TheHiddenObserver/statgpu/actions/runs/30389777773`
+completed successfully for evidence commit `eef4010db379`. The required
+`docs-contracts`, `static-contracts`, `full-cpu-suite`, and Python 3.9, 3.10,
+3.11, and 3.12 regression-matrix jobs all reached successful terminal states.
 
 ## Reviewed source and mode
 
@@ -317,8 +326,7 @@ completed successfully for evidence commit `89e4307c4015`. The required
 - For the preceding schema-4 cycle, no physical-GPU or hosted-CI gate was
   skipped: its artifact passed all CuPy/Torch cases and 159 required tests, and
   hosted run `30369118924` passed all seven required jobs.
-- For the current post-closure delta, the exact-source P100 JSON passes;
-  evidence commit, push, and hosted CI are in progress under the user's
-  authorization.
+- For the current post-closure delta, the exact-source P100 JSON, evidence
+  commit, push, and all seven hosted-CI jobs pass.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
