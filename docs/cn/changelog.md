@@ -62,11 +62,14 @@
 - `STATGPU_COX_GROUP_MAX_BYTES` 现在会在分配前约束 Breslow/Efron delayed-entry
   failure-group 工作区。若单个 risk set 已超过上限，则使用数值稳定的 backend-native
   row-streaming moment fallback，不再因最小 dense batch size 为 1 而产生无界工作区。
-  最终 exact-source P100 复验通过 104 项定向测试。在 `n=4096`、`p=128`
+  最终 schema-v3 exact-source P100 复验通过 121 项定向测试。在 `n=4096`、`p=128`
   和 8 MiB 上限下，旧估算为 1,056,768 bytes 并选择 dense，修正后估算为
   9,445,376 bytes 并选择 streaming；CuPy 与 Torch 均实际记录到 streaming
-  路径，且与 NumPy 的最大差异为 `3.997e-15`：
-  `results/benchmark_frontend_sources/coxph_boundary_workspace_pr80_20260728_refresh.json`。
+  路径，且与 NumPy 的最大差异为 `4.441e-15`。Concordance 现在对 event 与 sample
+  两个轴同时分块，严格保证每块不超过两百万个 pair；物理 GPU 的 `n=2,000,001`
+  边界场景使用了两个 sample tile，普通、counting-process 与 penalized 的全删失评分
+  均返回 `0.5`：
+  `results/benchmark_frontend_sources/coxph_concordance_boundary_pr80_20260728.json`。
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
   NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
   3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。

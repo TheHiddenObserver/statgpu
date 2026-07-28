@@ -6,10 +6,9 @@ changes made after its recorded boundary/workspace artifact.
 
 ## Reviewed source
 
-- Earlier user-updated head: `c967e6f08b976f7f1df0df63ec58efda528df438`
-- Exact-source P100 evidence runner head: `b42ab0ade37e9fc7c5abf159089da195220680df`
-- Latest user-updated head for the complete review: `fe7f8e72364e405dc96ed45520addabaa0440bdf`
-- Final production/test head from the complete review: `1e1a139770d33e27692f6f1cf2719e0815d9ec68`
+- Earlier complete-review head: `1e1a139770d33e27692f6f1cf2719e0815d9ec68`
+- Latest user-updated head for this follow-up: `26dc26ea38fe2abf16b7fe9fc4659049572275cc`
+- Exact-source production, test, and P100 runner head: `d551039b43ab4f95026e61bf2ccb3e7a112a1450`
 - Compatibility target: `master` at `7ccf6163d30a9078bf80107c4d16e08943a56a1e`
 
 ## Findings closed before the complete review
@@ -67,6 +66,22 @@ changes made after its recorded boundary/workspace artifact.
    `CoxPHCV` final-refit behavior, penalized constructor/set-parameter rejection,
    and sklearn clone compatibility. The file is part of the maintained Python
    3.9–3.12 regression matrix.
+6. **[MEDIUM][PERFORMANCE] The concordance pair ceiling was not a hard cap.**
+   The prior event-only batching forced a minimum batch size of one. For more
+   than two million scoring rows, one event could therefore still allocate a
+   comparison matrix wider than the documented two-million-entry limit in both
+   ordinary and counting-process scoring. A shared two-dimensional event/row
+   tile helper now guarantees `event_tile * sample_tile <= 2,000,000`, including
+   the one-event, `n > 2,000,000` case. Forced tiny-tile tests verify numerical
+   parity for both scoring implementations, and structural tests cover up to
+   20 million rows without allocating the full comparison matrix.
+7. **[MEDIUM][ARTIFACT] Final-source physical-GPU evidence was stale.**
+   The earlier artifact predated the wide-workspace estimate, public boundary
+   wrapper, final-refit C-index change, and concordance hard-cap correction. The
+   schema-v3 refresh now hashes every affected Cox source, runner, and targeted
+   regression file; records the exact clean commit and the physical pytest
+   command/result; and exercises the hard-cap boundary on an actual
+   2,000,001-row GPU scoring input.
 
 ## Validation
 
@@ -80,29 +95,35 @@ three-backend concordance regression:
 - documentation contracts.
 
 Temporary write-enabled patch workflow, patch script, and trigger files were
-removed before these final validation heads. The net complete-review diff from
-`fe7f8e72364e405dc96ed45520addabaa0440bdf` contains only the four production
-fixes, their regression tests, the maintained CI registration, and this report.
+removed before these final validation heads. The follow-up diff from
+`26dc26ea38fe2abf16b7fe9fc4659049572275cc` through the tested source commit
+contains only the shared concordance tile helper, its two scoring integrations,
+regressions, maintained CI registration, and the expanded evidence runner.
+
+The exact-source follow-up additionally passed the full local CPU suite
+(`1425 passed, 414 skipped`), the focused PR #80/risk/penalized suite
+(`205 passed, 135 skipped`), the Cox phase/CV suite (`103 passed, 10 skipped`),
+documentation contracts for 122 maintained files, compilation, and diff checks.
 
 ## Physical-GPU evidence
 
-The schema-v2 P100 artifact
-`results/benchmark_frontend_sources/coxph_boundary_workspace_pr80_20260728_refresh.json`
-continues to cover the unchanged Cox likelihood, score/information moments,
-row-streaming workspace route, public device normalization, and constructor
-boundary implementation on CuPy and Torch. It records a clean detached source,
-`gate_failures=[]`, 104 passed targeted tests, and the wide `n=4096`, `p=128`
-route switching from the old dense estimate to streaming with maximum NumPy
-error `3.997e-15`.
+The schema-v3 P100 artifact
+`results/benchmark_frontend_sources/coxph_concordance_boundary_pr80_20260728.json`
+was generated from clean detached commit
+`d551039b43ab4f95026e61bf2ccb3e7a112a1450` on a Tesla P100-SXM2-16GB with
+CuPy 13.6.0 and Torch 2.0.0+cu117. It records `gate_failures=[]`, source hashes
+for every affected Cox implementation and test file, and a machine-readable
+physical-GPU pytest result of `121 passed in 8.89s` under
+`STATGPU_REQUIRE_PHYSICAL_GPU=1`.
 
-The complete-review changes do not modify likelihood, Hessian, baseline, Newton,
-or workspace kernels. They do change the shared file hash by adding the
-concordance-only zero-event validation option. The new all-censored concordance
-test is parameterized for NumPy, CuPy, and Torch; repository-hosted CPU CI runs
-NumPy and explicitly skips unavailable CUDA backends. A release process that
-requires every final source hash to be reproduced on physical CUDA should rerun
-that targeted test, but there is no known GPU numerical defect or remaining
-code-review blocker.
+Both GPU backends selected row streaming for the wide `n=4096`, `p=128`,
+8 MiB workspace case and matched NumPy within `4.441e-15`. Public ordinary,
+counting-process, and penalized all-censored scoring each returned `0.5`; the
+CV final refit skipped hidden training concordance; complex prediction and
+truthy-string boundaries were rejected. The actual `n=2,000,001` concordance
+case used one event tile and two row tiles, with a maximum of exactly 2,000,000
+pair entries per tile. The local artifact SHA-256 is
+`682f6e8507d082a07393c68641079ff4df007963f4b20bccaeb28a28b5fdd536`.
 
 ## Exit status
 
