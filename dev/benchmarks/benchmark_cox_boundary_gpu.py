@@ -46,6 +46,7 @@ SOURCE_FILES = (
     "statgpu/survival/_cox.py",
     "statgpu/survival/_cox_cv.py",
     "statgpu/survival/_cox_fit_adapter.py",
+    "statgpu/survival/_cox_legacy.py",
     "statgpu/survival/_concordance.py",
     "statgpu/survival/_cox_score.py",
     "statgpu/survival/_risk_sets.py",
@@ -570,6 +571,8 @@ def _case_concordance_boundaries(name: str, xp) -> dict:
 
 
 def _case_completion_contract(name: str, xp) -> dict:
+    from statgpu.survival._cox_legacy import _LegacyCoxReferenceMixin
+
     device = "cuda" if name == "cupy" else "torch"
     X_np, stop_np, event_np = _sample(seed=2410, n=72, p=2)
     X = _array(name, xp, X_np)
@@ -673,6 +676,11 @@ def _case_completion_contract(name: str, xp) -> dict:
         and "import torch" not in dispatch_source
     )
     import_time_adapter_absent = CoxPH.fit.__module__ == "statgpu.survival._cox"
+    legacy_mixin_isolated = all(
+        method not in CoxPH.__dict__
+        and getattr(CoxPH, method) is getattr(_LegacyCoxReferenceMixin, method)
+        for method in CoxPH._legacy_reference_methods
+    )
     passed = all(
         (
             success_cleanup == {"cuda": 1, "torch": 1},
@@ -685,6 +693,7 @@ def _case_completion_contract(name: str, xp) -> dict:
             inference_contract,
             direct_backend_imports_absent,
             import_time_adapter_absent,
+            legacy_mixin_isolated,
         )
     )
     return {
@@ -699,6 +708,7 @@ def _case_completion_contract(name: str, xp) -> dict:
         "inference_result_contract": inference_contract,
         "direct_backend_imports_absent": direct_backend_imports_absent,
         "import_time_adapter_absent": import_time_adapter_absent,
+        "legacy_mixin_isolated": legacy_mixin_isolated,
         "passed": bool(passed),
     }
 

@@ -56,6 +56,10 @@
   shared backend array, scalar, zeros, eye, and integer-code helpers; public
   fit boundary handling is defined directly on the estimator rather than
   installed by an import-time adapter.
+- The canonical `CoxPH` estimator and public dispatch remain in `_cox.py`;
+  inactive historical CPU, CuPy, and Torch reference kernels now live in the
+  private `_cox_legacy.py` mixin. Maintained private regression entry points
+  remain available without mixing legacy implementation into the public path.
 
 ### Validation (2026-07-27) — PR #80 follow-up review
 

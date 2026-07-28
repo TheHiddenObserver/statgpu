@@ -5,9 +5,10 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Hard exit status
 
-**COMPLETE.** All active local and physical-GPU gates pass at the `remote-full`
-tier. The remaining legacy-code extraction is a recorded non-blocking MEDIUM
-maintenance follow-up; no CRITICAL or HIGH finding remains open.
+**BLOCKED_NEEDS_USER_APPROVAL.** The legacy extraction passes the complete local
+CPU and static gates. Its exact-source physical-GPU artifact refresh requires a
+clean commit and the user-authorized remote/push workflow; no CRITICAL or HIGH
+finding remains open.
 
 ## Reviewed source and mode
 
@@ -51,7 +52,7 @@ maintenance follow-up; no CRITICAL or HIGH finding remains open.
 | fractional/non-finite/overflow `subject_id` rejection | passed | passed on P100 | passed on P100 | low-level concordance tests |
 | representable host `uint64` codes | passed | passed on P100 | passed on P100 | low-level concordance tests |
 | one post-loop C-index scalar synchronization | passed | passed on P100 | passed on P100 | forced 1-by-2 tile counter |
-| public fit isolation from legacy methods | passed | same canonical dispatcher | same canonical dispatcher | legacy methods monkeypatched to fail |
+| public fit isolation from legacy methods | passed | same canonical dispatcher | same canonical dispatcher | legacy methods inherited unchanged from private mixin and monkeypatched to fail |
 
 CuPy and Torch are unavailable on the local Windows runner. Their active tests
 were therefore executed through the maintained Paramiko P100 runner from the
@@ -102,11 +103,16 @@ Impact: distinct subjects could be merged and valid comparison pairs incorrectly
 Fix: shared integer-code normalization rejects complex, nonnumeric, fractional, non-finite, and out-of-int64 inputs before conversion while accepting safe host `uint64` values.
 Evidence: three-backend cases at `dev/tests/test_pr80_completion_contract_followup.py:217` and `:238`.
 
-[MEDIUM][MAINT/EXT][deferred] statgpu/survival/_cox.py:1520 - canonical and legacy Cox reference implementations still coexist.
+[MEDIUM][MAINT/EXT][fixed] statgpu/survival/_cox.py:121 - canonical and legacy Cox reference implementations coexisted.
 Impact: the 5,500-line module remains difficult to extend and inactive code can attract misplaced fixes.
-Fix: the public path is explicitly marked canonical, import-time method replacement was removed, and a test makes every legacy entry point fail while public fit succeeds.
-Evidence: `dev/tests/test_pr80_completion_contract_followup.py:290` and call-site search show legacy-only internal calls.
-Deferred work: move reference implementations to `_cox_legacy.py` or remove them in a dedicated refactor; doing that inside this correctness cycle would create a large, high-risk deletion unrelated to public behavior.
+Fix: the public estimator and canonical dispatcher remain in `_cox.py`; the
+historical CPU, CuPy, and Torch implementations moved mechanically to the
+private `_LegacyCoxReferenceMixin` in `_cox_legacy.py`. Existing private
+regression entry points are inherited unchanged, without import-time method
+replacement.
+Evidence: the structural regression verifies the mixin MRO, method identity,
+origin module, absence of legacy fit definitions from the canonical source,
+and canonical dispatcher ownership. The complete CPU tree passes.
 
 [MEDIUM][DOC/PROCESS][fixed] dev/reviews/pr80_review_fix_cycle_2026-07-28.md:1 - the completion report lacked required workflow decisions and used invalid changelog categories.
 Impact: prior approval wording did not demonstrate the active capability and validation matrix.
@@ -145,9 +151,9 @@ tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
 ## Local validation
 
 - Complete CPU tree, split only to stay inside the command time limit:
-  `900 passed, 235 skipped` plus `538 passed, 199 skipped`; aggregate
-  `1438 passed, 434 skipped`.
-- Focused Cox/PR80 matrix: `262 passed, 148 skipped`.
+  `900 passed, 235 skipped` plus `539 passed, 199 skipped`; aggregate
+  `1439 passed, 434 skipped`.
+- Focused Cox/PR80 matrix: `324 passed, 162 skipped`.
 - Documentation links: zero affected files.
 - Documentation contracts: 122 maintained files passed.
 - `compileall`, benchmark CLI parsing, `git diff --check`, and `pyflakes` on all
@@ -166,11 +172,12 @@ tests, every backend case passed, and `gate_failures=[]`. Its SHA-256 is
 - `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260728.json`
 - `statgpu/backends/_array_ops.py`, `statgpu/backends/_utils.py`
 - `statgpu/survival/__init__.py`, `_cox.py`, `_cox_cv.py`,
-  `_cox_fit_adapter.py`, `_cox_score.py`, `_risk_sets.py`
+  `_cox_fit_adapter.py`, `_cox_legacy.py`, `_cox_score.py`, `_risk_sets.py`
 
 ## Skipped and deferred work
 
-- Extraction/deletion of the legacy Cox reference block is recorded as a
-  non-blocking MEDIUM maintenance follow-up, not misreported as closed.
+- The committed schema-v4 P100 artifact predates the mechanical legacy split.
+  The maintained runner now hashes `_cox_legacy.py` and checks mixin isolation;
+  refresh it from the clean source commit before restoring `remote-full`.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.

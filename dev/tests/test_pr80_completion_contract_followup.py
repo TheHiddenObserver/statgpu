@@ -8,7 +8,9 @@ import pytest
 
 from statgpu.inference import ParameterInferenceResult
 from statgpu.survival import CoxPH, CoxPHCV
+from statgpu.survival import _cox as cox_module
 from statgpu.survival import _cox_score as cox_score_module
+from statgpu.survival._cox_legacy import _LegacyCoxReferenceMixin
 from statgpu.survival._risk_sets import counting_process_concordance
 
 
@@ -301,3 +303,19 @@ def test_public_fit_isolated_from_legacy_reference_methods(monkeypatch):
     source = inspect.getsource(CoxPH._fit_counting_process_dispatch)
     assert "import cupy" not in source
     assert "import torch" not in source
+
+
+def test_legacy_reference_methods_live_only_in_explicit_mixin():
+    assert _LegacyCoxReferenceMixin in CoxPH.__mro__
+    for name in CoxPH._legacy_reference_methods:
+        assert name not in CoxPH.__dict__
+        assert getattr(CoxPH, name) is getattr(_LegacyCoxReferenceMixin, name)
+        assert getattr(CoxPH, name).__module__ == "statgpu.survival._cox_legacy"
+
+    canonical_source = inspect.getsource(cox_module)
+    assert "def _fit_cpu(" not in canonical_source
+    assert "def _fit_gpu(" not in canonical_source
+    assert "def _fit_torch(" not in canonical_source
+    assert CoxPH._fit_counting_process_dispatch.__module__ == (
+        "statgpu.survival._cox"
+    )

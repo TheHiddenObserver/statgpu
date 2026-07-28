@@ -32,6 +32,9 @@
   范围内。survival risk-set 规范化复用了共享 backend 的数组、标量、zeros、eye 与
   integer-code helper；公开 fit 边界逻辑直接定义在 estimator 上，不再通过 import-time
   adapter 安装。
+- 规范 `CoxPH` estimator 与公开 dispatch 继续位于 `_cox.py`；不活跃的历史 CPU、
+  CuPy 与 Torch 参考 kernel 已移入私有 `_cox_legacy.py` mixin。受维护的私有回归入口
+  仍然可用，但 legacy 实现不再与公开路径混杂。
 
 ### 验证（2026-07-27）— PR #80 后续审查
 
