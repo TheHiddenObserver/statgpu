@@ -79,6 +79,8 @@ jobs:
       - name: Commit patch
         shell: bash
         run: |
+          # This workflow is temporary and branch-scoped; its output commit is
+          # followed by immediate removal after the patch is verified.
           if git diff --quiet; then
             echo "Workspace patch already applied"
             exit 0
