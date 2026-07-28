@@ -1,15 +1,15 @@
 name: PR80 Workspace Patch
 
 on:
-  push:
-    branches: [codex/survival-gpu-completion]
+  pull_request:
+    branches: [master]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.repository == 'TheHiddenObserver/statgpu'
+    if: github.repository == 'TheHiddenObserver/statgpu' && github.head_ref == 'codex/survival-gpu-completion'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,8 +79,6 @@ jobs:
       - name: Commit patch
         shell: bash
         run: |
-          # This workflow is temporary and branch-scoped; its output commit is
-          # followed by immediate removal after the patch is verified.
           if git diff --quiet; then
             echo "Workspace patch already applied"
             exit 0
