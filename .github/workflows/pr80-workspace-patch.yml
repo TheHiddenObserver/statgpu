@@ -60,31 +60,16 @@ jobs:
               risk_path.write_text(text.replace(old, new, 1), encoding="utf-8")
           elif "derivative_row_buffers = 2 * max(int(n_features), 0)" not in text:
               raise SystemExit("expected workspace estimate block was not found")
-
-          workflow_path = Path(".github/workflows/test.yml")
-          workflow = workflow_path.read_text(encoding="utf-8")
-          anchor = "            dev/tests/test_pr80_fit_boundary.py \\\n"
-          additions = (
-              anchor
-              + "            dev/tests/test_pr80_constructor_boundaries.py \\\n"
-              + "            dev/tests/test_pr80_workspace_estimator.py \\\n"
-          )
-          if "dev/tests/test_pr80_workspace_estimator.py" not in workflow:
-              if anchor not in workflow:
-                  raise SystemExit("regression-matrix anchor was not found")
-              workflow_path.write_text(
-                  workflow.replace(anchor, additions, 1), encoding="utf-8"
-              )
           PY
       - name: Commit patch
         shell: bash
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- statgpu/survival/_risk_sets.py; then
             echo "Workspace patch already applied"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add statgpu/survival/_risk_sets.py .github/workflows/test.yml
+          git add statgpu/survival/_risk_sets.py
           git commit -m "Bound Cox derivative workspace estimates"
           git push origin HEAD:codex/survival-gpu-completion
