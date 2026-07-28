@@ -283,7 +283,11 @@ def _case_cv(name: str, xp) -> dict:
     model.estimator_._cleanup_torch_memory = inner_torch_cleanup
     model.predict(_array(name, xp, X_np[:4]))
     _sync(name, xp)
-    single_cleanup_owner = cleanup_operations == {
+    # Snapshot the public-call counters before ``model`` leaves this case.
+    # ``CoxPHCV.__del__`` legitimately invokes cleanup later; retaining the
+    # mutable dictionary would rewrite the already-evaluated JSON evidence.
+    cleanup_operations_after_predict = dict(cleanup_operations)
+    single_cleanup_owner = cleanup_operations_after_predict == {
         "outer_cuda": 1,
         "outer_torch": 1,
         "inner_cuda": 0,
@@ -305,7 +309,7 @@ def _case_cv(name: str, xp) -> dict:
         "effective_device": model.effective_device_,
         "constructor_truthy_strings_rejected": constructor_rejections,
         "final_refit_skips_training_cindex": final_refit_skips_cindex,
-        "cleanup_operations_after_predict": cleanup_operations,
+        "cleanup_operations_after_predict": cleanup_operations_after_predict,
         "single_cleanup_owner": single_cleanup_owner,
         "finite": bool(np.all(np.isfinite(model.coef_))),
         "passed": bool(passed),
