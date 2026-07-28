@@ -22,6 +22,26 @@ def _fit_sample(seed=2401, n=36, p=2):
     return X, stop, event
 
 
+def _backend_arrays(backend, *values):
+    if backend == "cupy":
+        cp = pytest.importorskip("cupy")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
+        return tuple(cp.asarray(value) for value in values)
+    if backend == "torch":
+        torch = pytest.importorskip("torch")
+        if not torch.cuda.is_available():
+            pytest.skip("Torch CUDA unavailable")
+        return tuple(
+            torch.as_tensor(value, dtype=torch.float64, device="cuda")
+            for value in values
+        )
+    return tuple(np.asarray(value) for value in values)
+
+
 def test_ordinary_concordance_batch_is_bounded():
     batch = _concordance_batch_size(100_000, 1_000)
     assert batch == 2_000
@@ -49,16 +69,32 @@ def test_all_censored_concordance_is_neutral_across_public_paths():
         start=np.zeros(6),
         strata=np.array([0, 0, 0, 1, 1, 1]),
     ) == 0.5
-    assert float(
-        counting_process_concordance(
-            fitted.coef_,
-            X_score,
-            stop_score,
-            censored,
-            start=np.zeros(6),
-            strata=np.array([0, 0, 0, 1, 1, 1]),
-        )
-    ) == 0.5
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_all_censored_counting_concordance_is_neutral_on_backend(backend):
+    X = np.arange(12, dtype=np.float64).reshape(6, 2) / 10.0
+    beta = np.array([0.2, -0.1])
+    stop = np.arange(1, 7, dtype=np.float64)
+    event = np.zeros(6, dtype=np.float64)
+    start = np.zeros(6, dtype=np.float64)
+    strata = np.array([0, 0, 0, 1, 1, 1], dtype=np.float64)
+    beta_b, X_b, stop_b, event_b, start_b, strata_b = _backend_arrays(
+        backend, beta, X, stop, event, start, strata
+    )
+    value = counting_process_concordance(
+        beta_b,
+        X_b,
+        stop_b,
+        event_b,
+        start=start_b,
+        strata=strata_b,
+    )
+    if backend == "torch":
+        value = value.detach().cpu().item()
+    elif backend == "cupy":
+        value = value.item()
+    assert float(value) == 0.5
 
 
 def test_penalized_cox_all_censored_score_is_neutral():
