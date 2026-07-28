@@ -22,14 +22,11 @@ from statgpu.survival._cox_fit_adapter import (
     _normalize_mutable_fit_controls,
 )
 from statgpu.survival._cox_counting import _score_test_statistic
-from statgpu.survival._cox_legacy import (
-    _LegacyCoxReferenceMixin,
-    _estimate_breslow_tensor_bytes as _legacy_estimate_breslow_tensor_bytes,
+from statgpu.survival._cox_inference import (
+    _invert_information_cupy,
+    _invert_information_numpy,
+    _invert_information_torch,
 )
-
-
-# Backward-compatible private import used by the maintained workspace tests.
-_estimate_breslow_tensor_bytes = _legacy_estimate_breslow_tensor_bytes
 
 
 def _cleanup_after_public_gpu_work(method):
@@ -118,7 +115,7 @@ def _align_cox_side_array(values, retained_rows, original_n, name="array"):
     return arr[retained_rows]
 
 
-class CoxPH(_LegacyCoxReferenceMixin, BaseEstimator):
+class CoxPH(BaseEstimator):
     """
     Cox Proportional Hazards regression with GPU acceleration.
     
@@ -162,13 +159,6 @@ class CoxPH(_LegacyCoxReferenceMixin, BaseEstimator):
 
     _estimator_type = "regressor"
     _canonical_fit_path = "counting_process"
-    _legacy_reference_methods = (
-        "_fit_cpu",
-        "_fit_gpu",
-        "_fit_torch",
-        "_compute_inference_cpu",
-        "_compute_cindex",
-    )
 
     def __sklearn_tags__(self):
         """Expose sklearn tags for packed two/three-column survival targets."""
@@ -674,32 +664,19 @@ class CoxPH(_LegacyCoxReferenceMixin, BaseEstimator):
             )
             retained_rows = np.asarray(X_patsy.index, dtype=np.int64)
 
-            def align_formula_rows(values, name):
-                if values is None:
-                    return None
-                if getattr(values, "ndim", None) != 1 or int(values.shape[0]) != len(data):
-                    arr = np.asarray(values)
-                    if arr.ndim != 1 or arr.shape[0] != len(data):
-                        raise ValueError(
-                            f"{name} must have shape ({len(data)},) before formula NA removal"
-                        )
-                module = type(values).__module__
-                if module.startswith("cupy"):
-                    import cupy as cp
-
-                    return values[cp.asarray(retained_rows)]
-                if module.startswith("torch"):
-                    import torch
-
-                    return values[
-                        torch.as_tensor(retained_rows, device=values.device)
-                    ]
-                return np.asarray(values)[retained_rows]
-
-            entry = align_formula_rows(entry, "entry/start")
-            cluster = align_formula_rows(cluster, "cluster")
-            strata = align_formula_rows(strata, "strata")
-            subject_id = align_formula_rows(subject_id, "subject_id")
+            n_original = len(data)
+            entry = _align_cox_side_array(
+                entry, retained_rows, n_original, "entry/start"
+            )
+            cluster = _align_cox_side_array(
+                cluster, retained_rows, n_original, "cluster"
+            )
+            strata = _align_cox_side_array(
+                strata, retained_rows, n_original, "strata"
+            )
+            subject_id = _align_cox_side_array(
+                subject_id, retained_rows, n_original, "subject_id"
+            )
             design_info = X_patsy.design_info
             # Surv(time, event) -> (n, 2); Surv(start, stop, event) -> (n, 3).
             y_arr = np.asarray(y_patsy)
@@ -726,12 +703,6 @@ class CoxPH(_LegacyCoxReferenceMixin, BaseEstimator):
                     "Surv(start, stop, event)"
                 )
             X_arr = np.asarray(X_patsy)
-
-            # Align side arrays after Patsy drops rows with missing values.
-            # Keep alignment local to avoid cross-module coupling.
-            n_original = len(data)
-            entry = _align_cox_side_array(entry, retained_rows, n_original, "entry")
-            cluster = _align_cox_side_array(cluster, retained_rows, n_original, "cluster")
 
             # Drop intercept column from design matrix (CoxPH doesn't use intercept)
             self._feature_names = list(design_info.column_names)
@@ -1021,11 +992,11 @@ class CoxPH(_LegacyCoxReferenceMixin, BaseEstimator):
             information = information + 2.0 * self.penalty * identity
         if self.compute_inference:
             if backend == "torch":
-                bread = self._invert_information_torch(information)
+                bread = _invert_information_torch(information)
             elif backend == "cupy":
-                bread = self._invert_information_cupy(information)
+                bread = _invert_information_cupy(information)
             else:
-                bread = self._invert_information_numpy(information)
+                bread = _invert_information_numpy(information)
             if self.cov_type == "nonrobust":
                 variance = bread
             else:

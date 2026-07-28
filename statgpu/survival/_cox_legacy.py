@@ -18,6 +18,11 @@ from statgpu.survival._cox_counting import (
     _is_singular_linalg_error,
     _solve as _solve_counting_information,
 )
+from statgpu.survival._cox_inference import (
+    _invert_information_cupy,
+    _invert_information_numpy,
+    _invert_information_torch,
+)
 
 
 _DEFAULT_BRESLOW_HESSIAN_MAX_BYTES = 512 * 1024 * 1024
@@ -864,7 +869,7 @@ class _LegacyCoxReferenceMixin:
                 inference_hess[diag_idx, diag_idx] -= 2 * penalty
             info = self._observed_information_cupy(inference_hess)
             if self.cov_type == "nonrobust":
-                var_gpu = self._invert_information_cupy(info)
+                var_gpu = _invert_information_cupy(info)
                 var_gpu = 0.5 * (var_gpu + var_gpu.T)
                 bse_gpu = cp.sqrt(cp.maximum(cp.diag(var_gpu), 0.0))
                 z_gpu = beta / (bse_gpu + 1e-30)
@@ -896,7 +901,7 @@ class _LegacyCoxReferenceMixin:
                 self._score_test_pvalue = np.nan
             else:
                 score_resid_gpu = self._compute_robust_score_residuals_gpu(X_sorted, time_sorted, event_sorted)
-                bread = self._invert_information_cupy(info)
+                bread = _invert_information_cupy(info)
 
                 if self.cov_type == "cluster":
                     if cluster_sorted is None:
@@ -1255,7 +1260,7 @@ class _LegacyCoxReferenceMixin:
                 if use_penalty:
                     inference_hess[diag_idx, diag_idx] -= 2 * penalty
                 info = self._observed_information_torch(inference_hess)
-                var_torch = self._invert_information_torch(info)
+                var_torch = _invert_information_torch(info)
                 var_torch = 0.5 * (var_torch + var_torch.transpose(0, 1))
                 bse_torch = torch.sqrt(torch.maximum(torch.diag(var_torch), torch.tensor(0.0, dtype=torch.float64, device=torch_device)))
                 z_torch = beta / (bse_torch + 1e-30)
@@ -3687,75 +3692,6 @@ class _LegacyCoxReferenceMixin:
         negative_mass = torch.sum(torch.clamp(-eigvals, min=0.0))
         return sym if bool((positive_mass >= negative_mass).item()) else -sym
 
-    @staticmethod
-    def _information_eigenvalue_tolerance(max_eigenvalue, n_features):
-        """Scale-aware rank threshold for inferential information matrices."""
-        return max(
-            np.finfo(np.float64).tiny,
-            float(max_eigenvalue) * max(int(n_features), 1) * 1e-12,
-        )
-
-    @classmethod
-    def _invert_information_numpy(cls, information):
-        information = np.asarray(information, dtype=np.float64)
-        information = 0.5 * (information + information.T)
-        eigvals = np.linalg.eigvalsh(information)
-        max_eigenvalue = float(np.max(eigvals))
-        tolerance = cls._information_eigenvalue_tolerance(
-            max_eigenvalue, information.shape[0]
-        )
-        if not np.all(np.isfinite(eigvals)) or float(np.min(eigvals)) <= tolerance:
-            raise RuntimeError(
-                "Cox observed information is singular or not positive definite; "
-                "coefficient inference is not identifiable"
-            )
-        return np.linalg.solve(information, np.eye(information.shape[0]))
-
-    @classmethod
-    def _invert_information_cupy(cls, information):
-        import cupy as cp
-
-        information = 0.5 * (information + information.T)
-        eigvals = cp.linalg.eigvalsh(information)
-        max_eigenvalue = float(cp.max(eigvals).item())
-        tolerance = cls._information_eigenvalue_tolerance(
-            max_eigenvalue, information.shape[0]
-        )
-        if bool(cp.any(~cp.isfinite(eigvals)).item()) or float(
-            cp.min(eigvals).item()
-        ) <= tolerance:
-            raise RuntimeError(
-                "Cox observed information is singular or not positive definite; "
-                "coefficient inference is not identifiable"
-            )
-        return cp.linalg.solve(
-            information, cp.eye(information.shape[0], dtype=information.dtype)
-        )
-
-    @classmethod
-    def _invert_information_torch(cls, information):
-        import torch
-
-        information = 0.5 * (information + information.transpose(0, 1))
-        eigvals = torch.linalg.eigvalsh(information)
-        max_eigenvalue = float(torch.max(eigvals).item())
-        tolerance = cls._information_eigenvalue_tolerance(
-            max_eigenvalue, information.shape[0]
-        )
-        if bool(torch.any(~torch.isfinite(eigvals)).item()) or float(
-            torch.min(eigvals).item()
-        ) <= tolerance:
-            raise RuntimeError(
-                "Cox observed information is singular or not positive definite; "
-                "coefficient inference is not identifiable"
-            )
-        identity = torch.eye(
-            information.shape[0],
-            dtype=information.dtype,
-            device=information.device,
-        )
-        return torch.linalg.solve(information, identity)
-
     def _compute_inference_cpu(self, X, time, event, cluster=None):
         """Compute standard errors, z-values, p-values, and confidence intervals."""
         n_features = X.shape[1]
@@ -3774,7 +3710,7 @@ class _LegacyCoxReferenceMixin:
             information = information + 2.0 * self.penalty * np.eye(
                 n_features, dtype=np.float64
             )
-        bread = self._invert_information_numpy(information)
+        bread = _invert_information_numpy(information)
 
         if self.cov_type == "nonrobust":
             self._var_matrix = bread
@@ -4173,4 +4109,38 @@ class _LegacyCoxReferenceMixin:
 
 
 
-__all__ = ["_LegacyCoxReferenceMixin", "_estimate_breslow_tensor_bytes"]
+class _LegacyCoxReference(_LegacyCoxReferenceMixin):
+    """Test-only composition adapter around a canonical Cox estimator.
+
+    Historical numerical methods execute on this adapter while all fitted
+    state remains owned by ``estimator``. Method overrides stay local to the
+    adapter, keeping regression tests explicit without polluting the public
+    estimator MRO.
+    """
+
+    def __init__(self, estimator):
+        object.__setattr__(self, "_estimator", estimator)
+
+    def __getattr__(self, name):
+        return getattr(self._estimator, name)
+
+    def __setattr__(self, name, value):
+        if name == "_estimator" or any(
+            name in cls.__dict__ for cls in type(self).__mro__
+        ):
+            object.__setattr__(self, name, value)
+            return
+        setattr(self._estimator, name, value)
+
+    def __delattr__(self, name):
+        if name in self.__dict__:
+            object.__delattr__(self, name)
+            return
+        delattr(self._estimator, name)
+
+
+__all__ = [
+    "_LegacyCoxReference",
+    "_LegacyCoxReferenceMixin",
+    "_estimate_breslow_tensor_bytes",
+]

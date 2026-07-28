@@ -46,6 +46,7 @@ SOURCE_FILES = (
     "statgpu/survival/_cox.py",
     "statgpu/survival/_cox_cv.py",
     "statgpu/survival/_cox_fit_adapter.py",
+    "statgpu/survival/_cox_inference.py",
     "statgpu/survival/_cox_legacy.py",
     "statgpu/survival/_concordance.py",
     "statgpu/survival/_cox_score.py",
@@ -241,6 +242,7 @@ def _case_cv(name: str, xp) -> dict:
         cv=2,
         device="cpu",
         compute_inference=False,
+        gpu_memory_cleanup=True,
         max_iter=60,
     )
     model.set_params(device=device)
@@ -256,6 +258,37 @@ def _case_cv(name: str, xp) -> dict:
         model.estimator_.compute_cindex is False
         and model.estimator_.concordance_ is None
     )
+    cleanup_operations = {
+        "outer_cuda": 0,
+        "outer_torch": 0,
+        "inner_cuda": 0,
+        "inner_torch": 0,
+    }
+    model._cleanup_cuda_memory = lambda: cleanup_operations.__setitem__(
+        "outer_cuda", cleanup_operations["outer_cuda"] + 1
+    )
+    model._cleanup_torch_memory = lambda: cleanup_operations.__setitem__(
+        "outer_torch", cleanup_operations["outer_torch"] + 1
+    )
+
+    def inner_cuda_cleanup():
+        if model.estimator_.gpu_memory_cleanup:
+            cleanup_operations["inner_cuda"] += 1
+
+    def inner_torch_cleanup():
+        if model.estimator_.gpu_memory_cleanup:
+            cleanup_operations["inner_torch"] += 1
+
+    model.estimator_._cleanup_cuda_memory = inner_cuda_cleanup
+    model.estimator_._cleanup_torch_memory = inner_torch_cleanup
+    model.predict(_array(name, xp, X_np[:4]))
+    _sync(name, xp)
+    single_cleanup_owner = cleanup_operations == {
+        "outer_cuda": 1,
+        "outer_torch": 1,
+        "inner_cuda": 0,
+        "inner_torch": 0,
+    }
     passed = (
         model.device is expected
         and model.estimator_ is not None
@@ -264,6 +297,7 @@ def _case_cv(name: str, xp) -> dict:
         and bool(np.all(np.isfinite(model.coef_)))
         and all(constructor_rejections.values())
         and final_refit_skips_cindex
+        and single_cleanup_owner
     )
     return {
         "backend": name,
@@ -271,6 +305,8 @@ def _case_cv(name: str, xp) -> dict:
         "effective_device": model.effective_device_,
         "constructor_truthy_strings_rejected": constructor_rejections,
         "final_refit_skips_training_cindex": final_refit_skips_cindex,
+        "cleanup_operations_after_predict": cleanup_operations,
+        "single_cleanup_owner": single_cleanup_owner,
         "finite": bool(np.all(np.isfinite(model.coef_))),
         "passed": bool(passed),
     }
@@ -572,6 +608,7 @@ def _case_concordance_boundaries(name: str, xp) -> dict:
 
 def _case_completion_contract(name: str, xp) -> dict:
     from statgpu.survival._cox_legacy import _LegacyCoxReferenceMixin
+    from statgpu.survival import _cox as cox_module
 
     device = "cuda" if name == "cupy" else "torch"
     X_np, stop_np, event_np = _sample(seed=2410, n=72, p=2)
@@ -676,10 +713,15 @@ def _case_completion_contract(name: str, xp) -> dict:
         and "import torch" not in dispatch_source
     )
     import_time_adapter_absent = CoxPH.fit.__module__ == "statgpu.survival._cox"
-    legacy_mixin_isolated = all(
-        method not in CoxPH.__dict__
-        and getattr(CoxPH, method) is getattr(_LegacyCoxReferenceMixin, method)
-        for method in CoxPH._legacy_reference_methods
+    legacy_methods = tuple(
+        method
+        for method, value in vars(_LegacyCoxReferenceMixin).items()
+        if callable(value)
+    )
+    legacy_mixin_isolated = (
+        _LegacyCoxReferenceMixin not in CoxPH.__mro__
+        and all(not hasattr(CoxPH, method) for method in legacy_methods)
+        and "_cox_legacy" not in inspect.getsource(cox_module)
     )
     passed = all(
         (

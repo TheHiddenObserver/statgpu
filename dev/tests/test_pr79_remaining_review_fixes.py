@@ -29,7 +29,6 @@ def test_cpu_rank_deficient_hc1_uses_effective_df():
     y = X[:, 0] * 1.5 + X[:, 1] * (-0.5) + rng.normal(scale=0.3, size=n)
 
     model_fr = LinearRegression(cov_type="hc1").fit(X, y)
-    model_def = LinearRegression(cov_type="hc1").fit(X[:, :4], y)
 
     # df_resid should be n - rank, not n - n_columns
     assert model_fr.rank_ is not None, "rank_ should be set"
@@ -298,7 +297,7 @@ def test_entry_robust_cov_type_is_allowed_when_inference_disabled(cov_type):
 
 
 @pytest.mark.parametrize("backend", ["cupy", "torch"])
-def test_torch_baseline_called_once(backend, monkeypatch):
+def test_gpu_baseline_called_once(backend, monkeypatch):
     """Baseline hazard computed exactly once per fit (no double compute)."""
     if backend == "cupy":
         cp = pytest.importorskip("cupy")
@@ -316,33 +315,23 @@ def test_torch_baseline_called_once(backend, monkeypatch):
     X = rng.normal(size=(n, 2))
     time = np.arange(1.0, n + 1.0)
     event = np.ones(n, dtype=np.int32)
+    import statgpu.survival._cox_counting as counting_module
+
+    original = counting_module.cox_baseline_hazard
+    call_count = [0]
+
+    def counting_baseline(*args, **kwargs):
+        call_count[0] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        counting_module, "cox_baseline_hazard", counting_baseline
+    )
 
     if backend == "cupy":
-        import statgpu.survival._cox as cox_module
-        original = cox_module.CoxPH._compute_baseline_hazard_gpu
-        call_count = [0]
-
-        def counting_baseline(self, *args, **kwargs):
-            call_count[0] += 1
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(
-            cox_module.CoxPH, "_compute_baseline_hazard_gpu", counting_baseline)
-
         model = CoxPH(device="cuda", compute_cindex=False, tol=1e-6, max_iter=30)
         model.fit(cp.asarray(X), time=time, event=event)
     else:
-        import statgpu.survival._cox as cox_module
-        original = cox_module.CoxPH._compute_baseline_hazard_torch
-        call_count = [0]
-
-        def counting_baseline(self, *args, **kwargs):
-            call_count[0] += 1
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(
-            cox_module.CoxPH, "_compute_baseline_hazard_torch", counting_baseline)
-
         model = CoxPH(device="torch", compute_cindex=False, tol=1e-6, max_iter=30)
         model.fit(
             torch.as_tensor(X, dtype=torch.float64, device="cuda"),

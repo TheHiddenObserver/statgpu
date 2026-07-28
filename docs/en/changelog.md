@@ -46,6 +46,9 @@
 
 - `CoxPH(gpu_memory_cleanup=True)` now runs both allocator cleanup hooks after
   every public prediction and scoring call, including exceptional exits.
+  `CoxPHCV` owns that cleanup at its outer public boundary and disables it on
+  the delegated final estimator, so one CV prediction or score performs only
+  one allocator flush and synchronization round.
   Summaries report the actual matrix or formula interface and the fitted
   counting-process, strata, subject, cluster, and ties metadata instead of a
   synthetic R call. Canonical Cox and final `CoxPHCV` refits now publish the
@@ -56,10 +59,19 @@
   shared backend array, scalar, zeros, eye, and integer-code helpers; public
   fit boundary handling is defined directly on the estimator rather than
   installed by an import-time adapter.
-- The canonical `CoxPH` estimator and public dispatch remain in `_cox.py`;
-  inactive historical CPU, CuPy, and Torch reference kernels now live in the
-  private `_cox_legacy.py` mixin. Maintained private regression entry points
-  remain available without mixing legacy implementation into the public path.
+- The canonical `CoxPH` estimator and public dispatch remain in `_cox.py` and
+  no longer inherit or import the historical mixin. Backend-specific
+  information inversion is stateless in `_cox_inference.py`; inactive CPU,
+  CuPy, and Torch reference kernels remain test-only through an explicit
+  composition adapter in `_cox_legacy.py`, so optional legacy probes are not
+  loaded by a public survival import.
+- `CoxPHCV` now routes NumPy, CuPy, and Torch held-out Breslow, Efron, and Exact
+  likelihoods through the shared counting-process objective. A stable NumPy
+  log-likelihood-only specialization lives with the risk-set implementation,
+  retaining the previous suffix-path performance without duplicating the
+  statistical definition in the CV module. Formula side arrays use one
+  backend-preserving alignment helper, and CV prediction documents its native
+  NumPy/CuPy/Torch return type.
 
 ### Validation (2026-07-27) — PR #80 follow-up review
 

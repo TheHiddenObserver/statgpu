@@ -9,7 +9,7 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Unified CoxPH on stable risk-set objectives with a bounded ordinary suffix fast path, and restored cancellation-safe penalized moments.
 - Added Breslow Hessian workspace gates, preserved device/runtime solver errors, rejected complex high-level inputs, and unified no-pair scoring.
 - Added optimized stratified Exact and delayed-entry batching paths with maintained P100/R benchmark artifacts.
-- Hardened public Cox fit/predict/score cleanup, truthful summaries, shared inference results, integer subject codes, backend reuse, and one-sync concordance tiling; isolated inactive legacy reference kernels in a private module.
+- Hardened public Cox/CV cleanup ownership, truthful summaries, shared inference results, integer subject codes, backend reuse, and one-sync concordance tiling; public inference now uses stateless helpers while inactive legacy kernels remain test-only through composition.
 
 ## 2026-07-26
 

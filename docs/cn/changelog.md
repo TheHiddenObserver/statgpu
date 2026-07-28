@@ -24,7 +24,9 @@
   奇异则明确记录。ordinary 与 counting-process concordance 在无可比较 pair 时统一返回 `0.5`。
 
 - `CoxPH(gpu_memory_cleanup=True)` 现在会在每个公开预测和评分调用结束后执行两类
-  allocator 清理钩子，异常退出也不例外。摘要会输出真实的矩阵或 formula 接口，以及
+  allocator 清理钩子，异常退出也不例外。`CoxPHCV` 在外层公开边界统一负责清理，并在
+  内部最终 estimator 上关闭清理，因此每次 CV 预测或评分只执行一轮 allocator 清理与同步。
+  摘要会输出真实的矩阵或 formula 接口，以及
   counting-process、strata、subject、cluster 与 ties 元数据，不再伪造 R 调用。规范
   Cox 路径与 `CoxPHCV` 最终重拟合现在统一发布 `ParameterInferenceResult`，并同步
   parameter、z、p-value 和置信区间字段。
@@ -32,9 +34,16 @@
   范围内。survival risk-set 规范化复用了共享 backend 的数组、标量、zeros、eye 与
   integer-code helper；公开 fit 边界逻辑直接定义在 estimator 上，不再通过 import-time
   adapter 安装。
-- 规范 `CoxPH` estimator 与公开 dispatch 继续位于 `_cox.py`；不活跃的历史 CPU、
-  CuPy 与 Torch 参考 kernel 已移入私有 `_cox_legacy.py` mixin。受维护的私有回归入口
-  仍然可用，但 legacy 实现不再与公开路径混杂。
+- 规范 `CoxPH` estimator 与公开 dispatch 继续位于 `_cox.py`，且不再继承或导入历史
+  mixin。各 backend 的 information inversion 已作为无状态 helper 移入
+  `_cox_inference.py`；不活跃的 CPU、CuPy 与 Torch 参考 kernel 仅通过
+  `_cox_legacy.py` 中的显式组合 adapter 用于测试，公开 survival 导入不会再加载可选的
+  legacy 探测逻辑。
+- `CoxPHCV` 的 NumPy、CuPy 与 Torch held-out Breslow、Efron、Exact likelihood 现统一
+  经过 shared counting-process objective。稳定的 NumPy log-likelihood-only 专用路径
+  位于 risk-set 实现中，既保留原 suffix 路径性能，也避免 CV 模块重复维护统计定义。
+  formula side array 统一使用一个保留 backend 的对齐 helper，CV prediction 文档也明确
+  返回 NumPy、CuPy 或 Torch 原生数组。
 
 ### 验证（2026-07-27）— PR #80 后续审查
 

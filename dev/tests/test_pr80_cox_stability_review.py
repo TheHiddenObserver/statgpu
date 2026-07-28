@@ -10,7 +10,10 @@ import numpy as np
 import pytest
 
 from statgpu.survival import CoxPH, CoxPHCV
-from statgpu.survival._cox import _estimate_breslow_tensor_bytes
+from statgpu.survival._cox_legacy import (
+    _LegacyCoxReference,
+    _estimate_breslow_tensor_bytes,
+)
 from statgpu.survival import _cox_counting as cox_counting
 from statgpu.survival._cox_counting import _score_test_statistic, _solve
 from statgpu.survival._cox_cv import _compute_partial_likelihood
@@ -217,7 +220,8 @@ def test_cpu_breslow_tensor_workspace_gate_forces_incremental(monkeypatch):
     first_idx = np.where(event == 1)[0]
     counts = np.ones(first_idx.size)
     model = CoxPH(compute_inference=False)
-    expected = model._compute_hessian_breslow_incremental_grouped(
+    reference = _LegacyCoxReference(model)
+    expected = reference._compute_hessian_breslow_incremental_grouped(
         X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
     )
     monkeypatch.setenv("STATGPU_BRESLOW_HESSIAN_MAX_BYTES", "0")
@@ -225,8 +229,10 @@ def test_cpu_breslow_tensor_workspace_gate_forces_incremental(monkeypatch):
     def forbidden_tensor(*_args, **_kwargs):
         raise AssertionError("tensor Hessian bypassed the workspace gate")
 
-    monkeypatch.setattr(model, "_compute_hessian_breslow_tensor_grouped", forbidden_tensor)
-    actual = model._compute_hessian_breslow_fast(
+    monkeypatch.setattr(
+        reference, "_compute_hessian_breslow_tensor_grouped", forbidden_tensor
+    )
+    actual = reference._compute_hessian_breslow_fast(
         X, stop, event, risk_sum, risk_X_sum, exp_eta, first_idx, counts
     )
     np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
@@ -310,7 +316,9 @@ def test_cupy_fused_hessian_does_not_swallow_runtime_error(monkeypatch):
 
     monkeypatch.setattr(_cox_efron_cuda, "compute_breslow_hess_raw", fail)
     with pytest.raises(SentinelDeviceError, match="out of memory sentinel"):
-        CoxPH(compute_inference=False)._compute_hessian_breslow_fused_cupy(
+        _LegacyCoxReference(
+            CoxPH(compute_inference=False)
+        )._compute_hessian_breslow_fused_cupy(
             None, None, None, None
         )
 
@@ -323,7 +331,9 @@ def test_legacy_torch_newton_does_not_relabel_device_error(monkeypatch):
 
     monkeypatch.setattr(torch.linalg, "solve", fail)
     with pytest.raises(SentinelDeviceError, match="out of memory sentinel"):
-        CoxPH(compute_inference=False)._solve_newton_delta_torch(
+        _LegacyCoxReference(
+            CoxPH(compute_inference=False)
+        )._solve_newton_delta_torch(
             -torch.eye(2, dtype=torch.float64), torch.ones(2, dtype=torch.float64)
         )
 
@@ -384,12 +394,13 @@ def test_cupy_breslow_workspace_gate_matches_vectorized(monkeypatch):
     first_idx = cp.asarray([0, 8, 16, 24, 32, 40, 48, 56], dtype=cp.int64)
     counts = cp.ones(first_idx.size, dtype=cp.float64)
     model = CoxPH(compute_inference=False, device="cuda")
+    reference = _LegacyCoxReference(model)
     monkeypatch.setenv("STATGPU_BRESLOW_HESSIAN_MAX_BYTES", str(1 << 60))
-    expected = model._compute_hessian_breslow_incremental_grouped_cupy(
+    expected = reference._compute_hessian_breslow_incremental_grouped_cupy(
         X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
     )
     monkeypatch.setenv("STATGPU_BRESLOW_HESSIAN_MAX_BYTES", "0")
-    actual = model._compute_hessian_breslow_incremental_grouped_cupy(
+    actual = reference._compute_hessian_breslow_incremental_grouped_cupy(
         X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
     )
     cp.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)

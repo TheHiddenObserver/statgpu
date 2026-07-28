@@ -753,6 +753,7 @@ def test_coxphcv_refit_predict_score_and_cleanup_timing(monkeypatch):
         def __init__(self, *, penalty, device, **kwargs):
             self.penalty = penalty
             self.device = device
+            self.gpu_memory_cleanup = kwargs["gpu_memory_cleanup"]
 
         def fit(self, X, *args, **kwargs):
             self.coef_ = np.array([1.0])
@@ -797,11 +798,162 @@ def test_coxphcv_refit_predict_score_and_cleanup_timing(monkeypatch):
     assert cleanup_calls == {"cuda": 0, "torch": 0}
     assert model.estimator_.penalty == pytest.approx(0.1)
     assert model.estimator_.device == "cpu"
+    assert model.estimator_.gpu_memory_cleanup is False
     assert model.effective_device_ == "cpu"
     assert np.allclose(model.predict(X), np.exp(X[:, 0]))
     assert np.allclose(model.predict_risk_score(X), X[:, 0])
     assert model.score(X, time, event) == pytest.approx(1.0)
     assert cleanup_calls == {"cuda": 3, "torch": 3}
+
+
+def test_coxphcv_public_delegation_has_single_cleanup_owner(monkeypatch):
+    operations = {
+        "outer_cuda": 0,
+        "outer_torch": 0,
+        "inner_cuda": 0,
+        "inner_torch": 0,
+    }
+
+    class DelegatedEstimator:
+        gpu_memory_cleanup = False
+
+        def _cleanup_cuda_memory(self):
+            if self.gpu_memory_cleanup:
+                operations["inner_cuda"] += 1
+
+        def _cleanup_torch_memory(self):
+            if self.gpu_memory_cleanup:
+                operations["inner_torch"] += 1
+
+        def _call(self, value):
+            try:
+                return value
+            finally:
+                self._cleanup_cuda_memory()
+                self._cleanup_torch_memory()
+
+        def predict(self, X):
+            return self._call(np.ones(len(X)))
+
+        def predict_risk_score(self, X):
+            return self._call(np.zeros(len(X)))
+
+        def predict_hazard_ratio(self, X):
+            return self._call(np.ones(len(X)))
+
+        def predict_survival(self, X, times=None, strata=None):
+            return self._call(np.ones((len(X), 1)))
+
+        def score(self, X, time, event, **kwargs):
+            return self._call(0.5)
+
+    model = CoxPHCV(gpu_memory_cleanup=True)
+    model.estimator_ = DelegatedEstimator()
+    monkeypatch.setattr(
+        model,
+        "_cleanup_cuda_memory",
+        lambda: operations.__setitem__(
+            "outer_cuda", operations["outer_cuda"] + 1
+        ),
+    )
+    monkeypatch.setattr(
+        model,
+        "_cleanup_torch_memory",
+        lambda: operations.__setitem__(
+            "outer_torch", operations["outer_torch"] + 1
+        ),
+    )
+    X = np.zeros((3, 1))
+    time = np.arange(1.0, 4.0)
+    event = np.ones(3, dtype=np.int32)
+
+    model.predict(X)
+    model.predict_risk_score(X)
+    model.predict_hazard_ratio(X)
+    model.predict_survival(X)
+    model.score(X, time, event)
+
+    assert operations == {
+        "outer_cuda": 5,
+        "outer_torch": 5,
+        "inner_cuda": 0,
+        "inner_torch": 0,
+    }
+
+
+@pytest.mark.parametrize("ties", ["breslow", "efron", "exact"])
+def test_heldout_likelihood_delegates_every_tie_rule_to_shared_objective(
+    ties, monkeypatch
+):
+    X, time, event = _make_survival_data(n_samples=40, n_features=2, seed=914)
+    calls = []
+    original = cox_cv_module.cox_counting_process_objective
+
+    def recording_objective(*args, **kwargs):
+        calls.append(dict(kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        cox_cv_module, "cox_counting_process_objective", recording_objective
+    )
+    value = _compute_partial_likelihood(
+        X, time, event, np.array([0.1, -0.2]), ties=ties
+    )
+
+    assert np.isfinite(value)
+    assert len(calls) == 1
+    assert calls[0]["ties"] == ties
+    assert calls[0]["compute_derivatives"] is False
+
+
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+@pytest.mark.parametrize("with_entry_strata", [False, True])
+def test_numpy_log_only_fast_path_matches_shared_derivative_reference(
+    ties, with_entry_strata
+):
+    from statgpu.survival._risk_sets import cox_counting_process_objective
+
+    X, stop, event = _make_survival_data(
+        n_samples=96, n_features=3, seed=915
+    )
+    coef = np.array([0.15, -0.1, 0.05])
+    if with_entry_strata:
+        start = 0.4 * stop
+        strata = np.arange(stop.size, dtype=np.int64) % 3
+        X = X + strata[:, None] * 1e8
+    else:
+        start = np.zeros_like(stop)
+        strata = np.zeros(stop.size, dtype=np.int64)
+
+    fast = cox_counting_process_objective(
+        coef,
+        X,
+        stop,
+        event,
+        start=start,
+        strata=strata,
+        ties=ties,
+        compute_derivatives=False,
+    )["log_likelihood"]
+    reference = cox_counting_process_objective(
+        coef,
+        X,
+        stop,
+        event,
+        start=start,
+        strata=strata,
+        ties=ties,
+        compute_derivatives=True,
+    )["log_likelihood"]
+
+    assert float(fast) == pytest.approx(float(reference), rel=2e-11, abs=2e-9)
+
+
+def test_coxphcv_predict_documents_backend_native_return_types():
+    docstring = CoxPHCV.predict.__doc__
+    assert "numpy.ndarray" in docstring
+    assert "cupy.ndarray" in docstring
+    assert "torch.Tensor" in docstring
 
 
 def test_coxphcv_rejects_fractional_events_before_integer_cast():

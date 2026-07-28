@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from statgpu.survival import CoxPH
+from statgpu.survival._cox_legacy import _LegacyCoxReference
 
 def _to_numpy(value):
     """Make backend-native test outputs explicit at the assertion boundary."""
@@ -117,23 +118,28 @@ def test_torch_efron_private_path_is_exact_and_native(monkeypatch):
     X, time, event = X[order], time[order], event[order]
 
     model = CoxPH(ties="efron", device="cpu", compute_inference=False)
-    efron_pre = model._efron_unique_failure_indices(time, event)
+    reference = _LegacyCoxReference(model)
+    efron_pre = reference._efron_unique_failure_indices(time, event)
     assert X.shape[0] / efron_pre[4] >= 24.0
     model._efron_pre = efron_pre
     model._efron_all_singletons = False
     monkeypatch.delenv("STATGPU_EFRON_TRITON", raising=False)
 
     beta = np.linspace(-0.12, 0.15, X.shape[1])
-    grad_np, hess_np = model._compute_gradient_hessian(beta, X, time, event, efron_pre)
-    loglik_np = model._compute_log_likelihood(beta, X, time, event, efron_pre)
+    grad_np, hess_np = reference._compute_gradient_hessian(
+        beta, X, time, event, efron_pre
+    )
+    loglik_np = reference._compute_log_likelihood(
+        beta, X, time, event, efron_pre
+    )
     beta_t = torch.as_tensor(beta, dtype=torch.float64)
     X_t = torch.as_tensor(X, dtype=torch.float64)
     time_t = torch.as_tensor(time, dtype=torch.float64)
     event_t = torch.as_tensor(event, dtype=torch.int32)
-    grad_t, hess_t = model._compute_gradient_hessian_torch(
+    grad_t, hess_t = reference._compute_gradient_hessian_torch(
         beta_t, X_t, time_t, event_t, efron_pre
     )
-    loglik_t = model._compute_log_likelihood_torch(
+    loglik_t = reference._compute_log_likelihood_torch(
         beta_t, X_t, time_t, event_t, efron_pre
     )
 
@@ -141,8 +147,8 @@ def test_torch_efron_private_path_is_exact_and_native(monkeypatch):
     np.testing.assert_allclose(loglik_t.numpy(), loglik_np, rtol=2e-12, atol=2e-12)
     np.testing.assert_allclose(grad_t.numpy(), grad_np, rtol=2e-11, atol=2e-11)
     np.testing.assert_allclose(
-        model._observed_information_torch(hess_t).numpy(),
-        model._observed_information(hess_np),
+        reference._observed_information_torch(hess_t).numpy(),
+        reference._observed_information(hess_np),
         rtol=2e-11,
         atol=2e-11,
     )
@@ -154,12 +160,12 @@ def test_torch_efron_private_path_is_exact_and_native(monkeypatch):
         raise AssertionError("bounded Efron fallback was not selected")
 
     monkeypatch.setattr(
-        model, "_efron_cumulative_indices_torch", unexpected_cumulative_indices
+        reference, "_efron_cumulative_indices_torch", unexpected_cumulative_indices
     )
-    grad_fallback, hess_fallback = model._compute_gradient_hessian_torch(
+    grad_fallback, hess_fallback = reference._compute_gradient_hessian_torch(
         beta_t, X_t, time_t, event_t, efron_pre
     )
-    loglik_fallback = model._compute_log_likelihood_torch(
+    loglik_fallback = reference._compute_log_likelihood_torch(
         beta_t, X_t, time_t, event_t, efron_pre
     )
     np.testing.assert_allclose(
@@ -169,8 +175,8 @@ def test_torch_efron_private_path_is_exact_and_native(monkeypatch):
         grad_fallback.numpy(), grad_np, rtol=2e-11, atol=2e-11
     )
     np.testing.assert_allclose(
-        model._observed_information_torch(hess_fallback).numpy(),
-        model._observed_information(hess_np),
+        reference._observed_information_torch(hess_fallback).numpy(),
+        reference._observed_information(hess_np),
         rtol=2e-11,
         atol=2e-11,
     )
@@ -184,21 +190,22 @@ def test_cupy_efron_vectorized_path_builds_missing_csr_indices():
     order = np.argsort(time, kind="stable")
     X, time, event = X[order], time[order], event[order]
     model = CoxPH(ties="efron", device="cpu", compute_inference=False)
-    efron_pre = model._efron_unique_failure_indices(time, event)
+    reference = _LegacyCoxReference(model)
+    efron_pre = reference._efron_unique_failure_indices(time, event)
     assert X.shape[0] / efron_pre[4] >= 24.0
     assert not hasattr(model, "_efron_pre_csr_gpu")
 
     beta = np.linspace(-0.12, 0.15, X.shape[1])
-    grad_np, hess_np = model._compute_gradient_hessian(
+    grad_np, hess_np = reference._compute_gradient_hessian(
         beta, X, time, event, efron_pre
     )
-    grad_cp, hess_cp = model._compute_gradient_hessian_efron_grouped_gemm_cupy(
+    grad_cp, hess_cp = reference._compute_gradient_hessian_efron_grouped_gemm_cupy(
         cp.asarray(beta), cp.asarray(X), efron_pre
     )
     np.testing.assert_allclose(cp.asnumpy(grad_cp), grad_np, rtol=2e-11, atol=2e-11)
     np.testing.assert_allclose(
-        cp.asnumpy(model._observed_information_cupy(hess_cp)),
-        model._observed_information(hess_np),
+        cp.asnumpy(reference._observed_information_cupy(hess_cp)),
+        reference._observed_information(hess_np),
         rtol=2e-11,
         atol=2e-11,
     )
@@ -213,8 +220,11 @@ def test_torch_breslow_hessian_uses_sample_dimension():
     beta = np.array([0.08, -0.04, 0.11])
 
     model = CoxPH(ties="breslow", device="cpu", compute_inference=False)
-    grad_np, hess_np = model._compute_gradient_hessian(beta, X, time, event)
-    grad_t, hess_t = model._compute_gradient_hessian_torch(
+    reference = _LegacyCoxReference(model)
+    grad_np, hess_np = reference._compute_gradient_hessian(
+        beta, X, time, event
+    )
+    grad_t, hess_t = reference._compute_gradient_hessian_torch(
         torch.as_tensor(beta, dtype=torch.float64),
         torch.as_tensor(X, dtype=torch.float64),
         torch.as_tensor(time, dtype=torch.float64),
@@ -259,7 +269,7 @@ def test_torch_fit_core_matches_cpu_and_keeps_full_covariance():
     model._X = X.copy()
     model._time = time.copy()
     model._event = event.copy()
-    model._fit_torch(
+    _LegacyCoxReference(model)._fit_torch(
         torch.as_tensor(X, dtype=torch.float64),
         torch.as_tensor(time, dtype=torch.float64),
         torch.as_tensor(event, dtype=torch.int32),

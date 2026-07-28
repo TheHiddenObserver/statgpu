@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock
 import inspect
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -10,7 +12,10 @@ from statgpu.inference import ParameterInferenceResult
 from statgpu.survival import CoxPH, CoxPHCV
 from statgpu.survival import _cox as cox_module
 from statgpu.survival import _cox_score as cox_score_module
-from statgpu.survival._cox_legacy import _LegacyCoxReferenceMixin
+from statgpu.survival._cox_legacy import (
+    _LegacyCoxReference,
+    _LegacyCoxReferenceMixin,
+)
 from statgpu.survival._risk_sets import counting_process_concordance
 
 
@@ -134,6 +139,74 @@ def test_summary_preserves_exact_formula_call(capsys):
     assert f"formula={formula!r}" in output
     assert "counting_process=True" in output
     assert "stratified=True" in output
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_formula_side_arrays_use_one_backend_preserving_alignment_helper(
+    backend, monkeypatch,
+):
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        {
+            "time": [1.0, 2.0, 3.0, 4.0],
+            "event": [1.0, 0.0, 1.0, 0.0],
+            "x": [0.2, np.nan, -0.1, 0.4],
+        }
+    )
+    side_arrays_host = {
+        "entry": np.array([0.0, 0.2, 0.3, 0.4]),
+        "cluster": np.array([10, 11, 12, 13]),
+        "strata": np.array([20, 21, 22, 23]),
+        "subject_id": np.array([30, 31, 32, 33]),
+    }
+    side_arrays = {
+        name: _backend_arrays(backend, values)[0]
+        for name, values in side_arrays_host.items()
+    }
+    alignment_calls = []
+    original_align = cox_module._align_cox_side_array
+
+    def recording_align(values, retained_rows, original_n, name="array"):
+        alignment_calls.append(name)
+        return original_align(values, retained_rows, original_n, name)
+
+    monkeypatch.setattr(cox_module, "_align_cox_side_array", recording_align)
+    captured = {}
+    model = CoxPH(compute_inference=False, compute_cindex=False)
+
+    def recording_dispatch(X, time, event, **kwargs):
+        captured.update(kwargs)
+        model.coef_ = np.zeros(int(X.shape[1]), dtype=np.float64)
+        model._log_likelihood = 0.0
+        model._is_counting_process = True
+        return model
+
+    monkeypatch.setattr(
+        model, "_fit_counting_process_dispatch", recording_dispatch
+    )
+    model.fit(
+        formula="Surv(time, event) ~ x",
+        data=frame,
+        **side_arrays,
+    )
+
+    retained = np.array([0, 2, 3])
+    for name, values in side_arrays_host.items():
+        actual = captured[name]
+        if backend == "cupy":
+            assert type(actual).__module__.startswith("cupy")
+            actual = actual.get()
+        elif backend == "torch":
+            assert type(actual).__module__.startswith("torch")
+            assert actual.device.type == "cuda"
+            actual = actual.detach().cpu().numpy()
+        np.testing.assert_array_equal(actual, values[retained])
+    assert alignment_calls == [
+        "entry/start",
+        "cluster",
+        "strata",
+        "subject_id",
+    ]
 
 
 @pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
@@ -291,31 +364,55 @@ def test_ordinary_concordance_tile_accumulators_sync_once(
 
 def test_public_fit_isolated_from_legacy_reference_methods(monkeypatch):
     X, stop, event = _sample(seed=807, n=36, p=2)
-    model = CoxPH(compute_inference=False, compute_cindex=False)
+    model = CoxPH(compute_inference=True, compute_cindex=False)
 
     def reject_legacy(*_args, **_kwargs):
         raise AssertionError("public fit reached a legacy Cox implementation")
 
-    for name in model._legacy_reference_methods:
-        monkeypatch.setattr(model, name, reject_legacy)
+    for name, value in vars(_LegacyCoxReferenceMixin).items():
+        if callable(value):
+            monkeypatch.setattr(
+                _LegacyCoxReferenceMixin, name, reject_legacy
+            )
     model.fit(X, stop, event)
+    assert np.all(np.isfinite(model._bse))
     assert model._canonical_fit_path == "counting_process"
     source = inspect.getsource(CoxPH._fit_counting_process_dispatch)
     assert "import cupy" not in source
     assert "import torch" not in source
 
 
-def test_legacy_reference_methods_live_only_in_explicit_mixin():
-    assert _LegacyCoxReferenceMixin in CoxPH.__mro__
-    for name in CoxPH._legacy_reference_methods:
-        assert name not in CoxPH.__dict__
-        assert getattr(CoxPH, name) is getattr(_LegacyCoxReferenceMixin, name)
-        assert getattr(CoxPH, name).__module__ == "statgpu.survival._cox_legacy"
+def test_legacy_reference_methods_live_only_in_composition_adapter():
+    assert _LegacyCoxReferenceMixin not in CoxPH.__mro__
+    legacy_methods = tuple(
+        name
+        for name, value in vars(_LegacyCoxReferenceMixin).items()
+        if callable(value)
+    )
+    assert all(not hasattr(CoxPH, name) for name in legacy_methods)
+    reference = _LegacyCoxReference(CoxPH(compute_inference=False))
+    assert isinstance(reference, _LegacyCoxReferenceMixin)
 
     canonical_source = inspect.getsource(cox_module)
+    assert "_cox_legacy" not in canonical_source
     assert "def _fit_cpu(" not in canonical_source
     assert "def _fit_gpu(" not in canonical_source
     assert "def _fit_torch(" not in canonical_source
     assert CoxPH._fit_counting_process_dispatch.__module__ == (
         "statgpu.survival._cox"
     )
+
+
+def test_public_survival_import_does_not_load_legacy_module():
+    code = (
+        "import sys; from statgpu.survival import CoxPH; "
+        "assert 'statgpu.survival._cox_legacy' not in sys.modules; "
+        "assert CoxPH.__module__ == 'statgpu.survival._cox'"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

@@ -10,6 +10,7 @@ from numpy.testing import assert_allclose
 
 from statgpu.losses import CoxPartialLikelihoodLoss
 from statgpu.survival import CoxPH
+from statgpu.survival._cox_legacy import _LegacyCoxReference
 
 
 def _cox_sample(seed=7901, n=100, p=3):
@@ -201,32 +202,24 @@ def test_delayed_entry_does_not_require_statsmodels(monkeypatch):
     assert model.converged_
 
 
-def test_robust_strict_efron_uses_internal_exact_residuals(monkeypatch):
+def test_robust_strict_efron_uses_internal_exact_residuals():
     X, time, event = _cox_sample(n=55, p=2)
     model = CoxPH(
         device='cpu', ties='efron', cov_type='hc0', inference_mode='strict',
         compute_cindex=False,
     )
-    monkeypatch.setattr(
-        model, '_score_residuals_via_statsmodels_if_available',
-        lambda *_args, **_kwargs: None,
-    )
     model.fit(X, time=time, event=event)
     assert model.inference_method_ == 'counting_process_score_sandwich'
     assert model.inference_backend_ == 'numpy'
     assert model.inference_approximate_ is False
 
 
-def test_robust_strict_breslow_uses_internal_exact_residuals(monkeypatch):
+def test_robust_strict_breslow_uses_internal_exact_residuals():
     X, time, event = _cox_sample(n=55, p=2)
     model = CoxPH(
         device='cpu', ties='breslow', cov_type='hc0', inference_mode='strict',
         compute_cindex=False,
     )
-    monkeypatch.setattr(
-        model, '_score_residuals_via_statsmodels_if_available',
-        lambda *_args, **_kwargs: None,
-    )
     model.fit(X, time=time, event=event)
 
     assert model.inference_method_ == 'counting_process_score_sandwich'
@@ -234,17 +227,11 @@ def test_robust_strict_breslow_uses_internal_exact_residuals(monkeypatch):
     assert model.inference_approximate_ is False
 
 
-def test_robust_approx_is_explicit_and_disclosed(monkeypatch):
+def test_robust_approx_is_explicit_and_disclosed():
     X, time, event = _cox_sample(n=55, p=2)
     model = CoxPH(
         device='cpu', ties='efron', cov_type='hc0', inference_mode='approx',
         compute_cindex=False,
-    )
-    monkeypatch.setattr(
-        model, '_score_residuals_via_statsmodels_if_available',
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError('approx mode must not select the exact dependency')
-        ),
     )
     model.fit(X, time=time, event=event)
 
@@ -346,7 +333,9 @@ def test_torch_streaming_hessian_matches_grouped_reference():
     total = X_exp.T @ X
 
     model = CoxPH(device='cpu')
-    actual = model._compute_hessian_grouped_streaming_torch(
+    actual = _LegacyCoxReference(
+        model
+    )._compute_hessian_grouped_streaming_torch(
         X, X_exp, total, risk_at, risk_X, first_idx, weights
     )
     expected = torch.zeros_like(total)

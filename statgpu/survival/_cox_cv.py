@@ -559,103 +559,17 @@ def _compute_partial_likelihood(
     if not np.any(event_arr == 1):
         return 0.0
 
-    # Exact tied likelihood uses an elementary-symmetric partition DP. Reuse
-    # the single mathematical reference for that uncommon path; Breslow and
-    # Efron below intentionally compute log-likelihood only, avoiding the O(p²)
-    # score/information work in every held-out CV evaluation.
-    if ties == "exact":
-        result = cox_counting_process_objective(
-            coef_arr,
-            X_arr,
-            time_arr,
-            event_arr,
-            start=np.zeros_like(time_arr) if start_arr is None else start_arr,
-            strata=strata_codes,
-            ties=ties,
-            compute_derivatives=False,
-        )
-        return float(result["log_likelihood"])
-
-    total_loglik = 0.0
-    risk_scores = X_arr @ coef_arr
-    for stratum_code in np.unique(strata_codes):
-        stratum_mask = strata_codes == stratum_code
-        if not np.any((event_arr == 1) & stratum_mask):
-            continue
-        order = np.argsort(time_arr[stratum_mask], kind="mergesort")
-        time_sorted = time_arr[stratum_mask][order]
-        event_sorted = event_arr[stratum_mask][order]
-        risk_sorted = risk_scores[stratum_mask][order]
-        start_sorted = (
-            None if start_arr is None else start_arr[stratum_mask][order]
-        )
-
-        event_idx = np.flatnonzero(event_sorted == 1)
-        event_times = time_sorted[event_idx]
-        unique_times, counts = np.unique(event_times, return_counts=True)
-        group_ends = np.cumsum(counts, dtype=np.int64)
-        group_starts = np.concatenate(
-            [np.zeros(1, dtype=np.int64), group_ends[:-1]]
-        )
-        log_risk_suffix = None
-        if start_sorted is None:
-            log_risk_suffix = np.logaddexp.accumulate(
-                risk_sorted[::-1]
-            )[::-1]
-
-        for group_idx, failure_time in enumerate(unique_times):
-            n_failures = int(counts[group_idx])
-            event_rows = event_idx[
-                group_starts[group_idx] : group_ends[group_idx]
-            ]
-            sum_event_risk = float(np.sum(risk_sorted[event_rows]))
-
-            if start_sorted is None:
-                first_risk_idx = int(
-                    np.searchsorted(time_sorted, failure_time, side="left")
-                )
-                log_risk_sum = float(log_risk_suffix[first_risk_idx])
-                denominator_shift = log_risk_sum
-                scaled_risk_sum = 1.0
-            else:
-                risk_mask = (start_sorted < failure_time) & (
-                    time_sorted >= failure_time
-                )
-                if not np.any(risk_mask):
-                    raise FloatingPointError(
-                        "empty Cox risk set at an observed failure time"
-                    )
-                risk_at_time = risk_sorted[risk_mask]
-                denominator_shift = float(np.max(risk_at_time))
-                scaled_risk_sum = float(
-                    np.sum(np.exp(risk_at_time - denominator_shift))
-                )
-                log_risk_sum = denominator_shift + np.log(scaled_risk_sum)
-
-            if ties == "breslow":
-                total_loglik += (
-                    sum_event_risk - n_failures * log_risk_sum
-                )
-                continue
-
-            scaled_failure_sum = float(
-                np.sum(np.exp(risk_sorted[event_rows] - denominator_shift))
-            )
-            fractions = np.arange(n_failures, dtype=np.float64) / n_failures
-            scaled_denominators = (
-                scaled_risk_sum - fractions * scaled_failure_sum
-            )
-            if np.any(scaled_denominators <= 0):
-                raise FloatingPointError(
-                    "non-positive Cox risk-set denominator"
-                )
-            total_loglik += sum_event_risk - float(
-                np.sum(
-                    denominator_shift + np.log(scaled_denominators)
-                )
-            )
-
-    return float(total_loglik)
+    result = cox_counting_process_objective(
+        coef_arr,
+        X_arr,
+        time_arr,
+        event_arr,
+        start=np.zeros_like(time_arr) if start_arr is None else start_arr,
+        strata=strata_codes,
+        ties=ties,
+        compute_derivatives=False,
+    )
+    return float(result["log_likelihood"])
 
 
 # =============================================================================
@@ -1751,6 +1665,8 @@ class CoxPHCV(CVEstimatorBase):
         )
 
         # Fit final model on full data with best penalty
+        # CoxPHCV owns cleanup at its public prediction/scoring boundary. The
+        # delegated estimator must not repeat allocator flushes or CUDA syncs.
         final_model = CoxPH(
             ties=ties_name,
             tol=tol,
@@ -1761,7 +1677,7 @@ class CoxPHCV(CVEstimatorBase):
             compute_cindex=False,
             cov_type=cov_type_name,
             inference_mode=str(self.inference_mode).lower(),
-            gpu_memory_cleanup=bool(self.gpu_memory_cleanup),
+            gpu_memory_cleanup=False,
             penalty=self.penalty_,
         )
         final_model.fit(
@@ -1882,7 +1798,7 @@ class CoxPHCV(CVEstimatorBase):
 
         Returns
         -------
-        hazard_ratios : ndarray
+        hazard_ratios : numpy.ndarray, cupy.ndarray, or torch.Tensor
             ``exp(X @ coef_)`` from the selected/refitted estimator.
         """
         try:

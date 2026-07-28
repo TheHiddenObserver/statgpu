@@ -840,6 +840,96 @@ def _numpy_group_objective(
     return result
 
 
+def _numpy_log_likelihood_only(
+    eta: np.ndarray,
+    stop: np.ndarray,
+    event: np.ndarray,
+    start: np.ndarray,
+    strata: np.ndarray,
+    *,
+    ties: str,
+) -> Dict[str, Any]:
+    """Fast stable NumPy Breslow/Efron log-likelihood without moments.
+
+    Right-censored strata use a sorted suffix ``logaddexp`` scan. Delayed-entry
+    strata retain risk-set-local scaling. Keeping this specialization in the
+    shared risk-set module gives CV and direct callers one statistical owner
+    without paying for the general group-by-row reference loop.
+    """
+    total_loglik = 0.0
+    right_censored = not bool(np.any(start != 0))
+    for stratum_code in np.unique(strata):
+        stratum_mask = strata == stratum_code
+        if not np.any((event == 1) & stratum_mask):
+            continue
+        order = np.argsort(stop[stratum_mask], kind="mergesort")
+        stop_sorted = stop[stratum_mask][order]
+        event_sorted = event[stratum_mask][order]
+        eta_sorted = eta[stratum_mask][order]
+        start_sorted = None if right_censored else start[stratum_mask][order]
+
+        event_idx = np.flatnonzero(event_sorted == 1)
+        event_times = stop_sorted[event_idx]
+        failure_times, counts = np.unique(event_times, return_counts=True)
+        group_ends = np.cumsum(counts, dtype=np.int64)
+        group_starts = np.concatenate(
+            [np.zeros(1, dtype=np.int64), group_ends[:-1]]
+        )
+        log_risk_suffix = None
+        if start_sorted is None:
+            log_risk_suffix = np.logaddexp.accumulate(eta_sorted[::-1])[::-1]
+
+        for group_idx, failure_time in enumerate(failure_times):
+            n_failures = int(counts[group_idx])
+            event_rows = event_idx[
+                group_starts[group_idx] : group_ends[group_idx]
+            ]
+            sum_event_eta = float(np.sum(eta_sorted[event_rows]))
+
+            if start_sorted is None:
+                first_risk_idx = int(
+                    np.searchsorted(stop_sorted, failure_time, side="left")
+                )
+                log_risk_sum = float(log_risk_suffix[first_risk_idx])
+                denominator_shift = log_risk_sum
+                scaled_risk_sum = 1.0
+            else:
+                risk_mask = (start_sorted < failure_time) & (
+                    stop_sorted >= failure_time
+                )
+                if not np.any(risk_mask):
+                    raise FloatingPointError(
+                        "empty Cox risk set at an observed failure time"
+                    )
+                eta_at_time = eta_sorted[risk_mask]
+                denominator_shift = float(np.max(eta_at_time))
+                scaled_risk_sum = float(
+                    np.sum(np.exp(eta_at_time - denominator_shift))
+                )
+                log_risk_sum = denominator_shift + np.log(scaled_risk_sum)
+
+            if ties == "breslow":
+                total_loglik += sum_event_eta - n_failures * log_risk_sum
+                continue
+
+            scaled_failure_sum = float(
+                np.sum(np.exp(eta_sorted[event_rows] - denominator_shift))
+            )
+            fractions = np.arange(n_failures, dtype=np.float64) / n_failures
+            scaled_denominators = (
+                scaled_risk_sum - fractions * scaled_failure_sum
+            )
+            if np.any(scaled_denominators <= 0):
+                raise FloatingPointError(
+                    "non-positive Cox risk-set denominator"
+                )
+            total_loglik += sum_event_eta - float(
+                np.sum(denominator_shift + np.log(scaled_denominators))
+            )
+
+    return {"log_likelihood": np.asarray(total_loglik, dtype=eta.dtype)}
+
+
 def _nested_exact_group_objective(
     eta: Any,
     X: Any,
@@ -1809,6 +1899,20 @@ def cox_counting_process_objective(
     # ``X_g = z_g +/- 1e10`` while preserving the exact objective.
     X_centered = _center_within_strata(X, strata, backend, xp)
     eta = X_centered @ beta
+    if (
+        backend == "numpy"
+        and ties != "exact"
+        and not compute_derivatives
+        and not score_residuals
+    ):
+        return _numpy_log_likelihood_only(
+            eta,
+            stop,
+            event,
+            start,
+            strata,
+            ties=ties,
+        )
     if ties == "exact":
         nested_exact = _nested_exact_group_objective(
             eta,
