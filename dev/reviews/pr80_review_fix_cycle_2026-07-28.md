@@ -5,13 +5,13 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**PHYSICAL_COMPLETE; EVIDENCE PUSH/HOSTED CI PENDING.** The two post-schema-7
-MEDIUM fixes and the fit-parameter stability cleanup pass the complete CPU
-suite and the exact-source schema-8 P100 refresh. The machine-readable artifact
-has been independently verified against all 29 Git blobs from source commit
-`0bbe3fc2e0b3f223074681e69bfa7a5dcd88443b`; all 20 CuPy/Torch case gates and
-318 targeted physical tests pass. Only the evidence commit, push, and hosted
-rerun remain pending at the time this report is written.
+**COMPLETE.** The two post-schema-7 MEDIUM fixes and the fit-parameter stability
+cleanup pass the complete CPU suite and the exact-source schema-8 P100 refresh.
+The machine-readable artifact independently matches all 29 Git blobs from
+source commit `0bbe3fc2e0b3f223074681e69bfa7a5dcd88443b`; all 20 CuPy/Torch case
+gates and 318 targeted physical tests pass. Evidence commit
+`ac31b3b0160f29fb94c7fe1c02ef56b4afd58fe1` is pushed, and all seven hosted
+jobs passed in run `30429630574`.
 
 ## Post-schema-7 findings and fixes
 
@@ -33,6 +33,11 @@ both CuPy and Torch CUDA.
 
 - Exact clean source commit:
   `0bbe3fc2e0b3f223074681e69bfa7a5dcd88443b`.
+- Evidence commit:
+  `ac31b3b0160f29fb94c7fe1c02ef56b4afd58fe1`.
+- Hosted CI for source plus evidence:
+  `https://github.com/TheHiddenObserver/statgpu/actions/runs/30429630574`;
+  **7/7 jobs passed**.
 - Paramiko remote worktree:
   `/root/statgpu-pr80-0bbe3fc-schema8-20260729-1444`.
 - Environment: Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch
