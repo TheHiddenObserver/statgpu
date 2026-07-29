@@ -5,13 +5,13 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**PARTIAL_REMOTE_PENDING.** All current 2026-07-29 findings are fixed locally and
-the complete CPU, targeted, documentation, compile, and static gates pass. The
-maintained physical runner is upgraded to schema 6, but its exact-source
-CuPy/Torch P100 artifact cannot be produced until the source is committed and a
-new remote run is authorized. The prior schema-5 evidence below remains valid
-only for its recorded earlier commit. The final local read-only pass found no
-remaining CRITICAL, HIGH, or active MEDIUM issue in this delta.
+**SOURCE_AND_PHYSICAL_COMPLETE; HOSTED_CI_PENDING.** All current 2026-07-29
+findings are fixed, the complete local CPU/static/documentation gates pass, and
+the schema-6 runner passed on the exact clean source commit with both CuPy and
+Torch on a Tesla P100. The prior schema-5 evidence below remains valid only for
+its recorded earlier commit. The final local read-only pass found no remaining
+CRITICAL, HIGH, or active MEDIUM issue in this delta. Push and the resulting
+hosted CI run remain the only pending exit actions.
 
 ## 2026-07-29 impact classification
 
@@ -23,26 +23,26 @@ remaining CRITICAL, HIGH, or active MEDIUM issue in this delta.
 | Public API | active | hazard-ratio errors and numerical exception export |
 | Inference | active boundary | fitted hazard ratios and confidence-interval summary |
 | Formula | unchanged | no design-matrix or side-array semantics changed |
-| Benchmark/artifact | remote pending | schema-6 CuPy/Torch exact-source refresh required |
+| Benchmark/artifact | passed | schema-6 CuPy/Torch exact-source P100 refresh |
 | Documentation | active | bilingual numerical and provenance contracts |
 
 ## 2026-07-29 findings and fixes
 
 | Finding | Status | Resolution |
 | --- | --- | --- |
-| Ordinary GPU fast-path target D2H and per-penalty rebuild | fixed locally; needs remote GPU | Added reusable immutable right-censored loss state once per valid fold for the complete selector invocation, direct target-vector transfer counters, and truthful public/CV provenance. |
-| Canonical/penalized hazard-ratio overflow mismatch | fixed locally; needs remote GPU | Added one strict NumPy/CuPy/Torch exp boundary. Fit raises public `CoxFitNumericalError`; prediction raises `FloatingPointError`; raw log-risk remains available. |
+| Ordinary GPU fast-path target D2H and per-penalty rebuild | fixed; physical GPU passed | Added reusable immutable right-censored loss state once per valid fold for the complete selector invocation, direct target-vector transfer counters, and truthful public/CV provenance. |
+| Canonical/penalized hazard-ratio overflow mismatch | fixed; physical GPU passed | Added one strict NumPy/CuPy/Torch exp boundary. Fit raises public `CoxFitNumericalError`; prediction raises `FloatingPointError`; raw log-risk remains available. |
 | Cache-hit diagnostics retained old invocation work | fixed | Added cache-hit, origin device, requested device, and `*_this_call` fields; cache hits report zero preparation/target transfers without rewriting selection origin. |
 | Duplicate Cox fitted-state initialization and ambiguous exception status | fixed | Removed `_fit_impl()` reset and the contradictory history sentinel; renamed and exported public `CoxFitNumericalError` from both API levels. |
-| GPU entry/strata/subject vectors were copied to host without complete provenance | fixed locally; needs remote GPU | Counted every retained full side-vector transfer, stopped copying a synthetic zero start vector, and updated grouped CV/refit expectations. |
+| GPU entry/strata/subject vectors were copied to host without complete provenance | fixed; physical GPU passed | Counted every retained full side-vector transfer, stopped copying a synthetic zero start vector, and updated grouped CV/refit expectations. |
 | Staged CV could prepare a fold after every requested penalty was already evaluated | fixed | Filters pending penalty indices before backend/loss preparation, so an empty staged overlap performs no transfer or metadata work. |
 | Staged/halving passes rebuilt non-empty fold state | fixed | Lifted backend arrays and right-censored metadata into one selector-level fold cache; later full-precision passes reuse the exact prepared state. |
 | Selector-level fold reuse could retain unbounded multi-fold GPU state | fixed | Enabled cross-stage retention only below an explicit 512 MiB estimated workspace gate; larger workloads use the counted stage-local fallback. |
-| Unused GPU cluster/scoring unique labels crossed to host | fixed locally; needs remote GPU | Label encoding now materializes host labels only for fitted strata prediction mapping; cluster and scoring paths retain only backend-native inverse codes. |
+| Unused GPU cluster/scoring unique labels crossed to host | fixed; physical GPU passed | Label encoding now materializes host labels only for fitted strata prediction mapping; cluster and scoring paths retain only backend-native inverse codes. |
 | Public dispatch and solver repeated counting-input normalization | fixed | Public dispatch marks its validated arrays as prepared; direct solver calls retain validation, while public/CV candidates avoid the second scalar-sync round. |
-| Penalized raw-risk prediction could cast complex input before validation | fixed locally; needs remote GPU | Added a pre-cast real-valued guard and three-backend regression coverage, so `predict_risk_score()` cannot silently discard an imaginary component. |
-| Backend exp and summary inverse-HR edges were not fully covered by theoretical range checks | fixed locally; needs remote GPU | The shared boundary now validates the actual exp result as finite and positive, promotes inputs to float64, and applies the same strict rule to inverse hazard ratios and confidence intervals. |
-| Ordinary survival prediction discarded its centered log-baseline state | fixed locally; needs remote GPU | Preserved ordinary baseline reference/centered-log fields without changing the historical `_baseline_by_stratum is None` contract; extreme finite log-risk no longer re-enters direct `exp(Xβ)`. |
+| Penalized raw-risk prediction could cast complex input before validation | fixed; physical GPU passed | Added a pre-cast real-valued guard and three-backend regression coverage, so `predict_risk_score()` cannot silently discard an imaginary component. |
+| Backend exp and summary inverse-HR edges were not fully covered by theoretical range checks | fixed; physical GPU passed | The shared boundary now validates the actual exp result as finite and positive, promotes inputs to float64, and applies the same strict rule to inverse hazard ratios and confidence intervals. |
+| Ordinary survival prediction discarded its centered log-baseline state | fixed; physical GPU passed | Preserved ordinary baseline reference/centered-log fields without changing the historical `_baseline_by_stratum is None` contract; extreme finite log-risk no longer re-enters direct `exp(Xβ)`. |
 
 ## Selected designs and tradeoffs
 
@@ -78,9 +78,10 @@ remaining CRITICAL, HIGH, or active MEDIUM issue in this delta.
   Ruff is not installed in the local Windows environment; the hosted static
   workflow now includes `_numeric.py` and the new regression file.
 - Starting source head: `cb1b60c383021b5fec7dd067d21fa2245d96ebca`.
-  Schema-6 source hashes will be frozen only by the eventual evidence commit.
+- Frozen schema-6 source commit:
+  `e26c21e2d1ed373fb0fd2d40169c99a31abdc82d`.
 
-## Pending exact-source physical evidence
+## Exact-source physical evidence (schema 6)
 
 Schema 6 directly instruments `statgpu.losses._cox_ph._to_numpy`, adds an
 ordinary unstratified CuPy/Torch CV case, checks one preprocessing pass per fold
@@ -90,7 +91,38 @@ CPU fitting from device-resident input provenance, and checks strict canonical
 plus penalized hazard-ratio overflow, stable ordinary survival, and raw
 log-risk preservation. Its source
 hash manifest includes the production modules, workflow, runner, and affected
-tests. No schema-6 JSON is claimed yet.
+tests.
+
+- Exact clean source commit:
+  `e26c21e2d1ed373fb0fd2d40169c99a31abdc82d`.
+- Paramiko remote worktree:
+  `/root/statgpu-pr80-e26c21e-20260729T0129Z`.
+- Environment: Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch
+  2.0.0+cu117, Tesla P100-SXM2-16GB.
+- Command: `/root/miniconda3/envs/myconda/bin/python
+  dev/benchmarks/benchmark_cox_boundary_gpu.py --output
+  results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema6.json
+  --run-targeted-tests`.
+- Targeted physical matrix: **270 passed**, 5 expected convergence warnings,
+  0 failed in 16.28 seconds. All 16 CuPy/Torch case gates passed and
+  `gate_failures=[]`.
+- Independent local verification matched all 29 recorded source SHA-256 values
+  to the exact commit's Git blobs and confirmed `source_clean=true`.
+- Artifact:
+  `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema6.json`;
+  SHA-256
+  `2d07b7b2db98b709a4ed27c7690ef2a7c7d6d5397fdfaee43c57be5fc6d17cdf`.
+- For both GPU backends, ordinary CV records two fold preparations rather than
+  one rebuild per candidate/stage, exact target-vector copy shapes, and
+  truthful full-transfer provenance. The public boundary rejects complex
+  prediction input, clears failed-refit state, and preserves extreme survival
+  in the log domain. Canonical and penalized hazard-ratio APIs both reject
+  log-risk `-800` and `800`, while raw log-risk remains available.
+- The wide `n=4096`, `p=128`, 8 MiB workspace case proves the refreshed route:
+  the old 1,056,768-byte estimate would select dense, the corrected
+  9,445,376-byte estimate selects streaming, and streaming was observed with
+  maximum objective/derivative differences below `5.4e-15`. The forced 4 KiB
+  single-group `n=8192`, `p=3` case also passed on both backends.
 
 ## Prior schema-5 closure delta
 
@@ -411,6 +443,7 @@ completed successfully for evidence commit `89e4307c4015`. The required
   hosted run `30369118924` passed all seven required jobs.
 - For the prior schema-5 post-closure delta, the exact-source P100 JSON,
   evidence commit, push, and all seven hosted-CI jobs pass. The schema-6 delta
-  described at the top of this report remains physical-GPU/commit/push pending.
+  described at the top of this report now also has exact-source CuPy/Torch P100
+  evidence; only its evidence commit, push, and resulting hosted CI remain.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
