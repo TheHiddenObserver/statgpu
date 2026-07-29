@@ -1,11 +1,31 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-28<br>
+> 最后更新：2026-07-29<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
 ## 2026-07
+
+### 修复（2026-07-29）— PR #80 最终后续审查
+
+- 普通 GPU Breslow/Efron 拟合现在会如实报告完整排序 time/event 的
+  device-to-host 传输。`CoxPHCV` 在一次完整 selector 调用中为每个 fold 只构造
+  一次排序设计、失败组、event index 与 Efron fraction，并由全部 staged penalty
+  pass 复用；该复用受显式 workspace 门禁约束，超限时会按 stage 重建，而不会
+  保留无界的多 fold GPU cache。所有情况都不再为每个候选重复传输 target 和构造
+  元数据。delayed-entry、strata 与 subject 拟合也会披露需要保留的
+  完整 side-vector 传输；不含 side array 的路径不再复制虚构的全零 start 向量。
+  未使用的 cluster/评分 unique labels 也不再物化到 host。
+- `CoxPH`、`CoxPHCV` 与 `PenalizedCoxPHModel` 现在共享严格的 hazard-ratio
+  数值契约：若有限 log-risk 的指数超出 float64 可表示的有限正数范围，则抛出
+  `FloatingPointError`，不再返回无穷、零或使用 estimator 特有的隐式截断；原始
+  log-risk 仍可通过 `predict_risk_score()` 获取。普通非分层生存预测会保留拟合时
+  的 centered log-baseline，不再回退到直接计算 `exp(X @ coef)`。
+- CV cache 诊断通过 `selection_cache_hit`、`selection_origin_device`、
+  `requested_fit_device` 以及本次调用的准备/传输计数区分 selection 来源与当前调用。
+  preparation 总数与实际向量复制总数分别记录。规范 Cox 每次公开 fit 只 reset 一次，公开 `CoxFitNumericalError` 同时从
+  `statgpu` 和 `statgpu.survival` 导出。
 
 ### 修复（2026-07-27）— PR #80 后续审查
 

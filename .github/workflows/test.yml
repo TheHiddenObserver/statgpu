@@ -100,6 +100,7 @@ jobs:
             dev/tests/test_pr80_cv_fit_boundary.py \
             dev/tests/test_pr80_complete_review_cycle.py \
             dev/tests/test_pr80_completion_contract_followup.py \
+            dev/tests/test_pr80_target_transfer_overflow_cache.py \
             dev/tests/test_survival_risk_sets.py \
             dev/tests/test_distributions_backend.py \
             dev/tests/test_penalties_and_exports.py \
@@ -209,6 +210,7 @@ jobs:
             statgpu/survival/_cox_fit_adapter.py \
             statgpu/survival/_cox_counting.py \
             statgpu/survival/_cox_cv.py \
+            statgpu/survival/_numeric.py \
             statgpu/survival/_cox_score.py \
             statgpu/survival/_risk_sets.py \
             statgpu/unsupervised/_kmeans.py \

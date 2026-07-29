@@ -22,7 +22,10 @@ from statgpu.backends import (
 from statgpu.backends._utils import _require_real_array
 from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
 from statgpu.survival._cox import CoxPH
-from statgpu.survival._cox_errors import CoxCandidateNumericalError
+from statgpu.survival._cox_counting import (
+    prepare_right_censored_cox_fast_path,
+)
+from statgpu.survival._cox_errors import CoxFitNumericalError
 from statgpu.survival._cox_fit_adapter import (
     _normalize_boolean_control,
     _normalize_mutable_cv_controls,
@@ -985,8 +988,20 @@ def _select_coxph_penalty_cv(
 
     cached_result = _coxcv_cache_get(cache_key_eff)
     if cached_result is not None:
-        # Provenance describes this invocation, not the invocation that first
-        # populated an explicit or automatic result cache.
+        # Separate immutable selection-origin diagnostics from this cache-hit
+        # invocation, which performs host orchestration but no fold preparation.
+        cached_result.setdefault(
+            "selection_origin_device",
+            cached_result.get("effective_device", fit_device),
+        )
+        cached_result["selection_cache_hit"] = True
+        cached_result["requested_fit_device"] = fit_device
+        cached_result["effective_device"] = fit_device
+        cached_result["fold_backend_preparation_count_this_call"] = 0
+        cached_result["fold_state_cache_enabled_this_call"] = False
+        cached_result["candidate_right_censored_preparation_count_this_call"] = 0
+        cached_result["candidate_target_host_transfer_count_this_call"] = 0
+        cached_result["candidate_target_host_vector_transfer_count_this_call"] = 0
         cached_result["input_backends"] = input_backends
         cached_result["cv_full_host_transfer_performed"] = bool(
             cv_full_host_transfer_performed
@@ -1013,6 +1028,127 @@ def _select_coxph_penalty_cv(
     failure_path[:, ~fold_valid] = "fold_has_no_train_or_test_events"
     cv_backend = _cv_backend_for_device(fit_device)
     fold_backend_preparation_count = 0
+    candidate_right_censored_preparation_count = 0
+    candidate_target_host_transfer_count = 0
+    fold_state_cache_limit_bytes = _env_int(
+        "STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES",
+        512 * 1024 * 1024,
+        min_value=0,
+    )
+    fold_state_cache_estimated_bytes = 0
+    base_row_bytes = 8 * (int(X_np.shape[1]) + 2)
+    if entry_np is not None:
+        base_row_bytes += 8
+    if strata_codes_np is not None:
+        base_row_bytes += 8
+    ordinary_right_censored = (
+        entry_np is None
+        and strata_codes_np is None
+        and ties in {"breslow", "efron"}
+    )
+    for fold_idx, (train_idx, test_idx) in enumerate(folds):
+        if not fold_valid[fold_idx]:
+            continue
+        fold_state_cache_estimated_bytes += (
+            int(train_idx.size) + int(test_idx.size)
+        ) * base_row_bytes
+        if ordinary_right_censored:
+            # Persistent loss state additionally retains centered/sorted X,
+            # sorted target copies, order, and failure-group metadata.
+            fold_state_cache_estimated_bytes += int(train_idx.size) * (
+                8 * int(X_np.shape[1]) + 80
+            )
+    # Account conservatively for backend/container overhead. The cache exists
+    # only to bridge multiple staged passes; exhaustive CV needs no retention.
+    fold_state_cache_estimated_bytes *= 2
+    fold_state_cache_enabled = bool(
+        (two_stage_enabled or halving_enabled)
+        and fold_state_cache_limit_bytes > 0
+        and fold_state_cache_estimated_bytes
+        <= fold_state_cache_limit_bytes
+    )
+    fold_state_cache: Dict[int, Dict[str, Any]] = {}
+
+    def _prepare_fold_state(
+        fold_idx: int,
+        train_idx: np.ndarray,
+        test_idx: np.ndarray,
+    ) -> Dict[str, Any]:
+        """Prepare each valid fold once across every staged penalty pass."""
+        nonlocal fold_backend_preparation_count
+        nonlocal candidate_right_censored_preparation_count
+        nonlocal candidate_target_host_transfer_count
+        if fold_state_cache_enabled:
+            cached = fold_state_cache.get(fold_idx)
+            if cached is not None:
+                return cached
+
+        X_train, X_test = X_np[train_idx], X_np[test_idx]
+        time_train, time_test = time_np[train_idx], time_np[test_idx]
+        event_train, event_test = event_np[train_idx], event_np[test_idx]
+        entry_train = None if entry_np is None else entry_np[train_idx]
+        entry_test = None if entry_np is None else entry_np[test_idx]
+        strata_train_codes = (
+            None
+            if strata_codes_np is None
+            else strata_codes_np[train_idx]
+        )
+        strata_test_codes = (
+            None
+            if strata_codes_np is None
+            else strata_codes_np[test_idx]
+        )
+        fold_arrays = _prepare_cox_cv_fold_backend(
+            cv_backend,
+            X_train=X_train,
+            time_train=time_train,
+            event_train=event_train,
+            entry_train=entry_train,
+            strata_train=strata_train_codes,
+            X_test=X_test,
+            time_test=time_test,
+            event_test=event_test,
+            entry_test=entry_test,
+            strata_test=strata_test_codes,
+        )
+        fold_backend_preparation_count += 1
+        strata_fit = (
+            None
+            if fold_arrays["strata_fit"] is None
+            else _PreencodedCoxLabels(
+                fold_arrays["strata_fit"], strata_labels_np
+            )
+        )
+        right_censored_prepared = None
+        if (
+            fold_arrays["entry_fit"] is None
+            and strata_fit is None
+            and ties in {"breslow", "efron"}
+        ):
+            right_censored_prepared = prepare_right_censored_cox_fast_path(
+                fold_arrays["X_fit"],
+                fold_arrays["time_fit"],
+                fold_arrays["event_fit"],
+                ties=ties,
+            )
+            candidate_right_censored_preparation_count += 1
+            candidate_target_host_transfer_count += int(
+                right_censored_prepared.full_target_host_transfer_performed
+            )
+
+        prepared = {
+            **fold_arrays,
+            "X_test_host": X_test,
+            "time_test_host": time_test,
+            "event_test_host": event_test,
+            "entry_test_host": entry_test,
+            "strata_test_codes_host": strata_test_codes,
+            "strata_fit_preencoded": strata_fit,
+            "right_censored_prepared": right_censored_prepared,
+        }
+        if fold_state_cache_enabled:
+            fold_state_cache[fold_idx] = prepared
+        return prepared
 
     def _reset_penalty_indices(penalty_indices: np.ndarray) -> None:
         penalty_indices = np.unique(
@@ -1049,63 +1185,41 @@ def _select_coxph_penalty_cv(
         fit_max_iter: int,
         fit_tol: float,
     ) -> None:
-        nonlocal fold_backend_preparation_count
         if penalty_indices.size == 0:
             return
         penalty_indices = np.unique(np.asarray(penalty_indices, dtype=np.int64))
         for fold_idx, (train_idx, test_idx) in enumerate(folds):
             if not fold_valid[fold_idx]:
                 continue
-            X_train, X_test = X_np[train_idx], X_np[test_idx]
-            time_train, time_test = time_np[train_idx], time_np[test_idx]
-            event_train, event_test = event_np[train_idx], event_np[test_idx]
-            entry_train = None if entry_np is None else entry_np[train_idx]
-            entry_test = None if entry_np is None else entry_np[test_idx]
-            strata_train_codes = (
-                None
-                if strata_codes_np is None
-                else strata_codes_np[train_idx]
+            pending_penalty_indices = penalty_indices[
+                ~attempted_path[penalty_indices, fold_idx]
+            ]
+            if pending_penalty_indices.size == 0:
+                continue
+            fold_arrays = _prepare_fold_state(
+                fold_idx, train_idx, test_idx
             )
-            strata_test_codes = (
-                None
-                if strata_codes_np is None
-                else strata_codes_np[test_idx]
-            )
-            fold_arrays = _prepare_cox_cv_fold_backend(
-                cv_backend,
-                X_train=X_train,
-                time_train=time_train,
-                event_train=event_train,
-                entry_train=entry_train,
-                strata_train=strata_train_codes,
-                X_test=X_test,
-                time_test=time_test,
-                event_test=event_test,
-                entry_test=entry_test,
-                strata_test=strata_test_codes,
-            )
-            fold_backend_preparation_count += 1
             X_fit = fold_arrays["X_fit"]
             time_fit = fold_arrays["time_fit"]
             event_fit = fold_arrays["event_fit"]
             entry_fit = fold_arrays["entry_fit"]
-            strata_fit = (
-                None
-                if fold_arrays["strata_fit"] is None
-                else _PreencodedCoxLabels(
-                    fold_arrays["strata_fit"], strata_labels_np
-                )
-            )
+            strata_fit = fold_arrays["strata_fit_preencoded"]
             X_score = fold_arrays["X_score"]
             time_score = fold_arrays["time_score"]
             event_score = fold_arrays["event_score"]
             entry_score = fold_arrays["entry_score"]
             strata_score = fold_arrays["strata_score"]
+            right_censored_prepared = fold_arrays[
+                "right_censored_prepared"
+            ]
+            X_test = fold_arrays["X_test_host"]
+            time_test = fold_arrays["time_test_host"]
+            event_test = fold_arrays["event_test_host"]
+            entry_test = fold_arrays["entry_test_host"]
+            strata_test_codes = fold_arrays["strata_test_codes_host"]
 
             prev_coef = None
-            for penalty_idx in penalty_indices:
-                if attempted_path[penalty_idx, fold_idx]:
-                    continue
+            for penalty_idx in pending_penalty_indices:
                 penalty = penalties[penalty_idx]
                 model = CoxPH(
                     ties=ties,
@@ -1118,6 +1232,13 @@ def _select_coxph_penalty_cv(
                 )
                 attempted_path[penalty_idx, fold_idx] = True
                 try:
+                    prepared_kwargs = (
+                        {}
+                        if right_censored_prepared is None
+                        else {
+                            "_right_censored_prepared": right_censored_prepared
+                        }
+                    )
                     model.fit(
                         X_fit,
                         time_fit,
@@ -1131,8 +1252,9 @@ def _select_coxph_penalty_cv(
                         start=entry_fit if start_supplied else None,
                         strata=strata_fit,
                         subject_id=None,
+                        **prepared_kwargs,
                     )
-                except CoxCandidateNumericalError as exc:
+                except CoxFitNumericalError as exc:
                     failure_path[penalty_idx, fold_idx] = (
                         f"{type(exc).__name__}: {exc}"
                     )
@@ -1341,13 +1463,48 @@ def _select_coxph_penalty_cv(
         "input_backends": input_backends,
         "cv_full_host_transfer_performed": bool(
             cv_full_host_transfer_performed
+            or candidate_target_host_transfer_count > 0
         ),
         "full_host_transfer_performed": bool(
             cv_full_host_transfer_performed
+            or candidate_target_host_transfer_count > 0
         ),
         "fold_backend_preparation_count": int(
             fold_backend_preparation_count
         ),
+        "fold_backend_preparation_count_this_call": int(
+            fold_backend_preparation_count
+        ),
+        "fold_state_cache_enabled": fold_state_cache_enabled,
+        "fold_state_cache_enabled_this_call": fold_state_cache_enabled,
+        "fold_state_cache_estimated_bytes": int(
+            fold_state_cache_estimated_bytes
+        ),
+        "fold_state_cache_limit_bytes": int(
+            fold_state_cache_limit_bytes
+        ),
+        "candidate_right_censored_preparation_count": int(
+            candidate_right_censored_preparation_count
+        ),
+        "candidate_right_censored_preparation_count_this_call": int(
+            candidate_right_censored_preparation_count
+        ),
+        "candidate_target_host_transfer_count": int(
+            candidate_target_host_transfer_count
+        ),
+        "candidate_target_host_transfer_count_this_call": int(
+            candidate_target_host_transfer_count
+        ),
+        "candidate_target_host_vector_transfer_count": int(
+            2 * candidate_target_host_transfer_count
+        ),
+        "candidate_target_host_vector_transfer_count_this_call": int(
+            2 * candidate_target_host_transfer_count
+        ),
+        "selection_cache_hit": False,
+        "selection_origin_device": fit_device,
+        "requested_fit_device": fit_device,
+        "candidate_preparation_origin_device": fit_device,
         "candidate_cluster_used": False,
         "candidate_subject_id_used": False,
         "candidate_strata_preencoded": strata_codes_np is not None,
@@ -1428,7 +1585,9 @@ class CoxPHCV(CVEstimatorBase):
     estimator_ : CoxPH
         The fitted CoxPH with selected penalty.
     effective_device_ : str
-        Backend used for both CV candidate fits and the final refit.
+        Backend requested for this invocation and used for the final refit.
+        On a cache miss it is also the candidate-fit backend; cache-origin
+        devices remain available in ``cv_results_``.
 
     Examples
     --------

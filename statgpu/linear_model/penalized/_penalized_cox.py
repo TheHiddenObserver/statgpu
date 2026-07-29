@@ -15,6 +15,7 @@ from statgpu.backends._utils import (
     _to_float_scalar,
     _to_numpy,
 )
+from statgpu.survival._numeric import _safe_exp_linear_predictor
 
 from ._base import PenalizedGeneralizedLinearModel
 
@@ -576,6 +577,51 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         finally:
             self._cleanup_selected_backend_memory()
 
+    def predict_risk_score(self, X, return_cpu=True):
+        """Predict unexponentiated log-risk on the selected backend."""
+        try:
+            return self._predict_risk_score_impl(X, return_cpu=return_cpu)
+        finally:
+            self._cleanup_selected_backend_memory()
+
+    def _predict_risk_score_impl(self, X, return_cpu=True):
+        """Return ``X @ coef`` without hazard-ratio range restrictions."""
+        if self.coef_ is None:
+            raise RuntimeError("Model has not been fitted yet.")
+
+        if _is_complex_array(X):
+            raise ValueError("X must be real-valued")
+        X = self._prepare_predict_X(X)
+        backend_name = self._prediction_backend_name()
+        if backend_name == "cupy":
+            import cupy as cp
+
+            Xb = cp.asarray(
+                self._to_array(X, Device.CUDA), dtype=cp.float64
+            )
+            if bool(cp.any(~cp.isfinite(Xb)).item()):
+                raise ValueError("X must contain only finite values")
+            result = Xb @ cp.asarray(self.coef_, dtype=cp.float64)
+            return _to_numpy(result) if return_cpu else result
+        if backend_name == "torch":
+            import torch
+
+            Xb = self._to_array(X, Device.TORCH, backend="torch").to(
+                torch.float64
+            )
+            if bool(torch.any(~torch.isfinite(Xb)).item()):
+                raise ValueError("X must contain only finite values")
+            coef = torch.as_tensor(
+                self.coef_, dtype=Xb.dtype, device=Xb.device
+            )
+            result = Xb @ coef
+            return _to_numpy(result) if return_cpu else result
+
+        X = np.asarray(X, dtype=np.float64)
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X must contain only finite values")
+        return X @ self.coef_
+
     def _predict_hazard_ratio_impl(self, X, return_cpu=True):
         """Predict hazard ratio: exp(X @ coef). Excludes intercept.
 
@@ -589,37 +635,9 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         hr : ndarray of shape (n_samples,)
             exp(X @ coef), the hazard ratio (without baseline hazard).
         """
-        if self.coef_ is None:
-            raise RuntimeError("Model has not been fitted yet.")
-
-        X = self._prepare_predict_X(X)
-        backend_name = self._prediction_backend_name()
-
-        if backend_name == "cupy":
-            import cupy as cp
-            Xb = cp.asarray(self._to_array(X, Device.CUDA))
-            if bool(cp.any(~cp.isfinite(Xb)).item()):
-                raise ValueError("X must contain only finite values")
-            coef = cp.asarray(self.coef_)
-            raw = Xb @ coef
-            result = cp.exp(cp.clip(raw, -500.0, 500.0))
-            return _to_numpy(result) if return_cpu else result
-
-        if backend_name == "torch":
-            import torch
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
-            if bool(torch.any(~torch.isfinite(Xb)).item()):
-                raise ValueError("X must contain only finite values")
-            coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
-            raw = Xb @ coef
-            result = torch.exp(torch.clamp(raw, -500.0, 500.0))
-            return _to_numpy(result) if return_cpu else result
-
-        X = np.asarray(X, dtype=np.float64)
-        if not np.all(np.isfinite(X)):
-            raise ValueError("X must contain only finite values")
-        raw = X @ self.coef_
-        return np.exp(np.clip(raw, -500.0, 500.0))
+        raw = self._predict_risk_score_impl(X, return_cpu=False)
+        result = _safe_exp_linear_predictor(raw)
+        return _to_numpy(result) if return_cpu else result
 
     def score(self, X, y, sample_weight=None):
         """Return Harrell concordance and release unused backend cache blocks."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 import numbers
 import numpy as np
@@ -37,6 +38,69 @@ _SINGULAR_ERROR_MARKERS = (
     "rank-deficient",
     "ill-conditioned",
 )
+
+
+@dataclass(frozen=True)
+class _PreparedRightCensoredCox:
+    """Reusable sorted loss state for one ordinary right-censored dataset."""
+
+    loss: Any
+    X_sorted: Any
+    source_X: Any
+    source_stop: Any
+    source_event: Any
+    ties: str
+    backend: str
+    device: str
+    n_samples: int
+    n_features: int
+    full_target_host_transfer_performed: bool
+
+    def matches_sources(self, X: Any, stop: Any, event: Any, ties: str) -> bool:
+        """Require identity matches so private CV state cannot fit other data."""
+        return bool(
+            X is self.source_X
+            and stop is self.source_stop
+            and event is self.source_event
+            and str(ties).lower() == self.ties
+        )
+
+
+def prepare_right_censored_cox_fast_path(
+    X: Any,
+    stop: Any,
+    event: Any,
+    *,
+    ties: str,
+) -> _PreparedRightCensoredCox:
+    """Build once-per-dataset right-censored sorting/grouping metadata."""
+    ties = str(ties).lower()
+    if ties not in {"breslow", "efron"}:
+        raise ValueError("right-censored preparation supports Breslow/Efron ties")
+    backend, _ = _array_namespace(X)
+    from statgpu.losses import CoxPartialLikelihoodLoss
+
+    loss = CoxPartialLikelihoodLoss(ties=ties)
+    X_sorted, _ = loss.preprocess(X, {"time": stop, "event": event})
+    device = str(getattr(X_sorted, "device", "cpu"))
+    target_was_device_resident = backend == "cupy" or (
+        backend == "torch"
+        and str(getattr(getattr(X_sorted, "device", None), "type", "cpu"))
+        != "cpu"
+    )
+    return _PreparedRightCensoredCox(
+        loss=loss,
+        X_sorted=X_sorted,
+        source_X=X,
+        source_stop=stop,
+        source_event=event,
+        ties=ties,
+        backend=backend,
+        device=device,
+        n_samples=int(X_sorted.shape[0]),
+        n_features=int(X_sorted.shape[1]),
+        full_target_host_transfer_performed=target_was_device_resident,
+    )
 
 
 def _is_singular_linalg_error(exc: BaseException) -> bool:
@@ -93,6 +157,8 @@ def fit_counting_process_cox(
     compute_baseline: bool = True,
     compute_score_residuals: bool = True,
     right_censored_fast_path: bool = False,
+    right_censored_prepared: Optional[_PreparedRightCensoredCox] = None,
+    _inputs_prepared: bool = False,
 ) -> Dict[str, Any]:
     """Fit a Cox model using a backend-native damped Newton method.
 
@@ -100,9 +166,10 @@ def fit_counting_process_cox(
     Every rejected Newton step is handled by backtracking; an iteration never
     silently accepts a step that decreases the penalized objective.
     """
-    X, stop, event, start, strata = prepare_counting_process_inputs(
-        X, stop, event, start=start, strata=strata
-    )
+    if not _inputs_prepared:
+        X, stop, event, start, strata = prepare_counting_process_inputs(
+            X, stop, event, start=start, strata=strata
+        )
     backend, xp = _array_namespace(X)
     n_features = int(X.shape[1])
     if init_coef is None:
@@ -139,11 +206,27 @@ def fit_counting_process_cox(
             raise ValueError(
                 "right_censored_fast_path does not compute score residuals"
             )
-        from statgpu.losses import CoxPartialLikelihoodLoss
-
-        fast_loss = CoxPartialLikelihoodLoss(ties=ties)
-        fast_X, _ = fast_loss.preprocess(
-            X, {"time": stop, "event": event}
+        if right_censored_prepared is None:
+            right_censored_prepared = prepare_right_censored_cox_fast_path(
+                X, stop, event, ties=ties
+            )
+        if (
+            right_censored_prepared.ties != ties
+            or right_censored_prepared.backend != backend
+            or right_censored_prepared.device
+            != str(getattr(X, "device", "cpu"))
+            or right_censored_prepared.n_samples != int(X.shape[0])
+            or right_censored_prepared.n_features != n_features
+        ):
+            raise ValueError(
+                "prepared right-censored metadata does not match fit backend, "
+                "device, ties, or dataset shape"
+            )
+        fast_loss = right_censored_prepared.loss
+        fast_X = right_censored_prepared.X_sorted
+    elif right_censored_prepared is not None:
+        raise ValueError(
+            "prepared right-censored metadata requires right_censored_fast_path"
         )
 
     def evaluate(coef):
@@ -284,4 +367,16 @@ def fit_counting_process_cox(
         "converged": converged,
         "stop_reason": stop_reason,
         "objective_history": objective_history,
+        "full_target_host_transfer_performed": bool(
+            right_censored_prepared is not None
+            and right_censored_prepared.full_target_host_transfer_performed
+        ),
     }
+
+
+__all__ = [
+    "_PreparedRightCensoredCox",
+    "_score_test_statistic",
+    "fit_counting_process_cox",
+    "prepare_right_censored_cox_fast_path",
+]

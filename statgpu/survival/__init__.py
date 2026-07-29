@@ -10,6 +10,6 @@ Survival analysis models.
 
 from ._cox import CoxPH
 from ._cox_cv import CoxPHCV
-from ._cox_errors import CoxCandidateNumericalError
+from ._cox_errors import CoxFitNumericalError
 
-__all__ = ['CoxPH', 'CoxPHCV', 'CoxCandidateNumericalError']
+__all__ = ['CoxPH', 'CoxPHCV', 'CoxFitNumericalError']

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from statgpu.inference import ParameterInferenceResult
-from statgpu.survival import CoxCandidateNumericalError, CoxPH, CoxPHCV
+from statgpu.survival import CoxFitNumericalError, CoxPH, CoxPHCV
 from statgpu.survival import _cox as cox_module
 from statgpu.survival import _cox_score as cox_score_module
 from statgpu.survival._cox_fit_adapter import _PreencodedCoxLabels
@@ -430,7 +430,7 @@ def test_public_fit_uses_candidate_numerical_error_for_nonfinite_result(
     X = np.ones((3, 1), dtype=np.float64)
     stop = np.arange(1.0, 4.0)
     event = np.array([1.0, 0.0, 1.0])
-    with pytest.raises(CoxCandidateNumericalError, match="non-finite"):
+    with pytest.raises(CoxFitNumericalError, match="non-finite"):
         model.fit(X, stop, event)
     assert model.coef_ is None
     assert model._fitted is False

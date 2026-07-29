@@ -126,10 +126,10 @@ def score(
             strata_codes = backend.asarray(codes, dtype=backend.int64)
         else:
             strata_codes, _ = self._encode_group_labels(
-                strata, n_samples, "strata"
+                strata, n_samples, "strata", return_labels=False
             )
         subject_codes, _ = self._encode_group_labels(
-            subject_id, n_samples, "subject_id"
+            subject_id, n_samples, "subject_id", return_labels=False
         )
         start_arr = (
             None

@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from statgpu._config import Device  # noqa: E402
 from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
+from statgpu.losses import _cox_ph as cox_loss  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
 from statgpu.survival import _cox_score as cox_score  # noqa: E402
 from statgpu.survival import _risk_sets as risk_sets  # noqa: E402
@@ -39,20 +40,25 @@ from statgpu.survival._risk_sets import (  # noqa: E402
 
 SOURCE_FILES = (
     ".github/workflows/test.yml",
+    "statgpu/__init__.py",
     "statgpu/backends/_array_ops.py",
     "statgpu/backends/_utils.py",
     "statgpu/linear_model/penalized/_penalized_cox.py",
+    "statgpu/losses/_cox_ph.py",
     "statgpu/survival/__init__.py",
     "statgpu/survival/_cox.py",
+    "statgpu/survival/_cox_counting.py",
     "statgpu/survival/_cox_cv.py",
     "statgpu/survival/_cox_errors.py",
     "statgpu/survival/_cox_fit_adapter.py",
     "statgpu/survival/_cox_inference.py",
     "statgpu/survival/_cox_legacy.py",
+    "statgpu/survival/_numeric.py",
     "statgpu/survival/_concordance.py",
     "statgpu/survival/_cox_score.py",
     "statgpu/survival/_risk_sets.py",
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
+    "dev/tests/test_pr79_complete_review_fixes.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
     "dev/tests/test_pr80_completion_contract_followup.py",
     "dev/tests/test_pr80_constructor_boundaries.py",
@@ -61,9 +67,11 @@ SOURCE_FILES = (
     "dev/tests/test_pr80_cv_fit_boundary.py",
     "dev/tests/test_pr80_cox_stability_review.py",
     "dev/tests/test_cox_cv.py",
+    "dev/tests/test_pr80_target_transfer_overflow_cache.py",
 )
 
 TARGETED_TEST_FILES = (
+    "dev/tests/test_pr79_complete_review_fixes.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
     "dev/tests/test_pr80_completion_contract_followup.py",
     "dev/tests/test_pr80_constructor_boundaries.py",
@@ -72,6 +80,7 @@ TARGETED_TEST_FILES = (
     "dev/tests/test_pr80_cv_fit_boundary.py",
     "dev/tests/test_pr80_cox_stability_review.py",
     "dev/tests/test_cox_cv.py",
+    "dev/tests/test_pr80_target_transfer_overflow_cache.py",
 )
 
 
@@ -164,14 +173,21 @@ def _case_boundary(name: str, xp) -> dict:
     )
     model.set_params(device=device)
 
-    def reject_public_host_copy(*_args, **_kwargs):
-        raise AssertionError("packed target crossed the public host boundary")
+    target_host_copies = []
+    original_loss_to_numpy = cox_loss._to_numpy
 
-    model._to_numpy = reject_public_host_copy
-    started = time.perf_counter()
-    model.fit(X, target)
-    _sync(name, xp)
-    fit_seconds = time.perf_counter() - started
+    def recording_loss_to_numpy(value):
+        target_host_copies.append(tuple(int(v) for v in value.shape))
+        return original_loss_to_numpy(value)
+
+    cox_loss._to_numpy = recording_loss_to_numpy
+    try:
+        started = time.perf_counter()
+        model.fit(X, target)
+        _sync(name, xp)
+        fit_seconds = time.perf_counter() - started
+    finally:
+        cox_loss._to_numpy = original_loss_to_numpy
 
     complex_X = _array(
         name,
@@ -186,8 +202,31 @@ def _case_boundary(name: str, xp) -> dict:
         complex_rejected = "real-valued" in str(exc)
 
     device_normalized = model.device is expected
-    packed_target_stayed_native = model._entry is None
+    target_transfer_disclosed = (
+        target_host_copies == [(X_np.shape[0],), (X_np.shape[0],)]
+        and model.full_host_transfer_performed_ is True
+    )
+    cpu_from_device = CoxPH(
+        device="cpu",
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=80,
+    ).fit(X, target)
+    cpu_input_transfer_disclosed = (
+        cpu_from_device.full_host_transfer_performed_ is True
+    )
     finite = bool(np.all(np.isfinite(model.coef_)))
+    model.coef_ = np.array([800.0, 0.0])
+    extreme_X = _array(
+        name, xp, np.array([[1.0, 0.0], [2.0, 0.0]])
+    )
+    extreme_survival, _ = model.predict_survival(extreme_X)
+    extreme_survival_np = _numpy(name, extreme_survival)
+    extreme_survival_stable = bool(
+        np.all(np.isfinite(extreme_survival_np))
+        and np.all(extreme_survival_np >= 0.0)
+        and np.all(extreme_survival_np <= 1.0)
+    )
 
     failed_refit_cleared = False
     try:
@@ -204,7 +243,10 @@ def _case_boundary(name: str, xp) -> dict:
     return {
         "backend": name,
         "fit_seconds": fit_seconds,
-        "packed_target_stayed_native": packed_target_stayed_native,
+        "loss_target_host_copy_shapes": target_host_copies,
+        "target_transfer_disclosed": target_transfer_disclosed,
+        "cpu_input_transfer_disclosed": cpu_input_transfer_disclosed,
+        "extreme_survival_log_domain": extreme_survival_stable,
         "complex_prediction_rejected": complex_rejected,
         "device_normalized": device_normalized,
         "failed_refit_cleared": failed_refit_cleared,
@@ -212,7 +254,9 @@ def _case_boundary(name: str, xp) -> dict:
         "finite": finite,
         "passed": all(
             (
-                packed_target_stayed_native,
+                target_transfer_disclosed,
+                cpu_input_transfer_disclosed,
+                extreme_survival_stable,
                 complex_rejected,
                 device_normalized,
                 failed_refit_cleared,
@@ -220,6 +264,171 @@ def _case_boundary(name: str, xp) -> dict:
                 finite,
             )
         ),
+    }
+
+
+def _case_ordinary_cv_preparation(name: str, xp) -> dict:
+    """Audit ordinary GPU CV target transfers and fold-level loss reuse."""
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=2481, n=36, p=2)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    copy_shapes = []
+    original_loss_to_numpy = cox_loss._to_numpy
+
+    def recording_loss_to_numpy(value):
+        copy_shapes.append(tuple(int(v) for v in value.shape))
+        return original_loss_to_numpy(value)
+
+    cox_loss._to_numpy = recording_loss_to_numpy
+    try:
+        model = CoxPHCV(
+            penalties=np.array([0.1, 0.01]),
+            cv=2,
+            ties="efron",
+            device=device,
+            compute_inference=False,
+            max_iter=60,
+            tol=1e-7,
+            random_state=2481,
+        ).fit(X, stop, event)
+        _sync(name, xp)
+    finally:
+        cox_loss._to_numpy = original_loss_to_numpy
+
+    fold_n = X_np.shape[0] // 2
+    expected_shapes = [(fold_n,), (fold_n,)] * 2 + [
+        (X_np.shape[0],),
+        (X_np.shape[0],),
+    ]
+    diagnostics = model.cv_results_
+    passed = all(
+        (
+            copy_shapes == expected_shapes,
+            diagnostics["candidate_right_censored_preparation_count"] == 2,
+            diagnostics["candidate_target_host_transfer_count"] == 2,
+            diagnostics["candidate_target_host_transfer_count_this_call"] == 2,
+            diagnostics["candidate_target_host_vector_transfer_count"] == 4,
+            diagnostics["selection_cache_hit"] is False,
+            diagnostics["fold_backend_preparation_count_this_call"] == 2,
+            model.cv_full_host_transfer_performed_ is True,
+            model.final_refit_full_host_transfer_performed_ is True,
+            model.full_host_transfer_performed_ is True,
+        )
+    )
+    return {
+        "backend": name,
+        "ties": "efron",
+        "loss_target_host_copy_shapes": copy_shapes,
+        "expected_loss_target_host_copy_shapes": expected_shapes,
+        "candidate_right_censored_preparation_count": diagnostics[
+            "candidate_right_censored_preparation_count"
+        ],
+        "candidate_target_host_transfer_count": diagnostics[
+            "candidate_target_host_transfer_count"
+        ],
+        "candidate_target_host_vector_transfer_count": diagnostics[
+            "candidate_target_host_vector_transfer_count"
+        ],
+        "selection_cache_hit": diagnostics["selection_cache_hit"],
+        "fold_backend_preparation_count_this_call": diagnostics[
+            "fold_backend_preparation_count_this_call"
+        ],
+        "cv_full_host_transfer_performed": (
+            model.cv_full_host_transfer_performed_
+        ),
+        "final_refit_full_host_transfer_performed": (
+            model.final_refit_full_host_transfer_performed_
+        ),
+        "full_host_transfer_performed": model.full_host_transfer_performed_,
+        "passed": bool(passed),
+    }
+
+
+def _case_hazard_ratio_boundary(name: str, xp) -> dict:
+    """Verify strict overflow behavior on both GPU public Cox estimators."""
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=2482, n=36, p=1)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    X_one = _array(name, xp, np.ones((2, 1)))
+
+    canonical = CoxPH(
+        device=device,
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=60,
+    ).fit(X, stop, event)
+    canonical_rejections = {}
+    for value in (800.0, -800.0):
+        canonical.coef_ = np.array([value])
+        try:
+            canonical.predict_hazard_ratio(X_one)
+        except FloatingPointError as exc:
+            canonical_rejections[str(value)] = (
+                "finite positive float64" in str(exc)
+            )
+        else:
+            canonical_rejections[str(value)] = False
+    canonical.coef_ = np.array([800.0])
+    log_risk = _numpy(name, canonical.predict_risk_score(X_one))
+
+    penalized = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.1,
+        device=device,
+        compute_inference=False,
+        max_iter=60,
+    ).fit(X, _array(name, xp, np.column_stack((stop_np, event_np))))
+    penalized_rejections = {}
+    for value in (800.0, -800.0):
+        penalized.coef_ = np.array([value])
+        try:
+            penalized.predict_hazard_ratio(X_one, return_cpu=False)
+        except FloatingPointError as exc:
+            penalized_rejections[str(value)] = (
+                "finite positive float64" in str(exc)
+            )
+        else:
+            penalized_rejections[str(value)] = False
+    penalized.coef_ = np.array([800.0])
+    penalized_log_risk = _numpy(
+        name,
+        penalized.predict_risk_score(X_one, return_cpu=False),
+    )
+    penalized_complex_rejected = False
+    try:
+        penalized.predict_risk_score(
+            _array(
+                name,
+                xp,
+                np.ones((2, 1), dtype=np.complex128) + 1j,
+                complex_value=True,
+            ),
+            return_cpu=False,
+        )
+    except ValueError as exc:
+        penalized_complex_rejected = "real-valued" in str(exc)
+
+    passed = bool(
+        all(canonical_rejections.values())
+        and all(penalized_rejections.values())
+        and penalized_complex_rejected
+        and np.array_equal(np.asarray(log_risk), np.array([800.0, 800.0]))
+        and np.array_equal(
+            np.asarray(penalized_log_risk), np.array([800.0, 800.0])
+        )
+    )
+    return {
+        "backend": name,
+        "canonical_range_rejections": canonical_rejections,
+        "penalized_range_rejections": penalized_rejections,
+        "penalized_complex_log_risk_rejected": penalized_complex_rejected,
+        "canonical_log_risk": np.asarray(log_risk).tolist(),
+        "penalized_log_risk": np.asarray(penalized_log_risk).tolist(),
+        "passed": passed,
     }
 
 
@@ -308,7 +517,7 @@ def _case_cv(name: str, xp) -> dict:
     }
     transfer_provenance = (
         model.cv_full_host_transfer_performed_ is True
-        and model.final_refit_full_host_transfer_performed_ is False
+        and model.final_refit_full_host_transfer_performed_ is True
         and model.full_host_transfer_performed_ is True
         and model.orchestration_device_ == "cpu"
         and model.cv_results_["input_backends"] == (
@@ -820,7 +1029,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 5,
+        "schema_version": 6,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -848,6 +1057,10 @@ def main() -> int:
             cases = {
                 "public_boundary": _case_boundary(name, xp),
                 "cv_device_normalization": _case_cv(name, xp),
+                "ordinary_cv_preparation": _case_ordinary_cv_preparation(
+                    name, xp
+                ),
+                "hazard_ratio_boundary": _case_hazard_ratio_boundary(name, xp),
                 "single_group_workspace": _case_workspace(name, xp),
                 "wide_workspace_route": _case_wide_workspace_route(name, xp),
                 "concordance_boundaries": _case_concordance_boundaries(name, xp),

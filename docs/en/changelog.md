@@ -1,11 +1,40 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-28<br>
+> Last updated: 2026-07-29<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-07
+
+### Fixed (2026-07-29) — PR #80 final follow-up
+
+- Ordinary GPU Breslow/Efron fits now report their complete sorted time/event
+  device-to-host transfer. `CoxPHCV` prepares the corresponding sorted design,
+  failure groups, event indices, and Efron fractions once per fold for the
+  complete selector invocation and reuses that immutable loss state across all
+  staged penalty passes when the bounded fold cache fits its workspace gate.
+  Larger staged workloads repeat preparation rather than retaining an
+  unbounded multi-fold GPU cache. This replaces
+  repeating target transfers and metadata construction for every candidate.
+  Delayed-entry, strata, and subject fits likewise disclose complete retained
+  side-vector transfers, while side-array-free paths avoid copying a synthetic
+  all-zero start vector. Unused unique cluster/scoring labels now remain on the
+  selected backend instead of being materialized on the host.
+- Hazard-ratio outputs now share one strict numerical contract across `CoxPH`,
+  `CoxPHCV`, and `PenalizedCoxPHModel`: finite log-risk outside the finite,
+  positive float64 exponential range raises `FloatingPointError` rather than
+  returning infinity, zero, or an estimator-specific clipped value. Raw
+  log-risk remains available through `predict_risk_score()`. Ordinary
+  unstratified survival prediction now retains the fitted centered log-baseline
+  state instead of falling back to a direct `exp(X @ coef)` product.
+- CV cache diagnostics now distinguish the immutable selection origin from the
+  current invocation through `selection_cache_hit`,
+  `selection_origin_device`, `requested_fit_device`, and per-call preparation
+  and transfer counts, including separate preparation and physical vector-copy
+  totals. Canonical fitted state uses one reset per public fit,
+  and the public `CoxFitNumericalError` is exported from both `statgpu` and
+  `statgpu.survival`.
 
 ### Fixed (2026-07-27) — PR #80 follow-up review
 

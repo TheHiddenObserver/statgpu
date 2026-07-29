@@ -16,7 +16,7 @@ from statgpu.survival._cox_cv import (
     _prepare_cox_cv_fold_backend,
     _select_coxph_penalty_cv,
 )
-from statgpu.survival._cox_errors import CoxCandidateNumericalError
+from statgpu.survival._cox_errors import CoxFitNumericalError
 from statgpu.survival._cox_fit_adapter import _PreencodedCoxLabels
 
 
@@ -281,7 +281,7 @@ def test_coxphcv_excludes_only_candidate_numerical_errors(monkeypatch):
 
         def fit(self, X, *args, **kwargs):
             if np.isclose(self.penalty, 1.0):
-                raise CoxCandidateNumericalError("non-finite candidate")
+                raise CoxFitNumericalError("non-finite candidate")
             self.coef_ = np.zeros(X.shape[1], dtype=np.float64)
             return self
 
@@ -302,7 +302,7 @@ def test_coxphcv_excludes_only_candidate_numerical_errors(monkeypatch):
     assert best == pytest.approx(0.1)
     assert np.array_equal(details["candidate_complete"], [False, True])
     assert all(
-        str(reason).startswith("CoxCandidateNumericalError:")
+        str(reason).startswith("CoxFitNumericalError:")
         for reason in details["failure_path"][0]
     )
 
@@ -572,7 +572,7 @@ def test_coxphcv_counting_process_gpu_passthrough(device):
     assert model.cv_results_["input_backends"] == (expected_input_backend,)
     assert model.cv_results_["cv_full_host_transfer_performed"] is True
     assert model.cv_full_host_transfer_performed_ is True
-    assert model.final_refit_full_host_transfer_performed_ is False
+    assert model.final_refit_full_host_transfer_performed_ is True
     assert model.full_host_transfer_performed_ is True
     assert model.orchestration_device_ == "cpu"
     assert np.all(np.isfinite(model.coef_))

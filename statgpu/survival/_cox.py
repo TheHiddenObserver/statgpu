@@ -12,7 +12,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_float_scalar
+from statgpu.backends import _is_cupy_array, _is_torch_array, _to_float_scalar
 from statgpu.backends._utils import _require_real_array
 from statgpu.inference._distributions_backend import chi2, norm
 from statgpu.inference._results import ParameterInferenceResult
@@ -22,13 +22,14 @@ from statgpu.survival._cox_fit_adapter import (
     _normalize_mutable_fit_controls,
     _PreencodedCoxLabels,
 )
-from statgpu.survival._cox_errors import CoxCandidateNumericalError
+from statgpu.survival._cox_errors import CoxFitNumericalError
 from statgpu.survival._cox_counting import _score_test_statistic
 from statgpu.survival._cox_inference import (
     _invert_information_cupy,
     _invert_information_numpy,
     _invert_information_torch,
 )
+from statgpu.survival._numeric import _safe_exp_linear_predictor
 
 
 def _cleanup_after_public_gpu_work(method):
@@ -42,6 +43,18 @@ def _cleanup_after_public_gpu_work(method):
             self._cleanup_torch_memory()
 
     return wrapped
+
+
+def _is_device_resident_array(value):
+    """Return whether an input already occupies accelerator memory."""
+    if value is None:
+        return False
+    if _is_cupy_array(value):
+        return True
+    if _is_torch_array(value):
+        device = getattr(value, "device", None)
+        return str(getattr(device, "type", device)).lower() != "cpu"
+    return False
 
 
 def _align_cox_side_array(values, retained_rows, original_n, name="array"):
@@ -303,6 +316,8 @@ class CoxPH(BaseEstimator):
         self._baseline_cumulative_hazard = None
         self._baseline_log_hazard = None
         self._baseline_log_cumulative_hazard = None
+        self._baseline_log_cumulative_hazard_centered = None
+        self._baseline_x_reference = None
         self._unique_times = None
         self._cindex = None
         self._feature_names = None
@@ -314,7 +329,6 @@ class CoxPH(BaseEstimator):
         self._is_counting_process = False
         self._fit_call = None
         self._stop_reason = None
-        self._objective_history = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -378,6 +392,7 @@ class CoxPH(BaseEstimator):
         start=None,
         strata=None,
         subject_id=None,
+        _right_censored_prepared=None,
     ):
         """Fit and clear all state if validation or inference fails."""
         self._reset_fit_state()
@@ -422,6 +437,14 @@ class CoxPH(BaseEstimator):
                         target[:, 1],
                         target[:, 2],
                     )
+            if _right_censored_prepared is not None:
+                if formula is not None or not _right_censored_prepared.matches_sources(
+                    X, time, event, self.ties
+                ):
+                    raise ValueError(
+                        "prepared right-censored metadata does not match the "
+                        "current matrix fit inputs"
+                    )
             result = self._fit_impl(
                 X=X,
                 time=time,
@@ -434,6 +457,7 @@ class CoxPH(BaseEstimator):
                 start=start,
                 strata=strata,
                 subject_id=subject_id,
+                _right_censored_prepared=_right_censored_prepared,
             )
             if not self._is_counting_process:
                 self._entry = None
@@ -441,7 +465,7 @@ class CoxPH(BaseEstimator):
             if not np.all(np.isfinite(coef)) or not np.isfinite(
                 self._log_likelihood
             ):
-                raise CoxCandidateNumericalError(
+                raise CoxFitNumericalError(
                     "CoxPH fit produced non-finite coefficients or log-likelihood"
                 )
             if self.compute_inference and any(
@@ -471,6 +495,7 @@ class CoxPH(BaseEstimator):
         start=None,
         strata=None,
         subject_id=None,
+        _right_censored_prepared=None,
     ):
         """
         Fit Cox Proportional Hazards model.
@@ -509,8 +534,6 @@ class CoxPH(BaseEstimator):
         self : CoxPH
             Fitted estimator.
         """
-        self._reset_fit_state()
-
         formula_entry_was_explicit = entry is not None or start is not None
         if entry is not None and start is not None:
             raise ValueError("pass only one of entry and start")
@@ -633,6 +656,7 @@ class CoxPH(BaseEstimator):
             subject_id=subject_id,
             init_coef=init_coef,
             device=device,
+            right_censored_prepared=_right_censored_prepared,
         )
 
     def set_params(self, **params):
@@ -675,7 +699,9 @@ class CoxPH(BaseEstimator):
         return super().set_params(**params)
 
     @staticmethod
-    def _encode_group_labels(values, n_samples, name):
+    def _encode_group_labels(
+        values, n_samples, name, *, return_labels=True
+    ):
         """Encode arbitrary labels without collapsing non-integral device values."""
         if values is None:
             return None, None
@@ -683,7 +709,8 @@ class CoxPH(BaseEstimator):
             codes = values.codes
             if getattr(codes, "ndim", None) != 1 or int(codes.shape[0]) != n_samples:
                 raise ValueError(f"{name} must have shape (n_samples,)")
-            return codes, values.labels.copy()
+            labels = values.labels.copy() if return_labels else None
+            return codes, labels
         module = type(values).__module__
         if module.startswith("cupy"):
             import cupy as cp
@@ -693,7 +720,8 @@ class CoxPH(BaseEstimator):
             if values.dtype.kind in "fc" and bool(cp.any(~cp.isfinite(values)).item()):
                 raise ValueError(f"{name} must contain only finite labels")
             labels, encoded = cp.unique(values, return_inverse=True)
-            return encoded.astype(cp.int64, copy=False), cp.asnumpy(labels)
+            labels_host = cp.asnumpy(labels) if return_labels else None
+            return encoded.astype(cp.int64, copy=False), labels_host
         if module.startswith("torch"):
             import torch
 
@@ -706,14 +734,19 @@ class CoxPH(BaseEstimator):
             labels, encoded = torch.unique(
                 values, sorted=True, return_inverse=True
             )
-            return encoded.to(dtype=torch.int64), labels.detach().cpu().numpy()
+            labels_host = (
+                labels.detach().cpu().numpy() if return_labels else None
+            )
+            return encoded.to(dtype=torch.int64), labels_host
         arr = np.asarray(values)
         if arr.ndim != 1 or arr.shape[0] != n_samples:
             raise ValueError(f"{name} must have shape (n_samples,)")
         if arr.dtype.kind in "fc" and not np.all(np.isfinite(arr)):
             raise ValueError(f"{name} must contain only finite labels")
         labels, encoded = np.unique(arr, return_inverse=True)
-        return encoded.astype(np.int64, copy=False), labels
+        return encoded.astype(np.int64, copy=False), (
+            labels if return_labels else None
+        )
 
     def _fit_counting_process_dispatch(
         self,
@@ -727,6 +760,7 @@ class CoxPH(BaseEstimator):
         subject_id,
         init_coef,
         device,
+        right_censored_prepared=None,
     ):
         """Fit entry/start-stop, stratified, or exact-ties Cox natively."""
         from statgpu.survival._cox_counting import fit_counting_process_cox
@@ -739,14 +773,26 @@ class CoxPH(BaseEstimator):
         if input_shape is None:
             input_shape = np.asarray(X).shape
         n_samples = int(input_shape[0])
+        input_full_host_transfer = any(
+            _is_device_resident_array(value)
+            for value in (
+                X,
+                time,
+                event,
+                entry,
+                strata,
+                cluster,
+                subject_id,
+            )
+        ) and device == Device.CPU
         strata_encoded, strata_labels = self._encode_group_labels(
             strata, n_samples, "strata"
         )
         cluster_encoded, _ = self._encode_group_labels(
-            cluster, n_samples, "cluster"
+            cluster, n_samples, "cluster", return_labels=False
         )
         subject_encoded, _ = self._encode_group_labels(
-            subject_id, n_samples, "subject_id"
+            subject_id, n_samples, "subject_id", return_labels=False
         )
 
         if (
@@ -808,6 +854,17 @@ class CoxPH(BaseEstimator):
             start=startb,
             strata=stratab,
         )
+        right_censored_fast_path = (
+            entry is None
+            and strata is None
+            and subject_id is None
+            and self.cov_type == "nonrobust"
+            and self.ties in {"breslow", "efron"}
+        )
+        if right_censored_prepared is not None and not right_censored_fast_path:
+            raise ValueError(
+                "prepared right-censored metadata is incompatible with this fit"
+            )
         result = fit_counting_process_cox(
             Xb,
             stopb,
@@ -823,20 +880,20 @@ class CoxPH(BaseEstimator):
             compute_score_residuals=(
                 self.compute_inference and self.cov_type != "nonrobust"
             ),
-            right_censored_fast_path=(
-                entry is None
-                and strata is None
-                and subject_id is None
-                and self.cov_type == "nonrobust"
-                and self.ties in {"breslow", "efron"}
-            ),
+            right_censored_fast_path=right_censored_fast_path,
+            right_censored_prepared=right_censored_prepared,
+            _inputs_prepared=True,
         )
 
         to_numpy = compute_backend.to_numpy
         scalar = _to_float_scalar
 
         self.coef_ = to_numpy(result["coef"]).astype(np.float64, copy=False)
-        self.hazard_ratios_ = np.exp(self.coef_)
+        self.hazard_ratios_ = _safe_exp_linear_predictor(
+            self.coef_,
+            error_type=CoxFitNumericalError,
+            name="fitted Cox coefficients",
+        )
         self._log_likelihood = scalar(result["log_likelihood"])
         self._log_likelihood_null = scalar(result["null_log_likelihood"])
         self._iterations = int(result["iterations"])
@@ -847,7 +904,7 @@ class CoxPH(BaseEstimator):
         )
         self._nobs = n_samples
         self._nevents = int(scalar(eventb.sum()))
-        self._entry = to_numpy(startb)
+        self._entry = None if entry is None else to_numpy(startb)
         self._strata = (
             None
             if strata is None
@@ -992,6 +1049,8 @@ class CoxPH(BaseEstimator):
             self._baseline_cumulative_hazard = None
             self._baseline_log_hazard = None
             self._baseline_log_cumulative_hazard = None
+            self._baseline_log_cumulative_hazard_centered = None
+            self._baseline_x_reference = None
         else:
             baseline_by_stratum = {
                 int(key): {
@@ -1009,6 +1068,10 @@ class CoxPH(BaseEstimator):
                 self._baseline_log_cumulative_hazard = baseline.get(
                     "log_cumulative_hazard"
                 )
+                self._baseline_log_cumulative_hazard_centered = baseline.get(
+                    "log_cumulative_hazard_centered"
+                )
+                self._baseline_x_reference = baseline.get("x_reference")
                 self._baseline_by_stratum = (
                     None
                     if strata is None and entry is None and subject_id is None
@@ -1021,6 +1084,8 @@ class CoxPH(BaseEstimator):
                 self._baseline_cumulative_hazard = None
                 self._baseline_log_hazard = None
                 self._baseline_log_cumulative_hazard = None
+                self._baseline_log_cumulative_hazard_centered = None
+                self._baseline_x_reference = None
 
         if self.compute_cindex:
             self._cindex = scalar(
@@ -1052,7 +1117,17 @@ class CoxPH(BaseEstimator):
         else:
             self._termination_reason = "stalled_with_large_kkt"
         self.concordance_ = self._cindex
-        self.full_host_transfer_performed_ = False
+        self.full_host_transfer_performed_ = bool(
+            input_full_host_transfer
+            or result.get("full_target_host_transfer_performed", False)
+            or (
+                backend != "numpy"
+                and any(
+                    value is not None
+                    for value in (entry, strata, subject_id)
+                )
+            )
+        )
         if self.compute_inference:
             self.inference_method_ = (
                 "penalized_observed_information"
@@ -1200,8 +1275,15 @@ class CoxPH(BaseEstimator):
             
             for i, name in enumerate(self._feature_names):
                 hr = self.hazard_ratios_[i]
-                print(f"{name:<15} {hr:>12.4f} {1/hr:>12.4f} "
-                      f"{np.exp(self._conf_int[i, 0]):>12.4f} {np.exp(self._conf_int[i, 1]):>12.4f}")
+                inverse_hr = _safe_exp_linear_predictor(
+                    np.asarray([-self.coef_[i]]),
+                    name="inverse Cox coefficient",
+                )[0]
+                interval_hr = _safe_exp_linear_predictor(
+                    self._conf_int[i], name="Cox confidence interval"
+                )
+                print(f"{name:<15} {hr:>12.4f} {inverse_hr:>12.4f} "
+                      f"{interval_hr[0]:>12.4f} {interval_hr[1]:>12.4f}")
         else:
             print(f"{'':<15} {'coef':>10} {'exp(coef)':>12}")
             print("-" * 80)
@@ -1281,8 +1363,8 @@ class CoxPH(BaseEstimator):
     def predict_hazard_ratio(self, X):
         """Predict backend-native hazard ratios ``exp(X @ coef_)``."""
         self._check_is_fitted()
-        X_arr, backend, coef = self._prepare_prediction_X(X)
-        return backend.xp.exp(X_arr @ coef)
+        X_arr, _, coef = self._prepare_prediction_X(X)
+        return _safe_exp_linear_predictor(X_arr @ coef)
 
     @_cleanup_after_public_gpu_work
     def predict_risk_score(self, X):
@@ -1301,7 +1383,23 @@ class CoxPH(BaseEstimator):
         n_samples = int(X_arr.shape[0])
         baselines = self._baseline_by_stratum
         if baselines is None and self._unique_times is not None and self._baseline_cumulative_hazard is not None:
-            baselines = {0: {"time": self._unique_times, "cumulative_hazard": self._baseline_cumulative_hazard}}
+            ordinary_baseline = {
+                "time": self._unique_times,
+                "cumulative_hazard": self._baseline_cumulative_hazard,
+            }
+            if (
+                self._baseline_log_cumulative_hazard_centered is not None
+                and self._baseline_x_reference is not None
+            ):
+                ordinary_baseline.update(
+                    {
+                        "log_cumulative_hazard_centered": (
+                            self._baseline_log_cumulative_hazard_centered
+                        ),
+                        "x_reference": self._baseline_x_reference,
+                    }
+                )
+            baselines = {0: ordinary_baseline}
         if not baselines:
             raise RuntimeError("Baseline cumulative hazard is unavailable. Refit with compute_inference=True before calling predict_survival().")
         if len(baselines) == 1:
@@ -1365,7 +1463,25 @@ class CoxPH(BaseEstimator):
                     )
                 )
             else:
-                risk = cumulative[None, :] * xp.exp(X_arr[rows] @ coef)[:, None]
+                positive = cumulative > 0
+                safe_cumulative = xp.where(
+                    positive, cumulative, xp.ones_like(cumulative)
+                )
+                log_base = xp.where(
+                    positive,
+                    xp.log(safe_cumulative),
+                    xp.full_like(cumulative, -float("inf")),
+                )
+                log_risk = (
+                    log_base[None, :]
+                    + (X_arr[rows] @ coef)[:, None]
+                )
+                risk = xp.exp(
+                    backend.minimum(
+                        log_risk,
+                        float(np.log(np.finfo(np.float64).max)),
+                    )
+                )
             result[rows] = xp.exp(-risk)
         return result, eval_times
 

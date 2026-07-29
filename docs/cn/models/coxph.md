@@ -156,7 +156,24 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 对于 `CoxPHCV`，`full_host_transfer_performed_` 描述整个 fit，包括在 host
 上组织的 fold 构造与 penalty 选择。`cv_full_host_transfer_performed_` 与
 `final_refit_full_host_transfer_performed_` 分别标记 CV 与最终重拟合阶段是否
-将完整的 device input 移到 host；`orchestration_device_` 记录 CV 编排设备。
+将至少一个完整的 device 训练组件移到 host；这包括排序后的 target，以及需要
+保留的 entry、strata 或 subject 向量，即使设计矩阵仍留在 GPU 也会如实标记。
+`orchestration_device_` 记录 CV 编排设备。
+普通 GPU Breslow/Efron 预处理在选定后端完成排序，再把完整的已排序 time 与
+event 向量复制到 host 以构建失败组元数据，因此会报告
+`full_host_transfer_performed_=True`。普通 `CoxPHCV` 在一次完整 selector 调用中
+为每个 fold 只准备一次元数据，并由所有 staged penalty pass 复用。
+该复用仅在估算的保留 workspace 不超过
+`STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES`（默认 512 MiB）时启用；超限时各 stage
+会重新准备 fold，以避免无界的多 fold GPU 常驻内存。路由由
+`fold_state_cache_enabled` 及估算/上限字段记录。
+`selection_cache_hit`、
+`requested_fit_device`、`fold_backend_preparation_count_this_call` 与
+`candidate_target_host_transfer_count_this_call` 描述本次调用；
+`selection_origin_device`、`candidate_preparation_origin_device` 和
+`scoring_device` 保留选择结果的来源；`effective_device` 记录本次请求/最终 refit
+设备。一次 target preparation 代表一整套
+time/event 元数据准备；vector-transfer 计数记录实际发生的两条向量复制。
 
 ## 参数
 
@@ -219,6 +236,13 @@ cv_model = CoxPHCV(
 提供一个训练时已知的 stratum 标签。生存曲线在 log-domain 中累计 baseline，
 以提高数值稳定性。Formula 拟合模型会在预测前应用已保存的设计矩阵转换。
 
+`predict_risk_score()` 返回未取指数的 log-risk。canonical、CV 与 penalized
+Cox 的 hazard-ratio 预测 API 共享严格的 float64 指数边界；canonical/CV 拟合后
+`hazard_ratios_` 采用相同边界。会溢出为无穷或下溢为零的值，在 canonical/CV
+fit 时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`，不会按 estimator
+专属阈值静默截断。`PenalizedCoxPHModel` 也提供 `predict_risk_score()`，因此
+极端但有限的 log-risk 仍可直接读取。
+
 ## 输出
 
 - 参数：`coef_`、`hazard_ratios_`；
@@ -233,11 +257,19 @@ cv_model = CoxPHCV(
 `CoxPHCV` 还会公开 `cv_full_host_transfer_performed_`、
 `final_refit_full_host_transfer_performed_` 与 `orchestration_device_`，避免数据移动审计
 将 host CV 选择与最终重拟合混淆。
+`cv_results_` 会区分 selection 来源字段（`scoring_device`、
+`selection_origin_device`、`candidate_preparation_origin_device` 与总准备次数）和本次调用字段（`selection_cache_hit`、
+`requested_fit_device`、`effective_device` 与 `*_this_call` 次数）。Cache 命中时，本次 fold 准备和
+target 传输次数均为零，同时不会改写 selection 来源设备。
 若有限输入的候选返回非有限系数或 likelihood，`CoxPH` 会抛出
-`CoxCandidateNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
+`CoxFitNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
 候选，输入、allocator、CUDA 与非预期 runtime 错误仍原样传播。
 
 ## 验证
+
+2026-07-29 的 transfer、cache 与 hazard-ratio 变更已通过完整本地 CPU 树和 maintained
+targeted matrix；其 schema-6 精确源码 CuPy/Torch 产物仍待刷新。下方 P100 结果对应
+此前记录的 commit，不作为本次最新 delta 的物理 GPU 证据。
 
 截至 2026-07-26 的 PR #80 review 已通过本地 NumPy quick gate，覆盖普通
 heavy ties、delayed entry、Exact ties、分层 start-stop、推断、

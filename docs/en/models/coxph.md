@@ -175,8 +175,28 @@ For `CoxPHCV`, `full_host_transfer_performed_` describes the complete fit,
 including host-orchestrated fold construction and selection. The more specific
 `cv_full_host_transfer_performed_` and
 `final_refit_full_host_transfer_performed_` attributes identify which phase
-moved a full device-resident input to the host; `orchestration_device_` records
-where CV orchestration ran.
+moved at least one complete device-resident training component to the host;
+this includes sorted targets and retained entry, strata, or subject vectors,
+even when the design matrix remains on the GPU. `orchestration_device_` records
+where CV orchestration ran. Ordinary GPU Breslow/Efron preprocessing sorts on
+the selected backend, then copies the complete sorted time and event vectors to
+the host to build failure-group metadata, so it reports
+`full_host_transfer_performed_=True`. Ordinary `CoxPHCV` prepares that metadata
+once per fold and reuses it across every staged penalty pass in the complete
+selector invocation when the estimated retained workspace fits
+`STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES` (512 MiB by default). Above that gate,
+stages repeat fold preparation so retained GPU memory stays bounded.
+`fold_state_cache_enabled` and the estimate/limit fields make that routing
+auditable. Preparation and target-transfer counts are exposed in `cv_results_`.
+The invocation fields
+`selection_cache_hit`, `requested_fit_device`,
+`fold_backend_preparation_count_this_call`, and
+`candidate_target_host_transfer_count_this_call` remain separate from the
+selection-origin fields such as `selection_origin_device`,
+`candidate_preparation_origin_device`, and `scoring_device`.
+`effective_device` records the current requested/final-refit device. A target
+preparation count represents one complete time/event metadata preparation;
+the vector-transfer count records its two actual vector copies.
 
 ## Parameters
 
@@ -242,6 +262,15 @@ prediction requires one known stratum label per prediction row. Survival curves
 use log-domain baseline accumulation for numerical stability. Formula-fitted
 models apply their saved design transformation before prediction.
 
+`predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
+prediction APIs use one strict float64 exponential boundary across canonical,
+CV, and penalized Cox models; canonical/CV fitted `hazard_ratios_` use the same
+boundary. A value that would overflow to infinity or underflow to zero raises
+`CoxFitNumericalError` during canonical/CV fit or `FloatingPointError` during
+prediction; values are never silently clipped to an estimator-specific
+threshold. `PenalizedCoxPHModel` also exposes
+`predict_risk_score()` so extreme finite log-risk remains directly available.
+
 ## Outputs
 
 - parameters: `coef_`, `hazard_ratios_`;
@@ -256,12 +285,23 @@ models apply their saved design transformation before prediction.
 `CoxPHCV` additionally exposes `cv_full_host_transfer_performed_`,
 `final_refit_full_host_transfer_performed_`, and `orchestration_device_` so
 data-movement audits do not confuse host CV selection with the final refit.
+Its `cv_results_` separates selection-origin fields (`scoring_device`,
+`selection_origin_device`,
+`candidate_preparation_origin_device`, and total preparation counts) from
+invocation fields (`selection_cache_hit`, `requested_fit_device`,
+`effective_device`, and `*_this_call` counts). A cache hit reports zero fold preparation and target
+transfer work for that invocation without rewriting the origin device.
 If a finite-input candidate returns non-finite fitted coefficients or
-likelihood, `CoxPH` raises `CoxCandidateNumericalError` (a
+likelihood, `CoxPH` raises `CoxFitNumericalError` (a
 `FloatingPointError` subclass); `CoxPHCV` excludes only that candidate while
 letting input, allocator, CUDA, and unexpected runtime errors propagate.
 
 ## Validation
+
+The 2026-07-29 transfer, cache, and hazard-ratio changes pass the complete local
+CPU tree and the maintained targeted matrix. Their schema-6 exact-source
+CuPy/Torch artifact is still pending; the P100 results below describe earlier
+recorded commits and are not presented as evidence for this newest delta.
 
 The PR #80 review through 2026-07-26 passed the local NumPy quick gate for ordinary
 heavy ties, delayed entry, Exact ties, stratified start-stop data, inference,

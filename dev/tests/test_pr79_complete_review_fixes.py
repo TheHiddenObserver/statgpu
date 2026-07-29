@@ -265,7 +265,7 @@ def test_cpu_prediction_contract_validation_and_custom_times():
 
 
 @pytest.mark.parametrize('backend', ['cupy', 'torch'])
-def test_gpu_prediction_is_native_and_does_not_require_full_host_transfer(backend):
+def test_gpu_prediction_is_native_and_discloses_target_host_transfer(backend):
     X, time, event = _cox_sample(n=55, p=2)
     if backend == 'cupy':
         xp = pytest.importorskip('cupy')
@@ -291,7 +291,7 @@ def test_gpu_prediction_is_native_and_does_not_require_full_host_transfer(backen
     assert isinstance(prediction, native_type)
     assert isinstance(survival, native_type)
     assert isinstance(prediction_times, native_type)
-    assert model.full_host_transfer_performed_ is False
+    assert model.full_host_transfer_performed_ is True
     assert_allclose(
         model._to_numpy(prediction), np.exp(X[:4] @ model.coef_),
         rtol=1e-8, atol=1e-9,
