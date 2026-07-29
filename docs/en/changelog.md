@@ -35,6 +35,14 @@
   totals. Canonical fitted state uses one reset per public fit,
   and the public `CoxFitNumericalError` is exported from both `statgpu` and
   `statgpu.survival`.
+- Reused right-censored loss state now verifies the current `X`, time, and
+  event contents on the active backend before a low-level solve, so same-shape
+  foreign data or in-place source mutation cannot combine stale coefficients
+  with a new baseline. Packed CuPy/Torch `CoxPHCV` targets remain backend-native
+  through column unpacking, making their full host transfer visible in CV
+  provenance. Cox constructors preserve clone-sensitive inputs until fit-time
+  normalization, while penalized prediction and scoring reuse `BackendBase`
+  conversion and the shared Cox boolean/real-value validators.
 
 ### Fixed (2026-07-27) — PR #80 follow-up review
 

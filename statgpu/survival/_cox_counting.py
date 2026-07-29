@@ -65,6 +65,70 @@ class _PreparedRightCensoredCox:
             and str(ties).lower() == self.ties
         )
 
+    def matches_content(
+        self, X: Any, stop: Any, event: Any, ties: str
+    ) -> bool:
+        """Verify current inputs against the immutable preprocessed state.
+
+        Identity alone cannot detect an in-place mutation after preparation.
+        Compare the current arrays with the cached centered/sorted arrays on
+        their existing backend and transfer only the final boolean result.
+        """
+        ties = str(ties).lower()
+        backend, xp = _array_namespace(X)
+        device = str(getattr(X, "device", "cpu"))
+        shape = getattr(X, "shape", ())
+        if (
+            ties != self.ties
+            or backend != self.backend
+            or device != self.device
+            or len(shape) not in (1, 2)
+            or int(shape[0]) != self.n_samples
+        ):
+            return False
+
+        X_arr = _as_backend_array(
+            X, backend, xp, self.X_sorted, name="X"
+        )
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+        stop_arr = _as_backend_array(
+            stop, backend, xp, self.X_sorted, name="stop"
+        ).reshape(-1)
+        event_arr = _as_backend_array(
+            event, backend, xp, self.X_sorted, name="event"
+        ).reshape(-1)
+        if (
+            tuple(X_arr.shape) != (self.n_samples, self.n_features)
+            or int(stop_arr.shape[0]) != self.n_samples
+            or int(event_arr.shape[0]) != self.n_samples
+        ):
+            return False
+
+        loss = self.loss
+        order = getattr(loss, "_order", None)
+        x_reference = getattr(loss, "_x_reference", None)
+        cached_time = getattr(loss, "_time_sorted", None)
+        cached_event = getattr(loss, "_event_sorted", None)
+        if (
+            order is None
+            or x_reference is None
+            or cached_time is None
+            or cached_event is None
+            or getattr(loss, "_X_sorted", None) is not self.X_sorted
+        ):
+            return False
+
+        current_X_sorted = (
+            X_arr - x_reference.reshape(1, -1)
+        )[order]
+        matches = (
+            xp.all(current_X_sorted == self.X_sorted)
+            & xp.all(stop_arr[order] == cached_time)
+            & xp.all(event_arr[order] == cached_event)
+        )
+        return _scalar_bool(matches)
+
 
 def prepare_right_censored_cox_fast_path(
     X: Any,
@@ -197,6 +261,7 @@ def fit_counting_process_cox(
     identity = _eye(backend, xp, n_features, X)
     fast_loss = None
     fast_X = None
+    prepared_created_here = False
     if right_censored_fast_path:
         if ties not in {"breslow", "efron"}:
             raise ValueError(
@@ -210,17 +275,26 @@ def fit_counting_process_cox(
             right_censored_prepared = prepare_right_censored_cox_fast_path(
                 X, stop, event, ties=ties
             )
-        if (
+            prepared_created_here = True
+        if not isinstance(
+            right_censored_prepared, _PreparedRightCensoredCox
+        ) or (
             right_censored_prepared.ties != ties
             or right_censored_prepared.backend != backend
             or right_censored_prepared.device
             != str(getattr(X, "device", "cpu"))
             or right_censored_prepared.n_samples != int(X.shape[0])
             or right_censored_prepared.n_features != n_features
+            or (
+                not prepared_created_here
+                and not right_censored_prepared.matches_content(
+                    X, stop, event, ties
+                )
+            )
         ):
             raise ValueError(
                 "prepared right-censored metadata does not match fit backend, "
-                "device, ties, or dataset shape"
+                "device, ties, dataset shape, or dataset contents"
             )
         fast_loss = right_censored_prepared.loss
         fast_X = right_censored_prepared.X_sorted
@@ -374,9 +448,4 @@ def fit_counting_process_cox(
     }
 
 
-__all__ = [
-    "_PreparedRightCensoredCox",
-    "_score_test_statistic",
-    "fit_counting_process_cox",
-    "prepare_right_censored_cox_fast_path",
-]
+__all__ = []

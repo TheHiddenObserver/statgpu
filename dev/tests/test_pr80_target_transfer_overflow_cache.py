@@ -7,7 +7,8 @@ import pytest
 
 import statgpu
 from statgpu.linear_model import PenalizedCoxPHModel
-from statgpu.survival import CoxFitNumericalError, CoxPH
+from statgpu.survival import CoxFitNumericalError, CoxPH, CoxPHCV
+from statgpu.survival import _cox as cox_module
 from statgpu.survival import _cox_counting as cox_counting
 from statgpu.survival import _cox_cv as cox_cv
 from statgpu.survival import _numeric as survival_numeric
@@ -18,6 +19,7 @@ from statgpu.survival._cox_counting import (
 from statgpu.survival._cox_cv import (
     _COXPH_CV_CACHE,
     _select_coxph_penalty_cv,
+    _unpack_survival_target,
 )
 
 
@@ -358,6 +360,162 @@ def test_reused_right_censored_state_matches_fresh_solver(ties):
     )
 
 
+@pytest.mark.parametrize("changed", ["X", "stop", "event"])
+def test_direct_solver_rejects_prepared_state_for_different_contents(changed):
+    X, stop, event = _sample(n=36)
+    prepared = prepare_right_censored_cox_fast_path(
+        X, stop, event, ties="breslow"
+    )
+    X_new, stop_new, event_new = X.copy(), stop.copy(), event.copy()
+    if changed == "X":
+        X_new[0, 0] += 0.25
+    elif changed == "stop":
+        stop_new[0] += 0.25
+    else:
+        event_new[0] = 1.0 - event_new[0]
+
+    with pytest.raises(ValueError, match="dataset contents"):
+        fit_counting_process_cox(
+            X_new,
+            stop_new,
+            event_new,
+            ties="breslow",
+            compute_baseline=False,
+            compute_score_residuals=False,
+            right_censored_fast_path=True,
+            right_censored_prepared=prepared,
+        )
+
+
+def test_direct_solver_rejects_source_mutated_after_preparation():
+    X, stop, event = _sample(n=36)
+    prepared = prepare_right_censored_cox_fast_path(
+        X, stop, event, ties="efron"
+    )
+    X[0, 0] += 0.5
+    with pytest.raises(ValueError, match="dataset contents"):
+        fit_counting_process_cox(
+            X,
+            stop,
+            event,
+            ties="efron",
+            compute_baseline=True,
+            compute_score_residuals=False,
+            right_censored_fast_path=True,
+            right_censored_prepared=prepared,
+        )
+
+
+def test_packed_torch_target_is_sliced_without_eager_host_conversion(monkeypatch):
+    torch = pytest.importorskip("torch")
+    packed = torch.tensor(
+        [[1.0, 1.0], [2.0, 0.0], [3.0, 1.0]],
+        dtype=torch.float64,
+    )
+
+    def unexpected_host_conversion(*args, **kwargs):
+        raise AssertionError("packed target was converted before slicing")
+
+    monkeypatch.setattr(cox_cv, "_to_numpy", unexpected_host_conversion)
+    stop, event, entry, start = _unpack_survival_target(packed, None)
+    assert isinstance(stop, torch.Tensor)
+    assert isinstance(event, torch.Tensor)
+    assert stop.data_ptr() == packed[:, 0].data_ptr()
+    assert event.data_ptr() == packed[:, 1].data_ptr()
+    assert entry is None
+    assert start is None
+
+
+def test_formula_side_array_alignment_uses_torch_backend_without_host_copy():
+    torch = pytest.importorskip("torch")
+    values = torch.tensor([10, 20, 30, 40, 50], dtype=torch.int64)
+    aligned = cox_module._align_cox_side_array(
+        values,
+        np.array([0, 2, 4], dtype=np.int64),
+        original_n=5,
+        name="strata",
+    )
+    assert isinstance(aligned, torch.Tensor)
+    assert aligned.device == values.device
+    assert torch.equal(aligned, torch.tensor([10, 30, 50]))
+
+
+@pytest.mark.parametrize("backend_name", ["cupy", "torch"])
+def test_numpy_X_with_packed_gpu_target_reports_full_host_transfer(backend_name):
+    X, stop, event = _sample(n=24, p=1)
+    packed = np.column_stack((stop, event))
+    if backend_name == "cupy":
+        backend = pytest.importorskip("cupy")
+        try:
+            if backend.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
+        packed_device = backend.asarray(packed)
+        expected_backend = "cupy"
+    else:
+        backend = pytest.importorskip("torch")
+        if not backend.cuda.is_available():
+            pytest.skip("Torch CUDA unavailable")
+        packed_device = backend.as_tensor(
+            packed, dtype=backend.float64, device="cuda"
+        )
+        expected_backend = "torch-device"
+
+    model = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        random_state=4,
+        device="cpu",
+        compute_inference=False,
+        max_iter=40,
+    ).fit(X, packed_device)
+
+    assert model.cv_full_host_transfer_performed_ is True
+    assert model.full_host_transfer_performed_ is True
+    assert expected_backend in model.cv_results_["input_backends"]
+
+
+def test_penalized_prediction_and_score_resolve_shared_backend(monkeypatch):
+    X, stop, event = _sample(n=30, p=1)
+    y = np.column_stack((stop, event))
+    model = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.1,
+        device="cpu",
+        compute_inference=False,
+        max_iter=80,
+    ).fit(X, y)
+    real_get_backend = model._get_backend
+    requested = []
+
+    def recording_get_backend(backend="auto"):
+        requested.append(backend)
+        return real_get_backend(backend=backend)
+
+    monkeypatch.setattr(model, "_get_backend", recording_get_backend)
+    risk = model.predict_risk_score(X)
+    score = model.score(X, y)
+
+    assert requested == ["numpy", "numpy"]
+    assert np.all(np.isfinite(risk))
+    assert np.isfinite(score)
+
+
+def test_penalized_score_rejects_complex_target_before_backend_cast():
+    X, stop, event = _sample(n=30, p=1)
+    y = np.column_stack((stop, event))
+    model = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.1,
+        device="cpu",
+        compute_inference=False,
+        max_iter=80,
+    ).fit(X, y)
+    with pytest.raises(ValueError, match="y must be real-valued"):
+        model.score(X, y.astype(np.complex128) + 1j)
+
+
 def test_public_fit_rejects_prepared_state_from_other_array_identity():
     X, stop, event = _sample(n=30)
     prepared = prepare_right_censored_cox_fast_path(
@@ -373,6 +531,26 @@ def test_public_fit_rejects_prepared_state_from_other_array_identity():
             event,
             _right_censored_prepared=prepared,
         )
+
+
+def test_public_fit_rejects_prepared_state_after_in_place_mutation():
+    X, stop, event = _sample(n=30)
+    prepared = prepare_right_censored_cox_fast_path(
+        X, stop, event, ties="breslow"
+    )
+    stop[0] += 0.125
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    )
+    with pytest.raises(ValueError, match="dataset contents"):
+        model.fit(
+            X,
+            stop,
+            event,
+            _right_censored_prepared=prepared,
+        )
+    assert model.coef_ is None
+    assert model._fitted is False
 
 
 def test_public_dispatch_does_not_repeat_solver_input_normalization(monkeypatch):

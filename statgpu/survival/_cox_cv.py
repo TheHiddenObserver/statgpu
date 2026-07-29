@@ -27,6 +27,7 @@ from statgpu.survival._cox_counting import (
 )
 from statgpu.survival._cox_errors import CoxFitNumericalError
 from statgpu.survival._cox_fit_adapter import (
+    _is_native_backend_array,
     _normalize_boolean_control,
     _normalize_mutable_cv_controls,
     _PreencodedCoxLabels,
@@ -346,7 +347,7 @@ def _folds_are_complements(folds, n_samples: int) -> bool:
 
 
 def _unpack_survival_target(time, event, *, entry=None, start=None):
-    """Accept either separate arrays or sklearn-style two/three-column y."""
+    """Accept separate or packed targets without erasing their provenance."""
     _require_real_array(entry, "entry")
     _require_real_array(start, "start")
     if event is not None:
@@ -355,7 +356,7 @@ def _unpack_survival_target(time, event, *, entry=None, start=None):
         return time, event, entry, start
 
     _require_real_array(time, "packed survival target")
-    y = np.asarray(_to_numpy(time), dtype=np.float64)
+    y = time if _is_native_backend_array(time) else np.asarray(time)
     if y.ndim != 2 or y.shape[1] not in (2, 3):
         raise ValueError(
             "When event is omitted, y must have columns [time, event] or "

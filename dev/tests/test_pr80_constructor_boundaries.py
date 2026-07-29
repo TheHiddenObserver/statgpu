@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 
+import numpy as np
 import pytest
 
 from statgpu.survival import CoxPH, CoxPHCV
@@ -31,9 +32,24 @@ def test_coxph_constructor_accepts_explicit_boolean_controls(value):
         compute_cindex=value,
         gpu_memory_cleanup=value,
     )
-    assert bool(model.compute_inference) is bool(value)
-    assert model.compute_cindex is bool(value)
-    assert model.gpu_memory_cleanup is bool(value)
+    assert model.compute_inference is value
+    assert model.compute_cindex is value
+    assert model.gpu_memory_cleanup is value
+
+
+def test_coxph_constructor_preserves_clone_safe_cox_controls():
+    penalty = np.float64(0.125)
+    model = CoxPH(
+        ties="EFRON",
+        cov_type="HC1",
+        inference_mode="STRICT",
+        penalty=penalty,
+        compute_inference=False,
+    )
+    assert model.ties == "EFRON"
+    assert model.cov_type == "HC1"
+    assert model.inference_mode == "STRICT"
+    assert model.penalty is penalty
 
 
 @pytest.mark.parametrize("value", [False, True, 0, 1])

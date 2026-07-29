@@ -7,6 +7,15 @@
 
 ## 2026-07
 
+### 修复（2026-07-29）— PR #80 复审补充
+
+- 复用的 right-censored loss state 现在会在底层求解前，于当前 backend
+  上核对 `X`、time 和 event 的实际内容；同 shape 的其他数据或 prepare
+  后的原地修改不再可能把旧 objective 与新 baseline 混用。`CoxPHCV`
+  解包 CuPy/Torch packed target 时保留原生切片，因此完整 host transfer
+  会如实进入 CV provenance。Cox 构造参数延迟到 fit 时规范化，penalized
+  prediction/score 则统一复用 `BackendBase` 与共享的布尔、实数校验器。
+
 ### 修复（2026-07-29）— PR #80 最终后续审查
 
 - 普通 GPU Breslow/Efron 拟合现在会如实报告完整排序 time/event 的

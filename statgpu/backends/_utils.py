@@ -515,6 +515,17 @@ def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
         if dtype is not None:
             kwargs['dtype'] = dtype
         return xp.asarray(data, **kwargs)
+    if (
+        ref_arr is not None
+        and type(ref_arr).__module__.startswith("cupy")
+        and hasattr(ref_arr, "device")
+    ):
+        with ref_arr.device:
+            return (
+                xp.asarray(data, dtype=dtype)
+                if dtype is not None
+                else xp.asarray(data)
+            )
     if dtype is not None:
         return xp.asarray(data, dtype=dtype)
     return xp.asarray(data)

@@ -5,26 +5,50 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**SOURCE_AND_PHYSICAL_COMPLETE; HOSTED_CI_PENDING.** All current 2026-07-29
-findings are fixed, the complete local CPU/static/documentation gates pass, and
-the schema-6 runner passed on the exact clean source commit with both CuPy and
-Torch on a Tesla P100. The prior schema-5 evidence below remains valid only for
-its recorded earlier commit. The final local read-only pass found no remaining
-CRITICAL, HIGH, or active MEDIUM issue in this delta. Push and the resulting
-hosted CI run remain the only pending exit actions.
+**PARTIAL_REMOTE_PENDING.** The schema-6 source/evidence commits were pushed and
+all seven hosted jobs completed successfully. A subsequent independent review
+found two MEDIUM issues: stale prepared-state reuse and packed-GPU-target
+provenance. Both are fixed locally, together with the related constructor and
+backend-reuse LOW findings. The complete local suite and maintained target
+matrix pass, and the read-only re-review found no remaining CRITICAL, HIGH, or
+active MEDIUM issue. Exact-source CuPy/Torch refresh, commit, push, and the new
+hosted run remain pending for this post-schema-6 delta.
 
 ## 2026-07-29 impact classification
 
 | Axis | Status | Reason |
 | --- | --- | --- |
-| Backend | active, three-backend | transfer provenance and strict exp behavior |
-| Performance | active | ordinary CV repeated loss preprocessing |
-| CV/cache | active | fold reuse plus origin/invocation diagnostics |
-| Public API | active | hazard-ratio errors and numerical exception export |
-| Inference | active boundary | fitted hazard ratios and confidence-interval summary |
-| Formula | unchanged | no design-matrix or side-array semantics changed |
-| Benchmark/artifact | passed | schema-6 CuPy/Torch exact-source P100 refresh |
+| Backend | active, three-backend | packed-target provenance and shared prediction preparation |
+| Performance | active | safe prepared-state validation must retain fold reuse |
+| CV/cache | active | packed target unpacking and reusable loss capability |
+| Public API | active boundary | clone-safe constructor round trips |
+| Inference | unchanged/shared | canonical inference remains in `_cox_inference.py` |
+| Formula | active maintenance | side-array alignment now uses `BackendBase` |
+| Benchmark/artifact | remote pending | exact-source CuPy/Torch refresh required |
 | Documentation | active | bilingual numerical and provenance contracts |
+
+## Post-schema-6 independent findings and fixes
+
+| Finding | Status | Resolution |
+| --- | --- | --- |
+| Same-shape prepared state could fit stale data and a current baseline | fixed locally; needs remote GPU | The low-level solver now verifies current centered/sorted `X`, time, and event against the cached state on the active backend. Same-shape foreign content and in-place mutation are rejected before optimization; only one boolean scalar is transferred. Preparation helpers and the solver were removed from module `__all__`. |
+| Packed CuPy/Torch `CoxPHCV` target lost provenance before selection | fixed locally; needs remote GPU | `_unpack_survival_target()` preserves native column views, so selector input backends and full-host-transfer fields see the original device residency. |
+| `CoxPH.__init__()` clone-safety comment contradicted canonicalization | fixed | Cox-specific public constructor objects are stored unchanged and normalized by the existing fit-time boundary, matching `CoxPHCV`. |
+| Penalized Cox and formula alignment duplicated backend branches | fixed locally; needs remote GPU | Penalized prediction/score now use `BaseEstimator._get_backend()`, `BackendBase.asarray()/to_numpy()`, and shared validators. Formula side-array indices use the backend factory rather than direct CuPy/Torch imports. |
+
+The exact content check was selected over identity-only or lossy aggregate
+fingerprints because either alternative can silently accept legal in-place
+mutation or a checksum collision. The check performs one backend scan per
+reused solver invocation but no full design-matrix D2H. At `n=4096`, `p=12` on
+the local NumPy path it measured 0.68 ms versus 69.86 ms for complete Efron
+preparation (0.97%), so it preserves the material preprocessing reuse.
+
+Current-delta files are `statgpu/backends/_utils.py`,
+`statgpu/survival/_cox.py`, `_cox_counting.py`, `_cox_cv.py`,
+`statgpu/linear_model/penalized/_penalized_cox.py`,
+`dev/tests/test_pr80_constructor_boundaries.py`,
+`dev/tests/test_pr80_target_transfer_overflow_cache.py`, and the three
+changelog/review documents.
 
 ## 2026-07-29 findings and fixes
 
@@ -68,16 +92,18 @@ hosted CI run remain the only pending exit actions.
 
 ## Current local evidence
 
-- Complete CPU tree: **1476 passed, 437 skipped**, 0 failed.
-- Maintained schema-6 target list: **216 passed, 54 skipped**, 0 failed.
-- New focused regressions: **22 passed, 1 skipped** locally; the skip is the
-  unavailable physical CuPy branch.
+- Complete CPU tree: **1486 passed, 439 skipped**, 0 failed.
+- Maintained target list: **226 passed, 56 skipped**, 0 failed.
+- New focused regressions: **46 passed, 3 skipped** locally; the skips are the
+  physical CuPy and Torch CUDA cases.
 - Documentation links affected 0 files; documentation contracts passed for
   122 maintained files.
 - `py_compile`, `pyflakes`, benchmark `--help`, and `git diff --check` pass.
   Ruff is not installed in the local Windows environment; the hosted static
   workflow now includes `_numeric.py` and the new regression file.
 - Starting source head: `cb1b60c383021b5fec7dd067d21fa2245d96ebca`.
+- Base of the current local follow-up:
+  `0ca376e314afed22c66f7f37a9ff94b82a42de91`.
 - Frozen schema-6 source commit:
   `e26c21e2d1ed373fb0fd2d40169c99a31abdc82d`.
 
@@ -184,10 +210,12 @@ remain as the exact historical baseline for the preceding cycle.
 ## Current hosted CI
 
 GitHub Actions run
-`https://github.com/TheHiddenObserver/statgpu/actions/runs/30389777773`
-completed successfully for evidence commit `eef4010db379`. The required
+`https://github.com/TheHiddenObserver/statgpu/actions/runs/30414822901`
+completed successfully for schema-6 evidence commit `0ca376e314af`. The required
 `docs-contracts`, `static-contracts`, `full-cpu-suite`, and Python 3.9, 3.10,
 3.11, and 3.12 regression-matrix jobs all reached successful terminal states.
+This run predates the post-schema-6 local fixes recorded at the top of this
+report and therefore does not replace their required hosted rerun.
 
 ## Reviewed source and mode
 
@@ -443,7 +471,9 @@ completed successfully for evidence commit `89e4307c4015`. The required
   hosted run `30369118924` passed all seven required jobs.
 - For the prior schema-5 post-closure delta, the exact-source P100 JSON,
   evidence commit, push, and all seven hosted-CI jobs pass. The schema-6 delta
-  described at the top of this report now also has exact-source CuPy/Torch P100
-  evidence; only its evidence commit, push, and resulting hosted CI remain.
+  also has exact-source CuPy/Torch P100 evidence, its evidence commit is pushed,
+  and all seven hosted jobs pass. The later prepared-state and packed-target
+  fixes described at the top still need an exact-source physical refresh,
+  commit, push, and hosted rerun.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.

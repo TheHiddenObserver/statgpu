@@ -26,6 +26,7 @@ from statgpu._config import Device  # noqa: E402
 from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
 from statgpu.losses import _cox_ph as cox_loss  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
+from statgpu.survival import _cox_counting as cox_counting  # noqa: E402
 from statgpu.survival import _cox_score as cox_score  # noqa: E402
 from statgpu.survival import _risk_sets as risk_sets  # noqa: E402
 from statgpu.survival._concordance import (  # noqa: E402
@@ -343,6 +344,68 @@ def _case_ordinary_cv_preparation(name: str, xp) -> dict:
         ),
         "full_host_transfer_performed": model.full_host_transfer_performed_,
         "passed": bool(passed),
+    }
+
+
+def _case_prepared_state_and_packed_target(name: str, xp) -> dict:
+    """Audit prepared-state integrity and packed-target D2H provenance."""
+    X_np, stop_np, event_np = _sample(seed=2485, n=24, p=1)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    prepared = cox_counting.prepare_right_censored_cox_fast_path(
+        X, stop, event, ties="efron"
+    )
+    X_changed = X.copy() if name == "cupy" else X.clone()
+    X_changed[0, 0] += 0.25
+    prepared_mismatch_rejected = False
+    try:
+        cox_counting.fit_counting_process_cox(
+            X_changed,
+            stop,
+            event,
+            ties="efron",
+            compute_baseline=False,
+            compute_score_residuals=False,
+            right_censored_fast_path=True,
+            right_censored_prepared=prepared,
+        )
+    except ValueError as exc:
+        prepared_mismatch_rejected = "dataset contents" in str(exc)
+
+    packed_target = _array(
+        name, xp, np.column_stack((stop_np, event_np))
+    )
+    model = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        random_state=2485,
+        device="cpu",
+        compute_inference=False,
+        max_iter=40,
+    ).fit(X_np, packed_target)
+    expected_backend = "cupy" if name == "cupy" else "torch-device"
+    packed_target_transfer_disclosed = all(
+        (
+            model.cv_full_host_transfer_performed_ is True,
+            model.full_host_transfer_performed_ is True,
+            expected_backend in model.cv_results_["input_backends"],
+        )
+    )
+    return {
+        "backend": name,
+        "prepared_mismatch_rejected": prepared_mismatch_rejected,
+        "packed_target_input_backends": model.cv_results_["input_backends"],
+        "cv_full_host_transfer_performed": (
+            model.cv_full_host_transfer_performed_
+        ),
+        "full_host_transfer_performed": model.full_host_transfer_performed_,
+        "packed_target_transfer_disclosed": (
+            packed_target_transfer_disclosed
+        ),
+        "passed": bool(
+            prepared_mismatch_rejected and packed_target_transfer_disclosed
+        ),
     }
 
 
@@ -1029,7 +1092,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 6,
+        "schema_version": 7,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -1059,6 +1122,9 @@ def main() -> int:
                 "cv_device_normalization": _case_cv(name, xp),
                 "ordinary_cv_preparation": _case_ordinary_cv_preparation(
                     name, xp
+                ),
+                "prepared_state_and_packed_target": (
+                    _case_prepared_state_and_packed_target(name, xp)
                 ),
                 "hazard_ratio_boundary": _case_hazard_ratio_boundary(name, xp),
                 "single_group_workspace": _case_workspace(name, xp),

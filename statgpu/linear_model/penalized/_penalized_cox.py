@@ -8,26 +8,17 @@ __all__ = ["PenalizedCoxPHModel"]
 
 import numbers
 import numpy as np
-from statgpu._config import Device
 from statgpu.backends._array_ops import _xp as _get_xp
 from statgpu.backends._utils import (
     _is_complex_array,
+    _require_real_array,
     _to_float_scalar,
     _to_numpy,
 )
+from statgpu.survival._cox_fit_adapter import _normalize_boolean_control
 from statgpu.survival._numeric import _safe_exp_linear_predictor
 
 from ._base import PenalizedGeneralizedLinearModel
-
-
-def _validate_boolean_control(value, name):
-    """Accept booleans or integer 0/1 without interpreting truthy strings."""
-    if isinstance(value, (bool, np.bool_)):
-        return
-    if isinstance(value, (int, np.integer)) and int(value) in (0, 1):
-        return
-    raise ValueError(f"{name} must be a boolean or integer 0/1")
-
 
 class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
     _SUPPORTED_PENALTY_NAMES = frozenset(
@@ -146,7 +137,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             ("compute_inference", compute_inference),
             ("lla", lla),
         ):
-            _validate_boolean_control(value, name)
+            _normalize_boolean_control(value, name)
         if bool(fit_intercept):
             raise ValueError(
                 "PenalizedCoxPHModel does not fit an intercept because the "
@@ -234,7 +225,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             "lla",
         ):
             if name in params:
-                _validate_boolean_control(params[name], name)
+                _normalize_boolean_control(params[name], name)
         if bool(params.get("fit_intercept", False)):
             raise ValueError(
                 "PenalizedCoxPHModel does not fit an intercept because the "
@@ -584,43 +575,55 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         finally:
             self._cleanup_selected_backend_memory()
 
+    def _penalized_cox_prediction_backend(self):
+        """Resolve the fitted prediction backend through BaseEstimator."""
+        return self._get_backend(backend=self._prediction_backend_name())
+
+    def _prepare_penalized_cox_prediction(self, X):
+        """Normalize a real finite prediction matrix on the fitted backend."""
+        _require_real_array(X, "X")
+        backend = self._penalized_cox_prediction_backend()
+        Xb = backend.asarray(X, dtype=backend.float64)
+        if Xb.ndim == 1:
+            Xb = Xb.reshape(-1, 1)
+        if bool(_to_float_scalar(backend.xp.any(~backend.xp.isfinite(Xb)))):
+            raise ValueError("X must contain only finite values")
+        return backend, Xb
+
+    @staticmethod
+    def _prepare_penalized_cox_target(y, backend):
+        """Normalize a right-censored target without backend-specific code."""
+        if isinstance(y, dict):
+            if "time" not in y or "event" not in y:
+                raise ValueError("survival y dict must contain time and event")
+            _require_real_array(y["time"], "time")
+            _require_real_array(y["event"], "event")
+            time = backend.asarray(
+                y["time"], dtype=backend.float64
+            ).reshape(-1)
+            event = backend.asarray(
+                y["event"], dtype=backend.float64
+            ).reshape(-1)
+            return time, event
+
+        _require_real_array(y, "y")
+        yb = backend.asarray(y, dtype=backend.float64)
+        if yb.ndim != 2 or int(yb.shape[1]) != 2:
+            raise ValueError(
+                "y must be (n, 2) array with columns [time, event]"
+            )
+        return yb[:, 0], yb[:, 1]
+
     def _predict_risk_score_impl(self, X, return_cpu=True):
         """Return ``X @ coef`` without hazard-ratio range restrictions."""
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
 
-        if _is_complex_array(X):
-            raise ValueError("X must be real-valued")
         X = self._prepare_predict_X(X)
-        backend_name = self._prediction_backend_name()
-        if backend_name == "cupy":
-            import cupy as cp
-
-            Xb = cp.asarray(
-                self._to_array(X, Device.CUDA), dtype=cp.float64
-            )
-            if bool(cp.any(~cp.isfinite(Xb)).item()):
-                raise ValueError("X must contain only finite values")
-            result = Xb @ cp.asarray(self.coef_, dtype=cp.float64)
-            return _to_numpy(result) if return_cpu else result
-        if backend_name == "torch":
-            import torch
-
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(
-                torch.float64
-            )
-            if bool(torch.any(~torch.isfinite(Xb)).item()):
-                raise ValueError("X must contain only finite values")
-            coef = torch.as_tensor(
-                self.coef_, dtype=Xb.dtype, device=Xb.device
-            )
-            result = Xb @ coef
-            return _to_numpy(result) if return_cpu else result
-
-        X = np.asarray(X, dtype=np.float64)
-        if not np.all(np.isfinite(X)):
-            raise ValueError("X must contain only finite values")
-        return X @ self.coef_
+        backend, Xb = self._prepare_penalized_cox_prediction(X)
+        coef = backend.asarray(self.coef_, dtype=backend.float64)
+        result = Xb @ coef
+        return backend.to_numpy(result) if return_cpu else result
 
     def _predict_hazard_ratio_impl(self, X, return_cpu=True):
         """Predict hazard ratio: exp(X @ coef). Excludes intercept.
@@ -667,84 +670,9 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         from statgpu.survival._risk_sets import counting_process_concordance
 
         X = self._prepare_predict_X(X)
-        backend_name = self._prediction_backend_name()
-
-        if backend_name == "cupy":
-            import cupy as cp
-
-            Xb = cp.asarray(self._to_array(X, Device.CUDA), dtype=cp.float64)
-            if isinstance(y, dict):
-                if "time" not in y or "event" not in y:
-                    raise ValueError(
-                        "survival y dict must contain time and event"
-                    )
-                time = cp.asarray(y["time"], dtype=cp.float64).reshape(-1)
-                event = cp.asarray(y["event"], dtype=cp.float64).reshape(-1)
-            else:
-                yb = cp.asarray(y, dtype=cp.float64)
-                if yb.ndim != 2 or int(yb.shape[1]) != 2:
-                    raise ValueError(
-                        "y must be (n, 2) array with columns [time, event]"
-                    )
-                time, event = yb[:, 0], yb[:, 1]
-            coef = cp.asarray(self.coef_, dtype=cp.float64)
-        elif backend_name == "torch":
-            import torch
-
-            Xb = self._to_array(
-                X, Device.TORCH, backend="torch"
-            ).to(dtype=torch.float64)
-            if isinstance(y, dict):
-                if "time" not in y or "event" not in y:
-                    raise ValueError(
-                        "survival y dict must contain time and event"
-                    )
-                time = torch.as_tensor(
-                    y["time"],
-                    dtype=torch.float64,
-                    device=Xb.device,
-                ).reshape(-1)
-                event = torch.as_tensor(
-                    y["event"],
-                    dtype=torch.float64,
-                    device=Xb.device,
-                ).reshape(-1)
-            else:
-                yb = torch.as_tensor(
-                    y, dtype=torch.float64, device=Xb.device
-                )
-                if yb.ndim != 2 or int(yb.shape[1]) != 2:
-                    raise ValueError(
-                        "y must be (n, 2) array with columns [time, event]"
-                    )
-                time, event = yb[:, 0], yb[:, 1]
-            coef = torch.as_tensor(
-                self.coef_, dtype=Xb.dtype, device=Xb.device
-            )
-        else:
-            Xb = np.asarray(_to_numpy(X), dtype=np.float64)
-            if isinstance(y, dict):
-                if "time" not in y or "event" not in y:
-                    raise ValueError(
-                        "survival y dict must contain time and event"
-                    )
-                time = np.asarray(
-                    _to_numpy(y["time"]), dtype=np.float64
-                ).reshape(-1)
-                event = np.asarray(
-                    _to_numpy(y["event"]), dtype=np.float64
-                ).reshape(-1)
-            else:
-                yb = np.asarray(_to_numpy(y), dtype=np.float64)
-                if yb.ndim != 2 or yb.shape[1] != 2:
-                    raise ValueError(
-                        "y must be (n, 2) array with columns [time, event]"
-                    )
-                time, event = yb[:, 0], yb[:, 1]
-            coef = np.asarray(self.coef_, dtype=np.float64)
-
-        if Xb.ndim == 1:
-            Xb = Xb.reshape(-1, 1)
+        backend, Xb = self._prepare_penalized_cox_prediction(X)
+        time, event = self._prepare_penalized_cox_target(y, backend)
+        coef = backend.asarray(self.coef_, dtype=backend.float64)
         if (
             int(time.shape[0]) != int(event.shape[0])
             or int(Xb.shape[0]) != int(time.shape[0])

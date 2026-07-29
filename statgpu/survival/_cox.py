@@ -12,7 +12,13 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _is_cupy_array, _is_torch_array, _to_float_scalar
+from statgpu.backends import (
+    _is_cupy_array,
+    _is_torch_array,
+    _to_float_scalar,
+    get_backend,
+    xp_asarray,
+)
 from statgpu.backends._utils import _require_real_array
 from statgpu.inference._distributions_backend import chi2, norm
 from statgpu.inference._results import ParameterInferenceResult
@@ -79,12 +85,9 @@ def _align_cox_side_array(values, retained_rows, original_n, name="array"):
     if values is None:
         return None
 
-    # Detect backend BEFORE any np.asarray() to avoid CuPy 13.x implicit
-    # conversion errors and unnecessary GPU→CPU transfers.
-    module = type(values).__module__
-
-    if module.startswith("cupy"):
-        import cupy as cp
+    # Select an existing backend before any NumPy conversion. This preserves
+    # device ownership without duplicating CuPy/Torch import and dtype logic.
+    if _is_cupy_array(values) or _is_torch_array(values):
         if values.ndim != 1:
             raise ValueError(f"{name} must be one-dimensional")
         n_values = int(values.shape[0])
@@ -96,24 +99,24 @@ def _align_cox_side_array(values, retained_rows, original_n, name="array"):
                 f"{name} length {n_values} does not match "
                 f"original data length {original_n}"
             )
-        idx = cp.asarray(retained_rows, dtype=cp.int64)
+        is_torch = _is_torch_array(values)
+        target_device = (
+            "cpu"
+            if is_torch
+            and str(getattr(getattr(values, "device", None), "type", "cpu"))
+            == "cpu"
+            else "cuda"
+        )
+        backend = get_backend(
+            "torch" if is_torch else "cupy", device=target_device
+        )
+        idx = xp_asarray(
+            retained_rows,
+            dtype=backend.int64,
+            xp=backend.xp,
+            ref_arr=values,
+        )
         return values[idx]
-
-    if module.startswith("torch"):
-        import torch
-        if values.ndim != 1:
-            raise ValueError(f"{name} must be one-dimensional")
-        n_values = int(values.shape[0])
-        n_retained = len(retained_rows)
-        if n_values == n_retained:
-            return values
-        if n_values != original_n:
-            raise ValueError(
-                f"{name} length {n_values} does not match "
-                f"original data length {original_n}"
-            )
-        idx = torch.as_tensor(retained_rows, dtype=torch.long, device=values.device)
-        return values.index_select(0, idx)
 
     # NumPy / list / pandas path
     arr = np.asarray(values)
@@ -218,23 +221,23 @@ class CoxPH(BaseEstimator):
         ties_normalized = str(ties).lower()
         cov_type_normalized = str(cov_type).lower()
         inference_mode_normalized = str(inference_mode).lower()
-        # Preserve canonical constructor objects so sklearn.clone can verify
-        # that __init__ does not mutate public parameters.
-        self.ties = ties if ties == ties_normalized else ties_normalized
+        try:
+            penalty_value = float(penalty)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "penalty must be a finite non-negative number"
+            ) from exc
+        # Preserve Cox-specific constructor objects exactly for
+        # sklearn.clone(). Normalization for computation happens at fit time.
+        self.ties = ties
         self.tol = tol
         self.max_iter = max_iter
         self.compute_inference = compute_inference
-        self.compute_cindex = bool(compute_cindex)
-        self.cov_type = (
-            cov_type if cov_type == cov_type_normalized else cov_type_normalized
-        )
-        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
-        self.penalty = float(penalty)
-        self.inference_mode = (
-            inference_mode
-            if inference_mode == inference_mode_normalized
-            else inference_mode_normalized
-        )
+        self.compute_cindex = compute_cindex
+        self.cov_type = cov_type
+        self.gpu_memory_cleanup = gpu_memory_cleanup
+        self.penalty = penalty
+        self.inference_mode = inference_mode
 
         if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
             max_iter, numbers.Integral
@@ -246,16 +249,14 @@ class CoxPH(BaseEstimator):
             raise ValueError("tol must be a finite positive number") from exc
         if not np.isfinite(tol_value) or tol_value <= 0:
             raise ValueError("tol must be a finite positive number")
-        if not np.isfinite(self.penalty) or self.penalty < 0:
+        if not np.isfinite(penalty_value) or penalty_value < 0:
             raise ValueError("penalty must be a finite non-negative number")
-        if self.ties not in ('breslow', 'efron', 'exact'):
+        if ties_normalized not in ('breslow', 'efron', 'exact'):
             raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
-        if self.cov_type not in ("nonrobust", "hc0", "hc1", "cluster"):
+        if cov_type_normalized not in ("nonrobust", "hc0", "hc1", "cluster"):
             raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'")
-        if self.inference_mode not in ('strict', 'approx'):
+        if inference_mode_normalized not in ('strict', 'approx'):
             raise ValueError('inference_mode must be strict or approx')
-        if self.penalty < 0:
-            raise ValueError("penalty must be non-negative")
         
         # Keep fitted-state initialization and failed-refit cleanup identical.
         self._reset_fit_state()
