@@ -7,6 +7,20 @@
 
 ## 2026-07
 
+### 修复（2026-07-29）— PR #80 prepared capability 后续审查
+
+- `CoxPH.set_params()` 现在只校验 choice 与数值参数，不再改写公开表示；构造器、
+  `set_params()` 与 `fit()` 因此遵守同一套 clone-stable 参数契约，计算仍通过不可变
+  的私有 fit snapshot 使用规范化值。
+- 普通 `CoxPHCV` fold 现在使用显式的 immutable-fold prepared capability。由于这些
+  backend 数组在完整 penalty path 生命周期内由 CV 私有持有，每个候选可直接复用
+  failure-group 元数据，不再执行 O(np) 的居中排序内容扫描，也不再临时构建设计矩阵；
+  调用者持有的低层 prepared state 仍执行严格内容校验。
+- canonical public solver path 现在传递带类型的
+  `_PreparedCountingProcessInputs` 或 `_PreparedOrdinaryRightCensoredState`。
+  active path 不再依赖原先三个相互约束的 flag；低层 prepared 元数据本身即可选择
+  ordinary fast path，同时继续兼容显式请求 fast path 的直接调用。
+
 ### 修复（2026-07-29）— PR #80 schema-7 物理 GPU 复验
 
 - 精确源码的 schema-7 复验在 Tesla P100 上通过 282 项定向测试以及全部 18 个

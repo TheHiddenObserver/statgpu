@@ -403,6 +403,47 @@ def test_reused_right_censored_state_matches_fresh_solver(ties):
     )
 
 
+def test_prepared_right_censored_type_selects_direct_fast_path():
+    X, stop, event = _sample(n=36)
+    prepared = prepare_right_censored_cox_fast_path(
+        X, stop, event, ties="efron"
+    )
+    result = fit_counting_process_cox(
+        X,
+        stop,
+        event,
+        ties="efron",
+        compute_baseline=False,
+        compute_score_residuals=False,
+        right_censored_prepared=prepared,
+    )
+    assert np.all(np.isfinite(result["coef"]))
+
+
+def test_cv_owned_prepared_state_skips_per_candidate_content_scan(monkeypatch):
+    X, stop, event = _sample(n=42)
+
+    def unexpected_full_content_scan(*args, **kwargs):
+        raise AssertionError("CV rescanned an immutable fold design matrix")
+
+    monkeypatch.setattr(
+        cox_counting._PreparedRightCensoredCox,
+        "matches_content",
+        unexpected_full_content_scan,
+    )
+    model = CoxPHCV(
+        penalties=np.array([0.2, 0.1, 0.05]),
+        cv=3,
+        random_state=8,
+        device="cpu",
+        compute_inference=False,
+        max_iter=60,
+    ).fit(X, stop, event)
+
+    assert model.cv_results_["candidate_right_censored_preparation_count"] == 3
+    assert np.isfinite(model.penalty_)
+
+
 @pytest.mark.parametrize("changed", ["X", "stop", "event"])
 def test_direct_solver_rejects_prepared_state_for_different_contents(changed):
     X, stop, event = _sample(n=36)

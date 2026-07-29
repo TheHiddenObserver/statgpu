@@ -7,6 +7,24 @@
 
 ## 2026-07
 
+### Fixed (2026-07-29) — PR #80 prepared-capability follow-up
+
+- `CoxPH.set_params()` now validates choice and numeric controls without
+  rewriting their public representation; constructor, `set_params()`, and
+  `fit()` therefore share the same clone-stable parameter contract, while an
+  immutable private fit snapshot supplies normalized values to computation.
+- Ordinary `CoxPHCV` folds now use an explicit immutable-fold prepared
+  capability. Because those backend arrays are privately owned for the full
+  penalty path, candidates reuse their failure-group metadata without an
+  O(np) centered-and-sorted content scan or temporary design allocation.
+  Caller-owned low-level prepared states retain strict content validation.
+- The canonical public solver path now passes typed
+  `_PreparedCountingProcessInputs` or
+  `_PreparedOrdinaryRightCensoredState` objects. These replace the previous
+  three-flag combination in active code; direct low-level prepared metadata
+  selects the ordinary fast path by type while legacy explicit fast-path
+  requests remain supported.
+
 ### Fixed (2026-07-29) — PR #80 final follow-up
 
 - Ordinary GPU Breslow/Efron fits now report their complete sorted time/event

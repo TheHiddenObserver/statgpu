@@ -800,3 +800,48 @@ timings, and device metadata:
 Exit status: `COMPLETE`. No unresolved CRITICAL/HIGH finding remains in this
 follow-up. Repository-hosted CUDA CI remains an infrastructure item; the
 maintained physical-GPU runner and artifact close the PR-level evidence gate.
+
+## Parameter and Prepared-Capability Follow-up
+
+Impact classification: backend=`three-backend`; survival objective=
+`ordinary Breslow/Efron`; CV=`CoxPHCV`; inference=`unchanged`; formula=
+`unchanged`; performance/memory=`active`; public API=`parameter stability`;
+validation tier=`local-full`.
+
+- [LOW][API/MAINT][fixed] `CoxPH.set_params()` validated then lowercased choice
+  controls and converted penalties to Python floats. Constructor and fit had
+  already moved to representation-stable public parameters plus immutable
+  active controls. The setter now validates without rewriting the caller's
+  valid object; `_CoxFitControls` remains the sole computational normalization
+  boundary.
+- [LOW][PERF][fixed] Strict reusable metadata validation reconstructed and
+  compared a complete centered-and-sorted design for every CV candidate.
+  Hashing would retain the O(np) scan, and arbitrary backend arrays have no
+  reliable mutation generation counter. CV now creates a distinct
+  `_PreparedImmutableFoldRightCensoredCox` capability for its privately owned
+  fold arrays, so the complete penalty path skips both the scan and temporary
+  matrix. Direct low-level state remains strict and still rejects changed or
+  in-place-mutated inputs.
+- [LOW][MAINT/EXT][fixed] The canonical call chain previously combined
+  `right_censored_fast_path`, `right_censored_prepared`, and
+  `_inputs_prepared`. Public dispatch now supplies either
+  `_PreparedCountingProcessInputs` or
+  `_PreparedOrdinaryRightCensoredState`; the concrete type determines the
+  canonical objective path. A direct low-level prepared object also selects
+  the fast path without a second boolean, while explicit fast-path requests
+  remain backward compatible.
+
+Targeted evidence covers public parameter representation, strict direct-state
+mutation rejection, CV reuse with the full content validator replaced by a
+fail-fast sentinel, direct type-selected fast-path parity, and duplicate input
+normalization prevention across the Cox boundary.
+
+Local validation passed **1509 tests**, with 455 optional-backend skips and 10
+expected warnings. Pyflakes, compileall, `git diff --check`, benchmark CLI
+loading, deterministic documentation links, and all **122 documentation
+contracts** also pass. The maintained physical runner is advanced to schema 9;
+it records zero strict content-validation calls for internally owned ordinary
+GPU CV folds and checks `set_params()` representation stability on both CuPy
+and Torch. The last committed schema-8 P100 artifact predates these source
+changes, so an exact-source schema-9 refresh remains necessary before claiming
+physical evidence for this follow-up.

@@ -29,7 +29,11 @@ from statgpu.survival._cox_fit_adapter import (
     _PreencodedCoxLabels,
 )
 from statgpu.survival._cox_errors import CoxFitNumericalError
-from statgpu.survival._cox_counting import _score_test_statistic
+from statgpu.survival._cox_counting import (
+    _make_prepared_counting_process_inputs,
+    _score_test_statistic,
+    prepare_right_censored_cox_fast_path,
+)
 from statgpu.survival._cox_inference import (
     _invert_information_cupy,
     _invert_information_numpy,
@@ -451,6 +455,16 @@ class CoxPH(BaseEstimator):
                         "prepared right-censored metadata does not match the "
                         "current matrix fit inputs"
                     )
+                if (
+                    _right_censored_prepared.requires_content_validation
+                    and not _right_censored_prepared.matches_content(
+                        X, time, event, controls.ties
+                    )
+                ):
+                    raise ValueError(
+                        "prepared right-censored metadata does not match "
+                        "dataset contents"
+                    )
             result = self._fit_impl(
                 X=X,
                 time=time,
@@ -671,19 +685,17 @@ class CoxPH(BaseEstimator):
         )
 
     def set_params(self, **params):
-        """Set sklearn-style parameters with Cox-specific validation."""
+        """Validate and store sklearn-style parameters without rewriting them."""
         if "ties" in params:
             ties = str(params["ties"]).lower()
             if ties not in {"breslow", "efron", "exact"}:
                 raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
-            params["ties"] = ties
         if "cov_type" in params:
             cov_type = str(params["cov_type"]).lower()
             if cov_type not in {"nonrobust", "hc0", "hc1", "cluster"}:
                 raise ValueError(
                     "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'"
                 )
-            params["cov_type"] = cov_type
         if "max_iter" in params:
             max_iter = params["max_iter"]
             if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
@@ -698,15 +710,18 @@ class CoxPH(BaseEstimator):
             if not np.isfinite(tol) or tol <= 0:
                 raise ValueError("tol must be a finite positive number")
         if "penalty" in params:
-            penalty = float(params["penalty"])
+            try:
+                penalty = float(params["penalty"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "penalty must be a finite non-negative number"
+                ) from exc
             if not np.isfinite(penalty) or penalty < 0:
                 raise ValueError("penalty must be a finite non-negative number")
-            params["penalty"] = penalty
         if "inference_mode" in params:
             mode = str(params["inference_mode"]).lower()
             if mode not in {"strict", "approx"}:
                 raise ValueError("inference_mode must be strict or approx")
-            params["inference_mode"] = mode
         return super().set_params(**params)
 
     @staticmethod
@@ -879,6 +894,18 @@ class CoxPH(BaseEstimator):
             raise ValueError(
                 "prepared right-censored metadata is incompatible with this fit"
             )
+        if right_censored_fast_path and right_censored_prepared is None:
+            right_censored_prepared = prepare_right_censored_cox_fast_path(
+                Xb, stopb, eventb, ties=controls.ties
+            )
+        prepared_inputs = _make_prepared_counting_process_inputs(
+            Xb,
+            stopb,
+            eventb,
+            startb,
+            stratab,
+            right_censored=right_censored_prepared,
+        )
         result = fit_counting_process_cox(
             Xb,
             stopb,
@@ -895,9 +922,7 @@ class CoxPH(BaseEstimator):
                 controls.compute_inference
                 and controls.cov_type != "nonrobust"
             ),
-            right_censored_fast_path=right_censored_fast_path,
-            right_censored_prepared=right_censored_prepared,
-            _inputs_prepared=True,
+            _prepared_inputs=prepared_inputs,
         )
 
         to_numpy = compute_backend.to_numpy

@@ -52,6 +52,21 @@ def test_coxph_constructor_preserves_clone_safe_cox_controls():
     assert model.penalty is penalty
 
 
+def test_coxph_set_params_preserves_validated_public_values():
+    penalty = np.float64(0.125)
+    model = CoxPH().set_params(
+        ties="EFRON",
+        cov_type="HC1",
+        inference_mode="STRICT",
+        penalty=penalty,
+    )
+
+    assert model.ties == "EFRON"
+    assert model.cov_type == "HC1"
+    assert model.inference_mode == "STRICT"
+    assert model.penalty is penalty
+
+
 def _cox_fit_sample(n=30, p=2):
     rng = np.random.default_rng(8080)
     X = rng.normal(size=(n, p))

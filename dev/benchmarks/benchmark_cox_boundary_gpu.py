@@ -276,13 +276,25 @@ def _case_ordinary_cv_preparation(name: str, xp) -> dict:
     stop = _array(name, xp, stop_np)
     event = _array(name, xp, event_np)
     copy_shapes = []
+    content_validation_calls = 0
     original_loss_to_numpy = cox_loss._to_numpy
+    original_matches_content = (
+        cox_counting._PreparedRightCensoredCox.matches_content
+    )
 
     def recording_loss_to_numpy(value):
         copy_shapes.append(tuple(int(v) for v in value.shape))
         return original_loss_to_numpy(value)
 
+    def recording_matches_content(*args, **kwargs):
+        nonlocal content_validation_calls
+        content_validation_calls += 1
+        return original_matches_content(*args, **kwargs)
+
     cox_loss._to_numpy = recording_loss_to_numpy
+    cox_counting._PreparedRightCensoredCox.matches_content = (
+        recording_matches_content
+    )
     try:
         model = CoxPHCV(
             penalties=np.array([0.1, 0.01]),
@@ -297,6 +309,9 @@ def _case_ordinary_cv_preparation(name: str, xp) -> dict:
         _sync(name, xp)
     finally:
         cox_loss._to_numpy = original_loss_to_numpy
+        cox_counting._PreparedRightCensoredCox.matches_content = (
+            original_matches_content
+        )
 
     fold_n = X_np.shape[0] // 2
     expected_shapes = [(fold_n,), (fold_n,)] * 2 + [
@@ -307,6 +322,7 @@ def _case_ordinary_cv_preparation(name: str, xp) -> dict:
     passed = all(
         (
             copy_shapes == expected_shapes,
+            content_validation_calls == 0,
             diagnostics["candidate_right_censored_preparation_count"] == 2,
             diagnostics["candidate_target_host_transfer_count"] == 2,
             diagnostics["candidate_target_host_transfer_count_this_call"] == 2,
@@ -323,6 +339,7 @@ def _case_ordinary_cv_preparation(name: str, xp) -> dict:
         "ties": "efron",
         "loss_target_host_copy_shapes": copy_shapes,
         "expected_loss_target_host_copy_shapes": expected_shapes,
+        "strict_content_validation_calls": content_validation_calls,
         "candidate_right_censored_preparation_count": diagnostics[
             "candidate_right_censored_preparation_count"
         ],
@@ -487,20 +504,30 @@ def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
             np.all(np.isfinite(_numpy(name, valid["coef"])))
         )
 
+    set_penalty = np.float64(0.1)
     fit_model = CoxPH(
-        ties="EFRON",
-        cov_type="NONROBUST",
-        inference_mode="STRICT",
-        penalty=np.float64(0.1),
         device=device,
         compute_inference=0,
         compute_cindex=0,
         max_iter=np.int64(40),
         tol=np.float64(1e-7),
+    ).set_params(
+        ties="EFRON",
+        cov_type="NONROBUST",
+        inference_mode="STRICT",
+        penalty=set_penalty,
     )
     before = fit_model.get_params().copy()
     fit_model.fit(X, stop, event)
-    constructor_parameters_stable = fit_model.get_params() == before
+    set_params_representation_stable = all(
+        (
+            fit_model.get_params() == before,
+            fit_model.ties == "EFRON",
+            fit_model.cov_type == "NONROBUST",
+            fit_model.inference_mode == "STRICT",
+            fit_model.penalty is set_penalty,
+        )
+    )
     active_controls_normalized = all(
         (
             fit_model._fit_controls.ties == "efron",
@@ -515,7 +542,7 @@ def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
             one_dimensional_row_ok,
             all(shape_rejections.values()),
             all(fast_path.values()),
-            constructor_parameters_stable,
+            set_params_representation_stable,
             active_controls_normalized,
         )
     )
@@ -524,7 +551,8 @@ def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
         "one_dimensional_multifeature_row": one_dimensional_row_ok,
         "shape_rejections": shape_rejections,
         "fast_path_eligibility": fast_path,
-        "constructor_parameters_stable": constructor_parameters_stable,
+        "constructor_parameters_stable": set_params_representation_stable,
+        "set_params_representation_stable": set_params_representation_stable,
         "active_controls_normalized": active_controls_normalized,
         "passed": bool(passed),
     }
@@ -1213,7 +1241,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 8,
+        "schema_version": 9,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

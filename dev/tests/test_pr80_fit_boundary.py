@@ -172,10 +172,10 @@ def test_mutated_controls_use_private_canonical_fit_snapshot():
     )
     model.fit(X, stop, event)
 
-    assert model.ties == "efron"
-    assert model.cov_type == "hc1"
-    assert model.inference_mode == "strict"
-    assert model.penalty == pytest.approx(0.1)
+    assert model.ties == "EFRON"
+    assert model.cov_type == "HC1"
+    assert model.inference_mode == "STRICT"
+    assert model.penalty == "0.1"
     assert model.tol == "1e-7"
     assert model.compute_inference == 0
     assert model.compute_cindex == 1

@@ -56,6 +56,11 @@ class _PreparedRightCensoredCox:
     n_features: int
     full_target_host_transfer_performed: bool
 
+    @property
+    def requires_content_validation(self) -> bool:
+        """Whether reuse must rescan the caller-owned source arrays."""
+        return True
+
     def matches_sources(self, X: Any, stop: Any, event: Any, ties: str) -> bool:
         """Require identity matches so private CV state cannot fit other data."""
         return bool(
@@ -130,14 +135,75 @@ class _PreparedRightCensoredCox:
         return _scalar_bool(matches)
 
 
-def prepare_right_censored_cox_fast_path(
+@dataclass(frozen=True)
+class _PreparedImmutableFoldRightCensoredCox(_PreparedRightCensoredCox):
+    """Capability for CV-owned fold arrays that are never exposed or mutated."""
+
+    @property
+    def requires_content_validation(self) -> bool:
+        """CV owns these arrays for the complete penalty-path lifetime."""
+        return False
+
+
+@dataclass(frozen=True)
+class _PreparedCountingProcessInputs:
+    """Backend-normalized counting-process arrays for one solver call."""
+
+    X: Any
+    stop: Any
+    event: Any
+    start: Any
+    strata: Any
+
+    def matches_sources(
+        self, X: Any, stop: Any, event: Any, start: Any, strata: Any
+    ) -> bool:
+        """Require the exact arrays that were normalized at the public boundary."""
+        return bool(
+            X is self.X
+            and stop is self.stop
+            and event is self.event
+            and start is self.start
+            and strata is self.strata
+        )
+
+
+@dataclass(frozen=True)
+class _PreparedOrdinaryRightCensoredState(_PreparedCountingProcessInputs):
+    """Normalized ordinary inputs plus their reusable failure-group state."""
+
+    right_censored: _PreparedRightCensoredCox
+
+
+def _make_prepared_counting_process_inputs(
+    X: Any,
+    stop: Any,
+    event: Any,
+    start: Any,
+    strata: Any,
+    *,
+    right_censored: Optional[_PreparedRightCensoredCox] = None,
+) -> _PreparedCountingProcessInputs:
+    """Create the typed capability consumed by the canonical public solver path."""
+    common = dict(X=X, stop=stop, event=event, start=start, strata=strata)
+    if right_censored is None:
+        return _PreparedCountingProcessInputs(**common)
+    if not isinstance(right_censored, _PreparedRightCensoredCox):
+        raise TypeError("right_censored must be prepared Cox metadata")
+    return _PreparedOrdinaryRightCensoredState(
+        **common, right_censored=right_censored
+    )
+
+
+def _build_right_censored_cox_fast_path(
     X: Any,
     stop: Any,
     event: Any,
     *,
     ties: str,
+    state_type: type[_PreparedRightCensoredCox],
 ) -> _PreparedRightCensoredCox:
-    """Build once-per-dataset right-censored sorting/grouping metadata."""
+    """Build one strict or internally owned right-censored capability."""
     ties = str(ties).lower()
     if ties not in {"breslow", "efron"}:
         raise ValueError("right-censored preparation supports Breslow/Efron ties")
@@ -152,7 +218,7 @@ def prepare_right_censored_cox_fast_path(
         and str(getattr(getattr(X_sorted, "device", None), "type", "cpu"))
         != "cpu"
     )
-    return _PreparedRightCensoredCox(
+    return state_type(
         loss=loss,
         X_sorted=X_sorted,
         source_X=X,
@@ -164,6 +230,40 @@ def prepare_right_censored_cox_fast_path(
         n_samples=int(X_sorted.shape[0]),
         n_features=int(X_sorted.shape[1]),
         full_target_host_transfer_performed=target_was_device_resident,
+    )
+
+
+def prepare_right_censored_cox_fast_path(
+    X: Any,
+    stop: Any,
+    event: Any,
+    *,
+    ties: str,
+) -> _PreparedRightCensoredCox:
+    """Build once-per-dataset right-censored sorting/grouping metadata."""
+    return _build_right_censored_cox_fast_path(
+        X,
+        stop,
+        event,
+        ties=ties,
+        state_type=_PreparedRightCensoredCox,
+    )
+
+
+def _prepare_immutable_fold_right_censored_cox_fast_path(
+    X: Any,
+    stop: Any,
+    event: Any,
+    *,
+    ties: str,
+) -> _PreparedImmutableFoldRightCensoredCox:
+    """Build a reusable state for CV-private, immutable fold arrays."""
+    return _build_right_censored_cox_fast_path(
+        X,
+        stop,
+        event,
+        ties=ties,
+        state_type=_PreparedImmutableFoldRightCensoredCox,
     )
 
 
@@ -222,7 +322,7 @@ def fit_counting_process_cox(
     compute_score_residuals: bool = True,
     right_censored_fast_path: bool = False,
     right_censored_prepared: Optional[_PreparedRightCensoredCox] = None,
-    _inputs_prepared: bool = False,
+    _prepared_inputs: Optional[_PreparedCountingProcessInputs] = None,
 ) -> Dict[str, Any]:
     """Fit a Cox model using a backend-native damped Newton method.
 
@@ -230,10 +330,31 @@ def fit_counting_process_cox(
     Every rejected Newton step is handled by backtracking; an iteration never
     silently accepts a step that decreases the penalized objective.
     """
-    if not _inputs_prepared:
+    prepared_solver_state = _prepared_inputs
+    if prepared_solver_state is None:
         X, stop, event, start, strata = prepare_counting_process_inputs(
             X, stop, event, start=start, strata=strata
         )
+    else:
+        if not isinstance(prepared_solver_state, _PreparedCountingProcessInputs):
+            raise TypeError(
+                "_prepared_inputs must be prepared counting-process inputs"
+            )
+        if right_censored_fast_path or right_censored_prepared is not None:
+            raise ValueError(
+                "typed prepared inputs cannot be combined with legacy fast-path flags"
+            )
+        if not prepared_solver_state.matches_sources(
+            X, stop, event, start, strata
+        ):
+            raise ValueError(
+                "prepared counting-process inputs do not match solver arguments"
+            )
+        X = prepared_solver_state.X
+        stop = prepared_solver_state.stop
+        event = prepared_solver_state.event
+        start = prepared_solver_state.start
+        strata = prepared_solver_state.strata
     backend, xp = _array_namespace(X)
     n_features = int(X.shape[1])
     if init_coef is None:
@@ -262,7 +383,17 @@ def fit_counting_process_cox(
     fast_loss = None
     fast_X = None
     prepared_created_here = False
-    if right_censored_fast_path:
+    prepared_validated_by_boundary = isinstance(
+        prepared_solver_state, _PreparedOrdinaryRightCensoredState
+    )
+    if prepared_validated_by_boundary:
+        right_censored_prepared = prepared_solver_state.right_censored
+    use_right_censored_fast_path = bool(
+        right_censored_fast_path
+        or right_censored_prepared is not None
+        or prepared_validated_by_boundary
+    )
+    if use_right_censored_fast_path:
         if ties not in {"breslow", "efron"}:
             raise ValueError(
                 "right_censored_fast_path supports only Breslow/Efron ties"
@@ -293,6 +424,7 @@ def fit_counting_process_cox(
             or right_censored_prepared.n_features != n_features
             or (
                 not prepared_created_here
+                and not prepared_validated_by_boundary
                 and not right_censored_prepared.matches_content(
                     X, stop, event, ties
                 )
@@ -304,10 +436,6 @@ def fit_counting_process_cox(
             )
         fast_loss = right_censored_prepared.loss
         fast_X = right_censored_prepared.X_sorted
-    elif right_censored_prepared is not None:
-        raise ValueError(
-            "prepared right-censored metadata requires right_censored_fast_path"
-        )
 
     def evaluate(coef):
         if fast_loss is None:
