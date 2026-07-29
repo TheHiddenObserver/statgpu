@@ -32,7 +32,9 @@
   joint Wald test 则通过显式 availability/failure metadata 与 summary 输出标记；
   summary 也会区分 robust Wald 和经典 likelihood-ratio/score test。外部协方差向量
   现在必须具有精确长度且全部有限；R 与 statsmodels 显式使用对齐的 Newton
-  `max_iter`/`tol`，JSON 同步记录 solver contract。
+  `max_iter`/`tol`，JSON 同步记录 solver contract。精确源码 schema-11 在
+  Tesla P100 上通过 CuPy/Torch 各 11/11 个 case 与 353 个定向测试；对齐后的
+  Breslow/Efron R HC1 和 cluster 结果约在 `1e-16` 量级一致。
 - 前一版 prepared-capability schema-9 精确 clean source commit 已通过 Paramiko
   在远程 `myconda` 的 Tesla P100
   上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content

@@ -41,7 +41,10 @@
   output. Summary labels robust Wald separately from classical likelihood-ratio
   and score tests. External covariance vectors now require exact finite length;
   R and statsmodels receive explicit Newton `max_iter`/`tol` controls, and JSON
-  records the aligned solver contract.
+  records the aligned solver contract. Exact-source schema-11 validation on a
+  Tesla P100 passed 11/11 CuPy and Torch cases plus 353 targeted tests, while
+  aligned Breslow/Efron R HC1 and cluster results agree to approximately
+  `1e-16`.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

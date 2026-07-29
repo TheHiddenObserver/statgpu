@@ -644,4 +644,11 @@ score tests. The external benchmark also rejects truncated/non-finite R vectors,
 rejects mismatched comparison shapes, aligns Newton iteration/tolerance controls,
 and records them in JSON. Schema 11 adds physical CuPy/Torch rank-deficiency and
 summary gates. Complete local regression passes `1525 passed, 471 skipped`,
-with 10 expected warnings; exact-source P100 and R refresh remains pending.
+with 10 expected warnings.
+
+Exact detached commit `f7215093c342c296ac3a1299117d8aea7baa33e1`
+passed schema 11 on a Tesla P100-SXM2-16GB: CuPy and Torch each passed 11/11
+structured cases, the targeted matrix passed 353 tests, all 31 Git-blob hashes
+match, `source_clean=true`, and `gate_failures=[]`. The aligned
+`n=3000`, `p=10` Breslow/Efron R runs reproduce HC1 and cluster
+coefficient/SE/p-value results to approximately `1e-16`.

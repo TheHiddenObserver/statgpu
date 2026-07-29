@@ -926,7 +926,7 @@ PR #80 reported `mergeable=true` and `mergeable_state=clean`.
 Impact classification: backend=`NumPy/CuPy/Torch`; inference=
 `HC0/HC1/cluster joint Wald`; marginal inference=`preserved`; summary=
 `robust/classical labels`; benchmark=`R/statsmodels strict`; validation tier=
-`local-focused; exact-source physical GPU pending`.
+`remote-full`.
 
 - [MEDIUM][BUG/INFERENCE][fixed] A robust covariance with positive diagonal but
   deficient full-parameter rank could reach `np.linalg.solve`, producing a
@@ -950,5 +950,27 @@ Focused NumPy tests cover two-cluster `p=3`, subject-HC0 with `G=p`, full-rank
 truncated/non-finite R output, and comparison-shape rejection. Schema 11 extends
 the maintained physical CuPy/Torch case with the same rank-deficient joint-Wald
 and summary contracts. The complete local suite passes 1525 tests with 471
-optional-backend skips and 10 expected warnings. Exact-source P100 and R
-schema-11 evidence remains pending authorization.
+optional-backend skips and 10 expected warnings.
+
+Exact clean detached source commit
+`f7215093c342c296ac3a1299117d8aea7baa33e1` passed schema 11 in remote
+`myconda` on a Tesla P100-SXM2-16GB. CuPy 13.6.0 and Torch 2.0.0+cu117
+each passed all 11 structured cases, including rank-deficient cluster and
+subject-HC0 joint-Wald gates; the targeted physical matrix passed 353 tests
+with 5 expected warnings. All 31 Git-blob hashes match, `source_clean=true`,
+and `gate_failures=[]`.
+
+The exact-source `n=3000`, `p=10` R comparison passed for Breslow and
+Efron with aligned Newton `max_iter=80` and `tol=1e-8`. R HC1 maximum
+coefficient/SE/p-value differences are
+`5.55e-16`/`1.39e-16`/`8.00e-19`; R cluster differences are
+`5.55e-16`/`1.32e-16`/`2.22e-16` for both ties methods.
+
+Machine-readable evidence:
+
+- `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema11.json`
+  (SHA-256 `080ee60a7bf7e4e1a073698e5316a0b06b42c4ce7fec907af6845a2e31349c4e`);
+- `results/benchmark_frontend_sources/coxph_robust_inference_breslow_pr80_20260729_schema11.json`
+  (SHA-256 `8131b9f2e06ef7c08f75ba1c0b032ca1e5d1b53caacdb02fee1b01bc3c37744d`);
+- `results/benchmark_frontend_sources/coxph_robust_inference_efron_pr80_20260729_schema11.json`
+  (SHA-256 `b95eb0475a50e9e339d6f5cb337c9ce9557683c18ae85b6b0ef0fa457814a728`).
