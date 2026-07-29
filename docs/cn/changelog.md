@@ -34,6 +34,13 @@
   重复扫描次数为零和公开 setter 表示稳定；物理 GPU targeted matrix 通过 321 项测试，
   记录的 29 个 Git-blob hash 全部匹配，且 `gate_failures=[]`。证据提交随后通过全部
   7 个 hosted docs、static、full-CPU 与 Python 3.9–3.12 jobs。
+- 精确源码 commit `4570b9dca4cb771edfb1c29efb564c0e5340227f` 的 schema-10
+  验证已在 Tesla P100 通过：CuPy 与 Torch 各通过 11/11 structured cases，
+  targeted matrix 通过 343 项测试，31 个 Git-blob hash 全部匹配，
+  `source_clean=true` 且 `gate_failures=[]`。在 `n=3000`、`p=10` 下，R
+  `survival::coxph` 的 HC1 与 cluster 系数、标准误和 p-value 与 StatGPU 的差异
+  约为 `1.4e-16`；statsmodels HC1 及其动态返回非有限值的 cluster 推断均在严格
+  JSON 中明确标记为 unsupported。
 
 ### 修复（2026-07-29）— PR #80 schema-7 物理 GPU 复验
 

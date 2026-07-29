@@ -859,7 +859,7 @@ seven hosted jobs passed in GitHub Actions run `30440782646`.
 Impact classification: backend=`NumPy/CuPy/Torch`; survival objective=
 `Breslow/Efron inference`; CV=`final refit inherits contract`; inference=
 `HC0/HC1/cluster`; formula=`unchanged`; performance=`negligible pre-meat gate`;
-validation tier=`local-full; exact-source physical GPU pending`.
+validation tier=`remote-full`.
 
 - [MEDIUM][BUG/INFERENCE][fixed] Robust covariance previously formed sandwich
   meat even when aggregation left a single independent subject or cluster, and
@@ -889,8 +889,29 @@ validation tier=`local-full; exact-source physical GPU pending`.
   content validation is safe only under private CV ownership for the complete
   penalty path.
 
-The complete local suite passes 1518 tests with 467 optional-backend skips and
+The complete local suite passes 1519 tests with 467 optional-backend skips and
 10 expected warnings. The maintained physical runner is schema 10 and adds direct CuPy/Torch
 cases for one cluster, one subject, `n_units == n_features`, and the valid
 `n_units == n_features + 1` correction ratio. Exact-source P100 JSON and the R
-comparison artifact remain pending until the source commit is authorized.
+comparison were then executed from clean detached commit
+`4570b9dca4cb771edfb1c29efb564c0e5340227f` in remote `myconda` on a Tesla
+P100-SXM2-16GB. CuPy 13.6.0 and Torch 2.0.0+cu117 each passed all 11 structured
+cases; the targeted matrix passed 343 tests with 5 expected warnings. All 31
+Git-blob source hashes match, `source_clean=true`, and `gate_failures=[]`.
+
+The external `n=3000`, `p=10` Breslow and Efron artifacts record 3000 HC1
+independent units and the exact correction `1.0033444816053512`, plus 120
+cluster units. R HC1 maximum coefficient/SE/p-value differences are
+`5.55e-16`/`1.39e-16`/`8.00e-19`; R cluster differences are
+`5.55e-16`/`1.32e-16`/`2.22e-16` for both ties methods. Statsmodels HC1 is
+explicitly unsupported, and the remote PHReg cluster result is likewise marked
+unsupported because its SE and p-value vectors are non-finite.
+
+Machine-readable evidence:
+
+- `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema10.json`
+  (SHA-256 `9bd141082fad06151e57952f537e5afff2306d05642dd84e9b27e8f20b501fa0`);
+- `results/benchmark_frontend_sources/coxph_robust_inference_breslow_pr80_20260729_schema10.json`
+  (SHA-256 `a7667402371aac7ca7cd3ef128dbdac66bce22cdf12504439682b4f97cade0ed`);
+- `results/benchmark_frontend_sources/coxph_robust_inference_efron_pr80_20260729_schema10.json`
+  (SHA-256 `53f43f7fc4cc2d3fd29443aff318ba07c7b3dc3c1cf8931db593c1546fda74c2`).

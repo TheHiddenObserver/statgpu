@@ -601,7 +601,7 @@ completed successfully for evidence commit `89e4307c4015`. The required
 
 Impact: inference=`HC0/HC1/cluster`; backends=`NumPy/CuPy/Torch`;
 objective=`unchanged`; benchmark=`external covariance labels corrected`;
-validation=`local passed, exact-source P100 pending`.
+validation=`remote-full passed`.
 
 - Strict inference now rejects fewer than two independent units after subject
   or cluster aggregation. HC1 additionally rejects
@@ -616,8 +616,16 @@ validation=`local passed, exact-source P100 pending`.
 - The trusted fold capability name and documentation now describe private CV
   ownership rather than structural immutability.
 
-Complete local regression: `1518 passed, 467 skipped`, with 10 expected
+Complete local regression: `1519 passed, 467 skipped`, with 10 expected
 warnings (the skips require optional backends). Schema 10 adds one-cluster,
 one-subject, HC1 degrees-of-freedom boundary,
 positive-SE, exact correction-ratio, and failed-state-cleanup evidence for both
 CuPy and Torch.
+
+Exact clean detached commit
+`4570b9dca4cb771edfb1c29efb564c0e5340227f` passed schema 10 on a Tesla
+P100-SXM2-16GB: 343 targeted tests, 11/11 structured cases per backend, 31/31
+Git-blob hashes, `source_clean=true`, and `gate_failures=[]`. The paired
+Breslow/Efron R artifacts at `n=3000`, `p=10` align HC1 and cluster
+coefficient/SE/p-value results to approximately `1e-16`; unsupported
+statsmodels modes are represented explicitly rather than relabelled.

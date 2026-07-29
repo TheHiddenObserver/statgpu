@@ -43,6 +43,14 @@
   29 recorded Git-blob hashes match, and `gate_failures=[]`. The evidence
   commit then passed all seven hosted docs, static, full-CPU, and Python
   3.9–3.12 jobs.
+- Exact-source schema-10 validation of commit
+  `4570b9dca4cb771edfb1c29efb564c0e5340227f` passed on a Tesla P100:
+  CuPy and Torch each passed 11/11 structured cases, the targeted matrix passed
+  343 tests, all 31 Git-blob hashes match, `source_clean=true`, and
+  `gate_failures=[]`. At `n=3000`, `p=10`, R `survival::coxph` HC1 and cluster
+  inference matched StatGPU coefficients, standard errors, and p-values to
+  about `1.4e-16`; statsmodels HC1 and its dynamically non-finite cluster
+  inference are explicitly unsupported in the strict JSON artifacts.
 
 ### Fixed (2026-07-29) — PR #80 final follow-up
 
