@@ -629,3 +629,7 @@ Git-blob hashes, `source_clean=true`, and `gate_failures=[]`. The paired
 Breslow/Efron R artifacts at `n=3000`, `p=10` align HC1 and cluster
 coefficient/SE/p-value results to approximately `1e-16`; unsupported
 statsmodels modes are represented explicitly rather than relabelled.
+
+Evidence commit `8cb02c0e782b8719f86efea172059f5e801ab685` passed all seven hosted
+jobs in Actions run `30451833466`; PR #80 was mergeable and clean after that
+run.

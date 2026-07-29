@@ -40,7 +40,9 @@
   `source_clean=true` 且 `gate_failures=[]`。在 `n=3000`、`p=10` 下，R
   `survival::coxph` 的 HC1 与 cluster 系数、标准误和 p-value 与 StatGPU 的差异
   约为 `1.4e-16`；statsmodels HC1 及其动态返回非有限值的 cluster 推断均在严格
-  JSON 中明确标记为 unsupported。
+  JSON 中明确标记为 unsupported。证据提交
+  `8cb02c0e782b8719f86efea172059f5e801ab685` 随后在 Actions run
+  `30451833466` 中通过全部 7 个 hosted jobs。
 
 ### 修复（2026-07-29）— PR #80 schema-7 物理 GPU 复验
 

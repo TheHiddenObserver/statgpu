@@ -915,3 +915,8 @@ Machine-readable evidence:
   (SHA-256 `a7667402371aac7ca7cd3ef128dbdac66bce22cdf12504439682b4f97cade0ed`);
 - `results/benchmark_frontend_sources/coxph_robust_inference_efron_pr80_20260729_schema10.json`
   (SHA-256 `53f43f7fc4cc2d3fd29443aff318ba07c7b3dc3c1cf8931db593c1546fda74c2`).
+
+Evidence commit `8cb02c0e782b8719f86efea172059f5e801ab685` is pushed. All seven
+hosted jobs (`docs-contracts`, `static-contracts`, `full-cpu-suite`, and the
+Python 3.9–3.12 regression matrix) passed in GitHub Actions run `30451833466`;
+PR #80 reported `mergeable=true` and `mergeable_state=clean`.

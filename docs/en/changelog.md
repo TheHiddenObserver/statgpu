@@ -50,7 +50,9 @@
   `gate_failures=[]`. At `n=3000`, `p=10`, R `survival::coxph` HC1 and cluster
   inference matched StatGPU coefficients, standard errors, and p-values to
   about `1.4e-16`; statsmodels HC1 and its dynamically non-finite cluster
-  inference are explicitly unsupported in the strict JSON artifacts.
+  inference are explicitly unsupported in the strict JSON artifacts. Evidence
+  commit `8cb02c0e782b8719f86efea172059f5e801ab685` then passed all seven
+  hosted jobs in Actions run `30451833466`.
 
 ### Fixed (2026-07-29) — PR #80 final follow-up
 
