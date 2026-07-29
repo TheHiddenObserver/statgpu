@@ -5,13 +5,12 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**COMPLETE.** The two post-schema-7 MEDIUM fixes and the fit-parameter stability
-cleanup pass the complete CPU suite and the exact-source schema-8 P100 refresh.
-The machine-readable artifact independently matches all 29 Git blobs from
-source commit `0bbe3fc2e0b3f223074681e69bfa7a5dcd88443b`; all 20 CuPy/Torch case
-gates and 318 targeted physical tests pass. Evidence commit
-`ac31b3b0160f29fb94c7fe1c02ef56b4afd58fe1` is pushed, and all seven hosted
-jobs passed in run `30429630574`.
+**COMPLETE.** The prepared-capability and public-parameter follow-up passes the
+complete CPU suite and exact-source schema-9 P100 refresh. The machine-readable
+artifact independently matches all 29 Git blobs from source commit
+`94b1a4be2c87416275e247eb8bff245b478cef8d`; all 20 CuPy/Torch case gates and
+321 targeted physical tests pass. The earlier schema-8 evidence remains below
+as historical evidence for its exact source.
 
 ## Post-schema-7 findings and fixes
 
@@ -28,6 +27,32 @@ GPU-only cases skipped locally; py_compile, pyflakes, documentation links,
 The maintained schema-8 runner adds structured physical cases for the new
 prediction, fast-path eligibility, and active-control contracts; all passed on
 both CuPy and Torch CUDA.
+
+## Exact-source physical evidence (schema 9)
+
+- Exact clean source commit:
+  `94b1a4be2c87416275e247eb8bff245b478cef8d`.
+- Paramiko remote clone:
+  `/root/statgpu-pr80-94b1a4b-schema9-20260729`.
+- Environment: Python 3.9.16, CuPy 13.6.0, Torch 2.0.0+cu117, Tesla
+  P100-SXM2-16GB.
+- Command: `/root/miniconda3/envs/myconda/bin/python
+  dev/benchmarks/benchmark_cox_boundary_gpu.py --output
+  results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema9.json
+  --run-targeted-tests`.
+- Targeted physical matrix: **321 passed**, 5 expected convergence warnings,
+  0 failed in 16.82 seconds. CuPy and Torch each passed 10/10 structured cases
+  and `gate_failures=[]`.
+- Both GPU backends record `strict_content_validation_calls=0` for the
+  CV-owned immutable fold capability and
+  `set_params_representation_stable=true`. Direct caller-owned prepared-state
+  mismatch rejection remains in the physical matrix.
+- Independent local verification matched all 29 recorded source SHA-256 values
+  to the source commit's Git blobs and confirmed `source_clean=true`.
+- Artifact:
+  `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema9.json`;
+  SHA-256
+  `c0971df86347f8baf4350f8ba4500e07b94b8f6b059dc5e68e325655941b8fc2`.
 
 ## Exact-source physical evidence (schema 8)
 

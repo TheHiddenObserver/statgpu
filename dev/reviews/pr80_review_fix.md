@@ -839,9 +839,14 @@ normalization prevention across the Cox boundary.
 Local validation passed **1509 tests**, with 455 optional-backend skips and 10
 expected warnings. Pyflakes, compileall, `git diff --check`, benchmark CLI
 loading, deterministic documentation links, and all **122 documentation
-contracts** also pass. The maintained physical runner is advanced to schema 9;
-it records zero strict content-validation calls for internally owned ordinary
-GPU CV folds and checks `set_params()` representation stability on both CuPy
-and Torch. The last committed schema-8 P100 artifact predates these source
-changes, so an exact-source schema-9 refresh remains necessary before claiming
-physical evidence for this follow-up.
+contracts** also pass. Exact clean source commit
+`94b1a4be2c87416275e247eb8bff245b478cef8d` was then validated in remote
+`myconda` on a Tesla P100-SXM2-16GB. CuPy 13.6.0 and Torch 2.0.0+cu117 each
+passed all 10 structured cases; both recorded zero strict content-validation
+calls for internally owned ordinary GPU CV folds and stable `set_params()`
+representation. The physical targeted suite passed **321 tests** with 5
+expected warnings, all 29 recorded Git-blob hashes match, and
+`gate_failures=[]`. The schema-9 artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema9.json`
+with SHA-256
+`c0971df86347f8baf4350f8ba4500e07b94b8f6b059dc5e68e325655941b8fc2`.

@@ -20,6 +20,10 @@
   `_PreparedCountingProcessInputs` 或 `_PreparedOrdinaryRightCensoredState`。
   active path 不再依赖原先三个相互约束的 flag；低层 prepared 元数据本身即可选择
   ordinary fast path，同时继续兼容显式请求 fast path 的直接调用。
+- schema-9 精确 clean source commit 已通过 Paramiko 在远程 `myconda` 的 Tesla P100
+  上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content
+  重复扫描次数为零和公开 setter 表示稳定；物理 GPU targeted matrix 通过 321 项测试，
+  记录的 29 个 Git-blob hash 全部匹配，且 `gate_failures=[]`。
 
 ### 修复（2026-07-29）— PR #80 schema-7 物理 GPU 复验
 

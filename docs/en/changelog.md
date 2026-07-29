@@ -24,6 +24,11 @@
   three-flag combination in active code; direct low-level prepared metadata
   selects the ordinary fast path by type while legacy explicit fast-path
   requests remain supported.
+- The exact clean schema-9 source commit was refreshed through Paramiko in
+  remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured
+  cases, including zero repeated strict fold-content scans and stable public
+  setter representation; the physical targeted matrix passed 321 tests, all
+  29 recorded Git-blob hashes match, and `gate_failures=[]`.
 
 ### Fixed (2026-07-29) — PR #80 final follow-up
 
