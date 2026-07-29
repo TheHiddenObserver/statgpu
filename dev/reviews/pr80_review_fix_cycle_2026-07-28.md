@@ -5,14 +5,14 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**PHYSICAL_COMPLETE; EVIDENCE PUSH/HOSTED CI PENDING.** The post-schema-6
-prepared-state, packed-target, constructor, and backend-reuse fixes pass the
-complete local suite and the exact-source schema-7 P100 refresh. The read-only
-re-review found no remaining CRITICAL, HIGH, or active MEDIUM issue. The
-machine-readable artifact has been independently verified against all 29 Git
-blobs from source commit `28d7b367c364d4b64e24b6b36662724b6b1c9a86`.
-Only the evidence commit, push, and hosted run remain pending at the time this
-report is written.
+**COMPLETE.** The post-schema-6 prepared-state, packed-target, constructor, and
+backend-reuse fixes pass the complete local suite and the exact-source
+schema-7 P100 refresh. The read-only re-review found no remaining CRITICAL,
+HIGH, or active MEDIUM issue. The machine-readable artifact has been
+independently verified against all 29 Git blobs from source commit
+`28d7b367c364d4b64e24b6b36662724b6b1c9a86`; evidence commit
+`98d8ef3b762e7acd95049320d614bcc09721b454` was pushed, and all seven hosted
+jobs passed in run `30422694780`.
 
 ## 2026-07-29 impact classification
 
@@ -106,6 +106,11 @@ runner, and the three changelog/review documents.
   `0ca376e314afed22c66f7f37a9ff94b82a42de91`.
 - Frozen schema-7 source commit:
   `28d7b367c364d4b64e24b6b36662724b6b1c9a86`.
+- Schema-7 evidence commit:
+  `98d8ef3b762e7acd95049320d614bcc09721b454`.
+- Hosted CI for the source plus evidence:
+  `https://github.com/TheHiddenObserver/statgpu/actions/runs/30422694780`;
+  **7/7 jobs passed**.
 - Frozen schema-6 source commit:
   `e26c21e2d1ed373fb0fd2d40169c99a31abdc82d`.
 
@@ -508,7 +513,7 @@ completed successfully for evidence commit `89e4307c4015`. The required
   evidence commit, push, and all seven hosted-CI jobs pass. The schema-6 delta
   also has exact-source CuPy/Torch P100 evidence, its evidence commit is pushed,
   and all seven hosted jobs pass. The later prepared-state and packed-target
-  fixes now have exact-source schema-7 P100 evidence; only its evidence push
-  and hosted rerun remain pending at report time.
+  fixes now have exact-source schema-7 P100 evidence, the evidence commit is
+  pushed, and all seven jobs in hosted run `30422694780` pass.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
