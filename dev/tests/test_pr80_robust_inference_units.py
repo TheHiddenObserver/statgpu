@@ -175,6 +175,25 @@ def test_statsmodels_hc1_is_explicitly_unsupported():
     assert benchmark_cox_cluster.json_ready(np.nan) is None
 
 
+def test_statsmodels_nonfinite_inference_is_not_reported_as_supported():
+    finite = SimpleNamespace(
+        params=np.array([0.1, -0.2]),
+        bse=np.array([0.3, 0.4]),
+        pvalues=np.array([0.7, 0.6]),
+    )
+    nonfinite = SimpleNamespace(
+        params=np.array([0.1, -0.2]),
+        bse=np.array([np.nan, np.nan]),
+        pvalues=np.array([np.nan, np.nan]),
+    )
+    assert benchmark_cox_cluster.statsmodels_result_has_finite_inference(
+        finite, 2
+    )
+    assert not benchmark_cox_cluster.statsmodels_result_has_finite_inference(
+        nonfinite, 2
+    )
+
+
 def test_r_hc1_helper_applies_explicit_finite_unit_correction(monkeypatch, tmp_path):
     recorded = {}
 

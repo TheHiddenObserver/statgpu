@@ -33,7 +33,8 @@
 - The covariance benchmark now marks statsmodels HC1 as unsupported instead of
   relabelling its model-based fit, runs `survival::coxph` when R is available,
   and records independent-unit counts, correction formulas, and explicit
-  unsupported reasons in JSON.
+  unsupported reasons in JSON. PHReg results with non-finite coefficient
+  inference are also reported as unsupported.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

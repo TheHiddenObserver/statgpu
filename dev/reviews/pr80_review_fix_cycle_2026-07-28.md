@@ -611,7 +611,8 @@ validation=`local passed, exact-source P100 pending`.
   standard errors.
 - `benchmark_cox_cluster.py` explicitly marks statsmodels HC1 unsupported,
   executes R `survival::coxph` when available, records unit counts and the exact
-  correction contract, and writes strict JSON.
+  correction contract, writes strict JSON, and marks dynamically non-finite
+  PHReg inference unsupported.
 - The trusted fold capability name and documentation now describe private CV
   ownership rather than structural immutability.
 

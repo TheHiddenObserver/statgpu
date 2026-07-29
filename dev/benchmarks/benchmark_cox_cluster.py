@@ -130,6 +130,18 @@ def statsmodels_covariance_capability(cov_type: str) -> Dict[str, Any]:
     }
 
 
+def statsmodels_result_has_finite_inference(result, n_features: int) -> bool:
+    """Return whether PHReg produced complete, finite coefficient inference."""
+    for attribute in ("params", "bse", "pvalues"):
+        value = getattr(result, attribute, None)
+        if value is None:
+            return False
+        array = np.asarray(value, dtype=np.float64).reshape(-1)
+        if array.size != int(n_features) or not np.all(np.isfinite(array)):
+            return False
+    return True
+
+
 def run_r(csv_path: Path, ties: str, cov_type: str) -> Dict[str, Any]:
     """Run a precisely labelled R survival covariance reference."""
     if shutil.which("Rscript") is None:
@@ -344,6 +356,9 @@ def main():
                         else sm_model.fit()
                     )
                     t1 = time.perf_counter()
+                    finite_inference = statsmodels_result_has_finite_inference(
+                        sm_res, args.p
+                    )
                     rows.append(
                         {
                             "method": "CoxPH",
@@ -357,11 +372,22 @@ def main():
                                 m_cpu._pvalues,
                                 getattr(sm_res, "pvalues", None),
                             ),
-                            "supported": True,
+                            "supported": finite_inference,
                             "independent_units": n_units if cov == "cluster" else None,
                             "finite_sample_correction": 1.0,
-                            "covariance_contract": covariance_contract,
-                            "notes": "ref=statgpu-cpu",
+                            "covariance_contract": (
+                                covariance_contract
+                                if finite_inference
+                                else "unsupported"
+                            ),
+                            "notes": (
+                                "ref=statgpu-cpu"
+                                if finite_inference
+                                else (
+                                    "unsupported: PHReg returned non-finite "
+                                    "coefficient inference"
+                                )
+                            ),
                         }
                     )
             except Exception as e:

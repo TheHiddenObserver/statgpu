@@ -880,7 +880,9 @@ validation tier=`local-full; exact-source physical GPU pending`.
   `survival::coxph(robust=TRUE)` and applies the documented HC1 correction.
   Every result records the independent-unit count, covariance contract,
   correction, and unsupported reason, and JSON output replaces non-finite
-  placeholders with `null`.
+  placeholders with `null`. A dynamically non-finite PHReg coefficient,
+  standard-error, or p-value vector is likewise labelled unsupported rather
+  than presented as external inference evidence.
 - [LOW][MAINT/EXT][fixed] The trusted fold capability is now named
   `_PreparedCVOwnedRightCensoredCox`. Its documentation states that contained
   backend arrays and loss caches are structurally mutable and that bypassing
