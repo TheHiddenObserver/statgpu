@@ -161,6 +161,16 @@ of-freedom denominator with an arbitrary finite value. Materially negative or
 non-positive robust marginal variances also fail strict inference instead of
 publishing zero standard errors and misleading significance statistics.
 
+Positive marginal variances do not guarantee that the robust covariance is
+invertible over the complete parameter space. StatGPU therefore reports
+per-coefficient robust SE/z/p/CI whenever those marginals are valid, but exposes
+`wald_test_available_=False` and `wald_test_failure_reason_` when a scale-aware
+eigenvalue check finds the covariance rank-deficient. In that case the summary
+prints `Robust Wald test unavailable` rather than applying an unstable inverse
+or printing a bare `nan`. Likelihood-ratio and score tests remain classical,
+model-based tests even when coefficient and Wald inference use a robust
+covariance; the summary labels this distinction explicitly.
+
 `inference_mode="strict"` is the default. `inference_mode="approx"` remains
 accepted for backward compatibility, but the unified public fit path treats it
 as a compatibility-only alias and still computes the exact counting-process
@@ -178,6 +188,7 @@ Inference provenance is exposed through:
 - `inference_backend_`;
 - `inference_approximate_`;
 - `inference_fallback_reason_`;
+- `wald_test_available_` and `wald_test_failure_reason_`;
 - `full_host_transfer_performed_`.
 
 For `CoxPHCV`, `full_host_transfer_performed_` describes the complete fit,

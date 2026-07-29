@@ -920,3 +920,35 @@ Evidence commit `8cb02c0e782b8719f86efea172059f5e801ab685` is pushed. All seven
 hosted jobs (`docs-contracts`, `static-contracts`, `full-cpu-suite`, and the
 Python 3.9–3.12 regression matrix) passed in GitHub Actions run `30451833466`;
 PR #80 reported `mergeable=true` and `mergeable_state=clean`.
+
+## Joint Robust-Wald and External-Validation Follow-up
+
+Impact classification: backend=`NumPy/CuPy/Torch`; inference=
+`HC0/HC1/cluster joint Wald`; marginal inference=`preserved`; summary=
+`robust/classical labels`; benchmark=`R/statsmodels strict`; validation tier=
+`local-focused; exact-source physical GPU pending`.
+
+- [MEDIUM][BUG/INFERENCE][fixed] A robust covariance with positive diagonal but
+  deficient full-parameter rank could reach `np.linalg.solve`, producing a
+  bare NaN or unstable finite Wald statistic. `_joint_wald_from_covariance()`
+  now symmetrizes the covariance and applies a relative, scale-aware
+  eigenvalue rank threshold before solving. Rank deficiency sets
+  `wald_test_available_=False`, records the failure reason, and leaves valid
+  coefficient SE/z/p/CI and the fitted model intact. CV propagates the final
+  refit's availability metadata.
+- [LOW][INFERENCE/DOC][fixed] Cox summaries now label likelihood-ratio and score
+  tests as classical model-based tests, and label the covariance-dependent
+  joint test as robust or classical Wald. An unavailable robust Wald is printed
+  with its reason rather than a formatted `nan` result.
+- [LOW][VALIDATION][fixed] R vectors now require exact feature length and finite
+  values before a result is supported; `safe_diff()` rejects unequal shapes
+  instead of truncating. R `coxph.control()` and statsmodels Newton fits receive
+  explicit `max_iter`/`tol`, and every JSON row records those solver controls.
+
+Focused NumPy tests cover two-cluster `p=3`, subject-HC0 with `G=p`, full-rank
+`G=p+1`, summary output, CV propagation, near-singular helper behavior,
+truncated/non-finite R output, and comparison-shape rejection. Schema 11 extends
+the maintained physical CuPy/Torch case with the same rank-deficient joint-Wald
+and summary contracts. The complete local suite passes 1525 tests with 471
+optional-backend skips and 10 expected warnings. Exact-source P100 and R
+schema-11 evidence remains pending authorization.

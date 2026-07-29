@@ -633,3 +633,15 @@ statsmodels modes are represented explicitly rather than relabelled.
 Evidence commit `8cb02c0e782b8719f86efea172059f5e801ab685` passed all seven hosted
 jobs in Actions run `30451833466`; PR #80 was mergeable and clean after that
 run.
+
+## Joint Robust-Wald Follow-up (2026-07-29)
+
+The canonical inference path now uses a scale-aware covariance eigenspectrum
+gate before the full-parameter Wald solve. Rank-deficient HC0/cluster fits keep
+valid marginal inference but publish `wald_test_available_=False` plus an
+explicit reason; summary output distinguishes robust Wald from classical LR and
+score tests. The external benchmark also rejects truncated/non-finite R vectors,
+rejects mismatched comparison shapes, aligns Newton iteration/tolerance controls,
+and records them in JSON. Schema 11 adds physical CuPy/Torch rank-deficiency and
+summary gates. Complete local regression passes `1525 passed, 471 skipped`,
+with 10 expected warnings; exact-source P100 and R refresh remains pending.

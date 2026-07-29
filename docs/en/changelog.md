@@ -35,6 +35,13 @@
   and records independent-unit counts, correction formulas, and explicit
   unsupported reasons in JSON. PHReg results with non-finite coefficient
   inference are also reported as unsupported.
+- Rank-deficient HC0/cluster covariance no longer reaches an unguarded
+  full-parameter solve. Valid marginal robust inference is retained, while the
+  joint Wald test receives explicit availability/failure metadata and summary
+  output. Summary labels robust Wald separately from classical likelihood-ratio
+  and score tests. External covariance vectors now require exact finite length;
+  R and statsmodels receive explicit Newton `max_iter`/`tol` controls, and JSON
+  records the aligned solver contract.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

@@ -1247,6 +1247,7 @@ def _case_robust_inference_units(name: str, xp) -> dict:
     p_units = _array(
         name, xp, np.arange(X_np.shape[0]) % X_np.shape[1]
     )
+    two_units = _array(name, xp, np.arange(X_np.shape[0]) % 2)
     p_plus_one_units = _array(
         name, xp, np.arange(X_np.shape[0]) % (X_np.shape[1] + 1)
     )
@@ -1301,6 +1302,16 @@ def _case_robust_inference_units(name: str, xp) -> dict:
     hc1 = CoxPH(cov_type="hc1", **common).fit(
         X, stop, event, subject_id=p_plus_one_units
     )
+    rank_deficient_cluster = CoxPH(cov_type="cluster", **common).fit(
+        X, stop, event, cluster=two_units
+    )
+    rank_deficient_hc0 = CoxPH(cov_type="hc0", **common).fit(
+        X, stop, event, subject_id=p_units
+    )
+    summary_buffer = io.StringIO()
+    with redirect_stdout(summary_buffer):
+        rank_deficient_cluster.summary()
+    rank_deficient_summary = summary_buffer.getvalue()
     hc0_variance = np.asarray(hc0._var_matrix)
     hc1_variance = np.asarray(hc1._var_matrix)
     hc1_bse = np.asarray(hc1._bse)
@@ -1335,6 +1346,19 @@ def _case_robust_inference_units(name: str, xp) -> dict:
             np.all(hc1_bse > 0.0),
             np.all(np.isfinite(hc1_pvalues)),
             variance_ratio_matches,
+            hc0.wald_test_available_,
+            hc1.wald_test_available_,
+            np.isfinite(hc0._wald_test_stat),
+            np.isfinite(hc1._wald_test_stat),
+            not rank_deficient_cluster.wald_test_available_,
+            not rank_deficient_hc0.wald_test_available_,
+            np.all(np.isfinite(rank_deficient_cluster._bse)),
+            np.all(np.isfinite(rank_deficient_hc0._bse)),
+            "Robust Wald test unavailable: robust covariance is rank-deficient"
+            in rank_deficient_summary,
+            "Classical likelihood-ratio test:" in rank_deficient_summary,
+            "Classical score (logrank) test:" in rank_deficient_summary,
+            "Wald test: nan" not in rank_deficient_summary,
         )
     )
     return {
@@ -1355,6 +1379,30 @@ def _case_robust_inference_units(name: str, xp) -> dict:
             "standard_errors": hc1_bse.tolist(),
             "pvalues": hc1_pvalues.tolist(),
             "variance_ratio_matches": bool(variance_ratio_matches),
+            "hc0_wald_available": bool(hc0.wald_test_available_),
+            "hc1_wald_available": bool(hc1.wald_test_available_),
+        },
+        "rank_deficient_joint_wald": {
+            "cluster_units": 2,
+            "subject_units": int(X_np.shape[1]),
+            "cluster_marginal_standard_errors": np.asarray(
+                rank_deficient_cluster._bse
+            ).tolist(),
+            "subject_hc0_marginal_standard_errors": np.asarray(
+                rank_deficient_hc0._bse
+            ).tolist(),
+            "cluster_wald_available": bool(
+                rank_deficient_cluster.wald_test_available_
+            ),
+            "subject_hc0_wald_available": bool(
+                rank_deficient_hc0.wald_test_available_
+            ),
+            "failure_reason": rank_deficient_cluster.wald_test_failure_reason_,
+            "summary_contract": bool(
+                "Robust Wald test unavailable: robust covariance is rank-deficient"
+                in rank_deficient_summary
+                and "Wald test: nan" not in rank_deficient_summary
+            ),
         },
         "passed": bool(passed),
     }
@@ -1368,7 +1416,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 10,
+        "schema_version": 11,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

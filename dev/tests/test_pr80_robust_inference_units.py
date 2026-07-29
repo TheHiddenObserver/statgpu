@@ -7,8 +7,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from statgpu.survival import CoxPH
+from statgpu.survival import CoxPH, CoxPHCV
 from statgpu.survival._cox_inference import (
+    _joint_wald_from_covariance,
     _standard_errors_from_covariance,
 )
 from dev.benchmarks import benchmark_cox_cluster
@@ -85,6 +86,8 @@ def test_single_cluster_remains_valid_for_estimation_only(backend_name):
     assert model._fitted is True
     assert model._bse is None
     assert np.all(np.isfinite(model.coef_))
+    assert model.wald_test_available_ is False
+    assert model.wald_test_failure_reason_ == "compute_inference=False"
 
 
 @pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
@@ -151,6 +154,127 @@ def test_hc1_accepts_p_plus_one_units_with_positive_standard_errors(
     assert np.all(hc1._bse > 0.0)
     assert np.all(np.isfinite(hc1._pvalues))
     assert np.allclose(hc1._var_matrix, 4.0 * hc0._var_matrix, rtol=2e-8, atol=2e-10)
+    for model in (hc0, hc1):
+        assert model.wald_test_available_ is True
+        assert model.wald_test_failure_reason_ is None
+        assert np.isfinite(model._wald_test_stat)
+        assert np.isfinite(model._wald_test_pvalue)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize(
+    ("cov_type", "n_units", "label_name"),
+    [("cluster", 2, "cluster"), ("hc0", 3, "subject_id")],
+)
+def test_rank_deficient_robust_covariance_keeps_marginal_inference(
+    backend_name, cov_type, n_units, label_name
+):
+    X, stop, event = _sample(seed=9344, p=3)
+    labels = np.arange(X.shape[0], dtype=np.int64) % n_units
+    device, (Xb, stopb, eventb, labelsb) = _backend_inputs(
+        backend_name, X, stop, event, labels
+    )
+    model = CoxPH(
+        device=device,
+        cov_type=cov_type,
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+        tol=1e-9,
+    ).fit(Xb, stopb, eventb, **{label_name: labelsb})
+
+    assert model._fitted is True
+    assert np.all(np.isfinite(model._bse))
+    assert np.all(model._bse > 0.0)
+    assert np.all(np.isfinite(model._pvalues))
+    assert model._inference_result is not None
+    assert model.wald_test_available_ is False
+    assert model.wald_test_failure_reason_ == (
+        "robust covariance is rank-deficient for the full-parameter Wald test"
+    )
+    assert np.isnan(model._wald_test_stat)
+    assert np.isnan(model._wald_test_pvalue)
+    assert model._inference_result.metadata["joint_wald_available"] is False
+    assert (
+        model._inference_result.metadata["joint_wald_failure_reason"]
+        == model.wald_test_failure_reason_
+    )
+
+
+def test_rank_deficient_robust_summary_labels_joint_test_unavailable(capsys):
+    X, stop, event = _sample(seed=9344, p=3)
+    cluster = np.arange(X.shape[0], dtype=np.int64) % 2
+    model = CoxPH(
+        cov_type="cluster",
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+        tol=1e-9,
+    ).fit(X, stop, event, cluster=cluster)
+
+    model.summary()
+    output = capsys.readouterr().out
+    assert "Classical likelihood-ratio test:" in output
+    assert (
+        "Robust Wald test unavailable: robust covariance is rank-deficient"
+        in output
+    )
+    assert "Classical score (logrank) test:" in output
+    assert "Wald test: nan" not in output
+
+
+def test_coxphcv_propagates_joint_wald_unavailability_from_final_refit():
+    X, stop, event = _sample(seed=9344, p=3)
+    cluster = np.arange(X.shape[0], dtype=np.int64) % 2
+    model = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        cov_type="cluster",
+        compute_inference=True,
+        device="cpu",
+        max_iter=60,
+        tol=1e-8,
+    ).fit(X, stop, event, cluster=cluster)
+
+    assert model._fitted is True
+    assert model.estimator_ is not None
+    assert np.all(np.isfinite(model._bse))
+    assert model.wald_test_available_ is False
+    assert model.wald_test_failure_reason_ == (
+        "robust covariance is rank-deficient for the full-parameter Wald test"
+    )
+    assert model.estimator_.wald_test_available_ is False
+
+
+def test_joint_wald_helper_rejects_near_rank_deficiency_without_losing_marginals():
+    statistic, failure = _joint_wald_from_covariance(
+        np.ones(3),
+        np.diag([1.0, 0.5, 1e-14]),
+        cov_type="hc0",
+    )
+    assert np.isnan(statistic)
+    assert failure == (
+        "robust covariance is rank-deficient for the full-parameter Wald test"
+    )
+
+    statistic, failure = _joint_wald_from_covariance(
+        np.array([1.0, 2.0]),
+        np.diag([2.0, 4.0]),
+        cov_type="nonrobust",
+    )
+    assert statistic == pytest.approx(1.5)
+    assert failure is None
+
+    statistic, failure = _joint_wald_from_covariance(
+        np.ones(2),
+        np.array([[1.0, 2.0], [2.0, 1.0]]),
+        cov_type="cluster",
+    )
+    assert np.isnan(statistic)
+    assert failure == (
+        "robust covariance is not positive semidefinite for the "
+        "full-parameter Wald test"
+    )
 
 
 def test_covariance_diagonal_rejects_material_negative_and_zero_robust_variance():
@@ -192,6 +316,18 @@ def test_statsmodels_nonfinite_inference_is_not_reported_as_supported():
     assert not benchmark_cox_cluster.statsmodels_result_has_finite_inference(
         nonfinite, 2
     )
+    with pytest.raises(ValueError, match="exactly 2 values"):
+        benchmark_cox_cluster.validate_external_vector(
+            np.array([0.1]), 2, name="truncated"
+        )
+    with pytest.raises(ValueError, match="only finite"):
+        benchmark_cox_cluster.validate_external_vector(
+            np.array([0.1, np.nan]), 2, name="nonfinite"
+        )
+    with pytest.raises(ValueError, match="identical shapes"):
+        benchmark_cox_cluster.safe_diff(
+            np.array([0.1, 0.2]), np.array([0.1])
+        )
 
 
 def test_r_hc1_helper_applies_explicit_finite_unit_correction(monkeypatch, tmp_path):
@@ -210,11 +346,53 @@ def test_r_hc1_helper_applies_explicit_finite_unit_correction(monkeypatch, tmp_p
 
     monkeypatch.setattr(benchmark_cox_cluster.shutil, "which", lambda _: "Rscript")
     monkeypatch.setattr(benchmark_cox_cluster.subprocess, "run", fake_run)
-    result = benchmark_cox_cluster.run_r(tmp_path / "data.csv", "efron", "hc1")
+    result = benchmark_cox_cluster.run_r(
+        tmp_path / "data.csv",
+        "efron",
+        "hc1",
+        n_features=2,
+        max_iter=77,
+        tol=1e-9,
+    )
 
     r_source = recorded["command"][2]
     assert "robust=TRUE" in r_source
     assert "n_units / (n_units - p)" in r_source
+    assert "iter.max=77" in r_source
+    assert "eps=1e-09" in r_source
+    assert "timefix=FALSE" in r_source
     assert result["supported"] is True
     assert result["n_units"] == 8
     assert result["correction"] == pytest.approx(1.6)
+
+
+def test_r_helper_rejects_truncated_or_nonfinite_vectors(monkeypatch, tmp_path):
+    outputs = iter(
+        [
+            (
+                "FIT_MS=1\nN_UNITS=8\nCORRECTION=1.6\n"
+                "COEF=1.0\nBSE=0.5,0.25\nPVALUES=0.1,0.2\n"
+            ),
+            (
+                "FIT_MS=1\nN_UNITS=8\nCORRECTION=1.6\n"
+                "COEF=1.0,-2.0\nBSE=nan,0.25\nPVALUES=0.1,0.2\n"
+            ),
+        ]
+    )
+
+    def fake_run(_command, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=next(outputs), stderr="")
+
+    monkeypatch.setattr(benchmark_cox_cluster.shutil, "which", lambda _: "Rscript")
+    monkeypatch.setattr(benchmark_cox_cluster.subprocess, "run", fake_run)
+    for expected in ("exactly 2 values", "only finite"):
+        result = benchmark_cox_cluster.run_r(
+            tmp_path / "data.csv",
+            "breslow",
+            "cluster",
+            n_features=2,
+            max_iter=80,
+            tol=1e-8,
+        )
+        assert result["supported"] is False
+        assert expected in result["error"]

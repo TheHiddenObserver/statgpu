@@ -38,6 +38,7 @@ from statgpu.survival._cox_inference import (
     _invert_information_cupy,
     _invert_information_numpy,
     _invert_information_torch,
+    _joint_wald_from_covariance,
     _standard_errors_from_covariance,
     _validate_robust_inference_units,
 )
@@ -320,6 +321,8 @@ class CoxPH(BaseEstimator):
         self.score_test_failure_reason_ = None
         self._wald_test_stat = None
         self._wald_test_pvalue = None
+        self.wald_test_available_ = False
+        self.wald_test_failure_reason_ = None
         self._lr_test_stat = None
         self._lr_test_pvalue = None
         self._baseline_hazard = None
@@ -1055,14 +1058,18 @@ class CoxPH(BaseEstimator):
             self._lr_test_pvalue = chi2.sf(
                 self._lr_test_stat, df=int(Xb.shape[1])
             )
-            try:
-                self._wald_test_stat = float(
-                    self.coef_ @ np.linalg.solve(self._var_matrix, self.coef_)
-                )
-            except np.linalg.LinAlgError:
-                self._wald_test_stat = np.nan
-            self._wald_test_pvalue = chi2.sf(
-                self._wald_test_stat, df=int(Xb.shape[1])
+            wald_stat, wald_failure = _joint_wald_from_covariance(
+                self.coef_,
+                self._var_matrix,
+                cov_type=controls.cov_type,
+            )
+            self._wald_test_stat = wald_stat
+            self.wald_test_available_ = wald_failure is None
+            self.wald_test_failure_reason_ = wald_failure
+            self._wald_test_pvalue = (
+                chi2.sf(wald_stat, df=int(Xb.shape[1]))
+                if self.wald_test_available_
+                else np.nan
             )
             # The solver already evaluates the null objective (and starts there
             # for the default zero initialization), so reuse its score test terms.
@@ -1093,6 +1100,8 @@ class CoxPH(BaseEstimator):
             self._lr_test_pvalue = None
             self._wald_test_stat = None
             self._wald_test_pvalue = None
+            self.wald_test_available_ = False
+            self.wald_test_failure_reason_ = "compute_inference=False"
             self._score_test_stat = None
             self._score_test_pvalue = None
             self.score_test_available_ = False
@@ -1210,6 +1219,10 @@ class CoxPH(BaseEstimator):
                     "inference_backend": backend,
                     "approximate": False,
                     "ties": controls.ties,
+                    "joint_wald_available": self.wald_test_available_,
+                    "joint_wald_failure_reason": self.wald_test_failure_reason_,
+                    "likelihood_ratio_test_contract": "classical_model_based",
+                    "score_test_contract": "classical_model_based",
                 },
             )
             inference_result.apply_to(self)
@@ -1371,13 +1384,35 @@ class CoxPH(BaseEstimator):
         else:
             print(f"Concordance: {self._cindex:.3f} (if 0.5-0.7: moderate, 0.7-0.9: strong)")
         if fitted_compute_inference and self._lr_test_stat is not None:
-            print(f"Likelihood ratio test: {self._lr_test_stat:.2f} on {len(self.coef_)} df, p={self._lr_test_pvalue:.4e}")
-            print(f"Wald test:            {self._wald_test_stat:.2f} on {len(self.coef_)} df, p={self._wald_test_pvalue:.4e}")
-            if self.score_test_available_:
-                print(f"Score (logrank) test: {self._score_test_stat:.2f} on {len(self.coef_)} df, p={self._score_test_pvalue:.4e}")
+            print(
+                "Classical likelihood-ratio test: "
+                f"{self._lr_test_stat:.2f} on {len(self.coef_)} df, "
+                f"p={self._lr_test_pvalue:.4e}"
+            )
+            wald_label = (
+                "Robust Wald test"
+                if fitted_cov_type in {"hc0", "hc1", "cluster"}
+                else "Classical Wald test"
+            )
+            if self.wald_test_available_:
+                print(
+                    f"{wald_label}: {self._wald_test_stat:.2f} on "
+                    f"{len(self.coef_)} df, p={self._wald_test_pvalue:.4e}"
+                )
             else:
                 print(
-                    "Score (logrank) test unavailable: "
+                    f"{wald_label} unavailable: "
+                    f"{self.wald_test_failure_reason_ or 'covariance is rank-deficient'}"
+                )
+            if self.score_test_available_:
+                print(
+                    "Classical score (logrank) test: "
+                    f"{self._score_test_stat:.2f} on {len(self.coef_)} df, "
+                    f"p={self._score_test_pvalue:.4e}"
+                )
+            else:
+                print(
+                    "Classical score (logrank) test unavailable: "
                     f"{self.score_test_failure_reason_ or 'null information is singular'}"
                 )
         elif fitted_compute_inference and fitted_penalty > 0:

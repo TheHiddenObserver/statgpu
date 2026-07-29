@@ -28,6 +28,11 @@
 - 协方差 benchmark 不再把 statsmodels 的模型协方差错误标记为 HC1；R 可用时
   会实际执行 `survival::coxph`，并在 JSON 中记录独立单元数、修正公式与明确的
   unsupported 原因；PHReg 若返回非有限系数推断，也会被标记为 unsupported。
+- 秩亏 HC0/cluster 协方差不再进入无门禁的全参数求解。有效的边际稳健推断会保留，
+  joint Wald test 则通过显式 availability/failure metadata 与 summary 输出标记；
+  summary 也会区分 robust Wald 和经典 likelihood-ratio/score test。外部协方差向量
+  现在必须具有精确长度且全部有限；R 与 statsmodels 显式使用对齐的 Newton
+  `max_iter`/`tol`，JSON 同步记录 solver contract。
 - 前一版 prepared-capability schema-9 精确 clean source commit 已通过 Paramiko
   在远程 `myconda` 的 Tesla P100
   上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content

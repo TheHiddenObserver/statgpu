@@ -1698,6 +1698,8 @@ class CoxPHCV(CVEstimatorBase):
         self.inference_fallback_reason_ = None
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
+        self.wald_test_available_ = False
+        self.wald_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
         self.cv_full_host_transfer_performed_ = False
         self.final_refit_full_host_transfer_performed_ = False
@@ -1733,6 +1735,8 @@ class CoxPHCV(CVEstimatorBase):
         self.inference_fallback_reason_ = None
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
+        self.wald_test_available_ = False
+        self.wald_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
         self.cv_full_host_transfer_performed_ = False
         self.final_refit_full_host_transfer_performed_ = False
@@ -1960,6 +1964,8 @@ class CoxPHCV(CVEstimatorBase):
             ("inference_fallback_reason_", None),
             ("score_test_available_", False),
             ("score_test_failure_reason_", None),
+            ("wald_test_available_", False),
+            ("wald_test_failure_reason_", None),
         ):
             setattr(self, attribute, getattr(final_model, attribute, default))
         self.final_refit_full_host_transfer_performed_ = bool(

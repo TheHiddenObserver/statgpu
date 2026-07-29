@@ -15,6 +15,9 @@ _SINGULAR_INFORMATION_MESSAGE = (
     "coefficient inference is not identifiable"
 )
 _ROBUST_COVARIANCE_TYPES = {"hc0", "hc1", "cluster"}
+_ROBUST_WALD_RANK_FAILURE = (
+    "robust covariance is rank-deficient for the full-parameter Wald test"
+)
 
 
 def _validate_robust_inference_units(cov_type, n_units, n_features):
@@ -73,6 +76,69 @@ def _standard_errors_from_covariance(covariance, *, cov_type):
             f"{cov_type} covariance produced a non-positive marginal variance"
         )
     return np.sqrt(diagonal)
+
+
+def _joint_wald_from_covariance(
+    coef,
+    covariance,
+    *,
+    cov_type,
+    tolerance=None,
+):
+    """Return a strict full-parameter Wald statistic and failure reason."""
+    coef = np.asarray(coef, dtype=np.float64).reshape(-1)
+    covariance = np.asarray(covariance, dtype=np.float64)
+    n_features = int(coef.size)
+    if (
+        n_features < 1
+        or covariance.shape != (n_features, n_features)
+        or not np.all(np.isfinite(coef))
+        or not np.all(np.isfinite(covariance))
+    ):
+        return np.nan, "joint Wald inputs must be finite and dimensionally consistent"
+
+    covariance = 0.5 * (covariance + covariance.T)
+    eigenvalues = np.linalg.eigvalsh(covariance)
+    spectral_scale = max(
+        np.finfo(np.float64).tiny,
+        float(np.max(np.abs(eigenvalues))),
+    )
+    if tolerance is None:
+        tolerance = (
+            spectral_scale
+            * max(n_features, 1)
+            * 1e-12
+        )
+    else:
+        tolerance = float(tolerance)
+        if not np.isfinite(tolerance) or tolerance < 0.0:
+            raise ValueError("tolerance must be a finite non-negative number")
+    minimum_eigenvalue = float(np.min(eigenvalues))
+    if not np.all(np.isfinite(eigenvalues)):
+        return np.nan, "covariance eigenspectrum is non-finite for the Wald test"
+    if minimum_eigenvalue < -tolerance:
+        reason = (
+            "robust covariance is not positive semidefinite for the "
+            "full-parameter Wald test"
+            if str(cov_type).lower() in _ROBUST_COVARIANCE_TYPES
+            else "covariance is not positive definite for the full-parameter Wald test"
+        )
+        return np.nan, reason
+    if minimum_eigenvalue <= tolerance:
+        reason = (
+            _ROBUST_WALD_RANK_FAILURE
+            if str(cov_type).lower() in _ROBUST_COVARIANCE_TYPES
+            else "covariance is rank-deficient for the full-parameter Wald test"
+        )
+        return np.nan, reason
+
+    try:
+        statistic = float(coef @ np.linalg.solve(covariance, coef))
+    except np.linalg.LinAlgError:
+        return np.nan, "covariance solve failed for the full-parameter Wald test"
+    if not np.isfinite(statistic) or statistic < 0.0:
+        return np.nan, "full-parameter Wald statistic is non-finite or negative"
+    return statistic, None
 
 
 def _information_eigenvalue_tolerance(max_eigenvalue, n_features):
@@ -140,6 +206,7 @@ __all__ = [
     "_invert_information_numpy",
     "_invert_information_cupy",
     "_invert_information_torch",
+    "_joint_wald_from_covariance",
     "_standard_errors_from_covariance",
     "_validate_robust_inference_units",
 ]

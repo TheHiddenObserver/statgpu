@@ -51,9 +51,15 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--n", type=int, default=3000)
     p.add_argument("--p", type=int, default=10)
-    p.add_argument("--ties", type=str, default="breslow", choices=["breslow", "efron"])
+    p.add_argument(
+        "--ties",
+        type=str,
+        default="breslow",
+        choices=["breslow", "efron"],
+    )
     p.add_argument("--groups", type=int, default=120)
     p.add_argument("--max-iter", type=int, default=80)
+    p.add_argument("--tol", type=float, default=1e-8)
     p.add_argument("--json-out", type=str, default="")
     return p.parse_args()
 
@@ -89,10 +95,14 @@ def safe_diff(a, b):
         return np.nan
     a = np.asarray(a).reshape(-1)
     b = np.asarray(b).reshape(-1)
-    n = min(len(a), len(b))
-    if n == 0:
-        return np.nan
-    return float(np.max(np.abs(a[:n] - b[:n])))
+    if a.shape != b.shape:
+        raise ValueError(
+            "comparison vectors must have identical shapes, "
+            f"got {a.shape} and {b.shape}"
+        )
+    if a.size == 0 or not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        raise ValueError("comparison vectors must be non-empty and finite")
+    return float(np.max(np.abs(a - b)))
 
 
 def json_ready(value):
@@ -130,19 +140,43 @@ def statsmodels_covariance_capability(cov_type: str) -> Dict[str, Any]:
     }
 
 
+def validate_external_vector(value, n_features: int, *, name: str):
+    """Return a finite external vector with the exact expected length."""
+    if value is None:
+        raise ValueError(f"{name} is missing")
+    array = np.asarray(value, dtype=np.float64).reshape(-1)
+    if array.size != int(n_features):
+        raise ValueError(
+            f"{name} must contain exactly {int(n_features)} values, got {array.size}"
+        )
+    if not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must contain only finite values")
+    return array
+
+
 def statsmodels_result_has_finite_inference(result, n_features: int) -> bool:
     """Return whether PHReg produced complete, finite coefficient inference."""
     for attribute in ("params", "bse", "pvalues"):
-        value = getattr(result, attribute, None)
-        if value is None:
-            return False
-        array = np.asarray(value, dtype=np.float64).reshape(-1)
-        if array.size != int(n_features) or not np.all(np.isfinite(array)):
+        try:
+            validate_external_vector(
+                getattr(result, attribute, None),
+                n_features,
+                name=f"statsmodels {attribute}",
+            )
+        except ValueError:
             return False
     return True
 
 
-def run_r(csv_path: Path, ties: str, cov_type: str) -> Dict[str, Any]:
+def run_r(
+    csv_path: Path,
+    ties: str,
+    cov_type: str,
+    *,
+    n_features: int,
+    max_iter: int,
+    tol: float,
+) -> Dict[str, Any]:
     """Run a precisely labelled R survival covariance reference."""
     if shutil.which("Rscript") is None:
         return {"supported": False, "error": "Rscript not found"}
@@ -170,7 +204,11 @@ def run_r(csv_path: Path, ties: str, cov_type: str) -> Dict[str, Any]:
         ties="{ties}",
         robust={robust},
         singular.ok=FALSE,
-        timefix=FALSE
+        control=coxph.control(
+          iter.max={int(max_iter)},
+          eps={float(tol)!r},
+          timefix=FALSE
+        )
       )
       fit_ms <- (proc.time()[["elapsed"]] - started) * 1000
       covariance <- fit$var
@@ -220,15 +258,38 @@ def run_r(csv_path: Path, ties: str, cov_type: str) -> Dict[str, Any]:
             "supported": False,
             "error": f"R output missing fields: {sorted(required - fields.keys())}",
         }
-    parse_vector = lambda value: np.fromstring(value, sep=",")
+    try:
+        fit_ms = float(fields["FIT_MS"])
+        n_units = int(fields["N_UNITS"])
+        correction = float(fields["CORRECTION"])
+        vectors = {
+            name: validate_external_vector(
+                np.fromstring(fields[field], sep=","),
+                n_features,
+                name=f"R {name}",
+            )
+            for name, field in (
+                ("coef", "COEF"),
+                ("bse", "BSE"),
+                ("pvalues", "PVALUES"),
+            )
+        }
+        if (
+            not np.isfinite(fit_ms)
+            or fit_ms < 0.0
+            or n_units < 1
+            or not np.isfinite(correction)
+            or correction <= 0.0
+        ):
+            raise ValueError("R scalar diagnostics are invalid")
+    except (TypeError, ValueError) as exc:
+        return {"supported": False, "error": f"invalid R output: {exc}"}
     return {
         "supported": True,
-        "fit_ms": float(fields["FIT_MS"]),
-        "n_units": int(fields["N_UNITS"]),
-        "correction": float(fields["CORRECTION"]),
-        "coef": parse_vector(fields["COEF"]),
-        "bse": parse_vector(fields["BSE"]),
-        "pvalues": parse_vector(fields["PVALUES"]),
+        "fit_ms": fit_ms,
+        "n_units": n_units,
+        "correction": correction,
+        **vectors,
     }
 
 
@@ -272,10 +333,16 @@ def main():
             ties=args.ties,
             cov_type=cov,
             max_iter=args.max_iter,
-            tol=1e-8,
+            tol=args.tol,
             compute_inference=True,
         )
-        ms_cpu = time_fit(m_cpu, X, t_obs, event, cluster if cov == "cluster" else None)
+        ms_cpu = time_fit(
+            m_cpu,
+            X,
+            t_obs,
+            event,
+            cluster if cov == "cluster" else None,
+        )
         rows.append(
             {
                 "method": "CoxPH",
@@ -304,7 +371,7 @@ def main():
                 ties=args.ties,
                 cov_type=cov,
                 max_iter=args.max_iter,
-                tol=1e-8,
+                tol=args.tol,
                 compute_inference=True,
             )
             ms_gpu = time_fit(m_gpu, Xg, tg, eg, cg if cov == "cluster" else None)
@@ -351,9 +418,20 @@ def main():
                     t0 = time.perf_counter()
                     sm_model = smd.PHReg(t_obs, X, status=event, ties=args.ties)
                     sm_res = (
-                        sm_model.fit(groups=cluster)
+                        sm_model.fit(
+                            groups=cluster,
+                            method="newton",
+                            maxiter=args.max_iter,
+                            tol=args.tol,
+                            disp=False,
+                        )
                         if cov == "cluster"
-                        else sm_model.fit()
+                        else sm_model.fit(
+                            method="newton",
+                            maxiter=args.max_iter,
+                            tol=args.tol,
+                            disp=False,
+                        )
                     )
                     t1 = time.perf_counter()
                     finite_inference = statsmodels_result_has_finite_inference(
@@ -364,16 +442,25 @@ def main():
                             "method": "CoxPH",
                             "framework": f"statsmodels.PHReg({cov})",
                             "fit_ms": (t1 - t0) * 1000.0,
-                            "coef_ref_diff": safe_diff(m_cpu.coef_, sm_res.params),
-                            "bse_ref_diff": safe_diff(
-                                m_cpu._bse, getattr(sm_res, "bse", None)
+                            "coef_ref_diff": (
+                                safe_diff(m_cpu.coef_, sm_res.params)
+                                if finite_inference
+                                else np.nan
                             ),
-                            "p_ref_diff": safe_diff(
-                                m_cpu._pvalues,
-                                getattr(sm_res, "pvalues", None),
+                            "bse_ref_diff": (
+                                safe_diff(m_cpu._bse, sm_res.bse)
+                                if finite_inference
+                                else np.nan
+                            ),
+                            "p_ref_diff": (
+                                safe_diff(m_cpu._pvalues, sm_res.pvalues)
+                                if finite_inference
+                                else np.nan
                             ),
                             "supported": finite_inference,
-                            "independent_units": n_units if cov == "cluster" else None,
+                            "independent_units": (
+                                n_units if cov == "cluster" else None
+                            ),
                             "finite_sample_correction": 1.0,
                             "covariance_contract": (
                                 covariance_contract
@@ -400,14 +487,23 @@ def main():
                         "bse_ref_diff": np.nan,
                         "p_ref_diff": np.nan,
                         "supported": False,
-                        "independent_units": n_units if cov != "nonrobust" else None,
+                        "independent_units": (
+                            n_units if cov != "nonrobust" else None
+                        ),
                         "finite_sample_correction": correction,
                         "covariance_contract": covariance_contract,
                         "notes": f"skipped: {e}",
                     }
                 )
 
-        r_result = run_r(csv_path, args.ties, cov)
+        r_result = run_r(
+            csv_path,
+            args.ties,
+            cov,
+            n_features=args.p,
+            max_iter=args.max_iter,
+            tol=args.tol,
+        )
         r_label = {
             "nonrobust": "R survival::coxph(nonrobust)",
             "hc1": "R survival::coxph(robust-score + explicit HC1 correction)",
@@ -435,6 +531,15 @@ def main():
                 ),
             }
         )
+
+    solver_controls = {
+        "ties": args.ties,
+        "solver": "newton",
+        "max_iter": args.max_iter,
+        "tol": args.tol,
+    }
+    for row in rows:
+        row["solver_controls"] = dict(solver_controls)
 
     print("\n=== Cox Covariance Benchmark ===")
     print(

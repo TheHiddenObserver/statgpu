@@ -142,6 +142,13 @@ cluster 协方差至少需要两个独立单元；HC1 还要求
 不会把非正自由度分母替换为任意有限值。实质性负协方差对角线或非正稳健边际
 方差同样会令 strict inference 失败，而不会发布零标准误与误导性的显著性结果。
 
+边际方差为正并不保证稳健协方差在完整参数空间可逆。因此，只要各边际有效，StatGPU
+仍会报告逐系数 robust SE/z/p/CI；但尺度感知的特征值检查若发现协方差秩亏，则设置
+`wald_test_available_=False` 并记录 `wald_test_failure_reason_`。此时 summary
+显示 `Robust Wald test unavailable`，不会使用不稳定逆矩阵或打印裸 `nan`。
+即使逐系数与 Wald 推断使用稳健协方差，likelihood-ratio 与 score test 仍是经典的
+model-based test；summary 会明确标注这一差异。
+
 `inference_mode="strict"` 是默认值。为保持向后兼容，公开 API 仍接受
 `inference_mode="approx"`，但统一 fit 路径会把它作为 compatibility-only alias，
 继续计算精确的 counting-process score sandwich。因此成功拟合会报告
@@ -158,6 +165,7 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 - `inference_backend_`；
 - `inference_approximate_`；
 - `inference_fallback_reason_`；
+- `wald_test_available_` 与 `wald_test_failure_reason_`；
 - `full_host_transfer_performed_`。
 
 对于 `CoxPHCV`，`full_host_transfer_performed_` 描述整个 fit，包括在 host
