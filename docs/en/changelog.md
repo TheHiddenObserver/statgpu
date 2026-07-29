@@ -13,8 +13,9 @@
   rewriting their public representation; constructor, `set_params()`, and
   `fit()` therefore share the same clone-stable parameter contract, while an
   immutable private fit snapshot supplies normalized values to computation.
-- Ordinary `CoxPHCV` folds now use an explicit immutable-fold prepared
-  capability. Because those backend arrays are privately owned for the full
+- Ordinary `CoxPHCV` folds now use an explicit CV-owned trusted prepared
+  capability. The arrays remain mutable backend objects, but because they are
+  privately owned by the current CV orchestration for the full
   penalty path, candidates reuse their failure-group metadata without an
   O(np) centered-and-sorted content scan or temporary design allocation.
   Caller-owned low-level prepared states retain strict content validation.
@@ -24,7 +25,17 @@
   three-flag combination in active code; direct low-level prepared metadata
   selects the ordinary fast path by type while legacy explicit fast-path
   requests remain supported.
-- The exact clean schema-9 source commit was refreshed through Paramiko in
+- HC0, HC1, and cluster inference now reject fewer than two independent units,
+  and HC1 additionally requires `n_units > n_features` before applying its
+  exact `n_units / (n_units - n_features)` correction. Robust covariance
+  diagonals receive a scale-aware negativity check, so degenerate meat no
+  longer produces zero standard errors and false extreme significance.
+- The covariance benchmark now marks statsmodels HC1 as unsupported instead of
+  relabelling its model-based fit, runs `survival::coxph` when R is available,
+  and records independent-unit counts, correction formulas, and explicit
+  unsupported reasons in JSON.
+- The preceding prepared-capability schema-9 source commit was refreshed
+  through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured
   cases, including zero repeated strict fold-content scans and stable public
   setter representation; the physical targeted matrix passed 321 tests, all

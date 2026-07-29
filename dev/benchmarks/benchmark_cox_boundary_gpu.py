@@ -59,6 +59,7 @@ SOURCE_FILES = (
     "statgpu/survival/_cox_score.py",
     "statgpu/survival/_risk_sets.py",
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
+    "dev/benchmarks/benchmark_cox_cluster.py",
     "dev/tests/test_pr79_complete_review_fixes.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
     "dev/tests/test_pr80_completion_contract_followup.py",
@@ -69,6 +70,7 @@ SOURCE_FILES = (
     "dev/tests/test_pr80_cox_stability_review.py",
     "dev/tests/test_cox_cv.py",
     "dev/tests/test_pr80_target_transfer_overflow_cache.py",
+    "dev/tests/test_pr80_robust_inference_units.py",
 )
 
 TARGETED_TEST_FILES = (
@@ -82,6 +84,7 @@ TARGETED_TEST_FILES = (
     "dev/tests/test_pr80_cox_stability_review.py",
     "dev/tests/test_cox_cv.py",
     "dev/tests/test_pr80_target_transfer_overflow_cache.py",
+    "dev/tests/test_pr80_robust_inference_units.py",
 )
 
 
@@ -1233,6 +1236,130 @@ def _case_completion_contract(name: str, xp) -> dict:
     }
 
 
+def _case_robust_inference_units(name: str, xp) -> dict:
+    """Exercise strict robust-inference unit gates on a physical GPU."""
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=9344, n=48, p=3)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    one_unit = _array(name, xp, np.zeros(X_np.shape[0]))
+    p_units = _array(
+        name, xp, np.arange(X_np.shape[0]) % X_np.shape[1]
+    )
+    p_plus_one_units = _array(
+        name, xp, np.arange(X_np.shape[0]) % (X_np.shape[1] + 1)
+    )
+
+    def rejected(cov_type, *, cluster=None, subject_id=None):
+        model = CoxPH(
+            device=device,
+            cov_type=cov_type,
+            compute_inference=True,
+            compute_cindex=False,
+            max_iter=100,
+            tol=1e-9,
+        )
+        try:
+            model.fit(
+                X,
+                stop,
+                event,
+                cluster=cluster,
+                subject_id=subject_id,
+            )
+        except RuntimeError as exc:
+            return {
+                "error": str(exc),
+                "state_cleared": model.coef_ is None and not model._fitted,
+            }
+        return {"error": "", "state_cleared": False}
+
+    single_cluster = rejected("cluster", cluster=one_unit)
+    single_subject_hc0 = rejected("hc0", subject_id=one_unit)
+    single_subject_hc1 = rejected("hc1", subject_id=one_unit)
+    equal_units_hc1 = rejected("hc1", subject_id=p_units)
+    estimation_only = CoxPH(
+        device=device,
+        cov_type="cluster",
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=100,
+        tol=1e-9,
+    ).fit(X, stop, event, cluster=one_unit)
+
+    common = {
+        "device": device,
+        "compute_inference": True,
+        "compute_cindex": False,
+        "max_iter": 100,
+        "tol": 1e-9,
+    }
+    hc0 = CoxPH(cov_type="hc0", **common).fit(
+        X, stop, event, subject_id=p_plus_one_units
+    )
+    hc1 = CoxPH(cov_type="hc1", **common).fit(
+        X, stop, event, subject_id=p_plus_one_units
+    )
+    hc0_variance = np.asarray(hc0._var_matrix)
+    hc1_variance = np.asarray(hc1._var_matrix)
+    hc1_bse = np.asarray(hc1._bse)
+    hc1_pvalues = np.asarray(hc1._pvalues)
+    correction = (X_np.shape[1] + 1) / (
+        X_np.shape[1] + 1 - X_np.shape[1]
+    )
+    variance_ratio_matches = np.allclose(
+        hc1_variance,
+        correction * hc0_variance,
+        rtol=2e-8,
+        atol=2e-10,
+    )
+
+    passed = all(
+        (
+            "cluster covariance requires at least two" in single_cluster["error"],
+            "hc0 covariance requires at least two"
+            in single_subject_hc0["error"],
+            "hc1 covariance requires at least two"
+            in single_subject_hc1["error"],
+            "HC1 covariance requires n_units > n_features"
+            in equal_units_hc1["error"],
+            single_cluster["state_cleared"],
+            single_subject_hc0["state_cleared"],
+            single_subject_hc1["state_cleared"],
+            equal_units_hc1["state_cleared"],
+            estimation_only._fitted,
+            estimation_only._bse is None,
+            np.all(np.isfinite(estimation_only.coef_)),
+            np.all(np.isfinite(hc1_bse)),
+            np.all(hc1_bse > 0.0),
+            np.all(np.isfinite(hc1_pvalues)),
+            variance_ratio_matches,
+        )
+    )
+    return {
+        "backend": name,
+        "single_cluster": single_cluster,
+        "single_subject_hc0": single_subject_hc0,
+        "single_subject_hc1": single_subject_hc1,
+        "equal_units_hc1": equal_units_hc1,
+        "single_cluster_estimation_only": {
+            "fitted": bool(estimation_only._fitted),
+            "inference_unset": estimation_only._bse is None,
+            "coefficients": np.asarray(estimation_only.coef_).tolist(),
+        },
+        "p_plus_one_units": {
+            "n_features": int(X_np.shape[1]),
+            "n_units": int(X_np.shape[1] + 1),
+            "finite_sample_correction": correction,
+            "standard_errors": hc1_bse.tolist(),
+            "pvalues": hc1_pvalues.tolist(),
+            "variance_ratio_matches": bool(variance_ratio_matches),
+        },
+        "passed": bool(passed),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -1241,7 +1368,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 9,
+        "schema_version": 10,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -1283,6 +1410,9 @@ def main() -> int:
                 "wide_workspace_route": _case_wide_workspace_route(name, xp),
                 "concordance_boundaries": _case_concordance_boundaries(name, xp),
                 "completion_contract": _case_completion_contract(name, xp),
+                "robust_inference_units": _case_robust_inference_units(
+                    name, xp
+                ),
             }
             report["backends"][name] = {
                 "version": xp.__version__,

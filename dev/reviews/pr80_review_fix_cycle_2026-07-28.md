@@ -51,7 +51,7 @@ both CuPy and Torch CUDA.
   0 failed in 16.82 seconds. CuPy and Torch each passed 10/10 structured cases
   and `gate_failures=[]`.
 - Both GPU backends record `strict_content_validation_calls=0` for the
-  CV-owned immutable fold capability and
+  CV-owned trusted fold capability and
   `set_params_representation_stable=true`. Direct caller-owned prepared-state
   mismatch rejection remains in the physical matrix.
 - Independent local verification matched all 29 recorded source SHA-256 values
@@ -596,3 +596,27 @@ completed successfully for evidence commit `89e4307c4015`. The required
   pushed, and all seven jobs in hosted run `30422694780` pass.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.
+
+## Strict Robust-Inference Unit Follow-up (2026-07-29)
+
+Impact: inference=`HC0/HC1/cluster`; backends=`NumPy/CuPy/Torch`;
+objective=`unchanged`; benchmark=`external covariance labels corrected`;
+validation=`local passed, exact-source P100 pending`.
+
+- Strict inference now rejects fewer than two independent units after subject
+  or cluster aggregation. HC1 additionally rejects
+  `n_units <= n_features`; it no longer substitutes a denominator of one.
+- Robust covariance diagonals use a scale-aware roundoff tolerance. Materially
+  negative or non-positive marginal variances fail instead of becoming zero
+  standard errors.
+- `benchmark_cox_cluster.py` explicitly marks statsmodels HC1 unsupported,
+  executes R `survival::coxph` when available, records unit counts and the exact
+  correction contract, and writes strict JSON.
+- The trusted fold capability name and documentation now describe private CV
+  ownership rather than structural immutability.
+
+Complete local regression: `1518 passed, 467 skipped`, with 10 expected
+warnings (the skips require optional backends). Schema 10 adds one-cluster,
+one-subject, HC1 degrees-of-freedom boundary,
+positive-SE, exact correction-ratio, and failed-state-cleanup evidence for both
+CuPy and Torch.

@@ -152,6 +152,15 @@ counting-process score residuals; it does not require statsmodels. Repeated rows
 are summed by `subject_id` before forming HC0/HC1 meat, and cluster covariance is
 summed by `cluster`.
 
+Robust inference requires identifiable independent-unit variation. HC0 and
+cluster covariance require at least two independent units after subject or
+cluster aggregation. HC1 additionally requires `n_units > n_features`, because
+its finite-unit multiplier is exactly `n_units / (n_units - n_features)`.
+Violations raise `RuntimeError`; statgpu does not replace a non-positive degrees-
+of-freedom denominator with an arbitrary finite value. Materially negative or
+non-positive robust marginal variances also fail strict inference instead of
+publishing zero standard errors and misleading significance statistics.
+
 `inference_mode="strict"` is the default. `inference_mode="approx"` remains
 accepted for backward compatibility, but the unified public fit path treats it
 as a compatibility-only alias and still computes the exact counting-process

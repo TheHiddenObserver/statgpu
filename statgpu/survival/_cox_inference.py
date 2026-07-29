@@ -14,6 +14,65 @@ _SINGULAR_INFORMATION_MESSAGE = (
     "Cox observed information is singular or not positive definite; "
     "coefficient inference is not identifiable"
 )
+_ROBUST_COVARIANCE_TYPES = {"hc0", "hc1", "cluster"}
+
+
+def _validate_robust_inference_units(cov_type, n_units, n_features):
+    """Validate independent-unit counts and return the finite-unit factor."""
+    cov_type = str(cov_type).lower()
+    n_units = int(n_units)
+    n_features = int(n_features)
+    if cov_type not in _ROBUST_COVARIANCE_TYPES:
+        raise ValueError("cov_type must be 'hc0', 'hc1', or 'cluster'")
+    if n_units < 2:
+        raise RuntimeError(
+            f"{cov_type} covariance requires at least two independent units"
+        )
+    if cov_type == "hc1":
+        if n_units <= n_features:
+            raise RuntimeError(
+                "HC1 covariance requires n_units > n_features"
+            )
+        return n_units / (n_units - n_features)
+    return 1.0
+
+
+def _standard_errors_from_covariance(covariance, *, cov_type):
+    """Return strict Cox standard errors from a symmetric covariance matrix."""
+    covariance = np.asarray(covariance, dtype=np.float64)
+    if (
+        covariance.ndim != 2
+        or covariance.shape[0] != covariance.shape[1]
+        or not np.all(np.isfinite(covariance))
+    ):
+        raise RuntimeError("Cox covariance must be a finite square matrix")
+
+    diagonal = np.diag(covariance).copy()
+    scale = max(1.0, float(np.max(np.abs(covariance))))
+    tolerance = (
+        128.0
+        * np.finfo(np.float64).eps
+        * max(int(covariance.shape[0]), 1)
+        * scale
+    )
+    if np.any(diagonal < -tolerance):
+        minimum = float(np.min(diagonal))
+        raise RuntimeError(
+            f"{cov_type} covariance has a materially negative diagonal "
+            f"entry ({minimum:.6g}; tolerance={tolerance:.6g})"
+        )
+
+    # Negative values within tolerance are roundoff, not evidence for a
+    # negative variance. Robust inference with a zero marginal variance is
+    # nevertheless unidentified and must not publish an extreme z statistic.
+    diagonal[diagonal < 0.0] = 0.0
+    if str(cov_type).lower() in _ROBUST_COVARIANCE_TYPES and np.any(
+        diagonal <= 0.0
+    ):
+        raise RuntimeError(
+            f"{cov_type} covariance produced a non-positive marginal variance"
+        )
+    return np.sqrt(diagonal)
 
 
 def _information_eigenvalue_tolerance(max_eigenvalue, n_features):
@@ -81,4 +140,6 @@ __all__ = [
     "_invert_information_numpy",
     "_invert_information_cupy",
     "_invert_information_torch",
+    "_standard_errors_from_covariance",
+    "_validate_robust_inference_units",
 ]

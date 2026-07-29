@@ -38,6 +38,8 @@ from statgpu.survival._cox_inference import (
     _invert_information_cupy,
     _invert_information_numpy,
     _invert_information_torch,
+    _standard_errors_from_covariance,
+    _validate_robust_inference_units,
 )
 from statgpu.survival._numeric import (
     _normalize_prediction_matrix,
@@ -974,6 +976,35 @@ class CoxPH(BaseEstimator):
             )
             information = information + 2.0 * controls.penalty * identity
         if controls.compute_inference:
+            unit_codes = None
+            inverse = None
+            n_units = None
+            correction = 1.0
+            if controls.cov_type != "nonrobust":
+                if controls.cov_type == "cluster":
+                    if clusterb is None:
+                        raise ValueError(
+                            "cluster ids are required when cov_type='cluster'"
+                        )
+                    unit_codes = clusterb
+                else:
+                    # Repeated start-stop rows from one subject are not
+                    # independent sandwich units. Aggregate them before the
+                    # outer product whenever subject_id is available.
+                    unit_codes = subjectb
+                if unit_codes is None:
+                    n_units = n_samples
+                else:
+                    unique_units, inverse = xp.unique(
+                        unit_codes, return_inverse=True
+                    )
+                    n_units = int(unique_units.shape[0])
+                correction = _validate_robust_inference_units(
+                    controls.cov_type,
+                    n_units,
+                    int(Xb.shape[1]),
+                )
+
             if backend == "torch":
                 bread = _invert_information_torch(information)
             elif backend == "cupy":
@@ -984,24 +1015,9 @@ class CoxPH(BaseEstimator):
                 variance = bread
             else:
                 residuals = result["score_residuals"]
-                if controls.cov_type == "cluster":
-                    if clusterb is None:
-                        raise ValueError(
-                            "cluster ids are required when cov_type='cluster'"
-                        )
-                    unit_codes = clusterb
-                else:
-                    # Repeated start-stop rows from one subject are not
-                    # independent sandwich units.  Aggregate them before the
-                    # outer product whenever subject_id is available.
-                    unit_codes = subjectb
-
                 if unit_codes is None:
                     unit_scores = residuals
-                    n_units = n_samples
                 else:
-                    _, inverse = xp.unique(unit_codes, return_inverse=True)
-                    n_units = int(xp.max(inverse).item()) + 1
                     if backend == "torch":
                         unit_scores = xp.zeros(
                             (n_units, residuals.shape[1]),
@@ -1017,13 +1033,13 @@ class CoxPH(BaseEstimator):
                         xp.add.at(unit_scores, inverse, residuals)
                 meat = unit_scores.T @ unit_scores
                 if controls.cov_type == "hc1":
-                    meat = meat * n_units / max(
-                        n_units - int(Xb.shape[1]), 1
-                    )
+                    meat = meat * correction
                 variance = bread @ meat @ bread
             variance = 0.5 * (variance + variance.T)
             self._var_matrix = to_numpy(variance)
-            self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
+            self._bse = _standard_errors_from_covariance(
+                self._var_matrix, cov_type=controls.cov_type
+            )
             self._zvalues = self.coef_ / (self._bse + 1e-30)
             self._pvalues = 2.0 * norm.sf(np.abs(self._zvalues))
             ci_quantile = float(norm.ppf(0.975))

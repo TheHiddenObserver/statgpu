@@ -23,7 +23,7 @@ from statgpu.backends._utils import _require_real_array
 from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
 from statgpu.survival._cox import CoxPH
 from statgpu.survival._cox_counting import (
-    _prepare_immutable_fold_right_censored_cox_fast_path,
+    _prepare_cv_owned_right_censored_cox_fast_path,
 )
 from statgpu.survival._cox_errors import CoxFitNumericalError
 from statgpu.survival._cox_fit_adapter import (
@@ -1127,7 +1127,7 @@ def _select_coxph_penalty_cv(
             and ties in {"breslow", "efron"}
         ):
             right_censored_prepared = (
-                _prepare_immutable_fold_right_censored_cox_fast_path(
+                _prepare_cv_owned_right_censored_cox_fast_path(
                     fold_arrays["X_fit"],
                     fold_arrays["time_fit"],
                     fold_arrays["event_fit"],

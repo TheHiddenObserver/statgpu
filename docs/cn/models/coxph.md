@@ -135,6 +135,13 @@ Breslow 与 Efron 的 strict 稳健推断使用 statgpu 内部的精确计数过
 residual，不依赖 statsmodels。同一受试者的重复行会先按 `subject_id` 汇总再
 形成 HC0/HC1 meat；cluster 协方差按 `cluster` 汇总。
 
+稳健推断必须具有可识别的独立单元变异。按 subject 或 cluster 汇总后，HC0 与
+cluster 协方差至少需要两个独立单元；HC1 还要求
+`n_units > n_features`，因为其有限单元修正严格为
+`n_units / (n_units - n_features)`。违反这些条件会抛出 `RuntimeError`，
+不会把非正自由度分母替换为任意有限值。实质性负协方差对角线或非正稳健边际
+方差同样会令 strict inference 失败，而不会发布零标准误与误导性的显著性结果。
+
 `inference_mode="strict"` 是默认值。为保持向后兼容，公开 API 仍接受
 `inference_mode="approx"`，但统一 fit 路径会把它作为 compatibility-only alias，
 继续计算精确的 counting-process score sandwich。因此成功拟合会报告

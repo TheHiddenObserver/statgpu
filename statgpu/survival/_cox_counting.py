@@ -136,12 +136,12 @@ class _PreparedRightCensoredCox:
 
 
 @dataclass(frozen=True)
-class _PreparedImmutableFoldRightCensoredCox(_PreparedRightCensoredCox):
-    """Capability for CV-owned fold arrays that are never exposed or mutated."""
+class _PreparedCVOwnedRightCensoredCox(_PreparedRightCensoredCox):
+    """Trusted capability whose mutable arrays remain privately owned by CV."""
 
     @property
     def requires_content_validation(self) -> bool:
-        """CV owns these arrays for the complete penalty-path lifetime."""
+        """CV conventionally owns these arrays for the complete penalty path."""
         return False
 
 
@@ -250,20 +250,20 @@ def prepare_right_censored_cox_fast_path(
     )
 
 
-def _prepare_immutable_fold_right_censored_cox_fast_path(
+def _prepare_cv_owned_right_censored_cox_fast_path(
     X: Any,
     stop: Any,
     event: Any,
     *,
     ties: str,
-) -> _PreparedImmutableFoldRightCensoredCox:
-    """Build a reusable state for CV-private, immutable fold arrays."""
+) -> _PreparedCVOwnedRightCensoredCox:
+    """Build trusted state for arrays privately owned by the CV orchestration."""
     return _build_right_censored_cox_fast_path(
         X,
         stop,
         event,
         ties=ties,
-        state_type=_PreparedImmutableFoldRightCensoredCox,
+        state_type=_PreparedCVOwnedRightCensoredCox,
     )
 
 

@@ -424,7 +424,7 @@ def test_cv_owned_prepared_state_skips_per_candidate_content_scan(monkeypatch):
     X, stop, event = _sample(n=42)
 
     def unexpected_full_content_scan(*args, **kwargs):
-        raise AssertionError("CV rescanned an immutable fold design matrix")
+        raise AssertionError("CV rescanned its privately owned fold matrix")
 
     monkeypatch.setattr(
         cox_counting._PreparedRightCensoredCox,

@@ -818,10 +818,11 @@ validation tier=`local-full`.
   compared a complete centered-and-sorted design for every CV candidate.
   Hashing would retain the O(np) scan, and arbitrary backend arrays have no
   reliable mutation generation counter. CV now creates a distinct
-  `_PreparedImmutableFoldRightCensoredCox` capability for its privately owned
+  `_PreparedCVOwnedRightCensoredCox` trusted capability for its privately owned
   fold arrays, so the complete penalty path skips both the scan and temporary
-  matrix. Direct low-level state remains strict and still rejects changed or
-  in-place-mutated inputs.
+  matrix. The name and documentation explicitly state that backend arrays are
+  mutable and safety follows from private CV ownership. Direct low-level state
+  remains strict and still rejects changed or in-place-mutated inputs.
 - [LOW][MAINT/EXT][fixed] The canonical call chain previously combined
   `right_censored_fast_path`, `right_censored_prepared`, and
   `_inputs_prepared`. Public dispatch now supplies either
@@ -852,3 +853,42 @@ with SHA-256
 `c0971df86347f8baf4350f8ba4500e07b94b8f6b059dc5e68e325655941b8fc2`.
 Evidence commit `41e4040702a16d98341b913c3c62d5060f916915` is pushed, and all
 seven hosted jobs passed in GitHub Actions run `30440782646`.
+
+## Strict Robust-Inference Unit Follow-up
+
+Impact classification: backend=`NumPy/CuPy/Torch`; survival objective=
+`Breslow/Efron inference`; CV=`final refit inherits contract`; inference=
+`HC0/HC1/cluster`; formula=`unchanged`; performance=`negligible pre-meat gate`;
+validation tier=`local-full; exact-source physical GPU pending`.
+
+- [MEDIUM][BUG/INFERENCE][fixed] Robust covariance previously formed sandwich
+  meat even when aggregation left a single independent subject or cluster, and
+  HC1 silently replaced `n_units - n_features <= 0` with a denominator of one.
+  A shared strict gate now requires at least two independent units for HC0,
+  HC1, and cluster covariance, and requires `n_units > n_features` for HC1.
+  The finite-unit multiplier is exactly
+  `n_units / (n_units - n_features)`; failures remain inference errors and
+  transactionally clear public fitted state.
+- [MEDIUM][BUG/INFERENCE][fixed] Covariance diagonals were unconditionally
+  clipped at zero. The shared inference helper now uses a scale-aware roundoff
+  tolerance, rejects materially negative entries, and rejects non-positive
+  robust marginal variances instead of publishing zero standard errors and
+  misleading extreme significance.
+- [LOW][VALIDATION][fixed] The cluster benchmark labelled an ordinary
+  statsmodels model-based fit as HC1 and never ran its R helper. Statsmodels HC1
+  is now explicitly `unsupported`; the R path executes
+  `survival::coxph(robust=TRUE)` and applies the documented HC1 correction.
+  Every result records the independent-unit count, covariance contract,
+  correction, and unsupported reason, and JSON output replaces non-finite
+  placeholders with `null`.
+- [LOW][MAINT/EXT][fixed] The trusted fold capability is now named
+  `_PreparedCVOwnedRightCensoredCox`. Its documentation states that contained
+  backend arrays and loss caches are structurally mutable and that bypassing
+  content validation is safe only under private CV ownership for the complete
+  penalty path.
+
+The complete local suite passes 1518 tests with 467 optional-backend skips and
+10 expected warnings. The maintained physical runner is schema 10 and adds direct CuPy/Torch
+cases for one cluster, one subject, `n_units == n_features`, and the valid
+`n_units == n_features + 1` correction ratio. Exact-source P100 JSON and the R
+comparison artifact remain pending until the source commit is authorized.

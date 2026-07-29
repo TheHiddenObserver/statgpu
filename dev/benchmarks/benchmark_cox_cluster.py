@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 import numpy as np
 
@@ -95,23 +95,146 @@ def safe_diff(a, b):
     return float(np.max(np.abs(a[:n] - b[:n])))
 
 
+def json_ready(value):
+    """Convert benchmark results to strict, portable JSON values."""
+    if isinstance(value, dict):
+        return {key: json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def statsmodels_covariance_capability(cov_type: str) -> Dict[str, Any]:
+    """Describe PHReg covariance support without mislabelling model-based SEs."""
+    if cov_type == "hc1":
+        return {
+            "supported": False,
+            "contract": "unsupported",
+            "reason": (
+                "PHReg.fit() does not expose the HC1 "
+                "n_units/(n_units-p) score-sandwich contract"
+            ),
+        }
+    return {
+        "supported": True,
+        "contract": (
+            "cluster-aggregated score sandwich without HC1 correction"
+            if cov_type == "cluster"
+            else "model-based observed-information inverse"
+        ),
+        "reason": "",
+    }
+
+
 def run_r(csv_path: Path, ties: str, cov_type: str) -> Dict[str, Any]:
+    """Run a precisely labelled R survival covariance reference."""
     if shutil.which("Rscript") is None:
-        return {"error": "Rscript not found"}
-    cluster_clause = ", cluster=cluster" if cov_type == "cluster" else ""
+        return {"supported": False, "error": "Rscript not found"}
+    if cov_type not in {"nonrobust", "hc1", "cluster"}:
+        return {"supported": False, "error": f"unsupported cov_type={cov_type}"}
+
+    robust = "TRUE" if cov_type in {"hc1", "cluster"} else "FALSE"
+    add_cluster = cov_type == "cluster"
+    apply_hc1 = cov_type == "hc1"
     r_script = f"""
-    suppressWarnings({{
+    suppressPackageStartupMessages(library(survival))
+    tryCatch({{
       d <- read.csv("{csv_path.as_posix()}")
-      x_terms <- paste0("x", 1:{len([1 for _ in range(1)])})  # placeholder to satisfy parser
+      feature_names <- grep("^x[0-9]+$", names(d), value=TRUE)
+      p <- length(feature_names)
+      rhs <- paste(feature_names, collapse=" + ")
+      if ({str(add_cluster).upper()}) rhs <- paste(rhs, "+ cluster(cluster)")
+      form <- as.formula(paste("Surv(time, event) ~", rhs))
+      n_units <- if ({str(add_cluster).upper()}) length(unique(d$cluster)) else nrow(d)
+      if ({str(apply_hc1).upper()} && n_units <= p) stop("HC1 requires n_units > p")
+      started <- proc.time()[["elapsed"]]
+      fit <- coxph(
+        form,
+        data=d,
+        ties="{ties}",
+        robust={robust},
+        singular.ok=FALSE,
+        timefix=FALSE
+      )
+      fit_ms <- (proc.time()[["elapsed"]] - started) * 1000
+      covariance <- fit$var
+      correction <- 1.0
+      if ({str(apply_hc1).upper()}) {{
+        correction <- n_units / (n_units - p)
+        covariance <- correction * covariance
+      }}
+      coef <- stats::coef(fit)
+      bse <- sqrt(diag(covariance))
+      pvalues <- 2 * pnorm(-abs(coef / bse))
+      cat("FIT_MS=", format(fit_ms, digits=17), "\n", sep="")
+      cat("N_UNITS=", n_units, "\n", sep="")
+      cat("CORRECTION=", format(correction, digits=17), "\n", sep="")
+      cat("COEF=", paste(format(coef, digits=17, scientific=TRUE), collapse=","), "\n", sep="")
+      cat("BSE=", paste(format(bse, digits=17, scientific=TRUE), collapse=","), "\n", sep="")
+      cat("PVALUES=", paste(format(pvalues, digits=17, scientific=TRUE), collapse=","), "\n", sep="")
+    }}, error=function(exc) {{
+      message(conditionMessage(exc))
+      quit(status=2)
     }})
     """
-    # Build formula string outside placeholder trick:
-    return {}
+    try:
+        completed = subprocess.run(
+            ["Rscript", "-e", r_script],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"supported": False, "error": f"Rscript failed: {exc}"}
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip()
+        return {
+            "supported": False,
+            "error": f"R survival::coxph failed: {message}",
+        }
+    fields = {}
+    for line in completed.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            fields[key.strip()] = value.strip()
+    required = {"FIT_MS", "N_UNITS", "CORRECTION", "COEF", "BSE", "PVALUES"}
+    if not required.issubset(fields):
+        return {
+            "supported": False,
+            "error": f"R output missing fields: {sorted(required - fields.keys())}",
+        }
+    parse_vector = lambda value: np.fromstring(value, sep=",")
+    return {
+        "supported": True,
+        "fit_ms": float(fields["FIT_MS"]),
+        "n_units": int(fields["N_UNITS"]),
+        "correction": float(fields["CORRECTION"]),
+        "coef": parse_vector(fields["COEF"]),
+        "bse": parse_vector(fields["BSE"]),
+        "pvalues": parse_vector(fields["PVALUES"]),
+    }
 
 
 def main():
     args = parse_args()
     X, t_obs, event, cluster = make_data(args.seed, args.n, args.p, args.groups)
+    temporary_directory = tempfile.TemporaryDirectory(prefix="statgpu-cox-cluster-")
+    csv_path = Path(temporary_directory.name) / "cox_cluster.csv"
+    header = ["time", "event", "cluster"] + [
+        f"x{index + 1}" for index in range(args.p)
+    ]
+    np.savetxt(
+        csv_path,
+        np.column_stack((t_obs, event, cluster, X)),
+        delimiter=",",
+        header=",".join(header),
+        comments="",
+    )
     if HAS_CUPY and cuda_available():
         # Warm up CUDA context and cuBLAS handles outside timing.
         _ = cp.asarray([1.0, 2.0]) @ cp.asarray([3.0, 4.0])
@@ -119,9 +242,27 @@ def main():
 
     rows = []
     for cov in ["nonrobust", "hc1", "cluster"]:
+        n_units = (
+            int(np.unique(cluster).size) if cov == "cluster" else int(args.n)
+        )
+        correction = (
+            n_units / (n_units - args.p) if cov == "hc1" else 1.0
+        )
+        covariance_contract = {
+            "nonrobust": "model-based observed-information inverse",
+            "hc1": "row-score sandwich times n_units/(n_units-p)",
+            "cluster": "cluster-aggregated score sandwich without HC1 correction",
+        }[cov]
         # statgpu CPU
         set_device("cpu")
-        m_cpu = CoxPH(device="cpu", ties=args.ties, cov_type=cov, max_iter=args.max_iter, tol=1e-8, compute_inference=True)
+        m_cpu = CoxPH(
+            device="cpu",
+            ties=args.ties,
+            cov_type=cov,
+            max_iter=args.max_iter,
+            tol=1e-8,
+            compute_inference=True,
+        )
         ms_cpu = time_fit(m_cpu, X, t_obs, event, cluster if cov == "cluster" else None)
         rows.append(
             {
@@ -131,7 +272,11 @@ def main():
                 "coef_ref_diff": 0.0,
                 "bse_ref_diff": 0.0,
                 "p_ref_diff": 0.0,
-                "notes": "",
+                "supported": True,
+                "independent_units": n_units if cov != "nonrobust" else None,
+                "finite_sample_correction": correction,
+                "covariance_contract": covariance_contract,
+                "notes": "reference for this covariance mode",
             }
         )
 
@@ -142,7 +287,14 @@ def main():
             tg = cp.asarray(t_obs)
             eg = cp.asarray(event)
             cg = cp.asarray(cluster)
-            m_gpu = CoxPH(device="cuda", ties=args.ties, cov_type=cov, max_iter=args.max_iter, tol=1e-8, compute_inference=True)
+            m_gpu = CoxPH(
+                device="cuda",
+                ties=args.ties,
+                cov_type=cov,
+                max_iter=args.max_iter,
+                tol=1e-8,
+                compute_inference=True,
+            )
             ms_gpu = time_fit(m_gpu, Xg, tg, eg, cg if cov == "cluster" else None)
             rows.append(
                 {
@@ -152,33 +304,66 @@ def main():
                     "coef_ref_diff": safe_diff(m_cpu.coef_, m_gpu.coef_),
                     "bse_ref_diff": safe_diff(m_cpu._bse, m_gpu._bse),
                     "p_ref_diff": safe_diff(m_cpu._pvalues, m_gpu._pvalues),
+                    "supported": True,
+                    "independent_units": n_units if cov != "nonrobust" else None,
+                    "finite_sample_correction": correction,
+                    "covariance_contract": covariance_contract,
                     "notes": "ref=statgpu-cpu",
                 }
             )
 
         # statsmodels
         if HAS_STATSMODELS:
-            try:
-                t0 = time.perf_counter()
-                sm_model = smd.PHReg(t_obs, X, status=event, ties=args.ties)
-                if cov == "cluster":
-                    sm_res = sm_model.fit(groups=cluster)
-                elif cov == "hc1":
-                    sm_res = sm_model.fit()
-                else:
-                    sm_res = sm_model.fit()
-                t1 = time.perf_counter()
+            sm_capability = statsmodels_covariance_capability(cov)
+            if not sm_capability["supported"]:
                 rows.append(
                     {
                         "method": "CoxPH",
-                        "framework": f"statsmodels.PHReg({cov})",
-                        "fit_ms": (t1 - t0) * 1000.0,
-                        "coef_ref_diff": safe_diff(m_cpu.coef_, sm_res.params),
-                        "bse_ref_diff": safe_diff(m_cpu._bse, getattr(sm_res, "bse", None)),
-                        "p_ref_diff": safe_diff(m_cpu._pvalues, getattr(sm_res, "pvalues", None)),
-                        "notes": "ref=statgpu-cpu",
+                        "framework": "statsmodels.PHReg(hc1)",
+                        "fit_ms": np.nan,
+                        "coef_ref_diff": np.nan,
+                        "bse_ref_diff": np.nan,
+                        "p_ref_diff": np.nan,
+                        "supported": False,
+                        "independent_units": n_units,
+                        "finite_sample_correction": correction,
+                        "covariance_contract": sm_capability["contract"],
+                        "notes": f"unsupported: {sm_capability['reason']}",
                     }
                 )
+                sm_result_supported = False
+            else:
+                sm_result_supported = True
+            try:
+                if sm_result_supported:
+                    t0 = time.perf_counter()
+                    sm_model = smd.PHReg(t_obs, X, status=event, ties=args.ties)
+                    sm_res = (
+                        sm_model.fit(groups=cluster)
+                        if cov == "cluster"
+                        else sm_model.fit()
+                    )
+                    t1 = time.perf_counter()
+                    rows.append(
+                        {
+                            "method": "CoxPH",
+                            "framework": f"statsmodels.PHReg({cov})",
+                            "fit_ms": (t1 - t0) * 1000.0,
+                            "coef_ref_diff": safe_diff(m_cpu.coef_, sm_res.params),
+                            "bse_ref_diff": safe_diff(
+                                m_cpu._bse, getattr(sm_res, "bse", None)
+                            ),
+                            "p_ref_diff": safe_diff(
+                                m_cpu._pvalues,
+                                getattr(sm_res, "pvalues", None),
+                            ),
+                            "supported": True,
+                            "independent_units": n_units if cov == "cluster" else None,
+                            "finite_sample_correction": 1.0,
+                            "covariance_contract": covariance_contract,
+                            "notes": "ref=statgpu-cpu",
+                        }
+                    )
             except Exception as e:
                 rows.append(
                     {
@@ -188,12 +373,48 @@ def main():
                         "coef_ref_diff": np.nan,
                         "bse_ref_diff": np.nan,
                         "p_ref_diff": np.nan,
+                        "supported": False,
+                        "independent_units": n_units if cov != "nonrobust" else None,
+                        "finite_sample_correction": correction,
+                        "covariance_contract": covariance_contract,
                         "notes": f"skipped: {e}",
                     }
                 )
 
+        r_result = run_r(csv_path, args.ties, cov)
+        r_label = {
+            "nonrobust": "R survival::coxph(nonrobust)",
+            "hc1": "R survival::coxph(robust-score + explicit HC1 correction)",
+            "cluster": "R survival::coxph(cluster-robust)",
+        }[cov]
+        rows.append(
+            {
+                "method": "CoxPH",
+                "framework": r_label,
+                "fit_ms": r_result.get("fit_ms", np.nan),
+                "coef_ref_diff": safe_diff(m_cpu.coef_, r_result.get("coef")),
+                "bse_ref_diff": safe_diff(m_cpu._bse, r_result.get("bse")),
+                "p_ref_diff": safe_diff(m_cpu._pvalues, r_result.get("pvalues")),
+                "supported": bool(r_result.get("supported", False)),
+                "independent_units": r_result.get("n_units", n_units),
+                "finite_sample_correction": r_result.get("correction", correction),
+                "covariance_contract": covariance_contract,
+                "notes": (
+                    "ref=statgpu-cpu; "
+                    + (
+                        "R robust score sandwich with explicit n_units/(n_units-p) correction"
+                        if cov == "hc1" and r_result.get("supported")
+                        else r_result.get("error", "native R covariance mode")
+                    )
+                ),
+            }
+        )
+
     print("\n=== Cox Covariance Benchmark ===")
-    print(f"{'framework':<34} {'fit_ms':>10} {'coef_diff':>12} {'bse_diff':>12} {'p_diff':>12}")
+    print(
+        f"{'framework':<34} {'fit_ms':>10} {'coef_diff':>12} "
+        f"{'bse_diff':>12} {'p_diff':>12}"
+    )
     for r in rows:
         print(
             f"{r['framework']:<34} {r['fit_ms']:>10.2f} "
@@ -205,8 +426,12 @@ def main():
     if args.json_out:
         out = Path(args.json_out).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        out.write_text(
+            json.dumps(json_ready(rows), indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
         print(f"\nSaved JSON: {out}")
+    temporary_directory.cleanup()
 
 
 if __name__ == "__main__":
