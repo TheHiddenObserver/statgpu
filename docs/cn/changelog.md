@@ -7,6 +7,13 @@
 
 ## 2026-07
 
+### 修复（2026-07-29）— PR #80 schema-7 物理 GPU 复验
+
+- 精确源码的 schema-7 复验在 Tesla P100 上通过 282 项定向测试以及全部 18 个
+  CuPy/Torch case gate。machine-readable JSON 记录 clean source commit、29 个源码
+  hash，并直接验证 prepared-state 内容错配会被拒绝，以及 packed GPU target 的
+  完整 host transfer provenance 会被如实报告。
+
 ### 修复（2026-07-29）— PR #80 复审补充
 
 - 复用的 right-censored loss state 现在会在底层求解前，于当前 backend

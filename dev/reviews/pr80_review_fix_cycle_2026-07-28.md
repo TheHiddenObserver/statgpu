@@ -5,14 +5,14 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**PARTIAL_REMOTE_PENDING.** The schema-6 source/evidence commits were pushed and
-all seven hosted jobs completed successfully. A subsequent independent review
-found two MEDIUM issues: stale prepared-state reuse and packed-GPU-target
-provenance. Both are fixed locally, together with the related constructor and
-backend-reuse LOW findings. The complete local suite and maintained target
-matrix pass, and the read-only re-review found no remaining CRITICAL, HIGH, or
-active MEDIUM issue. Exact-source CuPy/Torch refresh, commit, push, and the new
-hosted run remain pending for this post-schema-6 delta.
+**PHYSICAL_COMPLETE; EVIDENCE PUSH/HOSTED CI PENDING.** The post-schema-6
+prepared-state, packed-target, constructor, and backend-reuse fixes pass the
+complete local suite and the exact-source schema-7 P100 refresh. The read-only
+re-review found no remaining CRITICAL, HIGH, or active MEDIUM issue. The
+machine-readable artifact has been independently verified against all 29 Git
+blobs from source commit `28d7b367c364d4b64e24b6b36662724b6b1c9a86`.
+Only the evidence commit, push, and hosted run remain pending at the time this
+report is written.
 
 ## 2026-07-29 impact classification
 
@@ -24,17 +24,17 @@ hosted run remain pending for this post-schema-6 delta.
 | Public API | active boundary | clone-safe constructor round trips |
 | Inference | unchanged/shared | canonical inference remains in `_cox_inference.py` |
 | Formula | active maintenance | side-array alignment now uses `BackendBase` |
-| Benchmark/artifact | remote pending | exact-source CuPy/Torch refresh required |
+| Benchmark/artifact | physical passed | schema-7 exact-source CuPy/Torch artifact verified |
 | Documentation | active | bilingual numerical and provenance contracts |
 
 ## Post-schema-6 independent findings and fixes
 
 | Finding | Status | Resolution |
 | --- | --- | --- |
-| Same-shape prepared state could fit stale data and a current baseline | fixed locally; needs remote GPU | The low-level solver now verifies current centered/sorted `X`, time, and event against the cached state on the active backend. Same-shape foreign content and in-place mutation are rejected before optimization; only one boolean scalar is transferred. Preparation helpers and the solver were removed from module `__all__`. |
-| Packed CuPy/Torch `CoxPHCV` target lost provenance before selection | fixed locally; needs remote GPU | `_unpack_survival_target()` preserves native column views, so selector input backends and full-host-transfer fields see the original device residency. |
+| Same-shape prepared state could fit stale data and a current baseline | fixed; physical GPU passed | The low-level solver now verifies current centered/sorted `X`, time, and event against the cached state on the active backend. Same-shape foreign content and in-place mutation are rejected before optimization; only one boolean scalar is transferred. Preparation helpers and the solver were removed from module `__all__`. |
+| Packed CuPy/Torch `CoxPHCV` target lost provenance before selection | fixed; physical GPU passed | `_unpack_survival_target()` preserves native column views, so selector input backends and full-host-transfer fields see the original device residency. |
 | `CoxPH.__init__()` clone-safety comment contradicted canonicalization | fixed | Cox-specific public constructor objects are stored unchanged and normalized by the existing fit-time boundary, matching `CoxPHCV`. |
-| Penalized Cox and formula alignment duplicated backend branches | fixed locally; needs remote GPU | Penalized prediction/score now use `BaseEstimator._get_backend()`, `BackendBase.asarray()/to_numpy()`, and shared validators. Formula side-array indices use the backend factory rather than direct CuPy/Torch imports. |
+| Penalized Cox and formula alignment duplicated backend branches | fixed; physical GPU passed | Penalized prediction/score now use `BaseEstimator._get_backend()`, `BackendBase.asarray()/to_numpy()`, and shared validators. Formula side-array indices use the backend factory rather than direct CuPy/Torch imports. |
 
 The exact content check was selected over identity-only or lossy aggregate
 fingerprints because either alternative can silently accept legal in-place
@@ -47,8 +47,8 @@ Current-delta files are `statgpu/backends/_utils.py`,
 `statgpu/survival/_cox.py`, `_cox_counting.py`, `_cox_cv.py`,
 `statgpu/linear_model/penalized/_penalized_cox.py`,
 `dev/tests/test_pr80_constructor_boundaries.py`,
-`dev/tests/test_pr80_target_transfer_overflow_cache.py`, and the three
-changelog/review documents.
+`dev/tests/test_pr80_target_transfer_overflow_cache.py`, the schema-7 physical
+runner, and the three changelog/review documents.
 
 ## 2026-07-29 findings and fixes
 
@@ -104,8 +104,43 @@ changelog/review documents.
 - Starting source head: `cb1b60c383021b5fec7dd067d21fa2245d96ebca`.
 - Base of the current local follow-up:
   `0ca376e314afed22c66f7f37a9ff94b82a42de91`.
+- Frozen schema-7 source commit:
+  `28d7b367c364d4b64e24b6b36662724b6b1c9a86`.
 - Frozen schema-6 source commit:
   `e26c21e2d1ed373fb0fd2d40169c99a31abdc82d`.
+
+## Exact-source physical evidence (schema 7)
+
+Schema 7 adds direct per-backend gates for the two post-schema-6 MEDIUM
+findings. It rejects same-shape GPU data that do not match a reusable prepared
+right-censored state, and fits a NumPy design with a packed CuPy/Torch target
+to verify that native target slicing preserves device provenance until the
+intentional CV orchestration transfer. The maintained physical pytest matrix
+also covers shared backend prediction/scoring, constructor round trips, and
+the existing completion contract.
+
+- Exact clean source commit:
+  `28d7b367c364d4b64e24b6b36662724b6b1c9a86`.
+- Paramiko remote worktree:
+  `/root/statgpu-pr80-28d7b36-schema7-20260729-1228`.
+- Environment: Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch
+  2.0.0+cu117, Tesla P100-SXM2-16GB.
+- Command: `/root/miniconda3/envs/myconda/bin/python
+  dev/benchmarks/benchmark_cox_boundary_gpu.py --output
+  results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema7.json
+  --run-targeted-tests`.
+- Targeted physical matrix: **282 passed**, 5 expected convergence warnings,
+  0 failed in 16.95 seconds. All 18 CuPy/Torch case gates passed and
+  `gate_failures=[]`.
+- Both backends rejected prepared-state content mismatch. The packed-target
+  cases recorded `cupy` or `torch-device` in `input_backends` and set both
+  `cv_full_host_transfer_performed_` and `full_host_transfer_performed_` true.
+- Independent local verification matched all 29 recorded source SHA-256 values
+  to the exact commit's Git blobs and confirmed `source_clean=true`.
+- Artifact:
+  `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema7.json`;
+  SHA-256
+  `bb125ff584e9275ff2a31d197d02ca779d6bfd9f19148e8931024863a0c20d02`.
 
 ## Exact-source physical evidence (schema 6)
 
@@ -473,7 +508,7 @@ completed successfully for evidence commit `89e4307c4015`. The required
   evidence commit, push, and all seven hosted-CI jobs pass. The schema-6 delta
   also has exact-source CuPy/Torch P100 evidence, its evidence commit is pushed,
   and all seven hosted jobs pass. The later prepared-state and packed-target
-  fixes described at the top still need an exact-source physical refresh,
-  commit, push, and hosted rerun.
+  fixes now have exact-source schema-7 P100 evidence; only its evidence push
+  and hosted rerun remain pending at report time.
 - `inference_mode="approx"` remains the documented compatibility-only no-op;
   changing or removing that public option is outside this cycle.

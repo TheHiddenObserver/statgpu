@@ -43,6 +43,10 @@
   provenance. Cox constructors preserve clone-sensitive inputs until fit-time
   normalization, while penalized prediction and scoring reuse `BackendBase`
   conversion and the shared Cox boolean/real-value validators.
+- The schema-7 exact-source physical refresh passed 282 targeted tests and all
+  18 CuPy/Torch case gates on a Tesla P100. Its machine-readable artifact
+  records the clean source commit and 29 source hashes, plus direct gates for
+  prepared-state content mismatch and packed-GPU-target transfer provenance.
 
 ### Fixed (2026-07-27) — PR #80 follow-up review
 
