@@ -5,30 +5,56 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**LOCAL_COMPLETE; SCHEMA-8 PHYSICAL REFRESH PENDING.** The exact-source
-schema-7 P100 evidence and its seven-job hosted run remain valid for source
-commit `28d7b367c364d4b64e24b6b36662724b6b1c9a86`. A later review found two
-MEDIUM issues in penalized prediction normalization and low-level fast-path
-eligibility, plus a LOW fit-parameter stability issue. All three are fixed in
-the current working tree, the complete CPU suite passes, and the maintained
-runner now has direct schema-8 CuPy/Torch gates. An exact-source physical
-refresh, evidence commit, push, and hosted rerun remain pending for this new
-delta.
+**PHYSICAL_COMPLETE; EVIDENCE PUSH/HOSTED CI PENDING.** The two post-schema-7
+MEDIUM fixes and the fit-parameter stability cleanup pass the complete CPU
+suite and the exact-source schema-8 P100 refresh. The machine-readable artifact
+has been independently verified against all 29 Git blobs from source commit
+`0bbe3fc2e0b3f223074681e69bfa7a5dcd88443b`; all 20 CuPy/Torch case gates and
+318 targeted physical tests pass. Only the evidence commit, push, and hosted
+rerun remain pending at the time this report is written.
 
 ## Post-schema-7 findings and fixes
 
 | Finding | Status | Resolution |
 | --- | --- | --- |
-| Penalized one-dimensional prediction regressed for multi-feature models | fixed locally; needs physical GPU | Canonical and penalized Cox now share `_normalize_prediction_matrix()`. It distinguishes one-row/multi-feature from many-row/single-feature inputs, rejects rank other than two after normalization, checks exact feature count, and applies one finite-value contract before backend matmul. Prediction, hazard ratio, score, and formula-transformed matrices use the same boundary. |
-| Low-level right-censored fast path ignored nonzero `start` or multiple `strata` | fixed locally; needs physical GPU | The solver now verifies all-zero start and a single stratum on the active backend before creating or using ordinary prepared state. The existing boolean remains for compatibility; replacing it outright with a capability would break direct callers, while the explicit eligibility gate closes the correctness hole with one scalar decision per fit. |
-| Fit rewrote public constructor parameters | fixed locally | Fit normalization now returns immutable `_CoxFitControls`/`_CoxCVFitControls` snapshots. Fitting, inference, summary, and information criteria use the normalized private state; public `get_params()` values remain unchanged across successful fit. |
+| Penalized one-dimensional prediction regressed for multi-feature models | fixed; physical GPU passed | Canonical and penalized Cox now share `_normalize_prediction_matrix()`. It distinguishes one-row/multi-feature from many-row/single-feature inputs, rejects rank other than two after normalization, checks exact feature count, and applies one finite-value contract before backend matmul. Prediction, hazard ratio, score, and formula-transformed matrices use the same boundary. |
+| Low-level right-censored fast path ignored nonzero `start` or multiple `strata` | fixed; physical GPU passed | The solver now verifies all-zero start and a single stratum on the active backend before creating or using ordinary prepared state. The existing boolean remains for compatibility; replacing it outright with a capability would break direct callers, while the explicit eligibility gate closes the correctness hole with one scalar decision per fit. |
+| Fit rewrote public constructor parameters | fixed; physical GPU passed | Fit normalization now returns immutable `_CoxFitControls`/`_CoxCVFitControls` snapshots. Fitting, inference, summary, and information criteria use the normalized private state; public `get_params()` values remain unchanged across successful fit. |
 
 Local evidence for this delta is **1506 passed, 455 skipped**, 0 failed in the
 complete CPU suite. Focused prediction/fast-path/constructor tests passed with
 GPU-only cases skipped locally; py_compile, pyflakes, documentation links,
 122 documentation contracts, benchmark `--help`, and `git diff --check` pass.
-The maintained runner is schema 8 and adds structured physical cases for the
-new prediction, fast-path eligibility, and active-control contracts.
+The maintained schema-8 runner adds structured physical cases for the new
+prediction, fast-path eligibility, and active-control contracts; all passed on
+both CuPy and Torch CUDA.
+
+## Exact-source physical evidence (schema 8)
+
+- Exact clean source commit:
+  `0bbe3fc2e0b3f223074681e69bfa7a5dcd88443b`.
+- Paramiko remote worktree:
+  `/root/statgpu-pr80-0bbe3fc-schema8-20260729-1444`.
+- Environment: Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch
+  2.0.0+cu117, Tesla P100-SXM2-16GB.
+- Command: `/root/miniconda3/envs/myconda/bin/python
+  dev/benchmarks/benchmark_cox_boundary_gpu.py --output
+  results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema8.json
+  --run-targeted-tests`.
+- Targeted physical matrix: **318 passed**, 5 expected convergence warnings,
+  0 failed in 17.14 seconds. All 20 CuPy/Torch case gates passed and
+  `gate_failures=[]`.
+- Both backends interpret a multi-feature one-dimensional prediction as one
+  row, reject wrong one-dimensional lengths and three-dimensional inputs,
+  reject nonzero start and multiple strata for both Breslow and Efron fast
+  paths, accept zero start with one stratum, preserve constructor parameters,
+  and use normalized private active controls.
+- Independent local verification matched all 29 recorded source SHA-256 values
+  to the exact commit's Git blobs and confirmed `source_clean=true`.
+- Artifact:
+  `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260729_schema8.json`;
+  SHA-256
+  `020442d53fb1fc53029ab37ad60917519d3c7ce712a99c5f68113944bad089e3`.
 
 ## 2026-07-29 impact classification
 
@@ -40,7 +66,7 @@ new prediction, fast-path eligibility, and active-control contracts.
 | Public API | active boundary | clone-safe constructor round trips |
 | Inference | unchanged/shared | canonical inference remains in `_cox_inference.py` |
 | Formula | active maintenance | side-array alignment now uses `BackendBase` |
-| Benchmark/artifact | physical passed | schema-7 exact-source CuPy/Torch artifact verified |
+| Benchmark/artifact | physical passed | schema-8 exact-source CuPy/Torch artifact verified |
 | Documentation | active | bilingual numerical and provenance contracts |
 
 ## Post-schema-6 independent findings and fixes

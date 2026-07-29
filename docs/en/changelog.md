@@ -55,8 +55,9 @@
   multiple strata instead of mixing an ordinary objective with a different
   baseline definition. `CoxPH` and `CoxPHCV` now use immutable private active
   controls during fitting, so fit-time normalization no longer rewrites public
-  constructor parameters. The maintained physical runner is advanced to
-  schema 8 for an exact-source GPU refresh of these boundaries.
+  constructor parameters. The schema-8 exact-source refresh passed 318
+  targeted tests and all 20 CuPy/Torch case gates on a Tesla P100; its 29
+  recorded source hashes independently match the clean source commit.
 
 ### Fixed (2026-07-27) — PR #80 follow-up review
 

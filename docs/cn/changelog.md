@@ -21,7 +21,8 @@
   高维输入会在 backend matmul 前统一拒绝。低层 right-censored fast path 会拒绝
   非零 start 或多个 strata，避免 objective 与 baseline 使用不同的 risk-set 语义。
   `CoxPH` 和 `CoxPHCV` 拟合时改用不可变的私有 active controls，不再改写公开构造
-  参数；维护中的物理 GPU runner 已升级到 schema 8，等待精确源码复验。
+  参数。schema-8 精确源码复验在 Tesla P100 上通过 318 项定向测试以及全部 20 个
+  CuPy/Torch case gate，记录的 29 个源码 hash 均与 clean source commit 一致。
 
 ### 修复（2026-07-29）— PR #80 复审补充
 
