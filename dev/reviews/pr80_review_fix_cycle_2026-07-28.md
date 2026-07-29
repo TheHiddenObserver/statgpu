@@ -652,3 +652,7 @@ structured cases, the targeted matrix passed 353 tests, all 31 Git-blob hashes
 match, `source_clean=true`, and `gate_failures=[]`. The aligned
 `n=3000`, `p=10` Breslow/Efron R runs reproduce HC1 and cluster
 coefficient/SE/p-value results to approximately `1e-16`.
+
+Evidence commit `d61d4f26dbe03960cc6cf47fd92c82d97cecaddb` passed all seven hosted
+jobs in Actions run `30461628851`; PR #80 was mergeable and clean after that
+run.
