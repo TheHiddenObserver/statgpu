@@ -9,7 +9,9 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 complete CPU suite and exact-source schema-9 P100 refresh. The machine-readable
 artifact independently matches all 29 Git blobs from source commit
 `94b1a4be2c87416275e247eb8bff245b478cef8d`; all 20 CuPy/Torch case gates and
-321 targeted physical tests pass. The earlier schema-8 evidence remains below
+321 targeted physical tests pass. Evidence commit
+`41e4040702a16d98341b913c3c62d5060f916915` is pushed, and all seven hosted
+jobs passed in run `30440782646`. The earlier schema-8 evidence remains below
 as historical evidence for its exact source.
 
 ## Post-schema-7 findings and fixes
@@ -32,6 +34,11 @@ both CuPy and Torch CUDA.
 
 - Exact clean source commit:
   `94b1a4be2c87416275e247eb8bff245b478cef8d`.
+- Evidence commit:
+  `41e4040702a16d98341b913c3c62d5060f916915`.
+- Hosted CI for source plus evidence:
+  `https://github.com/TheHiddenObserver/statgpu/actions/runs/30440782646`;
+  **7/7 jobs passed**.
 - Paramiko remote clone:
   `/root/statgpu-pr80-94b1a4b-schema9-20260729`.
 - Environment: Python 3.9.16, CuPy 13.6.0, Torch 2.0.0+cu117, Tesla

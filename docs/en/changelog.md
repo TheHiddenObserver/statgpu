@@ -28,7 +28,9 @@
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured
   cases, including zero repeated strict fold-content scans and stable public
   setter representation; the physical targeted matrix passed 321 tests, all
-  29 recorded Git-blob hashes match, and `gate_failures=[]`.
+  29 recorded Git-blob hashes match, and `gate_failures=[]`. The evidence
+  commit then passed all seven hosted docs, static, full-CPU, and Python
+  3.9–3.12 jobs.
 
 ### Fixed (2026-07-29) — PR #80 final follow-up
 
