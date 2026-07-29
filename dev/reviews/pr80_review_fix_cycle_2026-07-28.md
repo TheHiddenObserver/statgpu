@@ -5,14 +5,30 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**COMPLETE.** The post-schema-6 prepared-state, packed-target, constructor, and
-backend-reuse fixes pass the complete local suite and the exact-source
-schema-7 P100 refresh. The read-only re-review found no remaining CRITICAL,
-HIGH, or active MEDIUM issue. The machine-readable artifact has been
-independently verified against all 29 Git blobs from source commit
-`28d7b367c364d4b64e24b6b36662724b6b1c9a86`; evidence commit
-`98d8ef3b762e7acd95049320d614bcc09721b454` was pushed, and all seven hosted
-jobs passed in run `30422694780`.
+**LOCAL_COMPLETE; SCHEMA-8 PHYSICAL REFRESH PENDING.** The exact-source
+schema-7 P100 evidence and its seven-job hosted run remain valid for source
+commit `28d7b367c364d4b64e24b6b36662724b6b1c9a86`. A later review found two
+MEDIUM issues in penalized prediction normalization and low-level fast-path
+eligibility, plus a LOW fit-parameter stability issue. All three are fixed in
+the current working tree, the complete CPU suite passes, and the maintained
+runner now has direct schema-8 CuPy/Torch gates. An exact-source physical
+refresh, evidence commit, push, and hosted rerun remain pending for this new
+delta.
+
+## Post-schema-7 findings and fixes
+
+| Finding | Status | Resolution |
+| --- | --- | --- |
+| Penalized one-dimensional prediction regressed for multi-feature models | fixed locally; needs physical GPU | Canonical and penalized Cox now share `_normalize_prediction_matrix()`. It distinguishes one-row/multi-feature from many-row/single-feature inputs, rejects rank other than two after normalization, checks exact feature count, and applies one finite-value contract before backend matmul. Prediction, hazard ratio, score, and formula-transformed matrices use the same boundary. |
+| Low-level right-censored fast path ignored nonzero `start` or multiple `strata` | fixed locally; needs physical GPU | The solver now verifies all-zero start and a single stratum on the active backend before creating or using ordinary prepared state. The existing boolean remains for compatibility; replacing it outright with a capability would break direct callers, while the explicit eligibility gate closes the correctness hole with one scalar decision per fit. |
+| Fit rewrote public constructor parameters | fixed locally | Fit normalization now returns immutable `_CoxFitControls`/`_CoxCVFitControls` snapshots. Fitting, inference, summary, and information criteria use the normalized private state; public `get_params()` values remain unchanged across successful fit. |
+
+Local evidence for this delta is **1506 passed, 455 skipped**, 0 failed in the
+complete CPU suite. Focused prediction/fast-path/constructor tests passed with
+GPU-only cases skipped locally; py_compile, pyflakes, documentation links,
+122 documentation contracts, benchmark `--help`, and `git diff --check` pass.
+The maintained runner is schema 8 and adds structured physical cases for the
+new prediction, fast-path eligibility, and active-control contracts.
 
 ## 2026-07-29 impact classification
 

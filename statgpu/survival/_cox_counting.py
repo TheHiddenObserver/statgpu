@@ -271,6 +271,12 @@ def fit_counting_process_cox(
             raise ValueError(
                 "right_censored_fast_path does not compute score residuals"
             )
+        ordinary_inputs = xp.all(start == 0) & xp.all(strata == strata[0])
+        if not _scalar_bool(ordinary_inputs):
+            raise ValueError(
+                "right_censored_fast_path requires all-zero start times and "
+                "a single stratum"
+            )
         if right_censored_prepared is None:
             right_censored_prepared = prepare_right_censored_cox_fast_path(
                 X, stop, event, ties=ties

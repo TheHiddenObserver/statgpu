@@ -14,6 +14,15 @@
   hash，并直接验证 prepared-state 内容错配会被拒绝，以及 packed GPU target 的
   完整 host transfer provenance 会被如实报告。
 
+### 修复（2026-07-29）— PR #80 schema-8 边界修复
+
+- Penalized 与 canonical Cox 现在共享同一套 backend-neutral 预测矩阵规范：多特征
+  模型的一维输入表示一条完整观测，单特征模型的一维输入表示多条观测；错误特征数和
+  高维输入会在 backend matmul 前统一拒绝。低层 right-censored fast path 会拒绝
+  非零 start 或多个 strata，避免 objective 与 baseline 使用不同的 risk-set 语义。
+  `CoxPH` 和 `CoxPHCV` 拟合时改用不可变的私有 active controls，不再改写公开构造
+  参数；维护中的物理 GPU runner 已升级到 schema 8，等待精确源码复验。
+
 ### 修复（2026-07-29）— PR #80 复审补充
 
 - 复用的 right-censored loss state 现在会在底层求解前，于当前 backend

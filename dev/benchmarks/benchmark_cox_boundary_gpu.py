@@ -409,6 +409,127 @@ def _case_prepared_state_and_packed_target(name: str, xp) -> dict:
     }
 
 
+def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
+    """Audit the post-schema-7 prediction, solver, and parameter contracts."""
+    device = "cuda" if name == "cupy" else "torch"
+    prediction_model = PenalizedCoxPHModel(
+        penalty="l2", device=device, compute_inference=False
+    )
+    prediction_model.coef_ = np.array([0.5, -0.25])
+    prediction_model._selected_backend_name = name
+    one_row = _array(name, xp, np.array([2.0, -1.0]))
+    risk = prediction_model.predict_risk_score(one_row, return_cpu=False)
+    one_dimensional_row_ok = bool(
+        tuple(risk.shape) == (1,)
+        and np.allclose(_numpy(name, risk), np.array([1.25]))
+    )
+    shape_rejections = {}
+    for label, value in (
+        ("wrong_one_dimensional_length", np.array([1.0, 2.0, 3.0])),
+        ("three_dimensional", np.ones((1, 2, 1))),
+    ):
+        try:
+            prediction_model.predict_risk_score(
+                _array(name, xp, value), return_cpu=False
+            )
+        except ValueError:
+            shape_rejections[label] = True
+        else:
+            shape_rejections[label] = False
+
+    X_np, stop_np, event_np = _sample(seed=2486, n=24, p=2)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    start = _array(name, xp, np.zeros_like(stop_np))
+    invalid_start = _array(name, xp, np.zeros_like(stop_np))
+    invalid_start[0] = stop[0] * 0.5
+    one_stratum = _array(name, xp, np.full(stop_np.shape, 7.0))
+    multiple_strata = _array(
+        name, xp, np.r_[np.zeros(stop_np.shape[0] - 1), 1.0]
+    )
+    fast_path = {}
+    for ties in ("breslow", "efron"):
+        for label, kwargs in (
+            ("nonzero_start_rejected", {"start": invalid_start}),
+            ("multiple_strata_rejected", {"strata": multiple_strata}),
+        ):
+            try:
+                cox_counting.fit_counting_process_cox(
+                    X,
+                    stop,
+                    event,
+                    ties=ties,
+                    compute_baseline=False,
+                    compute_score_residuals=False,
+                    right_censored_fast_path=True,
+                    **kwargs,
+                )
+            except ValueError as exc:
+                fast_path[f"{ties}_{label}"] = (
+                    "right_censored_fast_path requires" in str(exc)
+                )
+            else:
+                fast_path[f"{ties}_{label}"] = False
+        valid = cox_counting.fit_counting_process_cox(
+            X,
+            stop,
+            event,
+            start=start,
+            strata=one_stratum,
+            ties=ties,
+            max_iter=20,
+            compute_baseline=False,
+            compute_score_residuals=False,
+            right_censored_fast_path=True,
+        )
+        fast_path[f"{ties}_ordinary_inputs_accepted"] = bool(
+            np.all(np.isfinite(_numpy(name, valid["coef"])))
+        )
+
+    fit_model = CoxPH(
+        ties="EFRON",
+        cov_type="NONROBUST",
+        inference_mode="STRICT",
+        penalty=np.float64(0.1),
+        device=device,
+        compute_inference=0,
+        compute_cindex=0,
+        max_iter=np.int64(40),
+        tol=np.float64(1e-7),
+    )
+    before = fit_model.get_params().copy()
+    fit_model.fit(X, stop, event)
+    constructor_parameters_stable = fit_model.get_params() == before
+    active_controls_normalized = all(
+        (
+            fit_model._fit_controls.ties == "efron",
+            fit_model._fit_controls.cov_type == "nonrobust",
+            fit_model._fit_controls.inference_mode == "strict",
+            fit_model._fit_controls.compute_inference is False,
+            fit_model._fit_controls.compute_cindex is False,
+        )
+    )
+    passed = all(
+        (
+            one_dimensional_row_ok,
+            all(shape_rejections.values()),
+            all(fast_path.values()),
+            constructor_parameters_stable,
+            active_controls_normalized,
+        )
+    )
+    return {
+        "backend": name,
+        "one_dimensional_multifeature_row": one_dimensional_row_ok,
+        "shape_rejections": shape_rejections,
+        "fast_path_eligibility": fast_path,
+        "constructor_parameters_stable": constructor_parameters_stable,
+        "active_controls_normalized": active_controls_normalized,
+        "passed": bool(passed),
+    }
+
+
 def _case_hazard_ratio_boundary(name: str, xp) -> dict:
     """Verify strict overflow behavior on both GPU public Cox estimators."""
     device = "cuda" if name == "cupy" else "torch"
@@ -1092,7 +1213,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 7,
+        "schema_version": 8,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -1125,6 +1246,9 @@ def main() -> int:
                 ),
                 "prepared_state_and_packed_target": (
                     _case_prepared_state_and_packed_target(name, xp)
+                ),
+                "prediction_fast_path_and_fit_controls": (
+                    _case_prediction_fast_path_and_fit_controls(name, xp)
                 ),
                 "hazard_ratio_boundary": _case_hazard_ratio_boundary(name, xp),
                 "single_group_workspace": _case_workspace(name, xp),

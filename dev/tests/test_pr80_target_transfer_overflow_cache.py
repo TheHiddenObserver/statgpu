@@ -35,6 +35,49 @@ def _sample(seed=9081, n=42, p=2):
     return X, stop, event
 
 
+def _physical_backend_array(backend_name, value):
+    """Create a NumPy or physical-CUDA array for public prediction tests."""
+    if backend_name == "numpy":
+        return np.asarray(value, dtype=np.float64), "cpu", "numpy"
+    if backend_name == "cupy":
+        cp = pytest.importorskip("cupy")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA device is unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA device is unavailable: {exc}")
+        return cp.asarray(value, dtype=cp.float64), "cuda", "cupy"
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA device is unavailable")
+    return (
+        torch.as_tensor(value, dtype=torch.float64, device="cuda"),
+        "torch",
+        "torch",
+    )
+
+
+def _direct_solver_backend_arrays(backend_name):
+    X, stop, event = _sample(seed=9194, n=24, p=2)
+    if backend_name == "numpy":
+        return X, stop, event
+    if backend_name == "cupy":
+        cp = pytest.importorskip("cupy")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA device is unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA device is unavailable: {exc}")
+        return cp.asarray(X), cp.asarray(stop), cp.asarray(event)
+    torch = pytest.importorskip("torch")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return (
+        torch.as_tensor(X, dtype=torch.float64, device=device),
+        torch.as_tensor(stop, dtype=torch.float64, device=device),
+        torch.as_tensor(event, dtype=torch.float64, device=device),
+    )
+
+
 def test_public_numerical_error_has_one_consistent_export():
     assert statgpu.CoxFitNumericalError is CoxFitNumericalError
     assert "CoxFitNumericalError" in statgpu.__all__
@@ -514,6 +557,164 @@ def test_penalized_score_rejects_complex_target_before_backend_cast():
     ).fit(X, y)
     with pytest.raises(ValueError, match="y must be real-valued"):
         model.score(X, y.astype(np.complex128) + 1j)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+def test_penalized_multifeature_one_dimensional_prediction_is_one_row(
+    backend_name,
+):
+    X, device, selected_backend = _physical_backend_array(
+        backend_name, np.array([2.0, -1.0])
+    )
+    model = PenalizedCoxPHModel(
+        penalty="l2", device=device, compute_inference=False
+    )
+    model.coef_ = np.array([0.5, -0.25])
+    model._selected_backend_name = selected_backend
+
+    risk = model.predict_risk_score(X)
+    hazard = model.predict_hazard_ratio(X)
+    assert risk.shape == (1,)
+    assert hazard.shape == (1,)
+    assert risk[0] == pytest.approx(1.25)
+    assert hazard[0] == pytest.approx(np.exp(1.25))
+    assert model.score(X, np.array([[1.0, 1.0]])) == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+def test_penalized_one_feature_one_dimensional_prediction_is_many_rows(
+    backend_name,
+):
+    X, device, selected_backend = _physical_backend_array(
+        backend_name, np.array([2.0, -1.0, 0.5])
+    )
+    model = PenalizedCoxPHModel(
+        penalty="l2", device=device, compute_inference=False
+    )
+    model.coef_ = np.array([0.5])
+    model._selected_backend_name = selected_backend
+    risk = model.predict_risk_score(X)
+    assert risk.shape == (3,)
+    assert np.allclose(risk, np.array([1.0, -0.5, 0.25]))
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [
+        (np.array([1.0, 2.0, 3.0]), "complete 2-feature row"),
+        (np.ones((2, 3)), "3 features; expected 2"),
+        (np.ones((1, 2, 1)), "two-dimensional"),
+    ],
+)
+def test_penalized_prediction_shape_errors_are_backend_independent(
+    backend_name, value, match
+):
+    X, device, selected_backend = _physical_backend_array(backend_name, value)
+    model = PenalizedCoxPHModel(
+        penalty="l2", device=device, compute_inference=False
+    )
+    model.coef_ = np.array([0.5, -0.25])
+    model._selected_backend_name = selected_backend
+    with pytest.raises(ValueError, match=match):
+        model.predict_risk_score(X)
+
+
+def test_penalized_formula_prediction_checks_transformed_feature_count(
+    monkeypatch,
+):
+    pd = pytest.importorskip("pandas")
+    X, stop, event = _sample(seed=9195, n=30, p=2)
+    frame = pd.DataFrame(
+        {
+            "time": stop,
+            "event": event,
+            "x1": X[:, 0],
+            "x2": X[:, 1],
+        }
+    )
+    model = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.1,
+        device="cpu",
+        compute_inference=False,
+        max_iter=60,
+    ).fit(formula="Surv(time, event) ~ x1 + x2", data=frame)
+    original_prepare = model._prepare_predict_X
+
+    def incomplete_formula_matrix(value):
+        transformed = original_prepare(value)
+        return transformed[:, :-1]
+
+    monkeypatch.setattr(model, "_prepare_predict_X", incomplete_formula_matrix)
+    with pytest.raises(ValueError, match="1 features; expected 2"):
+        model.predict_risk_score(frame.iloc[:3])
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+def test_direct_fast_path_rejects_nonzero_start(backend_name, ties):
+    X, stop, event = _direct_solver_backend_arrays(backend_name)
+    start = stop * 0
+    start[0] = stop[0] * 0.5
+    with pytest.raises(ValueError, match="all-zero start times"):
+        fit_counting_process_cox(
+            X,
+            stop,
+            event,
+            start=start,
+            ties=ties,
+            compute_baseline=False,
+            compute_score_residuals=False,
+            right_censored_fast_path=True,
+        )
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+def test_direct_fast_path_rejects_multiple_strata(backend_name, ties):
+    X, stop, event = _direct_solver_backend_arrays(backend_name)
+    strata = event * 0
+    strata[-1] = 1
+    with pytest.raises(ValueError, match="single stratum"):
+        fit_counting_process_cox(
+            X,
+            stop,
+            event,
+            strata=strata,
+            ties=ties,
+            compute_baseline=False,
+            compute_score_residuals=False,
+            right_censored_fast_path=True,
+        )
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+def test_direct_fast_path_accepts_zero_start_and_one_stratum(
+    backend_name, ties
+):
+    X, stop, event = _direct_solver_backend_arrays(backend_name)
+    start = stop * 0
+    strata = event * 0 + 7
+    result = fit_counting_process_cox(
+        X,
+        stop,
+        event,
+        start=start,
+        strata=strata,
+        ties=ties,
+        max_iter=20,
+        compute_baseline=False,
+        compute_score_residuals=False,
+        right_censored_fast_path=True,
+    )
+    coef = result["coef"]
+    if backend_name == "cupy":
+        coef = pytest.importorskip("cupy").asnumpy(coef)
+    elif backend_name == "torch":
+        coef = coef.detach().cpu().numpy()
+    assert np.all(np.isfinite(coef))
 
 
 def test_public_fit_rejects_prepared_state_from_other_array_identity():

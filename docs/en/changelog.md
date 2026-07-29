@@ -47,6 +47,16 @@
   18 CuPy/Torch case gates on a Tesla P100. Its machine-readable artifact
   records the clean source commit and 29 source hashes, plus direct gates for
   prepared-state content mismatch and packed-GPU-target transfer provenance.
+- Penalized and canonical Cox prediction now share one backend-neutral matrix
+  normalization contract: a one-dimensional input is one complete row for a
+  multi-feature model or multiple observations for a one-feature model, while
+  wrong feature counts and higher-rank inputs fail before backend matmul.
+  The low-level right-censored fast path rejects nonzero entry times or
+  multiple strata instead of mixing an ordinary objective with a different
+  baseline definition. `CoxPH` and `CoxPHCV` now use immutable private active
+  controls during fitting, so fit-time normalization no longer rewrites public
+  constructor parameters. The maintained physical runner is advanced to
+  schema 8 for an exact-source GPU refresh of these boundaries.
 
 ### Fixed (2026-07-27) — PR #80 follow-up review
 

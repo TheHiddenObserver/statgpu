@@ -1707,6 +1707,7 @@ class CoxPHCV(CVEstimatorBase):
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
+        self._fit_controls = None
 
     def _reset_fit_state(self):
         """Remove every fitted/CV artifact before a new public fit attempt."""
@@ -1741,6 +1742,7 @@ class CoxPHCV(CVEstimatorBase):
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
+        self._fit_controls = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -1812,13 +1814,19 @@ class CoxPHCV(CVEstimatorBase):
         -------
         self
         """
-        device_name = self._get_compute_device().value
+        controls = self._fit_controls
+        if controls is None:  # pragma: no cover - private dispatch invariant
+            raise RuntimeError("CoxPHCV fit controls were not initialized")
+        active_device = (
+            get_device() if controls.device == Device.AUTO else controls.device
+        )
+        device_name = active_device.value
         fit_device_name = device_name
-        ties_name = str(self.ties).lower()
-        cov_type_name = str(self.cov_type).lower()
+        ties_name = controls.ties
+        cov_type_name = controls.cov_type
         if (
             ties_name == "exact"
-            and bool(self.compute_inference)
+            and controls.compute_inference
             and cov_type_name != "nonrobust"
         ):
             raise NotImplementedError(
@@ -1921,10 +1929,10 @@ class CoxPHCV(CVEstimatorBase):
             max_iter=max_iter,
             device=fit_device_name,
             n_jobs=self.n_jobs,
-            compute_inference=bool(self.compute_inference),
+            compute_inference=controls.compute_inference,
             compute_cindex=False,
             cov_type=cov_type_name,
-            inference_mode=str(self.inference_mode).lower(),
+            inference_mode=controls.inference_mode,
             gpu_memory_cleanup=False,
             penalty=self.penalty_,
         )
@@ -2021,7 +2029,7 @@ class CoxPHCV(CVEstimatorBase):
         """
         self._reset_fit_state()
         try:
-            _normalize_mutable_cv_controls(self)
+            self._fit_controls = _normalize_mutable_cv_controls(self)
             time, event, entry, start = _unpack_survival_target(
                 time, event, entry=entry, start=start
             )

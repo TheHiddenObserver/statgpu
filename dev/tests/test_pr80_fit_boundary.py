@@ -155,7 +155,7 @@ def test_invalid_direct_control_mutation_is_rejected_and_clears_stale_state(
     assert model.coef_ is None
 
 
-def test_mutated_controls_are_canonicalized_before_fit():
+def test_mutated_controls_use_private_canonical_fit_snapshot():
     X, stop, event = _stable_sample(seed=2283, p=1)
     model = CoxPH(
         device="cpu", compute_inference=False, compute_cindex=False
@@ -176,11 +176,19 @@ def test_mutated_controls_are_canonicalized_before_fit():
     assert model.cov_type == "hc1"
     assert model.inference_mode == "strict"
     assert model.penalty == pytest.approx(0.1)
-    assert model.tol == pytest.approx(1e-7)
-    assert model.compute_inference is False
-    assert model.compute_cindex is True
-    assert model.gpu_memory_cleanup is False
+    assert model.tol == "1e-7"
+    assert model.compute_inference == 0
+    assert model.compute_cindex == 1
+    assert model.gpu_memory_cleanup == 0
     assert model.device is Device.CPU
+    assert model._fit_controls.ties == "efron"
+    assert model._fit_controls.cov_type == "hc1"
+    assert model._fit_controls.inference_mode == "strict"
+    assert model._fit_controls.penalty == pytest.approx(0.1)
+    assert model._fit_controls.tol == pytest.approx(1e-7)
+    assert model._fit_controls.compute_inference is False
+    assert model._fit_controls.compute_cindex is True
+    assert model._fit_controls.gpu_memory_cleanup is False
     assert model._bse is None
     assert model._cindex is not None
     assert np.all(np.isfinite(model.coef_))

@@ -52,6 +52,74 @@ def test_coxph_constructor_preserves_clone_safe_cox_controls():
     assert model.penalty is penalty
 
 
+def _cox_fit_sample(n=30, p=2):
+    rng = np.random.default_rng(8080)
+    X = rng.normal(size=(n, p))
+    stop = rng.uniform(0.5, 3.0, size=n)
+    event = (np.arange(n) % 3 != 0).astype(np.float64)
+    return X, stop, event
+
+
+def test_coxph_fit_does_not_rewrite_constructor_parameters():
+    X, stop, event = _cox_fit_sample()
+    penalty = np.float64(0.1)
+    tol = np.float64(1e-7)
+    max_iter = np.int64(40)
+    model = CoxPH(
+        ties="EFRON",
+        cov_type="NONROBUST",
+        inference_mode="STRICT",
+        penalty=penalty,
+        tol=tol,
+        max_iter=max_iter,
+        compute_inference=0,
+        compute_cindex=0,
+    )
+    before = model.get_params().copy()
+    model.fit(X, stop, event)
+    after = model.get_params()
+
+    assert after == before
+    assert model.ties == "EFRON"
+    assert model.cov_type == "NONROBUST"
+    assert model.inference_mode == "STRICT"
+    assert model.penalty is penalty
+    assert model.tol is tol
+    assert model.max_iter is max_iter
+    assert model.compute_inference == 0
+    assert model.compute_cindex == 0
+
+
+def test_coxphcv_fit_does_not_rewrite_constructor_parameters():
+    X, stop, event = _cox_fit_sample(n=36)
+    tol = np.float64(1e-6)
+    max_iter = np.int64(30)
+    model = CoxPHCV(
+        penalties=[0.1],
+        cv=2,
+        ties="EFRON",
+        cov_type="NONROBUST",
+        inference_mode="STRICT",
+        tol=tol,
+        max_iter=max_iter,
+        compute_inference=0,
+        gpu_memory_cleanup=0,
+        random_state=3,
+    )
+    before = model.get_params().copy()
+    model.fit(X, stop, event)
+    after = model.get_params()
+
+    assert after == before
+    assert model.ties == "EFRON"
+    assert model.cov_type == "NONROBUST"
+    assert model.inference_mode == "STRICT"
+    assert model.tol is tol
+    assert model.max_iter is max_iter
+    assert model.compute_inference == 0
+    assert model.gpu_memory_cleanup == 0
+
+
 @pytest.mark.parametrize("value", [False, True, 0, 1])
 def test_coxphcv_constructor_preserves_clone_safe_boolean_inputs(value):
     model = CoxPHCV(

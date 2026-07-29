@@ -11,7 +11,7 @@ import numbers
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from statgpu._config import Device
+from statgpu._config import Device, get_device
 from statgpu.backends import (
     _is_cupy_array,
     _is_torch_array,
@@ -35,7 +35,10 @@ from statgpu.survival._cox_inference import (
     _invert_information_numpy,
     _invert_information_torch,
 )
-from statgpu.survival._numeric import _safe_exp_linear_predictor
+from statgpu.survival._numeric import (
+    _normalize_prediction_matrix,
+    _safe_exp_linear_predictor,
+)
 
 
 def _cleanup_after_public_gpu_work(method):
@@ -330,6 +333,7 @@ class CoxPH(BaseEstimator):
         self._is_counting_process = False
         self._fit_call = None
         self._stop_reason = None
+        self._fit_controls = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -398,7 +402,8 @@ class CoxPH(BaseEstimator):
         """Fit and clear all state if validation or inference fails."""
         self._reset_fit_state()
         try:
-            _normalize_mutable_fit_controls(self)
+            controls = _normalize_mutable_fit_controls(self)
+            self._fit_controls = controls
             if formula is None and X is not None:
                 x_shape = getattr(X, "shape", None)
                 if x_shape is None:
@@ -440,7 +445,7 @@ class CoxPH(BaseEstimator):
                     )
             if _right_censored_prepared is not None:
                 if formula is not None or not _right_censored_prepared.matches_sources(
-                    X, time, event, self.ties
+                    X, time, event, controls.ties
                 ):
                     raise ValueError(
                         "prepared right-censored metadata does not match the "
@@ -469,7 +474,7 @@ class CoxPH(BaseEstimator):
                 raise CoxFitNumericalError(
                     "CoxPH fit produced non-finite coefficients or log-likelihood"
                 )
-            if self.compute_inference and any(
+            if controls.compute_inference and any(
                 value is None or not np.all(np.isfinite(value))
                 for value in (self._bse, self._pvalues, self._conf_int)
             ):
@@ -535,6 +540,9 @@ class CoxPH(BaseEstimator):
         self : CoxPH
             Fitted estimator.
         """
+        controls = self._fit_controls
+        if controls is None:  # pragma: no cover - private dispatch invariant
+            raise RuntimeError("CoxPH fit controls were not initialized")
         formula_entry_was_explicit = entry is not None or start is not None
         if entry is not None and start is not None:
             raise ValueError("pass only one of entry and start")
@@ -639,9 +647,11 @@ class CoxPH(BaseEstimator):
             "stratified": strata is not None,
             "subject_grouped": subject_id is not None,
             "clustered": cluster is not None,
-            "ties": self.ties,
+            "ties": controls.ties,
         }
-        device = self._get_compute_device()
+        device = (
+            get_device() if controls.device == Device.AUTO else controls.device
+        )
 
         # The shared counting-process objective is the canonical implementation
         # for every Cox fit, including ordinary right-censored Breslow/Efron.
@@ -769,6 +779,9 @@ class CoxPH(BaseEstimator):
             counting_process_concordance,
             prepare_counting_process_inputs,
         )
+        controls = self._fit_controls
+        if controls is None:  # pragma: no cover - private dispatch invariant
+            raise RuntimeError("CoxPH fit controls were not initialized")
 
         input_shape = getattr(X, "shape", None)
         if input_shape is None:
@@ -797,9 +810,9 @@ class CoxPH(BaseEstimator):
         )
 
         if (
-            self.ties == "exact"
-            and self.compute_inference
-            and self.cov_type != "nonrobust"
+            controls.ties == "exact"
+            and controls.compute_inference
+            and controls.cov_type != "nonrobust"
         ):
             raise NotImplementedError(
                 "robust covariance is not yet defined for ties='exact'; "
@@ -859,8 +872,8 @@ class CoxPH(BaseEstimator):
             entry is None
             and strata is None
             and subject_id is None
-            and self.cov_type == "nonrobust"
-            and self.ties in {"breslow", "efron"}
+            and controls.cov_type == "nonrobust"
+            and controls.ties in {"breslow", "efron"}
         )
         if right_censored_prepared is not None and not right_censored_fast_path:
             raise ValueError(
@@ -872,14 +885,15 @@ class CoxPH(BaseEstimator):
             eventb,
             start=startb,
             strata=stratab,
-            ties=self.ties,
-            penalty=self.penalty,
-            tol=self.tol,
-            max_iter=self.max_iter,
+            ties=controls.ties,
+            penalty=controls.penalty,
+            tol=controls.tol,
+            max_iter=controls.max_iter,
             init_coef=init_coef,
-            compute_baseline=self.compute_inference,
+            compute_baseline=controls.compute_inference,
             compute_score_residuals=(
-                self.compute_inference and self.cov_type != "nonrobust"
+                controls.compute_inference
+                and controls.cov_type != "nonrobust"
             ),
             right_censored_fast_path=right_censored_fast_path,
             right_censored_prepared=right_censored_prepared,
@@ -929,23 +943,23 @@ class CoxPH(BaseEstimator):
             self._event = None
 
         information = result["information"]
-        if self.penalty > 0:
+        if controls.penalty > 0:
             identity = compute_backend.eye(
                 information.shape[0], dtype=information.dtype
             )
-            information = information + 2.0 * self.penalty * identity
-        if self.compute_inference:
+            information = information + 2.0 * controls.penalty * identity
+        if controls.compute_inference:
             if backend == "torch":
                 bread = _invert_information_torch(information)
             elif backend == "cupy":
                 bread = _invert_information_cupy(information)
             else:
                 bread = _invert_information_numpy(information)
-            if self.cov_type == "nonrobust":
+            if controls.cov_type == "nonrobust":
                 variance = bread
             else:
                 residuals = result["score_residuals"]
-                if self.cov_type == "cluster":
+                if controls.cov_type == "cluster":
                     if clusterb is None:
                         raise ValueError(
                             "cluster ids are required when cov_type='cluster'"
@@ -977,7 +991,7 @@ class CoxPH(BaseEstimator):
                         )
                         xp.add.at(unit_scores, inverse, residuals)
                 meat = unit_scores.T @ unit_scores
-                if self.cov_type == "hc1":
+                if controls.cov_type == "hc1":
                     meat = meat * n_units / max(
                         n_units - int(Xb.shape[1]), 1
                     )
@@ -1088,7 +1102,7 @@ class CoxPH(BaseEstimator):
                 self._baseline_log_cumulative_hazard_centered = None
                 self._baseline_x_reference = None
 
-        if self.compute_cindex:
+        if controls.compute_cindex:
             self._cindex = scalar(
                 counting_process_concordance(
                     result["coef"],
@@ -1108,7 +1122,7 @@ class CoxPH(BaseEstimator):
         beta_inf = scalar(xp.max(xp.abs(result["coef"])))
         self._final_kkt_inf = score_inf
         self._final_kkt_normalized = score_inf / (
-            1.0 + raw_score_inf + 2.0 * float(self.penalty) * beta_inf
+            1.0 + raw_score_inf + 2.0 * controls.penalty * beta_inf
         )
         self._penalized_objective = scalar(result["penalized_log_likelihood"])
         if self._converged:
@@ -1129,12 +1143,12 @@ class CoxPH(BaseEstimator):
                 )
             )
         )
-        if self.compute_inference:
+        if controls.compute_inference:
             self.inference_method_ = (
                 "penalized_observed_information"
-                if self.cov_type == "nonrobust" and self.penalty > 0
+                if controls.cov_type == "nonrobust" and controls.penalty > 0
                 else "observed_information"
-                if self.cov_type == "nonrobust"
+                if controls.cov_type == "nonrobust"
                 else "counting_process_score_sandwich"
             )
             self.inference_backend_ = backend
@@ -1149,12 +1163,12 @@ class CoxPH(BaseEstimator):
                 statistic_name="z",
                 pvalues=self._pvalues,
                 conf_int=self._conf_int,
-                cov_type=self.cov_type,
+                cov_type=controls.cov_type,
                 distribution="normal",
                 metadata={
                     "inference_backend": backend,
                     "approximate": False,
-                    "ties": self.ties,
+                    "ties": controls.ties,
                 },
             )
             inference_result.apply_to(self)
@@ -1170,7 +1184,7 @@ class CoxPH(BaseEstimator):
                 RuntimeWarning,
                 stacklevel=2,
             )
-        if self.penalty > 0:
+        if controls.penalty > 0:
             self._lr_test_stat = None
             self._lr_test_pvalue = None
         self._fitted = True
@@ -1200,7 +1214,12 @@ class CoxPH(BaseEstimator):
 
     def _require_classical_information_criterion(self, name):
         self._check_is_fitted()
-        if self.penalty > 0:
+        fitted_penalty = (
+            self._fit_controls.penalty
+            if self._fit_controls is not None
+            else float(self.penalty)
+        )
+        if fitted_penalty > 0:
             raise RuntimeError(
                 f"{name} is only defined here for an unpenalized CoxPH fit; "
                 "the penalized estimate is not the partial-likelihood MLE"
@@ -1252,6 +1271,18 @@ class CoxPH(BaseEstimator):
         """Print a fitted CoxPH summary with truthful call metadata."""
         if not self._fitted:
             raise RuntimeError("Model has not been fitted yet.")
+        controls = self._fit_controls
+        fitted_cov_type = (
+            controls.cov_type if controls is not None else str(self.cov_type)
+        )
+        fitted_compute_inference = (
+            controls.compute_inference
+            if controls is not None
+            else bool(self.compute_inference)
+        )
+        fitted_penalty = (
+            controls.penalty if controls is not None else float(self.penalty)
+        )
         
         print("=" * 80)
         print("                     Cox Proportional Hazards Model")
@@ -1260,9 +1291,9 @@ class CoxPH(BaseEstimator):
         print(f"  {self._format_fit_call()}")
         print()
         print(f"  n= {self._nobs}, number of events= {int(self._nevents)}")
-        print(f"  covariance type= {self.cov_type}")
+        print(f"  covariance type= {fitted_cov_type}")
         print()
-        if self.compute_inference and self._bse is not None:
+        if fitted_compute_inference and self._bse is not None:
             print(f"{'':<15} {'coef':>10} {'exp(coef)':>12} {'se(coef)':>10} {'z':>10} {'Pr(>|z|)':>10}")
             print("-" * 80)
             
@@ -1298,7 +1329,7 @@ class CoxPH(BaseEstimator):
             print("Concordance: skipped (compute_cindex=False)")
         else:
             print(f"Concordance: {self._cindex:.3f} (if 0.5-0.7: moderate, 0.7-0.9: strong)")
-        if self.compute_inference and self._lr_test_stat is not None:
+        if fitted_compute_inference and self._lr_test_stat is not None:
             print(f"Likelihood ratio test: {self._lr_test_stat:.2f} on {len(self.coef_)} df, p={self._lr_test_pvalue:.4e}")
             print(f"Wald test:            {self._wald_test_stat:.2f} on {len(self.coef_)} df, p={self._wald_test_pvalue:.4e}")
             if self.score_test_available_:
@@ -1308,7 +1339,7 @@ class CoxPH(BaseEstimator):
                     "Score (logrank) test unavailable: "
                     f"{self.score_test_failure_reason_ or 'null information is singular'}"
                 )
-        elif self.compute_inference and self.penalty > 0:
+        elif fitted_compute_inference and fitted_penalty > 0:
             print(
                 "Classical LR/AIC/BIC diagnostics suppressed for the penalized "
                 "fit; coefficient inference is conditional on the chosen penalty."
@@ -1340,24 +1371,10 @@ class CoxPH(BaseEstimator):
                 if "Intercept" in names:
                     X = np.delete(X, names.index("Intercept"), axis=1)
         backend = self._get_backend(backend="auto")
-        xp = backend.xp
-        X_arr = backend.asarray(X, dtype=backend.float64)
         n_features = int(len(self.coef_))
-        if X_arr.ndim == 1:
-            if n_features == 1:
-                X_arr = X_arr.reshape(-1, 1)
-            elif int(X_arr.shape[0]) == n_features:
-                X_arr = X_arr.reshape(1, -1)
-            else:
-                raise ValueError("One-dimensional X must contain one complete feature row or observations for a one-feature model.")
-        if X_arr.ndim != 2:
-            raise ValueError("X must be a two-dimensional array")
-        if int(X_arr.shape[1]) != n_features:
-            raise ValueError(
-                f"X has {int(X_arr.shape[1])} features; expected {n_features}"
-            )
-        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
-            raise ValueError("X contains NaN or infinite values")
+        X_arr = _normalize_prediction_matrix(
+            X, backend=backend, n_features=n_features
+        )
         return X_arr, backend, backend.asarray(self.coef_, dtype=backend.float64)
 
     @_cleanup_after_public_gpu_work

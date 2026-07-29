@@ -16,7 +16,10 @@ from statgpu.backends._utils import (
     _to_numpy,
 )
 from statgpu.survival._cox_fit_adapter import _normalize_boolean_control
-from statgpu.survival._numeric import _safe_exp_linear_predictor
+from statgpu.survival._numeric import (
+    _normalize_prediction_matrix,
+    _safe_exp_linear_predictor,
+)
 
 from ._base import PenalizedGeneralizedLinearModel
 
@@ -581,13 +584,10 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
 
     def _prepare_penalized_cox_prediction(self, X):
         """Normalize a real finite prediction matrix on the fitted backend."""
-        _require_real_array(X, "X")
         backend = self._penalized_cox_prediction_backend()
-        Xb = backend.asarray(X, dtype=backend.float64)
-        if Xb.ndim == 1:
-            Xb = Xb.reshape(-1, 1)
-        if bool(_to_float_scalar(backend.xp.any(~backend.xp.isfinite(Xb)))):
-            raise ValueError("X must contain only finite values")
+        Xb = _normalize_prediction_matrix(
+            X, backend=backend, n_features=int(len(self.coef_))
+        )
         return backend, Xb
 
     @staticmethod

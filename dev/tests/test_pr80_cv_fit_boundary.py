@@ -107,7 +107,7 @@ def test_exact_robust_cv_fails_before_selector(monkeypatch):
     assert model.estimator_ is None
 
 
-def test_cv_controls_are_canonicalized_before_fitting():
+def test_cv_controls_use_private_canonical_fit_snapshot():
     X, stop, event = _cv_sample(seed=2292)
     model = CoxPHCV(
         penalties=np.array([0.1]),
@@ -122,12 +122,17 @@ def test_cv_controls_are_canonicalized_before_fitting():
         tol=1e-7,
     ).fit(X, stop, event)
 
-    assert model.ties == "efron"
-    assert model.cov_type == "nonrobust"
-    assert model.inference_mode == "strict"
-    assert model.compute_inference is False
-    assert model.gpu_memory_cleanup is False
+    assert model.ties == "EFRON"
+    assert model.cov_type == "NONROBUST"
+    assert model.inference_mode == "STRICT"
+    assert model.compute_inference == 0
+    assert model.gpu_memory_cleanup == 0
     assert model.device is Device.CPU
+    assert model._fit_controls.ties == "efron"
+    assert model._fit_controls.cov_type == "nonrobust"
+    assert model._fit_controls.inference_mode == "strict"
+    assert model._fit_controls.compute_inference is False
+    assert model._fit_controls.gpu_memory_cleanup is False
     assert model.estimator_ is not None
     assert model.estimator_._bse is None
     assert np.all(np.isfinite(model.coef_))
