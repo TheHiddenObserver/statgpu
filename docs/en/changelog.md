@@ -73,6 +73,11 @@
   suppressed. `score()` and `predict_survival()` now share one strata
   shape/known-label encoder with backend-independent public errors. The
   schema-14 physical-GPU runner includes both contracts.
+- The EN/CN CoxPH model pages now explicitly document the objective and
+  estimating equation, total-likelihood penalty scaling, fixed-penalty
+  inference limits, runnable NumPy/CuPy/Torch CUDA fits and CV calls, external
+  R evidence, and a common-failure FAQ. The English date and corrupted
+  reference-page separators are synchronized with the current page content.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

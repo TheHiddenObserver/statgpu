@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-07-28<br>
+> 最后更新：2026-07-30<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -28,7 +28,72 @@ Breslow、Efron 与 Exact 三种 ties 处理，同时覆盖普通右删失、del
 from statgpu.survival import CoxPH, CoxPHCV
 ```
 
-## 风险集与 ties 方法
+## CPU 与 GPU 示例
+
+三个后端使用相同的统计输入，并在拟合后端返回预测数组。先运行一次以下确定性数据准备：
+
+```python
+import numpy as np
+
+from statgpu.survival import CoxPH, CoxPHCV
+
+rng = np.random.default_rng(20260730)
+n = 256
+X = rng.normal(size=(n, 3))
+log_risk = X @ np.array([0.45, -0.30, 0.20])
+event_time = rng.exponential(scale=np.exp(-log_risk))
+censor_time = rng.exponential(scale=1.8, size=n)
+time = np.minimum(event_time, censor_time)
+event = (event_time <= censor_time).astype(np.float64)
+```
+
+NumPy / CPU：
+
+```python
+cpu_model = CoxPH(
+    ties="efron",
+    device="cpu",
+    compute_inference=False,
+).fit(X, time, event)
+cpu_log_risk = cpu_model.predict_risk_score(X[:3])
+```
+
+CuPy / CUDA：
+
+```python
+import cupy as cp
+
+X_cp = cp.asarray(X)
+time_cp = cp.asarray(time)
+event_cp = cp.asarray(event)
+cupy_model = CoxPH(
+    ties="efron",
+    device="cuda",
+    compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+cupy_log_risk = cupy_model.predict_risk_score(X_cp[:3])
+```
+
+Torch / CUDA：
+
+```python
+import torch
+
+X_t = torch.as_tensor(X, dtype=torch.float64, device="cuda")
+time_t = torch.as_tensor(time, dtype=torch.float64, device="cuda")
+event_t = torch.as_tensor(event, dtype=torch.float64, device="cuda")
+torch_model = CoxPH(
+    ties="efron",
+    device="torch",
+    compute_inference=False,
+).fit(X_t, time_t, event_t)
+torch_log_risk = torch_model.predict_risk_score(X_t[:3])
+```
+
+当对应 package、CUDA runtime 或设备不可用时，显式 CUDA 请求会报错，不会静默转到
+CPU。需要协方差、检验或生存曲线时，设置 `compute_inference=True`。
+
+## 目标函数与估计方程
 
 对第 `i` 行的起始时间 `a_i`、终止时间 `b_i`、事件指示 `delta_i` 与分层
 `s_i`，时刻 `t` 的风险集为
@@ -36,6 +101,32 @@ from statgpu.survival import CoxPH, CoxPHCV
 $$
 R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
 $$
+
+无并列失败时，分层 Cox 部分对数似然为
+
+$$
+\ell(\beta)=\sum_s\sum_{i:\delta_i=1,\ s_i=s}
+\left[x_i^\top\beta-
+\log\left\{\sum_{j\in R_s(b_i)}\exp(x_j^\top\beta)\right\}\right].
+$$
+
+Breslow、Efron 与 Exact 按各自定义替换并列事件分母，但沿用相同的
+`(start, stop]` 风险集。令 `penalty=lambda`，StatGPU 最大化总和尺度的目标：
+
+$$
+Q_\lambda(\beta)=\ell(\beta)-\lambda\lVert\beta\rVert_2^2.
+$$
+
+记 `U(beta)` 为未惩罚 partial-likelihood score，拟合系数满足
+
+$$
+U_\lambda(\beta)=U(\beta)-2\lambda\beta=0.
+$$
+
+若 $J(\beta)=-\partial U(\beta)/\partial\beta$ 是未惩罚观测信息，则 penalized Newton
+使用的导数为 $A(\beta)=J(\beta)+2\lambda I_p$。
+
+## 风险集与 ties 方法
 
 `ties="breslow"` 和 `ties="efron"` 使用对应的并列事件部分似然；
 `ties="exact"` 通过 elementary-symmetric 动态规划计算 Exact 分母。
@@ -86,10 +177,6 @@ StatGPU 现在在每个 stratum 内按 stop time 降序排列，并通过一次 
 极端 CuPy predictor 与 delayed-entry 行继续使用数值稳定的后端原生逐失败组实现。
 这移除了普通右删失常用路径中原先的 `失败组 × 样本` 风险掩码扫描。
 
-当 `penalty > 0` 时，优化目标为部分对数似然减去
-`penalty * ||beta||^2`。惩罚估计不是无约束最大似然估计，因此不会把经典
-likelihood-ratio、score test 与信息准则作为无惩罚结果报告；系数推断契约见下文。
-
 ## Formula 接口
 
 支持两种生存响应：
@@ -127,19 +214,16 @@ likelihood、gradient、Hessian、协方差、baseline hazard 与公开收敛状
 保留底层 solver 的原始退出原因（包括 `max_iter`），warning 也报告该原始值；
 因此预算耗尽可以审计，但不会被误当作独立的收敛证书。
 
-## 协方差与推断
+## Penalty 缩放与惩罚推断
 
-| `cov_type` | 含义 |
-|---|---|
-| `"nonrobust"` | 模型协方差；无惩罚时为信息逆，有惩罚时为固定惩罚 sandwich |
-| `"hc0"` | score-sandwich 协方差 |
-| `"hc1"` | 带有限独立单元修正的 score-sandwich 协方差 |
-| `"cluster"` | 聚类稳健协方差；在 `fit` 时传入 `cluster=` |
+`penalty` 就是上述总和尺度 partial-likelihood 目标中的 `lambda`，不会除以样本数或
+事件数；CoxPH 也没有需要惩罚的截距。因此，复制全部观测会令 likelihood 与 score
+贡献加倍，却不会自动加倍用户提供的 penalty，从而改变有效正则强度。跨数据集或
+样本规模比较时，应在目标抽样尺度下用 `CoxPHCV` 调参；复现采用平均 loss 的外部
+软件时，需要显式换算其 penalty 口径，不能假设数值直接相同。
 
-无惩罚拟合的 nonrobust 协方差仍是通常的观测信息逆。正 L2 惩罚下的 estimating
-equation 为 `U(beta) - 2 * penalty * beta = 0`。记 `J` 为未加入惩罚的 Cox
-观测信息，`A = J + 2 * penalty * I_p`，则固定惩罚强度下的频率学派 plug-in
-协方差为：
+正 L2 惩罚下，记 `J` 为拟合系数处未加惩罚的 Cox 观测信息，
+`A = J + 2 * penalty * I_p`，则固定惩罚强度的频率学派 plug-in 协方差为：
 
 ```text
 A^-1 J A^-1
@@ -154,9 +238,23 @@ estimating equation；它们不是无惩罚系数的 debiased inference，也不
 bias 或交叉验证选择 penalty 带来的不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
 并明确报告 `penalty_selection_adjusted_=False`。沿用 `PenalizedGLM` 的结果命名，
 正 penalty 拟合的 `inference_method_` 使用简洁的 `"m_estimation"`；bread、meat、
-协方差口径、推断目标和条件化方式仍分别保留在 inference metadata 中。该契约与
-`PenalizedCoxPHModel` 分开；后者的 L1/elastic-net/SCAD/MCP 接口仍是
-estimation-only。
+协方差口径、推断目标和条件化方式仍分别保留在 inference metadata 中。
+
+带惩罚拟合会关闭经典 likelihood-ratio、score test 与 AIC/BIC，不会把惩罚估计
+当作无约束最大似然结果报告。该契约与 `PenalizedCoxPHModel` 分开；后者的
+L1/elastic-net/SCAD/MCP 接口仍是 estimation-only。
+
+## 协方差与推断
+
+| `cov_type` | 含义 |
+|---|---|
+| `"nonrobust"` | 模型协方差；无惩罚时为信息逆，有惩罚时为固定惩罚 sandwich |
+| `"hc0"` | score-sandwich 协方差 |
+| `"hc1"` | 带有限独立单元修正的 score-sandwich 协方差 |
+| `"cluster"` | 聚类稳健协方差；在 `fit` 时传入 `cluster=` |
+
+无惩罚拟合的 nonrobust 协方差仍是通常的观测信息逆；正 penalty 协方差遵循
+上一节的专门契约。
 
 Breslow 与 Efron 的 strict 稳健推断使用 statgpu 内部的精确计数过程 score
 residual，不依赖 statsmodels。同一受试者的重复行会先按 `subject_id` 汇总再
@@ -262,19 +360,26 @@ time/event 元数据准备；vector-transfer 计数记录实际发生的两条�
 `compute_inference` 会转发到最终 refit。
 
 ```python
-cv_model = CoxPHCV(
+cpu_cv = CoxPHCV(
     penalties=[0.0, 0.01, 0.1],
     cv=5,
-    ties="efron",
     device="cpu",
-).fit(
-    X_rows,
-    stop,
-    event,
-    start=start,
-    strata=clinic,
-    subject_id=patient_id,
-)
+    compute_inference=False,
+).fit(X, time, event)
+```
+
+同一 penalty 搜索也可直接使用前述 CuPy 或 Torch CUDA 数组：
+
+```python
+cupy_cv = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
+    compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+
+torch_cv = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
+    compute_inference=False,
+).fit(X_t, time_t, event_t)
 ```
 
 ## 预测与评分
@@ -320,7 +425,24 @@ target 传输次数均为零，同时不会改写 selection 来源设备。
 `CoxFitNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
 候选，输入、allocator、CUDA 与非预期 runtime 错误仍原样传播。
 
-## 验证
+## 外部验证与可复现性
+
+维护的 R 基线使用 R 4.4.1 与 `survival` 3.8.9，并对齐 ties、Newton
+`max_iter=80` 和 `tol=1e-8`。在 `n=3000`、`p=10` 的 Breslow/Efron 比较中，
+HC1 使用 3,000 个独立单元，cluster 使用 120 个单元。StatGPU 相对 R 的最大
+系数/SE/p-value 差异：HC1 为 `5.55e-16`/`1.39e-16`/`8.00e-19`，cluster 为
+`5.55e-16`/`1.32e-16`/`2.22e-16`。statsmodels 不支持的协方差模式会明确记录为
+unsupported，不会换名后充当外部证据。
+
+机器可读 R 对齐产物：
+
+- `results/benchmark_frontend_sources/coxph_robust_inference_breslow_pr80_20260729_schema11.json`；
+- `results/benchmark_frontend_sources/coxph_robust_inference_efron_pr80_20260729_schema11.json`。
+
+这些是绑定精确源码和特定 shape 的比较，不是普遍精度或性能保证。Exact ties 与
+性能结论仍绑定到 `dev/reviews/pr80_review_fix.md` 中列出的专用产物。
+
+### 精确源码物理 GPU 证据
 
 物理 GPU 证据固定到精确 source commit，后续代码或文档变更不会自动继承更宽的
 验证声明。
@@ -349,6 +471,21 @@ artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 sourc
 该 commit 之后新增的固定 penalty 推断与共享 strata 评分变更已经通过本地
 CPU/契约矩阵。其 schema-14 CuPy/Torch 物理 GPU 刷新仍需等待精确实现 commit；
 schema-13 不应被解释为覆盖这些新路径。
+
+## FAQ 与常见失败模式
+
+| 现象 | 含义与处理 |
+|---|---|
+| 显式 `device="cuda"` 或 `device="torch"` 失败 | 对应 package、CUDA runtime 或设备不可用。安装兼容后端或改用 `device="cpu"`；StatGPU 不会静默回退。 |
+| `predict_survival()` 提示 baseline 不可用 | 使用 `compute_inference=True` 重新拟合；risk-score 与 hazard-ratio 预测不需要 baseline。 |
+| 分层预测或评分拒绝标签 | 每行提供一个训练时已知的 stratum，shape 必须为 `(n_samples,)`；训练时只有一个显式 stratum 也不能省略。 |
+| `HC1 covariance requires n_units > n_features` | 增加独立 subject/cluster、减少特征，或采用研究设计能够支持的协方差契约。 |
+| 稳健协方差要求至少两个独立单元 | 单 subject/cluster 无法估计单元间变异；可用 `compute_inference=False` 仅执行估计。 |
+| observed information singular | 检查共线性、常量列、separation/saturation 与事件支持；减少设计或使用有明确依据的 L2 penalty。 |
+| hazard-ratio 预测抛出 `FloatingPointError` | `exp(X @ coef_)` 超出有限 float64 范围。检查 `predict_risk_score()`、缩放特征并检查外推。 |
+| `converged_` 为 false | 检查 `optimization_stop_reason_`、`final_kkt_inf_` 与 `final_kkt_normalized_`；单纯增加 `max_iter` 不能修复 line-search 失败或病态设计。 |
+| Exact ties 很慢或触发 workspace gate | Exact likelihood 对最大并列事件组具有组合复杂度；科学上允许时使用 Breslow/Efron，或减小最大 Exact tie block。 |
+| `score()` 返回 `0.5` | 数据中不存在 permissible concordance pair；`0.5` 是文档化的中性返回值。 |
 
 ## 限制
 

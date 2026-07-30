@@ -55,6 +55,10 @@
   LR/score/AIC/BIC 仍保持关闭。`score()` 与 `predict_survival()` 现在复用同一套
   strata shape/已知标签编码，并在各 backend 上返回一致的公开错误。schema-14
   物理 GPU runner 已覆盖这两类契约。
+- EN/CN CoxPH 模型页现在明确记录 objective、estimating equation、总 likelihood
+  尺度的 penalty 口径与固定 penalty 推断限制，并提供可运行的 NumPy、CuPy CUDA、
+  Torch CUDA 拟合和 CV 示例、R 外部证据及常见失败 FAQ。英文日期与损坏的参考文献
+  页码分隔符也已和当前内容同步。
 - 前一版 prepared-capability schema-9 精确 clean source commit 已通过 Paramiko
   在远程 `myconda` 的 Tesla P100
   上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content

@@ -1146,5 +1146,26 @@ changed-file pyflakes, 122 maintained documentation contracts, deterministic
 bilingual links, and `git diff --check` pass.
 
 The schema-14 physical runner records the same covariance identity, metadata,
-CV propagation, and strata errors for CuPy and Torch. Exact-source P100 evidence
-is intentionally pending until the implementation commit is authorized and pushed.
+CV propagation, and strata errors for CuPy and Torch. Implementation commit
+`b5cde49b4ada67b8a1d8728f60048d565f7436f5` is pushed; its exact-source P100
+schema-14 refresh remains pending.
+
+## CoxPH Model-Documentation Completeness Follow-up
+
+Impact classification: runtime=`unchanged`; public API=`documented only`;
+objective/inference=`made explicit`; examples=`NumPy/CuPy/Torch CUDA`;
+external validation=`R artifacts linked`; EN/CN=`synchronized`.
+
+- [DOC][fixed] Both model pages now have named Objective Function / Estimating
+  Equation sections, define the total partial-likelihood penalty scale, and
+  separate fixed-penalty estimating-equation inference from Bayesian,
+  debiased, and post-CV claims.
+- [DOC][fixed] Deterministic NumPy, CuPy CUDA, and Torch CUDA fit/prediction
+  examples share one data setup. The CV section includes both GPU backends and
+  states that explicit device requests never silently fall back.
+- [DOC][fixed] External R HC1/cluster evidence and exact-source physical-GPU
+  evidence are separately scoped. A FAQ covers unavailable CUDA, missing
+  baselines/strata, robust-unit gates, singular information, exponential range,
+  nonconvergence, Exact workspace, and no-pair concordance.
+- [DOC][fixed] Page dates are 2026-07-30 and the English reference ranges use
+  Unicode en dashes instead of corrupted question marks.
