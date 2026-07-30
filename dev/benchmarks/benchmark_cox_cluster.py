@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -137,6 +137,29 @@ def statsmodels_covariance_capability(cov_type: str) -> Dict[str, Any]:
             else "model-based observed-information inverse"
         ),
         "reason": "",
+    }
+
+
+def external_covariance_contract_fields(
+    *,
+    supported: bool,
+    requested_contract: str,
+    actual_contract: Optional[str] = None,
+    unsupported_reason: str = "",
+) -> Dict[str, Any]:
+    """Return unambiguous machine-readable external support metadata."""
+    supported = bool(supported)
+    reason = str(unsupported_reason).strip()
+    if not supported and not reason:
+        reason = "external covariance result is unavailable"
+    return {
+        "covariance_contract": (
+            str(actual_contract or requested_contract)
+            if supported
+            else "unsupported"
+        ),
+        "requested_covariance_contract": str(requested_contract),
+        "unsupported_reason": "" if supported else reason,
     }
 
 
@@ -406,7 +429,11 @@ def main():
                         "supported": False,
                         "independent_units": n_units,
                         "finite_sample_correction": correction,
-                        "covariance_contract": sm_capability["contract"],
+                        **external_covariance_contract_fields(
+                            supported=False,
+                            requested_contract=covariance_contract,
+                            unsupported_reason=sm_capability["reason"],
+                        ),
                         "notes": f"unsupported: {sm_capability['reason']}",
                     }
                 )
@@ -462,10 +489,14 @@ def main():
                                 n_units if cov == "cluster" else None
                             ),
                             "finite_sample_correction": 1.0,
-                            "covariance_contract": (
-                                covariance_contract
-                                if finite_inference
-                                else "unsupported"
+                            **external_covariance_contract_fields(
+                                supported=finite_inference,
+                                requested_contract=covariance_contract,
+                                actual_contract=sm_capability["contract"],
+                                unsupported_reason=(
+                                    "PHReg returned non-finite coefficient "
+                                    "inference"
+                                ),
                             ),
                             "notes": (
                                 "ref=statgpu-cpu"
@@ -491,7 +522,11 @@ def main():
                             n_units if cov != "nonrobust" else None
                         ),
                         "finite_sample_correction": correction,
-                        "covariance_contract": covariance_contract,
+                        **external_covariance_contract_fields(
+                            supported=False,
+                            requested_contract=covariance_contract,
+                            unsupported_reason=f"{type(e).__name__}: {e}",
+                        ),
                         "notes": f"skipped: {e}",
                     }
                 )
@@ -509,6 +544,8 @@ def main():
             "hc1": "R survival::coxph(robust-score + explicit HC1 correction)",
             "cluster": "R survival::coxph(cluster-robust)",
         }[cov]
+        r_supported = bool(r_result.get("supported", False))
+        r_unsupported_reason = r_result.get("error", "")
         rows.append(
             {
                 "method": "CoxPH",
@@ -517,10 +554,15 @@ def main():
                 "coef_ref_diff": safe_diff(m_cpu.coef_, r_result.get("coef")),
                 "bse_ref_diff": safe_diff(m_cpu._bse, r_result.get("bse")),
                 "p_ref_diff": safe_diff(m_cpu._pvalues, r_result.get("pvalues")),
-                "supported": bool(r_result.get("supported", False)),
+                "supported": r_supported,
                 "independent_units": r_result.get("n_units", n_units),
                 "finite_sample_correction": r_result.get("correction", correction),
-                "covariance_contract": covariance_contract,
+                **external_covariance_contract_fields(
+                    supported=r_supported,
+                    requested_contract=covariance_contract,
+                    actual_contract=covariance_contract,
+                    unsupported_reason=r_unsupported_reason,
+                ),
                 "notes": (
                     "ref=statgpu-cpu; "
                     + (

@@ -656,3 +656,16 @@ coefficient/SE/p-value results to approximately `1e-16`.
 Evidence commit `d61d4f26dbe03960cc6cf47fd92c82d97cecaddb` passed all seven hosted
 jobs in Actions run `30461628851`; PR #80 was mergeable and clean after that
 run.
+
+## Strict Covariance-PSD Follow-up (2026-07-30)
+
+Shared inference now classifies the complete covariance eigenspectrum once.
+Positive-definite covariance supports marginal and joint inference; PSD rank
+deficiency preserves valid marginals and disables joint Wald; a materially
+negative eigenvalue fails strict inference before result publication and clears
+Cox/CoxPHCV state. The shared policy lives in the inference package; generic
+sandwich adoption is deferred until its fit/refit boundaries can also clear
+state transactionally. External unsupported rows now separate requested and
+actual covariance contracts. Schema 12 adds physical CuPy/Torch non-PSD and
+CV cleanup gates. The complete local suite passes `1528 passed, 473 skipped`,
+with 10 expected warnings; exact-source P100 refresh is pending.

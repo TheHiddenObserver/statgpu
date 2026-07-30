@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from statgpu.inference._covariance import classify_covariance_spectrum
 from statgpu.survival import CoxPH, CoxPHCV
+from statgpu.survival import _cox as cox_module
 from statgpu.survival._cox_inference import (
     _joint_wald_from_covariance,
     _standard_errors_from_covariance,
@@ -196,6 +198,10 @@ def test_rank_deficient_robust_covariance_keeps_marginal_inference(
     assert np.isnan(model._wald_test_pvalue)
     assert model._inference_result.metadata["joint_wald_available"] is False
     assert (
+        model._inference_result.metadata["covariance_spectrum"]
+        == "rank_deficient_psd"
+    )
+    assert (
         model._inference_result.metadata["joint_wald_failure_reason"]
         == model.wald_test_failure_reason_
     )
@@ -247,10 +253,14 @@ def test_coxphcv_propagates_joint_wald_unavailability_from_final_refit():
 
 
 def test_joint_wald_helper_rejects_near_rank_deficiency_without_losing_marginals():
+    near_singular = np.diag([1.0, 0.5, 1e-14])
+    spectrum = classify_covariance_spectrum(near_singular)
+    assert spectrum.classification == "rank_deficient_psd"
     statistic, failure = _joint_wald_from_covariance(
         np.ones(3),
-        np.diag([1.0, 0.5, 1e-14]),
+        near_singular,
         cov_type="hc0",
+        spectrum=spectrum,
     )
     assert np.isnan(statistic)
     assert failure == (
@@ -265,16 +275,111 @@ def test_joint_wald_helper_rejects_near_rank_deficiency_without_losing_marginals
     assert statistic == pytest.approx(1.5)
     assert failure is None
 
-    statistic, failure = _joint_wald_from_covariance(
+    with pytest.raises(RuntimeError, match="not positive semidefinite"):
+        _joint_wald_from_covariance(
+            np.ones(2),
+            np.array([[1.0, 2.0], [2.0, 1.0]]),
+            cov_type="cluster",
+        )
+
+
+def test_covariance_spectrum_distinguishes_psd_roundoff_from_indefinite():
+    rank_deficient = np.array([[1.0, 1.0], [1.0, 1.0]])
+    rank_spectrum = classify_covariance_spectrum(rank_deficient)
+    assert rank_spectrum.classification == "rank_deficient_psd"
+    assert np.array_equal(
+        _standard_errors_from_covariance(
+            rank_deficient,
+            cov_type="hc0",
+            spectrum=rank_spectrum,
+        ),
         np.ones(2),
-        np.array([[1.0, 2.0], [2.0, 1.0]]),
+    )
+
+    roundoff_indefinite = np.array(
+        [[1.0, 1.0 + 1e-14], [1.0 + 1e-14, 1.0]]
+    )
+    roundoff_spectrum = classify_covariance_spectrum(roundoff_indefinite)
+    assert roundoff_spectrum.classification == "rank_deficient_psd"
+    statistic, reason = _joint_wald_from_covariance(
+        np.ones(2),
+        roundoff_indefinite,
         cov_type="cluster",
+        spectrum=roundoff_spectrum,
     )
     assert np.isnan(statistic)
-    assert failure == (
-        "robust covariance is not positive semidefinite for the "
-        "full-parameter Wald test"
+    assert "rank-deficient" in reason
+
+    materially_indefinite = np.array([[1.0, 2.0], [2.0, 1.0]])
+    indefinite_spectrum = classify_covariance_spectrum(materially_indefinite)
+    assert indefinite_spectrum.classification == "materially_indefinite"
+    with pytest.raises(RuntimeError, match="not positive semidefinite"):
+        _standard_errors_from_covariance(
+            materially_indefinite,
+            cov_type="cluster",
+            spectrum=indefinite_spectrum,
+        )
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+def test_materially_indefinite_covariance_fails_and_clears_cox_state(
+    monkeypatch, backend_name
+):
+    X, stop, event = _sample(seed=9350, p=2)
+    cluster = np.arange(X.shape[0], dtype=np.int64) % 4
+    device, (Xb, stopb, eventb, clusterb) = _backend_inputs(
+        backend_name, X, stop, event, cluster
     )
+    forced_spectrum = classify_covariance_spectrum(
+        np.array([[1.0, 2.0], [2.0, 1.0]])
+    )
+    monkeypatch.setattr(
+        cox_module,
+        "_classify_covariance_spectrum",
+        lambda _covariance: forced_spectrum,
+    )
+    model = CoxPH(
+        device=device,
+        cov_type="cluster",
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=80,
+    )
+    with pytest.raises(RuntimeError, match="not positive semidefinite"):
+        model.fit(Xb, stopb, eventb, cluster=clusterb)
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model._bse is None
+    assert model._inference_result is None
+
+
+def test_materially_indefinite_covariance_clears_coxphcv_final_refit(
+    monkeypatch,
+):
+    X, stop, event = _sample(seed=9351, p=2)
+    cluster = np.arange(X.shape[0], dtype=np.int64) % 4
+    forced_spectrum = classify_covariance_spectrum(
+        np.array([[1.0, 2.0], [2.0, 1.0]])
+    )
+    monkeypatch.setattr(
+        cox_module,
+        "_classify_covariance_spectrum",
+        lambda _covariance: forced_spectrum,
+    )
+    model = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        cov_type="cluster",
+        compute_inference=True,
+        device="cpu",
+        max_iter=60,
+    )
+    with pytest.raises(RuntimeError, match="not positive semidefinite"):
+        model.fit(X, stop, event, cluster=cluster)
+    assert model._fitted is False
+    assert model.estimator_ is None
+    assert model.coef_ is None
+    assert model._inference_result is None
 
 
 def test_covariance_diagonal_rejects_material_negative_and_zero_robust_variance():
@@ -297,6 +402,26 @@ def test_statsmodels_hc1_is_explicitly_unsupported():
     assert capability["supported"] is False
     assert "n_units/(n_units-p)" in capability["reason"]
     assert benchmark_cox_cluster.json_ready(np.nan) is None
+    unsupported = benchmark_cox_cluster.external_covariance_contract_fields(
+        supported=False,
+        requested_contract="cluster score sandwich",
+        unsupported_reason="external solver failed",
+    )
+    assert unsupported == {
+        "covariance_contract": "unsupported",
+        "requested_covariance_contract": "cluster score sandwich",
+        "unsupported_reason": "external solver failed",
+    }
+    supported = benchmark_cox_cluster.external_covariance_contract_fields(
+        supported=True,
+        requested_contract="requested",
+        actual_contract="actual",
+    )
+    assert supported == {
+        "covariance_contract": "actual",
+        "requested_covariance_contract": "requested",
+        "unsupported_reason": "",
+    }
 
 
 def test_statsmodels_nonfinite_inference_is_not_reported_as_supported():

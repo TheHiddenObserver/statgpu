@@ -142,12 +142,15 @@ cluster 协方差至少需要两个独立单元；HC1 还要求
 不会把非正自由度分母替换为任意有限值。实质性负协方差对角线或非正稳健边际
 方差同样会令 strict inference 失败，而不会发布零标准误与误导性的显著性结果。
 
-边际方差为正并不保证稳健协方差在完整参数空间可逆。因此，只要各边际有效，StatGPU
-仍会报告逐系数 robust SE/z/p/CI；但尺度感知的特征值检查若发现协方差秩亏，则设置
-`wald_test_available_=False` 并记录 `wald_test_failure_reason_`。此时 summary
-显示 `Robust Wald test unavailable`，不会使用不稳定逆矩阵或打印裸 `nan`。
-即使逐系数与 Wald 推断使用稳健协方差，likelihood-ratio 与 score test 仍是经典的
-model-based test；summary 会明确标注这一差异。
+边际方差为正并不保证稳健协方差在完整参数空间有效。StatGPU 会先用尺度感知容忍度
+分类对称化后的 covariance spectrum：正定矩阵同时支持边际推断和 joint Wald；PSD
+但秩亏的矩阵仍保留逐系数 robust SE/z/p/CI，同时设置
+`wald_test_available_=False` 并记录 `wald_test_failure_reason_`，summary 显示
+`Robust Wald test unavailable`，不会使用不稳定逆矩阵或打印裸 `nan`。若存在实质性
+负特征值，该矩阵已不是合法 covariance estimator；strict inference 会抛出
+`RuntimeError` 并清空本次 fit 状态，而不会仅凭正对角线发布边际推断。即使逐系数与
+Wald 推断使用稳健协方差，likelihood-ratio 与 score test 仍是经典的 model-based
+test；summary 会明确标注这一差异。
 
 `inference_mode="strict"` 是默认值。为保持向后兼容，公开 API 仍接受
 `inference_mode="approx"`，但统一 fit 路径会把它作为 compatibility-only alias，

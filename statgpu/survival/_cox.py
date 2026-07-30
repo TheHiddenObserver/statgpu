@@ -35,6 +35,7 @@ from statgpu.survival._cox_counting import (
     prepare_right_censored_cox_fast_path,
 )
 from statgpu.survival._cox_inference import (
+    _classify_covariance_spectrum,
     _invert_information_cupy,
     _invert_information_numpy,
     _invert_information_torch,
@@ -1040,8 +1041,13 @@ class CoxPH(BaseEstimator):
                 variance = bread @ meat @ bread
             variance = 0.5 * (variance + variance.T)
             self._var_matrix = to_numpy(variance)
+            covariance_spectrum = _classify_covariance_spectrum(
+                self._var_matrix
+            )
             self._bse = _standard_errors_from_covariance(
-                self._var_matrix, cov_type=controls.cov_type
+                self._var_matrix,
+                cov_type=controls.cov_type,
+                spectrum=covariance_spectrum,
             )
             self._zvalues = self.coef_ / (self._bse + 1e-30)
             self._pvalues = 2.0 * norm.sf(np.abs(self._zvalues))
@@ -1062,6 +1068,7 @@ class CoxPH(BaseEstimator):
                 self.coef_,
                 self._var_matrix,
                 cov_type=controls.cov_type,
+                spectrum=covariance_spectrum,
             )
             self._wald_test_stat = wald_stat
             self.wald_test_available_ = wald_failure is None
@@ -1221,6 +1228,15 @@ class CoxPH(BaseEstimator):
                     "ties": controls.ties,
                     "joint_wald_available": self.wald_test_available_,
                     "joint_wald_failure_reason": self.wald_test_failure_reason_,
+                    "covariance_spectrum": (
+                        covariance_spectrum.classification
+                    ),
+                    "covariance_spectrum_tolerance": (
+                        covariance_spectrum.tolerance
+                    ),
+                    "covariance_minimum_eigenvalue": (
+                        covariance_spectrum.minimum_eigenvalue
+                    ),
                     "likelihood_ratio_test_contract": "classical_model_based",
                     "score_test_contract": "classical_model_based",
                 },

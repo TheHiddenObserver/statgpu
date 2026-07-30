@@ -23,9 +23,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from statgpu._config import Device  # noqa: E402
+from statgpu.inference._covariance import (  # noqa: E402
+    classify_covariance_spectrum,
+)
 from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
 from statgpu.losses import _cox_ph as cox_loss  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
+from statgpu.survival import _cox as cox_model  # noqa: E402
 from statgpu.survival import _cox_counting as cox_counting  # noqa: E402
 from statgpu.survival import _cox_score as cox_score  # noqa: E402
 from statgpu.survival import _risk_sets as risk_sets  # noqa: E402
@@ -44,6 +48,7 @@ SOURCE_FILES = (
     "statgpu/__init__.py",
     "statgpu/backends/_array_ops.py",
     "statgpu/backends/_utils.py",
+    "statgpu/inference/_covariance.py",
     "statgpu/linear_model/penalized/_penalized_cox.py",
     "statgpu/losses/_cox_ph.py",
     "statgpu/survival/__init__.py",
@@ -1326,6 +1331,53 @@ def _case_robust_inference_units(name: str, xp) -> dict:
         atol=2e-10,
     )
 
+    forced_spectrum = classify_covariance_spectrum(
+        np.array(
+            [
+                [1.0, 2.0, 0.0],
+                [2.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+    )
+    original_classifier = cox_model._classify_covariance_spectrum
+    indefinite_model = CoxPH(cov_type="cluster", **common)
+    indefinite_error = ""
+    indefinite_cv = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        device=device,
+        cov_type="cluster",
+        compute_inference=True,
+        max_iter=60,
+        tol=1e-8,
+    )
+    indefinite_cv_error = ""
+    try:
+        cox_model._classify_covariance_spectrum = (
+            lambda _covariance: forced_spectrum
+        )
+        try:
+            indefinite_model.fit(
+                X,
+                stop,
+                event,
+                cluster=p_plus_one_units,
+            )
+        except RuntimeError as exc:
+            indefinite_error = str(exc)
+        try:
+            indefinite_cv.fit(
+                X,
+                stop,
+                event,
+                cluster=p_plus_one_units,
+            )
+        except RuntimeError as exc:
+            indefinite_cv_error = str(exc)
+    finally:
+        cox_model._classify_covariance_spectrum = original_classifier
+
     passed = all(
         (
             "cluster covariance requires at least two" in single_cluster["error"],
@@ -1359,6 +1411,12 @@ def _case_robust_inference_units(name: str, xp) -> dict:
             "Classical likelihood-ratio test:" in rank_deficient_summary,
             "Classical score (logrank) test:" in rank_deficient_summary,
             "Wald test: nan" not in rank_deficient_summary,
+            "not positive semidefinite" in indefinite_error,
+            indefinite_model.coef_ is None,
+            not indefinite_model._fitted,
+            "not positive semidefinite" in indefinite_cv_error,
+            indefinite_cv.estimator_ is None,
+            not indefinite_cv._fitted,
         )
     )
     return {
@@ -1404,6 +1462,18 @@ def _case_robust_inference_units(name: str, xp) -> dict:
                 and "Wald test: nan" not in rank_deficient_summary
             ),
         },
+        "materially_indefinite_covariance": {
+            "classification": forced_spectrum.classification,
+            "minimum_eigenvalue": forced_spectrum.minimum_eigenvalue,
+            "cox_error": indefinite_error,
+            "cox_state_cleared": bool(
+                indefinite_model.coef_ is None and not indefinite_model._fitted
+            ),
+            "cv_error": indefinite_cv_error,
+            "cv_state_cleared": bool(
+                indefinite_cv.estimator_ is None and not indefinite_cv._fitted
+            ),
+        },
         "passed": bool(passed),
     }
 
@@ -1416,7 +1486,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 11,
+        "schema_version": 12,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

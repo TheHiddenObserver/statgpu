@@ -979,3 +979,37 @@ Evidence commit `d61d4f26dbe03960cc6cf47fd92c82d97cecaddb` is pushed. All seven
 hosted jobs (`docs-contracts`, `static-contracts`, `full-cpu-suite`, and the
 Python 3.9–3.12 regression matrix) passed in GitHub Actions run `30461628851`;
 PR #80 reported `mergeable=true` and `mergeable_state=clean`.
+
+## Strict Covariance-PSD Follow-up
+
+Impact classification: backend=`NumPy/CuPy/Torch`; inference=`Cox`;
+CV=`strict final-refit propagation`; objective=
+`unchanged`; formula=`unchanged`; benchmark=`external failure schema only`;
+performance=`one p-by-p eigendecomposition reused`; validation tier=
+`local-focused; exact-source physical GPU pending`.
+
+- [MEDIUM][BUG/INFERENCE][fixed] Positive covariance diagonals could previously
+  publish SE/z/p/CI even when the complete covariance had a materially negative
+  eigenvalue. The shared classifier now distinguishes positive definite,
+  rank-deficient PSD, and materially indefinite spectra. Indefinite covariance
+  raises strict `RuntimeError` before any inference result is published, and
+  Cox/CoxPHCV fit boundaries clear state transactionally. PSD rank deficiency
+  still preserves valid marginal inference and marks only joint Wald
+  unavailable; roundoff-level negative eigenvalues follow that PSD path.
+- [LOW][MAINT/REUSE][deferred] Spectrum validation, marginal standard errors,
+  and joint-Wald computation now live in
+  `statgpu/inference/_covariance.py`, and Cox reuses that policy with one
+  eigendecomposition. Generic sandwich migration remains separate because its
+  GLM/penalized refit boundaries first need transactional state cleanup; doing
+  only the numerical swap here could create stale fitted state after a new
+  strict failure.
+- [LOW][VALIDATION][fixed] Unsupported statsmodels/R benchmark rows now use
+  `covariance_contract="unsupported"` and separately retain
+  `requested_covariance_contract` plus `unsupported_reason`; successful rows
+  continue to report the actual contract.
+
+Focused local tests cover the three spectrum classes, Cox state cleanup,
+CoxPHCV final-refit cleanup, external failure metadata, and NumPy/CuPy/Torch
+routing. The complete local suite passes `1528 passed, 473 skipped`, with 10
+expected warnings. Schema 12 extends the maintained physical runner with
+non-PSD Cox and CV cleanup cases; exact-source P100 evidence is pending.

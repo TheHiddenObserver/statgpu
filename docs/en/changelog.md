@@ -45,6 +45,13 @@
   Tesla P100 passed 11/11 CuPy and Torch cases plus 353 targeted tests, while
   aligned Breslow/Efron R HC1 and cluster results agree to approximately
   `1e-16`.
+- Covariance validation now distinguishes positive-definite,
+  rank-deficient-positive-semidefinite, and materially indefinite matrices.
+  The first supports all inference, the second preserves valid marginals while
+  disabling joint Wald, and the third fails strict inference transactionally.
+  Cox consumes the policy from the inference package. Unsupported external
+  benchmark rows now set `covariance_contract="unsupported"` and separately
+  record the requested contract and failure reason.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

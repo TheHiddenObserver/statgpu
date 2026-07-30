@@ -35,6 +35,11 @@
   `max_iter`/`tol`，JSON 同步记录 solver contract。精确源码 schema-11 在
   Tesla P100 上通过 CuPy/Torch 各 11/11 个 case 与 353 个定向测试；对齐后的
   Breslow/Efron R HC1 和 cluster 结果约在 `1e-16` 量级一致。
+- Covariance 验证现在区分正定、PSD 但秩亏以及实质性非 PSD 三种谱状态：第一种支持
+  完整推断，第二种保留有效边际结果并关闭 joint Wald，第三种令 strict inference
+  事务性失败。Cox 从 inference package 复用该谱/Wald policy。外部 benchmark 的
+  unsupported 行现在统一写入 `covariance_contract="unsupported"`，并单独记录
+  请求的 contract 与失败原因。
 - 前一版 prepared-capability schema-9 精确 clean source commit 已通过 Paramiko
   在远程 `myconda` 的 Tesla P100
   上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content
