@@ -296,22 +296,24 @@ target 传输次数均为零，同时不会改写 selection 来源设备。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `3e4d9bd3159ea329c16bd761197e3ad371f64893` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json` |
-| Schema / tier | `12` / `remote-full` |
+| Source commit | `a7655904ea05fd9ce700d35832c44f90b0176251` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json` |
+| Schema / tier | `13` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 11/11；Torch 11/11 |
-| 定向测试 | 358 passed，5 个预期 warning |
-| 源码审计 | `source_clean=true`；记录的 32/32 个 Git-blob hash 全部匹配 |
+| 定向测试 | 432 passed，7 个预期 warning |
+| 源码审计 | `source_clean=true`；记录的 34/34 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-12 覆盖公开预测/评分边界、CV 设备与普通 fold 准备、prepared state 与
+schema-13 覆盖公开预测/评分边界（包括单一显式 stratum 标签契约和原始 optimization
+stop provenance）、CV 设备与普通 fold 准备、prepared state 与
 packed target provenance、hazard-ratio 数值边界、有界及宽模型 workspace 路由、
 concordance、completion contract，以及稳健推断的独立单元/PSD 边界。它不是新的
 性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍分别绑定到专用
 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source commit 之后
-的变更必须刷新自己的精确源码证据，才能声明获得相同的物理 GPU 覆盖。
+的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的物理 GPU
+覆盖。
 
 ## 限制
 

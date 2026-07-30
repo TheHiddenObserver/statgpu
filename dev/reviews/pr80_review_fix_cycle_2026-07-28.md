@@ -5,14 +5,13 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**COMPLETE.** The prepared-capability and public-parameter follow-up passes the
-complete CPU suite and exact-source schema-9 P100 refresh. The machine-readable
-artifact independently matches all 29 Git blobs from source commit
-`94b1a4be2c87416275e247eb8bff245b478cef8d`; all 20 CuPy/Torch case gates and
-321 targeted physical tests pass. Evidence commit
-`41e4040702a16d98341b913c3c62d5060f916915` is pushed, and all seven hosted
-jobs passed in run `30440782646`. The earlier schema-8 evidence remains below
-as historical evidence for its exact source.
+**PHYSICAL COMPLETE; HOSTED CI PENDING.** The latest single-stratum prediction
+and raw-stop follow-up passes the complete CPU suite and exact-source schema-13
+P100 refresh. The machine-readable artifact independently matches all 34 Git
+blobs from source commit `a7655904ea05fd9ce700d35832c44f90b0176251`;
+all 22 CuPy/Torch case gates and 432 targeted physical tests pass with
+`gate_failures=[]`. The evidence commit and hosted CI are pending. Earlier
+schema evidence remains below as historical evidence for its exact source.
 
 ## Post-schema-7 findings and fixes
 
@@ -686,7 +685,7 @@ survival prediction. `termination_reason_` retains its interpreted three-state
 contract, while `optimization_stop_reason_` exposes the raw solver stop such as
 `max_iter`; reset, CV propagation, summary, and warning consistency are covered.
 
-The EN/CN Cox model pages now use a concise source-commit-pinned schema-12
+The EN/CN Cox model pages now use a concise source-commit-pinned schema-13
 evidence table and explicitly bound its scope. Remote documentation commits
 through `488ab5b0dc144146e4b0274fb15ac8d9c7848ae0` were reviewed and introduce no
 additional code finding. Focused regression passes `137 passed, 23 skipped`;
@@ -694,6 +693,13 @@ the complete local suite passes `1533 passed, 479 skipped`, with 11 expected
 warnings. Documentation links, the 122-file docs contract, compileall,
 changed-file pyflakes, and diff whitespace checks pass.
 
-The physical runner is schema 13 with direct CuPy/Torch single-stratum and raw
-stop-provenance gates. Exact-source P100 JSON, evidence commit, push, and hosted
-CI remain pending, so the cycle status is `PARTIAL_REMOTE_PENDING`.
+Exact detached commit `a7655904ea05fd9ce700d35832c44f90b0176251`
+passed schema 13 on a Tesla P100-SXM2-16GB: CuPy and Torch each passed 11/11
+structured cases, the targeted matrix passed 432 tests with 7 expected
+warnings, all 34 recorded Git-blob hashes match, `source_clean=true`, and
+`gate_failures=[]`. The machine-readable artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json`
+with SHA-256
+`799d439ceae1b25b582b5180573c390ada9438a86c7045dc3fb538611b1ac474`.
+Physical validation is complete; evidence commit, push, and hosted CI remain
+pending.

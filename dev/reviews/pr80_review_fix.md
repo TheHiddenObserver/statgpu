@@ -1031,7 +1031,7 @@ Machine-readable evidence:
 Impact classification: backend=`NumPy/CuPy/Torch`; public API=
 `CoxPH/CoxPHCV prediction and convergence diagnostics`; objective/inference=
 `unchanged`; formula=`unchanged`; documentation=`EN/CN synchronized`;
-validation tier=`local-full; exact-source physical GPU pending`.
+validation tier=`remote-full`.
 
 - [MEDIUM][BUG/API][fixed] An explicitly stratified fit with only one observed
   stratum previously bypassed prediction-label validation because
@@ -1041,8 +1041,8 @@ validation tier=`local-full; exact-source physical GPU pending`.
   including the single-stratum case. Missing and unseen labels fail before a
   baseline is selected; the delegated `CoxPHCV` path inherits the same rule.
 - [MEDIUM][DOC][fixed] The EN/CN Cox model pages no longer claim that schema-6
-  evidence is pending while the repository contains schema 12. Each page now
-  presents one concise, commit-pinned schema-12 evidence table with hardware,
+  evidence is pending while the repository contains newer physical evidence.
+  Each page now presents one concise, commit-pinned schema-13 table with hardware,
   software, test counts, source hashes, gate failures, scope, and exclusions.
   Detailed historical timing and review chronology remain in this developer
   report rather than accumulating on the user-facing model page.
@@ -1066,9 +1066,19 @@ the maintained 122-file documentation contract, full package/dev compileall,
 changed-file pyflakes, and `git diff --check` pass. Local ruff is unavailable;
 the hosted static-contract job installs and executes it.
 
-The maintained physical runner is advanced to schema 13 and adds the same
-single-stratum CuPy/Torch and raw-stop gates plus the two newly relevant test
-files to its exact-source hash and targeted-test sets. Until that runner is
-executed from a committed clean source on the Tesla P100, this follow-up status
-is `PARTIAL_REMOTE_PENDING`; the earlier schema-12 artifact remains valid only
-for its pinned source commit.
+Exact clean detached source commit
+`a7655904ea05fd9ce700d35832c44f90b0176251` passed schema 13 in remote
+`myconda` on a Tesla P100-SXM2-16GB. CuPy 13.6.0 and Torch 2.0.0+cu117 each
+passed all 11 structured cases, including direct and delegated single-stratum
+label rejection/acceptance and interpreted/raw stop provenance. The targeted
+physical matrix passed 432 tests with 7 expected warnings. All 34 recorded
+Git-blob hashes independently match the source commit, `source_clean=true`,
+and `gate_failures=[]`.
+
+Machine-readable evidence:
+
+- `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json`
+  (SHA-256 `799d439ceae1b25b582b5180573c390ada9438a86c7045dc3fb538611b1ac474`).
+
+Physical validation is complete; the evidence commit and hosted CI are pending
+at the time of this report update.

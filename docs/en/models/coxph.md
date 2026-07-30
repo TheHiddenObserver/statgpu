@@ -336,25 +336,27 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `3e4d9bd3159ea329c16bd761197e3ad371f64893` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json` |
-| Schema / tier | `12` / `remote-full` |
+| Source commit | `a7655904ea05fd9ce700d35832c44f90b0176251` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json` |
+| Schema / tier | `13` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 11/11; Torch 11/11 |
-| Targeted tests | 358 passed, 5 expected warnings |
-| Source audit | `source_clean=true`; 32/32 recorded Git-blob hashes matched |
+| Targeted tests | 432 passed, 7 expected warnings |
+| Source audit | `source_clean=true`; 34/34 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-12 scope covers public prediction/scoring boundaries, CV device and
+The schema-13 scope covers public prediction/scoring boundaries, including the
+single-explicit-stratum label contract and raw optimization-stop provenance;
+CV device and
 ordinary-fold preparation, prepared-state and packed-target provenance,
 hazard-ratio range handling, bounded and wide workspace routes, concordance,
 completion contracts, and robust-inference unit/PSD boundaries. It is not a
 new performance-crossover benchmark or a new R external-alignment run; those
 claims remain tied to their dedicated artifacts and detailed history in
-`dev/reviews/pr80_review_fix.md`. Changes after the source commit above require
-their own exact-source refresh before they can claim the same physical-GPU
-evidence.
+`dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after the
+source commit above require their own exact-source refresh before they can
+claim the same physical-GPU evidence.
 
 ## Limitations
 

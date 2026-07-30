@@ -61,7 +61,10 @@
   interpreted three-category outcome, while the new
   `optimization_stop_reason_` exposes the raw solver exit such as `max_iter`.
   The EN/CN model pages replace the stale schema-6 pending statement and review
-  timeline with one commit-pinned schema-12 evidence table and explicit scope.
+  timeline with one commit-pinned schema-13 evidence table and explicit scope.
+  Exact-source P100 validation passed 11/11 CuPy and Torch cases plus 432
+  targeted tests; all 34 recorded Git-blob hashes match and
+  `gate_failures=[]`.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured
