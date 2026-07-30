@@ -41,6 +41,7 @@ def test_cpu_parity_report_executes_and_has_required_schema(monkeypatch):
         "unpenalized_hessian",
         "penalized_hessian",
         "covariance",
+        "covariance_contract",
         "bse",
     }
     fitted_required = {
@@ -55,6 +56,9 @@ def test_cpu_parity_report_executes_and_has_required_schema(monkeypatch):
         "bse",
     }
     assert fixed_required <= set(report["fixed_beta"]["numpy"])
+    assert report["fixed_beta"]["numpy"]["covariance_contract"] == (
+        "A^-1 J A^-1"
+    )
     assert fitted_required <= set(report["fitted"]["numpy"])
     assert report["checks"]
     assert all(check["status"] == "pass" for check in report["checks"])

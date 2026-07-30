@@ -87,8 +87,8 @@ StatGPU 现在在每个 stratum 内按 stop time 降序排列，并通过一次 
 这移除了普通右删失常用路径中原先的 `失败组 × 样本` 风险掩码扫描。
 
 当 `penalty > 0` 时，优化目标为部分对数似然减去
-`penalty * ||beta||^2`。惩罚估计不是无约束最大似然估计，因此不会把普通
-likelihood-ratio 统计量与信息准则作为经典无惩罚结果报告。
+`penalty * ||beta||^2`。惩罚估计不是无约束最大似然估计，因此不会把经典
+likelihood-ratio、score test 与信息准则作为无惩罚结果报告；系数推断契约见下文。
 
 ## Formula 接口
 
@@ -131,10 +131,32 @@ likelihood、gradient、Hessian、协方差、baseline hazard 与公开收敛状
 
 | `cov_type` | 含义 |
 |---|---|
-| `"nonrobust"` | 基于观测信息矩阵的模型协方差 |
+| `"nonrobust"` | 模型协方差；无惩罚时为信息逆，有惩罚时为固定惩罚 sandwich |
 | `"hc0"` | score-sandwich 协方差 |
 | `"hc1"` | 带有限独立单元修正的 score-sandwich 协方差 |
 | `"cluster"` | 聚类稳健协方差；在 `fit` 时传入 `cluster=` |
+
+无惩罚拟合的 nonrobust 协方差仍是通常的观测信息逆。正 L2 惩罚下的 estimating
+equation 为 `U(beta) - 2 * penalty * beta = 0`。记 `J` 为未加入惩罚的 Cox
+观测信息，`A = J + 2 * penalty * I_p`，则固定惩罚强度下的频率学派 plug-in
+协方差为：
+
+```text
+A^-1 J A^-1
+```
+
+而不是 `A^-1`；后者更接近惩罚曲率或 Laplace-style 量，不能直接作为频率学派
+抽样协方差发布。带惩罚的稳健推断同样使用 penalized bread，而 meat 仍来自未加
+惩罚的聚合 score outer product。
+
+因此 SE/z/p/CI 与 penalized Wald test 都以给定 penalty 为条件，目标是 penalized
+estimating equation；它们不是无惩罚系数的 debiased inference，也不校正 shrinkage
+bias 或交叉验证选择 penalty 带来的不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
+并明确报告 `penalty_selection_adjusted_=False`。沿用 `PenalizedGLM` 的结果命名，
+正 penalty 拟合的 `inference_method_` 使用简洁的 `"m_estimation"`；bread、meat、
+协方差口径、推断目标和条件化方式仍分别保留在 inference metadata 中。该契约与
+`PenalizedCoxPHModel` 分开；后者的 L1/elastic-net/SCAD/MCP 接口仍是
+estimation-only。
 
 Breslow 与 Efron 的 strict 稳健推断使用 statgpu 内部的精确计数过程 score
 residual，不依赖 statsmodels。同一受试者的重复行会先按 `subject_id` 汇总再
@@ -173,6 +195,9 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 - `inference_backend_`；
 - `inference_approximate_`；
 - `inference_fallback_reason_`；
+- `inference_target_`；
+- `penalty_conditioning_`；
+- `penalty_selection_adjusted_`；
 - `wald_test_available_` 与 `wald_test_failure_reason_`；
 - `full_host_transfer_performed_`。
 
@@ -260,6 +285,11 @@ cv_model = CoxPHCV(
 标签，缺失或未知标签会抛出 `ValueError`。生存曲线在 log-domain 中累计 baseline，
 以提高数值稳定性。Formula 拟合模型会在预测前应用已保存的设计矩阵转换。
 
+`score()` 复用同一行标签编码器：传入的 strata 必须具有 `(n_samples,)` shape；
+显式 stratified 模型只接受训练时已知标签，多 stratum 拟合在评分时必须提供标签。
+scalar、二维、长度错误或未知标签都会在 backend concordance 计算前统一抛出
+`ValueError`。
+
 `predict_risk_score()` 返回未取指数的 log-risk。canonical、CV 与 penalized
 Cox 的 hazard-ratio 预测 API 共享严格的 float64 指数边界；canonical/CV 拟合后
 `hazard_ratios_` 采用相同边界。会溢出为无穷或下溢为零的值，在 canonical/CV
@@ -276,6 +306,7 @@ fit 时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`�
   `final_kkt_inf_`、`final_kkt_normalized_`；
 - provenance：`inference_method_`、`inference_backend_`、
   `inference_approximate_`、`inference_fallback_reason_`、
+  `inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_`、
   `full_host_transfer_performed_`。
 
 `CoxPHCV` 还会公开 `cv_full_host_transfer_performed_`、
@@ -314,6 +345,10 @@ concordance、completion contract，以及稳健推断的独立单元/PSD 边界
 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source commit 之后
 的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的物理 GPU
 覆盖。
+
+该 commit 之后新增的固定 penalty 推断与共享 strata 评分变更已经通过本地
+CPU/契约矩阵。其 schema-14 CuPy/Torch 物理 GPU 刷新仍需等待精确实现 commit；
+schema-13 不应被解释为覆盖这些新路径。
 
 ## 限制
 

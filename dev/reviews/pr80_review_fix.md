@@ -1085,3 +1085,66 @@ seven hosted jobs (`docs-contracts`, `static-contracts`, `full-cpu-suite`, and
 the Python 3.9-3.12 regression matrix) passed in GitHub Actions run
 `30517578257`; PR #80 reported `mergeable=true` and
 `mergeable_state=clean`.
+
+## Fixed-Penalty Inference and Shared Strata-Scoring Follow-up
+
+Impact classification: backend=`NumPy/CuPy/Torch`; public API=
+`CoxPH/CoxPHCV inference, summary, scoring, and survival prediction`;
+objective/optimizer=`unchanged`; inference=`fixed-penalty nonrobust covariance`;
+formula=`unchanged`; documentation=`EN/CN synchronized`; validation tier=
+`local-full pending exact-source physical refresh`.
+
+- [MEDIUM][BUG/INFERENCE][fixed] The L2 solver correctly optimized
+  `loglik(beta) - penalty * ||beta||^2`, but positive-penalty nonrobust
+  inference published `A^-1`, where `A=J+2*penalty*I_p`, as if it were a
+  frequentist sampling covariance. That matrix is a penalized curvature or
+  Laplace-style quantity. The fixed-penalty frequentist estimating-equation
+  covariance is now `A^-1 J A^-1`, because the deterministic penalty changes
+  the bread but adds no sampling variation to the unpenalized Cox score meat.
+  Robust penalized paths already had the corresponding `bread @ meat @ bread`
+  structure and retain it.
+- [CONTRACT][decision] Three remedies were compared. Treating `A^-1` as a
+  Bayesian posterior covariance would require a prior-scale contract, credible
+  interval naming, and removal of frequentist p/Wald outputs. Disabling all
+  positive-penalty inference would break the default `CoxPHCV` final refit and
+  would first require separating baseline computation from coefficient
+  inference. The fixed-penalty sandwich was selected because it supplies the
+  requested frequentist contract without either unrelated API break. It remains
+  conditional on the chosen penalty and does not correct shrinkage bias or CV
+  selection uncertainty.
+- [API/DOC][fixed] Positive-penalty fits now report the concise
+  `inference_method_="m_estimation"`, matching the result-method vocabulary of
+  `PenalizedGLM`, while
+  `inference_target_="penalized_estimating_equation"`,
+  `penalty_conditioning_="fixed_penalty"`, and
+  `penalty_selection_adjusted_=False`. `CoxPHCV` copies these fields from the
+  final refit. Machine-readable inference metadata identifies bread, meat, and
+  covariance convention. Only the naming pattern was reused: PenalizedGLM's
+  current nonrobust `penalized_information` convention still publishes the
+  curvature inverse and is not the statistical implementation used here; that
+  broader inference-engine issue remains outside this Cox-scoped change.
+  Classical likelihood-ratio, score, AIC, and BIC diagnostics are suppressed;
+  summary labels the remaining fixed-penalty coefficient/Wald inference and
+  states its limitations.
+- [MEDIUM][BUG/API/BACKEND][fixed] `CoxPH.score()` previously mapped fitted
+  strata labels before validating shape, so scalar and two-dimensional inputs
+  leaked backend/Python `TypeError`s. `score()` and `predict_survival()` now
+  reuse `_encode_prediction_strata()`, which validates `(n_samples,)`, maps
+  known training labels, and emits backend-independent `ValueError`s for scalar,
+  two-dimensional, wrong-length, and unseen labels.
+
+Deterministic regression coverage computes the unpenalized observed information
+at the fitted coefficient and verifies the complete covariance identity for
+Breslow/Efron/Exact and NumPy/CuPy/Torch. It also proves the result is not the old
+curvature inverse, preserves the zero-penalty inverse-information contract,
+checks `CoxPHCV` provenance propagation, checks summary/test suppression, and
+exercises valid plus malformed scoring/prediction strata across all three
+backends. The local PR #80 targeted matrix passes **337 passed, 113 skipped**
+with seven expected warnings; the complete local suite passes **1541 passed,
+487 skipped** with eleven expected warnings. Package/dev compileall,
+changed-file pyflakes, 122 maintained documentation contracts, deterministic
+bilingual links, and `git diff --check` pass.
+
+The schema-14 physical runner records the same covariance identity, metadata,
+CV propagation, and strata errors for CuPy and Torch. Exact-source P100 evidence
+is intentionally pending until the implementation commit is authorized and pushed.

@@ -61,11 +61,13 @@ SOURCE_FILES = (
     "statgpu/survival/_cox_legacy.py",
     "statgpu/survival/_numeric.py",
     "statgpu/survival/_concordance.py",
+    "dev/benchmarks/pr79/diagnose_cox_pen.py",
     "statgpu/survival/_cox_score.py",
     "statgpu/survival/_risk_sets.py",
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
     "dev/benchmarks/benchmark_cox_cluster.py",
     "dev/tests/test_pr79_complete_review_fixes.py",
+    "dev/tests/test_pr79_cox_parity_smoke.py",
     "dev/tests/test_cox_core_completion.py",
     "dev/tests/test_cox_phase1_completion.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
@@ -78,10 +80,12 @@ SOURCE_FILES = (
     "dev/tests/test_cox_cv.py",
     "dev/tests/test_pr80_target_transfer_overflow_cache.py",
     "dev/tests/test_pr80_robust_inference_units.py",
+    "dev/tests/test_pr80_penalized_inference_strata.py",
 )
 
 TARGETED_TEST_FILES = (
     "dev/tests/test_pr79_complete_review_fixes.py",
+    "dev/tests/test_pr79_cox_parity_smoke.py",
     "dev/tests/test_cox_core_completion.py",
     "dev/tests/test_cox_phase1_completion.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
@@ -94,6 +98,7 @@ TARGETED_TEST_FILES = (
     "dev/tests/test_cox_cv.py",
     "dev/tests/test_pr80_target_transfer_overflow_cache.py",
     "dev/tests/test_pr80_robust_inference_units.py",
+    "dev/tests/test_pr80_penalized_inference_strata.py",
 )
 
 
@@ -1555,6 +1560,159 @@ def _case_robust_inference_units(name: str, xp) -> dict:
     }
 
 
+def _case_penalized_inference_and_strata(name: str, xp) -> dict:
+    """Audit fixed-penalty covariance and shared GPU strata validation."""
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=2287, n=72, p=3)
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    penalty = 0.4
+
+    model = CoxPH(
+        ties="efron",
+        penalty=penalty,
+        device=device,
+        cov_type="nonrobust",
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+    ).fit(X, stop, event)
+    objective = cox_counting_process_objective(
+        model.coef_, X_np, stop_np, event_np, ties="efron"
+    )
+    meat = np.asarray(objective["information"], dtype=np.float64)
+    derivative = meat + 2.0 * penalty * np.eye(X_np.shape[1])
+    bread = np.linalg.inv(derivative)
+    expected = bread @ meat @ bread
+    covariance_error = float(
+        np.max(np.abs(np.asarray(model._var_matrix) - expected))
+    )
+    curvature_difference = float(
+        np.max(np.abs(np.asarray(model._var_matrix) - bread))
+    )
+    metadata = model._inference_result.metadata
+
+    cv_model = CoxPHCV(
+        penalties=[penalty],
+        cv=2,
+        random_state=19,
+        ties="efron",
+        device=device,
+        compute_inference=True,
+        max_iter=80,
+    ).fit(X, stop, event)
+
+    strata_np = np.arange(X_np.shape[0], dtype=np.int64) % 2
+    strata = (
+        xp.asarray(strata_np, dtype=xp.int64)
+        if name == "cupy"
+        else xp.as_tensor(strata_np, dtype=xp.int64, device="cuda")
+    )
+    stratified = CoxPH(
+        device=device,
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+    ).fit(X, stop, event, strata=strata)
+
+    score = stratified.score(X, stop, event, strata=strata)
+    survival, times = stratified.predict_survival(
+        X[:4], strata=strata[:4]
+    )
+    survival_np = _numpy(name, survival)
+
+    def rejection(call):
+        try:
+            call()
+        except ValueError as exc:
+            return str(exc)
+        return ""
+
+    shape_errors = {
+        "scalar": rejection(
+            lambda: stratified.score(X, stop, event, strata=strata[0])
+        ),
+        "two_dimensional": rejection(
+            lambda: stratified.score(
+                X, stop, event, strata=strata.reshape(-1, 1)
+            )
+        ),
+        "wrong_length": rejection(
+            lambda: stratified.score(
+                X, stop, event, strata=strata[:-1]
+            )
+        ),
+        "prediction_two_dimensional": rejection(
+            lambda: stratified.predict_survival(
+                X[:4], strata=strata[:4].reshape(-1, 1)
+            )
+        ),
+    }
+    unknown = strata + 10
+    unknown_score_error = rejection(
+        lambda: stratified.score(X, stop, event, strata=unknown)
+    )
+    unknown_prediction_error = rejection(
+        lambda: stratified.predict_survival(X[:4], strata=unknown[:4])
+    )
+    missing_score_error = rejection(
+        lambda: stratified.score(X, stop, event)
+    )
+
+    passed = all(
+        (
+            covariance_error < 2e-8,
+            curvature_difference > 1e-8,
+            model.inference_method_ == "m_estimation",
+            model.inference_target_ == "penalized_estimating_equation",
+            model.penalty_conditioning_ == "fixed_penalty",
+            model.penalty_selection_adjusted_ is False,
+            metadata["meat_information"]
+            == "unpenalized_observed_information",
+            metadata["covariance_convention"]
+            == "fixed_penalty_model_based_sandwich",
+            metadata["score_test_contract"] == "suppressed_penalized_fit",
+            not model.score_test_available_,
+            cv_model.inference_method_ == "m_estimation",
+            cv_model.penalty_selection_adjusted_ is False,
+            np.isfinite(score),
+            survival_np.shape == (4, int(times.shape[0])),
+            np.all(np.isfinite(survival_np)),
+            all(
+                error == "strata must have shape (n_samples,)"
+                for error in shape_errors.values()
+            ),
+            "unknown scoring stratum" in unknown_score_error,
+            "unknown prediction stratum" in unknown_prediction_error,
+            "strata is required when scoring" in missing_score_error,
+        )
+    )
+    return {
+        "backend": name,
+        "penalty": penalty,
+        "covariance_contract": "A^-1 J A^-1",
+        "covariance_max_abs_error": covariance_error,
+        "differs_from_penalized_curvature_inverse": curvature_difference,
+        "inference_method": model.inference_method_,
+        "inference_target": model.inference_target_,
+        "penalty_conditioning": model.penalty_conditioning_,
+        "penalty_selection_adjusted": model.penalty_selection_adjusted_,
+        "covariance_convention": metadata["covariance_convention"],
+        "score_test_contract": metadata["score_test_contract"],
+        "cv_inference_method": cv_model.inference_method_,
+        "cv_penalty_selection_adjusted": (
+            cv_model.penalty_selection_adjusted_
+        ),
+        "valid_stratified_score": float(score),
+        "valid_survival_shape": list(survival_np.shape),
+        "shape_errors": shape_errors,
+        "unknown_score_error": unknown_score_error,
+        "unknown_prediction_error": unknown_prediction_error,
+        "missing_score_error": missing_score_error,
+        "passed": bool(passed),
+    }
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -1563,7 +1721,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 13,
+        "schema_version": 14,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -1607,6 +1765,9 @@ def main() -> int:
                 "completion_contract": _case_completion_contract(name, xp),
                 "robust_inference_units": _case_robust_inference_units(
                     name, xp
+                ),
+                "penalized_inference_and_strata": (
+                    _case_penalized_inference_and_strata(name, xp)
                 ),
             }
             report["backends"][name] = {

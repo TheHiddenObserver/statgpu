@@ -101,9 +101,10 @@ per-failure-group calculation. This removes the former
 failure-group-by-sample risk-mask scan from the common right-censored path.
 
 With `penalty > 0`, the optimized objective is the partial log likelihood minus
-`penalty * ||beta||^2`. Classical likelihood-ratio statistics and information
-criteria are therefore not reported as if the penalized estimate were an
-unconstrained maximum-likelihood estimate.
+`penalty * ||beta||^2`. Classical likelihood-ratio and score tests plus
+information criteria are therefore not reported as if the penalized estimate
+were an unconstrained maximum-likelihood estimate. The coefficient inference
+contract is defined below.
 
 ## Formula Interface
 
@@ -148,10 +149,37 @@ auditable without presenting it as a separate convergence certificate.
 
 | `cov_type` | Meaning |
 |---|---|
-| `"nonrobust"` | Model-based covariance from observed information |
+| `"nonrobust"` | Model-based covariance; inverse information when unpenalized, fixed-penalty sandwich otherwise |
 | `"hc0"` | Score-sandwich covariance |
 | `"hc1"` | Score-sandwich covariance with finite-unit correction |
 | `"cluster"` | Cluster-robust covariance; pass `cluster=` to `fit` |
+
+For an unpenalized fit, nonrobust covariance is the usual inverse observed
+information. For a positive L2 penalty, the estimating equation is
+`U(beta) - 2 * penalty * beta = 0`. Let `J` be the unpenalized observed Cox
+information and let `A = J + 2 * penalty * I_p`. The fixed-penalty frequentist
+plug-in covariance is
+
+```text
+A^-1 J A^-1
+```
+
+rather than `A^-1`. The latter is a penalized curvature or Laplace-style
+quantity and is not published as a frequentist sampling covariance. Robust
+penalized fits use the same penalized bread and the unpenalized aggregated score
+outer product as meat.
+
+The resulting SE/z/p/CI and penalized Wald test are conditional on the supplied
+penalty. They target the penalized estimating equation; they are not debiased
+inference for the unpenalized coefficient and do not account for shrinkage bias
+or for selecting the penalty by cross-validation. `CoxPHCV` copies this same
+contract from its final refit and explicitly reports
+`penalty_selection_adjusted_=False`. Following `PenalizedGLM` result naming,
+`inference_method_` is the concise `"m_estimation"` for a positive-penalty
+fit; bread, meat, covariance convention, target, and conditioning details
+remain separately available in inference metadata.
+This contract is separate from `PenalizedCoxPHModel`, whose L1/elastic-net/
+SCAD/MCP interface remains estimation-only.
 
 For Breslow and Efron ties, strict robust inference uses statgpu's internal exact
 counting-process score residuals; it does not require statsmodels. Repeated rows
@@ -198,6 +226,9 @@ Inference provenance is exposed through:
 - `inference_backend_`;
 - `inference_approximate_`;
 - `inference_fallback_reason_`;
+- `inference_target_`;
+- `penalty_conditioning_`;
+- `penalty_selection_adjusted_`;
 - `wald_test_available_` and `wald_test_failure_reason_`;
 - `full_host_transfer_performed_`.
 
@@ -290,9 +321,15 @@ cv_model = CoxPHCV(
 `score` execute on the fitted backend for array inputs. Stratified survival
 prediction requires one known stratum label per prediction row, including when
 the fit contained only one explicit stratum. Missing or unseen labels raise
-`ValueError`. Survival curves use
-log-domain baseline accumulation for numerical stability. Formula-fitted
-models apply their saved design transformation before prediction.
+`ValueError`.
+
+`score()` uses the same row-label encoder: supplied strata must have shape
+`(n_samples,)`, labels must be known when the model was explicitly stratified,
+and a multi-stratum fitted model requires scoring labels. Malformed scalar,
+two-dimensional, wrong-length, or unseen labels consistently raise
+`ValueError` before backend concordance work. Survival curves use log-domain
+baseline accumulation for numerical stability. Formula-fitted models apply
+their saved design transformation before prediction.
 
 `predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
 prediction APIs use one strict float64 exponential boundary across canonical,
@@ -313,6 +350,7 @@ threshold. `PenalizedCoxPHModel` also exposes
   `final_kkt_inf_`, `final_kkt_normalized_`;
 - provenance: `inference_method_`, `inference_backend_`,
   `inference_approximate_`, `inference_fallback_reason_`,
+  `inference_target_`, `penalty_conditioning_`, `penalty_selection_adjusted_`,
   `full_host_transfer_performed_`.
 
 `CoxPHCV` additionally exposes `cv_full_host_transfer_performed_`,
@@ -357,6 +395,11 @@ claims remain tied to their dedicated artifacts and detailed history in
 `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after the
 source commit above require their own exact-source refresh before they can
 claim the same physical-GPU evidence.
+
+The fixed-penalty inference and shared strata-scoring changes after that
+commit have passed the local CPU/contract matrix. Their schema-14 CuPy/Torch
+physical-GPU refresh remains pending until an exact implementation commit is
+available; schema-13 must not be interpreted as covering those new paths.
 
 ## Limitations
 

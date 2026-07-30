@@ -93,41 +93,20 @@ def score(
     if use_counting:
         from statgpu.survival._risk_sets import counting_process_concordance
 
-        if strata is None:
-            fitted_n_strata = (
-                1
-                if self._strata is None
-                else int(
-                    np.unique(np.asarray(self._to_numpy(self._strata))).shape[0]
-                )
+        fitted_n_strata = (
+            1
+            if self._strata is None
+            else int(
+                np.unique(np.asarray(self._to_numpy(self._strata))).shape[0]
             )
-            if fitted_n_strata > 1:
-                raise ValueError(
-                    "strata is required when scoring a stratified CoxPH fit"
-                )
-            strata_codes = None
-        elif self._strata_labels is not None:
-            mapping = {
-                value: idx
-                for idx, value in enumerate(self._strata_labels.tolist())
-            }
-            try:
-                codes = np.asarray(
-                    [
-                        mapping[value]
-                        for value in np.asarray(self._to_numpy(strata)).tolist()
-                    ],
-                    dtype=np.int64,
-                )
-            except KeyError as exc:
-                raise ValueError(
-                    f"unknown scoring stratum: {exc.args[0]!r}"
-                ) from exc
-            strata_codes = backend.asarray(codes, dtype=backend.int64)
-        else:
-            strata_codes, _ = self._encode_group_labels(
-                strata, n_samples, "strata", return_labels=False
-            )
+        )
+        strata_codes = self._encode_prediction_strata(
+            strata,
+            n_samples=n_samples,
+            backend=backend,
+            context="scoring",
+            required=fitted_n_strata > 1,
+        )
         subject_codes, _ = self._encode_group_labels(
             subject_id, n_samples, "subject_id", return_labels=False
         )

@@ -49,6 +49,12 @@
   schema-6 pending 声明与多轮 review 时间线，并明确 artifact 的适用范围。精确源码
   schema-13 在 P100 上通过 CuPy/Torch 各 11/11 个 case 与 432 个定向测试；记录的
   34 个 Git-blob hash 全部匹配，且 `gate_failures=[]`。
+- 正 L2 惩罚的 nonrobust Cox 推断现在使用固定惩罚强度的频率学派 estimating-equation
+  协方差 `A^-1 J A^-1`，不再把 penalized curvature inverse 当作抽样协方差发布。
+  provenance 明确记录推断目标、fixed-penalty 条件以及未校正 CV 选择；经典
+  LR/score/AIC/BIC 仍保持关闭。`score()` 与 `predict_survival()` 现在复用同一套
+  strata shape/已知标签编码，并在各 backend 上返回一致的公开错误。schema-14
+  物理 GPU runner 已覆盖这两类契约。
 - 前一版 prepared-capability schema-9 精确 clean source commit 已通过 Paramiko
   在远程 `myconda` 的 Tesla P100
   上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content

@@ -1557,7 +1557,9 @@ class CoxPHCV(CVEstimatorBase):
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
     compute_inference : bool, default=True
-        Whether to compute standard errors after fitting.
+        Whether to compute standard errors after fitting. For a selected
+        positive penalty, inference is conditional on that fixed penalty and
+        does not adjust for cross-validation selection or shrinkage bias.
     cov_type : str, default='nonrobust'
         Covariance estimator.
     inference_mode : {'strict', 'approx'}, default='strict'
@@ -1702,6 +1704,9 @@ class CoxPHCV(CVEstimatorBase):
         self.inference_backend_ = None
         self.inference_approximate_ = False
         self.inference_fallback_reason_ = None
+        self.inference_target_ = None
+        self.penalty_conditioning_ = None
+        self.penalty_selection_adjusted_ = None
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
         self.wald_test_available_ = False
@@ -1740,6 +1745,9 @@ class CoxPHCV(CVEstimatorBase):
         self.inference_backend_ = None
         self.inference_approximate_ = False
         self.inference_fallback_reason_ = None
+        self.inference_target_ = None
+        self.penalty_conditioning_ = None
+        self.penalty_selection_adjusted_ = None
         self.score_test_available_ = False
         self.score_test_failure_reason_ = None
         self.wald_test_available_ = False
@@ -1970,6 +1978,8 @@ class CoxPHCV(CVEstimatorBase):
             ("final_kkt_normalized_", None), ("inference_method_", None),
             ("inference_backend_", None), ("inference_approximate_", False),
             ("inference_fallback_reason_", None),
+            ("inference_target_", None), ("penalty_conditioning_", None),
+            ("penalty_selection_adjusted_", None),
             ("score_test_available_", False),
             ("score_test_failure_reason_", None),
             ("wald_test_available_", False),

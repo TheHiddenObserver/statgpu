@@ -160,7 +160,10 @@ class CoxPH(BaseEstimator):
         Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
     compute_inference : bool, default=True
         If True, compute standard errors, tests, and baseline hazards on the
-        active backend. Set to False to skip these outputs and reduce work.
+        active backend. For a positive L2 penalty, coefficient inference uses
+        a fixed-penalty estimating-equation sandwich and does not adjust for
+        penalty selection or shrinkage bias. Set to False to skip these
+        outputs and reduce work.
     compute_cindex : bool, default=True
         If True, compute training-set C-index during fit. Disabling this can
         significantly reduce fit time, especially on CUDA/Torch for moderate n.
@@ -317,6 +320,9 @@ class CoxPH(BaseEstimator):
         self.inference_backend_ = None
         self.inference_approximate_ = False
         self.inference_fallback_reason_ = None
+        self.inference_target_ = None
+        self.penalty_conditioning_ = None
+        self.penalty_selection_adjusted_ = None
         self.full_host_transfer_performed_ = False
         self.concordance_ = None
         self._var_matrix = None
@@ -977,7 +983,8 @@ class CoxPH(BaseEstimator):
             self._time = None
             self._event = None
 
-        information = result["information"]
+        unpenalized_information = result["information"]
+        information = unpenalized_information
         if controls.penalty > 0:
             identity = compute_backend.eye(
                 information.shape[0], dtype=information.dtype
@@ -1020,7 +1027,15 @@ class CoxPH(BaseEstimator):
             else:
                 bread = _invert_information_numpy(information)
             if controls.cov_type == "nonrobust":
-                variance = bread
+                if controls.penalty > 0:
+                    # The L2 term changes the estimating-equation derivative
+                    # (bread), but it is deterministic and contributes no
+                    # sampling variation to the unpenalized Cox score (meat).
+                    # Consequently the fixed-penalty frequentist covariance is
+                    # A^-1 J A^-1, with A=J(beta)+2*lambda*I_p.
+                    variance = bread @ unpenalized_information @ bread
+                else:
+                    variance = bread
             else:
                 residuals = result["score_residuals"]
                 if unit_codes is None:
@@ -1206,8 +1221,8 @@ class CoxPH(BaseEstimator):
         )
         if controls.compute_inference:
             self.inference_method_ = (
-                "penalized_observed_information"
-                if controls.cov_type == "nonrobust" and controls.penalty > 0
+                "m_estimation"
+                if controls.penalty > 0
                 else "observed_information"
                 if controls.cov_type == "nonrobust"
                 else "counting_process_score_sandwich"
@@ -1215,6 +1230,17 @@ class CoxPH(BaseEstimator):
             self.inference_backend_ = backend
             self.inference_approximate_ = False
             self.inference_fallback_reason_ = None
+            self.inference_target_ = (
+                "penalized_estimating_equation"
+                if controls.penalty > 0
+                else "partial_likelihood_parameter"
+            )
+            self.penalty_conditioning_ = (
+                "fixed_penalty" if controls.penalty > 0 else "not_applicable"
+            )
+            self.penalty_selection_adjusted_ = (
+                False if controls.penalty > 0 else None
+            )
             inference_result = ParameterInferenceResult(
                 method=self.inference_method_,
                 feature_names=list(self._feature_names),
@@ -1232,6 +1258,39 @@ class CoxPH(BaseEstimator):
                     "ties": controls.ties,
                     "joint_wald_available": self.wald_test_available_,
                     "joint_wald_failure_reason": self.wald_test_failure_reason_,
+                    "inference_target": self.inference_target_,
+                    "penalty_conditioning": self.penalty_conditioning_,
+                    "penalty_selection_adjusted": (
+                        self.penalty_selection_adjusted_
+                    ),
+                    "bread_information": (
+                        "observed_information_plus_l2_curvature"
+                        if controls.penalty > 0
+                        else "observed_information"
+                    ),
+                    "meat_information": (
+                        "unpenalized_observed_information"
+                        if (
+                            controls.penalty > 0
+                            and controls.cov_type == "nonrobust"
+                        )
+                        else "unpenalized_score_outer_product"
+                        if controls.cov_type != "nonrobust"
+                        else "not_separate"
+                    ),
+                    "meat_type": controls.cov_type,
+                    "covariance_convention": (
+                        "fixed_penalty_model_based_sandwich"
+                        if (
+                            controls.penalty > 0
+                            and controls.cov_type == "nonrobust"
+                        )
+                        else "fixed_penalty_robust_sandwich"
+                        if controls.penalty > 0
+                        else "inverse_observed_information"
+                        if controls.cov_type == "nonrobust"
+                        else "counting_process_score_sandwich"
+                    ),
                     "covariance_spectrum": (
                         covariance_spectrum.classification
                     ),
@@ -1241,8 +1300,16 @@ class CoxPH(BaseEstimator):
                     "covariance_minimum_eigenvalue": (
                         covariance_spectrum.minimum_eigenvalue
                     ),
-                    "likelihood_ratio_test_contract": "classical_model_based",
-                    "score_test_contract": "classical_model_based",
+                    "likelihood_ratio_test_contract": (
+                        "suppressed_penalized_fit"
+                        if controls.penalty > 0
+                        else "classical_model_based"
+                    ),
+                    "score_test_contract": (
+                        "suppressed_penalized_fit"
+                        if controls.penalty > 0
+                        else "classical_model_based"
+                    ),
                 },
             )
             inference_result.apply_to(self)
@@ -1261,6 +1328,12 @@ class CoxPH(BaseEstimator):
         if controls.penalty > 0:
             self._lr_test_stat = None
             self._lr_test_pvalue = None
+            self._score_test_stat = None
+            self._score_test_pvalue = None
+            self.score_test_available_ = False
+            self.score_test_failure_reason_ = (
+                "classical score test is suppressed for penalized fit"
+            )
         self._fitted = True
         self._sync_public_fit_state()
         return self
@@ -1438,8 +1511,24 @@ class CoxPH(BaseEstimator):
                 )
         elif fitted_compute_inference and fitted_penalty > 0:
             print(
-                "Classical LR/AIC/BIC diagnostics suppressed for the penalized "
-                "fit; coefficient inference is conditional on the chosen penalty."
+                "Penalized coefficient inference: fixed-penalty frequentist "
+                "estimating-equation sandwich; CV selection and shrinkage bias "
+                "are not included."
+            )
+            if self.wald_test_available_:
+                print(
+                    "Penalized estimating-equation Wald test: "
+                    f"{self._wald_test_stat:.2f} on {len(self.coef_)} df, "
+                    f"p={self._wald_test_pvalue:.4e}"
+                )
+            else:
+                print(
+                    "Penalized estimating-equation Wald test unavailable: "
+                    f"{self.wald_test_failure_reason_ or 'covariance is rank-deficient'}"
+                )
+            print(
+                "Classical LR/Score/AIC/BIC diagnostics suppressed for the "
+                "penalized fit."
             )
         else:
             print("Likelihood/Wald/Score tests skipped (compute_inference=False).")
@@ -1475,6 +1564,60 @@ class CoxPH(BaseEstimator):
             X, backend=backend, n_features=n_features
         )
         return X_arr, backend, backend.asarray(self.coef_, dtype=backend.float64)
+
+    def _encode_prediction_strata(
+        self,
+        strata,
+        *,
+        n_samples,
+        backend,
+        context,
+        required=False,
+        known_codes=None,
+    ):
+        """Validate and encode row-level strata at prediction/score boundaries."""
+        if strata is None:
+            if required:
+                action = (
+                    "predicting from" if context == "prediction" else context
+                )
+                raise ValueError(
+                    f"strata is required when {action} a stratified CoxPH fit"
+                )
+            return None
+
+        if self._strata_labels is None:
+            codes, _ = self._encode_group_labels(
+                strata, n_samples, "strata", return_labels=False
+            )
+            encoded = backend.asarray(codes, dtype=backend.int64)
+            codes_host = None
+        else:
+            labels = np.asarray(self._to_numpy(strata))
+            if labels.ndim != 1 or labels.shape[0] != n_samples:
+                raise ValueError("strata must have shape (n_samples,)")
+            mapping = {
+                value: idx
+                for idx, value in enumerate(self._strata_labels.tolist())
+            }
+            try:
+                codes_host = np.asarray(
+                    [mapping[value] for value in labels.tolist()],
+                    dtype=np.int64,
+                )
+            except KeyError as exc:
+                raise ValueError(
+                    f"unknown {context} stratum: {exc.args[0]!r}"
+                ) from exc
+            encoded = backend.asarray(codes_host, dtype=backend.int64)
+
+        if known_codes is not None:
+            if codes_host is None:
+                codes_host = np.asarray(self._to_numpy(encoded), dtype=np.int64)
+            unknown = set(np.unique(codes_host)) - set(known_codes)
+            if unknown:
+                raise ValueError(f"unknown {context} strata: {sorted(unknown)}")
+        return encoded
 
     @_cleanup_after_public_gpu_work
     def predict_hazard_ratio(self, X):
@@ -1526,23 +1669,14 @@ class CoxPH(BaseEstimator):
             if only_code:
                 codes = codes + only_code
         else:
-            if strata is None:
-                raise ValueError("strata is required when predicting from a stratified CoxPH fit")
-            labels = np.asarray(self._to_numpy(strata))
-            if labels.ndim != 1 or labels.shape[0] != n_samples:
-                raise ValueError("strata must have shape (n_samples,)")
-            if self._strata_labels is not None:
-                mapping = {value: idx for idx, value in enumerate(self._strata_labels.tolist())}
-                try:
-                    codes_host = np.asarray([mapping[value] for value in labels.tolist()], dtype=np.int64)
-                except KeyError as exc:
-                    raise ValueError(f"unknown prediction stratum: {exc.args[0]!r}") from exc
-            else:
-                codes_host = labels.astype(np.int64, copy=False)
-            unknown = set(np.unique(codes_host)) - set(baselines)
-            if unknown:
-                raise ValueError(f"unknown prediction strata: {sorted(unknown)}")
-            codes = backend.asarray(codes_host, dtype=backend.int64)
+            codes = self._encode_prediction_strata(
+                strata,
+                n_samples=n_samples,
+                backend=backend,
+                context="prediction",
+                required=True,
+                known_codes=baselines,
+            )
         if times is None:
             union = np.unique(np.concatenate([np.asarray(item["time"], dtype=np.float64).reshape(-1) for item in baselines.values()]))
             eval_times = backend.asarray(union, dtype=backend.float64)

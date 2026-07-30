@@ -65,6 +65,14 @@
   Exact-source P100 validation passed 11/11 CuPy and Torch cases plus 432
   targeted tests; all 34 recorded Git-blob hashes match and
   `gate_failures=[]`.
+- Positive-L2 nonrobust Cox inference now uses the fixed-penalty frequentist
+  estimating-equation covariance `A^-1 J A^-1`, rather than publishing the
+  penalized curvature inverse as a sampling covariance. Provenance explicitly
+  records the inference target, fixed-penalty conditioning, and absence of
+  CV-selection adjustment; classical LR/score/AIC/BIC outputs remain
+  suppressed. `score()` and `predict_survival()` now share one strata
+  shape/known-label encoder with backend-independent public errors. The
+  schema-14 physical-GPU runner includes both contracts.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured
