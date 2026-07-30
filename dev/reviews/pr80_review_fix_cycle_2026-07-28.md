@@ -676,3 +676,24 @@ structured cases, the targeted matrix passed 358 tests, all 32 recorded
 Git-blob hashes match, `source_clean=true`, and `gate_failures=[]`. The
 machine-readable artifact is
 `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json`
+
+## Single-Stratum Prediction and Stop Provenance (2026-07-30)
+
+Explicit stratification is now determined from fitted input state instead of
+the number of stored baseline hazards. A single explicitly supplied stratum
+therefore requires known prediction labels on `CoxPH` and delegated `CoxPHCV`
+survival prediction. `termination_reason_` retains its interpreted three-state
+contract, while `optimization_stop_reason_` exposes the raw solver stop such as
+`max_iter`; reset, CV propagation, summary, and warning consistency are covered.
+
+The EN/CN Cox model pages now use a concise source-commit-pinned schema-12
+evidence table and explicitly bound its scope. Remote documentation commits
+through `488ab5b0dc144146e4b0274fb15ac8d9c7848ae0` were reviewed and introduce no
+additional code finding. Focused regression passes `137 passed, 23 skipped`;
+the complete local suite passes `1533 passed, 479 skipped`, with 11 expected
+warnings. Documentation links, the 122-file docs contract, compileall,
+changed-file pyflakes, and diff whitespace checks pass.
+
+The physical runner is schema 13 with direct CuPy/Torch single-stratum and raw
+stop-provenance gates. Exact-source P100 JSON, evidence commit, push, and hosted
+CI remain pending, so the cycle status is `PARTIAL_REMOTE_PENDING`.

@@ -69,7 +69,24 @@ def test_cpu_cox_line_search_failure_is_not_converged(monkeypatch):
 
     assert model.converged_ is False
     assert model.termination_reason_ == 'line_search_failed'
+    assert model.optimization_stop_reason_ == 'line_search_failed'
     assert model.final_kkt_normalized_ is not None
+
+
+def test_public_termination_distinguishes_interpreted_and_raw_max_iter(capsys):
+    X, time, event = _cox_sample(n=80, p=2, seed=7902)
+    model = CoxPH(
+        device='cpu', penalty=0.1, compute_inference=False,
+        compute_cindex=False, max_iter=1, tol=1e-15,
+    ).fit(X, time=time, event=event)
+
+    assert model.converged_ is False
+    assert model.termination_reason_ == 'stalled_with_large_kkt'
+    assert model.optimization_stop_reason_ == 'max_iter'
+    model.summary()
+    output = capsys.readouterr().out
+    assert 'Termination reason: stalled_with_large_kkt' in output
+    assert 'Optimization stop reason: max_iter' in output
 
 
 def test_cpu_cox_small_step_large_kkt_is_stalled(monkeypatch):
@@ -141,6 +158,7 @@ def test_cpu_cupy_torch_termination_contract_matches(backend):
 
     assert model.converged_ is True
     assert model.termination_reason_ == 'kkt_converged'
+    assert model.optimization_stop_reason_ == 'kkt_converged'
     assert model.final_kkt_normalized_ <= 1e-7
     assert model.n_iter_ == model._iterations
 

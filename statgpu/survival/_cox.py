@@ -182,8 +182,11 @@ class CoxPH(BaseEstimator):
     converged_ : bool
         Whether the final normalized KKT condition met its tolerance.
     termination_reason_ : str
-        One of ``kkt_converged``, ``line_search_failed``,
-        ``stalled_with_large_kkt``, or ``max_iter``.
+        Interpreted convergence outcome: one of ``kkt_converged``,
+        ``line_search_failed``, or ``stalled_with_large_kkt``.
+    optimization_stop_reason_ : str
+        Raw solver exit reason, including ``max_iter`` when the iteration
+        budget was exhausted.
     """
 
     _estimator_type = "regressor"
@@ -306,6 +309,7 @@ class CoxPH(BaseEstimator):
         self._objective_history = []
         self.converged_ = False
         self.termination_reason_ = None
+        self.optimization_stop_reason_ = None
         self.n_iter_ = 0
         self.final_kkt_inf_ = None
         self.final_kkt_normalized_ = None
@@ -1265,6 +1269,7 @@ class CoxPH(BaseEstimator):
         '''Publish the backend-neutral fitted-state contract.'''
         self.converged_ = bool(self._converged)
         self.termination_reason_ = self._termination_reason
+        self.optimization_stop_reason_ = self._stop_reason
         self.n_iter_ = int(self._iterations)
         self.final_kkt_inf_ = self._final_kkt_inf
         self.final_kkt_normalized_ = self._final_kkt_normalized
@@ -1440,6 +1445,8 @@ class CoxPH(BaseEstimator):
             print("Likelihood/Wald/Score tests skipped (compute_inference=False).")
         print(f"Number of Newton-Raphson iterations: {self._iterations}")
         print(f"Converged: {self._converged}")
+        print(f"Termination reason: {self.termination_reason_}")
+        print(f"Optimization stop reason: {self.optimization_stop_reason_}")
         print("=" * 80)
     
     def _prepare_prediction_X(self, X):
@@ -1512,7 +1519,8 @@ class CoxPH(BaseEstimator):
             baselines = {0: ordinary_baseline}
         if not baselines:
             raise RuntimeError("Baseline cumulative hazard is unavailable. Refit with compute_inference=True before calling predict_survival().")
-        if len(baselines) == 1:
+        explicitly_stratified = self._strata is not None
+        if not explicitly_stratified:
             codes = backend.zeros((n_samples,), dtype=backend.int64)
             only_code = int(next(iter(baselines)))
             if only_code:

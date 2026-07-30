@@ -115,12 +115,17 @@ Newton 迭代使用 line search，并在最终参数处执行 KKT 检查。line 
 
 - `converged_`；
 - `termination_reason_`；
+- `optimization_stop_reason_`；
 - `n_iter_`；
 - `final_kkt_inf_`；
 - `final_kkt_normalized_`。
 
 likelihood、gradient、Hessian、协方差、baseline hazard 与公开收敛状态均从
 最终系数向量重新计算。
+`termination_reason_` 是解释后的用户级分类，只会是 `kkt_converged`、
+`line_search_failed` 或 `stalled_with_large_kkt`。`optimization_stop_reason_`
+保留底层 solver 的原始退出原因（包括 `max_iter`），warning 也报告该原始值；
+因此预算耗尽可以审计，但不会被误当作独立的收敛证书。
 
 ## 协方差与推断
 
@@ -251,7 +256,8 @@ cv_model = CoxPHCV(
 
 对数组输入，`predict`、`predict_risk_score`、`predict_hazard_ratio`、
 `predict_survival` 与 `score` 都在拟合后端执行。分层生存预测要求每个预测行
-提供一个训练时已知的 stratum 标签。生存曲线在 log-domain 中累计 baseline，
+提供一个训练时已知的 stratum 标签；即使拟合时只有一个显式 stratum，也不能省略
+标签，缺失或未知标签会抛出 `ValueError`。生存曲线在 log-domain 中累计 baseline，
 以提高数值稳定性。Formula 拟合模型会在预测前应用已保存的设计矩阵转换。
 
 `predict_risk_score()` 返回未取指数的 log-risk。canonical、CV 与 penalized
@@ -266,7 +272,7 @@ fit 时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`�
 - 参数：`coef_`、`hazard_ratios_`；
 - 推断：启用时的 `_bse`、`_zvalues`、`_pvalues`、`_conf_int`；
 - 诊断：定义时的 `log_likelihood`、`aic`、`bic`、`concordance_index`；
-- 收敛：`converged_`、`termination_reason_`、`n_iter_`、
+- 收敛：`converged_`、`termination_reason_`、`optimization_stop_reason_`、`n_iter_`、
   `final_kkt_inf_`、`final_kkt_normalized_`；
 - provenance：`inference_method_`、`inference_backend_`、
   `inference_approximate_`、`inference_fallback_reason_`、
@@ -285,68 +291,27 @@ target 传输次数均为零，同时不会改写 selection 来源设备。
 
 ## 验证
 
-2026-07-29 的 transfer、cache 与 hazard-ratio 变更已通过完整本地 CPU 树和 maintained
-targeted matrix；其 schema-6 精确源码 CuPy/Torch 产物仍待刷新。下方 P100 结果对应
-此前记录的 commit，不作为本次最新 delta 的物理 GPU 证据。
+物理 GPU 证据固定到精确 source commit，后续代码或文档变更不会自动继承更宽的
+验证声明。
 
-截至 2026-07-26 的 PR #80 review 已通过本地 NumPy quick gate，覆盖普通
-heavy ties、delayed entry、Exact ties、分层 start-stop、推断、
-subject-grouped CV，以及模型可比场景下的 statsmodels 对齐；结果 schema 通过且
-没有本地 gate failure。随后通过 Paramiko 将准确的 reviewed source 放入远程
-隔离 worktree，并在 Tesla P100-SXM2-16GB 的 `myconda` 环境中验证。首次真实
-GPU 执行暴露了 11 个可修复的后端/测试边界及 scikit-learn 1.2.2 兼容问题；
-review-fix 后，原失败节点与相邻契约共 **15 项全部通过**。最终 nested-Exact
-源码的 13 文件真实 GPU 完整矩阵为 **392 passed、2 个预期 skip、0 failed**。
-远程 quick 与 full artifact 均报告 `validation_tier="remote-full"`、
-`schema_status="ok"`、零 gate failure。新增回归测试在 NumPy/Torch 上比较前缀
-路径与强制 normalized fallback，真实 GPU target 还覆盖 CuPy、delayed-entry
-批量 fallback、两个 GPU 后端的 baseline parity、极端 predictor 的 CuPy 稳定
-回退、Torch 通道扫描与原生扫描的一致性，以及通道扫描内存门禁。本地 13 文件
-矩阵为 **297 passed、97 skipped、0 failed**；skip 来自可选 GPU/R 可用性分支。
+| 字段 | 当前可审计证据 |
+|---|---|
+| Source commit | `3e4d9bd3159ea329c16bd761197e3ad371f64893` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json` |
+| Schema / tier | `12` / `remote-full` |
+| 硬件 | Tesla P100-SXM2-16GB |
+| 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
+| Structured GPU cases | CuPy 11/11；Torch 11/11 |
+| 定向测试 | 358 passed，5 个预期 warning |
+| 源码审计 | `source_clean=true`；记录的 32/32 个 Git-blob hash 全部匹配 |
+| Gate failures | `[]` |
 
-随后使用 R 4.4.1、survival 3.8.9 的
-`survival::coxph(ties="exact")` 对同一源码做外部 Exact 对齐。bounded scaling 以及
-独立的 right-censored、delayed-entry、strata、delayed-entry+strata 场景中，
-NumPy/CuPy/Torch 全部收敛且 artifact 为零 gate failure。相对 R 的最大系数、
-exact partial log-likelihood、model-based covariance 差异分别为 `1.30e-09`、
-`5.12e-09`、`5.01e-12`。
-
-性能结论仍依赖风险集形状与后端。在 Tesla P100 的 bounded-tie right-censored
-工作负载（`p=4`、最大 tie size 为 8）中，`n=1920` 的
-R/NumPy/CuPy/Torch 完整拟合中位时间为 0.0460/0.0354/0.0838/0.0571 秒；
-这个小规模下 GPU 仍受 kernel launch 开销限制。`n=15,360` 时四者为
-0.295/0.273/0.0949/0.0558 秒，`n=61,440` 时为
-1.323/1.465/0.1114/0.0662 秒，`n=122,880` 时为
-2.691/3.043/0.1430/0.1000 秒。最大规模下，Torch 通道扫描相对先前多维原生扫描
-结果提速 30.32 倍；Torch 比 R 快 26.92 倍、比 NumPy 快 30.44 倍、比 CuPy
-快 1.43 倍。两个 GPU 后端都在实测 `n=15,360` 超过 R。
-
-对于三个 strata 的 Exact 拟合，优化后的 objective 现在按每个 stratum 调用一次
-有界快速路径，不再按 failure time 执行设备/Python 循环。在相同 P100 计时口径下，
-`n=160` 时 R/NumPy/CuPy/Torch 中位时间为
-0.0180/0.0143/0.1742/0.0747 秒，`n=15,360` 时为
-0.258/0.2263/0.2181/0.1341 秒，`n=61,440` 时为
-1.118/0.9874/0.2285/0.1384 秒。显式 GPU 在最小规模仍受 kernel launch 限制，
-在实测 `n=15,360` 开始超过 R，并在 `n=61,440` 达到 CuPy 4.89 倍、
-Torch 8.08 倍的相对 R 加速。源码 hash、设备信息、收敛与 R 对齐误差见
-`results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json`。
-
-`n=61,440` 的分阶段 profiling 将 baseline 构造确定为剩余的完整拟合热点。
-优化前 NumPy/CuPy/Torch 的 baseline 阶段分别为 6.847/5.988/3.328 秒，
-现在为 0.0202/0.00701/0.00265 秒，同时保持 R 与跨后端精度。在另一个
-`n=160` delayed-entry 场景中（按设计保留 normalized fallback），R 与
-NumPy/CuPy/Torch 分别为 57.031/0.182/0.594/0.345 秒。这些时间只证明实测
-形状，不能当作通用 crossover。StatGPU 计时包含输入转换和推断；R 计时包含
-`coxph` 调用及推断，但排除进程启动、包加载和 CSV 解析。
-
-相关验证入口：
-
-- `dev/tests/test_survival_risk_sets.py`；
-- `dev/tests/test_cox_phase1_completion.py`；
-- `dev/tests/test_cox_cv.py`；
-- `dev/benchmarks/benchmark_survival_completion.py`；
-- `dev/benchmarks/benchmark_exact_ties_scaling.py`（写入
-  `results/exact_ties_scaling.json`）。
+schema-12 覆盖公开预测/评分边界、CV 设备与普通 fold 准备、prepared state 与
+packed target provenance、hazard-ratio 数值边界、有界及宽模型 workspace 路由、
+concordance、completion contract，以及稳健推断的独立单元/PSD 边界。它不是新的
+性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍分别绑定到专用
+artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source commit 之后
+的变更必须刷新自己的精确源码证据，才能声明获得相同的物理 GPU 覆盖。
 
 ## 限制
 

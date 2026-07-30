@@ -1025,3 +1025,50 @@ Machine-readable evidence:
 
 - `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json`
   (SHA-256 `26ae5d47c3c5f9e447c4350ef7c599e06b8ee3fd8f56890a00c1c06d7f9b8b12`).
+
+## Single-Stratum Prediction and Stop-Provenance Follow-up
+
+Impact classification: backend=`NumPy/CuPy/Torch`; public API=
+`CoxPH/CoxPHCV prediction and convergence diagnostics`; objective/inference=
+`unchanged`; formula=`unchanged`; documentation=`EN/CN synchronized`;
+validation tier=`local-full; exact-source physical GPU pending`.
+
+- [MEDIUM][BUG/API][fixed] An explicitly stratified fit with only one observed
+  stratum previously bypassed prediction-label validation because
+  `predict_survival()` inferred stratification from the number of stored
+  baselines. The public boundary now uses explicit fitted state: every
+  explicitly stratified fit requires one known label per prediction row,
+  including the single-stratum case. Missing and unseen labels fail before a
+  baseline is selected; the delegated `CoxPHCV` path inherits the same rule.
+- [MEDIUM][DOC][fixed] The EN/CN Cox model pages no longer claim that schema-6
+  evidence is pending while the repository contains schema 12. Each page now
+  presents one concise, commit-pinned schema-12 evidence table with hardware,
+  software, test counts, source hashes, gate failures, scope, and exclusions.
+  Detailed historical timing and review chronology remain in this developer
+  report rather than accumulating on the user-facing model page.
+- [MEDIUM][API/DOC][fixed] `termination_reason_` remains the intentionally
+  interpreted three-category user result. The new
+  `optimization_stop_reason_` exposes the raw solver exit, including
+  `max_iter`, and is reset transactionally, copied by `CoxPHCV`, and printed by
+  `summary()` so warnings and fitted diagnostics can be reconciled.
+- [REVIEW][remote delta][clean] Remote HEAD `488ab5b0dc144146e4b0274fb15ac8d9c7848ae0`
+  adds Cox architecture and estimator-selection documentation only. The
+  updated ownership descriptions are consistent with the canonical risk-set,
+  inference, CV/refit, and penalized-estimator boundaries; no additional code
+  correctness finding was identified in that delta.
+
+Regression coverage includes direct NumPy/CuPy/Torch single-stratum prediction
+cases, the CPU `CoxPHCV` delegated boundary, converged/line-search/max-iteration
+raw-stop publication, summary output, and failed-refit cleanup. The focused
+matrix passes `137 passed, 23 skipped`; the complete local tree passes
+`1533 passed, 479 skipped`, with 11 expected warnings. Documentation links,
+the maintained 122-file documentation contract, full package/dev compileall,
+changed-file pyflakes, and `git diff --check` pass. Local ruff is unavailable;
+the hosted static-contract job installs and executes it.
+
+The maintained physical runner is advanced to schema 13 and adds the same
+single-stratum CuPy/Torch and raw-stop gates plus the two newly relevant test
+files to its exact-source hash and targeted-test sets. Until that runner is
+executed from a committed clean source on the Tesla P100, this follow-up status
+is `PARTIAL_REMOTE_PENDING`; the earlier schema-12 artifact remains valid only
+for its pinned source commit.

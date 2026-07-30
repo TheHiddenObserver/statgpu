@@ -72,6 +72,35 @@ def _require_gpu_backend(device):
         pytest.skip("Torch CUDA device is unavailable")
 
 
+def _fit_single_explicit_stratum(device):
+    X, stop, event = _right_censored_subjects(n=72, p=2, seed=3120)
+    X_backend, stop_backend, event_backend = X, stop, event
+    if device == "cuda":
+        _require_gpu_backend(device)
+        import cupy as cp
+
+        X_backend = cp.asarray(X)
+        stop_backend = cp.asarray(stop)
+        event_backend = cp.asarray(event)
+    elif device == "torch":
+        _require_gpu_backend(device)
+        import torch
+
+        X_backend = torch.as_tensor(X, dtype=torch.float64, device="cuda")
+        stop_backend = torch.as_tensor(stop, dtype=torch.float64, device="cuda")
+        event_backend = torch.as_tensor(event, dtype=torch.int64, device="cuda")
+    labels = np.full(X.shape[0], "clinic-a", dtype=object)
+    model = CoxPH(
+        ties="efron",
+        device=device,
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=80,
+        tol=1e-9,
+    ).fit(X_backend, stop_backend, event_backend, strata=labels)
+    return model, X_backend[:3], labels[:3]
+
+
 def _manual_exact_loglik(beta, X, stop, event):
     """Brute-force exact tied-event partial log likelihood for one feature."""
     beta = float(beta)
@@ -358,6 +387,34 @@ def test_custom_time_stratified_survival_uses_each_baseline_step_function():
         model.predict_survival(X_new, times=times)
     with pytest.raises(ValueError, match="unknown prediction stratum"):
         model.predict_survival(X_new[:1], times=times, strata=["not-trained"])
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
+def test_single_explicit_stratum_requires_prediction_labels(device):
+    model, X_new, _ = _fit_single_explicit_stratum(device)
+    with pytest.raises(ValueError, match="strata is required"):
+        model.predict_survival(X_new, times=[0.2, 0.8])
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
+def test_single_explicit_stratum_rejects_unknown_prediction_labels(device):
+    model, X_new, _ = _fit_single_explicit_stratum(device)
+    with pytest.raises(ValueError, match="unknown prediction stratum"):
+        model.predict_survival(
+            X_new, times=[0.2, 0.8], strata=["unknown"] * len(X_new)
+        )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
+def test_single_explicit_stratum_accepts_known_prediction_labels(device):
+    model, X_new, labels = _fit_single_explicit_stratum(device)
+    survival, returned_times = model.predict_survival(
+        X_new, times=[0.2, 0.8], strata=labels
+    )
+    survival_np = _to_numpy(survival)
+    assert survival_np.shape == (3, 2)
+    assert np.all(np.isfinite(survival_np))
+    assert np.asarray(_to_numpy(returned_times)).shape == (2,)
 
 
 def test_counting_compute_inference_false_clears_all_inference_outputs():

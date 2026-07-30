@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-29<br>
+> 最后更新：2026-07-30<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -42,6 +42,11 @@
   请求的 contract 与失败原因。精确源码 schema-12 在 Tesla P100 上通过 CuPy/Torch
   各 11/11 个 case 与 358 个定向测试；记录的 32 个 Git-blob hash 全部匹配，且
   `gate_failures=[]`。
+- 显式 stratified 拟合即使训练数据只有一个 stratum，生存预测也必须提供训练时已知
+  的标签，`CoxPHCV` 委托路径遵守相同契约。`termination_reason_` 继续表示解释后的
+  三类结果，新增 `optimization_stop_reason_` 公开 `max_iter` 等底层 solver 原始退出
+  原因。EN/CN 模型页已用固定 source commit 的 schema-12 证据表替换过期的
+  schema-6 pending 声明与多轮 review 时间线，并明确 artifact 的适用范围。
 - 前一版 prepared-capability schema-9 精确 clean source commit 已通过 Paramiko
   在远程 `myconda` 的 Tesla P100
   上刷新。CuPy 与 Torch 各通过 10/10 structured cases，其中包括 fold strict-content

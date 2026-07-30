@@ -1587,6 +1587,11 @@ class CoxPHCV(CVEstimatorBase):
         exp(coef) = hazard ratios.
     estimator_ : CoxPH
         The fitted CoxPH with selected penalty.
+    termination_reason_ : str
+        Interpreted convergence outcome copied from the final refit.
+    optimization_stop_reason_ : str
+        Raw solver exit reason copied from the final refit, including
+        ``max_iter`` when its iteration budget was exhausted.
     effective_device_ : str
         Backend requested for this invocation and used for the final refit.
         On a cache miss it is also the candidate-fit backend; cache-origin
@@ -1689,6 +1694,7 @@ class CoxPHCV(CVEstimatorBase):
         self.effective_device_ = None
         self.converged_ = False
         self.termination_reason_ = None
+        self.optimization_stop_reason_ = None
         self.n_iter_ = 0
         self.final_kkt_inf_ = None
         self.final_kkt_normalized_ = None
@@ -1726,6 +1732,7 @@ class CoxPHCV(CVEstimatorBase):
         self.effective_device_ = None
         self.converged_ = False
         self.termination_reason_ = None
+        self.optimization_stop_reason_ = None
         self.n_iter_ = 0
         self.final_kkt_inf_ = None
         self.final_kkt_normalized_ = None
@@ -1957,6 +1964,7 @@ class CoxPHCV(CVEstimatorBase):
         self.coef_ = final_model.coef_.copy()
         self.hazard_ratios_ = final_model.hazard_ratios_.copy()
         for attribute, default in (
+            ("optimization_stop_reason_", None),
             ("converged_", False), ("termination_reason_", None),
             ("n_iter_", 0), ("final_kkt_inf_", None),
             ("final_kkt_normalized_", None), ("inference_method_", None),

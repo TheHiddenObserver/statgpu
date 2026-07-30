@@ -131,12 +131,18 @@ fitted-state fields include:
 
 - `converged_`;
 - `termination_reason_`;
+- `optimization_stop_reason_`;
 - `n_iter_`;
 - `final_kkt_inf_`;
 - `final_kkt_normalized_`.
 
 The likelihood, gradient, Hessian, covariance, baseline hazard, and public
 convergence state are evaluated from the final coefficient vector.
+`termination_reason_` is the interpreted user-level category and is one of
+`kkt_converged`, `line_search_failed`, or `stalled_with_large_kkt`.
+`optimization_stop_reason_` preserves the raw solver exit, including
+`max_iter`; warnings also report this raw reason. Thus budget exhaustion remains
+auditable without presenting it as a separate convergence certificate.
 
 ## Covariance and Inference
 
@@ -282,8 +288,10 @@ cv_model = CoxPHCV(
 
 `predict`, `predict_risk_score`, `predict_hazard_ratio`, `predict_survival`, and
 `score` execute on the fitted backend for array inputs. Stratified survival
-prediction requires one known stratum label per prediction row. Survival curves
-use log-domain baseline accumulation for numerical stability. Formula-fitted
+prediction requires one known stratum label per prediction row, including when
+the fit contained only one explicit stratum. Missing or unseen labels raise
+`ValueError`. Survival curves use
+log-domain baseline accumulation for numerical stability. Formula-fitted
 models apply their saved design transformation before prediction.
 
 `predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
@@ -300,7 +308,8 @@ threshold. `PenalizedCoxPHModel` also exposes
 - parameters: `coef_`, `hazard_ratios_`;
 - inference: `_bse`, `_zvalues`, `_pvalues`, `_conf_int` when enabled;
 - diagnostics: `log_likelihood`, `aic`, `bic`, `concordance_index` where defined;
-- convergence: `converged_`, `termination_reason_`, `n_iter_`,
+- convergence: `converged_`, `termination_reason_`,
+  `optimization_stop_reason_`, `n_iter_`,
   `final_kkt_inf_`, `final_kkt_normalized_`;
 - provenance: `inference_method_`, `inference_backend_`,
   `inference_approximate_`, `inference_fallback_reason_`,
@@ -322,79 +331,30 @@ letting input, allocator, CUDA, and unexpected runtime errors propagate.
 
 ## Validation
 
-The 2026-07-29 transfer, cache, and hazard-ratio changes pass the complete local
-CPU tree and the maintained targeted matrix. Their schema-6 exact-source
-CuPy/Torch artifact is still pending; the P100 results below describe earlier
-recorded commits and are not presented as evidence for this newest delta.
+Physical-GPU evidence is pinned to an exact source commit so that later code or
+documentation changes cannot silently inherit a broader validation claim.
 
-The PR #80 review through 2026-07-26 passed the local NumPy quick gate for ordinary
-heavy ties, delayed entry, Exact ties, stratified start-stop data, inference,
-subject-grouped CV, and statsmodels comparisons where the models are comparable.
-The result schema passed with no local gate failures. The exact reviewed source
-was then validated through Paramiko in an isolated remote `myconda` environment
-on a Tesla P100-SXM2-16GB. The first physical-GPU run exposed 11 actionable
-backend/test and scikit-learn 1.2.2 compatibility failures; after review and
-fixes, all 15 failed and adjacent nodes passed. The final nested-Exact source
-passed the complete 13-file physical-GPU matrix with **392 passed, 2 expected
-skips, 0 failed**. Remote quick and full artifacts report
-`validation_tier="remote-full"`, `schema_status="ok"`, and no gate failures.
-The new regression coverage compares the nested-prefix path with the forced
-normalized fallback on NumPy and Torch; the physical-GPU target also exercises
-CuPy, the delayed-entry batched fallback, baseline parity on both GPU backends,
-the extreme-predictor CuPy stability fallback, Torch channel-scan/native-scan
-parity, and the channel-scan memory gate. The local 13-file matrix passed with
-**297 passed, 97 skipped, 0 failed**; the skips are optional GPU/R availability
-branches.
+| Field | Current audited evidence |
+|---|---|
+| Source commit | `3e4d9bd3159ea329c16bd761197e3ad371f64893` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json` |
+| Schema / tier | `12` / `remote-full` |
+| Hardware | Tesla P100-SXM2-16GB |
+| Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
+| Structured GPU cases | CuPy 11/11; Torch 11/11 |
+| Targeted tests | 358 passed, 5 expected warnings |
+| Source audit | `source_clean=true`; 32/32 recorded Git-blob hashes matched |
+| Gate failures | `[]` |
 
-External Exact alignment then compared the same source with R 4.4.1
-`survival::coxph(ties="exact")` from survival 3.8.9. Across the bounded scaling
-cases and separate right-censored, delayed-entry, strata, and combined
-start-stop/strata cases, every NumPy/CuPy/Torch fit converged and the artifact
-reported zero gate failures. The maximum differences from R were `1.30e-09`
-for a coefficient, `5.12e-09` for exact partial log likelihood, and `5.01e-12`
-for model-based covariance.
-
-Performance remains shape- and backend-dependent. On the Tesla P100 bounded-tie
-right-censored workload (`p=4`, maximum tie size 8), median R/NumPy/CuPy/Torch
-full-fit times were 0.0460/0.0354/0.0838/0.0571 s at `n=1,920`; the GPU paths
-remain launch-bound at that small size. At `n=15,360`, the corresponding
-medians were 0.295/0.273/0.0949/0.0558 s; at `n=61,440`,
-1.323/1.465/0.1114/0.0662 s; and at `n=122,880`,
-2.691/3.043/0.1430/0.1000 s. The Torch channel scans are 30.32x faster than
-the prior native multidimensional-scan Torch result at the largest size. Torch
-is 26.92x faster than R, 30.44x faster than NumPy, and 1.43x faster than CuPy
-there; both GPU paths overtake R by the measured `n=15,360` point.
-
-For three-stratum Exact fits, the optimized objective is now composed from one
-bounded fast-path evaluation per stratum instead of a device/Python loop per
-failure time. On the same P100 timing contract, R/NumPy/CuPy/Torch medians were
-0.0180/0.0143/0.1742/0.0747 s at `n=160`,
-0.258/0.2263/0.2181/0.1341 s at `n=15,360`, and
-1.118/0.9874/0.2285/0.1384 s at `n=61,440`. Explicit GPU fits remain
-launch-bound at the smallest size, overtake R by the measured `n=15,360`
-point, and reach 4.89x CuPy and 8.08x Torch speedups over R at `n=61,440`.
-See `results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json`
-for source hashes, device metadata, convergence, and R-alignment errors.
-
-Phase profiling at `n=61,440` identified baseline construction as the remaining
-full-fit hotspot. Before the prefix change, NumPy/CuPy/Torch baseline phases
-took 6.847/5.988/3.328 s; the same phases now take
-0.0202/0.00701/0.00265 s while preserving R and cross-backend precision. In the
-separate `n=160` delayed-entry case, which intentionally retains the normalized
-fallback, R took 57.031 s while NumPy/CuPy/Torch took
-0.182/0.594/0.345 s. These timings establish the measured shapes, not a
-universal crossover. StatGPU timing includes input conversion and inference; R
-timing covers the `coxph` call including inference but excludes process startup,
-package loading, and CSV parsing.
-
-Relevant validation entry points:
-
-- `dev/tests/test_survival_risk_sets.py`;
-- `dev/tests/test_cox_phase1_completion.py`;
-- `dev/tests/test_cox_cv.py`;
-- `dev/benchmarks/benchmark_survival_completion.py`;
-- `dev/benchmarks/benchmark_exact_ties_scaling.py` (writes
-  `results/exact_ties_scaling.json`).
+The schema-12 scope covers public prediction/scoring boundaries, CV device and
+ordinary-fold preparation, prepared-state and packed-target provenance,
+hazard-ratio range handling, bounded and wide workspace routes, concordance,
+completion contracts, and robust-inference unit/PSD boundaries. It is not a
+new performance-crossover benchmark or a new R external-alignment run; those
+claims remain tied to their dedicated artifacts and detailed history in
+`dev/reviews/pr80_review_fix.md`. Changes after the source commit above require
+their own exact-source refresh before they can claim the same physical-GPU
+evidence.
 
 ## Limitations
 

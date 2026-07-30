@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-29<br>
+> Last updated: 2026-07-30<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -55,6 +55,13 @@
   validation on a Tesla P100 passed 11/11 CuPy and Torch cases plus 358
   targeted tests; all 32 recorded Git-blob hashes match and
   `gate_failures=[]`.
+- Explicitly stratified survival prediction now requires known prediction
+  labels even when training contained only one stratum, and `CoxPHCV`
+  preserves the same delegated contract. `termination_reason_` remains the
+  interpreted three-category outcome, while the new
+  `optimization_stop_reason_` exposes the raw solver exit such as `max_iter`.
+  The EN/CN model pages replace the stale schema-6 pending statement and review
+  timeline with one commit-pinned schema-12 evidence table and explicit scope.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

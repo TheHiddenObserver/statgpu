@@ -66,6 +66,8 @@ SOURCE_FILES = (
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
     "dev/benchmarks/benchmark_cox_cluster.py",
     "dev/tests/test_pr79_complete_review_fixes.py",
+    "dev/tests/test_cox_core_completion.py",
+    "dev/tests/test_cox_phase1_completion.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
     "dev/tests/test_pr80_completion_contract_followup.py",
     "dev/tests/test_pr80_constructor_boundaries.py",
@@ -80,6 +82,8 @@ SOURCE_FILES = (
 
 TARGETED_TEST_FILES = (
     "dev/tests/test_pr79_complete_review_fixes.py",
+    "dev/tests/test_cox_core_completion.py",
+    "dev/tests/test_cox_phase1_completion.py",
     "dev/tests/test_pr80_complete_review_cycle.py",
     "dev/tests/test_pr80_completion_contract_followup.py",
     "dev/tests/test_pr80_constructor_boundaries.py",
@@ -545,6 +549,75 @@ def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
             fit_model._fit_controls.compute_cindex is False,
         )
     )
+
+    single_stratum_model = CoxPH(
+        device=device,
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=60,
+        tol=1e-8,
+    ).fit(X, stop, event, strata=one_stratum)
+    single_stratum_prediction = {}
+    try:
+        single_stratum_model.predict_survival(X[:2], times=[0.2, 0.8])
+    except ValueError as exc:
+        single_stratum_prediction["missing_rejected"] = (
+            "strata is required" in str(exc)
+        )
+    else:
+        single_stratum_prediction["missing_rejected"] = False
+    try:
+        single_stratum_model.predict_survival(
+            X[:2], times=[0.2, 0.8], strata=one_stratum[:2] + 1
+        )
+    except ValueError as exc:
+        single_stratum_prediction["unknown_rejected"] = (
+            "unknown prediction stratum" in str(exc)
+        )
+    else:
+        single_stratum_prediction["unknown_rejected"] = False
+    known_survival, _ = single_stratum_model.predict_survival(
+        X[:2], times=[0.2, 0.8], strata=one_stratum[:2]
+    )
+    single_stratum_prediction["known_accepted"] = bool(
+        tuple(known_survival.shape) == (2, 2)
+        and np.all(np.isfinite(_numpy(name, known_survival)))
+    )
+
+    single_stratum_cv = CoxPHCV(
+        penalties=np.array([0.1]),
+        cv=2,
+        device=device,
+        compute_inference=True,
+        max_iter=60,
+        tol=1e-8,
+        random_state=2486,
+    ).fit(X, stop, event, strata=one_stratum)
+    try:
+        single_stratum_cv.predict_survival(X[:2], times=[0.2, 0.8])
+    except ValueError as exc:
+        single_stratum_prediction["cv_missing_rejected"] = (
+            "strata is required" in str(exc)
+        )
+    else:
+        single_stratum_prediction["cv_missing_rejected"] = False
+
+    budget_model = CoxPH(
+        device=device,
+        compute_inference=False,
+        compute_cindex=False,
+        penalty=0.1,
+        max_iter=1,
+        tol=1e-15,
+    ).fit(X, stop, event)
+    termination_provenance = {
+        "interpreted": budget_model.termination_reason_,
+        "raw": budget_model.optimization_stop_reason_,
+        "passed": bool(
+            budget_model.termination_reason_ == "stalled_with_large_kkt"
+            and budget_model.optimization_stop_reason_ == "max_iter"
+        ),
+    }
     passed = all(
         (
             one_dimensional_row_ok,
@@ -552,6 +625,8 @@ def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
             all(fast_path.values()),
             set_params_representation_stable,
             active_controls_normalized,
+            all(single_stratum_prediction.values()),
+            termination_provenance["passed"],
         )
     )
     return {
@@ -562,6 +637,8 @@ def _case_prediction_fast_path_and_fit_controls(name: str, xp) -> dict:
         "constructor_parameters_stable": set_params_representation_stable,
         "set_params_representation_stable": set_params_representation_stable,
         "active_controls_normalized": active_controls_normalized,
+        "single_explicit_stratum_prediction": single_stratum_prediction,
+        "termination_provenance": termination_provenance,
         "passed": bool(passed),
     }
 
@@ -1486,7 +1563,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 12,
+        "schema_version": 13,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

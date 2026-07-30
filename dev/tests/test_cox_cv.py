@@ -92,6 +92,39 @@ def test_coxphcv_allows_explicit_unpenalized_delayed_entry_cpu():
     assert model.cv_results_ is not None
     assert model.cv_results_["pl_path"].shape[0] == model.penalties_.shape[0]
     assert model.termination_reason_ == model.estimator_.termination_reason_
+    assert (
+        model.optimization_stop_reason_
+        == model.estimator_.optimization_stop_reason_
+    )
+
+
+def test_coxphcv_single_explicit_stratum_preserves_prediction_contract():
+    X, time, event = _make_survival_data(
+        n_samples=72, n_features=2, seed=2485
+    )
+    labels = np.full(X.shape[0], "clinic-a", dtype=object)
+    model = CoxPHCV(
+        penalties=[0.1],
+        device="cpu",
+        cv=2,
+        max_iter=60,
+        tol=1e-8,
+        compute_inference=True,
+        random_state=2485,
+    ).fit(X, time, event, strata=labels)
+
+    with pytest.raises(ValueError, match="strata is required"):
+        model.predict_survival(X[:3], times=[0.2, 0.8])
+    with pytest.raises(ValueError, match="unknown prediction stratum"):
+        model.predict_survival(
+            X[:3], times=[0.2, 0.8], strata=["unknown"] * 3
+        )
+    survival, returned_times = model.predict_survival(
+        X[:3], times=[0.2, 0.8], strata=labels[:3]
+    )
+    assert survival.shape == (3, 2)
+    assert np.all(np.isfinite(survival))
+    assert returned_times.shape == (2,)
 
 
 def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):
@@ -1170,6 +1203,8 @@ def test_coxphcv_failed_refit_clears_previous_model_state():
     assert model.estimator_ is None
     assert model.coef_ is None
     assert model.cv_results_ is None
+    assert model.termination_reason_ is None
+    assert model.optimization_stop_reason_ is None
     assert model._fitted is False
     with pytest.raises(ValueError, match="not fitted"):
         model.predict(X[:2])

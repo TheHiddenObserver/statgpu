@@ -63,6 +63,8 @@ def test_refit_resets_convergence_and_inference_state():
     assert model._fitted
     assert model._iterations == 1
     assert model._converged is False
+    assert model.termination_reason_ == "stalled_with_large_kkt"
+    assert model.optimization_stop_reason_ == "max_iter"
     assert model._bse is None
     assert model._var_matrix is None
     assert model._baseline_cumulative_hazard is None
@@ -85,6 +87,8 @@ def test_failed_refit_clears_partially_computed_cox_state():
     assert model._fitted is False
     assert model.coef_ is None
     assert model.hazard_ratios_ is None
+    assert model.termination_reason_ is None
+    assert model.optimization_stop_reason_ is None
     with pytest.raises(RuntimeError, match="not fitted"):
         model.predict(singular_X)
 
