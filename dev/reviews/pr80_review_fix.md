@@ -1080,5 +1080,8 @@ Machine-readable evidence:
 - `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json`
   (SHA-256 `799d439ceae1b25b582b5180573c390ada9438a86c7045dc3fb538611b1ac474`).
 
-Physical validation is complete; the evidence commit and hosted CI are pending
-at the time of this report update.
+Evidence commit `28cc5857545951e492a652fbaf8c514ab58e1f5a` is pushed. All
+seven hosted jobs (`docs-contracts`, `static-contracts`, `full-cpu-suite`, and
+the Python 3.9-3.12 regression matrix) passed in GitHub Actions run
+`30517578257`; PR #80 reported `mergeable=true` and
+`mergeable_state=clean`.

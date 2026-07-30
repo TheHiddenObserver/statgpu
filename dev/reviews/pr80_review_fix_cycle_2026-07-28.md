@@ -5,13 +5,14 @@ PR #80 addendum for changes made after its recorded physical-GPU artifact.
 
 ## Current hard exit status
 
-**PHYSICAL COMPLETE; HOSTED CI PENDING.** The latest single-stratum prediction
-and raw-stop follow-up passes the complete CPU suite and exact-source schema-13
-P100 refresh. The machine-readable artifact independently matches all 34 Git
-blobs from source commit `a7655904ea05fd9ce700d35832c44f90b0176251`;
-all 22 CuPy/Torch case gates and 432 targeted physical tests pass with
-`gate_failures=[]`. The evidence commit and hosted CI are pending. Earlier
-schema evidence remains below as historical evidence for its exact source.
+**COMPLETE.** The latest single-stratum prediction and raw-stop follow-up passes
+the complete CPU suite and exact-source schema-13 P100 refresh. The
+machine-readable artifact independently matches all 34 Git blobs from source
+commit `a7655904ea05fd9ce700d35832c44f90b0176251`; all 22 CuPy/Torch case gates
+and 432 targeted physical tests pass with `gate_failures=[]`. Evidence commit
+`28cc5857545951e492a652fbaf8c514ab58e1f5a` is pushed, and all seven hosted
+jobs passed in run `30517578257`. Earlier schema evidence remains below as
+historical evidence for its exact source.
 
 ## Post-schema-7 findings and fixes
 
@@ -701,5 +702,6 @@ warnings, all 34 recorded Git-blob hashes match, `source_clean=true`, and
 `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json`
 with SHA-256
 `799d439ceae1b25b582b5180573c390ada9438a86c7045dc3fb538611b1ac474`.
-Physical validation is complete; evidence commit, push, and hosted CI remain
-pending.
+Evidence commit `28cc5857545951e492a652fbaf8c514ab58e1f5a` is pushed. All
+seven hosted jobs passed in Actions run `30517578257`; PR #80 was mergeable
+and clean after that run.
