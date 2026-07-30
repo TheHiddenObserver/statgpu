@@ -51,7 +51,10 @@
   disabling joint Wald, and the third fails strict inference transactionally.
   Cox consumes the policy from the inference package. Unsupported external
   benchmark rows now set `covariance_contract="unsupported"` and separately
-  record the requested contract and failure reason.
+  record the requested contract and failure reason. Exact-source schema-12
+  validation on a Tesla P100 passed 11/11 CuPy and Torch cases plus 358
+  targeted tests; all 32 recorded Git-blob hashes match and
+  `gate_failures=[]`.
 - The preceding prepared-capability schema-9 source commit was refreshed
   through Paramiko in
   remote `myconda` on a Tesla P100. CuPy and Torch each passed 10/10 structured

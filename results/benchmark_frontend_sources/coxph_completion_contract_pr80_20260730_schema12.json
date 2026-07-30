@@ -1,0 +1,708 @@
+{
+  "backends": {
+    "cupy": {
+      "cases": {
+        "completion_contract": {
+          "backend": "cupy",
+          "cleanup_calls_after_error": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "cleanup_calls_after_success": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "complex_prediction_rejected": true,
+          "concordance": 0.6152512998266898,
+          "direct_backend_imports_absent": true,
+          "fractional_subject_id_rejected": true,
+          "import_time_adapter_absent": true,
+          "inference_result_contract": true,
+          "legacy_mixin_isolated": true,
+          "ordinary_concordance_sync_calls": [
+            {
+              "backend": "cupy",
+              "values": 3
+            }
+          ],
+          "passed": true,
+          "summary_truthful": true
+        },
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "cupy",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.050447046756744385,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "cupy",
+          "candidate_cluster_used": false,
+          "candidate_label_preparation": true,
+          "candidate_strata_preencoded": true,
+          "candidate_subject_id_used": false,
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cv_full_host_transfer_performed": true,
+          "effective_device": "cuda",
+          "final_refit_full_host_transfer_performed": true,
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.4717019200325012,
+          "fold_backend_preparation_count": 2,
+          "full_host_transfer_performed": true,
+          "input_backends": [
+            "cupy"
+          ],
+          "orchestration_device": "cpu",
+          "passed": true,
+          "single_cleanup_owner": true,
+          "transfer_provenance": true
+        },
+        "hazard_ratio_boundary": {
+          "backend": "cupy",
+          "canonical_log_risk": [
+            800.0,
+            800.0
+          ],
+          "canonical_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          },
+          "passed": true,
+          "penalized_complex_log_risk_rejected": true,
+          "penalized_log_risk": [
+            800.0,
+            800.0
+          ],
+          "penalized_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          }
+        },
+        "ordinary_cv_preparation": {
+          "backend": "cupy",
+          "candidate_right_censored_preparation_count": 2,
+          "candidate_target_host_transfer_count": 2,
+          "candidate_target_host_vector_transfer_count": 4,
+          "cv_full_host_transfer_performed": true,
+          "expected_loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "final_refit_full_host_transfer_performed": true,
+          "fold_backend_preparation_count_this_call": 2,
+          "full_host_transfer_performed": true,
+          "loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "passed": true,
+          "selection_cache_hit": false,
+          "strict_content_validation_calls": 0,
+          "ties": "efron"
+        },
+        "prediction_fast_path_and_fit_controls": {
+          "active_controls_normalized": true,
+          "backend": "cupy",
+          "constructor_parameters_stable": true,
+          "fast_path_eligibility": {
+            "breslow_multiple_strata_rejected": true,
+            "breslow_nonzero_start_rejected": true,
+            "breslow_ordinary_inputs_accepted": true,
+            "efron_multiple_strata_rejected": true,
+            "efron_nonzero_start_rejected": true,
+            "efron_ordinary_inputs_accepted": true
+          },
+          "one_dimensional_multifeature_row": true,
+          "passed": true,
+          "set_params_representation_stable": true,
+          "shape_rejections": {
+            "three_dimensional": true,
+            "wrong_one_dimensional_length": true
+          }
+        },
+        "prepared_state_and_packed_target": {
+          "backend": "cupy",
+          "cv_full_host_transfer_performed": true,
+          "full_host_transfer_performed": true,
+          "packed_target_input_backends": [
+            "cupy",
+            "numpy"
+          ],
+          "packed_target_transfer_disclosed": true,
+          "passed": true,
+          "prepared_mismatch_rejected": true
+        },
+        "public_boundary": {
+          "backend": "cupy",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cpu_input_transfer_disclosed": true,
+          "device_normalized": true,
+          "extreme_survival_log_domain": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 2.4542204439640045,
+          "loss_target_host_copy_shapes": [
+            [
+              72
+            ],
+            [
+              72
+            ]
+          ],
+          "passed": true,
+          "target_transfer_disclosed": true
+        },
+        "robust_inference_units": {
+          "backend": "cupy",
+          "equal_units_hc1": {
+            "error": "HC1 covariance requires n_units > n_features",
+            "state_cleared": true
+          },
+          "materially_indefinite_covariance": {
+            "classification": "materially_indefinite",
+            "cox_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cox_state_cleared": true,
+            "cv_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cv_state_cleared": true,
+            "minimum_eigenvalue": -1.0
+          },
+          "p_plus_one_units": {
+            "finite_sample_correction": 4.0,
+            "hc0_wald_available": true,
+            "hc1_wald_available": true,
+            "n_features": 3,
+            "n_units": 4,
+            "pvalues": [
+              0.13677991678249748,
+              0.061403244683292404,
+              0.8633852692389653
+            ],
+            "standard_errors": [
+              0.41141984649147234,
+              0.16658917791332573,
+              0.49630304584350143
+            ],
+            "variance_ratio_matches": true
+          },
+          "passed": true,
+          "rank_deficient_joint_wald": {
+            "cluster_marginal_standard_errors": [
+              0.05569344998157965,
+              0.06728663149973936,
+              0.10832193633026388
+            ],
+            "cluster_units": 2,
+            "cluster_wald_available": false,
+            "failure_reason": "robust covariance is rank-deficient for the full-parameter Wald test",
+            "subject_hc0_marginal_standard_errors": [
+              0.1987889345848793,
+              0.24674211755374303,
+              0.3583374713277636
+            ],
+            "subject_hc0_wald_available": false,
+            "subject_units": 3,
+            "summary_contract": true
+          },
+          "single_cluster": {
+            "error": "cluster covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_cluster_estimation_only": {
+            "coefficients": [
+              0.6121474575206017,
+              -0.31161847353213573,
+              -0.08539711529317245
+            ],
+            "fitted": true,
+            "inference_unset": true
+          },
+          "single_subject_hc0": {
+            "error": "hc0 covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_subject_hc1": {
+            "error": "hc1 covariance requires at least two independent units",
+            "state_cleared": true
+          }
+        },
+        "single_group_workspace": {
+          "backend": "cupy",
+          "max_abs_differences": {
+            "information": 1.3766765505351941e-14,
+            "log_likelihood": 0.0,
+            "score": 6.661338147750939e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.4427359402179718,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "cupy",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 4.440892098500626e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.016271740198135376,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "13.6.0"
+    },
+    "torch": {
+      "cases": {
+        "completion_contract": {
+          "backend": "torch",
+          "cleanup_calls_after_error": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "cleanup_calls_after_success": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "complex_prediction_rejected": true,
+          "concordance": 0.6152512998266898,
+          "direct_backend_imports_absent": true,
+          "fractional_subject_id_rejected": true,
+          "import_time_adapter_absent": true,
+          "inference_result_contract": true,
+          "legacy_mixin_isolated": true,
+          "ordinary_concordance_sync_calls": [
+            {
+              "backend": "torch",
+              "values": 3
+            }
+          ],
+          "passed": true,
+          "summary_truthful": true
+        },
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "torch",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.03530019521713257,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "torch",
+          "candidate_cluster_used": false,
+          "candidate_label_preparation": true,
+          "candidate_strata_preencoded": true,
+          "candidate_subject_id_used": false,
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cv_full_host_transfer_performed": true,
+          "effective_device": "torch",
+          "final_refit_full_host_transfer_performed": true,
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.20183628797531128,
+          "fold_backend_preparation_count": 2,
+          "full_host_transfer_performed": true,
+          "input_backends": [
+            "torch-device"
+          ],
+          "orchestration_device": "cpu",
+          "passed": true,
+          "single_cleanup_owner": true,
+          "transfer_provenance": true
+        },
+        "hazard_ratio_boundary": {
+          "backend": "torch",
+          "canonical_log_risk": [
+            800.0,
+            800.0
+          ],
+          "canonical_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          },
+          "passed": true,
+          "penalized_complex_log_risk_rejected": true,
+          "penalized_log_risk": [
+            800.0,
+            800.0
+          ],
+          "penalized_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          }
+        },
+        "ordinary_cv_preparation": {
+          "backend": "torch",
+          "candidate_right_censored_preparation_count": 2,
+          "candidate_target_host_transfer_count": 2,
+          "candidate_target_host_vector_transfer_count": 4,
+          "cv_full_host_transfer_performed": true,
+          "expected_loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "final_refit_full_host_transfer_performed": true,
+          "fold_backend_preparation_count_this_call": 2,
+          "full_host_transfer_performed": true,
+          "loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "passed": true,
+          "selection_cache_hit": false,
+          "strict_content_validation_calls": 0,
+          "ties": "efron"
+        },
+        "prediction_fast_path_and_fit_controls": {
+          "active_controls_normalized": true,
+          "backend": "torch",
+          "constructor_parameters_stable": true,
+          "fast_path_eligibility": {
+            "breslow_multiple_strata_rejected": true,
+            "breslow_nonzero_start_rejected": true,
+            "breslow_ordinary_inputs_accepted": true,
+            "efron_multiple_strata_rejected": true,
+            "efron_nonzero_start_rejected": true,
+            "efron_ordinary_inputs_accepted": true
+          },
+          "one_dimensional_multifeature_row": true,
+          "passed": true,
+          "set_params_representation_stable": true,
+          "shape_rejections": {
+            "three_dimensional": true,
+            "wrong_one_dimensional_length": true
+          }
+        },
+        "prepared_state_and_packed_target": {
+          "backend": "torch",
+          "cv_full_host_transfer_performed": true,
+          "full_host_transfer_performed": true,
+          "packed_target_input_backends": [
+            "numpy",
+            "torch-device"
+          ],
+          "packed_target_transfer_disclosed": true,
+          "passed": true,
+          "prepared_mismatch_rejected": true
+        },
+        "public_boundary": {
+          "backend": "torch",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cpu_input_transfer_disclosed": true,
+          "device_normalized": true,
+          "extreme_survival_log_domain": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 0.18726640939712524,
+          "loss_target_host_copy_shapes": [
+            [
+              72
+            ],
+            [
+              72
+            ]
+          ],
+          "passed": true,
+          "target_transfer_disclosed": true
+        },
+        "robust_inference_units": {
+          "backend": "torch",
+          "equal_units_hc1": {
+            "error": "HC1 covariance requires n_units > n_features",
+            "state_cleared": true
+          },
+          "materially_indefinite_covariance": {
+            "classification": "materially_indefinite",
+            "cox_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cox_state_cleared": true,
+            "cv_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cv_state_cleared": true,
+            "minimum_eigenvalue": -1.0
+          },
+          "p_plus_one_units": {
+            "finite_sample_correction": 4.0,
+            "hc0_wald_available": true,
+            "hc1_wald_available": true,
+            "n_features": 3,
+            "n_units": 4,
+            "pvalues": [
+              0.13677991678249743,
+              0.061403244683292404,
+              0.8633852692389653
+            ],
+            "standard_errors": [
+              0.4114198464914724,
+              0.16658917791332567,
+              0.4963030458435015
+            ],
+            "variance_ratio_matches": true
+          },
+          "passed": true,
+          "rank_deficient_joint_wald": {
+            "cluster_marginal_standard_errors": [
+              0.05569344998157967,
+              0.06728663149973936,
+              0.1083219363302639
+            ],
+            "cluster_units": 2,
+            "cluster_wald_available": false,
+            "failure_reason": "robust covariance is rank-deficient for the full-parameter Wald test",
+            "subject_hc0_marginal_standard_errors": [
+              0.19878893458487937,
+              0.24674211755374287,
+              0.35833747132776345
+            ],
+            "subject_hc0_wald_available": false,
+            "subject_units": 3,
+            "summary_contract": true
+          },
+          "single_cluster": {
+            "error": "cluster covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_cluster_estimation_only": {
+            "coefficients": [
+              0.6121474575206016,
+              -0.31161847353213584,
+              -0.0853971152931725
+            ],
+            "fitted": true,
+            "inference_unset": true
+          },
+          "single_subject_hc0": {
+            "error": "hc0 covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_subject_hc1": {
+            "error": "hc1 covariance requires at least two independent units",
+            "state_cleared": true
+          }
+        },
+        "single_group_workspace": {
+          "backend": "torch",
+          "max_abs_differences": {
+            "information": 1.199040866595169e-14,
+            "log_likelihood": 0.0,
+            "score": 4.440892098500626e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.23059070110321045,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "torch",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 3.9968028886505635e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.007801860570907593,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "2.0.0+cu117"
+    }
+  },
+  "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path> --run-targeted-tests",
+  "gate_failures": [],
+  "numpy": "1.24.2",
+  "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
+  "schema_version": 12,
+  "source_clean": true,
+  "source_commit": "3e4d9bd3159ea329c16bd761197e3ad371f64893",
+  "source_sha256": {
+    ".github/workflows/test.yml": "d2392afaf6869ae48dd50f0cbf98a44a23a9c711254729d323d09b62193baf70",
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "23b6378740dd6e186154d270180c7b5bea3915f787d74246ffa9e49342aa82d4",
+    "dev/benchmarks/benchmark_cox_cluster.py": "7e7f373cbfe6730b768da7912f3942720c01b8a932364f07d75363a8c4ce0234",
+    "dev/tests/test_cox_cv.py": "7e959b2df252fc2670938d3431a797829a2ab0689e7b0fd9ab6352277cb4167e",
+    "dev/tests/test_pr79_complete_review_fixes.py": "2e5221ab5283a31d41524b8af4d204e6c5e7cc49495612a288f49e280350c838",
+    "dev/tests/test_pr80_complete_review_cycle.py": "8dd9075dfe43c2fb1a8caf529bf99cb5c870972e605b2a1b7a1dcb5764e67c82",
+    "dev/tests/test_pr80_completion_contract_followup.py": "280cf942507525ba0e676c0b8320e22888880102cb718224d6322d56fb465bed",
+    "dev/tests/test_pr80_constructor_boundaries.py": "c323eabbca82907513e35a73f2ec17e33c2201dcf6b768b303db87ad957afd23",
+    "dev/tests/test_pr80_cox_stability_review.py": "f9e2d407a1bf2ad5493a07150354297220857b90dc6334b009274a4c0de56ac4",
+    "dev/tests/test_pr80_cv_fit_boundary.py": "a911c024d9d8101000167a6a96b648245227982c17aa822ae8e71ac5c2fa5231",
+    "dev/tests/test_pr80_fit_boundary.py": "54ad8ecfcd6e7a4dc78546edf8cd902e5d1c5ebac520dde5b9f4b12b5af59b28",
+    "dev/tests/test_pr80_robust_inference_units.py": "f6b24dd4e4c8484ba617d948ffb888bb0e04d5cac52f8ed19e40e4d68875c498",
+    "dev/tests/test_pr80_target_transfer_overflow_cache.py": "ded3f04329ab5aade62acd74c214b05e7cfb7f2992eb0609d0315a65f94078ab",
+    "dev/tests/test_pr80_workspace_estimator.py": "30ef8f5d9f3db9f8a66d33d0e97af0a1dcac36be3617de523d71de303698247a",
+    "statgpu/__init__.py": "f385dd53e235f6afc81d80c1d4538bbcefe4f84f9e7830bd67d2e927a8c72a2d",
+    "statgpu/backends/_array_ops.py": "7cf8794477fa60857c9e8e77479894260099fb1d9936d2b0c6ad0c94c301c0be",
+    "statgpu/backends/_utils.py": "afc33ff8287c2fccc43486957e72c89b6801a82c570d5fd3d3049fcc5eb91880",
+    "statgpu/inference/_covariance.py": "0b4e9f7f7b3419b445c2c43ba44417f81d02c88cf90a16bb45dca18f20c35602",
+    "statgpu/linear_model/penalized/_penalized_cox.py": "440e80eff8d1b3b9000a3c6712d52fd37c02eb69ad4d3f6e4790de023fd9c1db",
+    "statgpu/losses/_cox_ph.py": "7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea",
+    "statgpu/survival/__init__.py": "97592d8c53b8dd64eccf428980bc949ac2069b1db555dfdd4ec26981b7e46024",
+    "statgpu/survival/_concordance.py": "e07c113d7d362bb3098a7f91fe67d218fd190d03529134d1806f9aeccecf15fa",
+    "statgpu/survival/_cox.py": "613e98412a4e9ebe8785836af431fcfdf5ce1057885266068d8f25d60118a55f",
+    "statgpu/survival/_cox_counting.py": "59d4ac0973d491938d4303e0639f1a44dc044f25991bbe12ee3a0422e464cf85",
+    "statgpu/survival/_cox_cv.py": "2f72863c7b5f2204d5a54d950b61ed2448416e8af91881f0a2a7971458bb95ef",
+    "statgpu/survival/_cox_errors.py": "be41af4f1c5df64f2c5fc9e254f8602e36b4fd1b3a57939999ee1ecf8d806f4f",
+    "statgpu/survival/_cox_fit_adapter.py": "27203f07c312867d3127bab21f3fe3c51ab26bbdd0158426e80bae3ce76de826",
+    "statgpu/survival/_cox_inference.py": "9eda150bf3fba838b204b6cd9050f72b4892224b1146ce481c1cff3e17e1eed1",
+    "statgpu/survival/_cox_legacy.py": "e7198c4fe223e99a465263422000b425bad764916e828fb9141c96af4cd44d77",
+    "statgpu/survival/_cox_score.py": "54f3d6a2a4a160a8a70e94456d9312b0b7f58eed150d452e5969ffa9b4977654",
+    "statgpu/survival/_numeric.py": "04ef6ccd828b4415e06f7b19e1aa937429407bc2b145461d099d184243cde094",
+    "statgpu/survival/_risk_sets.py": "294c15eb62632bca638a850b6be3273b8d34d333d8e9dc0dec940c178c9cf65a"
+  },
+  "targeted_tests": {
+    "command": "STATGPU_REQUIRE_PHYSICAL_GPU=1 /root/miniconda3/envs/myconda/bin/python -m pytest -q dev/tests/test_pr79_complete_review_fixes.py dev/tests/test_pr80_complete_review_cycle.py dev/tests/test_pr80_completion_contract_followup.py dev/tests/test_pr80_constructor_boundaries.py dev/tests/test_pr80_workspace_estimator.py dev/tests/test_pr80_fit_boundary.py dev/tests/test_pr80_cv_fit_boundary.py dev/tests/test_pr80_cox_stability_review.py dev/tests/test_cox_cv.py dev/tests/test_pr80_target_transfer_overflow_cache.py dev/tests/test_pr80_robust_inference_units.py",
+    "output_tail": "........................................................................ [ 60%]\n........................................................................ [ 80%]\n......................................................................   [100%]\n=============================== warnings summary ===============================\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_line_search_failure_does_not_update_beta\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_line_search_failure_is_not_converged\n  /root/pr80-schema12-3e4d9bd-20260730/statgpu/survival/_cox.py:680: RuntimeWarning: CoxPH did not converge after 1 iterations (stop_reason=line_search_failed)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_small_step_large_kkt_is_stalled\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_final_kkt_overrides_false_success\n  /root/pr80-schema12-3e4d9bd-20260730/statgpu/survival/_cox.py:680: RuntimeWarning: CoxPH did not converge after 3 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr80_completion_contract_followup.py::test_summary_preserves_exact_formula_call\n  /root/pr80-schema12-3e4d9bd-20260730/statgpu/survival/_cox.py:680: RuntimeWarning: CoxPH did not converge after 100 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n358 passed, 5 warnings in 17.42s",
+    "passed": true,
+    "passed_count": 358,
+    "returncode": 0,
+    "summary": "358 passed, 5 warnings in 17.42s"
+  },
+  "validation_tier": "remote-full"
+}

@@ -668,4 +668,11 @@ sandwich adoption is deferred until its fit/refit boundaries can also clear
 state transactionally. External unsupported rows now separate requested and
 actual covariance contracts. Schema 12 adds physical CuPy/Torch non-PSD and
 CV cleanup gates. The complete local suite passes `1528 passed, 473 skipped`,
-with 10 expected warnings; exact-source P100 refresh is pending.
+with 10 expected warnings.
+
+Exact detached commit `3e4d9bd3159ea329c16bd761197e3ad371f64893`
+passed schema 12 on a Tesla P100-SXM2-16GB: CuPy and Torch each passed 11/11
+structured cases, the targeted matrix passed 358 tests, all 32 recorded
+Git-blob hashes match, `source_clean=true`, and `gate_failures=[]`. The
+machine-readable artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json`

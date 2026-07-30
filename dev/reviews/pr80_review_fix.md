@@ -1011,5 +1011,17 @@ performance=`one p-by-p eigendecomposition reused`; validation tier=
 Focused local tests cover the three spectrum classes, Cox state cleanup,
 CoxPHCV final-refit cleanup, external failure metadata, and NumPy/CuPy/Torch
 routing. The complete local suite passes `1528 passed, 473 skipped`, with 10
-expected warnings. Schema 12 extends the maintained physical runner with
-non-PSD Cox and CV cleanup cases; exact-source P100 evidence is pending.
+expected warnings.
+
+Exact clean detached source commit
+`3e4d9bd3159ea329c16bd761197e3ad371f64893` passed schema 12 in remote
+`myconda` on a Tesla P100-SXM2-16GB. CuPy 13.6.0 and Torch 2.0.0+cu117 each
+passed all 11 structured cases, including materially indefinite Cox/CoxPHCV
+strict-failure and state-cleanup gates; the targeted physical matrix passed
+358 tests with 5 expected warnings. All 32 Git-blob hashes match,
+`source_clean=true`, and `gate_failures=[]`.
+
+Machine-readable evidence:
+
+- `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema12.json`
+  (SHA-256 `26ae5d47c3c5f9e447c4350ef7c599e06b8ee3fd8f56890a00c1c06d7f9b8b12`).
