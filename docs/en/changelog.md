@@ -77,8 +77,10 @@
   covariance `A^-1 J A^-1` and the public delayed-entry boundary
   `start < failure_time <= stop`. Independent analytic regressions distinguish
   that covariance from the old curvature inverse and exercise a row entering
-  exactly at a failure time. The schema-14 source audit and targeted matrix now
-  include the validator and its accuracy-pipeline tests.
+  exactly at a failure time. Exact-source schema-14 validation of commit
+  `0e48291de3c78dcfa6063e11947c43274e70c6c9` on a Tesla P100 passed all
+  12/12 CuPy and 12/12 Torch cases plus 468 targeted tests; all 39 recorded
+  Git-blob hashes match, `source_clean=true`, and `gate_failures=[]`.
 - The EN/CN CoxPH model pages now explicitly document the objective and
   estimating equation, total-likelihood penalty scaling, fixed-penalty
   inference limits, runnable NumPy/CuPy/Torch CUDA fits and CV calls, external

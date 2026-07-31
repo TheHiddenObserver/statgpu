@@ -1139,16 +1139,19 @@ Breslow/Efron/Exact and NumPy/CuPy/Torch. It also proves the result is not the o
 curvature inverse, preserves the zero-penalty inverse-information contract,
 checks `CoxPHCV` provenance propagation, checks summary/test suppression, and
 exercises valid plus malformed scoring/prediction strata across all three
-backends. The local PR #80 targeted matrix passes **337 passed, 113 skipped**
-with seven expected warnings; the complete local suite passes **1541 passed,
+backends. The current local PR #80 targeted matrix passes **355 passed,
+113 skipped**
+with seven expected warnings; the complete local suite passes **1544 passed,
 487 skipped** with eleven expected warnings. Package/dev compileall,
 changed-file pyflakes, 122 maintained documentation contracts, deterministic
 bilingual links, and `git diff --check` pass.
 
 The schema-14 physical runner records the same covariance identity, metadata,
-CV propagation, and strata errors for CuPy and Torch. Implementation commit
-`b5cde49b4ada67b8a1d8728f60048d565f7436f5` is pushed; its exact-source P100
-schema-14 refresh remains pending.
+CV propagation, and strata errors for CuPy and Torch. Exact-source implementation
+commit `0e48291de3c78dcfa6063e11947c43274e70c6c9` passed all 12/12 CuPy and
+12/12 Torch cases on a Tesla P100 plus 468 physical-GPU targeted tests. The
+machine-readable artifact records `source_clean=true`, 39/39 matching Git-blob
+hashes, and `gate_failures=[]`.
 
 ## CoxPH Model-Documentation Completeness Follow-up
 
@@ -1197,16 +1200,18 @@ source audit=`expanded`.
   after an explicitly stratified fit, whereas scoring only requires labels for
   a multi-stratum fit and validates any labels that are supplied.
 
-Local evidence: the canonical accuracy-pipeline tests pass 17/17; a dirty-tree
-noncanonical smoke executes both manifest cases with 2/2 numerical/final-state
-checks passing (its overall status is intentionally NONCANONICAL_FAIL solely
-because exact evidence requires a clean commit); the expanded PR80 targeted
-matrix passes 355 tests with 113 expected GPU skips and seven expected warnings;
-the complete CPU test tree passes 1,544 tests with 487 expected GPU skips and
+Local evidence: the canonical accuracy-pipeline tests pass 17/17; the clean
+implementation commit passes the CI-equivalent canonical smoke with 2/2
+numerical/final-state checks and `gate_verdict="PASS"`; the expanded PR80
+targeted matrix passes 355 tests with 113 expected GPU skips and seven expected
+warnings. The complete CPU test tree passes 1,544 tests with 487 expected GPU skips and
 eleven expected warnings. Documentation links, all 122 maintained documentation
 contracts, compileall, changed-file pyflakes, and diff whitespace checks pass.
 
-The schema-14 runner now records 39 source files, including the canonical
-validator and its accuracy-pipeline test, and executes 16 targeted test files.
-A P100 refresh must be run from the final clean implementation commit; no older
-schema-13 artifact is claimed as evidence for this validator correction.
+The schema-14 runner records 39 source files, including the canonical validator
+and its accuracy-pipeline test, and executes 16 targeted test files. The final
+clean implementation commit `0e48291de3c78dcfa6063e11947c43274e70c6c9`
+passed all 12/12 CuPy and 12/12 Torch structured cases plus 468 targeted tests on
+a Tesla P100-SXM2-16GB in remote `myconda`. The audited artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260731_schema14.json`;
+all 39 source hashes match Git blobs and `gate_failures=[]`.

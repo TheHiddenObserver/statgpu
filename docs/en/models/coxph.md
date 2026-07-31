@@ -508,34 +508,30 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `a7655904ea05fd9ce700d35832c44f90b0176251` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260730_schema13.json` |
-| Schema / tier | `13` / `remote-full` |
+| Source commit | `0e48291de3c78dcfa6063e11947c43274e70c6c9` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260731_schema14.json` |
+| Schema / tier | `14` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
-| Structured GPU cases | CuPy 11/11; Torch 11/11 |
-| Targeted tests | 432 passed, 7 expected warnings |
-| Source audit | `source_clean=true`; 34/34 recorded Git-blob hashes matched |
+| Structured GPU cases | CuPy 12/12; Torch 12/12 |
+| Targeted tests | 468 passed, 7 expected warnings |
+| Source audit | `source_clean=true`; 39/39 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-13 scope covers public prediction/scoring boundaries, including the
+The schema-14 scope covers public prediction/scoring boundaries, including the
 single-explicit-stratum label contract and raw optimization-stop provenance;
-CV device and
-ordinary-fold preparation, prepared-state and packed-target provenance,
-hazard-ratio range handling, bounded and wide workspace routes, concordance,
-completion contracts, and robust-inference unit/PSD boundaries. It is not a
-new performance-crossover benchmark or a new R external-alignment run; those
-claims remain tied to their dedicated artifacts and detailed history in
-`dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after the
-source commit above require their own exact-source refresh before they can
-claim the same physical-GPU evidence.
+CV device and ordinary-fold preparation; prepared-state and packed-target
+provenance; hazard-ratio range handling; bounded and wide workspace routes;
+concordance; completion contracts; robust-inference unit/PSD boundaries; and
+the fixed-penalty inference plus shared strata-scoring paths. Its source audit
+also includes the corrected canonical accuracy validator and the independent
+regressions for `A^-1 J A^-1` and `start < failure_time <= stop`.
 
-The fixed-penalty inference, shared strata-scoring, and corrected canonical
-accuracy-validator changes after that commit have passed their local
-CPU/contract gates. The schema-14 source manifest now includes both the
-canonical validator and its non-circular regression tests. Its CuPy/Torch
-physical-GPU refresh remains pending until the final exact source commit is
-available; schema-13 must not be interpreted as covering those new paths.
+This is not a new performance-crossover benchmark or a new R external-alignment
+run; those claims remain tied to their dedicated artifacts and detailed history
+in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
+the source commit above require their own exact-source refresh before they can
+claim the same physical-GPU evidence.
 
 ## FAQ and Common Failure Modes
 

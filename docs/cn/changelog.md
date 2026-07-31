@@ -58,8 +58,10 @@
 - PR79 canonical Cox validator 现在与固定 penalty 的频率学派协方差
   `A^-1 J A^-1` 以及公开 delayed-entry 边界 `start < failure_time <= stop`
   一致。独立解析回归可区分该协方差与旧 curvature inverse，并覆盖一行恰好在
-  failure time 进入的边界。schema-14 源码审计与定向矩阵现已包含 validator 及其
-  accuracy-pipeline 测试。
+  failure time 进入的边界。精确源码 commit
+  `0e48291de3c78dcfa6063e11947c43274e70c6c9` 的 schema-14 验证已在 Tesla P100
+  通过 CuPy 与 Torch 各 12/12 个 case 及 468 项定向测试；39 个 Git-blob hash
+  全部匹配，`source_clean=true` 且 `gate_failures=[]`。
 - EN/CN CoxPH 模型页现在明确记录 objective、estimating equation、总 likelihood
   尺度的 penalty 口径与固定 penalty 推断限制，并提供可运行的 NumPy、CuPy CUDA、
   Torch CUDA 拟合和 CV 示例、R 外部证据及常见失败 FAQ。英文日期与损坏的参考文献
