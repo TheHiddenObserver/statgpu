@@ -1167,5 +1167,46 @@ external validation=`R artifacts linked`; EN/CN=`synchronized`.
   evidence are separately scoped. A FAQ covers unavailable CUDA, missing
   baselines/strata, robust-unit gates, singular information, exponential range,
   nonconvergence, Exact workspace, and no-pair concordance.
-- [DOC][fixed] Page dates are 2026-07-30 and the English reference ranges use
+- [DOC][fixed] Page dates are 2026-07-31 and the English reference ranges use
   Unicode en dashes instead of corrupted question marks.
+
+## Canonical Cox Validator Contract Follow-up
+
+Impact classification: production runtime=`unchanged`; canonical numerical
+reference=`corrected`; delayed-entry convention=`start < t <= stop`;
+fixed-penalty inference=`A^-1 J A^-1`; EN/CN=`synchronized`; physical GPU
+source audit=`expanded`.
+
+- [MEDIUM][VALIDATION/INFERENCE][fixed] The canonical PR79 final-state
+  recomputation now keeps the unpenalized observed information `J` as the meat,
+  adds `2 * penalty * I` only to the bread information `A`, and validates the
+  fixed-penalty frequentist covariance `A^-1 J A^-1`. A solve-first,
+  pseudoinverse-fallback policy matches the production contract without
+  importing production inference code.
+- [MEDIUM][VALIDATION/RISK-SET][fixed] Delayed-entry risk membership now uses
+  the documented open-left boundary `entry < failure_time`. A deterministic
+  valid interval with `entry == failure_time < stop` proves that the row is not
+  admitted to that failure risk set.
+- [TEST][fixed] The covariance regression uses an analytic two-feature
+  information matrix derived independently from the validator. It asserts both
+  `A^-1 J A^-1` parity and detectable disagreement with the former `A^-1`
+  expectation, closing the circular expected-value gap in the previous smoke
+  test.
+- [DOC][fixed] The Cox model FAQ now distinguishes the single-explicit-stratum
+  survival-prediction contract from scoring: prediction always needs labels
+  after an explicitly stratified fit, whereas scoring only requires labels for
+  a multi-stratum fit and validates any labels that are supplied.
+
+Local evidence: the canonical accuracy-pipeline tests pass 17/17; a dirty-tree
+noncanonical smoke executes both manifest cases with 2/2 numerical/final-state
+checks passing (its overall status is intentionally NONCANONICAL_FAIL solely
+because exact evidence requires a clean commit); the expanded PR80 targeted
+matrix passes 355 tests with 113 expected GPU skips and seven expected warnings;
+the complete CPU test tree passes 1,544 tests with 487 expected GPU skips and
+eleven expected warnings. Documentation links, all 122 maintained documentation
+contracts, compileall, changed-file pyflakes, and diff whitespace checks pass.
+
+The schema-14 runner now records 39 source files, including the canonical
+validator and its accuracy-pipeline test, and executes 16 targeted test files.
+A P100 refresh must be run from the final clean implementation commit; no older
+schema-13 artifact is claimed as evidence for this validator correction.

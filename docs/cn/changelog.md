@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-30<br>
+> 最后更新：2026-07-31<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -55,6 +55,11 @@
   LR/score/AIC/BIC 仍保持关闭。`score()` 与 `predict_survival()` 现在复用同一套
   strata shape/已知标签编码，并在各 backend 上返回一致的公开错误。schema-14
   物理 GPU runner 已覆盖这两类契约。
+- PR79 canonical Cox validator 现在与固定 penalty 的频率学派协方差
+  `A^-1 J A^-1` 以及公开 delayed-entry 边界 `start < failure_time <= stop`
+  一致。独立解析回归可区分该协方差与旧 curvature inverse，并覆盖一行恰好在
+  failure time 进入的边界。schema-14 源码审计与定向矩阵现已包含 validator 及其
+  accuracy-pipeline 测试。
 - EN/CN CoxPH 模型页现在明确记录 objective、estimating equation、总 likelihood
   尺度的 penalty 口径与固定 penalty 推断限制，并提供可运行的 NumPy、CuPy CUDA、
   Torch CUDA 拟合和 CV 示例、R 外部证据及常见失败 FAQ。英文日期与损坏的参考文献

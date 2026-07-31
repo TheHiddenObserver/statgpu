@@ -354,6 +354,70 @@ def _cox_case_and_run():
     return case, run
 
 
+def test_cox_penalized_covariance_uses_unpenalized_information_meat():
+    case = {
+        "model_id": "CoxPH",
+        "parameters": {"ties": "breslow", "penalty": 1.75},
+        "inputs": {
+            "X": [[2.0, 0.0], [0.0, 1.0], [1.0, -1.0], [-1.0, 2.0]],
+            "time": [1.0, 2.0, 3.0, 4.0],
+            "event": [1, 1, 1, 0],
+            "entry": None,
+        },
+    }
+    run = {
+        "parameters": {"ties": "breslow", "penalty": 1.75},
+        "results": {"coef_": [0.0, 0.0]},
+    }
+
+    recomputed = recompute_cox_final_state(run, case)
+
+    # Analytic observed information at beta=0 from the three suffix risk sets.
+    # This constant is intentionally independent of the recomputation helper.
+    unpenalized_information = np.array(
+        [[35.0 / 12.0, -7.0 / 2.0], [-7.0 / 2.0, 91.0 / 18.0]]
+    )
+    penalized_information = unpenalized_information + 3.5 * np.eye(2)
+    bread = np.linalg.solve(penalized_information, np.eye(2))
+    expected_covariance = bread @ unpenalized_information @ bread
+
+    np.testing.assert_allclose(
+        recomputed["unpenalized_information"],
+        unpenalized_information,
+        rtol=1e-14,
+        atol=1e-14,
+    )
+    np.testing.assert_allclose(
+        recomputed["covariance"], expected_covariance, rtol=1e-14, atol=1e-14
+    )
+    assert not np.allclose(
+        recomputed["covariance"], bread, rtol=1e-6, atol=1e-8
+    )
+
+
+def test_cox_delayed_entry_excludes_rows_entering_at_failure_time():
+    case = {
+        "model_id": "CoxPH",
+        "parameters": {"ties": "breslow", "penalty": 0.0},
+        "inputs": {
+            "X": [[0.0], [100.0], [2.0]],
+            "time": [1.0, 3.0, 2.0],
+            "event": [0, 0, 1],
+            "entry": [0.0, 2.0, 0.0],
+        },
+    }
+    run = {
+        "parameters": {"ties": "breslow", "penalty": 0.0},
+        "results": {"coef_": [0.0]},
+    }
+
+    recomputed = recompute_cox_final_state(run, case)
+
+    assert recomputed["log_likelihood"] == pytest.approx(0.0, abs=1e-15)
+    np.testing.assert_allclose(recomputed["gradient"], [0.0], atol=1e-15)
+    np.testing.assert_allclose(recomputed["hessian"], [[0.0]], atol=1e-15)
+
+
 def test_cox_final_state_is_recomputed_at_stored_beta():
     case, run = _cox_case_and_run()
     validation = validate_cox_final_state(run, case, threshold=1e-12)

@@ -62,10 +62,12 @@ SOURCE_FILES = (
     "statgpu/survival/_numeric.py",
     "statgpu/survival/_concordance.py",
     "dev/benchmarks/pr79/diagnose_cox_pen.py",
+    "dev/benchmarks/pr79/validators/numerical.py",
     "statgpu/survival/_cox_score.py",
     "statgpu/survival/_risk_sets.py",
     "dev/benchmarks/benchmark_cox_boundary_gpu.py",
     "dev/benchmarks/benchmark_cox_cluster.py",
+    "dev/tests/test_pr79_accuracy_pipeline.py",
     "dev/tests/test_pr79_complete_review_fixes.py",
     "dev/tests/test_pr79_cox_parity_smoke.py",
     "dev/tests/test_cox_core_completion.py",
@@ -84,6 +86,7 @@ SOURCE_FILES = (
 )
 
 TARGETED_TEST_FILES = (
+    "dev/tests/test_pr79_accuracy_pipeline.py",
     "dev/tests/test_pr79_complete_review_fixes.py",
     "dev/tests/test_pr79_cox_parity_smoke.py",
     "dev/tests/test_cox_core_completion.py",

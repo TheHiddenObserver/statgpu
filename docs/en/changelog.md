@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-30<br>
+> Last updated: 2026-07-31<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -73,6 +73,12 @@
   suppressed. `score()` and `predict_survival()` now share one strata
   shape/known-label encoder with backend-independent public errors. The
   schema-14 physical-GPU runner includes both contracts.
+- The PR79 canonical Cox validator now mirrors the fixed-penalty frequentist
+  covariance `A^-1 J A^-1` and the public delayed-entry boundary
+  `start < failure_time <= stop`. Independent analytic regressions distinguish
+  that covariance from the old curvature inverse and exercise a row entering
+  exactly at a failure time. The schema-14 source audit and targeted matrix now
+  include the validator and its accuracy-pipeline tests.
 - The EN/CN CoxPH model pages now explicitly document the objective and
   estimating equation, total-likelihood penalty scaling, fixed-penalty
   inference limits, runnable NumPy/CuPy/Torch CUDA fits and CV calls, external

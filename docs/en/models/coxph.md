@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-07-30<br>
+> Last updated: 2026-07-31<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -530,9 +530,11 @@ claims remain tied to their dedicated artifacts and detailed history in
 source commit above require their own exact-source refresh before they can
 claim the same physical-GPU evidence.
 
-The fixed-penalty inference and shared strata-scoring changes after that
-commit have passed the local CPU/contract matrix. Their schema-14 CuPy/Torch
-physical-GPU refresh remains pending until an exact implementation commit is
+The fixed-penalty inference, shared strata-scoring, and corrected canonical
+accuracy-validator changes after that commit have passed their local
+CPU/contract gates. The schema-14 source manifest now includes both the
+canonical validator and its non-circular regression tests. Its CuPy/Torch
+physical-GPU refresh remains pending until the final exact source commit is
 available; schema-13 must not be interpreted as covering those new paths.
 
 ## FAQ and Common Failure Modes
@@ -541,7 +543,8 @@ available; schema-13 must not be interpreted as covering those new paths.
 |---|---|
 | Explicit `device="cuda"` or `device="torch"` fails | The requested package, CUDA runtime, or device is unavailable. Install a compatible backend or use `device="cpu"`; StatGPU does not silently fall back. |
 | `predict_survival()` says the baseline is unavailable | Refit with `compute_inference=True`; risk-score and hazard-ratio prediction do not need a baseline. |
-| Stratified prediction or scoring rejects labels | Supply one known training stratum per row with shape `(n_samples,)`, even when training used one explicit stratum. |
+| Stratified survival prediction rejects labels | An explicitly stratified fit always requires one known training stratum per prediction row with shape `(n_samples,)`, even when training used one stratum. |
+| Stratified scoring rejects labels | A multi-stratum fit requires one known label per row. A single-stratum fit may omit labels; supplied labels must still have shape `(n_samples,)` and be known. |
 | `HC1 covariance requires n_units > n_features` | Increase independent subjects/clusters, reduce the feature count, or use a covariance contract justified for the study design. |
 | Robust covariance requires at least two units | A one-subject or one-cluster sandwich cannot estimate between-unit variation. Estimation-only fitting remains available with `compute_inference=False`. |
 | Observed information is singular | Check collinearity, invariant columns, separation/saturation, and event support; reduce the design or use an explicitly justified L2 penalty. |

@@ -169,7 +169,7 @@ def recompute_cox_final_state(
         failed = np.flatnonzero((time == failure_time) & (event == 1.0))
         at_risk = time >= failure_time
         if entry is not None:
-            at_risk &= entry <= failure_time
+            at_risk &= entry < failure_time
         risk_index = np.flatnonzero(at_risk)
         if risk_index.size == 0:
             raise NumericalValidationError("Cox event has an empty risk set")
@@ -205,9 +205,15 @@ def recompute_cox_final_state(
 
     penalized_objective = log_likelihood - penalty * float(beta @ beta)
     penalized_gradient = gradient - 2.0 * penalty * beta
-    penalized_hessian = hessian - 2.0 * penalty * np.eye(p)
-    information = -penalized_hessian
-    covariance = np.linalg.pinv(information, hermitian=True)
+    identity = np.eye(p)
+    unpenalized_information = -hessian
+    penalized_information = unpenalized_information + 2.0 * penalty * identity
+    penalized_hessian = -penalized_information
+    try:
+        bread = np.linalg.solve(penalized_information, identity)
+    except np.linalg.LinAlgError:
+        bread = np.linalg.pinv(penalized_information, hermitian=True)
+    covariance = bread @ unpenalized_information @ bread
     covariance = 0.5 * (covariance + covariance.T)
     bse = np.sqrt(np.maximum(np.diag(covariance), 0.0))
     kkt_inf = float(np.linalg.norm(penalized_gradient, ord=np.inf))
@@ -235,6 +241,8 @@ def recompute_cox_final_state(
         "gradient": gradient,
         "hessian": hessian,
         "penalized_hessian": penalized_hessian,
+        "unpenalized_information": unpenalized_information,
+        "penalized_information": penalized_information,
         "covariance": covariance,
         "bse": bse,
         "kkt_inf": kkt_inf,

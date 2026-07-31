@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-07-30<br>
+> 最后更新：2026-07-31<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -468,9 +468,10 @@ artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 sourc
 的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的物理 GPU
 覆盖。
 
-该 commit 之后新增的固定 penalty 推断与共享 strata 评分变更已经通过本地
-CPU/契约矩阵。其 schema-14 CuPy/Torch 物理 GPU 刷新仍需等待精确实现 commit；
-schema-13 不应被解释为覆盖这些新路径。
+该 commit 之后新增的固定 penalty 推断、共享 strata 评分以及修正后的 canonical
+accuracy validator 已通过相应的本地 CPU/契约门禁。schema-14 source manifest
+现在同时包含 canonical validator 与非循环生成期望值的回归测试；其 CuPy/Torch 物理
+GPU 刷新仍需等待最终精确源码 commit，schema-13 不应被解释为覆盖这些新路径。
 
 ## FAQ 与常见失败模式
 
@@ -478,7 +479,8 @@ schema-13 不应被解释为覆盖这些新路径。
 |---|---|
 | 显式 `device="cuda"` 或 `device="torch"` 失败 | 对应 package、CUDA runtime 或设备不可用。安装兼容后端或改用 `device="cpu"`；StatGPU 不会静默回退。 |
 | `predict_survival()` 提示 baseline 不可用 | 使用 `compute_inference=True` 重新拟合；risk-score 与 hazard-ratio 预测不需要 baseline。 |
-| 分层预测或评分拒绝标签 | 每行提供一个训练时已知的 stratum，shape 必须为 `(n_samples,)`；训练时只有一个显式 stratum 也不能省略。 |
+| 分层生存预测拒绝标签 | 只要拟合时显式分层，每个预测行都必须提供一个训练时已知的 stratum，shape 为 `(n_samples,)`；训练时只有一个 stratum 也不能省略。 |
+| 分层评分拒绝标签 | 多 stratum 拟合必须逐行提供已知标签；单 stratum 拟合可省略标签，但一旦提供，仍必须具有 `(n_samples,)` shape 且属于训练标签。 |
 | `HC1 covariance requires n_units > n_features` | 增加独立 subject/cluster、减少特征，或采用研究设计能够支持的协方差契约。 |
 | 稳健协方差要求至少两个独立单元 | 单 subject/cluster 无法估计单元间变异；可用 `compute_inference=False` 仅执行估计。 |
 | observed information singular | 检查共线性、常量列、separation/saturation 与事件支持；减少设计或使用有明确依据的 L2 penalty。 |
