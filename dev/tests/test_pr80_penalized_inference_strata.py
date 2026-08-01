@@ -43,6 +43,39 @@ def _backend_inputs(backend_name, *values):
     return "torch", tuple(converted)
 
 
+def _to_numpy(backend_name, value):
+    if backend_name == "numpy":
+        return np.asarray(value)
+    if backend_name == "cupy":
+        import cupy as cp
+
+        return cp.asnumpy(value)
+    return value.detach().cpu().numpy()
+
+
+def _eventless_stratum_sample(seed=12840):
+    rng = np.random.default_rng(seed)
+    n_event_stratum = 48
+    n_eventless_stratum = 16
+    X = rng.normal(size=(n_event_stratum + n_eventless_stratum, 1))
+    beta = np.array([0.35])
+    failure = rng.exponential(
+        scale=np.exp(-(X[:n_event_stratum] @ beta))
+    ) + 0.05
+    censor = rng.exponential(scale=2.0, size=n_event_stratum) + 0.05
+    stop = np.empty(X.shape[0], dtype=np.float64)
+    stop[:n_event_stratum] = np.minimum(failure, censor)
+    stop[n_event_stratum:] = rng.uniform(
+        0.1, 3.0, size=n_eventless_stratum
+    )
+    event = np.zeros(X.shape[0], dtype=np.float64)
+    event[:n_event_stratum] = failure <= censor
+    event[:16] = 1.0
+    strata = np.zeros(X.shape[0], dtype=np.int64)
+    strata[n_event_stratum:] = 1
+    return X, stop, event, strata, n_event_stratum
+
+
 @pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
 @pytest.mark.parametrize("ties", ["breslow", "efron", "exact"])
 def test_penalized_nonrobust_uses_fixed_penalty_sandwich(backend_name, ties):
@@ -182,6 +215,119 @@ def test_score_and_survival_share_strata_shape_and_label_contract(backend_name):
         model.score(Xb, stopb, eventb, strata=unknown)
     with pytest.raises(ValueError, match="unknown prediction stratum"):
         model.predict_survival(Xb[:4], strata=unknown[:4])
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+def test_eventless_stratum_survival_is_one_for_all_time_modes(backend_name):
+    X, stop, event, strata, split = _eventless_stratum_sample()
+    device, (Xb, stopb, eventb, stratab) = _backend_inputs(
+        backend_name, X, stop, event, strata
+    )
+    model = CoxPH(
+        ties="efron",
+        device=device,
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+    ).fit(Xb, stopb, eventb, strata=stratab)
+
+    empty_baseline = model._baseline_by_stratum[1]
+    assert empty_baseline["time"].shape == (0,)
+    assert empty_baseline["cumulative_hazard"].shape == (0,)
+
+    explicit_times = np.array(
+        [0.0, np.median(stop[event == 1.0]), np.max(stop[event == 1.0]) + 1.0]
+    )
+    eventless_survival, returned_times = model.predict_survival(
+        Xb[split : split + 3],
+        times=explicit_times,
+        strata=stratab[split : split + 3],
+    )
+    eventless_np = _to_numpy(backend_name, eventless_survival)
+    assert eventless_np.shape == (3, explicit_times.size)
+    assert np.all(np.isfinite(eventless_np))
+    np.testing.assert_allclose(eventless_np, 1.0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(
+        _to_numpy(backend_name, returned_times), explicit_times
+    )
+
+    automatic_survival, automatic_times = model.predict_survival(
+        Xb[split : split + 3],
+        strata=stratab[split : split + 3],
+    )
+    automatic_np = _to_numpy(backend_name, automatic_survival)
+    assert automatic_np.shape == (
+        3,
+        int(automatic_times.shape[0]),
+    )
+    assert automatic_np.shape[1] > 0
+    assert np.all(np.isfinite(automatic_np))
+    np.testing.assert_allclose(automatic_np, 1.0, rtol=0.0, atol=0.0)
+
+    mixed_indices = np.array([0, split])
+    _, (mixed_X, mixed_strata) = _backend_inputs(
+        backend_name, X[mixed_indices], strata[mixed_indices]
+    )
+    mixed_survival, mixed_times = model.predict_survival(
+        mixed_X, times=explicit_times, strata=mixed_strata
+    )
+    mixed_np = _to_numpy(backend_name, mixed_survival)
+    assert mixed_np.shape == (2, int(mixed_times.shape[0]))
+    assert np.all(np.isfinite(mixed_np))
+    assert np.any(mixed_np[0] < 1.0)
+    np.testing.assert_allclose(mixed_np[1], 1.0, rtol=0.0, atol=0.0)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+def test_coxphcv_delegates_eventless_stratum_survival(backend_name):
+    X, stop, event, strata, split = _eventless_stratum_sample(seed=12841)
+    device, (Xb, stopb, eventb, stratab) = _backend_inputs(
+        backend_name, X, stop, event, strata
+    )
+    model = CoxPHCV(
+        penalties=[0.2],
+        cv=2,
+        random_state=23,
+        ties="efron",
+        device=device,
+        compute_inference=True,
+        max_iter=100,
+        tol=1e-8,
+    ).fit(Xb, stopb, eventb, strata=stratab)
+
+    assert model.estimator_._baseline_by_stratum[1]["time"].shape == (0,)
+    times = np.array([0.0, 0.5, np.max(stop[event == 1.0]) + 1.0])
+    survival, returned_times = model.predict_survival(
+        Xb[split : split + 2],
+        times=times,
+        strata=stratab[split : split + 2],
+    )
+    survival_np = _to_numpy(backend_name, survival)
+    assert survival_np.shape == (2, times.size)
+    assert np.all(np.isfinite(survival_np))
+    np.testing.assert_allclose(survival_np, 1.0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(_to_numpy(backend_name, returned_times), times)
+
+
+def test_eventless_stratum_still_rejects_mismatched_baseline_shapes():
+    X, stop, event, strata, split = _eventless_stratum_sample(seed=12842)
+    model = CoxPH(
+        ties="efron",
+        device="cpu",
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+    ).fit(X, stop, event, strata=strata)
+    model._baseline_by_stratum[1]["cumulative_hazard"] = np.array([0.0])
+
+    with pytest.raises(
+        RuntimeError, match="Stored baseline hazard state is inconsistent"
+    ):
+        model.predict_survival(
+            X[split : split + 1],
+            times=[0.0, 1.0],
+            strata=strata[split : split + 1],
+        )
 
 
 def test_scalar_string_scoring_strata_has_public_shape_error():

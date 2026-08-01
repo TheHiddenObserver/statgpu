@@ -1,9 +1,19 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-31<br>
+> 最后更新：2026-08-01<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 2026-08
+
+### 修复（2026-08-01）— PR #80 无事件 stratum 预测后续
+
+- `predict_survival()` 现在把已拟合但没有观察 failure 的 stratum 空 baseline 视为合法：
+  累计 baseline hazard 恒为零，生存率精确为 1；存储的 time/hazard shape 不匹配仍失败。
+- NumPy/CuPy/Torch 测试覆盖显式与自动 times、混合有事件/无事件预测行以及 `CoxPHCV`
+  委托。物理 runner 升级为 schema 15 并加入机器可读专用 case；backend-import 检查名称
+  也缩窄到实际审计的 dispatch 范围，避免声称覆盖整个 model layer。
 
 ## 2026-07
 

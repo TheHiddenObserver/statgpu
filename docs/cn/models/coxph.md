@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-07-31<br>
+> 最后更新：2026-08-01<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -395,6 +395,11 @@ torch_cv = CoxPHCV(
 scalar、二维、长度错误或未知标签都会在 backend concordance 计算前统一抛出
 `ValueError`。
 
+若某个已拟合 stratum 没有观察到任何 failure，其空 baseline-hazard state 是合法状态。
+该 stratum 在任意时间的累计 baseline hazard 均为零，因此 `predict_survival()` 精确返回
+1。显式 times、自动 times、混合 strata 预测行和 `CoxPHCV` 委托路径都遵守此契约；
+存储的 time/hazard shape 不匹配仍属于非法状态。
+
 `predict_risk_score()` 返回未取指数的 log-risk。canonical、CV 与 penalized
 Cox 的 hazard-ratio 预测 API 共享严格的 float64 指数边界；canonical/CV 拟合后
 `hazard_ratios_` 采用相同边界。会溢出为无穷或下溢为零的值，在 canonical/CV
@@ -471,6 +476,11 @@ strata 评分路径。其源码审计还包含修正后的 canonical accuracy va
 commit 之后的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的
 物理 GPU 覆盖。
 
+无事件 stratum 的生存预测修复晚于 schema-14 source commit。schema-15 runner 已增加
+专用 CuPy/Torch case，以及覆盖显式/自动 times、混合预测行与 `CoxPHCV` 委托的参数化
+维护测试；物理 GPU 刷新仍需等待最终精确 clean implementation commit，schema 14
+不应被解释为覆盖这条新 runtime 路径。
+
 ## FAQ 与常见失败模式
 
 | 现象 | 含义与处理 |
@@ -479,6 +489,7 @@ commit 之后的运行时或维护测试变更必须刷新自己的精确源码�
 | `predict_survival()` 提示 baseline 不可用 | 使用 `compute_inference=True` 重新拟合；risk-score 与 hazard-ratio 预测不需要 baseline。 |
 | 分层生存预测拒绝标签 | 只要拟合时显式分层，每个预测行都必须提供一个训练时已知的 stratum，shape 为 `(n_samples,)`；训练时只有一个 stratum 也不能省略。 |
 | 分层评分拒绝标签 | 多 stratum 拟合必须逐行提供已知标签；单 stratum 拟合可省略标签，但一旦提供，仍必须具有 `(n_samples,)` shape 且属于训练标签。 |
+| 已知 stratum 的生存率恒为 1 | 该拟合 stratum 没有观察到 failure，累计 baseline hazard 恒为零；这是合法拟合状态，不是 baseline 数据缺失。 |
 | `HC1 covariance requires n_units > n_features` | 增加独立 subject/cluster、减少特征，或采用研究设计能够支持的协方差契约。 |
 | 稳健协方差要求至少两个独立单元 | 单 subject/cluster 无法估计单元间变异；可用 `compute_inference=False` 仅执行估计。 |
 | observed information singular | 检查共线性、常量列、separation/saturation 与事件支持；减少设计或使用有明确依据的 L2 penalty。 |

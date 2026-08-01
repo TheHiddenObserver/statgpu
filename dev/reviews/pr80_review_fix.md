@@ -1204,8 +1204,8 @@ Local evidence: the canonical accuracy-pipeline tests pass 17/17; the clean
 implementation commit passes the CI-equivalent canonical smoke with 2/2
 numerical/final-state checks and `gate_verdict="PASS"`; the expanded PR80
 targeted matrix passes 355 tests with 113 expected GPU skips and seven expected
-warnings. The complete CPU test tree passes 1,544 tests with 487 expected GPU skips and
-eleven expected warnings. Documentation links, all 122 maintained documentation
+warnings. The complete CPU test tree passes 1,544 tests with 487 expected GPU
+skips and eleven expected warnings. Documentation links, all 122 maintained documentation
 contracts, compileall, changed-file pyflakes, and diff whitespace checks pass.
 
 The schema-14 runner records 39 source files, including the canonical validator
@@ -1215,3 +1215,48 @@ passed all 12/12 CuPy and 12/12 Torch structured cases plus 468 targeted tests o
 a Tesla P100-SXM2-16GB in remote `myconda`. The audited artifact is
 `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260731_schema14.json`;
 all 39 source hashes match Git blobs and `gate_failures=[]`.
+
+## Eventless-Stratum Survival Prediction Follow-up
+
+Impact classification: runtime prediction=`corrected`; coefficient estimation,
+risk-set objective, baseline construction, and inference=`unchanged`; public
+result contract=`survival exactly one for a fitted stratum with no failures`;
+EN/CN=`synchronized`; exact-source physical evidence=`schema 15 pending`.
+
+- [MEDIUM][CORRECTNESS/PREDICTION][fixed] `cox_baseline_hazard()` intentionally
+  stores empty arrays for a fitted stratum with no observed failures. The
+  prediction consumer now distinguishes that valid zero-hazard state from a
+  mismatched stored time/hazard shape. Empty knots leave the prefilled survival
+  row exactly one without allocation; incompatible shapes still raise.
+- [TEST][fixed] The pre-fix regression deterministically failed in both direct
+  `CoxPH` and delegated `CoxPHCV` calls at the former empty-knot guard. The
+  NumPy/CuPy/Torch matrix now covers explicit times, automatic union times,
+  mixed eventful/eventless rows, CV delegation, finite output, exact ones, and
+  continued rejection of corrupted baseline shapes.
+- [VALIDATION][updated] The physical runner is schema 15 and adds a structured
+  `eventless_stratum_survival` case for each GPU backend. It records the empty
+  producer state, explicit/automatic/mixed prediction results, and CV
+  delegation. The source and targeted-test manifests remain 39 and 16 files.
+- [LOW][VALIDATION/MAINT][fixed] The machine-readable field formerly named
+  `direct_backend_imports_absent` only inspected
+  `_fit_counting_process_dispatch`; schema 15 narrows it to
+  `dispatch_direct_backend_imports_absent` instead of implying a model-wide AST
+  audit.
+- [LOW][MAINT/EXT][deferred] Splitting prediction/baseline responsibilities out
+  of `_cox.py`, validating CoxPHCV side-array dimensions before flattening,
+  centralizing final-estimator state adoption, and moving label factorization
+  into the backend layer remain worthwhile follow-ups. They are not required to
+  correct this established baseline-state contract and are intentionally not
+  mixed into the runtime patch.
+
+Local evidence: the focused file passes 12 tests with 12 expected GPU skips;
+the schema-targeted matrix passes 358 tests with 117 expected GPU skips and
+seven expected warnings; the complete CPU tree passes 1,547 tests with 491
+expected GPU skips and eleven expected warnings. Documentation links, all 122
+maintained documentation contracts, package/dev compileall, changed-file
+pyflakes, and `git diff --check` pass.
+
+Because `_cox.py` changes after the schema-14 source commit, the previous P100
+artifact does not cover the final runtime path. A schema-15 P100 refresh must be
+run from the eventual clean implementation commit before this follow-up can be
+marked physically complete.

@@ -1279,7 +1279,7 @@ def _case_completion_contract(name: str, xp) -> dict:
         )
     )
     dispatch_source = inspect.getsource(CoxPH._fit_counting_process_dispatch)
-    direct_backend_imports_absent = (
+    dispatch_direct_backend_imports_absent = (
         "import cupy" not in dispatch_source
         and "import torch" not in dispatch_source
     )
@@ -1304,7 +1304,7 @@ def _case_completion_contract(name: str, xp) -> dict:
             sync_calls == [{"values": 3, "backend": name}],
             np.isfinite(score_value),
             inference_contract,
-            direct_backend_imports_absent,
+            dispatch_direct_backend_imports_absent,
             import_time_adapter_absent,
             legacy_mixin_isolated,
         )
@@ -1319,7 +1319,7 @@ def _case_completion_contract(name: str, xp) -> dict:
         "ordinary_concordance_sync_calls": sync_calls,
         "concordance": score_value,
         "inference_result_contract": inference_contract,
-        "direct_backend_imports_absent": direct_backend_imports_absent,
+        "dispatch_direct_backend_imports_absent": dispatch_direct_backend_imports_absent,
         "import_time_adapter_absent": import_time_adapter_absent,
         "legacy_mixin_isolated": legacy_mixin_isolated,
         "passed": bool(passed),
@@ -1716,6 +1716,142 @@ def _case_penalized_inference_and_strata(name: str, xp) -> dict:
         "passed": bool(passed),
     }
 
+
+def _case_eventless_stratum_survival(name: str, xp) -> dict:
+    """Audit the valid zero-baseline survival contract on physical GPU."""
+    device = "cuda" if name == "cupy" else "torch"
+    rng = np.random.default_rng(2288)
+    split = 48
+    X_np = rng.normal(size=(64, 1))
+    beta = np.array([0.35])
+    failure = rng.exponential(scale=np.exp(-(X_np[:split] @ beta))) + 0.05
+    censor = rng.exponential(scale=2.0, size=split) + 0.05
+    stop_np = np.empty(X_np.shape[0], dtype=np.float64)
+    stop_np[:split] = np.minimum(failure, censor)
+    stop_np[split:] = rng.uniform(0.1, 3.0, size=X_np.shape[0] - split)
+    event_np = np.zeros(X_np.shape[0], dtype=np.float64)
+    event_np[:split] = failure <= censor
+    event_np[:16] = 1.0
+    strata_np = np.zeros(X_np.shape[0], dtype=np.int64)
+    strata_np[split:] = 1
+
+    X = _array(name, xp, X_np)
+    stop = _array(name, xp, stop_np)
+    event = _array(name, xp, event_np)
+    strata = (
+        xp.asarray(strata_np, dtype=xp.int64)
+        if name == "cupy"
+        else xp.as_tensor(strata_np, dtype=xp.int64, device="cuda")
+    )
+    model = CoxPH(
+        ties="efron",
+        device=device,
+        compute_inference=True,
+        compute_cindex=False,
+        max_iter=100,
+    ).fit(X, stop, event, strata=strata)
+
+    explicit_times = np.array(
+        [
+            0.0,
+            np.median(stop_np[event_np == 1.0]),
+            np.max(stop_np[event_np == 1.0]) + 1.0,
+        ]
+    )
+    explicit, returned_times = model.predict_survival(
+        X[split : split + 3],
+        times=explicit_times,
+        strata=strata[split : split + 3],
+    )
+    automatic, automatic_times = model.predict_survival(
+        X[split : split + 3],
+        strata=strata[split : split + 3],
+    )
+    mixed_indices = np.array([0, split])
+    mixed_X = _array(name, xp, X_np[mixed_indices])
+    mixed_strata_np = strata_np[mixed_indices]
+    mixed_strata = (
+        xp.asarray(mixed_strata_np, dtype=xp.int64)
+        if name == "cupy"
+        else xp.as_tensor(mixed_strata_np, dtype=xp.int64, device="cuda")
+    )
+    mixed, mixed_times = model.predict_survival(
+        mixed_X, times=explicit_times, strata=mixed_strata
+    )
+
+    cv_model = CoxPHCV(
+        penalties=[0.2],
+        cv=2,
+        random_state=23,
+        ties="efron",
+        device=device,
+        compute_inference=True,
+        max_iter=100,
+        tol=1e-8,
+    ).fit(X, stop, event, strata=strata)
+    cv_survival, cv_times = cv_model.predict_survival(
+        X[split : split + 2],
+        times=explicit_times,
+        strata=strata[split : split + 2],
+    )
+
+    explicit_np = _numpy(name, explicit)
+    returned_times_np = _numpy(name, returned_times)
+    automatic_np = _numpy(name, automatic)
+    automatic_times_np = _numpy(name, automatic_times)
+    mixed_np = _numpy(name, mixed)
+    mixed_times_np = _numpy(name, mixed_times)
+    cv_np = _numpy(name, cv_survival)
+    cv_times_np = _numpy(name, cv_times)
+    empty_baseline = model._baseline_by_stratum[1]
+    cv_empty_baseline = cv_model.estimator_._baseline_by_stratum[1]
+
+    passed = all(
+        (
+            empty_baseline["time"].shape == (0,),
+            empty_baseline["cumulative_hazard"].shape == (0,),
+            cv_empty_baseline["time"].shape == (0,),
+            explicit_np.shape == (3, explicit_times.size),
+            np.all(np.isfinite(explicit_np)),
+            np.array_equal(explicit_np, np.ones_like(explicit_np)),
+            np.allclose(returned_times_np, explicit_times),
+            automatic_np.shape == (3, automatic_times_np.size),
+            automatic_times_np.size > 0,
+            np.all(np.isfinite(automatic_np)),
+            np.array_equal(automatic_np, np.ones_like(automatic_np)),
+            mixed_np.shape == (2, mixed_times_np.size),
+            np.all(np.isfinite(mixed_np)),
+            np.any(mixed_np[0] < 1.0),
+            np.array_equal(mixed_np[1], np.ones_like(mixed_np[1])),
+            cv_np.shape == (2, explicit_times.size),
+            np.all(np.isfinite(cv_np)),
+            np.array_equal(cv_np, np.ones_like(cv_np)),
+            np.allclose(cv_times_np, explicit_times),
+        )
+    )
+    return {
+        "backend": name,
+        "baseline_contract": "no failures => cumulative hazard 0 => survival 1",
+        "empty_baseline_shape": list(empty_baseline["time"].shape),
+        "explicit_times_shape": list(explicit_np.shape),
+        "explicit_max_abs_error_from_one": float(
+            np.max(np.abs(explicit_np - 1.0))
+        ),
+        "automatic_times_count": int(automatic_times_np.size),
+        "automatic_max_abs_error_from_one": float(
+            np.max(np.abs(automatic_np - 1.0))
+        ),
+        "mixed_shape": list(mixed_np.shape),
+        "mixed_eventless_max_abs_error_from_one": float(
+            np.max(np.abs(mixed_np[1] - 1.0))
+        ),
+        "mixed_eventful_min_survival": float(np.min(mixed_np[0])),
+        "cv_shape": list(cv_np.shape),
+        "cv_max_abs_error_from_one": float(np.max(np.abs(cv_np - 1.0))),
+        "passed": bool(passed),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -1724,7 +1860,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 14,
+        "schema_version": 15,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -1771,6 +1907,9 @@ def main() -> int:
                 ),
                 "penalized_inference_and_strata": (
                     _case_penalized_inference_and_strata(name, xp)
+                ),
+                "eventless_stratum_survival": (
+                    _case_eventless_stratum_survival(name, xp)
                 ),
             }
             report["backends"][name] = {

@@ -1697,8 +1697,12 @@ class CoxPH(BaseEstimator):
                 continue
             knots = backend.asarray(baseline["time"], dtype=backend.float64)
             values = backend.asarray(baseline["cumulative_hazard"], dtype=backend.float64)
-            if knots.ndim != 1 or values.shape != knots.shape or int(knots.shape[0]) == 0:
+            if knots.ndim != 1 or values.shape != knots.shape:
                 raise RuntimeError("Stored baseline hazard state is inconsistent.")
+            if int(knots.shape[0]) == 0:
+                # A fitted stratum with no failures has zero cumulative baseline
+                # hazard, so the prefilled survival result remains exactly one.
+                continue
             positions = xp.searchsorted(knots, eval_times, side="right") - 1
             safe = backend.clip(positions, 0, int(knots.shape[0]) - 1)
             cumulative = xp.where(positions >= 0, values[safe], xp.zeros_like(eval_times))

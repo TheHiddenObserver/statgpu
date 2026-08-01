@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-07-31<br>
+> Last updated: 2026-08-01<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -445,6 +445,13 @@ two-dimensional, wrong-length, or unseen labels consistently raise
 baseline accumulation for numerical stability. Formula-fitted models apply
 their saved design transformation before prediction.
 
+A fitted stratum with no observed failures has a valid empty baseline-hazard
+state. Its cumulative baseline hazard is zero at every time, so
+`predict_survival()` returns exactly one for that stratum. This applies to
+explicit times, automatically selected times, mixed-stratum prediction rows,
+and the delegated `CoxPHCV` path; a mismatched stored time/hazard shape remains
+an invalid state.
+
 `predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
 prediction APIs use one strict float64 exponential boundary across canonical,
 CV, and penalized Cox models; canonical/CV fitted `hazard_ratios_` use the same
@@ -533,6 +540,13 @@ in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
 the source commit above require their own exact-source refresh before they can
 claim the same physical-GPU evidence.
 
+The eventless-stratum survival fix postdates the schema-14 source commit. Its
+schema-15 runner adds a dedicated CuPy/Torch case plus parameterized maintained
+tests for explicit and automatic times, mixed prediction rows, and `CoxPHCV`
+delegation. The physical-GPU refresh remains pending until an exact clean
+implementation commit is available; schema 14 must not be interpreted as
+covering this new runtime path.
+
 ## FAQ and Common Failure Modes
 
 | Symptom | Meaning and action |
@@ -541,6 +555,7 @@ claim the same physical-GPU evidence.
 | `predict_survival()` says the baseline is unavailable | Refit with `compute_inference=True`; risk-score and hazard-ratio prediction do not need a baseline. |
 | Stratified survival prediction rejects labels | An explicitly stratified fit always requires one known training stratum per prediction row with shape `(n_samples,)`, even when training used one stratum. |
 | Stratified scoring rejects labels | A multi-stratum fit requires one known label per row. A single-stratum fit may omit labels; supplied labels must still have shape `(n_samples,)` and be known. |
+| Survival is exactly one for a known stratum | That fitted stratum had no observed failures, so its cumulative baseline hazard is identically zero. This is a valid fitted state, not missing baseline data. |
 | `HC1 covariance requires n_units > n_features` | Increase independent subjects/clusters, reduce the feature count, or use a covariance contract justified for the study design. |
 | Robust covariance requires at least two units | A one-subject or one-cluster sandwich cannot estimate between-unit variation. Estimation-only fitting remains available with `compute_inference=False`. |
 | Observed information is singular | Check collinearity, invariant columns, separation/saturation, and event support; reduce the design or use an explicitly justified L2 penalty. |

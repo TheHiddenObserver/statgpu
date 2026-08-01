@@ -1,9 +1,21 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-31<br>
+> Last updated: 2026-08-01<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## 2026-08
+
+### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
+
+- `predict_survival()` now treats an empty baseline for a fitted stratum with no
+  observed failures as valid: cumulative baseline hazard remains zero and
+  survival remains exactly one. Stored time/hazard shape mismatches still fail.
+- NumPy/CuPy/Torch tests cover explicit and automatic times, mixed eventful and
+  eventless prediction rows, and `CoxPHCV` delegation. The physical runner is
+  advanced to schema 15 with a dedicated machine-readable case; its dispatch-
+  scoped backend-import check is renamed to avoid a model-layer-wide claim.
 
 ## 2026-07
 
