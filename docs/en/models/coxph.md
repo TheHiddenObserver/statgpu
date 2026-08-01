@@ -515,37 +515,32 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `0e48291de3c78dcfa6063e11947c43274e70c6c9` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260731_schema14.json` |
-| Schema / tier | `14` / `remote-full` |
+| Source commit | `0d33a4fa64e7bf023407c4f691d008995ae67493` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260801_schema15.json` |
+| Schema / tier | `15` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
-| Structured GPU cases | CuPy 12/12; Torch 12/12 |
-| Targeted tests | 468 passed, 7 expected warnings |
+| Structured GPU cases | CuPy 13/13; Torch 13/13 |
+| Targeted tests | 475 passed, 7 expected warnings |
 | Source audit | `source_clean=true`; 39/39 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-14 scope covers public prediction/scoring boundaries, including the
+The schema-15 scope covers public prediction/scoring boundaries, including the
 single-explicit-stratum label contract and raw optimization-stop provenance;
 CV device and ordinary-fold preparation; prepared-state and packed-target
 provenance; hazard-ratio range handling; bounded and wide workspace routes;
 concordance; completion contracts; robust-inference unit/PSD boundaries; and
-the fixed-penalty inference plus shared strata-scoring paths. Its source audit
-also includes the corrected canonical accuracy validator and the independent
-regressions for `A^-1 J A^-1` and `start < failure_time <= stop`.
+the fixed-penalty inference plus shared strata-scoring paths. It additionally
+exercises the valid eventless-stratum baseline with explicit/automatic times,
+mixed prediction rows, and `CoxPHCV` delegation. Its source audit also includes
+the corrected canonical accuracy validator and independent regressions for
+`A^-1 J A^-1` and `start < failure_time <= stop`.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
 in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
 the source commit above require their own exact-source refresh before they can
 claim the same physical-GPU evidence.
-
-The eventless-stratum survival fix postdates the schema-14 source commit. Its
-schema-15 runner adds a dedicated CuPy/Torch case plus parameterized maintained
-tests for explicit and automatic times, mixed prediction rows, and `CoxPHCV`
-delegation. The physical-GPU refresh remains pending until an exact clean
-implementation commit is available; schema 14 must not be interpreted as
-covering this new runtime path.
 
 ## FAQ and Common Failure Modes
 

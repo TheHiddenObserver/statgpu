@@ -16,6 +16,9 @@
   eventless prediction rows, and `CoxPHCV` delegation. The physical runner is
   advanced to schema 15 with a dedicated machine-readable case; its dispatch-
   scoped backend-import check is renamed to avoid a model-layer-wide claim.
+  Exact-source P100 validation of commit `0d33a4fa64e7bf023407c4f691d008995ae67493`
+  passed CuPy and Torch 13/13 cases plus 475 targeted tests; all 39 recorded
+  Git-blob hashes match, `source_clean=true`, and `gate_failures=[]`.
 
 ## 2026-07
 

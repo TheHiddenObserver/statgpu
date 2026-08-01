@@ -1221,7 +1221,7 @@ all 39 source hashes match Git blobs and `gate_failures=[]`.
 Impact classification: runtime prediction=`corrected`; coefficient estimation,
 risk-set objective, baseline construction, and inference=`unchanged`; public
 result contract=`survival exactly one for a fitted stratum with no failures`;
-EN/CN=`synchronized`; exact-source physical evidence=`schema 15 pending`.
+EN/CN=`synchronized`; exact-source physical evidence=`schema 15 complete`.
 
 - [MEDIUM][CORRECTNESS/PREDICTION][fixed] `cox_baseline_hazard()` intentionally
   stores empty arrays for a fitted stratum with no observed failures. The
@@ -1256,7 +1256,12 @@ expected GPU skips and eleven expected warnings. Documentation links, all 122
 maintained documentation contracts, package/dev compileall, changed-file
 pyflakes, and `git diff --check` pass.
 
-Because `_cox.py` changes after the schema-14 source commit, the previous P100
-artifact does not cover the final runtime path. A schema-15 P100 refresh must be
-run from the eventual clean implementation commit before this follow-up can be
-marked physically complete.
+Exact-source implementation commit `0d33a4fa64e7bf023407c4f691d008995ae67493`
+passed all 13/13 CuPy and 13/13 Torch structured cases plus 475 targeted tests
+with seven expected warnings on a Tesla P100-SXM2-16GB in remote `myconda`.
+The eventless case reports zero error from survival one for explicit times,
+automatic times, mixed rows, and `CoxPHCV` delegation. The audited artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260801_schema15.json`
+(SHA-256 `56386d7d0a51e73423939dacc0238a31bfdaa929f6e4f24cc3de73053a5e8ff0`);
+all 39 source hashes match Git blobs, `source_clean=true`, and
+`gate_failures=[]`.

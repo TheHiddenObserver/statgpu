@@ -13,7 +13,10 @@
   累计 baseline hazard 恒为零，生存率精确为 1；存储的 time/hazard shape 不匹配仍失败。
 - NumPy/CuPy/Torch 测试覆盖显式与自动 times、混合有事件/无事件预测行以及 `CoxPHCV`
   委托。物理 runner 升级为 schema 15 并加入机器可读专用 case；backend-import 检查名称
-  也缩窄到实际审计的 dispatch 范围，避免声称覆盖整个 model layer。
+  也缩窄到实际审计的 dispatch 范围，避免声称覆盖整个 model layer。精确源码 commit
+  `0d33a4fa64e7bf023407c4f691d008995ae67493` 的 P100 验证通过 CuPy 与 Torch 各
+  13/13 个 case 及 475 项定向测试；39 个 Git-blob hash 全部匹配，
+  `source_clean=true` 且 `gate_failures=[]`。
 
 ## 2026-07
 
