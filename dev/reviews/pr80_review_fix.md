@@ -31,9 +31,11 @@
 > Penalized-Cox CV/backend artifact SHA-256: `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837`<br>
 > Penalized-Cox fold/grid artifact source commit: `f9e974b33c080c36a1a0cf1ca3508baca09f4939`<br>
 > Penalized-Cox fold/grid artifact SHA-256: `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b`<br>
+> Actual-fold auto-device artifact source commit: `a2d6a97d092d51a506421b67eea90fa71b5f8ac4`<br>
+> Actual-fold auto-device artifact SHA-256: `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `PARTIAL_REMOTE_PENDING`; actual-fold auto-device follow-up passes local validation and requires schema-18 physical-GPU evidence
+> Status: `COMPLETE`; exact-source schema-18 physical-GPU evidence and local gates pass
 
 ## Review Contract
 
@@ -59,10 +61,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, and actual-fold workload | schema-18 follow-up passes local validation; exact-source P100 refresh pending |
-| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, auto grids, and custom-fold workload | schema-18 follow-up passes local validation; exact-source P100 refresh pending |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, and actual-fold workload | fixed; local and exact-source schema-18 P100 validation passes |
+| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, auto grids, and custom-fold workload | fixed; local and exact-source schema-18 P100 validation passes |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-17 exact-source refresh passes |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-18 exact-source refresh passes |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1430,9 +1432,9 @@ records two general non-complementary disjoint splits. This follow-up is
 
 Impact classification: numerical result=`unchanged`; selected alpha=`unchanged`;
 performance/backend placement=`affected`; public documentation=`corrected`;
-backends=`NumPy/CuPy/Torch`; exact-source physical evidence=`schema 18 pending`.
+backends=`NumPy/CuPy/Torch`; exact-source physical evidence=`schema 18 remote-full`.
 
-- [MEDIUM][PERF/BACKEND][fixed locally] Auto-device fallback work formerly used
+- [MEDIUM][PERF/BACKEND][fixed] Auto-device fallback work formerly used
   `self.cv`, even after the survival-aware path had normalized a custom split
   generator. Two scopes were compared: patch only Cox, or make the shared
   device estimator accept the actual fold count. The shared fix is preferable:
@@ -1441,7 +1443,7 @@ backends=`NumPy/CuPy/Torch`; exact-source physical evidence=`schema 18 pending`.
   constructor count only when no explicit count is supplied. Tests cover one
   custom holdout, four repeated folds, and both sides of the 100-million-work
   break-even while `cv=99` proves the constructor value is not reused.
-- [MEDIUM][DOC/API][fixed locally] The module capability text now lists only the
+- [MEDIUM][DOC/API][fixed] The module capability text now lists only the
   five public Cox penalties: L1, L2, ElasticNet, SCAD, and MCP. EN/CN generic
   alpha-grid text is restricted to scalar-response estimators and documents the
   Cox exception: user grids are not filtered or replaced; non-finite/negative
@@ -1458,5 +1460,14 @@ with seven optional-backend skips. The 17-file schema-targeted matrix passes
 complete CPU tree passes 1,596 tests with 511 expected GPU skips and eleven
 expected warnings. Documentation links, all 122 maintained documentation
 contracts, package/validation/benchmark compileall, changed-path/runner
-pyflakes, benchmark CLI parsing, and `git diff --check` pass. Exact-source P100
-execution remains pending.
+pyflakes, benchmark CLI parsing, and `git diff --check` pass. Exact clean
+implementation commit `a2d6a97d092d51a506421b67eea90fa71b5f8ac4` then
+passed all 14/14 CuPy and 14/14 Torch structured cases plus 544 targeted
+tests with seven expected warnings on a Tesla P100-SXM2-16GB in remote
+`myconda`. Both backend cases record one fold on CPU and five folds on
+operational Torch at the exact break-even boundary. The audited artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema18.json`
+(SHA-256 `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8`);
+all 44 recorded hashes independently match the exact Git blobs,
+`source_clean=true`, and `gate_failures=[]`. This follow-up is `COMPLETE` at
+validation tier `remote-full`.

@@ -32,8 +32,10 @@
 - Auto-device workload estimation now uses the normalized custom-fold count
   instead of the constructor `cv` value. The Cox capability text is restricted
   to L1/L2/ElasticNet/SCAD/MCP, and the generic alpha-grid guide now documents
-  Cox hard-failure semantics. The physical runner advances to schema 18; an
-  exact-source P100 refresh is pending.
+  Cox hard-failure semantics. Exact-source schema-18 P100 evidence for commit
+  `a2d6a97d092d51a506421b67eea90fa71b5f8ac4` passes CuPy/Torch 14/14 cases
+  and 544 targeted tests; all 44 Git-blob hashes match, `source_clean=true`,
+  and `gate_failures=[]`.
 
 ### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
 

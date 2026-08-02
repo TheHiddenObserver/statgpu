@@ -494,27 +494,22 @@ unsupported，不会换名后充当外部证据。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `f9e974b33c080c36a1a0cf1ca3508baca09f4939` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema17.json` |
-| Artifact SHA-256 | `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b` |
-| Schema / tier | `17` / `remote-full` |
+| Source commit | `a2d6a97d092d51a506421b67eea90fa71b5f8ac4` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema18.json` |
+| Artifact SHA-256 | `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8` |
+| Schema / tier | `18` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14；Torch 14/14 |
-| 定向测试 | 541 passed，7 个预期 warning |
+| 定向测试 | 544 passed，7 个预期 warning |
 | 源码审计 | `source_clean=true`；记录的 44/44 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-17 保留 schema-16 的预测/评分、CV fold 准备、prepared state、packed target、
-数值边界、workspace、concordance、稳健推断、固定 penalty 推断、共享 strata 评分、
-无事件 stratum、canonical validator、penalized-family CV、后端固定与
-`CompositePenalty` clone 门禁；并新增严格共享 fold-index boundary、一般非补集
-互斥 split、ElasticNet 字符串/对象零模型 KKT 缩放、纯 L2 网格 heuristic、实际
-可用性驱动的 auto-device fallback 与不可调 no-penalty rejection。两个物理 GPU
-后端都与独立重算的自动网格数值一致。
-
-上述 actual-custom-fold auto-device 工作量变更晚于 schema-17 源码提交；在刷新
-schema-18 精确源码物理 GPU 证据前，不能继承同一 P100 结论。
+schema-18 保留 schema-17 的预测/评分、CV fold 准备、prepared state、数值边界、
+推断、无事件 stratum、严格 fold、自动网格、backend pinning 与 clone gate；并新增
+实际规范化 custom-fold 工作量的 break-even 验证：一个 fold 保持 CPU，五个 fold
+选择实际可用的 Torch CUDA。CuPy 与 Torch 物理 case 均通过该 gate，并与独立
+重算的自动网格数值一致。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source

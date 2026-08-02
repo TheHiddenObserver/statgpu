@@ -562,30 +562,24 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `f9e974b33c080c36a1a0cf1ca3508baca09f4939` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema17.json` |
-| Artifact SHA-256 | `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b` |
-| Schema / tier | `17` / `remote-full` |
+| Source commit | `a2d6a97d092d51a506421b67eea90fa71b5f8ac4` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema18.json` |
+| Artifact SHA-256 | `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8` |
+| Schema / tier | `18` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14; Torch 14/14 |
-| Targeted tests | 541 passed, 7 expected warnings |
+| Targeted tests | 544 passed, 7 expected warnings |
 | Source audit | `source_clean=true`; 44/44 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-17 scope retains the schema-16 prediction/scoring, CV preparation,
-prepared-state, packed-target, numerical-boundary, workspace, concordance,
-robust-inference, fixed-penalty inference, shared strata-scoring, eventless-
-stratum, canonical-validator, penalized-family CV, backend-pinning, and
-`CompositePenalty` clone gates. It additionally validates the strict shared
-fold-index boundary, general non-complementary disjoint splits, ElasticNet
-string/object zero-model KKT scaling, the pure-L2 grid heuristic, operational
-auto-device fallback, and non-tunable no-penalty rejection. Both physical GPU
-backends match independently recomputed automatic-grid values.
-
-The actual-custom-fold auto-device workload change documented above postdates
-the schema-17 source commit. It requires a schema-18 exact-source physical-GPU
-refresh before inheriting the same P100 evidence.
+The schema-18 scope retains all schema-17 prediction/scoring, CV preparation,
+prepared-state, numerical-boundary, inference, eventless-stratum, strict-fold,
+automatic-grid, backend-pinning, and clone gates. It additionally validates
+actual normalized custom-fold workload at the documented break-even: one fold
+remains on CPU and five folds select operational Torch CUDA. Both CuPy and
+Torch physical cases pass this gate and match independently recomputed automatic-grid
+values.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
