@@ -177,6 +177,13 @@ model.fit(X, y)
 
 `cv_splits=None`（默认）时，估计器使用 `kfold_indices(n, cv, random_state)` 生成随机洗牌的折。
 
+对于 penalized Cox CV，每个自定义 train/validation pair 只需非空且互不重叠；
+train 不必是 validation 的补集，各 fold 的 validation 也不必把样本恰好覆盖一次。
+因此可使用前向 `TimeSeriesSplit` 和 repeated holdout。索引必须是一维、位于
+signed-int64 与样本边界内的精确整数。布尔值、数字字符串、小数、NaN/Inf、溢出、
+重复、交叠或越界索引都会在任何 candidate fit 前被拒绝。每个参与评估的 Cox
+train 与 validation partition 都必须至少包含一个观察事件。
+
 ## 样本权重
 
 大多数标量响应 CV 估计器支持 `sample_weight`；生存路径见下方限制：
@@ -200,6 +207,14 @@ print(f"加权 R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 1. 计算 `alpha_max = max(|X'y|) / n`（或加权变体）
 2. 生成从 `alpha_max` 到 `alpha_max * alpha_min_ratio` 的 `n_alphas` 个值
 3. 网格为 log 等距：`np.logspace(log10(alpha_max * ratio), log10(alpha_max), n_alphas)`
+
+Penalized Cox 使用零模型处 partial-likelihood gradient 的无穷范数。ElasticNet
+在 `l1_ratio=rho > 0` 时，首个值是零模型 KKT 边界
+`alpha_max = ||gradient L(0)||_inf / rho`；字符串 penalty 使用 estimator 的
+`l1_ratio`，`ElasticNetPenalty` 对象使用对象自身的值。`rho=0` 是纯 L2，没有
+有限的全零 KKT 阈值，因此明确把 `||gradient L(0)||_inf` 作为网格 heuristic
+并记录。无 penalty 别名 `"none"`、`"null"` 与 `""` 不可调，Cox CV 会拒绝；
+无惩罚运行应直接拟合 `PenalizedCoxPHModel`。
 
 ### 自定义网格
 
@@ -261,6 +276,9 @@ r2_w = model.score(X_test, y_test, sample_weight=w_test)
 | 其他 | CPU | 默认回退 |
 
 阈值基于 benchmark 数据，存储在 `_effective_cv_device()` 中。显式控制：`device="cpu"` 强制 CPU，`device="cuda"` 强制 GPU。
+`device="auto"` 只在 backend 报告 CUDA driver 与设备实际可用后选择 GPU；仅安装
+但无法运行的 CuPy wheel 不会阻止回退 CPU。显式 `device="cuda"` 仍采用严格契约，
+CuPy CUDA 不可用时会抛错。
 
 ## CV 后推断
 

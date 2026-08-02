@@ -31,6 +31,7 @@ from statgpu.linear_model import (  # noqa: E402
     PenalizedGLM_CV,
 )
 from statgpu.losses import _cox_ph as cox_loss  # noqa: E402
+from statgpu.penalties import ElasticNetPenalty  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
 from statgpu.survival import _cox as cox_model  # noqa: E402
 from statgpu.survival import _cox_counting as cox_counting  # noqa: E402
@@ -51,6 +52,7 @@ SOURCE_FILES = (
     "statgpu/__init__.py",
     "statgpu/backends/_array_ops.py",
     "statgpu/backends/_utils.py",
+    "statgpu/cross_validation/_base.py",
     "statgpu/inference/_covariance.py",
     "statgpu/linear_model/penalized/_penalized_cox.py",
     "statgpu/linear_model/penalized/_penalized_cox_cv.py",
@@ -1864,6 +1866,7 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
     """Audit supported-alpha evidence, final refit, and auto-backend pinning."""
     device = "cuda" if name == "cupy" else "torch"
     X_np, stop_np, event_np = _sample(seed=2291, n=32, p=2)
+    event_np[16:20] = 1.0
     X = _array(name, xp, X_np)
     target_np = np.column_stack((stop_np, event_np))
     target = _array(name, xp, target_np)
@@ -1932,6 +1935,78 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             "passed": bool(penalty_passed),
         }
 
+    automatic_grid_results = {}
+    custom_folds = [
+        (np.arange(0, 16, dtype=np.int64), np.arange(16, 18, dtype=np.int64)),
+        (np.arange(0, 16, dtype=np.int64), np.arange(18, 20, dtype=np.int64)),
+    ]
+    for case_name, penalty, estimator_ratio, expected_ratio in (
+        ("string", "elasticnet", 0.4, 0.4),
+        (
+            "object",
+            ElasticNetPenalty(alpha=9.0, l1_ratio=0.25),
+            0.8,
+            0.25,
+        ),
+        ("pure_l2", "elasticnet", 0.0, 0.0),
+    ):
+        auto_model = PenalizedGLM_CV(
+            loss="cox_ph",
+            penalty=penalty,
+            n_alphas=3,
+            l1_ratio=estimator_ratio,
+            cv=2,
+            cv_splits=custom_folds,
+            random_state=29,
+            device=device,
+            max_iter=400,
+            tol=1e-6,
+            loss_kwargs={"ties": "efron"},
+        ).fit(X, target)
+        reference_loss = cox_loss.CoxPartialLikelihoodLoss(ties="efron")
+        try:
+            gradient = reference_loss.gradient(
+                X,
+                target,
+                _array(name, xp, np.zeros(X_np.shape[1], dtype=np.float64)),
+            )
+        finally:
+            reference_loss.release_fit_cache()
+        raw_zero_score = float(np.max(np.abs(_numpy(name, gradient))))
+        expected_alpha_max = (
+            raw_zero_score / expected_ratio
+            if expected_ratio > 0.0
+            else raw_zero_score
+        )
+        actual_alpha_max = float(auto_model.alpha_grid_[0])
+        expected_rule = (
+            "elasticnet_zero_score_kkt"
+            if expected_ratio > 0.0
+            else "zero_score_l2_heuristic"
+        )
+        case_passed = all(
+            (
+                np.isclose(actual_alpha_max, expected_alpha_max, rtol=1e-10),
+                auto_model.cv_results_["alpha_grid_rule"] == expected_rule,
+                np.isclose(
+                    auto_model.cv_results_["alpha_grid_l1_ratio"],
+                    expected_ratio,
+                ),
+                len(auto_model.cv_results_["fold_indices"]) == 2,
+            )
+        )
+        automatic_grid_results[case_name] = {
+            "raw_zero_score_inf_norm": raw_zero_score,
+            "l1_ratio": expected_ratio,
+            "expected_alpha_max": expected_alpha_max,
+            "actual_alpha_max": actual_alpha_max,
+            "alpha_grid_rule": auto_model.cv_results_["alpha_grid_rule"],
+            "general_disjoint_split_count": len(
+                auto_model.cv_results_["fold_indices"]
+            ),
+            "passed": bool(case_passed),
+        }
+
     set_device(device)
     try:
         pinned_model = CoxPH(
@@ -1961,12 +2036,17 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             np.isfinite(pinned_score),
         )
     )
-    passed = backend_pin_passed and all(
-        result["passed"] for result in penalty_results.values()
+    passed = all(
+        (
+            backend_pin_passed,
+            all(result["passed"] for result in penalty_results.values()),
+            all(result["passed"] for result in automatic_grid_results.values()),
+        )
     )
     return {
         "backend": name,
         "penalty_families": penalty_results,
+        "automatic_elasticnet_grid": automatic_grid_results,
         "selection_contract": (
             "finite held-out Cox partial likelihood from every evaluable fold"
         ),
@@ -1989,7 +2069,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 16,
+        "schema_version": 17,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

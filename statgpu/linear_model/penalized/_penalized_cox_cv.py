@@ -17,7 +17,10 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _to_float_scalar, _to_numpy, get_backend
 from statgpu.backends._utils import _require_real_array
-from statgpu.cross_validation._base import folds_are_complete, kfold_indices
+from statgpu.cross_validation._base import (
+    _coerce_cv_indices,
+    kfold_indices,
+)
 from statgpu.solvers import ConvergenceWarning
 
 
@@ -71,6 +74,7 @@ def _to_backend_target(target, backend):
 
 
 def _coerce_folds(cv_splits, n_samples, cv, random_state):
+    """Normalize general non-empty, disjoint custom train/validation splits."""
     if cv_splits is None:
         folds = kfold_indices(
             n_samples,
@@ -84,16 +88,17 @@ def _coerce_folds(cv_splits, n_samples, cv, random_state):
         raise ValueError("cv_splits must contain at least one fold")
 
     normalized = []
-    all_indices = np.arange(n_samples, dtype=np.int64)
     for fold_index, pair in enumerate(folds):
         if not isinstance(pair, (tuple, list)) or len(pair) != 2:
             raise ValueError(
                 f"cv_splits fold {fold_index} must be a (train, validation) pair"
             )
-        train = np.asarray(pair[0], dtype=np.int64)
-        validation = np.asarray(pair[1], dtype=np.int64)
-        if train.ndim != 1 or validation.ndim != 1:
-            raise ValueError("CV fold indices must be one-dimensional")
+        train = _coerce_cv_indices(
+            pair[0], fold_idx=fold_index, name="train"
+        )
+        validation = _coerce_cv_indices(
+            pair[1], fold_idx=fold_index, name="validation"
+        )
         if train.size == 0 or validation.size == 0:
             raise ValueError("CV train and validation folds must be non-empty")
         if (
@@ -110,25 +115,28 @@ def _coerce_folds(cv_splits, n_samples, cv, random_state):
             raise ValueError("CV fold indices are out of bounds")
         if np.intersect1d(train, validation).size:
             raise ValueError("CV train and validation folds must be disjoint")
-        expected_train = np.setdiff1d(
-            all_indices, validation, assume_unique=False
-        )
-        if not np.array_equal(np.sort(train), expected_train):
-            raise ValueError(
-                "each Cox CV train fold must be the complement of its "
-                "validation fold"
-            )
         normalized.append((train, validation))
-
-    if not folds_are_complete(normalized, n_samples):
-        raise ValueError(
-            "Cox CV validation folds must cover every sample exactly once"
-        )
     return normalized
+
+_NO_PENALTY_ALIASES = frozenset({"", "none", "null"})
 
 
 def _penalty_name(penalty):
     return str(getattr(penalty, "name", penalty)).lower().strip()
+
+
+def _elasticnet_l1_ratio(penalty, estimator_l1_ratio):
+    """Resolve the L1 mixing weight that governs the zero-model KKT bound."""
+    if _penalty_name(penalty) not in {"elasticnet", "en"}:
+        return None
+    value = getattr(penalty, "l1_ratio", estimator_l1_ratio)
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("l1_ratio must be a finite number in [0, 1]") from exc
+    if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise ValueError("l1_ratio must be a finite number in [0, 1]")
+    return value
 
 
 def _penalty_for_alpha(penalty, alpha):
@@ -153,7 +161,13 @@ def _validate_alpha_grid(alpha_grid, penalty_name):
 
 
 def _alpha_grid_from_zero_score(
-    loss, X_preprocessed, y_preprocessed, n_alphas, backend
+    loss,
+    X_preprocessed,
+    y_preprocessed,
+    n_alphas,
+    backend,
+    *,
+    elasticnet_l1_ratio=None,
 ):
     zero = backend.zeros(
         (int(X_preprocessed.shape[1]),), dtype=X_preprocessed.dtype
@@ -161,6 +175,12 @@ def _alpha_grid_from_zero_score(
     gradient = loss.gradient(X_preprocessed, y_preprocessed, zero)
     xp = backend.xp
     alpha_max = _to_float_scalar(xp.max(xp.abs(gradient)))
+    if elasticnet_l1_ratio is not None and elasticnet_l1_ratio > 0.0:
+        # At beta=0 the ElasticNet L1 KKT threshold is
+        # alpha * l1_ratio >= ||gradient L(0)||_inf.
+        alpha_max = alpha_max / elasticnet_l1_ratio
+    # l1_ratio=0 is pure L2 and has no finite all-zero KKT threshold. Retain
+    # ||gradient L(0)||_inf as an explicit, deterministic L2 grid heuristic.
     if not np.isfinite(alpha_max) or alpha_max <= 0.0:
         alpha_max = 1.0
     return np.geomspace(
@@ -222,7 +242,15 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
     _target_shape_contract(y, n_samples)
 
     penalty_name = _penalty_name(estimator.penalty)
+    if penalty_name in _NO_PENALTY_ALIASES:
+        raise ValueError(
+            "Penalized Cox CV requires a tunable penalty; no-penalty aliases "
+            "are non-tunable. Fit PenalizedCoxPHModel directly instead."
+        )
     PenalizedCoxPHModel._validate_supported_penalty(estimator.penalty)
+    elasticnet_l1_ratio = _elasticnet_l1_ratio(
+        estimator.penalty, estimator.l1_ratio
+    )
     loss_kwargs = dict(getattr(estimator, "_loss_kwargs", {}) or {})
     unsupported_loss_kwargs = set(loss_kwargs) - {"ties"}
     if unsupported_loss_kwargs:
@@ -234,7 +262,14 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
     if ties not in {"breslow", "efron"}:
         raise ValueError("Penalized Cox CV ties must be 'breslow' or 'efron'")
 
-    if estimator._alpha_grid_input is None:
+    folds = _coerce_folds(
+        estimator.cv_splits,
+        n_samples,
+        estimator.cv,
+        estimator.random_state,
+    )
+    automatic_alpha_grid = estimator._alpha_grid_input is None
+    if automatic_alpha_grid:
         if isinstance(estimator.n_alphas, (bool, np.bool_)) or not isinstance(
             estimator.n_alphas, numbers.Integral
         ) or int(estimator.n_alphas) < 1:
@@ -269,6 +304,7 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
                 y_preprocessed,
                 estimator.n_alphas,
                 backend,
+                elasticnet_l1_ratio=elasticnet_l1_ratio,
             )
     finally:
         validation_loss.release_fit_cache()
@@ -276,12 +312,6 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
         raise RuntimeError("automatic Cox alpha-grid construction failed")
     alpha_grid = _validate_alpha_grid(alpha_grid, penalty_name)
 
-    folds = _coerce_folds(
-        estimator.cv_splits,
-        n_samples,
-        estimator.cv,
-        estimator.random_state,
-    )
     event_host = np.asarray(
         _to_numpy(_target_event(y_backend)), dtype=np.float64
     )
@@ -413,6 +443,22 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
     estimator.cv_selected_device_ = model_device
     estimator.cv_results_ = {
         "alpha": alpha_grid.copy(),
+        "alpha_grid_rule": (
+            "elasticnet_zero_score_kkt"
+            if automatic_alpha_grid
+            and elasticnet_l1_ratio is not None
+            and elasticnet_l1_ratio > 0.0
+            else "zero_score_l2_heuristic"
+            if automatic_alpha_grid
+            and (
+                penalty_name in {"l2", "l2_squared", "ridge"}
+                or elasticnet_l1_ratio == 0.0
+            )
+            else "zero_score_kkt"
+            if automatic_alpha_grid
+            else "user_supplied"
+        ),
+        "alpha_grid_l1_ratio": elasticnet_l1_ratio,
         "mean_score": mean_scores,
         "mean_test_score": -mean_scores,
         "all_scores": scores,

@@ -20,7 +20,12 @@ from statgpu.backends import (
     get_backend,
 )
 from statgpu.backends._utils import _require_real_array
-from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
+from statgpu.cross_validation._base import (
+    CVCache,
+    CVEstimatorBase,
+    _coerce_cv_indices,
+    kfold_indices,
+)
 from statgpu.survival._cox import CoxPH
 from statgpu.survival._cox_counting import (
     _prepare_cv_owned_right_censored_cox_fast_path,
@@ -396,84 +401,6 @@ def _validate_cv_splits(folds, n_samples: int) -> None:
             raise ValueError(
                 f"cv_splits fold {fold_idx} train and test indices must be disjoint"
             )
-
-
-def _coerce_cv_indices(values, *, fold_idx: int, name: str) -> np.ndarray:
-    """Validate custom fold indices before converting them to ``int64``."""
-    if isinstance(values, (list, tuple)):
-        object_values = np.asarray(values, dtype=object)
-        if object_values.ndim == 1 and any(
-            isinstance(value, (bool, np.bool_)) for value in object_values
-        ):
-            raise ValueError(
-                f"cv_splits fold {fold_idx} {name} indices must contain integers, "
-                "not booleans"
-            )
-    try:
-        values_np = np.asarray(_to_numpy(values))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"cv_splits fold {fold_idx} {name} indices must contain integers"
-        ) from exc
-
-    if values_np.ndim != 1:
-        raise ValueError(
-            f"cv_splits fold {fold_idx} {name} indices must be 1-dimensional"
-        )
-
-    kind = values_np.dtype.kind
-    if kind == "b":
-        raise ValueError(
-            f"cv_splits fold {fold_idx} {name} indices must contain integers, "
-            "not booleans"
-        )
-    if kind in {"i", "u"}:
-        if kind == "u" and np.any(values_np > np.iinfo(np.int64).max):
-            raise ValueError(
-                f"cv_splits fold {fold_idx} {name} indices exceed the int64 range"
-            )
-        return values_np.astype(np.int64, copy=False)
-    if kind == "f":
-        valid = (
-            np.all(np.isfinite(values_np))
-            and np.all(values_np == np.floor(values_np))
-            and np.all(values_np >= -(2**63))
-            and np.all(values_np < 2**63)
-        )
-        if valid:
-            return values_np.astype(np.int64)
-        raise ValueError(
-            f"cv_splits fold {fold_idx} {name} indices must contain integers"
-        )
-    if kind == "O":
-        int64_info = np.iinfo(np.int64)
-        normalized = []
-        for value in values_np.tolist():
-            if isinstance(value, (bool, np.bool_)):
-                raise ValueError(
-                    f"cv_splits fold {fold_idx} {name} indices must contain "
-                    "integers, not booleans"
-                )
-            if isinstance(value, (int, np.integer)):
-                integer = int(value)
-            elif (
-                isinstance(value, (float, np.floating))
-                and np.isfinite(value)
-                and float(value).is_integer()
-            ):
-                integer = int(value)
-            else:
-                raise ValueError(
-                    f"cv_splits fold {fold_idx} {name} indices must contain integers"
-                )
-            if integer < int64_info.min or integer > int64_info.max:
-                raise ValueError(
-                    f"cv_splits fold {fold_idx} {name} indices exceed the int64 range"
-                )
-            normalized.append(integer)
-        return np.asarray(normalized, dtype=np.int64)
-
-    raise ValueError(f"cv_splits fold {fold_idx} {name} indices must contain integers")
 
 
 def _validate_positive_integer(value, name: str) -> int:

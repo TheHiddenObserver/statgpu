@@ -9,6 +9,11 @@
 > Current FISTA-LLA SHA-256: `3c9a665d0d46bebc32c6e43dbd2f777d989fe09114f73a2c7ae1e9bdb1642536`<br>
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
+> Current shared-CV boundary SHA-256: `c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc`<br>
+> Current penalized-CV orchestration SHA-256: `afec52f68d5745faf37f3a0ef206e91724a3cab513a145e5340ee1fd4280e280`<br>
+> Current penalized-Cox CV SHA-256: `4a1542b570bcbc4d2f98aec23aff04d8c8f1ca85b508a5bf41cfc68097d4fc52`<br>
+> Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
+> Current schema-17 runner SHA-256: `bf71a38f0645055373abf954e7fe875a3012330d2b6ed5a2fac0d65c77e877ca`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
 > Final counting-solver SHA-256: `466bdc86891bc41749e2272d2566344cd28c112b7234fb5d1e104df25c61e2da`<br>
 > Final Cox dispatch SHA-256: `17738770458ae986037f5e1209a8da51e1bad41a1869d5d5518886c15ad348d0`<br>
@@ -26,7 +31,7 @@
 > Penalized-Cox CV/backend artifact SHA-256: `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `COMPLETE`; local-full and exact-source schema-16 remote-full gates pass
+> Status: `PARTIAL_REMOTE_PENDING`; schema-17 runtime follow-up passes local-full gates and requires an exact-source physical-GPU refresh
 
 ## Review Contract
 
@@ -52,10 +57,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit and prediction boundaries | fixed; local and schema-16 physical-P100 gates pass |
-| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability | fixed; per-family local and schema-16 physical-P100 gates pass |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, and operational auto fallback | fixed locally for the schema-17 follow-up; exact-source physical-P100 refresh pending |
+| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, and auto grids | fixed locally for the schema-17 follow-up; exact-source physical-P100 refresh pending |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts and current schema-16 exact-source refresh pass |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-17 runner prepared and exact-source refresh pending |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1343,5 +1348,70 @@ artifact is
 `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema16.json`
 (SHA-256 `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837`);
 all 43 source hashes match Git blobs, `source_clean=true`, and
-`gate_failures=[]`. This follow-up is `COMPLETE` at validation tier
-`remote-full`.
+`gate_failures=[]`. That schema-16 follow-up is `COMPLETE` at validation tier
+`remote-full`; the later runtime section below supersedes the report's current
+overall status.
+
+## Penalized-Cox CV Fold, Grid, and Auto-Device Follow-up
+
+Impact classification: selected regularization=`correctness-critical`;
+public API=`PenalizedGLM_CV(loss="cox_ph"), PenalizedCoxPHModel`;
+backends=`NumPy/CuPy/Torch`; inference=`unchanged, estimation-only`;
+formula=`unchanged`; exact-source physical evidence=`schema 17 pending`.
+
+### Capability decisions by public family
+
+| Public family | Backend | CV | Inference | Formula | Benchmark |
+|---|---|---|---|---|---|
+| `PenalizedCoxPHModel` L1/L2/ElasticNet/SCAD/MCP | `three-backend` | `supported` through survival-aware `PenalizedGLM_CV` | `estimation-only` | `supported` | `required` |
+| `PenalizedGLM_CV(loss="cox_ph")` | `three-backend` | `supported` for general non-empty disjoint splits with strict finite evidence | `estimation-only` | `not-formula-facing` | `required` |
+| Penalized Cox with `"none"`, `"null"`, or `""` | `three-backend` | `non-tunable` and rejected before candidate fitting | `estimation-only` through direct fit | `supported` on the direct model | `not-applicable` |
+| Canonical `CoxPH` / `CoxPHCV` | `three-backend` | `supported` for canonical L2 selection | `supported` | `supported` / `not-formula-facing` | `required` |
+
+- [CRITICAL][CV/CORRECTNESS/API][fixed] Custom fold indices were cast to
+  `int64` before validation, so fractional floats, booleans, numeric strings,
+  non-finite values, overflowing unsigned integers, and higher-dimensional
+  arrays could silently change the requested split. The strict canonical-Cox
+  policy is now a shared `_coerce_cv_indices()` utility and both Cox CV paths use
+  it before candidate or backend work. Tests assert each malformed class fails
+  transactionally and candidate fitting is never entered.
+- [CRITICAL][CV/CORRECTNESS][fixed] ElasticNet automatic Cox grids formerly
+  reused `||gradient L(0)||_inf` without accounting for its L1 mixing weight.
+  For `l1_ratio=rho>0`, the first alpha is now the independent zero-model KKT
+  boundary `||gradient L(0)||_inf / rho`. String penalties use the estimator
+  ratio and `ElasticNetPenalty` objects use their own ratio. `rho=0` is pure L2
+  and has no finite all-zero KKT threshold, so the raw zero-score norm remains
+  only an explicit, machine-readable grid heuristic.
+- [HIGH][BACKEND/FALLBACK][fixed] Two approaches were compared: importing
+  CuPy, or querying the shared backend health contract. Import presence cannot
+  establish a working CUDA driver/device, so auto CV now selects Torch or CuPy
+  only when `get_backend(..., device="cuda").is_available()` succeeds. Large
+  automatic searches fall back to CPU when neither backend is operational;
+  explicit CUDA requests remain strict and propagate the backend failure.
+- [MEDIUM][CV/API/MATRIX][fixed] No-penalty aliases always resolve to alpha zero
+  and therefore cannot support a parameter-selection claim. The Cox CV boundary
+  rejects them as non-tunable before any candidate fit and directs callers to a
+  single direct `PenalizedCoxPHModel` fit.
+- [MEDIUM][DOC/API][fixed] Two remedies were compared for custom splitters:
+  restrict Cox documentation to partition-style K-fold, or support general
+  disjoint train/validation pairs. The candidate/scoring loop has no statistical
+  need for complement or exactly-once coverage, so the implementation now
+  accepts forward `TimeSeriesSplit`, repeated holdout, and other non-empty
+  disjoint designs. EN/CN guides document the exact index, event-support, and
+  overlap contracts.
+
+Focused local coverage passes 46 tests with 20 expected physical-GPU skips. The
+17-file schema-targeted matrix passes 404 tests with 137 expected GPU skips and
+seven expected warnings. The complete CPU tree passes 1,593 tests with 511
+expected GPU skips and eleven expected warnings. Documentation links, all 122
+maintained documentation contracts, package/validation/benchmark compileall,
+changed new-path/runner pyflakes, benchmark CLI parsing, and `git diff --check`
+pass. Local `ruff` is unavailable; the hosted static-contract job remains the
+authoritative execution of its selected rules.
+
+The schema-17 runner adds the shared CV source file to its 44-file exact-source
+hash manifest and extends both physical GPU cases with independently recomputed
+ElasticNet string/object KKT boundaries, the pure-L2 heuristic, and general
+non-complementary disjoint folds. Schema-16 remains valid only for commit
+`d688f760d8a0678c3c52c657a50178dad1b5ab3d`; it is not evidence for this
+runtime follow-up. Exact-source P100 execution and artifact audit remain pending.

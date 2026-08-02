@@ -5,13 +5,20 @@ import numpy as np
 import pytest
 
 from statgpu import set_device
+from statgpu.backends import _to_float_scalar, get_backend
+from statgpu.cross_validation._base import _coerce_cv_indices
+from statgpu.cross_validation import _base as cv_base_module
 from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.linear_model.penalized import _penalized_cox_cv as cox_cv_module
+from statgpu.linear_model.penalized import _penalized_cv as penalized_cv_module
+from statgpu.losses import CoxPartialLikelihoodLoss
 from statgpu.linear_model.penalized import (
     PenalizedCoxPHModel,
     PenalizedGeneralizedLinearModel,
 )
 from statgpu.penalties import (
     CompositePenalty,
+    ElasticNetPenalty,
     L1Penalty,
     L2Penalty,
 )
@@ -180,6 +187,290 @@ def test_penalized_cox_cv_supports_penalty_object_and_auto_grid():
     assert model.estimator_.penalty.alpha == pytest.approx(model.alpha_)
     assert penalty.alpha == pytest.approx(0.4)
 
+
+_BAD_CUSTOM_FOLD_INDICES = [
+    np.array([0.2, 1.2]),
+    np.array([True, False]),
+    np.array([0.0, np.nan]),
+    np.array([0.0, np.inf]),
+    np.array(["0", "1"]),
+    np.array([0, np.iinfo(np.uint64).max], dtype=np.uint64),
+    np.array([[0, 1]]),
+]
+
+
+@pytest.mark.parametrize(
+    "bad_indices",
+    _BAD_CUSTOM_FOLD_INDICES,
+    ids=[
+        "fractional",
+        "boolean",
+        "nan",
+        "infinity",
+        "numeric-string",
+        "uint64-overflow",
+        "two-dimensional",
+    ],
+)
+def test_penalized_cox_cv_rejects_malformed_folds_before_candidate_fit(
+    bad_indices, monkeypatch
+):
+    X, y = _survival_sample(seed=8120, n=18)
+    candidate_calls = []
+
+    def unexpected_candidate_fit(self, *args, **kwargs):
+        candidate_calls.append(True)
+        raise AssertionError("candidate fit must not run for malformed folds")
+
+    monkeypatch.setattr(PenalizedCoxPHModel, "fit", unexpected_candidate_fit)
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=2,
+        cv_splits=[(bad_indices, np.arange(9, 18, dtype=np.int64))],
+        device="cpu",
+    )
+    with pytest.raises(ValueError, match="indices"):
+        model.fit(X, y)
+    assert candidate_calls == []
+    assert model._fitted is False
+    assert model.alpha_ is None
+
+
+def test_shared_cv_index_coercion_preserves_only_exact_integer_values():
+    converted = _coerce_cv_indices(
+        np.array([0.0, 2.0]), fold_idx=0, name="train"
+    )
+    np.testing.assert_array_equal(converted, np.array([0, 2], dtype=np.int64))
+    assert converted.dtype == np.int64
+    with pytest.raises(ValueError, match="integers"):
+        _coerce_cv_indices(["0", "2"], fold_idx=0, name="train")
+
+
+def test_penalized_cox_cv_accepts_general_disjoint_time_series_splits():
+    sklearn_model_selection = pytest.importorskip("sklearn.model_selection")
+    X, y = _survival_sample(seed=8121, n=24)
+    folds = list(
+        sklearn_model_selection.TimeSeriesSplit(n_splits=3).split(X)
+    )
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=3,
+        cv_splits=folds,
+        device="cpu",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert model.alpha_ == pytest.approx(0.1)
+    assert len(model.cv_results_["fold_indices"]) == len(folds)
+    for (actual_train, actual_validation), (train, validation) in zip(
+        model.cv_results_["fold_indices"], folds
+    ):
+        np.testing.assert_array_equal(actual_train, train)
+        np.testing.assert_array_equal(actual_validation, validation)
+
+
+@pytest.mark.parametrize("alias", ["none", "null", ""])
+def test_penalized_cox_cv_rejects_non_tunable_no_penalty_aliases(
+    alias, monkeypatch
+):
+    X, y = _survival_sample(seed=8122, n=18)
+    candidate_calls = []
+
+    def unexpected_candidate_fit(self, *args, **kwargs):
+        candidate_calls.append(True)
+        raise AssertionError("no-penalty CV must fail before candidate fit")
+
+    monkeypatch.setattr(PenalizedCoxPHModel, "fit", unexpected_candidate_fit)
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty=alias,
+        alpha_grid=[1.0, 0.1],
+        cv=2,
+        device="cpu",
+    )
+    with pytest.raises(ValueError, match="non-tunable"):
+        model.fit(X, y)
+    assert candidate_calls == []
+    assert model.alpha_ is None
+    assert model._fitted is False
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize("penalty_case", ["string", "object", "pure-l2"])
+def test_elasticnet_auto_grid_starts_at_independent_zero_model_kkt(
+    backend_name, penalty_case
+):
+    X, y = _survival_sample(seed=8123, n=22)
+    device, Xb, yb = _backend_inputs(backend_name, X, y)
+    if penalty_case == "string":
+        penalty = "elasticnet"
+        estimator_l1_ratio = 0.4
+        expected_l1_ratio = 0.4
+    elif penalty_case == "object":
+        penalty = ElasticNetPenalty(alpha=7.0, l1_ratio=0.25)
+        estimator_l1_ratio = 0.8
+        expected_l1_ratio = 0.25
+    else:
+        penalty = "elasticnet"
+        estimator_l1_ratio = 0.0
+        expected_l1_ratio = 0.0
+
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty=penalty,
+        n_alphas=3,
+        l1_ratio=estimator_l1_ratio,
+        cv=2,
+        random_state=4,
+        device=device,
+        max_iter=400,
+        tol=1e-7,
+        loss_kwargs={"ties": "efron"},
+    ).fit(Xb, yb)
+
+    resolved_backend = {
+        "numpy": ("numpy", "cpu"),
+        "cupy": ("cupy", "cuda"),
+        "torch": ("torch", "cuda"),
+    }[backend_name]
+    backend = get_backend(
+        backend=resolved_backend[0], device=resolved_backend[1]
+    )
+    zero = backend.zeros((X.shape[1],), dtype=backend.float64)
+    reference_loss = CoxPartialLikelihoodLoss(ties="efron")
+    try:
+        gradient = reference_loss.gradient(Xb, yb, zero)
+    finally:
+        reference_loss.release_fit_cache()
+    raw_zero_score = _to_float_scalar(
+        backend.xp.max(backend.xp.abs(gradient))
+    )
+    expected_alpha_max = (
+        raw_zero_score / expected_l1_ratio
+        if expected_l1_ratio > 0.0
+        else raw_zero_score
+    )
+
+    assert model.alpha_grid_[0] == pytest.approx(
+        expected_alpha_max, rel=1e-11, abs=1e-12
+    )
+    assert model.cv_results_["alpha_grid_l1_ratio"] == pytest.approx(
+        expected_l1_ratio
+    )
+    expected_rule = (
+        "elasticnet_zero_score_kkt"
+        if expected_l1_ratio > 0.0
+        else "zero_score_l2_heuristic"
+    )
+    assert model.cv_results_["alpha_grid_rule"] == expected_rule
+    if expected_l1_ratio > 0.0:
+        assert (
+            model.alpha_grid_[0] * expected_l1_ratio
+            >= raw_zero_score - 1e-12
+        )
+
+
+def test_large_auto_cox_cv_falls_back_when_cuda_backends_are_unavailable(
+    monkeypatch
+):
+    X, y = _survival_sample(seed=8124, n=20)
+    availability_calls = []
+
+    class ImportableButUnavailableBackend:
+        def is_available(self):
+            return False
+
+    def unavailable_backend(backend, device):
+        availability_calls.append((backend, device))
+        return ImportableButUnavailableBackend()
+
+    monkeypatch.setattr(
+        cv_base_module, "get_backend", unavailable_backend
+    )
+    monkeypatch.setattr(penalized_cv_module, "_SMALL_PROBLEM_THRESHOLD", 0)
+    monkeypatch.setattr(penalized_cv_module, "_GPU_BREAK_EVEN_THRESHOLD", 0)
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=2,
+        device="auto",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert availability_calls == [("torch", "cuda"), ("cupy", "cuda")]
+    assert model.cv_selected_device_ == "cpu"
+    assert model.cv_results_["cv_selected_device_"] == "cpu"
+
+
+def test_cuda_backend_health_check_rejects_importable_unavailable_cupy(
+    monkeypatch,
+):
+    class ImportableButUnavailableBackend:
+        def is_available(self):
+            return False
+
+    calls = []
+
+    def backend_factory(backend, device):
+        calls.append((backend, device))
+        return ImportableButUnavailableBackend()
+
+    monkeypatch.setattr(cv_base_module, "get_backend", backend_factory)
+    assert cv_base_module._cuda_backend_available("cupy") is False
+    assert calls == [("cupy", "cuda")]
+
+
+def test_large_auto_cox_cv_selects_only_operational_cupy(monkeypatch):
+    model = PenalizedGLM_CV(
+        loss="cox_ph", penalty="l2", n_alphas=300, cv=2, device="auto"
+    )
+    calls = []
+
+    def availability(name):
+        calls.append(name)
+        return name == "cupy"
+
+    monkeypatch.setattr(
+        penalized_cv_module, "_cuda_backend_available", availability
+    )
+    X = np.empty((2000, 100), dtype=np.float64)
+    assert model._effective_cv_device(X, "l2", 300) == "cuda"
+    assert calls == ["torch", "cupy"]
+
+
+def test_explicit_cuda_cox_cv_propagates_unavailable_backend(monkeypatch):
+    X, y = _survival_sample(seed=8125, n=18)
+
+    class UnavailableCupyBackend:
+        float64 = np.float64
+
+        def asarray(self, *args, **kwargs):
+            raise RuntimeError("explicit CuPy backend unavailable sentinel")
+
+    def unavailable_backend(backend, device):
+        assert backend == "cupy"
+        assert device == "cuda"
+        return UnavailableCupyBackend()
+
+    monkeypatch.setattr(cox_cv_module, "get_backend", unavailable_backend)
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=2,
+        device="cuda",
+    )
+    with pytest.raises(RuntimeError, match="explicit CuPy backend unavailable"):
+        model.fit(X, y)
+    assert model.cv_selected_device_ is None
+    assert model._fitted is False
 
 def test_penalized_cox_cv_rejects_dictionary_target_before_candidate_fit():
     X, y = _survival_sample(seed=8112, n=18)

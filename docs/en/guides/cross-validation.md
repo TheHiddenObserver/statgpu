@@ -182,6 +182,15 @@ model.fit(X, y)
 
 When `cv_splits=None` (default), the estimator uses `kfold_indices(n, cv, random_state)` with shuffled folds.
 
+For penalized Cox CV, each custom train/validation pair may be any non-empty,
+disjoint split; training need not be the validation complement, and validation
+rows need not form a one-time partition across folds. This supports forward
+`TimeSeriesSplit` and repeated holdout designs. Indices must be one-dimensional,
+exact integers within signed-int64 and sample bounds. Boolean, numeric-string,
+fractional, non-finite, overflowing, duplicate, overlapping, or out-of-range
+indices are rejected before any candidate fit. Each evaluated Cox train and
+validation partition must contain an observed event.
+
 ### Sample Weight
 
 Most scalar-response CV estimators support `sample_weight`; see the survival limitation below:
@@ -205,6 +214,15 @@ When `alphas=None`, the grid is generated as:
 1. Compute `alpha_max = max(|X'y|) / n` (or weighted variant)
 2. Generate `n_alphas` values from `alpha_max` down to `alpha_max * alpha_min_ratio`
 3. Grid is log-spaced: `np.logspace(log10(alpha_max * ratio), log10(alpha_max), n_alphas)`
+
+Penalized Cox uses the infinity norm of the partial-likelihood gradient at the
+zero model. For ElasticNet with `l1_ratio=rho > 0`, the first value is the
+zero-model KKT boundary `alpha_max = ||gradient L(0)||_inf / rho`; a string
+penalty uses the estimator's `l1_ratio`, while an `ElasticNetPenalty` object
+uses its own value. `rho=0` is pure L2 and has no finite all-zero KKT threshold,
+so `||gradient L(0)||_inf` is recorded as an explicit grid heuristic. The
+no-penalty aliases `"none"`, `"null"`, and `""` are non-tunable and are rejected
+by Cox CV; fit `PenalizedCoxPHModel` directly for an unpenalized run.
 
 #### Custom Grid
 
@@ -266,6 +284,10 @@ When `device="auto"`, the CV estimator selects the backend based on problem size
 | Otherwise | CPU | Default fallback |
 
 For explicit control: `device="cpu"` forces CPU, `device="cuda"` forces GPU. The thresholds are benchmark-backed and stored in `_effective_cv_device()`.
+`device="auto"` selects a GPU only after the backend reports an operational
+CUDA driver and device; an installed but unusable CuPy wheel does not prevent a
+CPU fallback. Explicit `device="cuda"` remains strict and raises when CuPy CUDA
+is unavailable.
 
 ### Inference After CV
 

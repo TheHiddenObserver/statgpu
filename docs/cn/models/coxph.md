@@ -406,7 +406,20 @@ penalized_cv = PenalizedGLM_CV(
 partial likelihood 评分，并要求每个可评估 fold 都提供有限证据。若不存在满足
 契约的 alpha，fit 会抛错，且不会发布已选 alpha 或拟合 estimator。最终重拟合为
 `PenalizedCoxPHModel(compute_inference=False)`；不支持 post-selection 系数推断、
-`two_stage`、sample weights 或字典 target。
+`two_stage`、sample weights 或字典 target。无 penalty 别名不可调，因此该 CV
+路径会拒绝，需改为直接拟合模型。
+
+自定义 fold 可以是一般的非空、互不重叠 train/validation split，包括前向
+`TimeSeriesSplit` 或 repeated holdout；无需互为补集，也无需让每行恰好进入一次
+validation。索引会在任何 candidate fit 前校验，必须是一维、精确且位于范围内的
+整数。自动网格中，ElasticNet 在 `l1_ratio > 0` 时采用零模型 KKT 边界
+`alpha_max = ||gradient L(0)||_inf / l1_ratio`，penalty 对象使用自身 ratio。
+纯 L2（`l1_ratio=0`）不存在有限的全零 KKT 阈值，因此把零模型 score 的原始
+无穷范数作为已文档化的网格 heuristic。
+
+大规模 `device="auto"` 搜索只在 Torch 或 CuPy 的 CUDA backend 报告设备实际可用
+后选择 GPU。CuPy 可导入但无法运行时会回退 CPU；显式 `device="cuda"` 仍严格抛错，
+不会静默回退。
 
 ## 预测与评分
 
@@ -498,6 +511,10 @@ schema-16 保留 schema-15 的预测/评分、CV fold 准备、prepared state、
 ElasticNet、SCAD、MCP 的生存感知 penalized-Cox CV，覆盖完整有限 fold 证据、
 selected-alpha、无截距、direct final-refit coefficient parity，以及全局设备改变后的拟合
 后端固定。定向矩阵还执行 sklearn <=1.2 的 `CompositePenalty` 构造器对象身份回归。
+
+上述共享严格 fold-index boundary、一般 disjoint split、ElasticNet KKT 网格缩放、
+可用性驱动的 auto-device fallback 与不可调 no-penalty rejection 晚于 schema-16
+源码提交；在刷新 schema-17 精确源码物理 GPU 证据前，不能继承同一 P100 结论。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source

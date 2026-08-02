@@ -20,6 +20,13 @@
   Exact-source schema-16 P100 evidence for commit `d688f760d8a0678c3c52c657a50178dad1b5ab3d`
   passes CuPy and Torch 14/14 cases plus 516 targeted tests; all 43 source hashes
   match, `source_clean=true`, and `gate_failures=[]`.
+- Penalized-Cox custom folds now share strict pre-cast index validation and
+  accept general non-empty disjoint splits, including forward and repeated
+  designs. ElasticNet automatic grids use the zero-model KKT scaling by
+  `l1_ratio`; pure L2 records an explicit heuristic, no-penalty aliases are
+  rejected as non-tunable, and `device="auto"` probes operational CUDA backends
+  before falling back to CPU. These runtime changes advance the physical runner
+  to schema 17 and remain pending an exact-source P100 refresh.
 
 ### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
 

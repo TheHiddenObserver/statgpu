@@ -18,6 +18,11 @@
   side-array shape 错误。精确源码 schema-16 P100 证据绑定提交
   `d688f760d8a0678c3c52c657a50178dad1b5ab3d`：CuPy 与 Torch 均通过 14/14 个 case，
   516 项定向测试通过，43 个源码 hash 全部匹配，`source_clean=true` 且 `gate_failures=[]`。
+- Penalized-Cox 自定义 fold 现在复用 cast 前的严格索引校验，并支持一般的非空、
+  互不重叠 split，包括前向与 repeated 设计。ElasticNet 自动网格按 `l1_ratio`
+  使用零模型 KKT 缩放；纯 L2 明确记录 heuristic，无 penalty 别名作为不可调能力
+  被拒绝，`device="auto"` 会先探测 CUDA backend 是否实际可用再回退 CPU。这些
+  runtime 变更把物理 runner 升级到 schema 17，仍待精确源码 P100 刷新。
 
 ### 修复（2026-08-01）— PR #80 无事件 stratum 预测后续
 

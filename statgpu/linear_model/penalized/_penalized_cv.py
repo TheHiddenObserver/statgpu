@@ -29,7 +29,11 @@ from statgpu._config import Device
 from statgpu.backends import _to_numpy
 from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
 from statgpu.backends._utils import _to_float_scalar
-from statgpu.cross_validation._base import CVEstimatorBase, kfold_indices
+from statgpu.cross_validation._base import (
+    CVEstimatorBase,
+    _cuda_backend_available,
+    kfold_indices,
+)
 from statgpu.solvers._utils import _nesterov_momentum
 
 
@@ -384,10 +388,6 @@ def _backend_name_for_cv_device(device):
     if name == "torch":
         return "torch"
     return "numpy"
-
-
-# Import shared utility from _cv_base
-from statgpu.cross_validation._base import _torch_cuda_available
 
 
 def _logistic_sparse_effective_max_iter(max_iter, device, penalty_name, refit=False):
@@ -1998,7 +1998,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 # OR condition: n_features >= or_min_feat AND nx >= 1_000_000
                 if not cond and or_min_feat > 0:
                     cond = int(n_features) >= or_min_feat and nx >= 1_000_000
-                if cond and _torch_cuda_available():
+                if cond and _cuda_backend_available("torch"):
                     self.cv_selected_device_ = "torch"
                     self._cv_auto_reason_ = reason
                     return "torch"
@@ -2014,22 +2014,16 @@ class PenalizedGLM_CV(CVEstimatorBase):
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
             return "cpu"
 
-        # Resolve device: if AUTO, prefer torch when CUDA available, else cpu
-        try:
-            import torch
-            if torch.cuda.is_available():
-                self.cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "GPU selected for large CV effective work"
-                return "torch"
-        except ImportError:
-            pass
-        try:
-            import cupy
-            self.cv_selected_device_ = "cupy"
+        # Resolve an operational backend rather than treating an importable GPU
+        # wheel as evidence that its CUDA driver and device are usable.
+        if _cuda_backend_available("torch"):
+            self.cv_selected_device_ = "torch"
             self._cv_auto_reason_ = "GPU selected for large CV effective work"
-            return "cupy"
-        except ImportError:
-            pass
+            return "torch"
+        if _cuda_backend_available("cupy"):
+            self.cv_selected_device_ = "cuda"
+            self._cv_auto_reason_ = "GPU selected for large CV effective work"
+            return "cuda"
         self.cv_selected_device_ = "cpu"
         self._cv_auto_reason_ = "No GPU available, falling back to CPU"
         return "cpu"

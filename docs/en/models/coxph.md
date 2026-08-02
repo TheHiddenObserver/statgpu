@@ -456,6 +456,22 @@ finite evidence from every evaluable fold. If no alpha satisfies that contract,
 fit raises and publishes no selected alpha or fitted estimator. The final refit
 is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
 inference, `two_stage`, sample weights, and dictionary targets are unsupported.
+No-penalty aliases are non-tunable and are rejected by this CV path; use a
+direct model fit instead.
+
+Custom folds may be general non-empty disjoint train/validation splits, including
+forward `TimeSeriesSplit` or repeated holdout; they need not be complementary or
+cover each row exactly once. Fold indices are validated before any candidate fit
+and must be one-dimensional exact integers in range. With an automatic grid,
+ElasticNet uses the zero-model KKT boundary
+`alpha_max = ||gradient L(0)||_inf / l1_ratio` when `l1_ratio > 0`; a penalty
+object supplies its own ratio. Pure L2 (`l1_ratio=0`) has no finite all-zero KKT
+threshold and uses the raw zero-score norm as a documented grid heuristic.
+
+For large `device="auto"` searches, Torch and CuPy are selected only after their
+CUDA backend reports an operational device. An importable but unusable CuPy
+installation therefore falls back to CPU; explicit `device="cuda"` remains
+strict and raises instead of falling back.
 
 ## Prediction and Scoring
 
@@ -565,6 +581,12 @@ both GPU backends, including complete finite fold evidence, selected-alpha and
 direct final-refit coefficient parity, no-intercept behavior, and fitted-backend
 pinning after the global device changes. The targeted matrix also runs the
 sklearn <=1.2 `CompositePenalty` constructor-identity regression.
+
+The strict shared fold-index boundary, general disjoint-split support,
+ElasticNet KKT grid scaling, operational auto-device fallback, and non-tunable
+no-penalty rejection documented above postdate the schema-16 source commit.
+They require a schema-17 exact-source physical-GPU refresh before being
+attributed the same P100 evidence.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
