@@ -29,9 +29,11 @@
 > Boundary adapter SHA-256: `c6742e20dd57c8dc5a36dbe594e7ce040effae4217939538ab39df0fb338f9d3`<br>
 > Penalized-Cox CV/backend artifact source commit: `d688f760d8a0678c3c52c657a50178dad1b5ab3d`<br>
 > Penalized-Cox CV/backend artifact SHA-256: `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837`<br>
+> Penalized-Cox fold/grid artifact source commit: `f9e974b33c080c36a1a0cf1ca3508baca09f4939`<br>
+> Penalized-Cox fold/grid artifact SHA-256: `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `PARTIAL_REMOTE_PENDING`; schema-17 runtime follow-up passes local-full gates and requires an exact-source physical-GPU refresh
+> Status: `COMPLETE`; local-full and exact-source schema-17 remote-full gates pass
 
 ## Review Contract
 
@@ -57,10 +59,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, and operational auto fallback | fixed locally for the schema-17 follow-up; exact-source physical-P100 refresh pending |
-| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, and auto grids | fixed locally for the schema-17 follow-up; exact-source physical-P100 refresh pending |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, and operational auto fallback | fixed; local and schema-17 physical-P100 gates pass |
+| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, and auto grids | fixed; per-family local and schema-17 physical-P100 gates pass |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-17 runner prepared and exact-source refresh pending |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-17 exact-source refresh passes |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1357,7 +1359,7 @@ overall status.
 Impact classification: selected regularization=`correctness-critical`;
 public API=`PenalizedGLM_CV(loss="cox_ph"), PenalizedCoxPHModel`;
 backends=`NumPy/CuPy/Torch`; inference=`unchanged, estimation-only`;
-formula=`unchanged`; exact-source physical evidence=`schema 17 pending`.
+formula=`unchanged`; exact-source physical evidence=`schema 17 remote-full`.
 
 ### Capability decisions by public family
 
@@ -1412,6 +1414,14 @@ authoritative execution of its selected rules.
 The schema-17 runner adds the shared CV source file to its 44-file exact-source
 hash manifest and extends both physical GPU cases with independently recomputed
 ElasticNet string/object KKT boundaries, the pure-L2 heuristic, and general
-non-complementary disjoint folds. Schema-16 remains valid only for commit
-`d688f760d8a0678c3c52c657a50178dad1b5ab3d`; it is not evidence for this
-runtime follow-up. Exact-source P100 execution and artifact audit remain pending.
+non-complementary disjoint folds. Exact clean implementation commit
+`f9e974b33c080c36a1a0cf1ca3508baca09f4939` passed all 14/14 CuPy and 14/14
+Torch structured cases plus 541 targeted tests with seven expected warnings on
+a Tesla P100-SXM2-16GB in remote `myconda`. The audited artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema17.json`
+(SHA-256 `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b`);
+all 44 recorded hashes match the exact Git blobs, `source_clean=true`, and
+`gate_failures=[]`. The string/object ElasticNet KKT boundaries and pure-L2
+heuristic match independently recomputed values on both GPU backends, and each
+records two general non-complementary disjoint splits. This follow-up is
+`COMPLETE` at validation tier `remote-full`.

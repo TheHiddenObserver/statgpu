@@ -494,27 +494,24 @@ unsupported，不会换名后充当外部证据。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `d688f760d8a0678c3c52c657a50178dad1b5ab3d` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema16.json` |
-| Artifact SHA-256 | `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837` |
-| Schema / tier | `16` / `remote-full` |
+| Source commit | `f9e974b33c080c36a1a0cf1ca3508baca09f4939` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema17.json` |
+| Artifact SHA-256 | `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b` |
+| Schema / tier | `17` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14；Torch 14/14 |
-| 定向测试 | 516 passed，7 个预期 warning |
-| 源码审计 | `source_clean=true`；记录的 43/43 个 Git-blob hash 全部匹配 |
+| 定向测试 | 541 passed，7 个预期 warning |
+| 源码审计 | `source_clean=true`；记录的 44/44 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-16 保留 schema-15 的预测/评分、CV fold 准备、prepared state、packed target、
+schema-17 保留 schema-16 的预测/评分、CV fold 准备、prepared state、packed target、
 数值边界、workspace、concordance、稳健推断、固定 penalty 推断、共享 strata 评分、
-无事件 stratum 和 canonical validator 门禁；并在两个 GPU 后端新增 L1、L2、
-ElasticNet、SCAD、MCP 的生存感知 penalized-Cox CV，覆盖完整有限 fold 证据、
-selected-alpha、无截距、direct final-refit coefficient parity，以及全局设备改变后的拟合
-后端固定。定向矩阵还执行 sklearn <=1.2 的 `CompositePenalty` 构造器对象身份回归。
-
-上述共享严格 fold-index boundary、一般 disjoint split、ElasticNet KKT 网格缩放、
-可用性驱动的 auto-device fallback 与不可调 no-penalty rejection 晚于 schema-16
-源码提交；在刷新 schema-17 精确源码物理 GPU 证据前，不能继承同一 P100 结论。
+无事件 stratum、canonical validator、penalized-family CV、后端固定与
+`CompositePenalty` clone 门禁；并新增严格共享 fold-index boundary、一般非补集
+互斥 split、ElasticNet 字符串/对象零模型 KKT 缩放、纯 L2 网格 heuristic、实际
+可用性驱动的 auto-device fallback 与不可调 no-penalty rejection。两个物理 GPU
+后端都与独立重算的自动网格数值一致。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source

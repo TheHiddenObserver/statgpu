@@ -21,8 +21,10 @@
 - Penalized-Cox 自定义 fold 现在复用 cast 前的严格索引校验，并支持一般的非空、
   互不重叠 split，包括前向与 repeated 设计。ElasticNet 自动网格按 `l1_ratio`
   使用零模型 KKT 缩放；纯 L2 明确记录 heuristic，无 penalty 别名作为不可调能力
-  被拒绝，`device="auto"` 会先探测 CUDA backend 是否实际可用再回退 CPU。这些
-  runtime 变更把物理 runner 升级到 schema 17，仍待精确源码 P100 刷新。
+  被拒绝，`device="auto"` 会先探测 CUDA backend 是否实际可用再回退 CPU。精确源码
+  schema-17 P100 证据绑定提交 `f9e974b33c080c36a1a0cf1ca3508baca09f4939`：
+  CuPy/Torch 均通过 14/14 个 case 与 541 项定向测试；44 个 Git-blob hash 全部匹配，
+  `source_clean=true` 且 `gate_failures=[]`。
 
 ### 修复（2026-08-01）— PR #80 无事件 stratum 预测后续
 

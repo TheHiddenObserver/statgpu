@@ -25,8 +25,10 @@
   designs. ElasticNet automatic grids use the zero-model KKT scaling by
   `l1_ratio`; pure L2 records an explicit heuristic, no-penalty aliases are
   rejected as non-tunable, and `device="auto"` probes operational CUDA backends
-  before falling back to CPU. These runtime changes advance the physical runner
-  to schema 17 and remain pending an exact-source P100 refresh.
+  before falling back to CPU. Exact-source schema-17 P100 evidence for commit
+  `f9e974b33c080c36a1a0cf1ca3508baca09f4939` passes CuPy/Torch 14/14 cases and
+  541 targeted tests; all 44 Git-blob hashes match, `source_clean=true`, and
+  `gate_failures=[]`.
 
 ### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
 

@@ -561,32 +561,26 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `d688f760d8a0678c3c52c657a50178dad1b5ab3d` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema16.json` |
-| Artifact SHA-256 | `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837` |
-| Schema / tier | `16` / `remote-full` |
+| Source commit | `f9e974b33c080c36a1a0cf1ca3508baca09f4939` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema17.json` |
+| Artifact SHA-256 | `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b` |
+| Schema / tier | `17` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14; Torch 14/14 |
-| Targeted tests | 516 passed, 7 expected warnings |
-| Source audit | `source_clean=true`; 43/43 recorded Git-blob hashes matched |
+| Targeted tests | 541 passed, 7 expected warnings |
+| Source audit | `source_clean=true`; 44/44 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-16 scope retains the schema-15 prediction/scoring, CV preparation,
+The schema-17 scope retains the schema-16 prediction/scoring, CV preparation,
 prepared-state, packed-target, numerical-boundary, workspace, concordance,
 robust-inference, fixed-penalty inference, shared strata-scoring, eventless-
-stratum, and canonical-validator gates. It additionally exercises the
-survival-aware penalized-Cox CV path for L1, L2, ElasticNet, SCAD, and MCP on
-both GPU backends, including complete finite fold evidence, selected-alpha and
-direct final-refit coefficient parity, no-intercept behavior, and fitted-backend
-pinning after the global device changes. The targeted matrix also runs the
-sklearn <=1.2 `CompositePenalty` constructor-identity regression.
-
-The strict shared fold-index boundary, general disjoint-split support,
-ElasticNet KKT grid scaling, operational auto-device fallback, and non-tunable
-no-penalty rejection documented above postdate the schema-16 source commit.
-They require a schema-17 exact-source physical-GPU refresh before being
-attributed the same P100 evidence.
+stratum, canonical-validator, penalized-family CV, backend-pinning, and
+`CompositePenalty` clone gates. It additionally validates the strict shared
+fold-index boundary, general non-complementary disjoint splits, ElasticNet
+string/object zero-model KKT scaling, the pure-L2 grid heuristic, operational
+auto-device fallback, and non-tunable no-penalty rejection. Both physical GPU
+backends match independently recomputed automatic-grid values.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
