@@ -481,26 +481,23 @@ unsupported，不会换名后充当外部证据。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `0d33a4fa64e7bf023407c4f691d008995ae67493` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260801_schema15.json` |
-| Schema / tier | `15` / `remote-full` |
+| Source commit | `d688f760d8a0678c3c52c657a50178dad1b5ab3d` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema16.json` |
+| Artifact SHA-256 | `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837` |
+| Schema / tier | `16` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
-| Structured GPU cases | CuPy 13/13；Torch 13/13 |
-| 定向测试 | 475 passed，7 个预期 warning |
-| 源码审计 | `source_clean=true`；记录的 39/39 个 Git-blob hash 全部匹配 |
+| Structured GPU cases | CuPy 14/14；Torch 14/14 |
+| 定向测试 | 516 passed，7 个预期 warning |
+| 源码审计 | `source_clean=true`；记录的 43/43 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-15 覆盖公开预测/评分边界（包括单一显式 stratum 标签契约和原始 optimization
-stop provenance）、CV 设备与普通 fold 准备、prepared state 与 packed target
-provenance、hazard-ratio 数值边界、有界及宽模型 workspace 路由、concordance、
-completion contract、稳健推断的独立单元/PSD 边界，以及固定 penalty 推断与共享
-strata 评分路径。它还覆盖合法的无事件 stratum baseline，包括显式/自动 times、混合
-预测行和 `CoxPHCV` 委托。其源码审计还包含修正后的 canonical accuracy validator，
-以及针对 `A^-1 J A^-1` 和 `start < failure_time <= stop` 的独立回归。
-
-Schema 15 早于本轮生存感知 penalized-Cox CV 与 fitted-backend 固定改动。
-这些 runtime 路径需要新的 exact-source schema-16 P100 刷新；本页不会把它们归因于旧 artifact。
+schema-16 保留 schema-15 的预测/评分、CV fold 准备、prepared state、packed target、
+数值边界、workspace、concordance、稳健推断、固定 penalty 推断、共享 strata 评分、
+无事件 stratum 和 canonical validator 门禁；并在两个 GPU 后端新增 L1、L2、
+ElasticNet、SCAD、MCP 的生存感知 penalized-Cox CV，覆盖完整有限 fold 证据、
+selected-alpha、无截距、direct final-refit coefficient parity，以及全局设备改变后的拟合
+后端固定。定向矩阵还执行 sklearn <=1.2 的 `CompositePenalty` 构造器对象身份回归。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source

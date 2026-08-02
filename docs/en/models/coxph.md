@@ -545,30 +545,26 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `0d33a4fa64e7bf023407c4f691d008995ae67493` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260801_schema15.json` |
-| Schema / tier | `15` / `remote-full` |
+| Source commit | `d688f760d8a0678c3c52c657a50178dad1b5ab3d` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema16.json` |
+| Artifact SHA-256 | `f0b47df704d2a0895cd1d66019c8676ff8a525d0f85e827d90ba816ad02b4837` |
+| Schema / tier | `16` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
-| Structured GPU cases | CuPy 13/13; Torch 13/13 |
-| Targeted tests | 475 passed, 7 expected warnings |
-| Source audit | `source_clean=true`; 39/39 recorded Git-blob hashes matched |
+| Structured GPU cases | CuPy 14/14; Torch 14/14 |
+| Targeted tests | 516 passed, 7 expected warnings |
+| Source audit | `source_clean=true`; 43/43 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-15 scope covers public prediction/scoring boundaries, including the
-single-explicit-stratum label contract and raw optimization-stop provenance;
-CV device and ordinary-fold preparation; prepared-state and packed-target
-provenance; hazard-ratio range handling; bounded and wide workspace routes;
-concordance; completion contracts; robust-inference unit/PSD boundaries; and
-the fixed-penalty inference plus shared strata-scoring paths. It additionally
-exercises the valid eventless-stratum baseline with explicit/automatic times,
-mixed prediction rows, and `CoxPHCV` delegation. Its source audit also includes
-the corrected canonical accuracy validator and independent regressions for
-`A^-1 J A^-1` and `start < failure_time <= stop`.
-
-Schema 15 predates the survival-aware penalized-Cox CV and fitted-backend pinning
-changes. Those runtime paths require a new exact-source schema-16 P100 refresh;
-this page does not attribute them to the older artifact.
+The schema-16 scope retains the schema-15 prediction/scoring, CV preparation,
+prepared-state, packed-target, numerical-boundary, workspace, concordance,
+robust-inference, fixed-penalty inference, shared strata-scoring, eventless-
+stratum, and canonical-validator gates. It additionally exercises the
+survival-aware penalized-Cox CV path for L1, L2, ElasticNet, SCAD, and MCP on
+both GPU backends, including complete finite fold evidence, selected-alpha and
+direct final-refit coefficient parity, no-intercept behavior, and fitted-backend
+pinning after the global device changes. The targeted matrix also runs the
+sklearn <=1.2 `CompositePenalty` constructor-identity regression.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history

@@ -15,10 +15,11 @@
   refits `PenalizedCoxPHModel` without an intercept. All-invalid paths now fail
   transactionally instead of selecting the first alpha.
 - `CoxPH(device="auto")` pins its fitted backend for prediction and scoring;
-  `CompositePenalty` supplies sklearn <=1.2 constructor parameters; and
-  `CoxPHCV` rejects malformed side-array shapes before any CV work. Schema 16
-  adds exact-source CuPy/Torch cases and remains P100-pending until the final
-  implementation commit is available.
+  `CompositePenalty` preserves sklearn <=1.2 constructor-parameter identity;
+  and `CoxPHCV` rejects malformed side-array shapes before any CV work.
+  Exact-source schema-16 P100 evidence for commit `d688f760d8a0678c3c52c657a50178dad1b5ab3d`
+  passes CuPy and Torch 14/14 cases plus 516 targeted tests; all 43 source hashes
+  match, `source_clean=true`, and `gate_failures=[]`.
 
 ### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
 
