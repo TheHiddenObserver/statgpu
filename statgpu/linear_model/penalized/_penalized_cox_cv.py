@@ -281,11 +281,44 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
             estimator._alpha_grid_input, penalty_name
         )
         requested_n_alphas = int(alpha_grid.size)
+
+    # Event support determines how many folds can enter candidate fitting.
+    # Compute it before auto-device resolution so skipped folds do not inflate
+    # the generic effective-work estimate. This is the same one-time host event
+    # summary already required by the CV orchestration; no design matrix is
+    # transferred here.
+    event_host = np.asarray(
+        _to_numpy(_target_event(y)), dtype=np.float64
+    )
+    if not np.all(np.isfinite(event_host)) or np.any(
+        (event_host != 0.0) & (event_host != 1.0)
+    ):
+        raise ValueError("event values must be finite and equal to 0 or 1")
+    if not np.any(event_host == 1.0):
+        raise ValueError("at least one observed event is required")
+    train_event_counts = np.asarray(
+        [np.count_nonzero(event_host[train] == 1.0) for train, _ in folds],
+        dtype=np.int64,
+    )
+    validation_event_counts = np.asarray(
+        [
+            np.count_nonzero(event_host[validation] == 1.0)
+            for _, validation in folds
+        ],
+        dtype=np.int64,
+    )
+    fold_valid = (train_event_counts > 0) & (validation_event_counts > 0)
+    n_effective_folds = int(np.sum(fold_valid))
+    if n_effective_folds == 0:
+        raise RuntimeError(
+            "Penalized Cox CV could not evaluate any fold: training and "
+            "validation partitions each require at least one event."
+        )
     cv_device = estimator._effective_cv_device(
         X,
         penalty_name,
         requested_n_alphas,
-        n_folds=len(folds),
+        n_folds=n_effective_folds,
     )
     backend_name, model_device, backend_device = _backend_contract(cv_device)
     backend = get_backend(backend=backend_name, device=backend_device)
@@ -314,25 +347,6 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
     if alpha_grid is None:
         raise RuntimeError("automatic Cox alpha-grid construction failed")
     alpha_grid = _validate_alpha_grid(alpha_grid, penalty_name)
-
-    event_host = np.asarray(
-        _to_numpy(_target_event(y_backend)), dtype=np.float64
-    )
-    train_event_counts = np.asarray(
-        [int(np.sum(event_host[train])) for train, _ in folds],
-        dtype=np.int64,
-    )
-    validation_event_counts = np.asarray(
-        [int(np.sum(event_host[validation])) for _, validation in folds],
-        dtype=np.int64,
-    )
-    fold_valid = (train_event_counts > 0) & (validation_event_counts > 0)
-    n_effective_folds = int(np.sum(fold_valid))
-    if n_effective_folds == 0:
-        raise RuntimeError(
-            "Penalized Cox CV could not evaluate any fold: training and "
-            "validation partitions each require at least one event."
-        )
 
     scores = np.full((len(folds), len(alpha_grid)), np.nan, dtype=np.float64)
     failure_path = np.empty(scores.shape, dtype=object)
@@ -473,6 +487,7 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
         "validation_event_counts": validation_event_counts,
         "fold_valid": fold_valid,
         "n_effective_folds": n_effective_folds,
+        "device_sizing_fold_count": n_effective_folds,
         "scoring": "negative_partial_log_likelihood_per_row",
         "ties": ties,
         "fit_intercept": False,

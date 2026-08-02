@@ -2007,6 +2007,110 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             "passed": bool(case_passed),
         }
 
+    class CapturingFoldCountCV(PenalizedGLM_CV):
+        def _effective_cv_device(
+            self, X_value, penalty_name, n_alphas, *, n_folds=None
+        ):
+            self.observed_device_sizing_fold_count = n_folds
+            return device
+
+    scalar_X_np = np.linspace(-1.0, 1.0, 60).reshape(20, 3)
+    scalar_y_np = scalar_X_np @ np.array([0.7, -0.2, 0.4])
+    scalar_X = _array(name, xp, scalar_X_np)
+    scalar_y = _array(name, xp, scalar_y_np)
+    scalar_single_folds = [
+        (
+            np.arange(5, 20, dtype=np.int64),
+            np.arange(0, 5, dtype=np.int64),
+        )
+    ]
+    scalar_four_folds = [
+        (
+            np.setdiff1d(np.arange(20), validation, assume_unique=True),
+            validation,
+        )
+        for validation in np.array_split(np.arange(20), 4)
+    ]
+    scalar_generator_iterations = []
+
+    def scalar_one_shot_folds():
+        scalar_generator_iterations.append(1)
+        if len(scalar_generator_iterations) > 1:
+            raise RuntimeError("scalar custom fold generator was consumed twice")
+        yield from scalar_four_folds
+
+    scalar_single = CapturingFoldCountCV(
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=99,
+        cv_splits=scalar_single_folds,
+        device="auto",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(scalar_X, scalar_y)
+    scalar_generator = CapturingFoldCountCV(
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=99,
+        cv_splits=scalar_one_shot_folds(),
+        device="auto",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(scalar_X, scalar_y)
+
+    support_rng = np.random.default_rng(2292)
+    support_X_np = support_rng.normal(size=(36, 2))
+    support_event_np = np.zeros(36, dtype=np.float64)
+    support_event_np[:8] = 1.0
+    support_target_np = np.column_stack(
+        (np.arange(1.0, 37.0), support_event_np)
+    )
+    support_folds = [
+        (
+            np.array([0, 1, 2, 3, *range(8, 20)], dtype=np.int64),
+            np.array([4, 5, 6, 7, *range(20, 24)], dtype=np.int64),
+        )
+    ]
+    for start in range(20, 36, 4):
+        support_folds.append(
+            (
+                np.arange(0, 20, dtype=np.int64),
+                np.arange(start, start + 4, dtype=np.int64),
+            )
+        )
+    support_model = CapturingFoldCountCV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=99,
+        cv_splits=support_folds,
+        device="auto",
+        max_iter=400,
+        tol=1e-6,
+    ).fit(
+        _array(name, xp, support_X_np),
+        _array(name, xp, support_target_np),
+    )
+    public_fold_routing_passed = all(
+        (
+            scalar_single.observed_device_sizing_fold_count == 1,
+            scalar_single.cv_results_["device_sizing_fold_count"] == 1,
+            scalar_generator.observed_device_sizing_fold_count == 4,
+            scalar_generator.cv_results_["device_sizing_fold_count"] == 4,
+            scalar_generator_iterations == [1],
+            len(support_folds) == 5,
+            support_model.observed_device_sizing_fold_count == 1,
+            support_model.cv_results_["n_effective_folds"] == 1,
+            support_model.cv_results_["device_sizing_fold_count"] == 1,
+            np.array_equal(
+                support_model.cv_results_["fold_valid"],
+                np.array([True, False, False, False, False]),
+            ),
+        )
+    )
+
     fold_work_model = PenalizedGLM_CV(
         loss="cox_ph",
         penalty="l2",
@@ -2069,12 +2173,32 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             all(result["passed"] for result in penalty_results.values()),
             all(result["passed"] for result in automatic_grid_results.values()),
             fold_work_passed,
+            public_fold_routing_passed,
         )
     )
     return {
         "backend": name,
         "penalty_families": penalty_results,
         "automatic_elasticnet_grid": automatic_grid_results,
+        "public_fold_routing": {
+            "scalar_list_observed_count": (
+                scalar_single.observed_device_sizing_fold_count
+            ),
+            "scalar_generator_observed_count": (
+                scalar_generator.observed_device_sizing_fold_count
+            ),
+            "scalar_generator_iterations": len(
+                scalar_generator_iterations
+            ),
+            "cox_normalized_fold_count": len(support_folds),
+            "cox_evaluable_fold_count": int(
+                support_model.cv_results_["n_effective_folds"]
+            ),
+            "cox_observed_device_sizing_fold_count": (
+                support_model.observed_device_sizing_fold_count
+            ),
+            "passed": bool(public_fold_routing_passed),
+        },
         "actual_fold_count_auto_device": {
             "configured_cv": 99,
             "n_samples": 2000,
@@ -2082,7 +2206,7 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             "n_alphas": 100,
             "single_fold_device": single_fold_device,
             "five_fold_device": repeated_fold_device,
-            "contract": "effective work uses normalized fold count",
+            "contract": "generic fallback uses supplied work-fold count",
             "passed": bool(fold_work_passed),
         },
         "selection_contract": (
@@ -2107,7 +2231,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 18,
+        "schema_version": 19,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

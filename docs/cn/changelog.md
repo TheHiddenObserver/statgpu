@@ -7,6 +7,14 @@
 
 ## 2026-08
 
+### 修复（2026-08-03）— PR #80 CV device-sizing matrix 后续
+
+- 标量响应 `PenalizedGLM_CV.fit()` 新增 list 与一次性 generator 的端到端覆盖，
+  证明 auto-device sizing 接收 materialize 后的实际 fold 数。Penalized Cox 的通用
+  fallback 工作量只统计可评估 fold，同时保留 skipped-fold 原因与完整有限证据选择。
+- 中英文 device 表现在区分经验 `n * p`/feature 规则与通用聚合工作量 fallback。
+  物理 runner 升级到 schema 19，精确源码 P100 刷新仍待执行。
+
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 
 - `PenalizedGLM_CV(loss="cox_ph")` 现在会保留 `(time, event)` target，在

@@ -376,6 +376,210 @@ def test_elasticnet_auto_grid_starts_at_independent_zero_model_kkt(
 
 
 @pytest.mark.parametrize("fold_count", [1, 4])
+@pytest.mark.parametrize("fold_container", ["list", "generator"])
+def test_scalar_glm_cv_passes_materialized_custom_fold_count(
+    fold_count, fold_container, monkeypatch
+):
+    rng = np.random.default_rng(8127)
+    X = rng.normal(size=(20, 3))
+    y = X @ np.array([0.7, -0.2, 0.4]) + rng.normal(scale=0.05, size=20)
+    validation_parts = np.array_split(np.arange(20), fold_count + 1)[
+        :fold_count
+    ]
+    folds = [
+        (
+            np.setdiff1d(np.arange(20), validation, assume_unique=True),
+            validation,
+        )
+        for validation in validation_parts
+    ]
+    generator_iterations = []
+
+    def one_shot_generator():
+        generator_iterations.append(1)
+        if len(generator_iterations) > 1:
+            raise AssertionError("custom fold generator was consumed twice")
+        yield from folds
+
+    cv_splits = folds if fold_container == "list" else one_shot_generator()
+    observed_fold_counts = []
+
+    def capture_device(self, X_value, penalty_name, n_alphas, *, n_folds=None):
+        observed_fold_counts.append(n_folds)
+        return "cpu"
+
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_effective_cv_device", capture_device
+    )
+    model = PenalizedGLM_CV(
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=99,
+        cv_splits=cv_splits,
+        device="auto",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert observed_fold_counts == [fold_count]
+    assert model.cv_results_["device_sizing_fold_count"] == fold_count
+    assert generator_iterations == ([] if fold_container == "list" else [1])
+
+
+def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
+    X = np.arange(36, dtype=np.float64).reshape(12, 3)
+    y = np.linspace(-1.0, 1.0, 12)
+    folds = [
+        (
+            np.arange(6, 12, dtype=np.int64),
+            np.arange(0, 6, dtype=np.int64),
+        )
+    ]
+    observed_refit_devices = []
+
+    def select_torch(self, X_value, penalty_name, n_alphas, *, n_folds=None):
+        return "torch"
+
+    def finite_scores(self, X_value, y_value, alpha_grid, device, folds, **kwargs):
+        return np.zeros((len(folds), len(alpha_grid)), dtype=np.float64)
+
+    def eig_solution(X_value, y_value, alpha, sample_weight=None):
+        return np.zeros(X_value.shape[1], dtype=np.float64), 0.0
+
+    def capture_refit(
+        self, estimator, coef, intercept, X_value, device, n_iter=None
+    ):
+        observed_refit_devices.append(device)
+        estimator.coef_ = np.asarray(coef, dtype=np.float64)
+        estimator.intercept_ = float(intercept)
+        return estimator
+
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_effective_cv_device", select_torch
+    )
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_compute_cv_scores", finite_scores
+    )
+    monkeypatch.setattr(penalized_cv_module, "_ridge_eig_single", eig_solution)
+    monkeypatch.setattr(PenalizedGLM_CV, "_populate_refit_model", capture_refit)
+
+    model = PenalizedGLM_CV(
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=99,
+        cv_splits=folds,
+        device="auto",
+    ).fit(X, y)
+
+    assert model.cv_selected_device_ == "torch"
+    assert observed_refit_devices == ["torch"]
+    assert getattr(
+        model.estimator_.device, "value", model.estimator_.device
+    ) == "torch"
+
+
+@pytest.mark.parametrize("bad_event", [np.nan, np.inf, 2.0])
+def test_penalized_cox_cv_rejects_invalid_event_before_device_selection(
+    bad_event, monkeypatch
+):
+    X, y = _survival_sample(seed=8129, n=18)
+    y[0, 1] = bad_event
+
+    def device_must_not_run(*args, **kwargs):
+        raise AssertionError("device selection must follow event validation")
+
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_effective_cv_device", device_must_not_run
+    )
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=2,
+        device="auto",
+    )
+    with pytest.raises(
+        ValueError, match="event values must be finite and equal to 0 or 1"
+    ):
+        model.fit(X, y)
+    assert model.alpha_ is None
+    assert model.estimator_ is None
+    assert model._fitted is False
+
+
+def test_penalized_cox_cv_sizes_device_by_evaluable_folds(monkeypatch):
+    rng = np.random.default_rng(8128)
+    X = rng.normal(size=(30, 2))
+    event = np.zeros(30, dtype=np.float64)
+    event[:3] = 1.0
+    y = np.column_stack([np.arange(1.0, 31.0), event])
+    folds = [
+        (
+            np.array([0, 1, *range(8, 18)], dtype=np.int64),
+            np.array([2, 18, 19, 20, 21], dtype=np.int64),
+        )
+    ]
+    for validation_index in range(3, 7):
+        folds.append(
+            (
+                np.array([0, 1, 2, *range(8, 18)], dtype=np.int64),
+                np.array([validation_index, 22, 23], dtype=np.int64),
+            )
+        )
+    availability_calls = []
+
+    def availability(name):
+        availability_calls.append(name)
+        return name == "torch"
+
+    def finite_fit(self, X_fit, y_fit):
+        self.coef_ = np.zeros(int(X_fit.shape[1]), dtype=np.float64)
+        return self
+
+    monkeypatch.setattr(
+        penalized_cv_module, "_cuda_backend_available", availability
+    )
+    monkeypatch.setattr(
+        penalized_cv_module, "_SMALL_PROBLEM_THRESHOLD", 0
+    )
+    monkeypatch.setattr(
+        penalized_cv_module, "_GPU_BREAK_EVEN_THRESHOLD", 100
+    )
+    monkeypatch.setattr(PenalizedCoxPHModel, "fit", finite_fit)
+
+    normalized_fold_probe = PenalizedGLM_CV(
+        loss="cox_ph", penalty="l2", alpha_grid=[0.1], cv=99, device="auto"
+    )
+    assert normalized_fold_probe._effective_cv_device(
+        X, "l2", 1, n_folds=5
+    ) == "torch"
+    assert availability_calls == ["torch"]
+    availability_calls.clear()
+
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=99,
+        cv_splits=folds,
+        device="auto",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    np.testing.assert_array_equal(
+        model.cv_results_["fold_valid"],
+        np.array([True, False, False, False, False]),
+    )
+    assert model.cv_results_["n_effective_folds"] == 1
+    assert model.cv_results_["device_sizing_fold_count"] == 1
+    assert model.cv_selected_device_ == "cpu"
+    assert availability_calls == []
+
+
+@pytest.mark.parametrize("fold_count", [1, 4])
 def test_penalized_cox_cv_passes_normalized_custom_fold_count(
     fold_count, monkeypatch
 ):

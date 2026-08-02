@@ -270,18 +270,22 @@ r2_w = model.score(X_test, y_test, sample_weight=w_test)
 |------|---------|------|
 | n×p < 200k | CPU | Kernel launch 开销主导 |
 | squared_error + l1/en, p≥256, n×p≥1M | Torch | 批量 alpha 路径受益 |
-| logistic + l1/en, n≥5000, n×p≥500k | Torch | Fold-batch 路径 |
+| logistic + l1/en, p≥100, n×p≥500k | Torch | Fold-batch 路径 |
 | poisson + l1/en, p≥500, n×p≥1M | Torch | Fold-batch 路径 |
 | gamma + l1/en, p≥500, n×p≥2M | Torch | Fold-batch 路径 |
-| SCAD/MCP, n×p≥1M | Torch | 异步 FISTA 路径 |
-| NB（任意惩罚） | CPU | 复杂梯度开销 |
-| 其他 | CPU | 默认回退 |
+| 非 squared-error SCAD/MCP, n×p≥1M | Torch | 异步 FISTA 路径 |
+| NB + l1/l2/en | CPU | 复杂梯度开销 |
+| 通用 fallback 工作量 < 100M | CPU | 低于实测 GPU break-even |
+| 通用 fallback 工作量 ≥ 100M | 优先 Torch，其次 CuPy；均不可用时 CPU | 聚合 CV 工作量较大 |
 
 阈值基于 benchmark 数据，存储在 `_effective_cv_device()` 中。显式控制：`device="cpu"` 强制 CPU，`device="cuda"` 强制 GPU。
 `device="auto"` 只在 backend 报告 CUDA driver 与设备实际可用后选择 GPU；仅安装
-但无法运行的 CuPy wheel 不会阻止回退 CPU。其 effective-work 估算使用规范化后的
-实际 custom fold 数，而不是 constructor 的 `cv` 值。显式 `device="cuda"` 仍采用
-严格契约，CuPy CUDA 不可用时会抛错。
+但无法运行的 CuPy wheel 不会阻止回退 CPU。通用 fallback 工作量为
+`n * p * n_work_folds * n_alphas`；非 squared-error 的 SCAD/MCP 另乘 20 的
+continuation factor。标量响应 CV 使用规范化后的 generated/custom fold 数，Cox CV
+只统计 training 与 validation 都含事件的可评估 fold。前面的经验 loss/penalty 行优先
+执行，仍只使用各自行中记录的 `n * p` 与 feature 条件，不乘 fold 数。显式
+`device="cuda"` 仍采用严格契约，CuPy CUDA 不可用时会抛错。
 
 ## CV 后推断
 

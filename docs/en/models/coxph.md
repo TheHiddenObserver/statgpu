@@ -469,10 +469,12 @@ object supplies its own ratio. Pure L2 (`l1_ratio=0`) has no finite all-zero KKT
 threshold and uses the raw zero-score norm as a documented grid heuristic.
 
 For large `device="auto"` searches, Torch and CuPy are selected only after their
-CUDA backend reports an operational device. The workload uses the actual number
-of normalized custom folds rather than the constructor's `cv` value. An
-importable but unusable CuPy installation therefore falls back to CPU; explicit
-`device="cuda"` remains strict and raises instead of falling back.
+CUDA backend reports an operational device. Generic fallback sizing uses only
+evaluable folds whose training and validation partitions both contain events;
+other normalized folds remain visible in `failure_path` but do not inflate GPU
+work. An importable but unusable CuPy installation therefore falls back to
+CPU; explicit `device="cuda"` remains strict and raises instead of falling
+back.
 
 ## Prediction and Scoring
 
@@ -578,8 +580,12 @@ prepared-state, numerical-boundary, inference, eventless-stratum, strict-fold,
 automatic-grid, backend-pinning, and clone gates. It additionally validates
 actual normalized custom-fold workload at the documented break-even: one fold
 remains on CPU and five folds select operational Torch CUDA. Both CuPy and
-Torch physical cases pass this gate and match independently recomputed automatic-grid
-values.
+Torch physical cases pass this gate and match independently recomputed
+automatic-grid values.
+
+The scalar-response end-to-end routing and Cox evaluable-fold sizing changes
+postdate the schema-18 source commit. They require a schema-19 exact-source
+physical-GPU refresh before inheriting the same P100 evidence.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history

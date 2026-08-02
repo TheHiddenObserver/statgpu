@@ -7,6 +7,16 @@
 
 ## 2026-08
 
+### Fixed (2026-08-03) — PR #80 CV device-sizing matrix follow-up
+
+- Scalar-response `PenalizedGLM_CV.fit()` now has end-to-end list and one-shot
+  generator coverage proving auto-device sizing receives the materialized fold
+  count. Penalized Cox sizes generic fallback work by evaluable folds only,
+  while retaining skipped-fold reasons and complete finite-evidence selection.
+- EN/CN device tables now distinguish empirical `n * p`/feature rules from the
+  generic aggregate-work fallback. The physical runner advances to schema 19;
+  an exact-source P100 refresh is pending.
+
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 
 - `PenalizedGLM_CV(loss="cox_ph")` now preserves the `(time, event)` target,

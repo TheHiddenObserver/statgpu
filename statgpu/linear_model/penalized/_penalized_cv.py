@@ -2198,7 +2198,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # Resolve refit device (used by Ridge and general paths)
         refit_device = self.device
         if _device_to_name(self.device) == "auto":
-            refit_device = getattr(self, "_cv_selected_device_", self.device) or self.device
+            refit_device = getattr(self, "cv_selected_device_", self.device) or self.device
 
         # For Ridge: use eigendecomposition to match CV path exactly.
         # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
@@ -2820,6 +2820,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             "alpha": alpha_grid,
             "mean_score": mean_scores,
             "all_scores": all_scores,
+            "device_sizing_fold_count": len(folds),
             "cv_strategy_": self.cv_strategy_,
             "cv_selected_device_": self.cv_selected_device_,
             "mean_score_stage1": mean_scores_stage1,

@@ -280,19 +280,24 @@ When `device="auto"`, the CV estimator selects the backend based on problem size
 |-----------|----------|--------|
 | n*p < 200,000 | CPU | Kernel launch overhead dominates |
 | squared_error + l1/en, p>=256, n*p>=1M | Torch GPU | Batched alpha path |
-| logistic + l1/en, n>=5000, n*p>=500k | Torch GPU | Fold-batched path |
+| logistic + l1/en, p>=100, n*p>=500k | Torch GPU | Fold-batched path |
 | poisson + l1/en, p>=500, n*p>=1M | Torch GPU | Fold-batched path |
 | gamma + l1/en, p>=500, n*p>=2M | Torch GPU | Fold-batched path |
-| SCAD/MCP, n*p>=1M | Torch GPU | Async FISTA |
-| NB (any penalty) | CPU | Complex gradient overhead |
-| Otherwise | CPU | Default fallback |
+| non-squared-error SCAD/MCP, n*p>=1M | Torch GPU | Async FISTA |
+| NB + l1/l2/en | CPU | Complex gradient overhead |
+| Generic fallback work < 100M | CPU | Below measured GPU break-even |
+| Generic fallback work >= 100M | Torch, then CuPy; CPU if neither is operational | Large aggregate CV work |
 
 For explicit control: `device="cpu"` forces CPU, `device="cuda"` forces GPU. The thresholds are benchmark-backed and stored in `_effective_cv_device()`.
 `device="auto"` selects a GPU only after the backend reports an operational
 CUDA driver and device; an installed but unusable CuPy wheel does not prevent a
-CPU fallback. Its effective-work estimate uses the actual number of normalized
-custom folds, not the constructor's `cv` value. Explicit `device="cuda"`
-remains strict and raises when CuPy CUDA is unavailable.
+CPU fallback. The generic fallback work is `n * p * n_work_folds * n_alphas`,
+with a continuation factor of 20 for non-squared-error SCAD/MCP. Scalar-
+response CV uses the normalized generated/custom fold count; Cox CV uses only
+folds with events in both training and validation. The earlier empirical
+loss/penalty rows are evaluated first and remain driven by their documented
+`n * p` and feature conditions, without a fold multiplier. Explicit
+`device="cuda"` remains strict and raises when CuPy CUDA is unavailable.
 
 ### Inference After CV
 
