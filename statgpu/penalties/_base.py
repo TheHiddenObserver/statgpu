@@ -239,7 +239,19 @@ class CompositePenalty(Penalty):
                 raise ValueError("weights must be non-negative")
             if float(weights_array.sum()) <= 0.0:
                 raise ValueError("at least one composite weight must be positive")
-        self.weights = tuple(float(weight) for weight in weights_array)
+        normalized_weights = tuple(float(weight) for weight in weights_array)
+        # sklearn <=1.2 requires every shallow constructor parameter to be
+        # stored by identity. A cloned CompositePenalty reaches this
+        # constructor with the already-normalized tuple returned by
+        # get_params(deep=False); preserve that tuple instead of rebuilding it.
+        # User tuples with non-float values are still normalized so runtime
+        # arithmetic never retains strings or other merely coercible objects.
+        if isinstance(weights, tuple) and all(
+            type(weight) is float for weight in weights
+        ):
+            self.weights = weights
+        else:
+            self.weights = normalized_weights
 
         # Composite is convex only if all components are convex.
         self.is_convex = all(p.is_convex for p in self.penalties)

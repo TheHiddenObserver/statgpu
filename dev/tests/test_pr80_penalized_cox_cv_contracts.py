@@ -349,6 +349,15 @@ def test_composite_penalty_clone_contract_for_penalty_and_container():
     )
     shallow = penalty.get_params(deep=False)
     reconstructed = CompositePenalty(**shallow)
+    # sklearn <=1.2 recursively clones shallow params and then requires the
+    # constructor to retain those exact objects. Exercise that identity gate
+    # even when the local sklearn uses the newer __sklearn_clone__ hook.
+    legacy_penalties = tuple(component for component in shallow["penalties"])
+    legacy_weights = tuple(float(weight) for weight in shallow["weights"])
+    legacy_reconstructed = CompositePenalty(
+        penalties=legacy_penalties,
+        weights=legacy_weights,
+    )
     cloned = sklearn.clone(penalty)
     container = PenalizedGeneralizedLinearModel(
         penalty=penalty, device="cpu", compute_inference=False
@@ -357,6 +366,8 @@ def test_composite_penalty_clone_contract_for_penalty_and_container():
 
     assert set(shallow) == {"penalties", "weights"}
     assert all(not isinstance(item, str) for item in shallow["penalties"])
+    assert legacy_reconstructed.penalties is legacy_penalties
+    assert legacy_reconstructed.weights is legacy_weights
     assert reconstructed.get_params() == penalty.get_params()
     assert cloned.get_params() == penalty.get_params()
     assert cloned_container.penalty.get_params() == penalty.get_params()
