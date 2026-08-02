@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-08-02<br>
+> Last updated: 2026-08-03<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -564,28 +564,24 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `a2d6a97d092d51a506421b67eea90fa71b5f8ac4` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema18.json` |
-| Artifact SHA-256 | `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8` |
-| Schema / tier | `18` / `remote-full` |
+| Source commit | `0bc131767bef1eeec45805073431e666f690b78c` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema19.json` |
+| Artifact SHA-256 | `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c` |
+| Schema / tier | `19` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14; Torch 14/14 |
-| Targeted tests | 544 passed, 7 expected warnings |
+| Targeted tests | 553 passed, 7 expected warnings |
 | Source audit | `source_clean=true`; 44/44 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-18 scope retains all schema-17 prediction/scoring, CV preparation,
+The schema-19 scope retains all schema-18 prediction/scoring, CV preparation,
 prepared-state, numerical-boundary, inference, eventless-stratum, strict-fold,
-automatic-grid, backend-pinning, and clone gates. It additionally validates
-actual normalized custom-fold workload at the documented break-even: one fold
-remains on CPU and five folds select operational Torch CUDA. Both CuPy and
-Torch physical cases pass this gate and match independently recomputed
-automatic-grid values.
-
-The scalar-response end-to-end routing and Cox evaluable-fold sizing changes
-postdate the schema-18 source commit. They require a schema-19 exact-source
-physical-GPU refresh before inheriting the same P100 evidence.
+automatic-grid, backend-pinning, clone, and aggregate-work gates. It adds public
+scalar-response list and one-shot-generator routing plus Cox sizing with five
+normalized folds but only one event-supported evaluable fold. Both CuPy and
+Torch physical cases record the expected counts, consume the generator once,
+and pass all structured gates.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history

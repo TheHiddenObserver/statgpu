@@ -33,9 +33,11 @@
 > Penalized-Cox fold/grid artifact SHA-256: `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b`<br>
 > Actual-fold auto-device artifact source commit: `a2d6a97d092d51a506421b67eea90fa71b5f8ac4`<br>
 > Actual-fold auto-device artifact SHA-256: `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8`<br>
+> Evaluable-fold routing artifact source commit: `0bc131767bef1eeec45805073431e666f690b78c`<br>
+> Evaluable-fold routing artifact SHA-256: `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `PARTIAL_REMOTE_PENDING`; scalar/evaluable-fold routing passes focused local validation and requires schema-19 exact-source physical-GPU evidence
+> Status: `COMPLETE`; scalar/evaluable-fold routing passes local-full and schema-19 exact-source P100 validation at tier `remote-full`
 
 ## Review Contract
 
@@ -61,10 +63,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, and evaluable-fold workload | latest routing follow-up under local validation; schema-19 exact-source P100 refresh pending |
-| Cross-validation | scalar-response and Cox custom-fold routing, plus canonical/penalized Cox selection contracts | latest routing follow-up under local validation; schema-19 exact-source P100 refresh pending |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, and evaluable-fold workload | fixed; local-full and schema-19 P100 validation pass |
+| Cross-validation | scalar-response and Cox custom-fold routing, plus canonical/penalized Cox selection contracts | fixed; local-full and schema-19 P100 validation pass |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-19 runner prepared, exact-source refresh pending |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-19 exact-source evidence passes |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1477,7 +1479,7 @@ validation tier `remote-full`.
 Impact classification: numerical result=`unchanged`; selected alpha=`unchanged`;
 backend placement and transfer cost=`affected`; public CV families=`scalar and
 Cox`; documentation=`affected`; exact-source physical evidence=`schema 19
-pending`.
+remote-full`.
 
 ### Capability decisions by touched public family
 
@@ -1487,21 +1489,21 @@ pending`.
 | `PenalizedGLM_CV(loss="cox_ph")` L1/L2/ElasticNet/SCAD/MCP | `three-backend` | `supported`; only event-supported folds enter candidate work and evidence counts | `estimation-only` | `not-formula-facing` | `required` |
 | Direct `PenalizedCoxPHModel` | `three-backend` | supplied by the survival-aware CV family | `estimation-only` | `supported` | `required` through family CV |
 
-- [HIGH][TEST/MATRIX][fixed locally] The shared scalar-response `_fit_standard()`
+- [HIGH][TEST/MATRIX][fixed] The shared scalar-response `_fit_standard()`
   path changed public backend routing but only Cox fit and a private selector
   had end-to-end coverage. New squared-error/L2 public-fit regressions set
   `cv=99`, exercise one and four custom folds as both lists and one-shot
   generators, capture the selector's `n_folds`, and assert the generator is
   consumed exactly once. The public `cv_results_` now records
   `device_sizing_fold_count` for auditable routing.
-- [HIGH][BUG/BACKEND][fixed locally] Adjacent re-review found that scalar auto-
+- [HIGH][BUG/BACKEND][fixed] Adjacent re-review found that scalar auto-
   device CV published `cv_selected_device_` but `_refit_best()` read the
   nonexistent `_cv_selected_device_`. The final refit could therefore resolve
   `device="auto"` again instead of using the CV-selected backend. The refit now
   reads the public fitted routing state, and an end-to-end regression forces a
   Torch selection without requiring CUDA, then proves that the same device
   reaches the refit estimator.
-- [MEDIUM][PERF/BACKEND][fixed locally] Two policies were compared for Cox folds
+- [MEDIUM][PERF/BACKEND][fixed] Two policies were compared for Cox folds
   without training or validation events: reject the complete split design, or
   retain diagnostic skipping while excluding those folds from device work.
   Rejection would narrow the documented general-disjoint/repeated-split API and
@@ -1512,7 +1514,7 @@ pending`.
   A threshold regression proves five normalized folds with one evaluable fold
   remain on CPU even though sizing the same input by five folds would select
   Torch.
-- [MEDIUM][DOC/BACKEND][fixed locally] EN/CN device tables no longer claim an
+- [MEDIUM][DOC/BACKEND][fixed] EN/CN device tables no longer claim an
   unconditional CPU default. They document the 100-million aggregate-work
   fallback, operational Torch/CuPy ordering, scalar normalized-fold count, Cox
   evaluable-fold count, the SCAD/MCP continuation factor, and the precedence of
@@ -1525,7 +1527,17 @@ skips and seven expected warnings, while the complete CPU tree passes 1,605
 tests with 511 expected GPU skips and eleven expected warnings. Documentation
 links, all 122 maintained documentation contracts, package/validation/benchmark
 compileall, changed-path/runner pyflakes, benchmark CLI parsing, and
-`git diff --check` pass. The schema-19 runner adds structured public-fit routing evidence
-for scalar list and one-shot-generator folds on both GPU backends, plus a Cox
-design with five normalized folds and one evaluable fold. Exact-source P100
-execution remains pending; this follow-up is therefore not yet `remote-full`.
+`git diff --check` pass. The schema-19 runner adds structured public-fit
+routing evidence for scalar list
+and one-shot-generator folds on both GPU backends, plus a Cox design with five
+normalized folds and one evaluable fold. Exact clean implementation commit
+`0bc131767bef1eeec45805073431e666f690b78c` passed all 14/14 CuPy and
+14/14 Torch structured cases plus 553 targeted tests with seven expected
+warnings on a Tesla P100-SXM2-16GB in remote `myconda`. Both backends record
+scalar list count 1, one-shot-generator count 4 with one consumption, and Cox
+normalized/evaluable/device-sizing counts 5/1/1. The audited artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema19.json`
+(SHA-256 `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c`);
+all 44 recorded hashes independently match the exact Git blobs,
+`source_clean=true`, and `gate_failures=[]`. This follow-up is `COMPLETE` at
+validation tier `remote-full`.

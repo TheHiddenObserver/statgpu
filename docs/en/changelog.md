@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-02<br>
+> Last updated: 2026-08-03<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -14,8 +14,10 @@
   count. Penalized Cox sizes generic fallback work by evaluable folds only,
   while retaining skipped-fold reasons and complete finite-evidence selection.
 - EN/CN device tables now distinguish empirical `n * p`/feature rules from the
-  generic aggregate-work fallback. The physical runner advances to schema 19;
-  an exact-source P100 refresh is pending.
+  generic aggregate-work fallback. Exact-source schema-19 P100 evidence binds
+  commit `0bc131767bef1eeec45805073431e666f690b78c`: CuPy and Torch each pass
+  14/14 structured cases plus 553 targeted tests; 44/44 Git-blob hashes match,
+  `source_clean=true`, and `gate_failures=[]`.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 

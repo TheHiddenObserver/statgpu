@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-02<br>
+> 最后更新：2026-08-03<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -13,7 +13,10 @@
   证明 auto-device sizing 接收 materialize 后的实际 fold 数。Penalized Cox 的通用
   fallback 工作量只统计可评估 fold，同时保留 skipped-fold 原因与完整有限证据选择。
 - 中英文 device 表现在区分经验 `n * p`/feature 规则与通用聚合工作量 fallback。
-  物理 runner 升级到 schema 19，精确源码 P100 刷新仍待执行。
+  精确源码 schema-19 P100 证据绑定提交
+  `0bc131767bef1eeec45805073431e666f690b78c`：CuPy 与 Torch 各通过 14/14 个
+  structured case 及 553 项定向测试；44/44 个 Git-blob hash 全部匹配，
+  `source_clean=true` 且 `gate_failures=[]`。
 
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 

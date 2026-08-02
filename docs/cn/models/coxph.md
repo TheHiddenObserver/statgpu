@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-08-02<br>
+> 最后更新：2026-08-03<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -495,25 +495,22 @@ unsupported，不会换名后充当外部证据。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `a2d6a97d092d51a506421b67eea90fa71b5f8ac4` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260802_schema18.json` |
-| Artifact SHA-256 | `2a70bac745e6114fce9c0f548538f54b53c8749f2c1df735b48e63169e19cde8` |
-| Schema / tier | `18` / `remote-full` |
+| Source commit | `0bc131767bef1eeec45805073431e666f690b78c` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema19.json` |
+| Artifact SHA-256 | `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c` |
+| Schema / tier | `19` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14；Torch 14/14 |
-| 定向测试 | 544 passed，7 个预期 warning |
+| 定向测试 | 553 passed，7 个预期 warning |
 | 源码审计 | `source_clean=true`；记录的 44/44 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-18 保留 schema-17 的预测/评分、CV fold 准备、prepared state、数值边界、
-推断、无事件 stratum、严格 fold、自动网格、backend pinning 与 clone gate；并新增
-实际规范化 custom-fold 工作量的 break-even 验证：一个 fold 保持 CPU，五个 fold
-选择实际可用的 Torch CUDA。CuPy 与 Torch 物理 case 均通过该 gate，并与独立
-重算的自动网格数值一致。
-
-标量响应端到端 routing 与 Cox 可评估 fold sizing 变更晚于 schema-18 源码提交；
-在刷新 schema-19 精确源码物理 GPU 证据前，不能继承同一 P100 结论。
+schema-19 保留 schema-18 的预测/评分、CV fold 准备、prepared state、数值边界、
+推断、无事件 stratum、严格 fold、自动网格、backend pinning、clone 与聚合工作量
+gate；并新增公开标量响应 list/一次性 generator routing，以及五个规范化 fold 中仅
+一个事件支持的可评估 fold 的 Cox sizing。CuPy 与 Torch 物理 case 均记录预期计数、
+只消费 generator 一次，并通过全部 structured gate。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source
