@@ -228,7 +228,9 @@ model = RidgeCV(
 model.fit(X, y)
 ```
 
-非正和非有限值会被自动过滤。如果所有提供的 alpha 都被过滤，会发出警告并使用默认网格。
+标量响应 CV estimator 会过滤非正或非有限值；若无剩余值，则 warning 后回退默认
+网格。Penalized Cox 不会过滤或替换用户网格：非有限或负值会抛出 `ValueError`，
+SCAD/MCP 还要求每个 alpha 严格为正；L1、L2 与 ElasticNet Cox 网格允许零值。
 
 ## 拟合属性
 
@@ -277,8 +279,9 @@ r2_w = model.score(X_test, y_test, sample_weight=w_test)
 
 阈值基于 benchmark 数据，存储在 `_effective_cv_device()` 中。显式控制：`device="cpu"` 强制 CPU，`device="cuda"` 强制 GPU。
 `device="auto"` 只在 backend 报告 CUDA driver 与设备实际可用后选择 GPU；仅安装
-但无法运行的 CuPy wheel 不会阻止回退 CPU。显式 `device="cuda"` 仍采用严格契约，
-CuPy CUDA 不可用时会抛错。
+但无法运行的 CuPy wheel 不会阻止回退 CPU。其 effective-work 估算使用规范化后的
+实际 custom fold 数，而不是 constructor 的 `cv` 值。显式 `device="cuda"` 仍采用
+严格契约，CuPy CUDA 不可用时会抛错。
 
 ## CV 后推断
 

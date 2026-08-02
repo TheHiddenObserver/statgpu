@@ -29,6 +29,11 @@
   `f9e974b33c080c36a1a0cf1ca3508baca09f4939` passes CuPy/Torch 14/14 cases and
   541 targeted tests; all 44 Git-blob hashes match, `source_clean=true`, and
   `gate_failures=[]`.
+- Auto-device workload estimation now uses the normalized custom-fold count
+  instead of the constructor `cv` value. The Cox capability text is restricted
+  to L1/L2/ElasticNet/SCAD/MCP, and the generic alpha-grid guide now documents
+  Cox hard-failure semantics. The physical runner advances to schema 18; an
+  exact-source P100 refresh is pending.
 
 ### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
 

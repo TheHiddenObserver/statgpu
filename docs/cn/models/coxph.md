@@ -418,8 +418,8 @@ validation。索引会在任何 candidate fit 前校验，必须是一维、精�
 无穷范数作为已文档化的网格 heuristic。
 
 大规模 `device="auto"` 搜索只在 Torch 或 CuPy 的 CUDA backend 报告设备实际可用
-后选择 GPU。CuPy 可导入但无法运行时会回退 CPU；显式 `device="cuda"` 仍严格抛错，
-不会静默回退。
+后选择 GPU。工作量使用规范化后的实际 custom fold 数，而不是 constructor 的 `cv`
+值。CuPy 可导入但无法运行时会回退 CPU；显式 `device="cuda"` 仍严格抛错，不会静默回退。
 
 ## 预测与评分
 
@@ -512,6 +512,9 @@ schema-17 保留 schema-16 的预测/评分、CV fold 准备、prepared state、
 互斥 split、ElasticNet 字符串/对象零模型 KKT 缩放、纯 L2 网格 heuristic、实际
 可用性驱动的 auto-device fallback 与不可调 no-penalty rejection。两个物理 GPU
 后端都与独立重算的自动网格数值一致。
+
+上述 actual-custom-fold auto-device 工作量变更晚于 schema-17 源码提交；在刷新
+schema-18 精确源码物理 GPU 证据前，不能继承同一 P100 结论。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source

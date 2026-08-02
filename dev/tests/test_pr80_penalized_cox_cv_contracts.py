@@ -375,6 +375,79 @@ def test_elasticnet_auto_grid_starts_at_independent_zero_model_kkt(
         )
 
 
+@pytest.mark.parametrize("fold_count", [1, 4])
+def test_penalized_cox_cv_passes_normalized_custom_fold_count(
+    fold_count, monkeypatch
+):
+    X, y = _survival_sample(seed=8126, n=24)
+    folds = [
+        (
+            np.arange(0, 12, dtype=np.int64),
+            np.array([12 + fold_index], dtype=np.int64),
+        )
+        for fold_index in range(fold_count)
+    ]
+    observed_fold_counts = []
+
+    def capture_device(self, X_value, penalty_name, n_alphas, *, n_folds=None):
+        observed_fold_counts.append(n_folds)
+        return "cpu"
+
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_effective_cv_device", capture_device
+    )
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=9,
+        cv_splits=folds,
+        device="auto",
+        max_iter=200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert observed_fold_counts == [fold_count]
+    assert len(model.cv_results_["fold_indices"]) == fold_count
+
+
+def test_effective_cv_device_uses_actual_fold_count_at_break_even(monkeypatch):
+    model = PenalizedGLM_CV(
+        loss="cox_ph", penalty="l2", n_alphas=100, cv=99, device="auto"
+    )
+    availability_calls = []
+
+    def availability(name):
+        availability_calls.append(name)
+        return name == "torch"
+
+    monkeypatch.setattr(
+        penalized_cv_module, "_cuda_backend_available", availability
+    )
+    monkeypatch.setattr(
+        penalized_cv_module, "_SMALL_PROBLEM_THRESHOLD", 200_000
+    )
+    monkeypatch.setattr(
+        penalized_cv_module, "_GPU_BREAK_EVEN_THRESHOLD", 100_000_000
+    )
+    X = np.empty((2000, 100), dtype=np.float64)
+
+    assert (
+        model._effective_cv_device(
+            X, "l2", 100, n_folds=1
+        )
+        == "cpu"
+    )
+    assert availability_calls == []
+    assert (
+        model._effective_cv_device(
+            X, "l2", 100, n_folds=5
+        )
+        == "torch"
+    )
+    assert availability_calls == ["torch"]
+
+
 def test_large_auto_cox_cv_falls_back_when_cuda_backends_are_unavailable(
     monkeypatch
 ):

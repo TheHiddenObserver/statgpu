@@ -469,9 +469,10 @@ object supplies its own ratio. Pure L2 (`l1_ratio=0`) has no finite all-zero KKT
 threshold and uses the raw zero-score norm as a documented grid heuristic.
 
 For large `device="auto"` searches, Torch and CuPy are selected only after their
-CUDA backend reports an operational device. An importable but unusable CuPy
-installation therefore falls back to CPU; explicit `device="cuda"` remains
-strict and raises instead of falling back.
+CUDA backend reports an operational device. The workload uses the actual number
+of normalized custom folds rather than the constructor's `cv` value. An
+importable but unusable CuPy installation therefore falls back to CPU; explicit
+`device="cuda"` remains strict and raises instead of falling back.
 
 ## Prediction and Scoring
 
@@ -581,6 +582,10 @@ fold-index boundary, general non-complementary disjoint splits, ElasticNet
 string/object zero-model KKT scaling, the pure-L2 grid heuristic, operational
 auto-device fallback, and non-tunable no-penalty rejection. Both physical GPU
 backends match independently recomputed automatic-grid values.
+
+The actual-custom-fold auto-device workload change documented above postdates
+the schema-17 source commit. It requires a schema-18 exact-source physical-GPU
+refresh before inheriting the same P100 evidence.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history

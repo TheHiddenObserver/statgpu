@@ -282,7 +282,10 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
         )
         requested_n_alphas = int(alpha_grid.size)
     cv_device = estimator._effective_cv_device(
-        X, penalty_name, requested_n_alphas
+        X,
+        penalty_name,
+        requested_n_alphas,
+        n_folds=len(folds),
     )
     backend_name, model_device, backend_device = _backend_contract(cv_device)
     backend = get_backend(backend=backend_name, device=backend_device)

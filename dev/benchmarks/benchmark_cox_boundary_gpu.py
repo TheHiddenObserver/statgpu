@@ -2007,6 +2007,33 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             "passed": bool(case_passed),
         }
 
+    fold_work_model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        n_alphas=100,
+        cv=99,
+        device="auto",
+    )
+    fold_work_X = np.empty((2000, 100), dtype=np.float64)
+    single_fold_device = fold_work_model._effective_cv_device(
+        fold_work_X,
+        "l2",
+        100,
+        n_folds=1,
+    )
+    repeated_fold_device = fold_work_model._effective_cv_device(
+        fold_work_X,
+        "l2",
+        100,
+        n_folds=5,
+    )
+    fold_work_passed = all(
+        (
+            single_fold_device == "cpu",
+            repeated_fold_device == "torch",
+        )
+    )
+
     set_device(device)
     try:
         pinned_model = CoxPH(
@@ -2041,12 +2068,23 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             backend_pin_passed,
             all(result["passed"] for result in penalty_results.values()),
             all(result["passed"] for result in automatic_grid_results.values()),
+            fold_work_passed,
         )
     )
     return {
         "backend": name,
         "penalty_families": penalty_results,
         "automatic_elasticnet_grid": automatic_grid_results,
+        "actual_fold_count_auto_device": {
+            "configured_cv": 99,
+            "n_samples": 2000,
+            "n_features": 100,
+            "n_alphas": 100,
+            "single_fold_device": single_fold_device,
+            "five_fold_device": repeated_fold_device,
+            "contract": "effective work uses normalized fold count",
+            "passed": bool(fold_work_passed),
+        },
         "selection_contract": (
             "finite held-out Cox partial likelihood from every evaluable fold"
         ),
@@ -2069,7 +2107,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 17,
+        "schema_version": 18,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

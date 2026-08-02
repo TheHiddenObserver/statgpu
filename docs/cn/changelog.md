@@ -25,6 +25,10 @@
   schema-17 P100 证据绑定提交 `f9e974b33c080c36a1a0cf1ca3508baca09f4939`：
   CuPy/Torch 均通过 14/14 个 case 与 541 项定向测试；44 个 Git-blob hash 全部匹配，
   `source_clean=true` 且 `gate_failures=[]`。
+- Auto-device 工作量现在使用规范化后的实际 custom-fold 数，不再使用 constructor 的
+  `cv` 值。Cox capability 文本收窄到 L1/L2/ElasticNet/SCAD/MCP，generic alpha-grid
+  guide 也明确 Cox 的 hard-failure 语义。物理 runner 升级到 schema 18，精确源码
+  P100 刷新仍待执行。
 
 ### 修复（2026-08-01）— PR #80 无事件 stratum 预测后续
 

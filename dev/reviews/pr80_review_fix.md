@@ -10,10 +10,10 @@
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
 > Current shared-CV boundary SHA-256: `c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc`<br>
-> Current penalized-CV orchestration SHA-256: `afec52f68d5745faf37f3a0ef206e91724a3cab513a145e5340ee1fd4280e280`<br>
-> Current penalized-Cox CV SHA-256: `4a1542b570bcbc4d2f98aec23aff04d8c8f1ca85b508a5bf41cfc68097d4fc52`<br>
+> Current penalized-CV orchestration SHA-256: `c6691d8357f51690865fd58420ec41f08044f858fe2d1e4307bc56efcb338151`<br>
+> Current penalized-Cox CV SHA-256: `29c1e5c103c538a54546d5d37bbbb8bb93f7593f3029a6a8c12d2fa6fc0f9284`<br>
 > Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
-> Current schema-17 runner SHA-256: `bf71a38f0645055373abf954e7fe875a3012330d2b6ed5a2fac0d65c77e877ca`<br>
+> Current schema-18 runner SHA-256: `060d308ccf06384aa9839d15db1fd7ebb376f572c82c1534535bfaa9b8e53cf8`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
 > Final counting-solver SHA-256: `466bdc86891bc41749e2272d2566344cd28c112b7234fb5d1e104df25c61e2da`<br>
 > Final Cox dispatch SHA-256: `17738770458ae986037f5e1209a8da51e1bad41a1869d5d5518886c15ad348d0`<br>
@@ -33,7 +33,7 @@
 > Penalized-Cox fold/grid artifact SHA-256: `e3ef1327b97755ebf1ea98482d7e274797a223aadff89842f1cb5505e67dfd7b`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `COMPLETE`; local-full and exact-source schema-17 remote-full gates pass
+> Status: `PARTIAL_REMOTE_PENDING`; actual-fold auto-device follow-up passes local validation and requires schema-18 physical-GPU evidence
 
 ## Review Contract
 
@@ -59,8 +59,8 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, and operational auto fallback | fixed; local and schema-17 physical-P100 gates pass |
-| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, and auto grids | fixed; per-family local and schema-17 physical-P100 gates pass |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, and actual-fold workload | schema-18 follow-up passes local validation; exact-source P100 refresh pending |
+| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability, strict folds, auto grids, and custom-fold workload | schema-18 follow-up passes local validation; exact-source P100 refresh pending |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
 | Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-17 exact-source refresh passes |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
@@ -1425,3 +1425,38 @@ all 44 recorded hashes match the exact Git blobs, `source_clean=true`, and
 heuristic match independently recomputed values on both GPU backends, and each
 records two general non-complementary disjoint splits. This follow-up is
 `COMPLETE` at validation tier `remote-full`.
+
+## Actual-Fold Auto-Device and Penalty-Documentation Follow-up
+
+Impact classification: numerical result=`unchanged`; selected alpha=`unchanged`;
+performance/backend placement=`affected`; public documentation=`corrected`;
+backends=`NumPy/CuPy/Torch`; exact-source physical evidence=`schema 18 pending`.
+
+- [MEDIUM][PERF/BACKEND][fixed locally] Auto-device fallback work formerly used
+  `self.cv`, even after the survival-aware path had normalized a custom split
+  generator. Two scopes were compared: patch only Cox, or make the shared
+  device estimator accept the actual fold count. The shared fix is preferable:
+  both Cox and scalar-response CV now materialize/normalize folds before device
+  selection and pass `len(folds)`. Default/internal callers retain the
+  constructor count only when no explicit count is supplied. Tests cover one
+  custom holdout, four repeated folds, and both sides of the 100-million-work
+  break-even while `cv=99` proves the constructor value is not reused.
+- [MEDIUM][DOC/API][fixed locally] The module capability text now lists only the
+  five public Cox penalties: L1, L2, ElasticNet, SCAD, and MCP. EN/CN generic
+  alpha-grid text is restricted to scalar-response estimators and documents the
+  Cox exception: user grids are not filtered or replaced; non-finite/negative
+  values fail, SCAD/MCP require strictly positive alpha, and L1/L2/ElasticNet
+  permit zero.
+
+The schema-18 runner extends the physical penalized-Cox CV case with an
+actual-fold workload gate: at `n*p=200,000` and 100 alphas, one normalized fold
+must remain on CPU while five folds meet the 100-million-work threshold and
+select operational Torch CUDA. Focused Cox-CV coverage passes 49 tests with 20
+expected physical-GPU skips; the affected scalar-CV safety set passes 89 tests
+with seven optional-backend skips. The 17-file schema-targeted matrix passes
+407 tests with 137 expected GPU skips and seven expected warnings, while the
+complete CPU tree passes 1,596 tests with 511 expected GPU skips and eleven
+expected warnings. Documentation links, all 122 maintained documentation
+contracts, package/validation/benchmark compileall, changed-path/runner
+pyflakes, benchmark CLI parsing, and `git diff --check` pass. Exact-source P100
+execution remains pending.

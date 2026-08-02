@@ -236,7 +236,11 @@ model = RidgeCV(
 model.fit(X, y)
 ```
 
-Non-positive and non-finite values are automatically filtered. If all provided alphas are filtered, a warning is emitted and the default grid is used.
+Scalar-response CV estimators filter non-positive or non-finite values and fall
+back to the default grid with a warning when none remain. Penalized Cox does
+not filter or replace a user grid: non-finite or negative values raise
+`ValueError`, and SCAD/MCP additionally require every alpha to be strictly
+positive. L1, L2, and ElasticNet Cox grids may include zero.
 
 ### Fitted Attributes
 
@@ -286,8 +290,9 @@ When `device="auto"`, the CV estimator selects the backend based on problem size
 For explicit control: `device="cpu"` forces CPU, `device="cuda"` forces GPU. The thresholds are benchmark-backed and stored in `_effective_cv_device()`.
 `device="auto"` selects a GPU only after the backend reports an operational
 CUDA driver and device; an installed but unusable CuPy wheel does not prevent a
-CPU fallback. Explicit `device="cuda"` remains strict and raises when CuPy CUDA
-is unavailable.
+CPU fallback. Its effective-work estimate uses the actual number of normalized
+custom folds, not the constructor's `cv` value. Explicit `device="cuda"`
+remains strict and raises when CuPy CUDA is unavailable.
 
 ### Inference After CV
 

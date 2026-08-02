@@ -3,8 +3,8 @@ Unified cross-validated penalized GLM estimator.
 
 Supports scalar-response GLM losses (squared_error, logistic, poisson, gamma,
 inverse_gaussian, negative_binomial, tweedie) plus a separate survival-aware
-``cox_ph`` path with all supported penalty types
-(l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso).
+``cox_ph`` path with its supported penalty types
+(l1, l2, elasticnet, scad, mcp).
 
 Optimizations:
 - Warm-start across alpha values (descending order)
@@ -1965,7 +1965,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             problem_size=None if X is None else int(X.shape[0]) * int(X.shape[1]),
         )
 
-    def _effective_cv_device(self, X, penalty_name, n_alphas):
+    def _effective_cv_device(self, X, penalty_name, n_alphas, *, n_folds=None):
         """Resolve device for CV-level work; explicit devices are untouched."""
         self.cv_selected_device_ = self.device
         self._cv_auto_reason_ = None
@@ -1976,6 +1976,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(penalty_name).lower()
         loss_name = str(self.loss).lower()
         nx = int(n_samples) * int(n_features)
+        fold_count = int(self.cv) if n_folds is None else int(n_folds)
+        if fold_count < 1:
+            raise ValueError("n_folds must be a positive integer")
 
         # Small problems: always CPU
         if nx < _SMALL_PROBLEM_THRESHOLD:
@@ -2008,7 +2011,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         # Fallback: large effective work → GPU
         continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
-        effective_work = nx * int(self.cv) * int(n_alphas) * continuation_factor
+        effective_work = nx * fold_count * int(n_alphas) * continuation_factor
         if effective_work < _GPU_BREAK_EVEN_THRESHOLD:
             self.cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
@@ -2719,17 +2722,22 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.alpha_grid_ = alpha_grid
         n_samples = X.shape[0]
         n_alphas = len(alpha_grid)
+        if self.cv_splits is not None:
+            # Normalize to list (generators would exhaust on first pass).
+            folds = (
+                list(self.cv_splits)
+                if not isinstance(self.cv_splits, list)
+                else self.cv_splits
+            )
+        else:
+            folds = kfold_indices(n_samples, self.cv, self.random_state)
         penalty_name = str(self.penalty).lower()
-        cv_device = self._effective_cv_device(X, penalty_name, n_alphas)
+        cv_device = self._effective_cv_device(
+            X, penalty_name, n_alphas, n_folds=len(folds)
+        )
         cv_solver = self._solver_for_cv(cv_device, X=X)
         self.cv_strategy_ = self.cv_strategy
         self.cv_selected_device_ = _device_to_name(cv_device)
-
-        if self.cv_splits is not None:
-            # Normalize to list (generators would exhaust on first pass)
-            folds = list(self.cv_splits) if not isinstance(self.cv_splits, list) else self.cv_splits
-        else:
-            folds = kfold_indices(n_samples, self.cv, self.random_state)
         all_scores_stage1 = None
         mean_scores_stage1 = None
         refined_mask = np.ones(n_alphas, dtype=bool)
