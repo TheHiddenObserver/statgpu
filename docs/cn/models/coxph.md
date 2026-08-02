@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-08-01<br>
+> 最后更新：2026-08-02<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -382,10 +382,37 @@ torch_cv = CoxPHCV(
 ).fit(X_t, time_t, event_t)
 ```
 
+### L1/L2/ElasticNet/SCAD/MCP 模型族交叉验证
+
+上面的 `CoxPHCV` 是 canonical L2 Cox selector，并可按配置执行最终重拟合推断。
+公开 penalized model family 则使用 `PenalizedGLM_CV` 的独立生存感知分支：
+
+```python
+from statgpu.linear_model import PenalizedGLM_CV
+
+survival_y = np.column_stack([time, event])
+penalized_cv = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="mcp",               # l1、l2、elasticnet、scad 或 mcp
+    alpha_grid=[0.1, 0.03, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cpu",                # 也可用 "cuda" / "torch"
+).fit(X, survival_y)
+```
+
+该分支始终保留二维 `(time, event)` target，禁止截距，用未惩罚的 held-out
+partial likelihood 评分，并要求每个可评估 fold 都提供有限证据。若不存在满足
+契约的 alpha，fit 会抛错，且不会发布已选 alpha 或拟合 estimator。最终重拟合为
+`PenalizedCoxPHModel(compute_inference=False)`；不支持 post-selection 系数推断、
+`two_stage`、sample weights 或字典 target。
+
 ## 预测与评分
 
 对数组输入，`predict`、`predict_risk_score`、`predict_hazard_ratio`、
-`predict_survival` 与 `score` 都在拟合后端执行。分层生存预测要求每个预测行
+`predict_survival` 与 `score` 都在拟合后端执行。使用 `device="auto"` 拟合后，模型会固定实际的
+`effective_device_`；后续修改全局 device 不会迁移既有模型的预测或评分后端。分层生存预测要求每个预测行
 提供一个训练时已知的 stratum 标签；即使拟合时只有一个显式 stratum，也不能省略
 标签，缺失或未知标签会抛出 `ValueError`。生存曲线在 log-domain 中累计 baseline，
 以提高数值稳定性。Formula 拟合模型会在预测前应用已保存的设计矩阵转换。
@@ -471,6 +498,9 @@ completion contract、稳健推断的独立单元/PSD 边界，以及固定 pena
 strata 评分路径。它还覆盖合法的无事件 stratum baseline，包括显式/自动 times、混合
 预测行和 `CoxPHCV` 委托。其源码审计还包含修正后的 canonical accuracy validator，
 以及针对 `A^-1 J A^-1` 和 `start < failure_time <= stop` 的独立回归。
+
+Schema 15 早于本轮生存感知 penalized-Cox CV 与 fitted-backend 固定改动。
+这些 runtime 路径需要新的 exact-source schema-16 P100 刷新；本页不会把它们归因于旧 artifact。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source

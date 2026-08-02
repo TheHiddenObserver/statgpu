@@ -801,28 +801,28 @@ def _select_coxph_penalty_cv(
     _require_real_array(start_values, "entry/start")
     _require_real_array(penalties, "penalties")
     X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    time_np = np.asarray(_to_numpy(time), dtype=np.float64).reshape(-1)
-    event_raw_np = np.asarray(_to_numpy(event), dtype=np.float64).reshape(-1)
-    entry_np = (
-        None
-        if start_values is None
-        else np.asarray(_to_numpy(start_values), dtype=np.float64).reshape(-1)
-    )
-    cluster_np = None if cluster is None else np.asarray(_to_numpy(cluster)).reshape(-1)
-    strata_np = None if strata is None else np.asarray(_to_numpy(strata)).reshape(-1)
-    subject_np = (
-        None
-        if subject_id is None
-        else np.asarray(_to_numpy(subject_id)).reshape(-1)
-    )
-
     if X_np.ndim != 2:
         raise ValueError("X must have shape (n_samples, n_features)")
     if X_np.shape[1] < 1:
         raise ValueError("X must contain at least one feature")
     n_samples = X_np.shape[0]
-    if time_np.shape[0] != n_samples or event_raw_np.shape[0] != n_samples:
-        raise ValueError("time and event must have shape (n_samples,)")
+
+    def host_vector(value, name, *, dtype=None):
+        if value is None:
+            return None
+        array = np.asarray(_to_numpy(value), dtype=dtype)
+        if array.ndim != 1 or array.shape[0] != n_samples:
+            raise ValueError(f"{name} must have shape (n_samples,)")
+        return array
+
+    # Validate the original public shapes before cache hashing, fold
+    # construction, grouping, or any candidate fit can observe the data.
+    time_np = host_vector(time, "time", dtype=np.float64)
+    event_raw_np = host_vector(event, "event", dtype=np.float64)
+    entry_np = host_vector(start_values, "entry", dtype=np.float64)
+    cluster_np = host_vector(cluster, "cluster")
+    strata_np = host_vector(strata, "strata")
+    subject_np = host_vector(subject_id, "subject_id")
     if not np.all(np.isfinite(X_np)) or not np.all(np.isfinite(time_np)):
         raise ValueError("X and time must contain only finite values")
     if not np.all(np.isfinite(event_raw_np)) or np.any(
@@ -830,16 +830,8 @@ def _select_coxph_penalty_cv(
     ):
         raise ValueError("event must contain only 0/1 finite values")
     event_np = event_raw_np.astype(np.int32)
-    if entry_np is not None and entry_np.shape[0] != n_samples:
-        raise ValueError("entry must have shape (n_samples,)")
     if entry_np is not None and not np.all(np.isfinite(entry_np)):
         raise ValueError("entry must contain only finite values")
-    if cluster_np is not None and cluster_np.shape[0] != n_samples:
-        raise ValueError("cluster must have shape (n_samples,)")
-    if strata_np is not None and strata_np.shape[0] != n_samples:
-        raise ValueError("strata must have shape (n_samples,)")
-    if subject_np is not None and subject_np.shape[0] != n_samples:
-        raise ValueError("subject_id must have shape (n_samples,)")
     strata_codes_np = None
     strata_labels_np = None
     if strata_np is not None:

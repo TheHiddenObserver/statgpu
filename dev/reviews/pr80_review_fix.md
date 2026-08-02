@@ -1,6 +1,7 @@
 # PR #80 Review-Fix Report
 
 > Review date: 2026-07-28<br>
+> Latest follow-up: 2026-08-02<br>
 > Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
 > Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
 > Current risk-set SHA-256: `eee6900332526d5e68815e46d6d43a0f52e981760b724c10f98740fc56eeb3da`<br>
@@ -23,7 +24,7 @@
 > Boundary adapter SHA-256: `c6742e20dd57c8dc5a36dbe594e7ce040effae4217939538ab39df0fb338f9d3`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `COMPLETE` for source review; external GPU-CI wiring remains an infrastructure action
+> Status: `PARTIAL_REMOTE_PENDING` for the current survival-CV/backend update; exact-source schema-16 physical-GPU evidence is pending
 
 ## Review Contract
 
@@ -49,10 +50,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit and prediction boundaries | fixed; physical P100 validation passes |
-| Cross-validation | penalty completeness, held-out likelihood, subject grouping | fixed and locally validated |
+| Backends | NumPy/CuPy/Torch fit and prediction boundaries | prior physical cases pass; current fitted-backend pin passes locally and awaits schema 16 |
+| Cross-validation | canonical L2 and penalized-model L1/L2/ElasticNet/SCAD/MCP capability | fixed locally; see the per-family decision matrix below; schema-16 physical refresh pending |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | fixed; local and remote artifacts pass with zero gate failures |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts pass; current schema-16 exact-source refresh pending |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1265,3 +1266,72 @@ automatic times, mixed rows, and `CoxPHCV` delegation. The audited artifact is
 (SHA-256 `56386d7d0a51e73423939dacc0238a31bfdaa929f6e4f24cc3de73053a5e8ff0`);
 all 39 source hashes match Git blobs, `source_clean=true`, and
 `gate_failures=[]`.
+
+## Penalized-Cox CV, Fitted-Backend, and Clone-Contract Follow-up
+
+Impact classification: selected regularization=`correctness-critical`;
+public API=`PenalizedGLM_CV, PenalizedCoxPHModel, CoxPH, CoxPHCV,
+CompositePenalty`; backends=`NumPy/CuPy/Torch`; inference=`unchanged,
+estimation-only for PenalizedGLM_CV`; formula=`unchanged`; exact-source physical
+evidence=`schema 16 remote-pending`.
+
+### Capability decisions by public estimator family
+
+The table uses the allowed capability values from the review skill. A canonical
+L2 Cox CV result is not used as evidence for the separate penalized-model
+family.
+
+| Public family | Backend | CV | Inference | Formula | Benchmark |
+|---|---|---|---|---|---|
+| `CoxPH` | `three-backend` | `supported` through `CoxPHCV` for L2 | `supported` | `supported` | `remote-pending` |
+| `CoxPHCV` | `three-backend` | `supported` | `supported` on final refit, conditional after selection | `not-formula-facing` | `remote-pending` |
+| `PenalizedCoxPHModel` (L1/L2/ElasticNet/SCAD/MCP) | `three-backend` | `supported` through `PenalizedGLM_CV(loss="cox_ph")` | `estimation-only` | `supported` | `remote-pending` |
+| `PenalizedGLM_CV(loss="cox_ph")` | `three-backend` | `supported` with strict held-out partial likelihood | `estimation-only` | `not-formula-facing` | `remote-pending` |
+| `PenalizedGLM_CV` scalar-response families | `three-backend` | `supported` | `estimation-only` | `not-formula-facing` | `required` |
+
+`CompositePenalty` is a supporting public penalty object rather than an
+estimator family. Its applicable decision is constructor/clone compatibility;
+Cox explicitly supports only the five validated simple penalty families above.
+
+- [CRITICAL][CV/CORRECTNESS][fixed locally] Two remedies were compared. A hard
+  rejection of `loss="cox_ph"` would prevent the false first-alpha selection,
+  but would leave every public tunable penalized-Cox family without the CV
+  capability required by the review contract. The selected implementation is a
+  separate survival-aware branch: it preserves `(n, 2)` targets, forbids an
+  intercept, scores unpenalized held-out Cox partial likelihood per row,
+  requires finite evidence from every evaluable fold, hard-fails transactionally
+  when no alpha is supported, and refits `PenalizedCoxPHModel`. L1, L2,
+  ElasticNet, SCAD, and MCP share this path; `two_stage`, sample weights,
+  dictionary targets, and post-selection coefficient inference are explicitly
+  unsupported.
+- [HIGH][BACKEND/API][fixed locally] A successful `CoxPH(device="auto")` fit
+  records `_fitted_backend_name` and public `effective_device_`. Prediction and
+  scoring construct that exact backend directly, so later global device changes
+  cannot migrate an existing model. Failed refits clear both fields.
+- [HIGH][SKLEARN/API][fixed locally] `CompositePenalty.get_params(deep=False)`
+  now returns only its real constructor inputs, with component penalty objects
+  intact. The default/deep call retains the descriptive serialization contract.
+  Direct reconstruction, current sklearn clone, and cloning an estimator that
+  contains the composite are covered.
+- [MEDIUM][API/VALIDATION][fixed locally] `CoxPHCV` side arrays must have the
+  exact public shape `(n_samples,)` before cache hashing, fold construction,
+  label grouping, or candidate fitting. `(n, 1)` and `(1, n)` fail at the public
+  boundary for time, event, entry, cluster, strata, and subject ID.
+- [MEDIUM][MATRIX/REVIEW-CONTRACT][fixed] The per-family decision matrix above
+  replaces the former area-level assertion that conflated canonical L2 CV with
+  the complete penalized-Cox model family.
+
+Focused local coverage passes 27 tests with 14 expected physical-GPU skips. The
+17-file schema-targeted local matrix passes 385 tests with 131 expected GPU
+skips and seven expected warnings; the complete CPU tree passes 1,574 tests
+with 505 expected GPU skips and eleven expected warnings. Documentation links,
+all 122 maintained documentation contracts, package/validation/benchmark
+compileall, new-file/runner pyflakes, and `git diff --check` pass.
+
+The schema-16 runner records 43 source files and adds all five penalized-Cox
+penalties, complete-fold selection evidence, direct final-refit coefficient
+parity, and fitted-backend pinning for both CuPy and Torch. Its 17 targeted test
+files contain 516 tests when the physical CuPy/Torch variants execute. The
+exact-source P100 result will be recorded only after a clean implementation
+commit exists; until then this follow-up is `PARTIAL_REMOTE_PENDING`, not
+`COMPLETE`.

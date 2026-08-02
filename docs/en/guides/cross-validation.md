@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-06-12  
+> Last updated: 2026-08-02
 > This page: Unified CV guide — API reference, architecture, GPU acceleration, and caching  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -19,7 +19,7 @@ statgpu provides cross-validated estimators for all penalized models. Each CV es
 | `LassoCV` | `Lasso` | l1 | `statgpu.linear_model.LassoCV` |
 | `ElasticNetCV` | `ElasticNet` | elasticnet | `statgpu.linear_model.ElasticNetCV` |
 | `LogisticRegressionCV` | `LogisticRegression` | l2 | `statgpu.linear_model.LogisticRegressionCV` |
-| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` | any | `statgpu.linear_model.PenalizedGLM_CV` |
+| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` or `PenalizedCoxPHModel` | family-supported | `statgpu.linear_model.PenalizedGLM_CV` |
 
 ### Quick Start
 
@@ -76,6 +76,30 @@ model.fit(X, y)
 pred = model.predict(X_test)
 ```
 
+#### Penalized Cox CV
+
+Cox targets must remain two-dimensional throughout selection:
+
+```python
+survival_y = np.column_stack([time, event])
+model = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="elasticnet",        # l1, l2, elasticnet, scad, or mcp
+    l1_ratio=0.4,
+    alpha_grid=[0.2, 0.05, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cuda",               # NumPy CPU and Torch CUDA are also supported
+).fit(X_cuda, survival_y_cuda)
+```
+
+This path uses finite held-out Cox partial-likelihood evidence from every
+evaluable fold and refits `PenalizedCoxPHModel` without an intercept. It raises
+instead of selecting a default alpha if no candidate has complete evidence.
+The branch is estimation-only: it does not publish post-selection coefficient
+inference. `two_stage`, sample weights, and dictionary targets are unsupported.
+
 #### LogisticRegressionCV
 
 ```python
@@ -128,11 +152,10 @@ print(f"Accuracy: {model.score(X_test, y_test):.4f}")
 | `loss` | str | `"squared_error"` | Loss family (see [Solver x Penalty Matrix](solver-penalty-matrix.md)). |
 | `penalty` | str | `"l2"` | Penalty type. |
 | `penalty_kwargs` | dict | `{}` | Penalty parameters (e.g., `{"a": 3.7}` for SCAD). |
-| `alphas` | array | `None` | Alpha grid. |
+| `alpha_grid` | array | `None` | Alpha grid. |
 | `n_alphas` | int | `100` | Number of alphas. |
 | `cv_splits` | list | `None` | Custom fold splits `[(train_idx, val_idx), ...]`. |
-| `scoring` | str | `"auto"` | Scoring metric. `"auto"` selects based on loss. |
-| `compute_inference` | bool | `False` | Compute debiased inference (l1 only). |
+| `loss_kwargs` | dict | `{}` | Loss options; Cox accepts `ties="breslow"` or `ties="efron"`. |
 
 ### Custom CV Splits
 
@@ -161,7 +184,7 @@ When `cv_splits=None` (default), the estimator uses `kfold_indices(n, cv, random
 
 ### Sample Weight
 
-All CV estimators support `sample_weight`:
+Most scalar-response CV estimators support `sample_weight`; see the survival limitation below:
 
 ```python
 model = RidgeCV(cv=5)
@@ -171,7 +194,8 @@ print(f"Weighted R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 
 **Limitations** (see [Known Limitations](#known-limitations) below):
 - Non-uniform weights with l1/elasticnet/SCAD/MCP raise `ValueError` at the solver level.
-- Uniform weights (all equal) work for all penalties.
+- Uniform weights (all equal) work for supported scalar-response penalties.
+- `loss="cox_ph"` rejects `sample_weight`; weighted penalized Cox CV is not implemented.
 
 ### Alpha Grid
 

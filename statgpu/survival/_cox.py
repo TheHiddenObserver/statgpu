@@ -182,6 +182,10 @@ class CoxPH(BaseEstimator):
         Estimated coefficients (log hazard ratios).
     hazard_ratios_ : ndarray of shape (n_features,)
         exp(coef) = hazard ratios.
+    effective_device_ : str
+        Actual fitted device (``cpu``, ``cuda``, or ``torch``). Prediction and
+        scoring remain pinned to this device even when ``device="auto"`` and
+        the global device configuration later changes.
     converged_ : bool
         Whether the final normalized KKT condition met its tolerance.
     termination_reason_ : str
@@ -324,6 +328,8 @@ class CoxPH(BaseEstimator):
         self.penalty_conditioning_ = None
         self.penalty_selection_adjusted_ = None
         self.full_host_transfer_performed_ = False
+        self._fitted_backend_name = None
+        self.effective_device_ = None
         self.concordance_ = None
         self._var_matrix = None
         self._score_test_stat = None
@@ -857,6 +863,14 @@ class CoxPH(BaseEstimator):
         }[device]
         compute_backend = self._get_backend(backend=backend_name)
         backend = compute_backend.name
+        # Pin successful public prediction/scoring to the actual fit backend.
+        # Failed fits clear both fields transactionally in _reset_fit_state().
+        self._fitted_backend_name = backend
+        self.effective_device_ = {
+            "numpy": "cpu",
+            "cupy": "cuda",
+            "torch": "torch",
+        }[backend]
         xp = compute_backend.xp
         Xb = compute_backend.asarray(X, dtype=compute_backend.float64)
         stopb = compute_backend.asarray(time, dtype=compute_backend.float64)
@@ -1558,7 +1572,13 @@ class CoxPH(BaseEstimator):
                 names = list(self._design_info.column_names)
                 if "Intercept" in names:
                     X = np.delete(X, names.index("Intercept"), axis=1)
-        backend = self._get_backend(backend="auto")
+        backend_name = self._fitted_backend_name
+        if backend_name not in {"numpy", "cupy", "torch"}:
+            raise RuntimeError("Fitted Cox backend metadata is unavailable.")
+        backend = get_backend(
+            backend=backend_name,
+            device="cpu" if backend_name == "numpy" else "cuda",
+        )
         n_features = int(len(self.coef_))
         X_arr = _normalize_prediction_matrix(
             X, backend=backend, n_features=n_features

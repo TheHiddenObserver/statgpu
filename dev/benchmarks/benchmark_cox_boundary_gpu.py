@@ -22,11 +22,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from statgpu._config import Device  # noqa: E402
+from statgpu._config import Device, set_device  # noqa: E402
 from statgpu.inference._covariance import (  # noqa: E402
     classify_covariance_spectrum,
 )
-from statgpu.linear_model import PenalizedCoxPHModel  # noqa: E402
+from statgpu.linear_model import (  # noqa: E402
+    PenalizedCoxPHModel,
+    PenalizedGLM_CV,
+)
 from statgpu.losses import _cox_ph as cox_loss  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
 from statgpu.survival import _cox as cox_model  # noqa: E402
@@ -50,6 +53,9 @@ SOURCE_FILES = (
     "statgpu/backends/_utils.py",
     "statgpu/inference/_covariance.py",
     "statgpu/linear_model/penalized/_penalized_cox.py",
+    "statgpu/linear_model/penalized/_penalized_cox_cv.py",
+    "statgpu/linear_model/penalized/_penalized_cv.py",
+    "statgpu/penalties/_base.py",
     "statgpu/losses/_cox_ph.py",
     "statgpu/survival/__init__.py",
     "statgpu/survival/_cox.py",
@@ -83,6 +89,7 @@ SOURCE_FILES = (
     "dev/tests/test_pr80_target_transfer_overflow_cache.py",
     "dev/tests/test_pr80_robust_inference_units.py",
     "dev/tests/test_pr80_penalized_inference_strata.py",
+    "dev/tests/test_pr80_penalized_cox_cv_contracts.py",
 )
 
 TARGETED_TEST_FILES = (
@@ -102,6 +109,7 @@ TARGETED_TEST_FILES = (
     "dev/tests/test_pr80_target_transfer_overflow_cache.py",
     "dev/tests/test_pr80_robust_inference_units.py",
     "dev/tests/test_pr80_penalized_inference_strata.py",
+    "dev/tests/test_pr80_penalized_cox_cv_contracts.py",
 )
 
 
@@ -1852,6 +1860,127 @@ def _case_eventless_stratum_survival(name: str, xp) -> dict:
     }
 
 
+def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
+    """Audit supported-alpha evidence, final refit, and auto-backend pinning."""
+    device = "cuda" if name == "cupy" else "torch"
+    X_np, stop_np, event_np = _sample(seed=2291, n=32, p=2)
+    X = _array(name, xp, X_np)
+    target_np = np.column_stack((stop_np, event_np))
+    target = _array(name, xp, target_np)
+    alpha_grid = np.array([0.15, 0.03], dtype=np.float64)
+    penalty_results = {}
+
+    for penalty in ("l1", "l2", "elasticnet", "scad", "mcp"):
+        cv_model = PenalizedGLM_CV(
+            loss="cox_ph",
+            penalty=penalty,
+            alpha_grid=alpha_grid,
+            l1_ratio=0.4,
+            cv=2,
+            random_state=29,
+            device=device,
+            max_iter=400,
+            tol=1e-6,
+            loss_kwargs={"ties": "efron"},
+        ).fit(X, target)
+        direct = PenalizedCoxPHModel(
+            penalty=penalty,
+            alpha=cv_model.alpha_,
+            l1_ratio=0.4,
+            ties="efron",
+            device=device,
+            max_iter=400,
+            tol=1e-6,
+            compute_inference=False,
+        ).fit(X, target)
+        mean_scores = np.asarray(
+            cv_model.cv_results_["mean_score"], dtype=np.float64
+        )
+        valid_counts = np.asarray(
+            cv_model.cv_results_["valid_score_counts"], dtype=np.int64
+        )
+        required_count = int(
+            cv_model.cv_results_["required_valid_score_count"]
+        )
+        coefficient_error = float(
+            np.max(
+                np.abs(
+                    np.asarray(cv_model.coef_, dtype=np.float64)
+                    - np.asarray(direct.coef_, dtype=np.float64)
+                )
+            )
+        )
+        penalty_passed = all(
+            (
+                cv_model.alpha_ in alpha_grid,
+                np.all(np.isfinite(mean_scores)),
+                np.all(valid_counts == required_count),
+                required_count == 2,
+                cv_model.cv_results_["fit_intercept"] is False,
+                cv_model.cv_results_["final_refit_class"]
+                == "PenalizedCoxPHModel",
+                cv_model.intercept_ == 0.0,
+                coefficient_error <= 1e-9,
+            )
+        )
+        penalty_results[penalty] = {
+            "selected_alpha": float(cv_model.alpha_),
+            "mean_partial_likelihood_loss": mean_scores.tolist(),
+            "valid_score_counts": valid_counts.tolist(),
+            "required_valid_score_count": required_count,
+            "final_refit_coefficient_max_abs_error": coefficient_error,
+            "passed": bool(penalty_passed),
+        }
+
+    set_device(device)
+    try:
+        pinned_model = CoxPH(
+            device="auto",
+            ties="efron",
+            compute_inference=False,
+            compute_cindex=False,
+            max_iter=100,
+        ).fit(X, target)
+        fitted_backend = pinned_model._fitted_backend_name
+        effective_device = pinned_model.effective_device_
+        set_device("cpu")
+        pinned_prediction = pinned_model.predict_risk_score(X[:4])
+        pinned_prediction_np = _numpy(name, pinned_prediction)
+        pinned_score = float(pinned_model.score(X[:12], target[:12]))
+    finally:
+        set_device("auto")
+
+    expected_backend = name
+    expected_effective = device
+    backend_pin_passed = all(
+        (
+            fitted_backend == expected_backend,
+            effective_device == expected_effective,
+            type(pinned_prediction).__module__.startswith(expected_backend),
+            np.all(np.isfinite(pinned_prediction_np)),
+            np.isfinite(pinned_score),
+        )
+    )
+    passed = backend_pin_passed and all(
+        result["passed"] for result in penalty_results.values()
+    )
+    return {
+        "backend": name,
+        "penalty_families": penalty_results,
+        "selection_contract": (
+            "finite held-out Cox partial likelihood from every evaluable fold"
+        ),
+        "final_refit_contract": "PenalizedCoxPHModel without intercept",
+        "fitted_backend": fitted_backend,
+        "effective_device": effective_device,
+        "prediction_backend_after_global_device_change": (
+            type(pinned_prediction).__module__.split(".")[0]
+        ),
+        "score_after_global_device_change": pinned_score,
+        "backend_pin_passed": bool(backend_pin_passed),
+        "passed": bool(passed),
+    }
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -1860,7 +1989,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 15,
+        "schema_version": 16,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -1910,6 +2039,9 @@ def main() -> int:
                 ),
                 "eventless_stratum_survival": (
                     _case_eventless_stratum_survival(name, xp)
+                ),
+                "penalized_cox_cv_and_backend_pin": (
+                    _case_penalized_cox_cv_and_backend_pin(name, xp)
                 ),
             }
             report["backends"][name] = {

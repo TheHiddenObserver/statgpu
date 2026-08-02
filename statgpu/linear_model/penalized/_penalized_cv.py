@@ -1,8 +1,9 @@
 """
 Unified cross-validated penalized GLM estimator.
 
-Supports all GLM loss functions (squared_error, logistic, poisson, gamma,
-inverse_gaussian, negative_binomial, tweedie) with all penalty types
+Supports scalar-response GLM losses (squared_error, logistic, poisson, gamma,
+inverse_gaussian, negative_binomial, tweedie) plus a separate survival-aware
+``cox_ph`` path with all supported penalty types
 (l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso).
 
 Optimizations:
@@ -126,15 +127,28 @@ def _slice_rows(arr, idx):
         return np.asarray(arr)[idx]
 
 
+def _finite_column_mean(scores):
+    """Return per-candidate means without emitting empty-slice warnings."""
+    scores = np.asarray(scores, dtype=np.float64)
+    present = ~np.isnan(scores)
+    counts = np.sum(present, axis=0)
+    totals = np.sum(np.where(present, scores, 0.0), axis=0)
+    means = np.full(scores.shape[1], np.nan, dtype=np.float64)
+    np.divide(totals, counts, out=means, where=counts > 0)
+    return means
+
+
 def _nanargmin_prefer_larger_alpha(scores, alpha_grid, rel_tol=1e-10, abs_tol=1e-12):
     """Select min score with deterministic tie-break toward stronger regularization."""
     scores = np.asarray(scores, dtype=np.float64)
     alpha_grid = np.asarray(alpha_grid, dtype=np.float64)
     finite = np.isfinite(scores)
     if not np.any(finite):
-        # All scores are NaN/Inf — fall back to first alpha (strongest regularization)
-        warnings.warn("All CV scores are NaN/Inf; returning first alpha.", stacklevel=2)
-        return 0
+        # A selected alpha must have finite validation evidence.
+        raise RuntimeError(
+            "Cross-validation produced no finite candidate score; no "
+            "regularization parameter was selected."
+        )
     best = float(np.nanmin(scores))
     tol = max(float(abs_tol), abs(best) * float(rel_tol))
     candidates = np.flatnonzero(finite & (scores <= best + tol))
@@ -1861,7 +1875,13 @@ _CV_DEVICE_ALWAYS_CPU = {
 
 
 class PenalizedGLM_CV(CVEstimatorBase):
-    """Cross-validated penalized GLM supporting all loss + penalty combinations."""
+    """Cross-validated penalized GLM and right-censored Cox estimator.
+
+    Scalar-response losses use the optimized GLM CV engine. ``loss="cox_ph"``
+    uses a survival-specific strict-CV path that preserves the two-column
+    target, scores unpenalized held-out partial likelihood, forbids an
+    intercept, and refits :class:`PenalizedCoxPHModel`.
+    """
 
     def __init__(
         self,
@@ -1913,6 +1933,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_selected_device_ = None
         self._cv_auto_reason_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear fitted selection state before every CV invocation."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alpha_grid_ = None
+        self.best_score_ = None
+        self.cv_results_ = None
+        self.estimator_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.cv_strategy_ = None
+        self.cv_selected_device_ = None
+        self._cv_auto_reason_ = None
+
     def _solver_for_cv(self, cv_device=None, X=None):
         """Return the strict internal solver used by the CV loop."""
         solver = str(self.solver).lower()
@@ -1922,7 +1956,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         return _preferred_penalized_glm_solver(
             self.loss,
-            self.penalty,
+            getattr(self.penalty, "name", self.penalty),
             backend_name=_backend_name_for_cv_device(
                 self.device if cv_device is None else cv_device
             ),
@@ -2672,8 +2706,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                      "n_effective": n_effective}
         return cache, L_np
 
-    def fit(self, X, y, sample_weight=None):
-        """Fit the CV model with optimized strict or explicit two-stage CV."""
+    def _fit_standard(self, X, y, sample_weight=None):
+        """Fit scalar-response CV after public transactional setup."""
         # Normalize array-like inputs (lists, tuples, etc.) to arrays
         if not hasattr(X, 'shape'):
             X = np.asarray(X, dtype=np.float64)
@@ -2729,7 +2763,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=stage1_tol,
                 strict=False,
             )
-            mean_scores_stage1 = np.nanmean(all_scores_stage1, axis=0)
+            mean_scores_stage1 = _finite_column_mean(all_scores_stage1)
             refined_mask = _two_stage_candidate_mask(
                 mean_scores_stage1,
                 refine_top_k=self.refine_top_k,
@@ -2753,8 +2787,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             all_scores = np.array(all_scores_stage1, copy=True)
             all_scores[:, refined_mask] = refined_scores
-            mean_scores = np.nanmean(all_scores, axis=0)
-            refined_mean = np.nanmean(refined_scores, axis=0)
+            mean_scores = _finite_column_mean(all_scores)
+            refined_mean = _finite_column_mean(refined_scores)
             refined_best = self._best_index_from_scores(
                 refined_mean,
                 refined_alpha_grid,
@@ -2773,7 +2807,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=self.tol,
                 strict=True,
             )
-            mean_scores = np.nanmean(all_scores, axis=0)
+            mean_scores = _finite_column_mean(all_scores)
             best_idx = self._best_index_from_scores(mean_scores, alpha_grid, cv_solver)
 
         best_alpha = float(alpha_grid[best_idx])
@@ -2798,6 +2832,21 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self._fitted = True
         return self
 
+    def fit(self, X, y, sample_weight=None):
+        """Fit with a dedicated survival path and transactional state."""
+        self._reset_cv_fit_state()
+        try:
+            if str(self.loss).lower() == "cox_ph":
+                from ._penalized_cox_cv import fit_penalized_cox_cv
+
+                return fit_penalized_cox_cv(
+                    self, X, y, sample_weight=sample_weight
+                )
+            return self._fit_standard(X, y, sample_weight=sample_weight)
+        except Exception:
+            self._reset_cv_fit_state()
+            raise
+
     def predict(self, X):
         """Predict using the refit estimator with the best alpha."""
         if not getattr(self, '_fitted', False):
@@ -2808,7 +2857,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """Return the score on the given data.
 
         For squared_error loss, returns R². For GLM losses, returns
-        the deviance-based pseudo-R² (1 - deviance/null_deviance).
+        the deviance-based pseudo-R² (1 - deviance/null_deviance). For
+        ``cox_ph``, delegates to the final penalized Cox concordance score.
 
         Note: ``best_score_`` is negative CV loss (sklearn convention),
         while ``score()`` returns R² or accuracy. These are different metrics.

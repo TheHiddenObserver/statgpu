@@ -1,7 +1,7 @@
 # 交叉验证
 
 > 语言：中文  
-> 最后更新：2026-06-12  
+> 最后更新：2026-08-02
 > 页面定位：CV 用户指南 + 架构实现 + 缓存机制（统一页面）  
 > 切换：[English](../../en/guides/cross-validation.md)
 
@@ -15,7 +15,7 @@ statgpu 为所有惩罚模型提供交叉验证估计器。每个 CV 估计器�
 | `LassoCV` | `Lasso` | l1 | `statgpu.linear_model.LassoCV` |
 | `ElasticNetCV` | `ElasticNet` | elasticnet | `statgpu.linear_model.ElasticNetCV` |
 | `LogisticRegressionCV` | `LogisticRegression` | l2 | `statgpu.linear_model.LogisticRegressionCV` |
-| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` | 任意 | `statgpu.linear_model.PenalizedGLM_CV` |
+| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` 或 `PenalizedCoxPHModel` | family 支持的 penalty | `statgpu.linear_model.PenalizedGLM_CV` |
 
 ## 快速开始
 
@@ -72,6 +72,29 @@ model.fit(X, y)
 pred = model.predict(X_test)
 ```
 
+### 惩罚 Cox 交叉验证
+
+Cox target 在整个选择流程中必须保持二维：
+
+```python
+survival_y = np.column_stack([time, event])
+model = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="elasticnet",        # l1、l2、elasticnet、scad 或 mcp
+    l1_ratio=0.4,
+    alpha_grid=[0.2, 0.05, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cuda",               # 同时支持 NumPy CPU 与 Torch CUDA
+).fit(X_cuda, survival_y_cuda)
+```
+
+该路径要求每个可评估 fold 都提供有限的 held-out Cox partial-likelihood
+证据，并以无截距 `PenalizedCoxPHModel` 完成最终重拟合。若所有候选均无
+完整证据，会直接抛错而不是默认选择第一个 alpha。该分支仅提供估计，
+不发布 post-selection 系数推断；不支持 `two_stage`、sample weights 或字典 target。
+
 ### LogisticRegressionCV
 
 ```python
@@ -124,11 +147,10 @@ print(f"准确率: {model.score(X_test, y_test):.4f}")
 | `loss` | str | `"squared_error"` | 损失族（见 [Solver × Penalty 矩阵](solver-penalty-matrix.md)）。 |
 | `penalty` | str | `"l2"` | 惩罚类型。 |
 | `penalty_kwargs` | dict | `{}` | 惩罚参数（如 SCAD 的 `{"a": 3.7}`）。 |
-| `alphas` | array | `None` | Alpha 网格。 |
+| `alpha_grid` | array | `None` | Alpha 网格。 |
 | `n_alphas` | int | `100` | Alpha 数量。 |
 | `cv_splits` | list | `None` | 自定义折分割 `[(train_idx, val_idx), ...]`。 |
-| `scoring` | str | `"auto"` | 评分指标。`"auto"` 根据损失自动选择。 |
-| `compute_inference` | bool | `False` | 计算 debiased 推断（仅 l1）。 |
+| `loss_kwargs` | dict | `{}` | loss 选项；Cox 接受 `ties="breslow"` 或 `ties="efron"`。 |
 
 ## 自定义 CV 分割
 
@@ -157,7 +179,7 @@ model.fit(X, y)
 
 ## 样本权重
 
-所有 CV 估计器支持 `sample_weight`：
+大多数标量响应 CV 估计器支持 `sample_weight`；生存路径见下方限制：
 
 ```python
 model = RidgeCV(cv=5)
@@ -167,7 +189,8 @@ print(f"加权 R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 
 **限制**（见 [已知限制](#已知限制)）：
 - 非均匀权重 + l1/elasticnet/SCAD/MCP 在求解器层面抛出 `ValueError`。
-- 均匀权重（所有值相等）对所有惩罚有效。
+- 均匀权重（所有值相等）适用于受支持的标量响应 penalty。
+- `loss="cox_ph"` 会拒绝 `sample_weight`；加权惩罚 Cox CV 尚未实现。
 
 ## Alpha 网格
 

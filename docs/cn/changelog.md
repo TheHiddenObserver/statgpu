@@ -1,11 +1,22 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-01<br>
+> 最后更新：2026-08-02<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
 ## 2026-08
+
+### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
+
+- `PenalizedGLM_CV(loss="cox_ph")` 现在会保留 `(time, event)` target，在
+  NumPy/CuPy/Torch 上为 L1/L2/ElasticNet/SCAD/MCP 提供 strict CV，使用 held-out
+  Cox partial likelihood 评分，要求完整且有限的 fold 证据，并以无截距
+  `PenalizedCoxPHModel` 完成重拟合。所有候选无效时会事务性失败，不再选择第一个 alpha。
+- `CoxPH(device="auto")` 会固定拟合后端用于预测与评分；`CompositePenalty`
+  提供 sklearn <=1.2 所需的构造器参数；`CoxPHCV` 会在任何 CV 工作前拒绝 side-array
+  shape 错误。Schema 16 已加入 exact-source CuPy/Torch case，最终 implementation
+  commit 形成前仍处于 P100-pending 状态。
 
 ### 修复（2026-08-01）— PR #80 无事件 stratum 预测后续
 

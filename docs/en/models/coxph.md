@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-08-01<br>
+> Last updated: 2026-08-02<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -429,10 +429,40 @@ torch_cv = CoxPHCV(
 ).fit(X_t, time_t, event_t)
 ```
 
+### L1/L2/ElasticNet/SCAD/MCP model-family CV
+
+`CoxPHCV` above is the canonical L2 Cox selector and may run the configured
+final-refit inference. The public penalized-model family uses the separate
+survival-aware branch of `PenalizedGLM_CV`:
+
+```python
+from statgpu.linear_model import PenalizedGLM_CV
+
+survival_y = np.column_stack([time, event])
+penalized_cv = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="mcp",               # l1, l2, elasticnet, scad, or mcp
+    alpha_grid=[0.1, 0.03, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cpu",                # or "cuda" / "torch"
+).fit(X, survival_y)
+```
+
+This branch keeps the `(time, event)` target two-dimensional, forbids an
+intercept, evaluates unpenalized held-out partial likelihood, and requires
+finite evidence from every evaluable fold. If no alpha satisfies that contract,
+fit raises and publishes no selected alpha or fitted estimator. The final refit
+is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
+inference, `two_stage`, sample weights, and dictionary targets are unsupported.
+
 ## Prediction and Scoring
 
 `predict`, `predict_risk_score`, `predict_hazard_ratio`, `predict_survival`, and
-`score` execute on the fitted backend for array inputs. Stratified survival
+`score` execute on the fitted backend for array inputs. A model fitted with
+`device="auto"` pins its actual `effective_device_`; later global device changes do
+not migrate its prediction or scoring backend. Stratified survival
 prediction requires one known stratum label per prediction row, including when
 the fit contained only one explicit stratum. Missing or unseen labels raise
 `ValueError`.
@@ -535,6 +565,10 @@ exercises the valid eventless-stratum baseline with explicit/automatic times,
 mixed prediction rows, and `CoxPHCV` delegation. Its source audit also includes
 the corrected canonical accuracy validator and independent regressions for
 `A^-1 J A^-1` and `start < failure_time <= stop`.
+
+Schema 15 predates the survival-aware penalized-Cox CV and fitted-backend pinning
+changes. Those runtime paths require a new exact-source schema-16 P100 refresh;
+this page does not attribute them to the older artifact.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history

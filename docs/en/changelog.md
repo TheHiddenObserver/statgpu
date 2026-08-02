@@ -1,11 +1,24 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-01<br>
+> Last updated: 2026-08-02<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-08
+
+### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
+
+- `PenalizedGLM_CV(loss="cox_ph")` now preserves the `(time, event)` target,
+  supports L1/L2/ElasticNet/SCAD/MCP strict CV on NumPy/CuPy/Torch, scores
+  held-out Cox partial likelihood, requires complete finite fold evidence, and
+  refits `PenalizedCoxPHModel` without an intercept. All-invalid paths now fail
+  transactionally instead of selecting the first alpha.
+- `CoxPH(device="auto")` pins its fitted backend for prediction and scoring;
+  `CompositePenalty` supplies sklearn <=1.2 constructor parameters; and
+  `CoxPHCV` rejects malformed side-array shapes before any CV work. Schema 16
+  adds exact-source CuPy/Torch cases and remains P100-pending until the final
+  implementation commit is available.
 
 ### Fixed (2026-08-01) — PR #80 eventless-stratum prediction follow-up
 

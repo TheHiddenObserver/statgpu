@@ -297,11 +297,19 @@ class CompositePenalty(Penalty):
                 result = result + weight * pen.lla_weights(coef)
         return result
 
-    def get_params(self) -> dict:
-        params = {
+    def get_params(self, deep: bool = True) -> dict:
+        """Return constructor params for clone or descriptive serialization."""
+        if not deep:
+            # sklearn <=1.2 reconstructs estimators from exactly these values.
+            # Do not expose serialization-only names or replace component
+            # penalty objects with their string labels on this path.
+            return {
+                "penalties": self.penalties,
+                "weights": self.weights,
+            }
+        return {
             "name": "composite",
             "n_penalties": self.n_penalties,
             "penalties": [p.name for p in self.penalties],
             "weights": list(self.weights),
         }
-        return params
