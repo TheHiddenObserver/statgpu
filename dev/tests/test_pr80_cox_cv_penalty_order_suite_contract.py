@@ -30,6 +30,7 @@ def test_canonical_cox_cv_order_suite_binds_runtime_cache_tests_and_runner():
         suite.as_posix(),
         inner,
         "dev/tests/test_pr80_cox_cv_grid_failed_refit_state.py",
+        "dev/tests/test_pr80_cox_cv_penalty_order_cache_integration.py",
         "dev/tests/test_pr80_cox_cv_penalty_order_contract.py",
         "dev/tests/test_pr80_cox_cv_penalty_order_docs.py",
         "dev/tests/test_pr80_cox_cv_penalty_order_integration.py",
