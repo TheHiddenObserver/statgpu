@@ -38,6 +38,11 @@
   CPU inside the CUDA block-coordinate solve. Group indices, flattened indices,
   and group-size weights are now normalized once through the shared backend
   array helper against the design-matrix device before candidate fitting.
+- Final exact-source schema-21 evidence binds commit
+  `5bb55ede04eecb5ab7689a400e864996fb514240`: CuPy and Torch each pass 14/14
+  structured cases and all nine scalar penalty families, 630 targeted tests
+  pass, all 45 recorded Git-blob hashes match, `source_clean=true`, and
+  `gate_failures=[]`.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 

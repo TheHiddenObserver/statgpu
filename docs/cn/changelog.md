@@ -35,6 +35,10 @@
   内把 group metadata 建在 CPU。现在 group index、flat index 与 group-size weight
   都会在 candidate fit 前通过共享 backend array helper，按 design matrix 的设备一次性
   归一化。
+- 最终精确源码 schema-21 证据绑定提交
+  `5bb55ede04eecb5ab7689a400e864996fb514240`：CuPy 与 Torch 各通过 14/14 个
+  structured case 及全部九类标量 penalty，630 项定向测试通过，记录的 45 个
+  Git-blob hash 全部匹配，`source_clean=true` 且 `gate_failures=[]`。
 
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 

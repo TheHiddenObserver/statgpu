@@ -14,6 +14,9 @@
 > Current penalized-Cox CV SHA-256: `d9ca5923deb07452b6e2c158c0a3d0808894f3376a1a96cdb928333e6ac4c151`<br>
 > Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
 > Current schema-21 runner SHA-256: `65aacc533c911db7252f0343ed90a89dff4fabe9161224e9c845dfd524957e51`<br>
+> Full scalar-matrix artifact source commit: `5bb55ede04eecb5ab7689a400e864996fb514240`<br>
+> Full scalar-matrix artifact SHA-256: `c006b6c07309e4aba8c1f5b4ad31cad00e199b17a2d0edafc660c18eb804b463`<br>
+> Audited penalized-fit mixin Git-blob SHA-256: `1e82c4c76d40b613b0bdb3acd4edfcaeb84c4866bce1bcb8e88c44c2029e54c8`<br>
 > Scalar alpha-grid artifact source commit: `a7053af2cb628880708cf2e4bfab121b1354725a`<br>
 > Scalar alpha-grid artifact SHA-256: `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
@@ -39,7 +42,7 @@
 > Evaluable-fold routing artifact SHA-256: `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `PARTIAL_REMOTE_PENDING`; promotion-safe mixed-grid validation and the complete scalar-penalty matrix pass local-full, while schema-21 exact-source P100 evidence is pending
+> Status: `COMPLETE`; promotion-safe mixed-grid validation and the complete scalar-penalty matrix pass local-full plus schema-21 exact-source P100 validation at tier `remote-full`
 
 ## Review Contract
 
@@ -65,10 +68,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed locally; schema-21 physical refresh pending |
-| Cross-validation | scalar-response and Cox custom-fold routing, all public scalar penalty families, plus canonical/penalized Cox selection contracts | fixed locally; schema-21 physical refresh pending |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed; local-full and schema-21 P100 validation pass |
+| Cross-validation | scalar-response and Cox custom-fold routing, all public scalar penalty families, plus canonical/penalized Cox selection contracts | fixed; local-full and schema-21 P100 validation pass |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | schema-20 remains historical exact-source evidence; schema-21 refresh pending |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-21 exact-source evidence passes |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1576,7 +1579,7 @@ contracts`; inference/formula=`unchanged`; exact-source physical evidence=
 
 | Public family | Backend | CV | Inference | Formula | Benchmark |
 |---|---|---|---|---|---|
-| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP/Adaptive L1/Group Lasso/Group SCAD/Group MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-21 full-family case pending |
+| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP/Adaptive L1/Group Lasso/Group SCAD/Group MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-21 full-family case passes |
 | Squared-error/L2 Ridge route through `PenalizedGLM_CV` | CPU/GPU CV according to resolved routing; CPU exact final eigensolve | `supported`; Ridge batch receives only validated candidates | `unchanged` | `not-formula-facing` | `required`; CPU-compute/selected-output contract tested |
 | Dedicated `RidgeCV` / `ElasticNetCV` | `unchanged` | existing scalar filtering policy retained | `unchanged` | `not-formula-facing` | existing evidence remains scoped |
 | Survival-aware `PenalizedGLM_CV(loss="cox_ph")` | `unchanged` | strict user-grid contract remains separate | `unchanged` | `not-formula-facing` | schema-20 retains prior Cox gates |
@@ -1640,18 +1643,18 @@ Impact classification: malformed-grid numerical result=`affected and fixed`;
 selected alpha=`affected and fixed`; valid-grid numerical result=`unchanged`;
 backend placement=`unchanged`; public scalar CV families=`all nine documented
 categories`; inference/formula=`unchanged`; exact-source physical evidence=
-`schema 21 pending`.
+`schema 21 remote-full`.
 
 ### Capability decisions by touched public family
 
 | Scalar penalty family | Backend | CV | Inference | Formula | Benchmark |
 |---|---|---|---|---|---|
-| L2 | `three-backend`; CPU eig-batch or resolved GPU route | `supported`; exact/specialized path | `estimation-only here` | `not-formula-facing` | `required` |
-| L1 / ElasticNet | `three-backend`; backend-native grids | `supported`; sparse/specialized path | `estimation-only here` | `not-formula-facing` | `required` |
-| SCAD / MCP | `three-backend`; backend-native grids | `supported`; nonconvex LLA path | `estimation-only here` | `not-formula-facing` | `required` |
-| Adaptive L1 | `three-backend`; fixed weights represented through `penalty_kwargs` | `supported`; general-fit path | `estimation-only here` | `not-formula-facing` | `required` |
-| Group Lasso | `three-backend`; group IDs represented through `penalty_kwargs` | `supported`; general-fit path | `estimation-only here` | `not-formula-facing` | `required` |
-| Group SCAD / Group MCP | `three-backend`; group IDs and concavity controls represented through `penalty_kwargs` | `supported`; group-nonconvex path | `estimation-only here` | `not-formula-facing` | `required` |
+| L2 | `three-backend`; CPU eig-batch or resolved GPU route | `supported`; exact/specialized path | `estimation-only here` | `not-formula-facing` | `required`; schema-21 passes |
+| L1 / ElasticNet | `three-backend`; backend-native grids | `supported`; sparse/specialized path | `estimation-only here` | `not-formula-facing` | `required`; schema-21 passes |
+| SCAD / MCP | `three-backend`; backend-native grids | `supported`; nonconvex LLA path | `estimation-only here` | `not-formula-facing` | `required`; schema-21 passes |
+| Adaptive L1 | `three-backend`; fixed weights represented through `penalty_kwargs` | `supported`; general-fit path | `estimation-only here` | `not-formula-facing` | `required`; schema-21 passes |
+| Group Lasso | `three-backend`; group IDs represented through `penalty_kwargs` | `supported`; general-fit path | `estimation-only here` | `not-formula-facing` | `required`; schema-21 passes |
+| Group SCAD / Group MCP | `three-backend`; group IDs and concavity controls represented through `penalty_kwargs` | `supported`; group-nonconvex path | `estimation-only here` | `not-formula-facing` | `required`; schema-21 passes |
 
 - [HIGH][BUG/API][fixed locally] The first scalar-grid validator converted the
   complete input with ordinary NumPy coercion before inspecting element types.
@@ -1719,9 +1722,13 @@ The follow-up penalized-CV contract passes 95 tests with 60 local GPU skips,
 and the broader loss/penalty/solver matrix passes 104 tests with 102 optional-
 backend skips after the device-normalization repair.
 
-Because runtime, maintained tests, runner structure, and capability claims all
-changed after schema 20, this follow-up remains `PARTIAL_REMOTE_PENDING`. A new
-clean implementation commit must run schema 21 in remote `myconda`; the JSON
-must prove 45/45 exact Git-blob hashes, all CuPy/Torch structured gates, all nine
-family rows, the mixed-type transactional errors, and an empty
-`gate_failures` list before the report can return to `COMPLETE`.
+Exact clean implementation commit
+`5bb55ede04eecb5ab7689a400e864996fb514240` passed all 14/14 CuPy and 14/14
+Torch structured cases plus 630 targeted tests with seven expected warnings on
+a Tesla P100-SXM2-16GB in remote `myconda`. The audited artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema21.json`
+(SHA-256 `c006b6c07309e4aba8c1f5b4ad31cad00e199b17a2d0edafc660c18eb804b463`);
+all 45 recorded hashes independently match the exact Git blobs, both backends
+pass all nine scalar penalty-family rows and every mixed-grid transactional
+gate, `source_clean=true`, and `gate_failures=[]`. This follow-up is `COMPLETE`
+at validation tier `remote-full`.

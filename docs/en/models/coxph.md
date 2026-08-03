@@ -564,31 +564,29 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `a7053af2cb628880708cf2e4bfab121b1354725a` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema20.json` |
-| Artifact SHA-256 | `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36` |
-| Schema / tier | `20` / `remote-full` |
+| Source commit | `5bb55ede04eecb5ab7689a400e864996fb514240` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema21.json` |
+| Artifact SHA-256 | `c006b6c07309e4aba8c1f5b4ad31cad00e199b17a2d0edafc660c18eb804b463` |
+| Schema / tier | `21` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14; Torch 14/14 |
-| Targeted tests | 581 passed, 7 expected warnings |
-| Source audit | `source_clean=true`; 44/44 recorded Git-blob hashes matched |
+| Targeted tests | 630 passed, 7 expected warnings |
+| Source audit | `source_clean=true`; 45/45 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-20 scope retains every schema-19 prediction/scoring, CV preparation,
+The schema-21 scope retains every schema-20 prediction/scoring, CV preparation,
 prepared-state, numerical-boundary, inference, eventless-stratum, strict-fold,
-automatic-grid, backend-pinning, clone, and aggregate-work gates. It adds
-backend-native scalar alpha-grid filtering/default regeneration and proves that
-malformed grid shapes reach no device, candidate, or refit work. Both CuPy and
-Torch physical cases pass all 14 structured gates.
+automatic-grid, backend-pinning, clone, and aggregate-work gate. It adds
+promotion-safe mixed-grid rejection, real CV/final-refit coverage for all nine
+public scalar penalty families, and device-native Torch Group Lasso metadata.
+Both CuPy and Torch physical cases pass all 14 structured gates.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
 in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
 the source commit above require their own exact-source refresh before they can
-claim the same physical-GPU evidence. Promotion-safe mixed-grid validation and
-the complete scalar-penalty matrix postdate schema 20 and therefore require a
-schema-21 exact-source refresh.
+claim the same physical-GPU evidence.
 
 ## FAQ and Common Failure Modes
 

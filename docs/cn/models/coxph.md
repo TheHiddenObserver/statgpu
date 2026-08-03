@@ -495,28 +495,27 @@ unsupported，不会换名后充当外部证据。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `a7053af2cb628880708cf2e4bfab121b1354725a` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema20.json` |
-| Artifact SHA-256 | `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36` |
-| Schema / tier | `20` / `remote-full` |
+| Source commit | `5bb55ede04eecb5ab7689a400e864996fb514240` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema21.json` |
+| Artifact SHA-256 | `c006b6c07309e4aba8c1f5b4ad31cad00e199b17a2d0edafc660c18eb804b463` |
+| Schema / tier | `21` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14；Torch 14/14 |
-| 定向测试 | 581 passed，7 个预期 warning |
-| 源码审计 | `source_clean=true`；记录的 44/44 个 Git-blob hash 全部匹配 |
+| 定向测试 | 630 passed，7 个预期 warning |
+| 源码审计 | `source_clean=true`；记录的 45/45 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-20 保留 schema-19 的全部预测/评分、CV fold 准备、prepared state、数值边界、
+schema-21 保留 schema-20 的全部预测/评分、CV fold 准备、prepared state、数值边界、
 推断、无事件 stratum、严格 fold、自动网格、backend pinning、clone 与聚合工作量
-gate；并新增 backend-native 标量 alpha-grid 过滤/默认网格重建，以及 malformed grid
-shape 不进入 device、candidate 或 refit 工作的证明。CuPy 与 Torch 物理 case 均通过
-全部 14 个 structured gate。
+gate；并新增 promotion-safe 混合网格拒绝、全部九类公开标量 penalty 的真实 CV/最终
+重拟合覆盖，以及 device-native Torch Group Lasso metadata。CuPy 与 Torch 物理 case
+均通过全部 14 个 structured gate。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source
 commit 之后的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的
-物理 GPU 覆盖。promotion-safe 混合网格校验与完整标量 penalty matrix 晚于 schema 20，
-因此需要 schema-21 精确源码刷新。
+物理 GPU 覆盖。
 
 ## FAQ 与常见失败模式
 
