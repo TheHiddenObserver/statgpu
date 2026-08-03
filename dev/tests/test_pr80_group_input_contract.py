@@ -42,6 +42,7 @@ _GROUP_CLASSES = [
         ([[0, 0.25], [1, 2]], ValueError, "integer-valued"),
         ([[0, np.nan], [1, 2]], ValueError, "finite"),
         ([[0, "3"], [1, 2]], TypeError, "integer-valued numeric"),
+        ([[0, 2**63], [1, 2]], ValueError, "signed int64 range"),
         ([[0, -1], [1, 2]], ValueError, "non-negative"),
         ([[0, 1], []], ValueError, "empty groups"),
         ([[0, 1], 2], TypeError, "either a flat"),
@@ -69,6 +70,7 @@ def test_group_inputs_reject_lossy_or_ambiguous_values(
         (np.nan, ValueError, "non-negative"),
         (np.inf, ValueError, "non-negative"),
         ("bad", TypeError, "numeric scalar"),
+        ("0.1", TypeError, "numeric scalar"),
     ],
 )
 def test_group_lasso_alpha_is_validated_before_numerical_use(
@@ -87,6 +89,26 @@ def test_exact_integer_valued_float_indices_are_accepted_without_truncation():
     )
     assert penalty.groups == ((0, 3), (1, 2))
     np.testing.assert_array_equal(penalty._flat_indices, np.array([0, 3, 1, 2]))
+
+
+@pytest.mark.parametrize(
+    "n_features,error_type,match",
+    [
+        (True, TypeError, "boolean"),
+        (3.5, ValueError, "integer-valued"),
+        ("3", TypeError, "integer-valued numeric"),
+        (2**63, ValueError, "signed int64 range"),
+        (0, ValueError, "positive integer"),
+    ],
+)
+def test_design_width_validation_rejects_lossy_or_unrepresentable_values(
+    n_features,
+    error_type,
+    match,
+):
+    penalty = GroupLassoPenalty(alpha=0.1, groups=[[0, 1], [2]])
+    with pytest.raises(error_type, match=match):
+        penalty.validate_n_features(n_features)
 
 
 def _data(seed=10001):
