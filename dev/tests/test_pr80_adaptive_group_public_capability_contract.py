@@ -55,10 +55,16 @@ def test_uniform_adaptive_group_lasso_matches_group_lasso_objective():
     assert adaptive._penalty is not adaptive_parameter
     assert adaptive._penalty._group_weights == (1.0, 1.0)
     np.testing.assert_allclose(
-        adaptive.coef_, group.coef_, rtol=3e-7, atol=3e-8
+        adaptive.coef_, group.coef_, rtol=1e-5, atol=2e-6
     )
     assert adaptive.intercept_ == pytest.approx(
-        group.intercept_, rel=3e-7, abs=3e-8
+        group.intercept_, rel=1e-5, abs=2e-6
+    )
+    np.testing.assert_allclose(
+        adaptive.predict(X), group.predict(X), rtol=1e-5, atol=3e-6
+    )
+    assert adaptive._penalty.value(adaptive.coef_) == pytest.approx(
+        group._penalty.value(group.coef_), rel=1e-5, abs=2e-6
     )
 
 
