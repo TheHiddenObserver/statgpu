@@ -29,9 +29,10 @@ from ._group_nonconvex_layout import (
     GroupSCADPenalty,
 )
 
-# Install exact coefficient-dimension checks after all public group classes are
-# defined and rebound to their historical import paths.
+# Install public group contracts only after all classes are defined and rebound
+# to their historical import paths.
 from . import _group_dimension_contract as _group_dimension_contract
+from . import _group_clone_contract as _group_clone_contract
 
 
 def _torch_compile_ok():
