@@ -4,8 +4,8 @@ Explicit nested group specifications may list members within a group in any
 order. Group penalties are invariant to these within-group permutations, but
 optimized solver paths rely on truthful contiguous-layout metadata. This module
 keeps the historical public import and pickle path while ensuring that new
-objects, legacy serialized state, and sklearn reconstruction all rebuild layout
-metadata from canonical, sorted group members.
+objects, legacy serialized state, sklearn reconstruction, and adaptive weighted
+objectives all share one canonical layout contract.
 """
 
 from __future__ import annotations
@@ -27,6 +27,18 @@ def _canonicalize_nested_groups(groups):
     if not isinstance(first, (list, tuple, np.ndarray)):
         return groups
     return [np.sort(np.asarray(group, dtype=int)) for group in groups]
+
+
+def _weights_to_numpy(weights):
+    """Convert supported host/device weight arrays for validation only."""
+    if weights is None:
+        return None
+    module = type(weights).__module__
+    if module.startswith("torch"):
+        return weights.detach().cpu().numpy()
+    if module.startswith("cupy"):
+        return weights.get()
+    return np.asarray(weights)
 
 
 class GroupLassoPenalty(_BaseGroupLassoPenalty):
@@ -74,7 +86,140 @@ class AdaptiveGroupLassoPenalty(
     _BaseAdaptiveGroupLassoPenalty,
     GroupLassoPenalty,
 ):
-    """Adaptive Group Lasso preserving the public Group Lasso hierarchy."""
+    """Weighted Group Lasso preserving the public Group Lasso hierarchy."""
+
+    def __init__(self, groups, alpha=1.0, weights=None):
+        # Let the original adaptive implementation establish the cooperative
+        # MRO and canonical group layout, then validate/invalidate weight state.
+        super().__init__(groups=groups, alpha=alpha, weights=None)
+        self.set_weights(weights)
+
+    def _validate_group_weights(self, weights):
+        if weights is None:
+            return
+        try:
+            values = np.asarray(_weights_to_numpy(weights), dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("group weights must be a one-dimensional numeric array") from exc
+        if values.ndim != 1 or values.shape[0] != self._n_groups:
+            raise ValueError(
+                f"group weights must have shape ({self._n_groups},), "
+                f"got {values.shape}"
+            )
+        if not np.all(np.isfinite(values)):
+            raise ValueError("group weights must contain only finite values")
+        if np.any(values < 0.0):
+            raise ValueError("group weights must be non-negative")
+
+    def set_weights(self, weights):
+        """Update validated per-group weights and invalidate device caches."""
+        self._validate_group_weights(weights)
+        self._group_weights = weights
+        self._group_weights_torch = None
+        self._group_weights_cupy = None
+
+    def __setstate__(self, state):
+        weights = state.get("_group_weights", state.get("weights"))
+        super().__setstate__(state)
+        # Never retain serialized device tensors from another process/device.
+        self.set_weights(weights)
+
+    def _get_group_weights(self, xp, w):
+        """Return weights on the requested backend without cross-backend cache reuse."""
+        if self._group_weights is None:
+            return None
+        if xp.__name__ == "numpy":
+            return np.asarray(self._group_weights, dtype=w.dtype)
+        if xp.__name__ == "torch":
+            cached = getattr(self, "_group_weights_torch", None)
+            if cached is None or cached.device != w.device or cached.dtype != w.dtype:
+                cached = _group_lasso_impl._to_backend_array(
+                    self._group_weights, xp, w
+                ).to(dtype=w.dtype)
+                self._group_weights_torch = cached
+            return cached
+
+        cached = getattr(self, "_group_weights_cupy", None)
+        same_device = (
+            cached is not None
+            and getattr(cached, "device", None) is not None
+            and getattr(w, "device", None) is not None
+            and int(cached.device.id) == int(w.device.id)
+        )
+        if cached is None or not same_device or cached.dtype != w.dtype:
+            cached = _group_lasso_impl._to_backend_array(
+                self._group_weights, xp, w
+            ).astype(w.dtype, copy=False)
+            self._group_weights_cupy = cached
+        return cached
+
+    def _weighted_group_components(self, coef):
+        """Return backend module, feature view, norms, sqrt sizes, and weights."""
+        if self._group_indices is None:
+            raise ValueError("groups must be set before evaluating the penalty")
+        xp = _group_lasso_impl._get_xp(coef)
+        p_total = int(self._group_sizes.sum())
+        coef_feat = coef[:p_total]
+        if self._all_equal_size and self._group_size_uniform is not None:
+            gs = self._group_size_uniform
+            if self._is_contiguous:
+                grouped = coef_feat.reshape(self._n_groups, gs)
+            else:
+                grouped = coef_feat[self._flat_indices].reshape(
+                    self._n_groups, gs
+                )
+            norms = _group_lasso_impl._vector_norm(grouped, xp, dim=1)
+        else:
+            norms = self._batched_group_norms_vec(coef_feat, xp, coef)
+        sqrt_pg = self._get_sqrt_pg(xp, coef)
+        weights = self._get_group_weights(xp, coef)
+        if weights is None:
+            weights = xp.ones(self._n_groups, dtype=coef.dtype)
+            if xp.__name__ == "torch":
+                weights = weights.to(device=coef.device)
+        return xp, coef_feat, norms, sqrt_pg, weights
+
+    def value(self, coef) -> float:
+        """Evaluate the weighted Group Lasso objective consistently with prox."""
+        xp, _, norms, sqrt_pg, weights = self._weighted_group_components(coef)
+        total = xp.sum(self.alpha * weights * sqrt_pg * norms)
+        if xp.__name__ == "torch":
+            return total.item()
+        return float(total)
+
+    def gradient(self, coef):
+        """Return a weighted group subgradient, with zero at zero-norm groups."""
+        xp, coef_feat, norms, sqrt_pg, weights = self._weighted_group_components(
+            coef
+        )
+        if xp.__name__ == "torch":
+            safe_norms = xp.clamp(norms, min=1e-15)
+        else:
+            safe_norms = xp.maximum(norms, 1e-15)
+        scale_g = xp.where(
+            norms > 1e-15,
+            self.alpha * weights * sqrt_pg / safe_norms,
+            0.0,
+        )
+        grad = xp.zeros_like(coef)
+        if self._all_equal_size and self._group_size_uniform is not None:
+            gs = self._group_size_uniform
+            if self._is_contiguous:
+                grouped = coef_feat.reshape(self._n_groups, gs)
+            else:
+                grouped = coef_feat[self._flat_indices].reshape(
+                    self._n_groups, gs
+                )
+            grad_grouped = grouped * scale_g[:, None]
+            if self._is_contiguous:
+                grad[: coef_feat.shape[0]] = grad_grouped.reshape(-1)
+            else:
+                grad[self._flat_indices] = grad_grouped.reshape(-1)
+            return grad
+
+        feat_idx = self._get_cached("_group_feat_idx", xp, coef)
+        grad[: coef_feat.shape[0]] = scale_g[feat_idx] * coef_feat
+        return grad
 
     def get_params(self, deep: bool = True) -> dict:
         """Return descriptive state or constructor-only clone parameters."""
