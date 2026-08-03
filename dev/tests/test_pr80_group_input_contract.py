@@ -111,10 +111,11 @@ def test_design_width_validation_rejects_lossy_or_unrepresentable_values(
         penalty.validate_n_features(n_features)
 
 
-def _data(seed=10001):
+def _data(seed=10001, p=3):
     rng = np.random.default_rng(seed)
-    X = rng.normal(size=(90, 3))
-    y = 0.2 + X @ np.array([0.8, -0.45, 0.6])
+    X = rng.normal(size=(90, p))
+    beta = np.linspace(0.8, -0.35, p)
+    y = 0.2 + X @ beta
     y += rng.normal(scale=0.06, size=X.shape[0])
     return X, y
 
@@ -259,7 +260,9 @@ def test_cv_trailing_group_completion_reaches_scores_selection_and_refit(kind):
         penalty_kwargs=explicit_kwargs, **common
     ).fit(X, y)
 
-    assert incomplete._penalty_kwargs["groups"] == ((0, 1), (2,))
+    assert incomplete._penalty_kwargs is incomplete_kwargs
+    assert incomplete_kwargs["groups"] == [[0, 1]]
+    assert incomplete.estimator_._penalty.groups == ((0, 1), (2,))
     np.testing.assert_allclose(
         incomplete.cv_results_["all_scores"],
         explicit.cv_results_["all_scores"],
@@ -271,3 +274,30 @@ def test_cv_trailing_group_completion_reaches_scores_selection_and_refit(kind):
     np.testing.assert_allclose(
         incomplete.coef_, explicit.coef_, rtol=3e-6, atol=3e-7
     )
+
+
+def test_string_group_cv_completion_is_fit_local_across_design_widths():
+    kwargs = {"groups": [[0, 1]]}
+    cv = PenalizedGLM_CV(
+        loss="squared_error",
+        penalty="group_lasso",
+        penalty_kwargs=kwargs,
+        alpha_grid=[0.16, 0.08],
+        cv=2,
+        random_state=19,
+        device="cpu",
+        max_iter=1000,
+        tol=1e-8,
+    )
+    X3, y3 = _data(seed=10003, p=3)
+    with pytest.warns(UserWarning, match="Auto-adding 1 single-feature"):
+        cv.fit(X3, y3)
+    assert cv.estimator_._penalty.groups == ((0, 1), (2,))
+    assert cv._penalty_kwargs is kwargs
+    assert kwargs == {"groups": [[0, 1]]}
+
+    X2, y2 = _data(seed=10004, p=2)
+    cv.fit(X2, y2)
+    assert cv.estimator_._penalty.groups == ((0, 1),)
+    assert cv._penalty_kwargs is kwargs
+    assert kwargs == {"groups": [[0, 1]]}
