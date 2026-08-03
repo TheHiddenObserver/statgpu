@@ -17,6 +17,7 @@ SOURCE_FILES = (
     "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
     "dev/benchmarks/benchmark_cox_cv_penalty_order_gpu.py",
     "dev/tests/test_pr80_cox_cv_grid_failed_refit_state.py",
+    "dev/tests/test_pr80_cox_cv_penalty_order_cache_integration.py",
     "dev/tests/test_pr80_cox_cv_penalty_order_contract.py",
     "dev/tests/test_pr80_cox_cv_penalty_order_docs.py",
     "dev/tests/test_pr80_cox_cv_penalty_order_integration.py",
