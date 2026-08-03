@@ -12,4 +12,9 @@ from ._cox import CoxPH
 from ._cox_cv import CoxPHCV
 from ._cox_errors import CoxFitNumericalError
 
+# Install the public custom-grid boundary only after CoxPHCV and its selector
+# are fully defined. The wrapper keeps user-facing result arrays in input order
+# while continuation and staged screening run by numerical penalty rank.
+from . import _cox_cv_penalty_order_contract as _cox_cv_penalty_order_contract
+
 __all__ = ['CoxPH', 'CoxPHCV', 'CoxFitNumericalError']
