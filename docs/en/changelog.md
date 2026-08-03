@@ -18,6 +18,9 @@
   commit `0bc131767bef1eeec45805073431e666f690b78c`: CuPy and Torch each pass
   14/14 structured cases plus 553 targeted tests; 44/44 Git-blob hashes match,
   `source_clean=true`, and `gate_failures=[]`.
+- The architecture section now shows separate scalar-response and penalized-Cox
+  execution orders, including one-shot fold materialization, evaluable-fold
+  device sizing, and the selected-backend location of Cox automatic-grid work.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 

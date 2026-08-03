@@ -1527,9 +1527,9 @@ skips and seven expected warnings, while the complete CPU tree passes 1,605
 tests with 511 expected GPU skips and eleven expected warnings. Documentation
 links, all 122 maintained documentation contracts, package/validation/benchmark
 compileall, changed-path/runner pyflakes, benchmark CLI parsing, and
-`git diff --check` pass. The schema-19 runner adds structured public-fit
-routing evidence for scalar list
-and one-shot-generator folds on both GPU backends, plus a Cox design with five
+`git diff --check` pass. The schema-19 runner adds structured
+public-fit routing evidence for scalar list and one-shot-generator folds on
+both GPU backends, plus a Cox design with five
 normalized folds and one evaluable fold. Exact clean implementation commit
 `0bc131767bef1eeec45805073431e666f690b78c` passed all 14/14 CuPy and
 14/14 Torch structured cases plus 553 targeted tests with seven expected
@@ -1541,3 +1541,23 @@ normalized/evaluable/device-sizing counts 5/1/1. The audited artifact is
 all 44 recorded hashes independently match the exact Git blobs,
 `source_clean=true`, and `gate_failures=[]`. This follow-up is `COMPLETE` at
 validation tier `remote-full`.
+
+## CV Architecture Diagram Follow-up
+
+Impact classification: numerical result=`unchanged`; selected alpha=`unchanged`;
+backend routing=`unchanged`; runtime/tests=`unchanged`; documentation=`affected`;
+physical evidence=`schema 19 remains applicable to its exact runtime source`.
+
+- [MEDIUM][DOC/READ][fixed] The unified architecture diagram still placed
+  auto-device selection before alpha-grid generation for every public CV path.
+  Source reinspection confirms two different orders. The EN/CN guide now shows
+  a scalar-response sequence that generates the grid, materializes folds once,
+  and sizes routing with `len(folds)`, plus a penalized-Cox sequence that
+  materializes folds, validates event support, sizes with `n_effective_folds`,
+  selects the backend, and only then constructs an automatic grid during Cox
+  preprocessing. The diagrams also show skipped-fold diagnostics and final
+  refit ownership.
+
+This is a documentation-only correction: no runtime, maintained test, runner,
+or artifact source changed. Documentation links, all 122 maintained contracts,
+and `git diff --check` pass; no new physical-GPU refresh is required.

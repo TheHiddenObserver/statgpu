@@ -315,28 +315,58 @@ print(model.summary())
 
 ## 架构
 
+`PenalizedGLM_CV.fit()` 会分派到两套 preparation 与 routing 顺序。二者共享选择
+和最终重拟合契约，但 automatic grid 的构造位置不同，因此不能画成一条统一的有序
+流水线。
+
+### 标量响应顺序
+
 ```
-PenalizedGLM_CV.fit(X, y)
+PenalizedGLM_CV._fit_standard(X, y)
   │
-  ├─ 1. 自动设备选择 (_effective_cv_device)
-  │     └─ 根据问题规模和损失函数选择 CPU/CuPy/Torch
+  ├─ 1. 校验或生成完整 alpha 网格
+  │     └─ automatic grid 在 CV 设备选择前生成
   │
-  ├─ 2. Alpha 网格生成 (_generate_alpha_grid)
-  │     └─ 从 alpha_max 生成递减 alpha 网格
+  ├─ 2. 只 materialize 一次 generated/custom folds
+  │     └─ 一次性 generator 转为可复用 fold list
   │
-  ├─ 3. CV 评分 (_compute_cv_scores)
-  │     ├─ 快速路径: Ridge 特征分解 (squared_error + l2)
-  │     ├─ Fold-batch 路径 (logistic, poisson, gamma, NB, inv.gauss, tweedie)
-  │     ├─ Sparse CV 路径 (squared_error + l1/en)
-  │     ├─ LLA 路径 (SCAD/MCP)
-  │     └─ 通用逐 fold 路径 (兜底)
+  ├─ 3. 选择 CV 设备 (_effective_cv_device)
+  │     └─ 通用工作量估算使用 len(folds)
   │
-  ├─ 4. 最优 alpha 选择
+  ├─ 4. 对 alpha 网格评分 (_compute_cv_scores)
+  │     └─ Ridge 特征分解、fold-batch、sparse、LLA 或兜底路径
   │
-  └─ 5. 全数据重拟合 (_refit_best)
+  └─ 5. 选择最优 alpha，并在 cv_selected_device_ 上重拟合
+```
+
+### 惩罚 Cox 顺序
+
+```
+fit_penalized_cox_cv(estimator, X, (time, event))
+  │
+  ├─ 1. 规范化 survival target 并 materialize folds
+  │
+  ├─ 2. 校验 alpha-grid request
+  │     └─ 显式网格在此校验；automatic grid 尚不构造
+  │
+  ├─ 3. 校验每个 fold 的事件支持
+  │     └─ 计算 fold_valid 与 n_effective_folds
+  │
+  ├─ 4. 选择 CV 设备 (_effective_cv_device)
+  │     └─ 通用工作量估算使用 n_effective_folds
+  │
+  ├─ 5. 转换到选定 backend 并预处理 Cox loss
+  │     └─ automatic alpha grid 在此 backend 上生成
+  │
+  ├─ 6. 仅对可评估 fold 评分，并保留 skipped-fold 诊断
+  │
+  └─ 7. 要求完整有限 candidate 证据，完成选择与重拟合
 ```
 
 ## CV 评分路径
+
+以下编号路径描述标量响应 scoring。惩罚 Cox 在完成上述 preparation 后使用
+survival-aware fold 路径。
 
 ### 路径 1：Ridge 特征分解（squared_error + l2）
 

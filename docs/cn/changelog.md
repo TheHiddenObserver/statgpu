@@ -17,6 +17,9 @@
   `0bc131767bef1eeec45805073431e666f690b78c`：CuPy 与 Torch 各通过 14/14 个
   structured case 及 553 项定向测试；44/44 个 Git-blob hash 全部匹配，
   `source_clean=true` 且 `gate_failures=[]`。
+- 架构章节现已分别展示标量响应与惩罚 Cox 的执行顺序，包括一次性 fold
+  materialization、可评估 fold 的设备工作量估算，以及 Cox automatic grid 在选定
+  backend 上的构造位置。
 
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 

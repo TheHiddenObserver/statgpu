@@ -338,28 +338,59 @@ For `PenalizedGLM_CV` with `penalty="l1"` and `compute_inference=True`:
 
 ### Architecture
 
+`PenalizedGLM_CV.fit()` dispatches to two preparation and routing sequences.
+They share selection and final-refit contracts, but automatic-grid construction
+runs at different points and therefore must not be represented as one ordered
+pipeline.
+
+#### Scalar-response sequence
+
 ```
-PenalizedGLM_CV.fit(X, y)
+PenalizedGLM_CV._fit_standard(X, y)
   |
-  +-- 1. Auto-device selection (_effective_cv_device)
-  |     +-- Selects CPU/CuPy/Torch based on problem size and loss
+  +-- 1. Validate or generate the complete alpha grid
+  |     +-- Automatic grids are generated before CV-device selection
   |
-  +-- 2. Alpha grid generation (_generate_alpha_grid)
-  |     +-- Generates descending alpha grid from alpha_max
+  +-- 2. Materialize generated/custom folds exactly once
+  |     +-- One-shot generators become a reusable fold list
   |
-  +-- 3. CV scoring (_compute_cv_scores)
-  |     +-- Fast path: Ridge eigendecomposition (squared_error + l2)
-  |     +-- Fold-batched path (logistic, poisson, gamma, NB, inv.gauss, tweedie)
-  |     +-- Sparse CV path (squared_error + l1/en)
-  |     +-- LLA path (SCAD/MCP)
-  |     +-- General per-fold path (fallback)
+  +-- 3. Select the CV device (_effective_cv_device)
+  |     +-- Generic work sizing uses len(folds)
   |
-  +-- 4. Best alpha selection
+  +-- 4. Score the alpha grid (_compute_cv_scores)
+  |     +-- Ridge eigendecomposition, fold-batched, sparse, LLA, or fallback
   |
-  +-- 5. Refit on full data (_refit_best)
+  +-- 5. Select the best alpha and refit on cv_selected_device_
+```
+
+#### Penalized-Cox sequence
+
+```
+fit_penalized_cox_cv(estimator, X, (time, event))
+  |
+  +-- 1. Normalize the survival target and materialize folds
+  |
+  +-- 2. Validate the alpha-grid request
+  |     +-- Explicit grids are validated; automatic grids are not built yet
+  |
+  +-- 3. Validate event support for every fold
+  |     +-- Compute fold_valid and n_effective_folds
+  |
+  +-- 4. Select the CV device (_effective_cv_device)
+  |     +-- Generic work sizing uses n_effective_folds
+  |
+  +-- 5. Convert to the selected backend and preprocess the Cox loss
+  |     +-- Automatic alpha grids are generated here on that backend
+  |
+  +-- 6. Score only evaluable folds; retain skipped-fold diagnostics
+  |
+  +-- 7. Require complete finite candidate evidence, select, and refit
 ```
 
 ### CV Scoring Paths
+
+The numbered paths below describe scalar-response scoring. Penalized Cox uses
+the survival-aware fold path after its preparation sequence above.
 
 #### Path 1: Ridge Eigendecomposition (squared_error + l2)
 
