@@ -13,6 +13,14 @@ the repeated derivatives and used the target regularization strength again,
 producing ``alpha_target * p_g * D_g``. Direct public solver calls without a
 factory fell back to coordinate-wise Adaptive L1. Both paths optimize the wrong
 surrogate and are normalized here.
+
+The generic proximal-Newton inner loop is intentionally disabled for group
+nonconvex LLA. Its Armijo condition is based on a smooth Newton direction plus a
+post-hoc group proximal map; on valid Huber Group MCP/SCAD problems it can reject
+all trial steps, restore the old iterate, and return without a failure status.
+The group-aware fixed-step FISTA path uses the loss Lipschitz contract and the
+exact weighted Group Lasso proximal operator, so convergence is observable
+through actual proximal updates rather than a silently stalled Newton step.
 """
 
 from __future__ import annotations
@@ -26,6 +34,18 @@ from ._fista_lla import fista_lla_path as _base_fista_lla_path
 _GROUP_NONCONVEX_NAMES = frozenset(
     {"group_mcp", "gmcp", "group_scad", "gscad"}
 )
+
+
+class _GroupFISTALossProxy:
+    """Delegate a loss while disabling the generic proximal-Newton branch."""
+
+    has_hessian = False
+
+    def __init__(self, loss):
+        self._loss = loss
+
+    def __getattr__(self, name):
+        return getattr(self._loss, name)
 
 
 def _group_surrogate_factory(scad_penalty):
@@ -99,6 +119,7 @@ def fista_lla_path(
         # the caller supplied the historical factory or called this exported
         # solver directly without one.
         lla_penalty_factory = _group_surrogate_factory(scad_penalty)
+        loss = _GroupFISTALossProxy(loss)
 
     return _base_fista_lla_path(
         loss,
