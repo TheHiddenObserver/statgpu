@@ -102,6 +102,15 @@ def test_object_penalty_cv_matches_string_grid_and_selected_refit(
     )
     assert object_cv.estimator_._penalty.alpha == pytest.approx(object_cv.alpha_)
 
-    # The user's constructor object remains untouched and is restored on CV.
+    # The selected estimator exposes a stable public penalty snapshot matching
+    # the actual objective rather than the alpha=1 CV template.
+    fitted_parameter = object_cv.estimator_.penalty
+    assert type(fitted_parameter) is type(penalty_object)
+    assert fitted_parameter is not penalty_object
+    assert fitted_parameter.alpha == pytest.approx(object_cv.alpha_)
+    assert fitted_parameter.groups == object_cv.estimator_._penalty.groups
+    assert not hasattr(fitted_parameter, "_statgpu_cv_alpha_from_estimator")
+
+    # The user's CV constructor object remains untouched and is restored.
     assert object_cv.penalty is penalty_object
     assert penalty_object.alpha == pytest.approx(1.0)
