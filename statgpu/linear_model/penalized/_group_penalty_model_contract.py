@@ -11,7 +11,9 @@ estimators and historical direct imports share the same behavior:
 - every Group Lasso objective uses the actual loss gradient plus the exact
   Euclidean Group Lasso proximal operator. The historical Gaussian block update
   is bypassed because its inverse-Gram-then-threshold formula is exact only for
-  orthonormal group blocks, a condition the public design does not require.
+  orthonormal group blocks, a condition the public design does not require;
+- bypassing that block update never overrides an explicitly requested generic
+  proximal solver such as FISTA-BB or ADMM.
 """
 
 from __future__ import annotations
@@ -150,8 +152,9 @@ def _install_exact_group_lasso_solver_contract():
 
         # A shallow copy with a private routing name bypasses only the legacy
         # Gaussian BCD branch. Value/proximal semantics and all group metadata
-        # remain unchanged, so generic FISTA solves the advertised composite
-        # objective on NumPy, CuPy, and Torch for weighted and unweighted data.
+        # remain unchanged. Preserve the selected/explicit generic solver so
+        # user intent is not silently rewritten while solving the advertised
+        # composite objective.
         original_penalty = self._penalty
         routed_penalty = copy.copy(original_penalty)
         routed_penalty.name = "_group_lasso_generic"
@@ -162,7 +165,7 @@ def _install_exact_group_lasso_solver_contract():
                 X,
                 y,
                 sample_weight,
-                "fista",
+                solver_name,
                 backend_name,
             )
         finally:
