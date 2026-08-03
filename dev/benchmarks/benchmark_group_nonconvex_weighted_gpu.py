@@ -18,12 +18,18 @@ from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 SOURCE_FILES = (
     "dev/benchmarks/benchmark_group_nonconvex_weighted_gpu.py",
     "dev/tests/test_pr80_group_nonconvex_weighted_contract.py",
+    "dev/tests/test_pr80_group_nonconvex_convergence_contract.py",
+    "dev/tests/test_pr80_group_lla_surrogate_contract.py",
+    "statgpu/linear_model/penalized/__init__.py",
     "statgpu/linear_model/penalized/_fit_mixin.py",
     "statgpu/linear_model/penalized/_penalized_cv.py",
+    "statgpu/linear_model/penalized/_group_penalty_model_contract.py",
     "statgpu/penalties/__init__.py",
     "statgpu/penalties/_group_lasso_layout.py",
     "statgpu/penalties/_group_nonconvex_layout.py",
+    "statgpu/penalties/_group_dimension_contract.py",
     "statgpu/solvers/__init__.py",
+    "statgpu/solvers/_fista.py",
     "statgpu/solvers/_fista_lla.py",
     "statgpu/solvers/_fista_lla_group_contract.py",
 )
@@ -201,7 +207,7 @@ def main():
 
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full",
         "source_commit": _git("rev-parse", "HEAD"),
         "source_clean": not dirty,
