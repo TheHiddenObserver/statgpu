@@ -13,6 +13,8 @@ coverage, and legacy pickle migration matching the Group Lasso public boundary.
 
 from __future__ import annotations
 
+from numbers import Real
+
 import numpy as np
 
 from . import _group_mcp as _group_mcp_impl
@@ -30,12 +32,10 @@ _BaseGroupSCADPenalty = _group_scad_impl.GroupSCADPenalty
 
 
 def _finite_scalar(value, *, name):
-    if isinstance(value, (bool, np.bool_)):
+    """Return a finite real scalar without accepting coercible strings/bools."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
         raise TypeError(f"{name} must be a finite numeric scalar")
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError) as exc:
-        raise TypeError(f"{name} must be a finite numeric scalar") from exc
+    numeric = float(value)
     if not np.isfinite(numeric):
         raise ValueError(f"{name} must be finite")
     return numeric
