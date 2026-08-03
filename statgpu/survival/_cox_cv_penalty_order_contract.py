@@ -80,16 +80,19 @@ def _select_coxph_penalty_cv_order_invariant(*args, **kwargs):
     original_penalties = coerce_real_numeric_grid(supplied, name="penalties")
     descending_order = _descending_penalty_order(original_penalties)
     sorted_penalties = original_penalties[descending_order]
+    requested_details = bool(kwargs.get("return_details", False))
     forwarded = dict(kwargs)
     forwarded["penalties"] = sorted_penalties
+    # Always request the diagnostic result so scalar and detailed callers share
+    # the same deterministic near-tie policy and selected penalty.
+    forwarded["return_details"] = True
 
-    result = _ORIGINAL_SELECT_COXPH_PENALTY_CV(*args, **forwarded)
-    if not bool(forwarded.get("return_details", False)):
-        return result
-
-    _, details = result
+    _, details = _ORIGINAL_SELECT_COXPH_PENALTY_CV(*args, **forwarded)
     details = dict(details)
     best_penalty = _prefer_stronger_near_tie(details, sorted_penalties)
+    if not requested_details:
+        return float(best_penalty)
+
     for key in _CANDIDATE_AXIS_KEYS:
         if key in details:
             details[key] = _restore_original_candidate_order(
