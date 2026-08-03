@@ -20,8 +20,10 @@ from ._elasticnet import ElasticNetPenalty
 from ._scad import SCADPenalty
 from ._mcp import MCPPenalty
 from ._adaptive_l1 import AdaptiveL1Penalty
-from ._group_lasso import AdaptiveGroupLassoPenalty
-from ._group_lasso_layout import GroupLassoPenalty
+from ._group_lasso_layout import (
+    GroupLassoPenalty,
+    AdaptiveGroupLassoPenalty,
+)
 from ._group_mcp import GroupMCPPenalty
 from ._group_scad import GroupSCADPenalty
 
@@ -122,7 +124,7 @@ def register_penalty(name: str):
     Example
     -------
     >>> @register_penalty('huber')
-    ... class HuberPenalty(Penalty):
+    ... class CustomPenalty(Penalty):
     ...     ...
     """
     def decorator(cls):
