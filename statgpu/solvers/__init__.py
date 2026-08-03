@@ -19,6 +19,10 @@ __all__ = [
     "ConvergenceWarning",
 ]
 
+# Install utility compatibility contracts before solver modules bind helper
+# functions from ``._utils`` at import time.
+from . import _adaptive_group_lipschitz_contract as _adaptive_group_lipschitz_contract
+
 from ._convergence import ConvergenceWarning
 from ._fista import fista_solver
 from ._fista_bb import fista_bb_solver
