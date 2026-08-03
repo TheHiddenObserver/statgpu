@@ -34,6 +34,7 @@ def test_canonical_cox_cv_order_suite_binds_runtime_cache_tests_and_runner():
         "dev/tests/test_pr80_cox_cv_penalty_order_docs.py",
         "dev/tests/test_pr80_cox_cv_penalty_order_integration.py",
         "dev/tests/test_pr80_cox_cv_penalty_order_suite_contract.py",
+        "dev/tests/test_pr80_cox_cv_scalar_detail_consistency.py",
         "statgpu/cross_validation/_base.py",
         "statgpu/cross_validation/_grid_validation.py",
         "statgpu/linear_model/penalized/__init__.py",
