@@ -8,9 +8,11 @@ original feature coordinates. The matching convex surrogate is
     sum_g D_g ||beta_g||_2.
 
 ``AdaptiveGroupLassoPenalty(alpha=1, weights=D_g/sqrt(p_g))`` represents this
-surrogate exactly. The historical caller instead took an L2 norm of the
-repeated derivatives and used the target regularization strength again,
-producing ``alpha_target * p_g * D_g`` and an incorrect continuation path.
+surrogate exactly. The historical estimator caller instead took an L2 norm of
+the repeated derivatives and used the target regularization strength again,
+producing ``alpha_target * p_g * D_g``. Direct public solver calls without a
+factory fell back to coordinate-wise Adaptive L1. Both paths optimize the wrong
+surrogate and are normalized here.
 """
 
 from __future__ import annotations
@@ -47,6 +49,8 @@ def _group_surrogate_factory(scad_penalty):
         for group_id, (indices, size) in enumerate(
             zip(group_indices, group_sizes)
         ):
+            if indices.size == 0 or int(indices.max()) >= values.size:
+                raise ValueError("LLA derivative vector is shorter than group indices")
             derivatives = values[indices]
             if derivatives.size != int(size):
                 raise ValueError("LLA derivative vector is shorter than group indices")
@@ -90,10 +94,10 @@ def fista_lla_path(
 ):
     """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
     penalty_name = str(getattr(scad_penalty, "name", "")).lower()
-    if (
-        penalty_name in _GROUP_NONCONVEX_NAMES
-        and lla_penalty_factory is not None
-    ):
+    if penalty_name in _GROUP_NONCONVEX_NAMES:
+        # Group-norm penalties require a group-norm convex surrogate whether
+        # the caller supplied the historical factory or called this exported
+        # solver directly without one.
         lla_penalty_factory = _group_surrogate_factory(scad_penalty)
 
     return _base_fista_lla_path(
