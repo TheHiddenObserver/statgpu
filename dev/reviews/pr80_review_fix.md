@@ -7,7 +7,7 @@
 > Current risk-set SHA-256: `eee6900332526d5e68815e46d6d43a0f52e981760b724c10f98740fc56eeb3da`<br>
 > Current Cox-loss SHA-256: `7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea`<br>
 > Current FISTA-LLA SHA-256: `3c9a665d0d46bebc32c6e43dbd2f777d989fe09114f73a2c7ae1e9bdb1642536`<br>
-> Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
+> Current penalized-fit mixin SHA-256: `977ed27582996ede511bbbe4015c89ab6bd26d48f886ed02cf5c334d490ef773`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
 > Current shared-CV boundary SHA-256: `c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc`<br>
 > Current penalized-CV orchestration SHA-256: `43d9696de6b7952cb5d11011fb024fc0b0b3cf4851b1d603e30fde37ea493e44`<br>
@@ -1679,6 +1679,20 @@ categories`; inference/formula=`unchanged`; exact-source physical evidence=
   refit and leave fitted state cleared. The schema-21 runner mirrors these gates
   on physical CuPy/Torch inputs and records all nine penalty families rather
   than treating an L2 result as family-wide evidence.
+- [HIGH][BACKEND/CORRECTNESS][fixed locally after physical discovery] The first
+  clean schema-21 run at `ab303617546031b05c7da99693e9ad09bc483503`
+  correctly failed: CuPy completed, but Torch Group Lasso created its
+  group-size tensor with `torch.asarray`, which defaults to CPU, while the
+  block-coordinate coefficient path was on `cuda:0`. All four candidate fits
+  therefore failed with a device mismatch and no alpha was selected. Three
+  repair locations were compared: move only the threshold tensor, convert
+  metadata repeatedly inside the iteration, or normalize all host-origin group
+  indices/flat indices/weights once through `_xp_asarray(..., ref=X_work)`.
+  The third option is selected because it covers contiguous and non-contiguous
+  layouts, reuses the backend abstraction, and avoids per-iteration transfers.
+  The failed JSON remains remote diagnostic output and is not published as
+  passing evidence; a new clean implementation commit must rerun the complete
+  schema rather than patching that worktree.
 
 Focused scalar-grid coverage passes 36 tests with 40 expected local physical-
 GPU skips; the complete penalized-CV contract file passes 95 tests with 60
@@ -1692,6 +1706,9 @@ and maintained-source/script compilation all pass. The narrow pyflakes audit
 reports only the known pre-existing unused import/local findings in
 `_penalized_cv.py`; no added source, test, or runner line introduces a new
 finding.
+The follow-up penalized-CV contract passes 95 tests with 60 local GPU skips,
+and the broader loss/penalty/solver matrix passes 104 tests with 102 optional-
+backend skips after the device-normalization repair.
 
 Because runtime, maintained tests, runner structure, and capability claims all
 changed after schema 20, this follow-up remains `PARTIAL_REMOTE_PENDING`. A new

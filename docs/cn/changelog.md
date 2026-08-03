@@ -31,6 +31,10 @@
   它们变成候选 alpha。标量端到端覆盖现已包括 L1、L2、ElasticNet、SCAD、MCP、
   Adaptive L1、Group Lasso、Group SCAD 与 Group MCP；精确源码物理 runner 升级到
   schema 21。
+- 首轮 schema-21 P100 验证发现 Torch Group Lasso 在 CUDA block-coordinate solve
+  内把 group metadata 建在 CPU。现在 group index、flat index 与 group-size weight
+  都会在 candidate fit 前通过共享 backend array helper，按 design matrix 的设备一次性
+  归一化。
 
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 

@@ -34,6 +34,10 @@
   promotion can turn them into candidate alphas. End-to-end scalar coverage now
   spans L1, L2, ElasticNet, SCAD, MCP, Adaptive L1, Group Lasso, Group SCAD,
   and Group MCP; the exact-source physical runner is advanced to schema 21.
+- The first schema-21 P100 pass exposed Torch Group Lasso metadata created on
+  CPU inside the CUDA block-coordinate solve. Group indices, flattened indices,
+  and group-size weights are now normalized once through the shared backend
+  array helper against the design-matrix device before candidate fitting.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 

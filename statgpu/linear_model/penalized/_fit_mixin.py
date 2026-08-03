@@ -1496,6 +1496,23 @@ class _PenalizedFitMixin:
         _n_groups = len(_g_indices)
         _sqrt_pg = [float(s) for s in _sqrt_pg_np]
 
+        # Group metadata originates from the public host-side penalty
+        # specification. Normalize it against the design-matrix reference
+        # once so Torch never creates CPU tensors inside a CUDA solve.
+        _g_indices_backend = [
+            _xp_asarray(
+                np.asarray(g_idx, dtype=np.int64),
+                xp.int64,
+                X_work,
+            )
+            for g_idx in _g_indices
+        ]
+        _sqrt_pg_arr = _xp_asarray(
+            np.asarray(_sqrt_pg, dtype=np.float64),
+            X_work.dtype,
+            X_work,
+        )
+
         XtX = X_work.T @ X_work / n
         Xty = (X_work.T @ y_arr.flatten()) / n
 
@@ -1503,7 +1520,7 @@ class _PenalizedFitMixin:
         from statgpu.backends._array_ops import _scalar_tensor
         _XtX_blocks = []
         _ridge = _scalar_tensor(1e-10, X_work)
-        for g_idx in _g_indices:
+        for g_idx in _g_indices_backend:
             block = XtX[g_idx][:, g_idx]
             block = block + _ridge * _xp_eye(block.shape[0], block.dtype, block)
             _XtX_blocks.append(block)
@@ -1522,9 +1539,18 @@ class _PenalizedFitMixin:
         _contiguous = _equal_size and all(
             _g_indices[g][0] == g * _gs for g in range(_n_groups)
         )
+        _flat_idx_backend = None
+        if _equal_size and not _contiguous:
+            _flat_idx_backend = _xp_asarray(
+                np.asarray(
+                    [i for group in _g_indices for i in group],
+                    dtype=np.int64,
+                ),
+                xp.int64,
+                X_work,
+            )
         if _equal_size and _n_groups > 1:
             _XtX_batched = xp.stack(_XtX_blocks)  # (G, gs, gs)
-            _sqrt_pg_arr = xp.asarray(_sqrt_pg, dtype=X_work.dtype)
 
         iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
@@ -1540,10 +1566,9 @@ class _PenalizedFitMixin:
                     XtX_coef_mat = XtX_coef[:p].reshape(_n_groups, _gs)
                     Xty_mat = Xty[:p].reshape(_n_groups, _gs)
                 else:
-                    flat_idx = xp.asarray([i for g in _g_indices for i in g], dtype=xp.int64)
-                    coef_mat = coef[flat_idx].reshape(_n_groups, _gs)
-                    XtX_coef_mat = XtX_coef[flat_idx].reshape(_n_groups, _gs)
-                    Xty_mat = Xty[flat_idx].reshape(_n_groups, _gs)
+                    coef_mat = coef[_flat_idx_backend].reshape(_n_groups, _gs)
+                    XtX_coef_mat = XtX_coef[_flat_idx_backend].reshape(_n_groups, _gs)
+                    Xty_mat = Xty[_flat_idx_backend].reshape(_n_groups, _gs)
 
                 # rho_g = Xty[g] - XtX[g,:] @ coef + XtX_blocks[g] @ coef[g]
                 #       = Xty[g] - XtX_coef[g] + diag_blocks @ coef_g
@@ -1569,11 +1594,11 @@ class _PenalizedFitMixin:
                 if _contiguous:
                     coef[:p] = scaled_mat.reshape(-1)
                 else:
-                    coef[flat_idx] = scaled_mat.reshape(-1)
+                    coef[_flat_idx_backend] = scaled_mat.reshape(-1)
             else:
                 # ── Serial path: unequal groups ──
                 for g in range(_n_groups):
-                    g_idx = _g_indices[g]
+                    g_idx = _g_indices_backend[g]
                     rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
                     try:
                         w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
