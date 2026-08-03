@@ -18,6 +18,23 @@ def _data(seed=10601):
     return X, y
 
 
+def _assert_direct_state_cleared(model):
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._inference_result is None
+    assert model._feature_names is None
+    assert model._design_info is None
+    assert model._formula_has_intercept is None
+    assert model._use_intercept is None
+    assert model._selected_solver is None
+    assert model._selected_backend_name is None
+    assert model._penalty is None
+    assert model._loss is None
+    assert model._fitted is False
+    assert not hasattr(model, "n_features_in_")
+
+
 def test_direct_group_failed_refit_clears_coefficients_and_formula_state():
     X, y = _data()
     frame = pd.DataFrame(X, columns=["x0", "x1", "x2", "x3"])
@@ -44,20 +61,30 @@ def test_direct_group_failed_refit_clears_coefficients_and_formula_state():
     with pytest.raises(ValueError, match="outside the design matrix"):
         model.fit(X, y)
 
-    assert model.coef_ is None
-    assert model.intercept_ is None
-    assert model._params is None
-    assert model._inference_result is None
-    assert model._feature_names is None
-    assert model._design_info is None
-    assert model._formula_has_intercept is None
-    assert model._use_intercept is None
-    assert model._selected_solver is None
-    assert model._selected_backend_name is None
-    assert model._penalty is None
-    assert model._loss is None
-    assert model._fitted is False
-    assert not hasattr(model, "n_features_in_")
+    _assert_direct_state_cleared(model)
+
+
+def test_previous_group_fit_is_cleared_when_refit_switches_penalty_then_fails():
+    X, y = _data(seed=10603)
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="group_lasso",
+        penalty_kwargs={"groups": [[0, 1], [2, 3]]},
+        alpha=0.08,
+        solver="auto",
+        device="cpu",
+        compute_inference=False,
+        max_iter=2000,
+        tol=1e-8,
+    ).fit(X, y)
+    assert model.coef_ is not None
+
+    model.penalty = "l1"
+    model.penalty_kwargs = {}
+    with pytest.raises(ValueError):
+        model.fit(X, y[:-1])
+
+    _assert_direct_state_cleared(model)
 
 
 def test_group_cv_failed_prevalidation_clears_previous_selection_and_refit():
