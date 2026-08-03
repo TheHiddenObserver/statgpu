@@ -49,16 +49,19 @@ def test_list_design_trailing_group_completion_reaches_final_refit():
         max_iter=1000,
         tol=1e-8,
     )
+    actual_kwargs = {"groups": [[0, 1]]}
 
     with pytest.warns(UserWarning, match="Auto-adding 1 single-feature"):
         actual = PenalizedGLM_CV(
-            penalty_kwargs={"groups": [[0, 1]]}, **common
+            penalty_kwargs=actual_kwargs, **common
         ).fit(X_array.tolist(), y_array.tolist())
     expected = PenalizedGLM_CV(
         penalty_kwargs={"groups": [[0, 1], [2]]}, **common
     ).fit(X_array, y_array)
 
-    assert actual._penalty_kwargs["groups"] == ((0, 1), (2,))
+    assert actual._penalty_kwargs is actual_kwargs
+    assert actual_kwargs == {"groups": [[0, 1]]}
+    assert actual.estimator_._penalty.groups == ((0, 1), (2,))
     np.testing.assert_allclose(
         actual.cv_results_["all_scores"],
         expected.cv_results_["all_scores"],
