@@ -172,6 +172,6 @@ def test_adaptive_group_set_weights_invalidates_backend_caches():
     replacement = np.array([0.5, 1.5])
     penalty.set_weights(replacement)
 
-    assert penalty._group_weights is replacement
+    assert penalty._group_weights == (0.5, 1.5)
     assert penalty._group_weights_torch is None
     assert penalty._group_weights_cupy is None
