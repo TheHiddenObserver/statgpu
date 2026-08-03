@@ -18,6 +18,8 @@ estimators and historical direct imports share the same behavior:
   and restoring the original constructor parameters afterward;
 - temporary CV penalty objects are rebuilt at each candidate's alpha, so object
   penalties and string penalties evaluate the same regularization grid;
+- the selected final estimator exposes an unmarked penalty snapshot matching
+  its resolved groups and selected alpha;
 - every Group Lasso objective uses the actual loss gradient plus the exact
   Euclidean Group Lasso proximal operator. The historical Gaussian block update
   is bypassed because its inverse-Gram-then-threshold formula is exact only for
@@ -281,7 +283,16 @@ def _install_cv_contract():
         try:
             if str(self.loss).lower() != "cox_ph":
                 _prepare_cv_group_penalty(self, X)
-            return current(self, X, y, sample_weight=sample_weight)
+            result = current(self, X, y, sample_weight=sample_weight)
+            if (
+                not isinstance(original_penalty, str)
+                and getattr(self, "estimator_", None) is not None
+                and getattr(self.estimator_, "_penalty", None) is not None
+            ):
+                self.estimator_.penalty = _clone_group_penalty(
+                    self.estimator_._penalty
+                )
+            return result
         except Exception:
             self._reset_cv_fit_state()
             raise
