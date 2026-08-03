@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import numpy as np
 import pytest
 
@@ -83,14 +85,20 @@ def test_public_group_lasso_canonicalizes_within_group_order_and_preserves_ident
     assert all(raw_groups[g][0] == g * 2 for g in range(2))
 
     penalty = get_penalty("group_lasso", alpha=0.1, groups=raw_groups)
+    restored = pickle.loads(pickle.dumps(penalty))
 
     assert direct_class is GroupLassoPenalty
     assert type(penalty) is GroupLassoPenalty
+    assert type(restored) is GroupLassoPenalty
+    assert restored.alpha == pytest.approx(penalty.alpha)
     np.testing.assert_array_equal(penalty._group_indices[0], np.array([0, 3]))
     np.testing.assert_array_equal(penalty._group_indices[1], np.array([1, 2]))
     np.testing.assert_array_equal(penalty._flat_indices, np.array([0, 3, 1, 2]))
+    np.testing.assert_array_equal(restored._group_indices[0], np.array([0, 3]))
+    np.testing.assert_array_equal(restored._group_indices[1], np.array([1, 2]))
     assert penalty._all_equal_size is True
     assert penalty._is_contiguous is False
+    assert restored._is_contiguous is False
 
 
 @pytest.mark.parametrize("fit_intercept", [False, True])
