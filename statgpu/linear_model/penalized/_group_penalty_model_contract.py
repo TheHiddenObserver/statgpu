@@ -20,10 +20,10 @@ estimators and historical direct imports share the same behavior:
   penalties and string penalties evaluate the same regularization grid;
 - the selected final estimator exposes an unmarked penalty snapshot matching
   its resolved groups and selected alpha;
-- every Group Lasso objective uses the actual loss gradient plus the exact
-  Euclidean Group Lasso proximal operator. The historical Gaussian block update
-  is bypassed because its inverse-Gram-then-threshold formula is exact only for
-  orthonormal group blocks, a condition the public design does not require;
+- convex Group Lasso and Adaptive Group Lasso objectives use the actual loss
+  gradient plus the exact Euclidean group proximal operator. The historical
+  Gaussian block update is bypassed because its inverse-Gram-then-threshold
+  formula is exact only for orthonormal group blocks;
 - bypassing that block update never overrides an explicitly requested generic
   proximal solver such as FISTA-BB or ADMM;
 - all group penalties are explicitly estimation-only until a group-preserving
@@ -37,22 +37,15 @@ import copy
 
 import numpy as np
 
+from statgpu.penalties._categories import GROUP as _GROUP_PENALTY_NAMES
 from ._base import PenalizedGeneralizedLinearModel
 from ._fit_mixin import _PenalizedFitMixin
 from ._penalized_cv import PenalizedGLM_CV
 
 
-_GROUP_PENALTY_NAMES = frozenset(
-    {
-        "group_lasso",
-        "gl",
-        "group_mcp",
-        "gmcp",
-        "group_scad",
-        "gscad",
-    }
+_GROUP_LASSO_NAMES = frozenset(
+    {"group_lasso", "gl", "adaptive_group_lasso"}
 )
-_GROUP_LASSO_NAMES = frozenset({"group_lasso", "gl"})
 _CV_ALPHA_MARKER = "_statgpu_cv_alpha_from_estimator"
 
 
@@ -205,9 +198,10 @@ def _install_inference_contract():
     def _validate_inference_with_group_contract(self):
         if self.compute_inference and _resolved_penalty_name(self) in _GROUP_PENALTY_NAMES:
             raise NotImplementedError(
-                "Group Lasso, Group MCP, and Group SCAD are currently "
-                "estimation-only. Group-preserving covariance/bootstrap "
-                "inference is not implemented; set compute_inference=False."
+                "Group Lasso, Adaptive Group Lasso, Group MCP, and Group SCAD "
+                "are currently estimation-only. Group-preserving "
+                "covariance/bootstrap inference is not implemented; set "
+                "compute_inference=False."
             )
         return current(self)
 
@@ -274,9 +268,6 @@ def _install_cv_contract():
         if _public_penalty_name(self) not in _GROUP_PENALTY_NAMES:
             return current(self, X, y, sample_weight=sample_weight)
 
-        # The wrapped implementation also resets at entry and on failure. This
-        # first reset is required because group coverage validation intentionally
-        # runs before entering that implementation.
         self._reset_cv_fit_state()
         original_penalty = self.penalty
         original_penalty_kwargs = self._penalty_kwargs
@@ -331,11 +322,6 @@ def _install_exact_group_lasso_solver_contract():
                 backend_name,
             )
 
-        # A shallow copy with a private routing name bypasses only the legacy
-        # Gaussian BCD branch. Value/proximal semantics and all group metadata
-        # remain unchanged. Preserve the selected/explicit generic solver so
-        # user intent is not silently rewritten while solving the advertised
-        # composite objective.
         original_penalty = self._penalty
         routed_penalty = copy.copy(original_penalty)
         routed_penalty.name = "_group_lasso_generic"
