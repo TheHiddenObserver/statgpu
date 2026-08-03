@@ -6,9 +6,9 @@ feature order is contiguous by group. For interleaved groups the returned
 per-coordinate weights must be scattered through ``_flat_indices`` before the
 LLA factory indexes them by the original feature indices.
 
-This module also provides strict group validation, immutable constructor
-snapshots, sklearn-compatible shallow parameters, design-width coverage, and
-legacy pickle migration matching the Group Lasso public boundary.
+This module also provides strict group/hyperparameter validation, immutable
+constructor snapshots, sklearn-compatible shallow parameters, design-width
+coverage, and legacy pickle migration matching the Group Lasso public boundary.
 """
 
 from __future__ import annotations
@@ -87,8 +87,18 @@ class GroupMCPPenalty(_CanonicalGroupNonconvexLayout, _BaseGroupMCPPenalty):
 
     def __init__(self, alpha: float = 1.0, gamma: float = 3.0, groups=None):
         normalized_groups = _normalize_groups_parameter(groups)
+        alpha_value = _finite_scalar(alpha, name="alpha")
+        gamma_value = _finite_scalar(gamma, name="gamma")
+        if alpha_value <= 0.0:
+            raise ValueError("alpha must be positive for Group MCP")
+        if gamma_value <= 1.0:
+            raise ValueError("gamma must be greater than 1 for Group MCP")
         self.groups = normalized_groups
-        super().__init__(alpha=alpha, gamma=gamma, groups=normalized_groups)
+        super().__init__(
+            alpha=alpha_value,
+            gamma=gamma_value,
+            groups=normalized_groups,
+        )
 
     def _validate_hyperparameters(self):
         self.alpha = _finite_scalar(self.alpha, name="alpha")
@@ -113,8 +123,18 @@ class GroupSCADPenalty(_CanonicalGroupNonconvexLayout, _BaseGroupSCADPenalty):
 
     def __init__(self, alpha: float = 1.0, a: float = 3.7, groups=None):
         normalized_groups = _normalize_groups_parameter(groups)
+        alpha_value = _finite_scalar(alpha, name="alpha")
+        a_value = _finite_scalar(a, name="a")
+        if alpha_value <= 0.0:
+            raise ValueError("alpha must be positive for Group SCAD")
+        if a_value <= 2.0:
+            raise ValueError("a must be greater than 2 for Group SCAD")
         self.groups = normalized_groups
-        super().__init__(alpha=alpha, a=a, groups=normalized_groups)
+        super().__init__(
+            alpha=alpha_value,
+            a=a_value,
+            groups=normalized_groups,
+        )
 
     def _validate_hyperparameters(self):
         self.alpha = _finite_scalar(self.alpha, name="alpha")
