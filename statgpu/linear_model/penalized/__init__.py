@@ -15,6 +15,12 @@ from ._penalized_robust import PenalizedRobustRegression
 from ._penalized_quantile import PenalizedQuantileRegression
 from ._penalized_cox import PenalizedCoxPHModel
 
+# Install transactional group-penalty design-width validation only after the
+# estimator and CV classes above are fully defined.  The hook patches their
+# existing methods in place, so specialized subclasses and direct historical
+# imports share the same contract.
+from . import _group_penalty_model_contract as _group_penalty_model_contract
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
