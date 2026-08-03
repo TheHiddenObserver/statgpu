@@ -21,6 +21,10 @@ from ._penalized_cox import PenalizedCoxPHModel
 # imports share the same contract.
 from . import _group_penalty_model_contract as _group_penalty_model_contract
 
+# Install strict penalized-Cox grid validation and restore the public class
+# introspection contract after the estimator and survival CV modules exist.
+from . import _penalized_cox_public_contract as _penalized_cox_public_contract
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
