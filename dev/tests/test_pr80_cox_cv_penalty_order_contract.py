@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -148,3 +150,32 @@ def test_penalized_glm_cv_dispatch_sees_strict_cox_alpha_validator():
     # this guards against direct-module import order regressions.
     assert PenalizedGLM_CV is not None
     assert penalized_cv._validate_alpha_grid.__name__ == "_validate_alpha_grid"
+
+
+def test_physical_gpu_runner_manifest_covers_order_contract_sources():
+    runner = Path("dev/benchmarks/benchmark_cox_cv_penalty_order_gpu.py")
+    tree = ast.parse(runner.read_text())
+    source_files = None
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "SOURCE_FILES"
+                for target in node.targets
+            )
+        ):
+            source_files = ast.literal_eval(node.value)
+            break
+
+    assert source_files is not None
+    required = {
+        runner.as_posix(),
+        "dev/tests/test_pr80_cox_cv_penalty_order_contract.py",
+        "statgpu/cross_validation/_grid_validation.py",
+        "statgpu/survival/__init__.py",
+        "statgpu/survival/_cox_cv.py",
+        "statgpu/survival/_cox_cv_penalty_order_contract.py",
+        "statgpu/survival/_risk_sets.py",
+    }
+    assert required.issubset(set(source_files))
+    assert all(Path(path).is_file() for path in source_files)
