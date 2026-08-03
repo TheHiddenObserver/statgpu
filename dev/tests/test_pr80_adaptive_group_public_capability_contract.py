@@ -39,6 +39,12 @@ def _model(penalty, *, solver="auto", compute_inference=False):
     )
 
 
+def _objective(model, X, y):
+    prediction = np.asarray(model.predict(X), dtype=float)
+    loss = 0.5 * float(np.mean((y - prediction) ** 2))
+    return loss + float(model._penalty.value(np.asarray(model.coef_)))
+
+
 def test_uniform_adaptive_group_lasso_matches_group_lasso_objective():
     X, y = _data()
     adaptive_parameter = AdaptiveGroupLassoPenalty(
@@ -66,6 +72,27 @@ def test_uniform_adaptive_group_lasso_matches_group_lasso_objective():
     assert adaptive._penalty.value(adaptive.coef_) == pytest.approx(
         group._penalty.value(group.coef_), rel=1e-5, abs=2e-6
     )
+
+
+@pytest.mark.parametrize("solver", ["fista", "fista_bb", "admm"])
+def test_explicit_adaptive_group_proximal_solver_is_preserved_and_updates(solver):
+    X, y = _data(seed=11105)
+    parameter = AdaptiveGroupLassoPenalty(
+        groups=GROUPS,
+        alpha=0.09,
+        weights=[0.65, 1.35],
+    )
+    model = _model(parameter, solver=solver).fit(X, y)
+
+    assert model._selected_solver == solver
+    assert model._penalty.name == "adaptive_group_lasso"
+    assert model._penalty._group_weights == (0.65, 1.35)
+    assert np.all(np.isfinite(model.coef_))
+    assert np.isfinite(model.intercept_)
+    assert _objective(model, X, y) < 0.5 * float(np.mean(y**2)) - 1e-3
+    assert model.penalty is parameter
+    assert parameter.alpha == pytest.approx(0.09)
+    assert parameter._group_weights == (0.65, 1.35)
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
