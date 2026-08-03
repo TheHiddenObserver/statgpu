@@ -6,18 +6,22 @@ feature order is contiguous by group. For interleaved groups the returned
 per-coordinate weights must be scattered through ``_flat_indices`` before the
 LLA factory indexes them by the original feature indices.
 
-This module also provides immutable constructor snapshots, sklearn-compatible
-shallow parameters, and legacy pickle migration matching the Group Lasso public
-boundary.
+This module also provides strict group validation, immutable constructor
+snapshots, sklearn-compatible shallow parameters, design-width coverage, and
+legacy pickle migration matching the Group Lasso public boundary.
 """
 
 from __future__ import annotations
+
+import numpy as np
 
 from . import _group_mcp as _group_mcp_impl
 from . import _group_scad as _group_scad_impl
 from ._group_lasso_layout import (
     _canonicalize_nested_groups,
     _normalize_groups_parameter,
+    _sync_groups_snapshot_after_base_init,
+    _validate_group_feature_coverage,
 )
 
 
@@ -25,18 +29,35 @@ _BaseGroupMCPPenalty = _group_mcp_impl.GroupMCPPenalty
 _BaseGroupSCADPenalty = _group_scad_impl.GroupSCADPenalty
 
 
+def _finite_scalar(value, *, name):
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be a finite numeric scalar")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{name} must be a finite numeric scalar") from exc
+    if not np.isfinite(numeric):
+        raise ValueError(f"{name} must be finite")
+    return numeric
+
+
 class _CanonicalGroupNonconvexLayout:
-    """Shared canonical groups, clone, pickle, and LLA scatter behavior."""
+    """Shared canonical groups, clone, pickle, coverage, and LLA scatter."""
 
     def _init_groups(self, groups):
         normalized_groups = _normalize_groups_parameter(groups)
         self.groups = normalized_groups
         super()._init_groups(_canonicalize_nested_groups(normalized_groups))
+        _sync_groups_snapshot_after_base_init(self, normalized_groups)
+
+    def validate_n_features(self, n_features):
+        return _validate_group_feature_coverage(self, n_features)
 
     def __setstate__(self, state):
         if not isinstance(state, dict):
             raise TypeError(f"{type(self).__name__} pickle state must be a dict")
         self.__dict__.update(state)
+        self._validate_hyperparameters()
         groups = state.get("groups", state.get("_group_indices"))
         self.groups = _normalize_groups_parameter(groups)
         if groups is not None:
@@ -69,6 +90,14 @@ class GroupMCPPenalty(_CanonicalGroupNonconvexLayout, _BaseGroupMCPPenalty):
         self.groups = normalized_groups
         super().__init__(alpha=alpha, gamma=gamma, groups=normalized_groups)
 
+    def _validate_hyperparameters(self):
+        self.alpha = _finite_scalar(self.alpha, name="alpha")
+        self.gamma = _finite_scalar(self.gamma, name="gamma")
+        if self.alpha <= 0.0:
+            raise ValueError("alpha must be positive for Group MCP")
+        if self.gamma <= 1.0:
+            raise ValueError("gamma must be greater than 1 for Group MCP")
+
     def get_params(self, deep: bool = True) -> dict:
         if not deep:
             return {
@@ -87,6 +116,14 @@ class GroupSCADPenalty(_CanonicalGroupNonconvexLayout, _BaseGroupSCADPenalty):
         self.groups = normalized_groups
         super().__init__(alpha=alpha, a=a, groups=normalized_groups)
 
+    def _validate_hyperparameters(self):
+        self.alpha = _finite_scalar(self.alpha, name="alpha")
+        self.a = _finite_scalar(self.a, name="a")
+        if self.alpha <= 0.0:
+            raise ValueError("alpha must be positive for Group SCAD")
+        if self.a <= 2.0:
+            raise ValueError("a must be greater than 2 for Group SCAD")
+
     def get_params(self, deep: bool = True) -> dict:
         if not deep:
             return {
@@ -97,7 +134,6 @@ class GroupSCADPenalty(_CanonicalGroupNonconvexLayout, _BaseGroupSCADPenalty):
         return _BaseGroupSCADPenalty.get_params(self)
 
 
-# Preserve historical public import and pickle globals.
 GroupMCPPenalty.__module__ = _group_mcp_impl.__name__
 GroupSCADPenalty.__module__ = _group_scad_impl.__name__
 _group_mcp_impl.GroupMCPPenalty = GroupMCPPenalty
