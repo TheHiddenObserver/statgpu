@@ -11,6 +11,8 @@ estimators and historical direct imports share the same behavior:
 - direct and CV refits clear prior fitted state before validation and again on
   failure, so stale coefficients, selection results, or formula metadata cannot
   survive a rejected fit;
+- pending private coefficient/intercept warm starts are preserved for exactly
+  one fit call, then cleared on both success and failure;
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
   fold construction, or candidate fitting, using a temporary clone for penalty
   objects and restoring the original constructor parameter afterward;
@@ -96,6 +98,7 @@ def _reset_direct_group_fit_state(estimator):
     estimator._selected_solver = None
     estimator._selected_backend_name = None
     estimator._init_coef = None
+    estimator._init_intercept = None
     estimator._feature_names = None
     estimator._design_info = None
     estimator._formula_has_intercept = None
@@ -139,9 +142,13 @@ def _install_direct_fit_transaction():
                 data=data,
             )
 
+        pending_init_coef = getattr(self, "_init_coef", None)
+        pending_init_intercept = getattr(self, "_init_intercept", None)
         _reset_direct_group_fit_state(self)
+        self._init_coef = pending_init_coef
+        self._init_intercept = pending_init_intercept
         try:
-            return current(
+            result = current(
                 self,
                 X=X,
                 y=y,
@@ -152,6 +159,9 @@ def _install_direct_fit_transaction():
         except Exception:
             _reset_direct_group_fit_state(self)
             raise
+        self._init_coef = None
+        self._init_intercept = None
+        return result
 
     _fit_with_group_transaction._statgpu_group_fit_transaction = True
     _fit_with_group_transaction._statgpu_original = current
