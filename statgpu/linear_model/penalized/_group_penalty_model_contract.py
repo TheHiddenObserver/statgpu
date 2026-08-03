@@ -8,9 +8,9 @@ estimators and historical direct imports share the same behavior:
   resolution and before solver/backend work;
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
   fold construction, or candidate fitting, then writes canonical groups back;
-- squared-error Group Lasso retains its block-coordinate fast path, while every
-  non-quadratic loss uses its actual gradient with the Group Lasso proximal
-  operator instead of the Gaussian-only X'X/X'y update.
+- unweighted squared-error Group Lasso retains its block-coordinate fast path;
+  weighted squared-error and every non-quadratic loss use their actual loss
+  gradient with the Group Lasso proximal operator.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def _install_cv_contract():
     PenalizedGLM_CV.fit = _fit_with_group_contract
 
 
-def _install_nonquadratic_group_lasso_solver_contract():
+def _install_general_group_lasso_solver_contract():
     current = _PenalizedFitMixin._fit_loss_backend
     if getattr(current, "_statgpu_group_loss_contract", False):
         return
@@ -125,10 +125,12 @@ def _install_nonquadratic_group_lasso_solver_contract():
         loss_name = str(
             getattr(getattr(self, "_loss", None), "name", self.loss)
         ).lower()
-        if (
-            penalty_name not in _GROUP_LASSO_NAMES
-            or loss_name == "squared_error"
-        ):
+        can_use_gaussian_bcd = (
+            penalty_name in _GROUP_LASSO_NAMES
+            and loss_name == "squared_error"
+            and sample_weight is None
+        )
+        if penalty_name not in _GROUP_LASSO_NAMES or can_use_gaussian_bcd:
             return current(
                 self,
                 X,
@@ -138,10 +140,11 @@ def _install_nonquadratic_group_lasso_solver_contract():
                 backend_name,
             )
 
-        # The original group_lasso branch is a Gaussian block-coordinate
-        # update.  A shallow copy with a private routing name bypasses only
-        # that branch; value/proximal semantics and all group metadata remain
-        # unchanged, so the generic FISTA path uses the actual loss gradient.
+        # The original group_lasso branch is an unweighted Gaussian
+        # block-coordinate update. A shallow copy with a private routing name
+        # bypasses only that branch; value/proximal semantics and all group
+        # metadata remain unchanged, so generic FISTA uses the actual weighted
+        # or non-quadratic loss gradient.
         original_penalty = self._penalty
         routed_penalty = copy.copy(original_penalty)
         routed_penalty.name = "_group_lasso_generic"
@@ -167,4 +170,4 @@ def _install_nonquadratic_group_lasso_solver_contract():
 
 _install_direct_contract()
 _install_cv_contract()
-_install_nonquadratic_group_lasso_solver_contract()
+_install_general_group_lasso_solver_contract()
