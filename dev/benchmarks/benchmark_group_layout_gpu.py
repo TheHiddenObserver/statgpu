@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pickle
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import numpy as np
 
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.penalties import AdaptiveGroupLassoPenalty, GroupLassoPenalty
 
 
 SOURCE_FILES = (
@@ -34,6 +36,7 @@ CV_LAYOUTS = {
     "misleading_first_index": LAYOUTS["misleading_first_index"],
     "unequal_serial": LAYOUTS["unequal_serial"],
 }
+LEGACY_LAYOUT = [[0, 3], [2, 1]]
 
 
 def _git(*args):
@@ -90,12 +93,23 @@ def _backend(name, X, y):
     )
 
 
-def _fit(X, y, groups, *, device, fit_intercept):
+def _fit(
+    X,
+    y,
+    groups,
+    *,
+    device,
+    fit_intercept,
+    penalty=None,
+):
+    penalty_arg = penalty if penalty is not None else "group_lasso"
+    penalty_kwargs = None if penalty is not None else {"groups": groups}
+    alpha = float(penalty.alpha) if penalty is not None else 0.035
     return PenalizedGeneralizedLinearModel(
         loss="squared_error",
-        penalty="group_lasso",
-        alpha=0.035,
-        penalty_kwargs={"groups": groups},
+        penalty=penalty_arg,
+        alpha=alpha,
+        penalty_kwargs=penalty_kwargs,
         solver="auto",
         device=device,
         fit_intercept=fit_intercept,
@@ -128,6 +142,58 @@ def _canonical_metadata(model):
         "flat_indices": None
         if penalty._flat_indices is None
         else np.asarray(penalty._flat_indices, dtype=int).tolist(),
+    }
+
+
+def _legacy_pickled_penalty(groups=LEGACY_LAYOUT):
+    current = GroupLassoPenalty(alpha=0.035, groups=groups)
+    state = dict(current.__dict__)
+    state["_group_indices"] = [
+        np.asarray(group, dtype=np.int64) for group in groups
+    ]
+    state["_is_contiguous"] = True
+    state["_flat_indices"] = None
+    state["_all_equal_size"] = len({len(group) for group in groups}) == 1
+    state["_group_size_uniform"] = (
+        len(groups[0]) if state["_all_equal_size"] else None
+    )
+    legacy = object.__new__(GroupLassoPenalty)
+    legacy.__dict__.update(state)
+    return pickle.loads(pickle.dumps(legacy))
+
+
+def _api_contract():
+    adaptive = AdaptiveGroupLassoPenalty(
+        groups=[[3, 0], [2, 1]],
+        alpha=0.035,
+        weights=np.array([1.0, 1.5]),
+    )
+    restored = pickle.loads(pickle.dumps(adaptive))
+    passed = all(
+        (
+            issubclass(AdaptiveGroupLassoPenalty, GroupLassoPenalty),
+            isinstance(adaptive, GroupLassoPenalty),
+            isinstance(restored, GroupLassoPenalty),
+            not adaptive._is_contiguous,
+            not restored._is_contiguous,
+            np.array_equal(adaptive._flat_indices, np.array([0, 3, 1, 2])),
+            np.array_equal(restored._flat_indices, np.array([0, 3, 1, 2])),
+            np.allclose(restored._group_weights, np.array([1.0, 1.5])),
+        )
+    )
+    return {
+        "adaptive_is_group_lasso_subclass": bool(
+            issubclass(AdaptiveGroupLassoPenalty, GroupLassoPenalty)
+        ),
+        "adaptive_groups": [
+            np.asarray(group, dtype=int).tolist()
+            for group in adaptive._group_indices
+        ],
+        "adaptive_pickle_groups": [
+            np.asarray(group, dtype=int).tolist()
+            for group in restored._group_indices
+        ],
+        "passed": bool(passed),
     }
 
 
@@ -192,6 +258,72 @@ def _direct_cases(name):
                 "objective_abs_error": objective_error,
                 "passed": bool(passed),
             }
+    return device_name, results
+
+
+def _legacy_cases(name):
+    results = {}
+    X, y = _sample(9350, 4)
+    device, Xb, yb, device_name = _backend(name, X, y)
+    for fit_intercept in (False, True):
+        key = f"legacy_pickle__intercept_{int(fit_intercept)}"
+        reference_penalty = _legacy_pickled_penalty()
+        actual_penalty = _legacy_pickled_penalty()
+        reference = _fit(
+            X,
+            y,
+            LEGACY_LAYOUT,
+            device="cpu",
+            fit_intercept=fit_intercept,
+            penalty=reference_penalty,
+        )
+        actual = _fit(
+            Xb,
+            yb,
+            LEGACY_LAYOUT,
+            device=device,
+            fit_intercept=fit_intercept,
+            penalty=actual_penalty,
+        )
+        coef_error = float(
+            np.max(np.abs(_as_numpy(actual.coef_) - np.asarray(reference.coef_)))
+        )
+        prediction_error = float(
+            np.max(
+                np.abs(
+                    _as_numpy(actual.predict(Xb))
+                    - np.asarray(reference.predict(X))
+                )
+            )
+        )
+        intercept_error = abs(
+            float(actual.intercept_) - float(reference.intercept_)
+        )
+        objective_error = abs(
+            _objective(actual, Xb, y, LEGACY_LAYOUT)
+            - _objective(reference, X, y, LEGACY_LAYOUT)
+        )
+        metadata = _canonical_metadata(actual)
+        passed = all(
+            (
+                coef_error <= 2e-5,
+                prediction_error <= 2e-5,
+                intercept_error <= 2e-5,
+                objective_error <= 2e-6,
+                metadata["groups"] == [[0, 3], [1, 2]],
+                metadata["flat_indices"] == [0, 3, 1, 2],
+                not metadata["is_contiguous"],
+            )
+        )
+        results[key] = {
+            "serialized_groups_input": LEGACY_LAYOUT,
+            "metadata_after_restore": metadata,
+            "coef_max_abs_error": coef_error,
+            "prediction_max_abs_error": prediction_error,
+            "intercept_abs_error": intercept_error,
+            "objective_abs_error": objective_error,
+            "passed": bool(passed),
+        }
     return device_name, results
 
 
@@ -263,8 +395,9 @@ def main():
 
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
+    api_contract = _api_contract()
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -273,26 +406,34 @@ def main():
             "python dev/benchmarks/benchmark_group_layout_gpu.py "
             "--output <path>"
         ),
+        "api_contract": api_contract,
         "backends": {},
         "gate_failures": [],
     }
 
+    if not api_contract["passed"]:
+        report["gate_failures"].append("public group penalty class hierarchy")
+
     for name in ("cupy", "torch"):
         try:
             device_name, direct = _direct_cases(name)
+            _, legacy = _legacy_cases(name)
             cv = _cv_cases(name)
-            passed = all(
-                case["passed"] for case in direct.values()
-            ) and all(case["passed"] for case in cv.values())
+            passed = (
+                all(case["passed"] for case in direct.values())
+                and all(case["passed"] for case in legacy.values())
+                and all(case["passed"] for case in cv.values())
+            )
             report["backends"][name] = {
                 "device": device_name,
                 "direct_fit": direct,
+                "legacy_pickle": legacy,
                 "cv": cv,
                 "passed": bool(passed),
             }
             if not passed:
                 report["gate_failures"].append(
-                    f"{name}: layout parity"
+                    f"{name}: layout or legacy-state parity"
                 )
         except Exception as exc:
             report["backends"][name] = {
