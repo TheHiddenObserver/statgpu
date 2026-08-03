@@ -13,7 +13,10 @@ estimators and historical direct imports share the same behavior:
   is bypassed because its inverse-Gram-then-threshold formula is exact only for
   orthonormal group blocks, a condition the public design does not require;
 - bypassing that block update never overrides an explicitly requested generic
-  proximal solver such as FISTA-BB or ADMM.
+  proximal solver such as FISTA-BB or ADMM;
+- all group penalties are explicitly estimation-only until a group-preserving
+  inference implementation exists. In particular, the generic residual
+  bootstrap is rejected because it currently refits ordinary L1 models.
 """
 
 from __future__ import annotations
@@ -47,6 +50,12 @@ def _validate_resolved_group_penalty(penalty, n_features):
     return penalty
 
 
+def _resolved_penalty_name(estimator):
+    return str(
+        getattr(getattr(estimator, "_penalty", None), "name", estimator.penalty)
+    ).lower().strip()
+
+
 def _install_direct_contract():
     current = PenalizedGeneralizedLinearModel._resolve_penalty
     if getattr(current, "_statgpu_group_contract", False):
@@ -63,6 +72,27 @@ def _install_direct_contract():
     _resolve_penalty_with_group_contract._statgpu_original = current
     PenalizedGeneralizedLinearModel._resolve_penalty = (
         _resolve_penalty_with_group_contract
+    )
+
+
+def _install_inference_contract():
+    current = PenalizedGeneralizedLinearModel._validate_inference_request
+    if getattr(current, "_statgpu_group_inference_contract", False):
+        return
+
+    def _validate_inference_with_group_contract(self):
+        if self.compute_inference and _resolved_penalty_name(self) in _GROUP_PENALTY_NAMES:
+            raise NotImplementedError(
+                "Group Lasso, Group MCP, and Group SCAD are currently "
+                "estimation-only. Group-preserving covariance/bootstrap "
+                "inference is not implemented; set compute_inference=False."
+            )
+        return current(self)
+
+    _validate_inference_with_group_contract._statgpu_group_inference_contract = True
+    _validate_inference_with_group_contract._statgpu_original = current
+    PenalizedGeneralizedLinearModel._validate_inference_request = (
+        _validate_inference_with_group_contract
     )
 
 
@@ -179,5 +209,6 @@ def _install_exact_group_lasso_solver_contract():
 
 
 _install_direct_contract()
+_install_inference_contract()
 _install_cv_contract()
 _install_exact_group_lasso_solver_contract()
