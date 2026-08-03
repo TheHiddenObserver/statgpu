@@ -142,6 +142,73 @@ def _finite_column_mean(scores):
     return means
 
 
+def _coerce_scalar_alpha_grid_values(alpha_grid):
+    """Return float64 grid values without hiding malformed element types."""
+    if isinstance(alpha_grid, (list, tuple)):
+        # Object dtype preserves mixed Python element types. A normal
+        # ``np.asarray`` would silently promote True to 1.0 and numeric text
+        # to strings before the public validator can reject either contract.
+        raw = np.asarray(alpha_grid, dtype=object)
+    else:
+        raw = np.asarray(_to_numpy(alpha_grid))
+
+    if raw.ndim != 1:
+        raise ValueError("alpha_grid must be a one-dimensional array")
+
+    kind = raw.dtype.kind
+    if kind == "b":
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not booleans"
+        )
+    if kind == "c":
+        raise ValueError("alpha_grid must contain real numeric values")
+    if kind in ("S", "U"):
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not strings or bytes"
+        )
+
+    if kind == "O":
+        grid = np.empty(raw.size, dtype=np.float64)
+        for index, value in enumerate(raw):
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not booleans"
+                )
+            if isinstance(value, (str, bytes, np.str_, np.bytes_)):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not strings "
+                    "or bytes"
+                )
+            value_array = np.asarray(value)
+            if value_array.ndim != 0:
+                raise ValueError(
+                    "alpha_grid must contain scalar real numeric values"
+                )
+            value_kind = value_array.dtype.kind
+            if value_kind == "b":
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not booleans"
+                )
+            if value_kind == "c" or np.iscomplexobj(value):
+                raise ValueError("alpha_grid must contain real numeric values")
+            if value_kind in ("S", "U"):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not strings "
+                    "or bytes"
+                )
+            try:
+                grid[index] = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    "alpha_grid must contain real numeric values"
+                ) from exc
+        return grid
+
+    if kind not in ("i", "u", "f"):
+        raise ValueError("alpha_grid must contain real numeric values")
+    return np.asarray(raw, dtype=np.float64)
+
+
 def _normalize_scalar_alpha_grid(alpha_grid, *, penalty_name):
     """Validate and filter a user scalar-response CV alpha grid.
 
@@ -150,20 +217,7 @@ def _normalize_scalar_alpha_grid(alpha_grid, *, penalty_name):
     scalar CV estimators. ``None`` signals that the caller must generate the
     default grid because the supplied grid was empty or fully filtered.
     """
-    raw = np.asarray(_to_numpy(alpha_grid))
-    if np.iscomplexobj(raw):
-        raise ValueError("alpha_grid must contain real numeric values")
-    if raw.ndim != 1:
-        raise ValueError("alpha_grid must be a one-dimensional array")
-    if raw.dtype.kind == "b":
-        raise ValueError(
-            "alpha_grid must contain real numeric values, not booleans"
-        )
-    try:
-        grid = np.asarray(raw, dtype=np.float64)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("alpha_grid must contain real numeric values") from exc
-
+    grid = _coerce_scalar_alpha_grid_values(alpha_grid)
     valid = np.isfinite(grid) & (grid > 0.0)
     n_invalid = int(grid.size - np.count_nonzero(valid))
     penalty_label = str(penalty_name).lower().strip()

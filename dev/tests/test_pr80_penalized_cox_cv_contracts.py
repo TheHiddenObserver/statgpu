@@ -55,6 +55,18 @@ def _backend_inputs(backend_name, X, y):
     )
 
 
+def _backend_array(backend_name, value):
+    if backend_name == "cupy":
+        import cupy as cp
+
+        return cp.asarray(value)
+    if backend_name == "torch":
+        import torch
+
+        return torch.as_tensor(value, dtype=torch.float64, device="cuda")
+    return np.asarray(value)
+
+
 def _as_numpy(value):
     if type(value).__module__.startswith("cupy"):
         import cupy as cp
@@ -427,7 +439,20 @@ def test_scalar_glm_cv_passes_materialized_custom_fold_count(
     assert generator_iterations == ([] if fold_container == "list" else [1])
 
 
-@pytest.mark.parametrize("penalty_name", ["l1", "l2", "elasticnet", "scad", "mcp"])
+@pytest.mark.parametrize(
+    "penalty_name",
+    [
+        "l1",
+        "l2",
+        "elasticnet",
+        "scad",
+        "mcp",
+        "adaptive_l1",
+        "group_lasso",
+        "group_scad",
+        "group_mcp",
+    ],
+)
 def test_scalar_alpha_grid_zero_is_filtered_for_every_tunable_penalty(
     penalty_name,
 ):
@@ -441,6 +466,81 @@ def test_scalar_alpha_grid_zero_is_filtered_for_every_tunable_penalty(
 
 
 @pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize(
+    ("penalty_name", "penalty_kwargs"),
+    [
+        pytest.param("l1", {}, id="l1"),
+        pytest.param("l2", {}, id="l2"),
+        pytest.param("elasticnet", {}, id="elasticnet"),
+        pytest.param("scad", {"a": 3.7}, id="scad"),
+        pytest.param("mcp", {"gamma": 3.0}, id="mcp"),
+        pytest.param(
+            "adaptive_l1",
+            {"weights": np.ones(4, dtype=np.float64)},
+            id="adaptive-l1",
+        ),
+        pytest.param(
+            "group_lasso",
+            {"groups": np.array([0, 0, 1, 1], dtype=np.int64)},
+            id="group-lasso",
+        ),
+        pytest.param(
+            "group_scad",
+            {
+                "groups": np.array([0, 0, 1, 1], dtype=np.int64),
+                "a": 3.7,
+            },
+            id="group-scad",
+        ),
+        pytest.param(
+            "group_mcp",
+            {
+                "groups": np.array([0, 0, 1, 1], dtype=np.int64),
+                "gamma": 3.0,
+            },
+            id="group-mcp",
+        ),
+    ],
+)
+def test_scalar_alpha_grid_propagates_across_public_penalty_families(
+    backend_name, penalty_name, penalty_kwargs
+):
+    rng = np.random.default_rng(8134)
+    X = rng.normal(size=(30, 4))
+    y = X @ np.array([0.8, -0.35, 0.2, 0.1])
+    y += rng.normal(scale=0.05, size=X.shape[0])
+    device, Xb, yb = _backend_inputs(backend_name, X, y)
+    alpha_grid = _backend_array(
+        backend_name,
+        np.array([0.2, -1.0, np.nan, 0.0, 0.05], dtype=np.float64),
+    )
+
+    with pytest.warns(RuntimeWarning, match="Filtered 3"):
+        model = PenalizedGLM_CV(
+            loss="squared_error",
+            penalty=penalty_name,
+            penalty_kwargs=penalty_kwargs,
+            alpha_grid=alpha_grid,
+            l1_ratio=0.4,
+            cv=2,
+            random_state=15,
+            device=device,
+            max_iter=300,
+            tol=1e-6,
+        ).fit(Xb, yb)
+
+    expected_grid = np.array([0.2, 0.05])
+    np.testing.assert_array_equal(model.alpha_grid_, expected_grid)
+    np.testing.assert_array_equal(model.cv_results_["alpha"], expected_grid)
+    assert model.cv_results_["all_scores"].shape == (2, 2)
+    assert np.all(np.isfinite(model.cv_results_["all_scores"]))
+    assert model.alpha_ in set(expected_grid)
+    assert model.estimator_.alpha == pytest.approx(model.alpha_)
+    assert model.estimator_.penalty == penalty_name
+    assert np.all(np.isfinite(_as_numpy(model.coef_)))
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
 def test_scalar_alpha_grid_filters_invalid_values_end_to_end(backend_name):
     rng = np.random.default_rng(8130)
     X = rng.normal(size=(24, 3))
@@ -449,18 +549,7 @@ def test_scalar_alpha_grid_filters_invalid_values_end_to_end(backend_name):
     alpha_values = np.array(
         [0.2, -1.0, np.nan, 0.0, np.inf, 0.05], dtype=np.float64
     )
-    if backend_name == "cupy":
-        import cupy as cp
-
-        alpha_grid = cp.asarray(alpha_values)
-    elif backend_name == "torch":
-        import torch
-
-        alpha_grid = torch.as_tensor(
-            alpha_values, dtype=torch.float64, device="cuda"
-        )
-    else:
-        alpha_grid = alpha_values
+    alpha_grid = _backend_array(backend_name, alpha_values)
 
     with pytest.warns(RuntimeWarning, match="Filtered 4"):
         model = PenalizedGLM_CV(
@@ -551,9 +640,26 @@ def test_scalar_alpha_grid_filtered_values_reach_cpu_ridge_fast_path(
         (np.array([[0.2, 0.1]]), "one-dimensional"),
         (np.array([0.2 + 0.1j]), "real numeric"),
         (np.array([True, False]), "not booleans"),
-        (np.array(["invalid"]), "real numeric"),
+        (np.array(["invalid"]), "strings or bytes"),
+        ([True, 0.25], "not booleans"),
+        ([False, 0.25], "not booleans"),
+        (np.array([True, 0.25], dtype=object), "not booleans"),
+        (["0.2", 0.1], "strings or bytes"),
+        (np.array(["0.2", 0.1], dtype=object), "strings or bytes"),
+        ([b"0.2", 0.1], "strings or bytes"),
     ],
-    ids=["two-dimensional", "complex", "boolean", "non-numeric"],
+    ids=[
+        "two-dimensional",
+        "complex",
+        "boolean",
+        "non-numeric-string",
+        "mixed-true-float",
+        "mixed-false-float",
+        "object-mixed-bool",
+        "mixed-numeric-string",
+        "object-numeric-string",
+        "mixed-bytes",
+    ],
 )
 def test_scalar_alpha_grid_validation_precedes_device_candidate_and_refit(
     backend_name, bad_grid, message, monkeypatch

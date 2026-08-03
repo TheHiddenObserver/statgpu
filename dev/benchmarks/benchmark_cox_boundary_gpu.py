@@ -2101,6 +2101,86 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
         str(record.message) for record in default_warning_records
     ]
 
+    family_rng = np.random.default_rng(2293)
+    family_X_np = family_rng.normal(size=(30, 4))
+    family_y_np = family_X_np @ np.array([0.8, -0.35, 0.2, 0.1])
+    family_y_np += family_rng.normal(scale=0.05, size=family_X_np.shape[0])
+    family_X = _array(name, xp, family_X_np)
+    family_y = _array(name, xp, family_y_np)
+    group_ids = np.array([0, 0, 1, 1], dtype=np.int64)
+    family_specs = (
+        ("l1", {}),
+        ("l2", {}),
+        ("elasticnet", {}),
+        ("scad", {"a": 3.7}),
+        ("mcp", {"gamma": 3.0}),
+        (
+            "adaptive_l1",
+            {"weights": np.ones(4, dtype=np.float64)},
+        ),
+        ("group_lasso", {"groups": group_ids}),
+        ("group_scad", {"groups": group_ids, "a": 3.7}),
+        ("group_mcp", {"groups": group_ids, "gamma": 3.0}),
+    )
+    scalar_penalty_family_results = {}
+    for penalty_name, penalty_kwargs in family_specs:
+        with warnings.catch_warnings(record=True) as family_warning_records:
+            warnings.simplefilter("always")
+            family_model = PenalizedGLM_CV(
+                loss="squared_error",
+                penalty=penalty_name,
+                penalty_kwargs=penalty_kwargs,
+                alpha_grid=_array(
+                    name,
+                    xp,
+                    np.array(
+                        [0.2, -1.0, np.nan, 0.0, 0.05],
+                        dtype=np.float64,
+                    ),
+                ),
+                l1_ratio=0.4,
+                cv=2,
+                random_state=33,
+                device=device,
+                max_iter=300,
+                tol=1e-6,
+            ).fit(family_X, family_y)
+        family_warnings = [
+            str(record.message) for record in family_warning_records
+        ]
+        family_grid = np.asarray(family_model.alpha_grid_, dtype=np.float64)
+        family_scores = np.asarray(
+            family_model.cv_results_["all_scores"], dtype=np.float64
+        )
+        family_passed = all(
+            (
+                np.array_equal(family_grid, np.array([0.2, 0.05])),
+                np.array_equal(
+                    family_model.cv_results_["alpha"],
+                    np.array([0.2, 0.05]),
+                ),
+                family_scores.shape == (2, 2),
+                np.all(np.isfinite(family_scores)),
+                family_model.alpha_ in {0.2, 0.05},
+                np.isclose(
+                    float(family_model.estimator_.alpha),
+                    float(family_model.alpha_),
+                ),
+                family_model.estimator_.penalty == penalty_name,
+                np.all(np.isfinite(np.asarray(family_model.coef_))),
+                any("Filtered 3" in value for value in family_warnings),
+            )
+        )
+        scalar_penalty_family_results[penalty_name] = {
+            "filtered_grid": family_grid.tolist(),
+            "selected_alpha": float(family_model.alpha_),
+            "score_shape": list(family_scores.shape),
+            "warning_messages": family_warnings,
+            "final_refit_penalty": family_model.estimator_.penalty,
+            "final_refit_alpha": float(family_model.estimator_.alpha),
+            "passed": bool(family_passed),
+        }
+
     invalid_grid_work_calls = []
 
     class RejectingInvalidGridCV(PenalizedGLM_CV):
@@ -2116,21 +2196,30 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             invalid_grid_work_calls.append("refit")
             raise AssertionError("invalid grid reached final refit")
 
-    invalid_grid_error = ""
-    try:
-        RejectingInvalidGridCV(
-            loss="squared_error",
-            penalty="l2",
-            alpha_grid=_array(
-                name,
-                xp,
-                np.array([[0.2, 0.1]], dtype=np.float64),
-            ),
-            cv=2,
-            device=device,
-        ).fit(scalar_X, scalar_y)
-    except ValueError as exc:
-        invalid_grid_error = str(exc)
+    invalid_grid_specs = {
+        "two_dimensional": _array(
+            name,
+            xp,
+            np.array([[0.2, 0.1]], dtype=np.float64),
+        ),
+        "mixed_true_float": [True, 0.1],
+        "mixed_false_float": [False, 0.1],
+        "object_mixed_bool": np.array([True, 0.1], dtype=object),
+        "mixed_numeric_string": ["0.2", 0.1],
+        "object_numeric_string": np.array(["0.2", 0.1], dtype=object),
+    }
+    invalid_grid_errors = {}
+    for invalid_name, invalid_grid in invalid_grid_specs.items():
+        try:
+            RejectingInvalidGridCV(
+                loss="squared_error",
+                penalty="l2",
+                alpha_grid=invalid_grid,
+                cv=2,
+                device=device,
+            ).fit(scalar_X, scalar_y)
+        except ValueError as exc:
+            invalid_grid_errors[invalid_name] = str(exc)
 
     filtered_grid_np = np.asarray(
         scalar_filtered_grid.alpha_grid_, dtype=np.float64
@@ -2152,7 +2241,23 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
                 "automatically generated default" in value
                 for value in default_warning_messages
             ),
-            "one-dimensional" in invalid_grid_error,
+            all(
+                result["passed"]
+                for result in scalar_penalty_family_results.values()
+            ),
+            set(invalid_grid_errors) == set(invalid_grid_specs),
+            "one-dimensional"
+            in invalid_grid_errors.get("two_dimensional", ""),
+            "not booleans"
+            in invalid_grid_errors.get("mixed_true_float", ""),
+            "not booleans"
+            in invalid_grid_errors.get("mixed_false_float", ""),
+            "not booleans"
+            in invalid_grid_errors.get("object_mixed_bool", ""),
+            "strings or bytes"
+            in invalid_grid_errors.get("mixed_numeric_string", ""),
+            "strings or bytes"
+            in invalid_grid_errors.get("object_numeric_string", ""),
             invalid_grid_work_calls == [],
         )
     )
@@ -2290,7 +2395,8 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             "default_grid": default_grid_np.tolist(),
             "default_selected_alpha": float(scalar_default_grid.alpha_),
             "default_warning_messages": default_warning_messages,
-            "malformed_error": invalid_grid_error,
+            "penalty_families": scalar_penalty_family_results,
+            "malformed_errors": invalid_grid_errors,
             "malformed_work_calls": invalid_grid_work_calls,
             "passed": bool(scalar_alpha_grid_passed),
         },
@@ -2345,7 +2451,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 20,
+        "schema_version": 21,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

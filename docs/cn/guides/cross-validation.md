@@ -230,9 +230,12 @@ model.fit(X, y)
 
 标量响应 CV estimator 只搜索严格为正的 alpha。一维数值用户网格会保留原顺序，
 非正与非有限项会伴随 `RuntimeWarning` 被过滤；空网格或过滤后为空会 warning 并重新
-生成默认网格。因此 L1、L2、ElasticNet、SCAD 与 MCP 的标量 CV 都不会把零作为候选；
-无惩罚拟合应直接使用 `alpha=0` 的 estimator。非一维、复数、布尔或非数值网格会在
-设备路由与 candidate 工作前抛出 `ValueError`。Penalized Cox 使用更严格的契约，
+生成默认网格。因此 L1、L2、ElasticNet、SCAD、MCP、Adaptive L1、Group Lasso、
+Group SCAD 与 Group MCP 的标量 CV 都不会把零作为候选；无惩罚拟合应直接使用
+`alpha=0` 的 estimator。在 NumPy dtype promotion 前，Python sequence 与 object array
+会逐元素检查：布尔值与字符串/bytes（包括 `"0.2"` 这样的数字文本）会被拒绝，而不会
+变成 1.0 或 0.2。非一维、复数、布尔、字符串/bytes 或其他非数值网格会在设备路由与
+candidate 工作前抛出 `ValueError`。Penalized Cox 使用更严格的契约，
 不会过滤或替换用户网格：非有限或负值会抛出 `ValueError`，SCAD/MCP 还要求每个
 alpha 严格为正；L1、L2 与 ElasticNet Cox 网格允许零值。
 

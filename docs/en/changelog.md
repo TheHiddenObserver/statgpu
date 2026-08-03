@@ -30,6 +30,10 @@
   `a7053af2cb628880708cf2e4bfab121b1354725a`: CuPy and Torch each pass
   14/14 structured cases plus 581 targeted tests; all 44 Git-blob hashes match,
   `source_clean=true`, and `gate_failures=[]`.
+- Mixed Python/object grids now reject booleans and strings/bytes before dtype
+  promotion can turn them into candidate alphas. End-to-end scalar coverage now
+  spans L1, L2, ElasticNet, SCAD, MCP, Adaptive L1, Group Lasso, Group SCAD,
+  and Group MCP; the exact-source physical runner is advanced to schema 21.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 

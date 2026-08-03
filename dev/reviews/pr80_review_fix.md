@@ -10,10 +10,10 @@
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
 > Current shared-CV boundary SHA-256: `c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc`<br>
-> Current penalized-CV orchestration SHA-256: `bc311d4795bf0003de4c3cf8d82ec95b30d8779ecdc9e03a438d1ddf83d14598`<br>
+> Current penalized-CV orchestration SHA-256: `43d9696de6b7952cb5d11011fb024fc0b0b3cf4851b1d603e30fde37ea493e44`<br>
 > Current penalized-Cox CV SHA-256: `d9ca5923deb07452b6e2c158c0a3d0808894f3376a1a96cdb928333e6ac4c151`<br>
 > Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
-> Current schema-20 runner SHA-256: `a78e42ac94d691bef471d9be5e666782862ac3f1c27d75637ac3975dec343103`<br>
+> Current schema-21 runner SHA-256: `17a1da13bd570501e2fbef9485ed0911385bd152c81046e99eacf049c2d6254f`<br>
 > Scalar alpha-grid artifact source commit: `a7053af2cb628880708cf2e4bfab121b1354725a`<br>
 > Scalar alpha-grid artifact SHA-256: `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
@@ -39,7 +39,7 @@
 > Evaluable-fold routing artifact SHA-256: `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `COMPLETE`; scalar alpha-grid validation and Ridge routing pass local-full plus schema-20 exact-source P100 validation at tier `remote-full`
+> Status: `PARTIAL_REMOTE_PENDING`; promotion-safe mixed-grid validation and the complete scalar-penalty matrix pass local-full, while schema-21 exact-source P100 evidence is pending
 
 ## Review Contract
 
@@ -65,10 +65,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed; local-full and schema-20 P100 validation pass |
-| Cross-validation | scalar-response and Cox custom-fold routing, scalar alpha-grid validation, plus canonical/penalized Cox selection contracts | fixed; local-full and schema-20 P100 validation pass |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed locally; schema-21 physical refresh pending |
+| Cross-validation | scalar-response and Cox custom-fold routing, all public scalar penalty families, plus canonical/penalized Cox selection contracts | fixed locally; schema-21 physical refresh pending |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-20 exact-source evidence passes |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | schema-20 remains historical exact-source evidence; schema-21 refresh pending |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1576,7 +1576,7 @@ contracts`; inference/formula=`unchanged`; exact-source physical evidence=
 
 | Public family | Backend | CV | Inference | Formula | Benchmark |
 |---|---|---|---|---|---|
-| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-20 case passes |
+| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP/Adaptive L1/Group Lasso/Group SCAD/Group MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-21 full-family case pending |
 | Squared-error/L2 Ridge route through `PenalizedGLM_CV` | CPU/GPU CV according to resolved routing; CPU exact final eigensolve | `supported`; Ridge batch receives only validated candidates | `unchanged` | `not-formula-facing` | `required`; CPU-compute/selected-output contract tested |
 | Dedicated `RidgeCV` / `ElasticNetCV` | `unchanged` | existing scalar filtering policy retained | `unchanged` | `not-formula-facing` | existing evidence remains scoped |
 | Survival-aware `PenalizedGLM_CV(loss="cox_ph")` | `unchanged` | strict user-grid contract remains separate | `unchanged` | `not-formula-facing` | schema-20 retains prior Cox gates |
@@ -1633,3 +1633,69 @@ artifact is
 all 44 recorded hashes independently match the exact Git blobs,
 `source_clean=true`, and `gate_failures=[]`. This follow-up is `COMPLETE` at
 validation tier `remote-full`.
+
+## Promotion-Safe Grid and Full Scalar-Penalty Matrix Follow-up
+
+Impact classification: malformed-grid numerical result=`affected and fixed`;
+selected alpha=`affected and fixed`; valid-grid numerical result=`unchanged`;
+backend placement=`unchanged`; public scalar CV families=`all nine documented
+categories`; inference/formula=`unchanged`; exact-source physical evidence=
+`schema 21 pending`.
+
+### Capability decisions by touched public family
+
+| Scalar penalty family | Backend | CV | Inference | Formula | Benchmark |
+|---|---|---|---|---|---|
+| L2 | `three-backend`; CPU eig-batch or resolved GPU route | `supported`; exact/specialized path | `estimation-only here` | `not-formula-facing` | `required` |
+| L1 / ElasticNet | `three-backend`; backend-native grids | `supported`; sparse/specialized path | `estimation-only here` | `not-formula-facing` | `required` |
+| SCAD / MCP | `three-backend`; backend-native grids | `supported`; nonconvex LLA path | `estimation-only here` | `not-formula-facing` | `required` |
+| Adaptive L1 | `three-backend`; fixed weights represented through `penalty_kwargs` | `supported`; general-fit path | `estimation-only here` | `not-formula-facing` | `required` |
+| Group Lasso | `three-backend`; group IDs represented through `penalty_kwargs` | `supported`; general-fit path | `estimation-only here` | `not-formula-facing` | `required` |
+| Group SCAD / Group MCP | `three-backend`; group IDs and concavity controls represented through `penalty_kwargs` | `supported`; group-nonconvex path | `estimation-only here` | `not-formula-facing` | `required` |
+
+- [HIGH][BUG/API][fixed locally] The first scalar-grid validator converted the
+  complete input with ordinary NumPy coercion before inspecting element types.
+  Mixed sequences could therefore promote `True` to 1.0 or accept numeric text
+  as a float candidate. Two implementations were compared: reject only the
+  promoted dtype, which cannot recover lost element provenance, or preserve
+  Python sequence/object-array elements until each public scalar has been
+  checked. The latter is selected. Lists and tuples are first represented as
+  object arrays; object values reject bool/`np.bool_`, strings, and bytes before
+  float conversion, while genuine scalar real numerics remain accepted.
+  Backend-native homogeneous numeric arrays retain the direct compact path and
+  incur no object scan.
+- [HIGH][TEST/MATRIX][fixed locally] The prior matrix covered five simple
+  penalties and only L2 end to end. The expanded public matrix covers L1, L2,
+  ElasticNet, SCAD, MCP, Adaptive L1, Group Lasso, Group SCAD, and Group MCP.
+  Each family performs real two-fold scoring with a mixed valid/invalid grid,
+  requires the filtered grid in `cv_results_`, requires finite scores, selects
+  only a retained alpha, and verifies final-refit penalty/alpha propagation.
+  Adaptive weights, group IDs, and group nonconvex controls are supplied through
+  the documented `penalty_kwargs` boundary.
+- [HIGH][TEST/BACKEND][fixed locally] Transactional NumPy/CuPy/Torch tests now
+  cover mixed True/False plus float, object mixed bool, numeric-string sequence,
+  object numeric string, bytes, pure bool, complex, and non-1D grids. Every
+  malformed input must fail before device selection, candidate scoring, or
+  refit and leave fitted state cleared. The schema-21 runner mirrors these gates
+  on physical CuPy/Torch inputs and records all nine penalty families rather
+  than treating an L2 result as family-wide evidence.
+
+Focused scalar-grid coverage passes 36 tests with 40 expected local physical-
+GPU skips; the complete penalized-CV contract file passes 95 tests with 60
+expected GPU skips. The scalar safety set passes 89 tests with seven optional-
+backend skips. The 17-file schema-targeted matrix passes 453 tests with 177
+expected GPU skips and seven expected warnings, while the complete CPU tree
+passes 1,642 tests with 551 expected GPU skips and eleven expected warnings.
+The schema-21 runner compiles and its CLI contract passes. `git diff --check`,
+the documentation-link checker, the 122-file documentation-contract checker,
+and maintained-source/script compilation all pass. The narrow pyflakes audit
+reports only the known pre-existing unused import/local findings in
+`_penalized_cv.py`; no added source, test, or runner line introduces a new
+finding.
+
+Because runtime, maintained tests, runner structure, and capability claims all
+changed after schema 20, this follow-up remains `PARTIAL_REMOTE_PENDING`. A new
+clean implementation commit must run schema 21 in remote `myconda`; the JSON
+must prove 44/44 exact Git-blob hashes, all CuPy/Torch structured gates, all nine
+family rows, the mixed-type transactional errors, and an empty
+`gate_failures` list before the report can return to `COMPLETE`.

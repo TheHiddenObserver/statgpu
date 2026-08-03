@@ -240,10 +240,14 @@ Scalar-response CV estimators search strictly positive alpha values. A
 one-dimensional numeric user grid keeps its original order after non-positive
 and non-finite entries are filtered with a `RuntimeWarning`; an empty or
 fully-filtered grid emits a warning and regenerates the default grid. Zero is
-therefore not a scalar-CV candidate for L1, L2, ElasticNet, SCAD, or MCP; use a
-direct estimator with `alpha=0` for an unpenalized fit. Non-one-dimensional,
-complex, boolean, or non-numeric grids raise `ValueError` before device routing
-or candidate work. Penalized Cox uses a stricter contract and does not filter
+therefore not a scalar-CV candidate for L1, L2, ElasticNet, SCAD, MCP,
+Adaptive L1, Group Lasso, Group SCAD, or Group MCP; use a direct estimator with
+`alpha=0` for an unpenalized fit. Before NumPy dtype promotion, Python sequence
+and object-array elements are checked individually: booleans and strings/bytes
+(including numeric text such as `"0.2"`) are rejected instead of becoming 1.0
+or 0.2. Non-one-dimensional, complex, boolean, string/bytes, or other
+non-numeric grids raise `ValueError` before device routing or candidate work.
+Penalized Cox uses a stricter contract and does not filter
 or replace a user grid: non-finite or negative values raise `ValueError`, and
 SCAD/MCP additionally require every alpha to be strictly positive. L1, L2, and
 ElasticNet Cox grids may include zero.

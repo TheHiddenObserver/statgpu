@@ -515,7 +515,8 @@ shape 不进入 device、candidate 或 refit 工作的证明。CuPy 与 Torch �
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source
 commit 之后的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的
-物理 GPU 覆盖。
+物理 GPU 覆盖。promotion-safe 混合网格校验与完整标量 penalty matrix 晚于 schema 20，
+因此需要 schema-21 精确源码刷新。
 
 ## FAQ 与常见失败模式
 

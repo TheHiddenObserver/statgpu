@@ -586,7 +586,9 @@ This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
 in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
 the source commit above require their own exact-source refresh before they can
-claim the same physical-GPU evidence.
+claim the same physical-GPU evidence. Promotion-safe mixed-grid validation and
+the complete scalar-penalty matrix postdate schema 20 and therefore require a
+schema-21 exact-source refresh.
 
 ## FAQ and Common Failure Modes
 

@@ -27,6 +27,10 @@
   `a7053af2cb628880708cf2e4bfab121b1354725a`：CuPy 与 Torch 各通过 14/14 个
   structured case 及 581 项定向测试；44/44 个 Git-blob hash 全部匹配，
   `source_clean=true` 且 `gate_failures=[]`。
+- 混合 Python/object 网格现在会在 dtype promotion 前拒绝布尔值与字符串/bytes，避免
+  它们变成候选 alpha。标量端到端覆盖现已包括 L1、L2、ElasticNet、SCAD、MCP、
+  Adaptive L1、Group Lasso、Group SCAD 与 Group MCP；精确源码物理 runner 升级到
+  schema 21。
 
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 
