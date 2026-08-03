@@ -92,7 +92,14 @@ def test_group_surrogate_factory_rejects_negative_or_nonfinite_derivatives():
         factory(np.array([0.4, np.nan, np.nan, 0.4]))
 
 
-def test_direct_group_solver_call_installs_group_surrogate_without_factory(monkeypatch):
+def test_direct_group_solver_call_installs_group_surrogate_and_fista_loss_proxy(
+    monkeypatch,
+):
+    class HessianLoss:
+        name = "huber"
+        has_hessian = True
+
+    original_loss = HessianLoss()
     penalty = GroupSCADPenalty(alpha=0.18, a=3.7, groups=_GROUPS)
     derivatives = np.array([0.4, 1.2, 1.2, 0.4])
     coef = np.array([0.8, -0.3, 0.5, 0.6])
@@ -102,11 +109,12 @@ def test_direct_group_solver_call_installs_group_surrogate_without_factory(monke
         factory = kwargs["lla_penalty_factory"]
         inner = factory(derivatives)
         captured["inner"] = inner
+        captured["loss"] = args[0]
         return "sentinel"
 
     monkeypatch.setattr(group_contract, "_base_fista_lla_path", fake_base)
     result = group_contract.fista_lla_path(
-        loss=object(),
+        loss=original_loss,
         scad_penalty=penalty,
         X=np.zeros((2, 4)),
         y=np.zeros(2),
@@ -115,6 +123,9 @@ def test_direct_group_solver_call_installs_group_surrogate_without_factory(monke
     )
 
     assert result == "sentinel"
+    assert captured["loss"].has_hessian is False
+    assert captured["loss"].name == "huber"
+    assert captured["loss"]._loss is original_loss
     assert captured["inner"].value(coef) == pytest.approx(
         _expected_surrogate_value(coef, derivatives),
         rel=0.0,
@@ -122,20 +133,25 @@ def test_direct_group_solver_call_installs_group_surrogate_without_factory(monke
     )
 
 
-def test_non_group_solver_call_preserves_caller_factory(monkeypatch):
+def test_non_group_solver_call_preserves_loss_and_caller_factory(monkeypatch):
     class DummyPenalty:
         name = "mcp"
 
+    class DummyLoss:
+        has_hessian = True
+
     sentinel_factory = object()
+    original_loss = DummyLoss()
     captured = {}
 
     def fake_base(*args, **kwargs):
+        captured["loss"] = args[0]
         captured["factory"] = kwargs["lla_penalty_factory"]
         return "sentinel"
 
     monkeypatch.setattr(group_contract, "_base_fista_lla_path", fake_base)
     result = group_contract.fista_lla_path(
-        loss=object(),
+        loss=original_loss,
         scad_penalty=DummyPenalty(),
         X=np.zeros((2, 1)),
         y=np.zeros(2),
@@ -144,6 +160,7 @@ def test_non_group_solver_call_preserves_caller_factory(monkeypatch):
     )
 
     assert result == "sentinel"
+    assert captured["loss"] is original_loss
     assert captured["factory"] is sentinel_factory
 
 
