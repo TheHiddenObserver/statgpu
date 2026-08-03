@@ -49,6 +49,7 @@ from statgpu.survival._risk_sets import (  # noqa: E402
 
 
 SOURCE_FILES = (
+    "statgpu/linear_model/penalized/_fit_mixin.py",
     ".github/workflows/test.yml",
     "statgpu/__init__.py",
     "statgpu/backends/_array_ops.py",

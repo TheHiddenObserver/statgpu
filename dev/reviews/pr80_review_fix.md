@@ -13,7 +13,7 @@
 > Current penalized-CV orchestration SHA-256: `43d9696de6b7952cb5d11011fb024fc0b0b3cf4851b1d603e30fde37ea493e44`<br>
 > Current penalized-Cox CV SHA-256: `d9ca5923deb07452b6e2c158c0a3d0808894f3376a1a96cdb928333e6ac4c151`<br>
 > Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
-> Current schema-21 runner SHA-256: `17a1da13bd570501e2fbef9485ed0911385bd152c81046e99eacf049c2d6254f`<br>
+> Current schema-21 runner SHA-256: `65aacc533c911db7252f0343ed90a89dff4fabe9161224e9c845dfd524957e51`<br>
 > Scalar alpha-grid artifact source commit: `a7053af2cb628880708cf2e4bfab121b1354725a`<br>
 > Scalar alpha-grid artifact SHA-256: `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
@@ -1693,6 +1693,15 @@ categories`; inference/formula=`unchanged`; exact-source physical evidence=
   The failed JSON remains remote diagnostic output and is not published as
   passing evidence; a new clean implementation commit must rerun the complete
   schema rather than patching that worktree.
+- [MEDIUM][EVIDENCE/AUDIT][fixed locally] The clean `9595b1ed` rerun passed
+  every numerical, structured, and targeted-test gate, including Torch Group
+  Lasso, but the schema source manifest inherited the earlier 44-file list and
+  did not include the newly changed `_fit_mixin.py`. A clean commit plus
+  `source_clean=true` already fixes the repository state, but it is weaker than
+  this review's per-file audit contract. The runner now records that file
+  explicitly; the final evidence must therefore prove 45/45 Git-blob hashes.
+  The 9595 result is retained as a successful diagnostic run, not published as
+  the final exact-source artifact.
 
 Focused scalar-grid coverage passes 36 tests with 40 expected local physical-
 GPU skips; the complete penalized-CV contract file passes 95 tests with 60
@@ -1713,6 +1722,6 @@ backend skips after the device-normalization repair.
 Because runtime, maintained tests, runner structure, and capability claims all
 changed after schema 20, this follow-up remains `PARTIAL_REMOTE_PENDING`. A new
 clean implementation commit must run schema 21 in remote `myconda`; the JSON
-must prove 44/44 exact Git-blob hashes, all CuPy/Torch structured gates, all nine
+must prove 45/45 exact Git-blob hashes, all CuPy/Torch structured gates, all nine
 family rows, the mixed-type transactional errors, and an empty
 `gate_failures` list before the report can return to `COMPLETE`.
