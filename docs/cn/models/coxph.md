@@ -495,28 +495,27 @@ unsupported，不会换名后充当外部证据。
 
 | 字段 | 当前可审计证据 |
 |---|---|
-| Source commit | `0bc131767bef1eeec45805073431e666f690b78c` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema19.json` |
-| Artifact SHA-256 | `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c` |
-| Schema / tier | `19` / `remote-full` |
+| Source commit | `a7053af2cb628880708cf2e4bfab121b1354725a` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema20.json` |
+| Artifact SHA-256 | `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36` |
+| Schema / tier | `20` / `remote-full` |
 | 硬件 | Tesla P100-SXM2-16GB |
 | 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14；Torch 14/14 |
-| 定向测试 | 553 passed，7 个预期 warning |
+| 定向测试 | 581 passed，7 个预期 warning |
 | 源码审计 | `source_clean=true`；记录的 44/44 个 Git-blob hash 全部匹配 |
 | Gate failures | `[]` |
 
-schema-19 保留 schema-18 的预测/评分、CV fold 准备、prepared state、数值边界、
+schema-20 保留 schema-19 的全部预测/评分、CV fold 准备、prepared state、数值边界、
 推断、无事件 stratum、严格 fold、自动网格、backend pinning、clone 与聚合工作量
-gate；并新增公开标量响应 list/一次性 generator routing，以及五个规范化 fold 中仅
-一个事件支持的可评估 fold 的 Cox sizing。CuPy 与 Torch 物理 case 均记录预期计数、
-只消费 generator 一次，并通过全部 structured gate。
+gate；并新增 backend-native 标量 alpha-grid 过滤/默认网格重建，以及 malformed grid
+shape 不进入 device、candidate 或 refit 工作的证明。CuPy 与 Torch 物理 case 均通过
+全部 14 个 structured gate。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source
 commit 之后的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的
-物理 GPU 覆盖。因此 schema-19 之后新增的标量 alpha-grid 校验尚待 schema-20 精确
-源码刷新，不能追溯继承上表证据。
+物理 GPU 覆盖。
 
 ## FAQ 与常见失败模式
 

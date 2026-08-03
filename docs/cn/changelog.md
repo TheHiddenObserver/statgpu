@@ -23,7 +23,10 @@
 - 标量响应 CV 现在会在设备路由前校验完整用户 alpha 网格：非法标量值伴随 warning
   被过滤，空网格或过滤后为空会重新生成默认网格，shape/type 错误会在 candidate 与
   重拟合前失败。Ridge 文档现在区分 CPU-only 精确特征分解的 CV/重拟合计算与选定的
-  预测 backend 契约。
+  预测 backend 契约。精确源码 schema-20 P100 证据绑定提交
+  `a7053af2cb628880708cf2e4bfab121b1354725a`：CuPy 与 Torch 各通过 14/14 个
+  structured case 及 581 项定向测试；44/44 个 Git-blob hash 全部匹配，
+  `source_clean=true` 且 `gate_failures=[]`。
 
 ### 修复（2026-08-02）— PR #80 惩罚 Cox CV 与后端后续修复
 

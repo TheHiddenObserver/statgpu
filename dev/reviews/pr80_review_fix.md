@@ -14,6 +14,8 @@
 > Current penalized-Cox CV SHA-256: `d9ca5923deb07452b6e2c158c0a3d0808894f3376a1a96cdb928333e6ac4c151`<br>
 > Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
 > Current schema-20 runner SHA-256: `a78e42ac94d691bef471d9be5e666782862ac3f1c27d75637ac3975dec343103`<br>
+> Scalar alpha-grid artifact source commit: `a7053af2cb628880708cf2e4bfab121b1354725a`<br>
+> Scalar alpha-grid artifact SHA-256: `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
 > Final counting-solver SHA-256: `466bdc86891bc41749e2272d2566344cd28c112b7234fb5d1e104df25c61e2da`<br>
 > Final Cox dispatch SHA-256: `17738770458ae986037f5e1209a8da51e1bad41a1869d5d5518886c15ad348d0`<br>
@@ -37,7 +39,7 @@
 > Evaluable-fold routing artifact SHA-256: `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `PARTIAL_REMOTE_PENDING`; scalar alpha-grid validation and Ridge routing documentation pass local-full, while schema-20 exact-source P100 evidence is pending
+> Status: `COMPLETE`; scalar alpha-grid validation and Ridge routing pass local-full plus schema-20 exact-source P100 validation at tier `remote-full`
 
 ## Review Contract
 
@@ -63,10 +65,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed locally; schema-20 physical refresh pending |
-| Cross-validation | scalar-response and Cox custom-fold routing, scalar alpha-grid validation, plus canonical/penalized Cox selection contracts | fixed; local-full passes, schema-20 physical refresh pending |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed; local-full and schema-20 P100 validation pass |
+| Cross-validation | scalar-response and Cox custom-fold routing, scalar alpha-grid validation, plus canonical/penalized Cox selection contracts | fixed; local-full and schema-20 P100 validation pass |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-20 alpha-grid evidence pending |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-20 exact-source evidence passes |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1568,18 +1570,18 @@ Impact classification: numerical result=`affected for formerly invalid scalar
 grids`; selected alpha=`affected and corrected`; backend placement=`documented
 without runtime change`; public API=`warning/filter and strict malformed-grid
 contracts`; inference/formula=`unchanged`; exact-source physical evidence=
-`schema 20 pending`.
+`schema 20 remote-full`.
 
 ### Capability decisions by touched public family
 
 | Public family | Backend | CV | Inference | Formula | Benchmark |
 |---|---|---|---|---|---|
-| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-20 case added |
+| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-20 case passes |
 | Squared-error/L2 Ridge route through `PenalizedGLM_CV` | CPU/GPU CV according to resolved routing; CPU exact final eigensolve | `supported`; Ridge batch receives only validated candidates | `unchanged` | `not-formula-facing` | `required`; CPU-compute/selected-output contract tested |
 | Dedicated `RidgeCV` / `ElasticNetCV` | `unchanged` | existing scalar filtering policy retained | `unchanged` | `not-formula-facing` | existing evidence remains scoped |
-| Survival-aware `PenalizedGLM_CV(loss="cox_ph")` | `unchanged` | strict user-grid contract remains separate | `unchanged` | `not-formula-facing` | schema-19 Cox claims remain scoped |
+| Survival-aware `PenalizedGLM_CV(loss="cox_ph")` | `unchanged` | strict user-grid contract remains separate | `unchanged` | `not-formula-facing` | schema-20 retains prior Cox gates |
 
-- [HIGH][BUG/API][fixed locally] The scalar `_fit_standard()` path previously
+- [HIGH][BUG/API][fixed] The scalar `_fit_standard()` path previously
   cast and flattened a user grid without validating emptiness, finiteness, sign,
   shape, or type. Two policies were compared. A strict error for every invalid
   scalar would be simple but would tighten the documented scalar contract and
@@ -1590,14 +1592,14 @@ contracts`; inference/formula=`unchanged`; exact-source physical evidence=
   boolean, and non-numeric inputs fail transactionally before device selection,
   candidate scoring, or refit. A second invariant gate validates generated grids
   as non-empty, one-dimensional, finite, and strictly positive.
-- [HIGH][TEST/MATRIX][fixed locally] Regression coverage includes negative,
+- [HIGH][TEST/MATRIX][fixed] Regression coverage includes negative,
   NaN, Inf, zero, mixed-valid, empty, all-invalid, malformed-shape, complex,
   boolean, and non-numeric inputs. L1/L2/ElasticNet/SCAD/MCP share the positive-
   alpha zero policy; the CPU Ridge eig batch receives only the filtered grid;
   backend-native NumPy/CuPy/Torch alpha arrays are accepted; malformed grids
   prove all device/candidate/refit hooks remain untouched; failed fits clear
   public fitted state.
-- [MEDIUM][DOC/BACKEND][fixed locally] EN/CN architecture and scoring sections
+- [MEDIUM][DOC/BACKEND][fixed] EN/CN architecture and scoring sections
   now use the resolved CV device as the Ridge batch condition. They explicitly
   state that an auto-selected GPU uses GPU candidate scoring, while every
   squared-error/L2 final refit converts the full data to NumPy and executes the
@@ -1618,10 +1620,16 @@ does not provide `ruff`; pyflakes re-reports only pre-existing warnings outside
 these new symbols and changed-line inspection finds no new unused import or
 binding.
 
-The physical runner is advanced to schema 20. Its CuPy and Torch case now uses
+The physical runner is advanced to schema 20. Its CuPy and Torch case uses
 backend-native mixed and all-invalid scalar grids, records filtered/default
 candidate grids and warnings, proves malformed two-dimensional input reaches no
-device/candidate/refit work, and gates finite final coefficients. Because this
-runner and maintained tests changed after schema 19, the follow-up remains
-`PARTIAL_REMOTE_PENDING` until a clean implementation commit is validated in
-remote `myconda` and the exact-source JSON is written back.
+device/candidate/refit work, and gates finite final coefficients. Exact clean
+implementation commit `a7053af2cb628880708cf2e4bfab121b1354725a` passed all
+14/14 CuPy and 14/14 Torch structured cases plus 581 targeted tests with seven
+expected warnings on a Tesla P100-SXM2-16GB in remote `myconda`. The audited
+artifact is
+`results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema20.json`
+(SHA-256 `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36`);
+all 44 recorded hashes independently match the exact Git blobs,
+`source_clean=true`, and `gate_failures=[]`. This follow-up is `COMPLETE` at
+validation tier `remote-full`.

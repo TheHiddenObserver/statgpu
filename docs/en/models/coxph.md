@@ -564,32 +564,29 @@ documentation changes cannot silently inherit a broader validation claim.
 
 | Field | Current audited evidence |
 |---|---|
-| Source commit | `0bc131767bef1eeec45805073431e666f690b78c` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema19.json` |
-| Artifact SHA-256 | `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c` |
-| Schema / tier | `19` / `remote-full` |
+| Source commit | `a7053af2cb628880708cf2e4bfab121b1354725a` |
+| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema20.json` |
+| Artifact SHA-256 | `c6895bb3346381f1521a8367dc9460328e2415774b70badfb22d6b92d049ab36` |
+| Schema / tier | `20` / `remote-full` |
 | Hardware | Tesla P100-SXM2-16GB |
 | Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
 | Structured GPU cases | CuPy 14/14; Torch 14/14 |
-| Targeted tests | 553 passed, 7 expected warnings |
+| Targeted tests | 581 passed, 7 expected warnings |
 | Source audit | `source_clean=true`; 44/44 recorded Git-blob hashes matched |
 | Gate failures | `[]` |
 
-The schema-19 scope retains all schema-18 prediction/scoring, CV preparation,
+The schema-20 scope retains every schema-19 prediction/scoring, CV preparation,
 prepared-state, numerical-boundary, inference, eventless-stratum, strict-fold,
-automatic-grid, backend-pinning, clone, and aggregate-work gates. It adds public
-scalar-response list and one-shot-generator routing plus Cox sizing with five
-normalized folds but only one event-supported evaluable fold. Both CuPy and
-Torch physical cases record the expected counts, consume the generator once,
-and pass all structured gates.
+automatic-grid, backend-pinning, clone, and aggregate-work gates. It adds
+backend-native scalar alpha-grid filtering/default regeneration and proves that
+malformed grid shapes reach no device, candidate, or refit work. Both CuPy and
+Torch physical cases pass all 14 structured gates.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
 in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
 the source commit above require their own exact-source refresh before they can
-claim the same physical-GPU evidence. The scalar alpha-grid validation added
-after schema 19 is therefore pending a schema-20 exact-source refresh; it does
-not retroactively inherit the table above.
+claim the same physical-GPU evidence.
 
 ## FAQ and Common Failure Modes
 

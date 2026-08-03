@@ -26,6 +26,10 @@
   filtered grid regenerates the default, and malformed shapes/types fail before
   candidate or refit work. Ridge documentation now distinguishes CPU-only
   exact eigensolve CV/refit computation from the selected prediction backend.
+  Exact-source schema-20 P100 evidence binds commit
+  `a7053af2cb628880708cf2e4bfab121b1354725a`: CuPy and Torch each pass
+  14/14 structured cases plus 581 targeted tests; all 44 Git-blob hashes match,
+  `source_clean=true`, and `gate_failures=[]`.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 
