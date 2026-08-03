@@ -1,7 +1,7 @@
 # Solver × Penalty Compatibility Matrix
 
 > Language: English  
-> Last updated: 2026-06-12  
+> Last updated: 2026-08-03  
 > This page: Reference guide  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
@@ -26,8 +26,9 @@ When `solver='auto'` (the default), the model selects the best solver for each l
 | **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
 
 **Dispatch notes**:
-- `fista_lla` is not a user-facing solver keyword. It is invoked internally for nonconvex penalties (SCAD, MCP, group_scad, group_mcp). The outer `solver` keyword controls only the inner loop (fista, fista_bb, or irls_cd).
-- `irls_cd` is preferred for squared_error + SCAD/MCP (Gauss-Seidel CD is faster for OLS). GLM + SCAD/MCP uses `fista_lla` with FISTA inner loop.
+- `fista_lla` is not a user-facing `solver=` keyword. It is invoked internally for nonconvex penalties (SCAD, MCP, group_scad, group_mcp). The exported `fista_lla_path()` function also enforces the appropriate convex surrogate when called directly.
+- `irls_cd` is preferred for squared_error + SCAD/MCP (Gauss-Seidel CD is faster for OLS). GLM + SCAD/MCP uses `fista_lla` with FISTA or proximal-Newton inner work as appropriate.
+- Group SCAD/MCP use an adaptive **Group Lasso** inner surrogate, not coordinate-wise adaptive L1.
 - GPU paths may substitute `fista_bb` for `fista` when the Barzilai-Borwein step is beneficial.
 
 ## 2. Explicit Solver Constraints
@@ -81,7 +82,7 @@ The CV estimator uses specialized fast paths where available and falls back to p
 - **sparse FISTA path**: Specialized FISTA loop for squared_error + l1/elasticnet with sparse matrix operations.
 - **logistic sparse path**: Specialized FISTA loop for logistic + l1/elasticnet.
 - **fold-batched GPU**: All folds × all alphas evaluated in one GPU kernel launch. Used for GLM + l1/elasticnet on GPU.
-- **LLA + FISTA**: Local Linear Approximation (LLA) continuation path for nonconvex penalties. Traces solution from λ_max down to target α.
+- **LLA + FISTA**: Local Linear Approximation continuation for nonconvex penalties. Scalar SCAD/MCP use weighted L1 surrogates; Group SCAD/MCP use weighted Group Lasso surrogates. CV scoring and the selected-alpha final refit use the same surrogate contract.
 - **general fit**: Falls back to per-fold `PenalizedGeneralizedLinearModel.fit()`. Works for all combinations but is slower.
 
 ## 5. Penalty Reference
@@ -93,15 +94,16 @@ The CV estimator uses specialized fast paths where available and falls back to p
 | `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft_threshold / (1+α(1-λ)step) | `alpha`, `l1_ratio` |
 | `scad` | SCAD(β; α, a) | SCAD thresholding | `alpha`, `a` (default 3.7) |
 | `mcp` | MCP(β; α, γ) | MCP thresholding | `alpha`, `gamma` (default 3.0) |
-| `adaptive_l1` | α·w·‖β‖₁ | weighted soft_threshold | `alpha`, `_weights` |
-| `group_lasso` | αΣ_g‖β_g‖₂ | block soft_threshold | `alpha`, `groups` |
-| `group_scad` | SCAD group | SCAD block thresholding | `alpha`, `groups`, `a` |
-| `group_mcp` | MCP group | MCP block thresholding | `alpha`, `groups`, `gamma` |
+| `adaptive_l1` | αΣ_j w_j|β_j| | weighted soft_threshold | `alpha`, `_weights` |
+| `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft_threshold | `alpha`, `groups` |
+| `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | SCAD block thresholding | `alpha`, `groups`, `a` |
+| `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | MCP block thresholding | `alpha`, `groups`, `gamma` |
 
 **Nonconvex penalty notes**:
-- SCAD and MCP are solved via **LLA (Local Linear Approximation)**: at each continuation step, the nonconvex penalty is linearized around the current estimate, producing a weighted L1 problem that FISTA/CD can solve.
-- The continuation path traces from `λ_max` (where all coefficients are zero) down to the target `α`, using 20-100 steps. This avoids bad local minima.
-- `a=2.0` for SCAD and `gamma=1.0` for MCP are numerically singular. The code clamps these to safe values (`a ≥ 2+1e-6`, `gamma ≥ 1+1e-6`).
+- Scalar SCAD and MCP are solved by LLA: each continuation step linearizes the penalty around the current estimate and produces a weighted L1 problem.
+- For Group SCAD/MCP, let `D_g` be the derivative of the group penalty with respect to `‖β_g‖₂`. The exact convex surrogate is `Σ_g D_g‖β_g‖₂`. Internally this is represented by `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`, so neither the target alpha nor the group size is multiplied a second time.
+- The default continuation is short and deterministic: currently 5 steps for the usual smooth/Hessian paths and 3 steps for non-smooth paths; a CV-supplied alpha path determines its own number of steps.
+- SCAD requires `a > 2`; MCP requires `gamma > 1`. Invalid Group SCAD/MCP constructor values fail explicitly rather than being silently repaired.
 
 ## 6. Inference Support
 
@@ -112,7 +114,7 @@ The CV estimator uses specialized fast paths where available and falls back to p
 | `elasticnet` | Debiased Lasso (adapted) | Not yet implemented |
 | `scad` / `mcp` | Debiased nonconvex | Not yet implemented |
 | `adaptive_l1` | Debiased adaptive Lasso | Not yet implemented |
-| `group_*` | Group debiased | Not yet implemented |
+| `group_*` | Group debiased | Not yet implemented; unsupported requests fail explicitly |
 
 ## 7. Choosing a Solver
 
@@ -125,10 +127,10 @@ solver='auto' ──────├─ nonconvex (SCAD/MCP)? ─ Yes ──→ f
                     │
                     ├─ l1 / elasticnet? ────── Yes ──→ fista / fista_bb
                     │
-                    └─ group penalty? ───────── Yes ──→ fista with block CD
+                    └─ group penalty? ───────── Yes ──→ group-aware proximal / block path
 ```
 
 **Manual solver selection guidelines**:
 - Use `solver='fista_bb'` for GLM + non-smooth when you want adaptive step sizes (often faster than fixed-step FISTA).
 - Use `solver='admm'` when you need a specific augmented Lagrangian formulation or when the proximal operator is cheap.
-- Use `solver='irls_cd'` for squared_error + SCAD/MCP when you want Gauss-Seidel CD (faster convergence than Jacobi-style block CD for small p).
+- Use `solver='irls_cd'` for squared_error + scalar SCAD/MCP when you want Gauss-Seidel CD. Group SCAD/MCP use the group-aware LLA path instead.
