@@ -12,7 +12,7 @@ SMOOTH_PENALTIES = frozenset({"none", "null", "l2"})
 # Non-smooth but convex penalties (need proximal operator)
 NONSMOOTH_CONVEX = frozenset({
     "l1", "elasticnet", "en", "adaptive_l1", "adaptive_lasso",
-    "group_lasso", "gl",
+    "group_lasso", "gl", "adaptive_group_lasso",
 })
 
 # Non-convex penalties (need LLA or specialized solver)
@@ -31,7 +31,8 @@ SPARSE = frozenset({
 
 # Group penalties
 GROUP = frozenset({
-    "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
+    "group_lasso", "gl", "adaptive_group_lasso",
+    "group_mcp", "gmcp", "group_scad", "gscad",
 })
 
 # Penalties that disable BB step (use standard FISTA instead)
