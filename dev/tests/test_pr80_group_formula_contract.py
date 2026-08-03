@@ -70,11 +70,10 @@ def test_group_lasso_formula_uses_final_patsy_feature_order_and_free_intercept()
     assert formula_model.intercept_ == pytest.approx(
         array_model.intercept_, rel=2e-7, abs=2e-8
     )
-    # The public predict API consumes the already-expanded feature matrix.  This
-    # comparison therefore verifies the formula fit's column ordering without
-    # asserting an unsupported predict(data=...) surface.
+    # Formula prediction accepts the DataFrame as the positional X argument and
+    # applies the stored design_info. It must match the explicit patsy matrix.
     np.testing.assert_allclose(
-        formula_model.predict(X_features),
+        formula_model.predict(data),
         array_model.predict(X_features),
         rtol=2e-7,
         atol=2e-8,
