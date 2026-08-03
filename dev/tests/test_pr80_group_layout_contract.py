@@ -9,7 +9,11 @@ import pytest
 
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
-from statgpu.penalties import GroupLassoPenalty, get_penalty
+from statgpu.penalties import (
+    AdaptiveGroupLassoPenalty,
+    GroupLassoPenalty,
+    get_penalty,
+)
 
 
 def _backend_inputs(backend_name, X, y):
@@ -67,6 +71,27 @@ def _fit_group_lasso(X, y, groups, *, device="cpu", fit_intercept=True):
     ).fit(X, y)
 
 
+def _fit_group_lasso_penalty(
+    X,
+    y,
+    penalty,
+    *,
+    device="cpu",
+    fit_intercept=True,
+):
+    return PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty=penalty,
+        alpha=float(penalty.alpha),
+        solver="auto",
+        device=device,
+        fit_intercept=fit_intercept,
+        compute_inference=False,
+        max_iter=3000,
+        tol=1e-10,
+    ).fit(X, y)
+
+
 def _objective(model, X, y, groups, alpha=0.035):
     coef = _as_numpy(model.coef_).astype(np.float64, copy=False)
     pred = _as_numpy(model.predict(X)).astype(np.float64, copy=False)
@@ -76,6 +101,25 @@ def _objective(model, X, y, groups, alpha=0.035):
         for group in groups
     )
     return loss + alpha * float(penalty)
+
+
+def _legacy_pickled_group_lasso(groups, alpha=0.035):
+    """Simulate a pre-fix pickle with unsorted groups and stale metadata."""
+    current = GroupLassoPenalty(alpha=alpha, groups=groups)
+    state = dict(current.__dict__)
+    state["_group_indices"] = [
+        np.asarray(group, dtype=np.int64) for group in groups
+    ]
+    state["_is_contiguous"] = True
+    state["_flat_indices"] = None
+    state["_all_equal_size"] = len({len(group) for group in groups}) == 1
+    state["_group_size_uniform"] = (
+        len(groups[0]) if state["_all_equal_size"] else None
+    )
+
+    legacy = object.__new__(GroupLassoPenalty)
+    legacy.__dict__.update(state)
+    return pickle.loads(pickle.dumps(legacy))
 
 
 def test_public_group_lasso_canonicalizes_within_group_order_and_preserves_identity():
@@ -98,6 +142,44 @@ def test_public_group_lasso_canonicalizes_within_group_order_and_preserves_ident
     np.testing.assert_array_equal(restored._group_indices[1], np.array([1, 2]))
     assert penalty._all_equal_size is True
     assert penalty._is_contiguous is False
+    assert restored._is_contiguous is False
+
+
+def test_adaptive_group_lasso_preserves_public_hierarchy_and_pickle_identity():
+    from statgpu.penalties._group_lasso import (
+        AdaptiveGroupLassoPenalty as direct_adaptive,
+        GroupLassoPenalty as direct_group,
+    )
+
+    penalty = AdaptiveGroupLassoPenalty(
+        groups=[[3, 0], [2, 1]],
+        alpha=0.1,
+        weights=np.array([1.0, 1.5]),
+    )
+    restored = pickle.loads(pickle.dumps(penalty))
+
+    assert direct_group is GroupLassoPenalty
+    assert direct_adaptive is AdaptiveGroupLassoPenalty
+    assert issubclass(AdaptiveGroupLassoPenalty, GroupLassoPenalty)
+    assert isinstance(penalty, GroupLassoPenalty)
+    assert isinstance(restored, GroupLassoPenalty)
+    np.testing.assert_array_equal(penalty._group_indices[0], np.array([0, 3]))
+    np.testing.assert_array_equal(penalty._group_indices[1], np.array([1, 2]))
+    np.testing.assert_array_equal(restored._group_indices[0], np.array([0, 3]))
+    np.testing.assert_array_equal(restored._group_indices[1], np.array([1, 2]))
+    np.testing.assert_allclose(restored._group_weights, np.array([1.0, 1.5]))
+    assert penalty._is_contiguous is False
+    assert restored._is_contiguous is False
+
+
+def test_legacy_pickle_rebuilds_group_layout_instead_of_trusting_stale_flags():
+    restored = _legacy_pickled_group_lasso([[0, 3], [2, 1]])
+
+    np.testing.assert_array_equal(restored._group_indices[0], np.array([0, 3]))
+    np.testing.assert_array_equal(restored._group_indices[1], np.array([1, 2]))
+    np.testing.assert_array_equal(restored._flat_indices, np.array([0, 3, 1, 2]))
+    assert restored._all_equal_size is True
+    assert restored._group_size_uniform == 2
     assert restored._is_contiguous is False
 
 
@@ -187,7 +269,53 @@ def test_group_lasso_gpu_layouts_match_cpu_objective_and_coefficients(
         rtol=2e-5,
         atol=2e-6,
     )
-    assert _objective(actual, X, y, groups) == pytest.approx(
+    assert _objective(actual, Xb, y, groups) == pytest.approx(
+        _objective(reference, X, y, groups), rel=2e-6, abs=2e-7
+    )
+
+
+@pytest.mark.parametrize("backend_name", ["cupy", "torch"])
+@pytest.mark.parametrize("fit_intercept", [False, True])
+def test_legacy_pickled_group_lasso_gpu_matches_cpu(
+    backend_name,
+    fit_intercept,
+):
+    groups = [[0, 3], [2, 1]]
+    X, y = _sample(seed=9208, p=4)
+    reference_penalty = _legacy_pickled_group_lasso(groups)
+    actual_penalty = _legacy_pickled_group_lasso(groups)
+
+    reference = _fit_group_lasso_penalty(
+        X,
+        y,
+        reference_penalty,
+        device="cpu",
+        fit_intercept=fit_intercept,
+    )
+    device, Xb, yb = _backend_inputs(backend_name, X, y)
+    actual = _fit_group_lasso_penalty(
+        Xb,
+        yb,
+        actual_penalty,
+        device=device,
+        fit_intercept=fit_intercept,
+    )
+
+    assert actual_penalty._is_contiguous is False
+    np.testing.assert_array_equal(
+        actual_penalty._flat_indices,
+        np.array([0, 3, 1, 2]),
+    )
+    np.testing.assert_allclose(
+        _as_numpy(actual.coef_),
+        reference.coef_,
+        rtol=2e-5,
+        atol=2e-6,
+    )
+    assert actual.intercept_ == pytest.approx(
+        reference.intercept_, rel=2e-5, abs=2e-6
+    )
+    assert _objective(actual, Xb, y, groups) == pytest.approx(
         _objective(reference, X, y, groups), rel=2e-6, abs=2e-7
     )
 
