@@ -66,8 +66,8 @@ def _fit_group_lasso(X, y, groups, *, device="cpu", fit_intercept=True):
 
 
 def _objective(model, X, y, groups, alpha=0.035):
-    coef = np.asarray(model.coef_, dtype=np.float64)
-    pred = np.asarray(model.predict(X), dtype=np.float64)
+    coef = _as_numpy(model.coef_).astype(np.float64, copy=False)
+    pred = _as_numpy(model.predict(X)).astype(np.float64, copy=False)
     loss = 0.5 * float(np.mean((np.asarray(y) - pred) ** 2))
     penalty = sum(
         np.sqrt(len(group)) * np.linalg.norm(coef[np.asarray(group, dtype=int)])
