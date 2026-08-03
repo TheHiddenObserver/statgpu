@@ -6,6 +6,9 @@ estimators and historical direct imports share the same behavior:
 
 - direct estimators validate/complete group coverage immediately after penalty
   resolution and before solver/backend work;
+- direct and CV refits clear prior fitted state before validation and again on
+  failure, so stale coefficients, selection results, or formula metadata cannot
+  survive a rejected fit;
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
   fold construction, or candidate fitting, then writes canonical groups back;
 - every Group Lasso objective uses the actual loss gradient plus the exact
@@ -43,6 +46,10 @@ _GROUP_PENALTY_NAMES = frozenset(
 _GROUP_LASSO_NAMES = frozenset({"group_lasso", "gl"})
 
 
+def _public_penalty_name(estimator):
+    return str(getattr(estimator.penalty, "name", estimator.penalty)).lower().strip()
+
+
 def _validate_resolved_group_penalty(penalty, n_features):
     validator = getattr(penalty, "validate_n_features", None)
     if validator is not None:
@@ -54,6 +61,74 @@ def _resolved_penalty_name(estimator):
     return str(
         getattr(getattr(estimator, "_penalty", None), "name", estimator.penalty)
     ).lower().strip()
+
+
+def _reset_direct_group_fit_state(estimator):
+    """Clear all result-bearing state without changing constructor parameters."""
+    estimator._penalty = None
+    estimator._loss = None
+    estimator.coef_ = None
+    estimator.intercept_ = None
+    estimator.n_iter_ = 0
+    estimator._lla_n_iters_ = 0
+    estimator._selected_solver = None
+    estimator._selected_backend_name = None
+    estimator._init_coef = None
+    estimator._feature_names = None
+    estimator._design_info = None
+    estimator._formula_has_intercept = None
+    estimator._use_intercept = None
+    estimator._inference_precomputed = False
+    estimator._precomputed_gaussian_state = None
+    estimator._conf_int_simultaneous = None
+    estimator._simultaneous_enabled = False
+    estimator._debiased_M_cpu = None
+    estimator._clear_inference_state()
+    estimator._fitted = False
+    if hasattr(estimator, "n_features_in_"):
+        delattr(estimator, "n_features_in_")
+
+
+def _install_direct_fit_transaction():
+    current = PenalizedGeneralizedLinearModel.fit
+    if getattr(current, "_statgpu_group_fit_transaction", False):
+        return
+
+    def _fit_with_group_transaction(
+        self,
+        X=None,
+        y=None,
+        sample_weight=None,
+        formula=None,
+        data=None,
+    ):
+        if _public_penalty_name(self) not in _GROUP_PENALTY_NAMES:
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+
+        _reset_direct_group_fit_state(self)
+        try:
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+        except Exception:
+            _reset_direct_group_fit_state(self)
+            raise
+
+    _fit_with_group_transaction._statgpu_group_fit_transaction = True
+    _fit_with_group_transaction._statgpu_original = current
+    PenalizedGeneralizedLinearModel.fit = _fit_with_group_transaction
 
 
 def _install_direct_contract():
@@ -112,9 +187,7 @@ def _cv_design_width(X):
 
 
 def _prepare_cv_group_penalty(estimator, X):
-    penalty_name = str(
-        getattr(estimator.penalty, "name", estimator.penalty)
-    ).lower().strip()
+    penalty_name = _public_penalty_name(estimator)
     if penalty_name not in _GROUP_PENALTY_NAMES:
         return
     n_features = _cv_design_width(X)
@@ -145,9 +218,20 @@ def _install_cv_contract():
         return
 
     def _fit_with_group_contract(self, X, y, sample_weight=None):
-        if str(self.loss).lower() != "cox_ph":
-            _prepare_cv_group_penalty(self, X)
-        return current(self, X, y, sample_weight=sample_weight)
+        if _public_penalty_name(self) not in _GROUP_PENALTY_NAMES:
+            return current(self, X, y, sample_weight=sample_weight)
+
+        # The wrapped implementation also resets at entry and on failure. This
+        # first reset is required because group coverage validation intentionally
+        # runs before entering that implementation.
+        self._reset_cv_fit_state()
+        try:
+            if str(self.loss).lower() != "cox_ph":
+                _prepare_cv_group_penalty(self, X)
+            return current(self, X, y, sample_weight=sample_weight)
+        except Exception:
+            self._reset_cv_fit_state()
+            raise
 
     _fit_with_group_contract._statgpu_group_contract = True
     _fit_with_group_contract._statgpu_original = current
@@ -208,6 +292,7 @@ def _install_exact_group_lasso_solver_contract():
     )
 
 
+_install_direct_fit_transaction()
 _install_direct_contract()
 _install_inference_contract()
 _install_cv_contract()
