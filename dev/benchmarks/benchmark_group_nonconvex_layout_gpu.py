@@ -14,11 +14,14 @@ import numpy as np
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.penalties import GroupMCPPenalty, GroupSCADPenalty
+from statgpu.solvers import fista_lla_path
+from statgpu.solvers._fista_lla_group_contract import _group_surrogate_factory
 
 
 SOURCE_FILES = (
     "dev/benchmarks/benchmark_group_nonconvex_layout_gpu.py",
     "dev/tests/test_pr80_group_nonconvex_layout_contract.py",
+    "dev/tests/test_pr80_group_lla_surrogate_contract.py",
     "dev/tests/test_pr80_adaptive_group_penalty_contract.py",
     "dev/tests/test_pr80_group_clone_contract.py",
     "statgpu/linear_model/penalized/_fit_mixin.py",
@@ -28,8 +31,10 @@ SOURCE_FILES = (
     "statgpu/penalties/_group_nonconvex_layout.py",
     "statgpu/penalties/_group_mcp.py",
     "statgpu/penalties/_group_scad.py",
+    "statgpu/solvers/__init__.py",
     "statgpu/solvers/_fista.py",
     "statgpu/solvers/_fista_lla.py",
+    "statgpu/solvers/_fista_lla_group_contract.py",
     "statgpu/solvers/_utils.py",
 )
 
@@ -161,8 +166,34 @@ def _cv(kind, X, y, groups, device):
     ).fit(X, y)
 
 
+def _surrogate_contract(penalty):
+    derivatives = np.array([0.4, 1.2, 1.2, 0.4])
+    coef = np.array([0.8, -0.3, 0.5, 0.6])
+    inner = _group_surrogate_factory(penalty)(derivatives)
+    expected = sum(
+        float(derivatives[group[0]])
+        * np.linalg.norm(coef[np.asarray(group, dtype=np.int64)])
+        for group in INTERLEAVED
+    )
+    actual = inner.value(coef)
+    error = abs(float(actual) - float(expected))
+    return {
+        "inner_alpha": float(inner.alpha),
+        "inner_group_weights": [float(value) for value in inner._group_weights],
+        "value_abs_error": float(error),
+        "passed": bool(inner.alpha == 1.0 and error <= 1e-14),
+    }
+
+
 def _api_contract():
-    results = {}
+    results = {
+        "solver_export_module": fista_lla_path.__module__,
+        "solver_export_passed": (
+            fista_lla_path.__module__
+            == "statgpu.solvers._fista_lla_group_contract"
+        ),
+        "penalties": {},
+    }
     for kind, cls in (
         ("group_mcp", GroupMCPPenalty),
         ("group_scad", GroupSCADPenalty),
@@ -170,21 +201,22 @@ def _api_contract():
         penalty = _penalty(kind, [[3, 0], [2, 1]])
         params = penalty.get_params(deep=False)
         rebuilt = cls(**params)
-        results[kind] = {
+        surrogate = _surrogate_contract(penalty)
+        identity_gate = all(
+            rebuilt.get_params(deep=False)[name] is value
+            for name, value in params.items()
+        )
+        results["penalties"][kind] = {
             "groups": [list(group) for group in penalty.groups],
             "flat_indices": penalty._flat_indices.tolist(),
-            "clone_identity_gate": all(
-                rebuilt.get_params(deep=False)[name] is value
-                for name, value in params.items()
-            ),
-            "passed": (
+            "clone_identity_gate": bool(identity_gate),
+            "surrogate": surrogate,
+            "passed": bool(
                 penalty.groups == ((0, 3), (1, 2))
                 and penalty._flat_indices.tolist() == [0, 3, 1, 2]
                 and not penalty._is_contiguous
-                and all(
-                    rebuilt.get_params(deep=False)[name] is value
-                    for name, value in params.items()
-                )
+                and identity_gate
+                and surrogate["passed"]
             ),
         }
     return results
@@ -284,7 +316,7 @@ def main():
     dirty = bool(_git("status", "--porcelain"))
     api_contract = _api_contract()
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,
@@ -298,9 +330,11 @@ def main():
         "gate_failures": [],
     }
 
-    for kind, contract in api_contract.items():
+    if not api_contract["solver_export_passed"]:
+        report["gate_failures"].append("group LLA solver export")
+    for kind, contract in api_contract["penalties"].items():
         if not contract["passed"]:
-            report["gate_failures"].append(f"{kind}: public API contract")
+            report["gate_failures"].append(f"{kind}: public API or surrogate")
 
     for name in ("cupy", "torch"):
         try:
