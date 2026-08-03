@@ -29,6 +29,10 @@ from ._group_nonconvex_layout import (
     GroupSCADPenalty,
 )
 
+# Install exact coefficient-dimension checks after all public group classes are
+# defined and rebound to their historical import paths.
+from . import _group_dimension_contract as _group_dimension_contract
+
 
 def _torch_compile_ok():
     """Check if torch.compile is usable (CUDA capability >= 7.0 required)."""
