@@ -62,6 +62,10 @@ def _group_surrogate_factory(scad_penalty):
         alpha=1.0,
         weights=np.ones(len(group_indices), dtype=float),
     )
+    # The fused LLA solver appends one unpenalized intercept coordinate when
+    # fit_intercept=True. Public group penalties remain exact-dimensional; only
+    # this private surrogate opts into that one-coordinate extension.
+    inner_penalty._allow_trailing_unpenalized_intercept = True
 
     def factory(per_coordinate_derivatives):
         values = np.asarray(per_coordinate_derivatives, dtype=np.float64).ravel()
