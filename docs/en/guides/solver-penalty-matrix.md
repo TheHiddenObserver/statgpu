@@ -13,27 +13,23 @@
 
 ## 1. Auto-Dispatch Table
 
-When `solver='auto'` (the default), the model selects the best solver for each loss × penalty pair:
-
 | Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
 |------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
-| **squared_error** | exact | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista (CD) | fista_lla | fista_lla |
-| **logistic** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **poisson** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **inverse_gaussian** | newton | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **negative_binomial** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
+| **squared_error** | exact | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **logistic** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **poisson** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **inverse_gaussian** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **negative_binomial** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
 
 **Dispatch notes**:
-- `fista_lla` is not a user-facing `solver=` keyword. It is invoked internally for nonconvex penalties (SCAD, MCP, group_scad, group_mcp). The exported `fista_lla_path()` function also enforces the appropriate convex surrogate when called directly.
-- `irls_cd` is preferred for squared_error + SCAD/MCP (Gauss-Seidel CD is faster for OLS). GLM + SCAD/MCP uses `fista_lla` with FISTA or proximal-Newton inner work as appropriate.
-- Group SCAD/MCP use an adaptive **Group Lasso** inner surrogate, not coordinate-wise adaptive L1.
-- GPU paths may substitute `fista_bb` for `fista` when the Barzilai-Borwein step is beneficial.
+- `fista_lla` is not a user-facing `solver=` keyword. It is invoked internally for nonconvex penalties. The exported `fista_lla_path()` function enforces the same surrogate when called directly.
+- Scalar squared-error SCAD/MCP may use coordinate-descent continuation. Group SCAD/MCP always use a weighted Group Lasso surrogate with a group-aware FISTA inner solve.
+- Every Group Lasso estimator uses the advertised loss gradient and the exact Euclidean Group Lasso proximal operator. This includes squared error, robust/GLM losses, `sample_weight`, CV folds, and the selected-alpha final refit.
+- The former Gaussian block update is not public-routed. Solving a group Gram system and then applying Euclidean block thresholding is exact only for orthonormal group blocks, which the public design matrix does not require.
 
 ## 2. Explicit Solver Constraints
-
-When you set `solver=` explicitly, these constraints apply:
 
 | Solver | Accepts | Rejects | Notes |
 |--------|---------|---------|-------|
@@ -42,95 +38,80 @@ When you set `solver=` explicitly, these constraints apply:
 | `newton` | l2 / none (any loss) | l1, elasticnet, scad, mcp, adaptive_l1, group_* | Newton-Raphson with line search |
 | `lbfgs` | l2 / none (any loss) | l1, elasticnet, scad, mcp, adaptive_l1, group_* | L-BFGS with line search |
 | `fista` | all penalties (any loss) | — | FISTA with Nesterov momentum |
-| `fista_bb` | all penalties (any loss) | — | FISTA + Barzilai-Borwein step size |
-| `admm` | all penalties (any loss) | — | ADMM with proximal z-update |
-| `irls_cd` | scad, mcp, adaptive_l1 | l1, elasticnet, group_* | IRLS outer + coordinate descent inner |
-| `proximal_irls_cd` | scad, mcp (quantile only) | l1, elasticnet, group_*, non-quantile losses | IRLS majorization + LLA + parallel diagonal step |
-| `proximal_newton` | scad, mcp, adaptive_l1 (Hessian losses) | all others | Newton direction + Armijo + proximal operator |
+| `fista_bb` | supported sparse penalties | unsupported combinations fail explicitly | FISTA + Barzilai-Borwein step size |
+| `admm` | supported proximal penalties | unsupported combinations fail explicitly | ADMM with proximal z-update |
+| `irls_cd` | scalar scad, mcp, adaptive_l1 | l1, elasticnet, group_* | IRLS outer + coordinate descent inner |
+| `proximal_irls_cd` | scalar scad, mcp (quantile only) | group_* and non-quantile losses | IRLS majorization + LLA |
+| `proximal_newton` | scalar scad, mcp, adaptive_l1 (Hessian losses) | group_* and unsupported penalties | Newton direction + Armijo + proximal operator |
 
-**Attempting an unsupported combination raises `ValueError`** with a message indicating which solver–penalty pairs are valid.
+Unsupported combinations raise `ValueError` before numerical work.
 
 ## 3. Solver Capabilities
 
 | Solver | sample_weight | warm_start | Inference | Best for |
 |--------|:------------:|:----------:|:---------:|----------|
-| `exact` | ✅ | ❌ | ✅ (OLS) | squared_error + l2 (small p) |
-| `irls` | ✅ | ❌ | ❌ | GLM + l2 (canonical link) |
-| `newton` | ❌ | ❌ | ❌ | GLM + l2 (non-canonical link) |
-| `lbfgs` | ❌ | ❌ | ❌ | GLM + l2 (large p) |
-| `fista` | ✅ | ✅ | ❌ | Smooth + non-smooth penalties |
-| `fista_bb` | ✅ | ✅ | ❌ | GLM + non-smooth (adaptive step) |
-| `admm` | ✅ | ✅ | ❌ | Any penalty (augmented Lagrangian) |
-| `irls_cd` | ✅ | ✅ | ❌ | squared_error + SCAD/MCP (fast CD) |
+| `exact` | ✅ | ❌ | ✅ (OLS) | squared_error + l2 |
+| `irls` | ✅ | ❌ | ❌ | GLM + l2 |
+| `newton` | loss dependent | ❌ | ❌ | smooth objectives |
+| `lbfgs` | loss dependent | ❌ | ❌ | large smooth objectives |
+| `fista` | ✅ | ✅ | ❌ | convex group/sparse objectives and LLA inner solves |
+| `fista_bb` | ✅ | ✅ | ❌ | supported sparse objectives with adaptive steps |
+| `admm` | ✅ | ✅ | ❌ | supported proximal objectives |
+| `irls_cd` | ✅ | ✅ | ❌ | squared_error + scalar SCAD/MCP |
 
 ## 4. CV Support (`PenalizedGLM_CV`)
 
-The CV estimator uses specialized fast paths where available and falls back to per-fold `fit()` for the rest:
+| Loss | l2 | l1 / elasticnet | scad / mcp | adaptive_l1 | group_lasso | group_scad / group_mcp |
+|------|:--:|:---------------:|:----------:|:-----------:|:-----------:|:-----------------------:|
+| **squared_error** | eig-batch | sparse FISTA | LLA + FISTA/CD | general fit | Group FISTA | Group FISTA-LLA |
+| **logistic** | general fit | sparse FISTA | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
+| **poisson** | general fit | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
+| **gamma** | general fit | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
+| **inverse_gaussian** | general fit | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
+| **negative_binomial** | general fit | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
+| **tweedie** | general fit | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
 
-| Loss | l2 | l1 / elasticnet | scad / mcp | adaptive_l1 | group_* |
-|------|:--:|:---------------:|:----------:|:-----------:|:-------:|
-| **squared_error** | eig-batch (O(p³)) | sparse FISTA path | LLA + FISTA/CD | general fit | general fit |
-| **logistic** | general fit | logistic sparse path | LLA + FISTA | general fit | general fit |
-| **poisson** | general fit | fold-batched GPU | LLA + FISTA | general fit | general fit |
-| **gamma** | general fit | fold-batched GPU | LLA + FISTA | general fit | general fit |
-| **inverse_gaussian** | general fit | fold-batched GPU | LLA + FISTA | general fit | general fit |
-| **negative_binomial** | general fit | fold-batched GPU | LLA + FISTA | general fit | general fit |
-| **tweedie** | general fit | fold-batched GPU | LLA + FISTA | general fit | general fit |
-
-**Fast path descriptions**:
-- **eig-batch**: Precomputes X'X eigendecomposition once, solves all alphas/folds in one batch. O(p³) setup + O(p·n_alphas·n_folds) solve.
-- **sparse FISTA path**: Specialized FISTA loop for squared_error + l1/elasticnet with sparse matrix operations.
-- **logistic sparse path**: Specialized FISTA loop for logistic + l1/elasticnet.
-- **fold-batched GPU**: All folds × all alphas evaluated in one GPU kernel launch. Used for GLM + l1/elasticnet on GPU.
-- **LLA + FISTA**: Local Linear Approximation continuation for nonconvex penalties. Scalar SCAD/MCP use weighted L1 surrogates; Group SCAD/MCP use weighted Group Lasso surrogates. CV scoring and the selected-alpha final refit use the same surrogate contract.
-- **general fit**: Falls back to per-fold `PenalizedGeneralizedLinearModel.fit()`. Works for all combinations but is slower.
+Group validation occurs before alpha-grid generation, fold construction, or candidate fitting. Groups are interpreted against the final design width, including formula-expanded columns. Missing unweighted features are completed as singleton groups once; out-of-range indices and incomplete adaptive weighted groups fail transactionally. CV scoring and the selected-alpha final refit use the same canonical groups, loss, sample weights, and solver contract.
 
 ## 5. Penalty Reference
 
 | Penalty | Formula | Proximal | Parameters |
 |---------|---------|----------|------------|
 | `l2` | ½α‖β‖² | β/(1+α·step) | `alpha` |
-| `l1` | α‖β‖₁ | soft_threshold(β, α·step) | `alpha` |
-| `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft_threshold / (1+α(1-λ)step) | `alpha`, `l1_ratio` |
-| `scad` | SCAD(β; α, a) | SCAD thresholding | `alpha`, `a` (default 3.7) |
-| `mcp` | MCP(β; α, γ) | MCP thresholding | `alpha`, `gamma` (default 3.0) |
-| `adaptive_l1` | αΣ_j w_j|β_j| | weighted soft_threshold | `alpha`, `_weights` |
-| `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft_threshold | `alpha`, `groups` |
-| `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | SCAD block thresholding | `alpha`, `groups`, `a` |
-| `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | MCP block thresholding | `alpha`, `groups`, `gamma` |
+| `l1` | α‖β‖₁ | soft threshold | `alpha` |
+| `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft threshold / L2 scale | `alpha`, `l1_ratio` |
+| `scad` | SCAD(β; α, a) | SCAD thresholding | `alpha`, `a` |
+| `mcp` | MCP(β; α, γ) | MCP thresholding | `alpha`, `gamma` |
+| `adaptive_l1` | αΣ_j w_j|β_j| | weighted soft threshold | `alpha`, weights |
+| `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft threshold | `alpha`, `groups` |
+| `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | SCAD block threshold | `alpha`, `groups`, `a` |
+| `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | MCP block threshold | `alpha`, `groups`, `gamma` |
 
-**Nonconvex penalty notes**:
-- Scalar SCAD and MCP are solved by LLA: each continuation step linearizes the penalty around the current estimate and produces a weighted L1 problem.
-- For Group SCAD/MCP, let `D_g` be the derivative of the group penalty with respect to `‖β_g‖₂`. The exact convex surrogate is `Σ_g D_g‖β_g‖₂`. Internally this is represented by `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`, so neither the target alpha nor the group size is multiplied a second time.
-- The default continuation is short and deterministic: currently 5 steps for the usual smooth/Hessian paths and 3 steps for non-smooth paths; a CV-supplied alpha path determines its own number of steps.
-- SCAD requires `a > 2`; MCP requires `gamma > 1`. Invalid Group SCAD/MCP constructor values fail explicitly rather than being silently repaired.
+For Group SCAD/MCP, let `D_g` denote the derivative with respect to `‖β_g‖₂`. The exact convex surrogate is `Σ_g D_g‖β_g‖₂`, represented internally by `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`. Neither target alpha nor group size is multiplied twice. Group LLA uses FISTA rather than the generic proximal-Newton branch because the latter can reject all Armijo steps without exposing a failure status.
+
+Group inputs are strict: indices/IDs must be non-negative integer-valued numerics, explicit groups must be nonempty and duplicate-free, flat IDs must be contiguous from zero, and numerical penalty methods require exactly the grouped feature dimension. The fused group-LLA surrogate alone has a private one-coordinate allowance for its unpenalized intercept.
 
 ## 6. Inference Support
 
 | Penalty | Inference method | Status |
 |---------|-----------------|--------|
 | `l2` | Standard OLS/GLS inference | ✅ Available |
-| `l1` | Debiased Lasso (nodewise regression) | ✅ Available via `compute_inference=True` |
-| `elasticnet` | Debiased Lasso (adapted) | Not yet implemented |
-| `scad` / `mcp` | Debiased nonconvex | Not yet implemented |
-| `adaptive_l1` | Debiased adaptive Lasso | Not yet implemented |
-| `group_*` | Group debiased | Not yet implemented; unsupported requests fail explicitly |
+| `l1` | Debiased Lasso | ✅ Supported paths |
+| `elasticnet` | method dependent | See estimator contract |
+| `scad` / `mcp` | oracle/bootstrap where implemented | See estimator contract |
+| `adaptive_l1` | method dependent | See estimator contract |
+| `group_*` | Group-debiased inference | Not implemented; unsupported requests fail explicitly before fitting |
 
 ## 7. Choosing a Solver
 
 ```
-                    ┌─ squared_error + l2? ─── Yes ──→ exact (closed-form)
+                    ┌─ squared_error + l2? ─── Yes ──→ exact
                     │
                     ├─ smooth penalty only? ── Yes ──→ irls / newton / lbfgs
                     │
-solver='auto' ──────├─ nonconvex (SCAD/MCP)? ─ Yes ──→ fista_lla (auto)
+solver='auto' ──────├─ scalar nonconvex? ───── Yes ──→ scalar LLA path
                     │
-                    ├─ l1 / elasticnet? ────── Yes ──→ fista / fista_bb
+                    ├─ group_lasso? ────────── Yes ──→ exact Group FISTA
                     │
-                    └─ group penalty? ───────── Yes ──→ group-aware proximal / block path
+                    └─ group SCAD/MCP? ─────── Yes ──→ Group FISTA-LLA
 ```
-
-**Manual solver selection guidelines**:
-- Use `solver='fista_bb'` for GLM + non-smooth when you want adaptive step sizes (often faster than fixed-step FISTA).
-- Use `solver='admm'` when you need a specific augmented Lagrangian formulation or when the proximal operator is cheap.
-- Use `solver='irls_cd'` for squared_error + scalar SCAD/MCP when you want Gauss-Seidel CD. Group SCAD/MCP use the group-aware LLA path instead.
