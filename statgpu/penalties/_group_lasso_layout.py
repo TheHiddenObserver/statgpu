@@ -4,11 +4,15 @@ Explicit nested group specifications may list members within a group in any
 order. Group penalties are invariant to these within-group permutations, but
 optimized solver paths rely on truthful contiguous-layout metadata. This module
 keeps the historical public import and pickle path while ensuring that new
-objects, legacy serialized state, sklearn reconstruction, and adaptive weighted
-objectives all share one canonical layout contract.
+objects, legacy serialized state, sklearn reconstruction, strict public input
+validation, feature coverage, and adaptive weighted objectives share one
+canonical contract.
 """
 
 from __future__ import annotations
+
+from numbers import Integral, Real
+import warnings
 
 import numpy as np
 
@@ -19,36 +23,116 @@ _BaseGroupLassoPenalty = _group_lasso_impl.GroupLassoPenalty
 _BaseAdaptiveGroupLassoPenalty = _group_lasso_impl.AdaptiveGroupLassoPenalty
 
 
+def _normalize_group_alpha(alpha):
+    """Validate convex group-penalty strength without lossy coercion."""
+    if isinstance(alpha, (bool, np.bool_)):
+        raise TypeError("alpha must be a finite non-negative numeric scalar")
+    try:
+        value = float(alpha)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "alpha must be a finite non-negative numeric scalar"
+        ) from exc
+    if not np.isfinite(value) or value < 0.0:
+        raise ValueError("alpha must be a finite non-negative scalar")
+    return value
+
+
+def _coerce_group_integer(value, *, label):
+    """Accept integer scalars and exact finite integer-valued reals only."""
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{label} must be integer-valued, not boolean")
+    if isinstance(value, (Integral, np.integer)):
+        return int(value)
+    if isinstance(value, (Real, np.floating)):
+        numeric = float(value)
+        if not np.isfinite(numeric):
+            raise ValueError(f"{label} must be finite")
+        if not numeric.is_integer():
+            raise ValueError(f"{label} must be integer-valued")
+        return int(numeric)
+    raise TypeError(f"{label} must be an integer-valued numeric scalar")
+
+
 def _normalize_groups_parameter(groups):
-    """Create an immutable clone-safe snapshot of a public groups argument."""
+    """Validate and create an immutable clone-safe groups snapshot."""
     if groups is None:
         return None
     if isinstance(groups, np.ndarray):
         if groups.ndim != 1:
-            return groups
-        return tuple(int(value) for value in groups.tolist())
+            raise ValueError(
+                "groups arrays must be one-dimensional; use a list of lists "
+                "for explicit feature-index groups"
+            )
+        groups = groups.tolist()
     if not isinstance(groups, (list, tuple)):
-        return groups
-    if len(groups) == 0:
-        return groups if isinstance(groups, tuple) else tuple()
-
-    first = groups[0]
-    if isinstance(first, (list, tuple, np.ndarray)):
-        already_normalized = isinstance(groups, tuple) and all(
-            isinstance(group, tuple)
-            and all(type(index) is int for index in group)
-            and tuple(sorted(group)) == group
-            for group in groups
+        raise TypeError(
+            f"groups must be a one-dimensional array, list, or tuple, got "
+            f"{type(groups).__name__}"
         )
+    if len(groups) == 0:
+        raise ValueError("groups must not be empty")
+
+    nested_flags = [
+        isinstance(group, (list, tuple, np.ndarray)) for group in groups
+    ]
+    if any(nested_flags) and not all(nested_flags):
+        raise TypeError(
+            "groups must be either a flat group-ID sequence or a nested "
+            "sequence of feature-index groups"
+        )
+
+    if all(nested_flags):
+        normalized = []
+        all_indices = []
+        already_normalized = isinstance(groups, tuple)
+        for group_id, group in enumerate(groups):
+            if isinstance(group, np.ndarray):
+                if group.ndim != 1:
+                    raise ValueError(
+                        f"groups[{group_id}] must be one-dimensional"
+                    )
+                group = group.tolist()
+            if len(group) == 0:
+                raise ValueError("explicit groups must not contain empty groups")
+            indices = tuple(
+                sorted(
+                    _coerce_group_integer(
+                        index, label=f"groups[{group_id}] index"
+                    )
+                    for index in group
+                )
+            )
+            if any(index < 0 for index in indices):
+                raise ValueError("feature indices in groups must be non-negative")
+            normalized.append(indices)
+            all_indices.extend(indices)
+            already_normalized = already_normalized and isinstance(group, tuple)
+            already_normalized = already_normalized and group == indices
+            already_normalized = already_normalized and all(
+                type(index) is int for index in group
+            )
+        if len(set(all_indices)) != len(all_indices):
+            raise ValueError("groups contain duplicate feature indices")
         if already_normalized:
             return groups
-        return tuple(
-            tuple(sorted(int(index) for index in group)) for group in groups
-        )
+        return tuple(normalized)
 
+    group_ids = tuple(
+        _coerce_group_integer(value, label="group ID") for value in groups
+    )
+    if any(value < 0 for value in group_ids):
+        raise ValueError("group IDs must be non-negative")
+    observed = sorted(set(group_ids))
+    expected = list(range(observed[-1] + 1))
+    if observed != expected:
+        raise ValueError(
+            "group IDs must be contiguous and start at zero; "
+            f"observed {observed}"
+        )
     if isinstance(groups, tuple) and all(type(value) is int for value in groups):
         return groups
-    return tuple(int(value) for value in groups)
+    return group_ids
 
 
 def _canonicalize_nested_groups(groups):
@@ -59,6 +143,74 @@ def _canonicalize_nested_groups(groups):
     if not isinstance(first, (list, tuple, np.ndarray)):
         return groups
     return [np.asarray(group, dtype=int) for group in groups]
+
+
+def _canonical_internal_groups(penalty):
+    return tuple(
+        tuple(int(index) for index in np.asarray(group, dtype=np.int64))
+        for group in penalty._group_indices
+    )
+
+
+def _sync_groups_snapshot_after_base_init(penalty, normalized_groups):
+    """Retain clone identity unless base auto-fill changed explicit groups."""
+    if normalized_groups is None:
+        penalty.groups = None
+        return
+    is_explicit = isinstance(normalized_groups[0], tuple)
+    if is_explicit:
+        internal = _canonical_internal_groups(penalty)
+        penalty.groups = (
+            normalized_groups if internal == normalized_groups else internal
+        )
+    else:
+        penalty.groups = normalized_groups
+
+
+def _validate_group_feature_coverage(penalty, n_features):
+    """Make group coverage solver-independent once the design width is known."""
+    if isinstance(n_features, (bool, np.bool_)):
+        raise TypeError("n_features must be a positive integer")
+    try:
+        n_features = int(n_features)
+    except (TypeError, ValueError) as exc:
+        raise TypeError("n_features must be a positive integer") from exc
+    if n_features < 1:
+        raise ValueError("n_features must be a positive integer")
+    if penalty._group_indices is None:
+        raise ValueError("groups must be set before fitting a group penalty")
+
+    flat = np.concatenate(
+        [np.asarray(group, dtype=np.int64) for group in penalty._group_indices]
+    )
+    if flat.size == 0:
+        raise ValueError("groups must contain at least one feature index")
+    if int(flat.max()) >= n_features:
+        raise ValueError(
+            "groups contain a feature index outside the design matrix: "
+            f"max index {int(flat.max())}, n_features={n_features}"
+        )
+    missing = sorted(set(range(n_features)) - set(flat.tolist()))
+    if not missing:
+        return penalty
+
+    existing_weights = getattr(penalty, "_group_weights", None)
+    if existing_weights is not None:
+        raise ValueError(
+            "adaptive group weights require groups to cover every design "
+            f"feature; missing indices {missing}"
+        )
+
+    warnings.warn(
+        f"Groups do not cover design features {missing}. Auto-adding "
+        f"{len(missing)} single-feature groups.",
+        UserWarning,
+        stacklevel=3,
+    )
+    completed = list(_canonical_internal_groups(penalty))
+    completed.extend((index,) for index in missing)
+    penalty._init_groups(tuple(completed))
+    return penalty
 
 
 def _weights_to_numpy(weights):
@@ -77,10 +229,23 @@ def _normalize_weights_parameter(weights, n_groups):
     """Validate and snapshot adaptive weights as an immutable float tuple."""
     if weights is None:
         return None
+    raw = np.asarray(_weights_to_numpy(weights))
+    if raw.dtype.kind in ("b", "S", "U"):
+        raise TypeError("group weights must be a one-dimensional numeric array")
+    if raw.dtype.kind == "O":
+        for value in raw.ravel():
+            if isinstance(value, (bool, np.bool_)) or not isinstance(
+                value, (Real, np.number)
+            ):
+                raise TypeError(
+                    "group weights must be a one-dimensional numeric array"
+                )
     try:
-        values = np.asarray(_weights_to_numpy(weights), dtype=np.float64)
+        values = np.asarray(raw, dtype=np.float64)
     except (TypeError, ValueError) as exc:
-        raise TypeError("group weights must be a one-dimensional numeric array") from exc
+        raise TypeError(
+            "group weights must be a one-dimensional numeric array"
+        ) from exc
     if values.ndim != 1 or values.shape[0] != n_groups:
         raise ValueError(
             f"group weights must have shape ({n_groups},), got {values.shape}"
@@ -95,45 +260,37 @@ def _normalize_weights_parameter(weights, n_groups):
 
 
 class GroupLassoPenalty(_BaseGroupLassoPenalty):
-    """Group Lasso with canonical layout and clone-safe constructor state.
-
-    ``groups`` is stored as an immutable normalized tuple. This prevents later
-    mutation of a caller-owned list/array from changing clone or pickle state
-    without changing the already-built numerical layout. A normalized tuple
-    received from sklearn reconstruction is retained by identity for the
-    sklearn <=1.2 constructor-identity gate.
-
-    ``__setstate__`` intentionally rebuilds all derived layout metadata. This
-    migrates objects serialized by versions that preserved unsorted nested
-    groups or stale contiguity flags.
-    """
+    """Group Lasso with canonical layout and clone-safe constructor state."""
 
     def __init__(self, alpha: float = 1.0, groups=None):
         normalized_groups = _normalize_groups_parameter(groups)
         self.groups = normalized_groups
-        super().__init__(alpha=alpha, groups=normalized_groups)
+        super().__init__(
+            alpha=_normalize_group_alpha(alpha), groups=normalized_groups
+        )
 
     def _init_groups(self, groups):
         normalized_groups = _normalize_groups_parameter(groups)
         self.groups = normalized_groups
         super()._init_groups(_canonicalize_nested_groups(normalized_groups))
+        _sync_groups_snapshot_after_base_init(self, normalized_groups)
+
+    def validate_n_features(self, n_features):
+        return _validate_group_feature_coverage(self, n_features)
 
     def __setstate__(self, state):
         if not isinstance(state, dict):
             raise TypeError("GroupLassoPenalty pickle state must be a dict")
         self.__dict__.update(state)
+        self.alpha = _normalize_group_alpha(state.get("alpha", self.alpha))
         groups = state.get("groups", state.get("_group_indices"))
         self.groups = _normalize_groups_parameter(groups)
         if groups is not None:
-            # Re-parse rather than trusting serialized derived fields such as
-            # _is_contiguous, _flat_indices, padded indices, or device caches.
             self._init_groups(groups)
 
     def get_params(self, deep: bool = True) -> dict:
-        """Return descriptive state or constructor-only clone parameters."""
         if not deep:
             return {"alpha": self.alpha, "groups": self.groups}
-        # Preserve the historical descriptive serialization contract.
         return _BaseGroupLassoPenalty.get_params(self)
 
 
@@ -144,13 +301,10 @@ class AdaptiveGroupLassoPenalty(
     """Weighted Group Lasso preserving the public Group Lasso hierarchy."""
 
     def __init__(self, groups, alpha=1.0, weights=None):
-        # Let the original adaptive implementation establish the cooperative
-        # MRO and canonical group layout, then validate/invalidate weight state.
         super().__init__(groups=groups, alpha=alpha, weights=None)
         self.set_weights(weights)
 
     def set_weights(self, weights):
-        """Update validated per-group weights and invalidate device caches."""
         self._group_weights = _normalize_weights_parameter(
             weights, self._n_groups
         )
@@ -160,11 +314,9 @@ class AdaptiveGroupLassoPenalty(
     def __setstate__(self, state):
         weights = state.get("_group_weights", state.get("weights"))
         super().__setstate__(state)
-        # Never retain serialized device tensors from another process/device.
         self.set_weights(weights)
 
     def _get_group_weights(self, xp, w):
-        """Return weights on the requested backend without cross-backend cache reuse."""
         if self._group_weights is None:
             return None
         if xp.__name__ == "numpy":
@@ -193,7 +345,6 @@ class AdaptiveGroupLassoPenalty(
         return cached
 
     def _weighted_group_components(self, coef):
-        """Return backend module, feature view, norms, sqrt sizes, and weights."""
         if self._group_indices is None:
             raise ValueError("groups must be set before evaluating the penalty")
         xp = _group_lasso_impl._get_xp(coef)
@@ -219,7 +370,6 @@ class AdaptiveGroupLassoPenalty(
         return xp, coef_feat, norms, sqrt_pg, weights
 
     def value(self, coef) -> float:
-        """Evaluate the weighted Group Lasso objective consistently with prox."""
         xp, _, norms, sqrt_pg, weights = self._weighted_group_components(coef)
         total = xp.sum(self.alpha * weights * sqrt_pg * norms)
         if xp.__name__ == "torch":
@@ -227,7 +377,6 @@ class AdaptiveGroupLassoPenalty(
         return float(total)
 
     def gradient(self, coef):
-        """Return a weighted group subgradient, with zero at zero-norm groups."""
         xp, coef_feat, norms, sqrt_pg, weights = self._weighted_group_components(
             coef
         )
@@ -261,7 +410,6 @@ class AdaptiveGroupLassoPenalty(
         return grad
 
     def get_params(self, deep: bool = True) -> dict:
-        """Return descriptive state or constructor-only clone parameters."""
         if not deep:
             return {
                 "groups": self.groups,
@@ -271,10 +419,6 @@ class AdaptiveGroupLassoPenalty(
         return _BaseAdaptiveGroupLassoPenalty.get_params(self)
 
 
-# Preserve historical import/pickle paths and ensure direct imports from
-# ``statgpu.penalties._group_lasso`` resolve to the same public classes after
-# package initialization. Rebinding both classes keeps
-# ``issubclass(AdaptiveGroupLassoPenalty, GroupLassoPenalty)`` true.
 GroupLassoPenalty.__module__ = _group_lasso_impl.__name__
 AdaptiveGroupLassoPenalty.__module__ = _group_lasso_impl.__name__
 _group_lasso_impl.GroupLassoPenalty = GroupLassoPenalty
