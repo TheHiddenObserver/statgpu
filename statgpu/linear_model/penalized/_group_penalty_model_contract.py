@@ -4,13 +4,16 @@ Penalty constructors can validate index syntax but do not know the eventual
 design width. This module installs narrow in-place hooks so all specialized
 estimators and historical direct imports share the same behavior:
 
+- direct estimators clone externally supplied group penalty objects before
+  design-width completion, so fitting never mutates constructor parameters;
 - direct estimators validate/complete group coverage immediately after penalty
   resolution and before solver/backend work;
 - direct and CV refits clear prior fitted state before validation and again on
   failure, so stale coefficients, selection results, or formula metadata cannot
   survive a rejected fit;
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
-  fold construction, or candidate fitting, then writes canonical groups back;
+  fold construction, or candidate fitting, using a temporary clone for penalty
+  objects and restoring the original constructor parameter afterward;
 - every Group Lasso objective uses the actual loss gradient plus the exact
   Euclidean Group Lasso proximal operator. The historical Gaussian block update
   is bypassed because its inverse-Gram-then-threshold formula is exact only for
@@ -48,6 +51,13 @@ _GROUP_LASSO_NAMES = frozenset({"group_lasso", "gl"})
 
 def _public_penalty_name(estimator):
     return str(getattr(estimator.penalty, "name", estimator.penalty)).lower().strip()
+
+
+def _clone_group_penalty(penalty):
+    clone = getattr(penalty, "clone", None)
+    if callable(clone):
+        return clone()
+    return copy.deepcopy(penalty)
 
 
 def _validate_resolved_group_penalty(penalty, n_features):
@@ -102,7 +112,12 @@ def _install_direct_fit_transaction():
         formula=None,
         data=None,
     ):
-        if _public_penalty_name(self) not in _GROUP_PENALTY_NAMES:
+        current_name = _public_penalty_name(self)
+        previous_name = _resolved_penalty_name(self)
+        if (
+            current_name not in _GROUP_PENALTY_NAMES
+            and previous_name not in _GROUP_PENALTY_NAMES
+        ):
             return current(
                 self,
                 X=X,
@@ -138,6 +153,9 @@ def _install_direct_contract():
 
     def _resolve_penalty_with_group_contract(self):
         penalty = current(self)
+        penalty_name = str(getattr(penalty, "name", "")).lower().strip()
+        if penalty is self.penalty and penalty_name in _GROUP_PENALTY_NAMES:
+            penalty = _clone_group_penalty(penalty)
         n_features = getattr(self, "n_features_in_", None)
         if n_features is not None:
             _validate_resolved_group_penalty(penalty, n_features)
@@ -187,15 +205,19 @@ def _cv_design_width(X):
 
 
 def _prepare_cv_group_penalty(estimator, X):
+    """Prepare fit-local group metadata and return a parameter to restore."""
     penalty_name = _public_penalty_name(estimator)
     if penalty_name not in _GROUP_PENALTY_NAMES:
-        return
+        return None
     n_features = _cv_design_width(X)
     if n_features is None:
-        return
+        return None
 
-    penalty = estimator.penalty
-    if getattr(penalty, "validate_n_features", None) is None:
+    original_penalty = estimator.penalty
+    is_penalty_object = getattr(original_penalty, "validate_n_features", None) is not None
+    if is_penalty_object:
+        penalty = _clone_group_penalty(original_penalty)
+    else:
         from statgpu.penalties import get_penalty
 
         kwargs = dict(getattr(estimator, "_penalty_kwargs", None) or {})
@@ -204,12 +226,14 @@ def _prepare_cv_group_penalty(estimator, X):
 
     _validate_resolved_group_penalty(penalty, n_features)
 
-    if isinstance(estimator.penalty, str):
+    if isinstance(original_penalty, str):
         kwargs = dict(getattr(estimator, "_penalty_kwargs", None) or {})
         kwargs["groups"] = penalty.groups
         estimator._penalty_kwargs = kwargs
-    else:
-        estimator.penalty = penalty
+        return None
+
+    estimator.penalty = penalty
+    return original_penalty
 
 
 def _install_cv_contract():
@@ -225,13 +249,17 @@ def _install_cv_contract():
         # first reset is required because group coverage validation intentionally
         # runs before entering that implementation.
         self._reset_cv_fit_state()
+        original_penalty = None
         try:
             if str(self.loss).lower() != "cox_ph":
-                _prepare_cv_group_penalty(self, X)
+                original_penalty = _prepare_cv_group_penalty(self, X)
             return current(self, X, y, sample_weight=sample_weight)
         except Exception:
             self._reset_cv_fit_state()
             raise
+        finally:
+            if original_penalty is not None:
+                self.penalty = original_penalty
 
     _fit_with_group_contract._statgpu_group_contract = True
     _fit_with_group_contract._statgpu_original = current
