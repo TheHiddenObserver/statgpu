@@ -22,7 +22,7 @@ __all__ = [
 from ._convergence import ConvergenceWarning
 from ._fista import fista_solver
 from ._fista_bb import fista_bb_solver
-from ._fista_lla import fista_lla_path
+from ._fista_lla_group_contract import fista_lla_path
 from ._newton import newton_solver
 from ._proximal_newton import proximal_newton_solver
 from ._proximal_irls_quantile import proximal_irls_quantile_solver
