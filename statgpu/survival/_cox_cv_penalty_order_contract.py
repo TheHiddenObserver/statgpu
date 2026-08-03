@@ -12,6 +12,7 @@ from . import _cox_cv as _module
 
 
 _ORIGINAL_SELECT_COXPH_PENALTY_CV = _module._select_coxph_penalty_cv
+_ORIGINAL_COXPHCV_FIT_CV = _module.CoxPHCV._fit_cv
 _CANDIDATE_AXIS_KEYS = (
     "pl_path",
     "mean_pl",
@@ -47,7 +48,11 @@ def _prefer_stronger_near_tie(details, sorted_penalties):
         details.get("candidate_complete", np.isfinite(mean_pl)), dtype=bool
     )
     eligible = complete & np.isfinite(mean_pl)
-    if mean_pl.ndim != 1 or mean_pl.size != sorted_penalties.size or not np.any(eligible):
+    if (
+        mean_pl.ndim != 1
+        or mean_pl.size != sorted_penalties.size
+        or not np.any(eligible)
+    ):
         return float(details["penalty"])
 
     best = float(np.max(mean_pl[eligible]))
@@ -82,7 +87,7 @@ def _select_coxph_penalty_cv_order_invariant(*args, **kwargs):
     if not bool(forwarded.get("return_details", False)):
         return result
 
-    best_penalty, details = result
+    _, details = result
     details = dict(details)
     best_penalty = _prefer_stronger_near_tie(details, sorted_penalties)
     for key in _CANDIDATE_AXIS_KEYS:
@@ -97,7 +102,16 @@ def _select_coxph_penalty_cv_order_invariant(*args, **kwargs):
     return float(best_penalty), details
 
 
+@wraps(_ORIGINAL_COXPHCV_FIT_CV)
+def _fit_cv_with_strict_penalty_grid(self, *args, **kwargs):
+    """Validate the constructor grid before legacy float64 coercion."""
+    if self.penalties is not None:
+        coerce_real_numeric_grid(self.penalties, name="penalties")
+    return _ORIGINAL_COXPHCV_FIT_CV(self, *args, **kwargs)
+
+
 _module._select_coxph_penalty_cv = _select_coxph_penalty_cv_order_invariant
+_module.CoxPHCV._fit_cv = _fit_cv_with_strict_penalty_grid
 
 
 __all__ = [
