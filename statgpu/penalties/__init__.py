@@ -24,8 +24,10 @@ from ._group_lasso_layout import (
     GroupLassoPenalty,
     AdaptiveGroupLassoPenalty,
 )
-from ._group_mcp import GroupMCPPenalty
-from ._group_scad import GroupSCADPenalty
+from ._group_nonconvex_layout import (
+    GroupMCPPenalty,
+    GroupSCADPenalty,
+)
 
 
 def _torch_compile_ok():
@@ -124,7 +126,7 @@ def register_penalty(name: str):
     Example
     -------
     >>> @register_penalty('huber')
-    ... class CustomPenalty(Penalty):
+    ... class HuberPenalty(Penalty):
     ...     ...
     """
     def decorator(cls):
