@@ -14,8 +14,8 @@ estimators and historical direct imports share the same behavior:
 - pending private coefficient/intercept warm starts are preserved for exactly
   one fit call, then cleared on both success and failure;
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
-  fold construction, or candidate fitting, using a temporary clone for penalty
-  objects and restoring the original constructor parameter afterward;
+  fold construction, or candidate fitting, using fit-local penalty/kwargs state
+  and restoring the original constructor parameters afterward;
 - temporary CV penalty objects are rebuilt at each candidate's alpha, so object
   penalties and string penalties evaluate the same regularization grid;
 - every Group Lasso objective uses the actual loss gradient plus the exact
@@ -232,13 +232,13 @@ def _cv_design_width(X):
 
 
 def _prepare_cv_group_penalty(estimator, X):
-    """Prepare fit-local group metadata and return a parameter to restore."""
+    """Prepare fit-local group metadata without mutating constructor state."""
     penalty_name = _public_penalty_name(estimator)
     if penalty_name not in _GROUP_PENALTY_NAMES:
-        return None
+        return
     n_features = _cv_design_width(X)
     if n_features is None:
-        return None
+        return
 
     original_penalty = estimator.penalty
     is_penalty_object = getattr(original_penalty, "validate_n_features", None) is not None
@@ -257,11 +257,10 @@ def _prepare_cv_group_penalty(estimator, X):
         kwargs = dict(getattr(estimator, "_penalty_kwargs", None) or {})
         kwargs["groups"] = penalty.groups
         estimator._penalty_kwargs = kwargs
-        return None
+        return
 
     setattr(penalty, _CV_ALPHA_MARKER, True)
     estimator.penalty = penalty
-    return original_penalty
 
 
 def _install_cv_contract():
@@ -277,17 +276,18 @@ def _install_cv_contract():
         # first reset is required because group coverage validation intentionally
         # runs before entering that implementation.
         self._reset_cv_fit_state()
-        original_penalty = None
+        original_penalty = self.penalty
+        original_penalty_kwargs = self._penalty_kwargs
         try:
             if str(self.loss).lower() != "cox_ph":
-                original_penalty = _prepare_cv_group_penalty(self, X)
+                _prepare_cv_group_penalty(self, X)
             return current(self, X, y, sample_weight=sample_weight)
         except Exception:
             self._reset_cv_fit_state()
             raise
         finally:
-            if original_penalty is not None:
-                self.penalty = original_penalty
+            self.penalty = original_penalty
+            self._penalty_kwargs = original_penalty_kwargs
 
     _fit_with_group_contract._statgpu_group_contract = True
     _fit_with_group_contract._statgpu_original = current
