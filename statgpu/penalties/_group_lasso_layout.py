@@ -19,14 +19,46 @@ _BaseGroupLassoPenalty = _group_lasso_impl.GroupLassoPenalty
 _BaseAdaptiveGroupLassoPenalty = _group_lasso_impl.AdaptiveGroupLassoPenalty
 
 
+def _normalize_groups_parameter(groups):
+    """Create an immutable clone-safe snapshot of a public groups argument."""
+    if groups is None:
+        return None
+    if isinstance(groups, np.ndarray):
+        if groups.ndim != 1:
+            return groups
+        return tuple(int(value) for value in groups.tolist())
+    if not isinstance(groups, (list, tuple)):
+        return groups
+    if len(groups) == 0:
+        return groups if isinstance(groups, tuple) else tuple()
+
+    first = groups[0]
+    if isinstance(first, (list, tuple, np.ndarray)):
+        already_normalized = isinstance(groups, tuple) and all(
+            isinstance(group, tuple)
+            and all(type(index) is int for index in group)
+            and tuple(sorted(group)) == group
+            for group in groups
+        )
+        if already_normalized:
+            return groups
+        return tuple(
+            tuple(sorted(int(index) for index in group)) for group in groups
+        )
+
+    if isinstance(groups, tuple) and all(type(value) is int for value in groups):
+        return groups
+    return tuple(int(value) for value in groups)
+
+
 def _canonicalize_nested_groups(groups):
-    """Sort indices within explicit groups while preserving group order."""
+    """Convert immutable explicit groups to the base implementation format."""
     if not isinstance(groups, (list, tuple)) or not groups:
         return groups
     first = groups[0]
     if not isinstance(first, (list, tuple, np.ndarray)):
         return groups
-    return [np.sort(np.asarray(group, dtype=int)) for group in groups]
+    return [np.asarray(group, dtype=int) for group in groups]
 
 
 def _weights_to_numpy(weights):
@@ -41,12 +73,35 @@ def _weights_to_numpy(weights):
     return np.asarray(weights)
 
 
+def _normalize_weights_parameter(weights, n_groups):
+    """Validate and snapshot adaptive weights as an immutable float tuple."""
+    if weights is None:
+        return None
+    try:
+        values = np.asarray(_weights_to_numpy(weights), dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError("group weights must be a one-dimensional numeric array") from exc
+    if values.ndim != 1 or values.shape[0] != n_groups:
+        raise ValueError(
+            f"group weights must have shape ({n_groups},), got {values.shape}"
+        )
+    if not np.all(np.isfinite(values)):
+        raise ValueError("group weights must contain only finite values")
+    if np.any(values < 0.0):
+        raise ValueError("group weights must be non-negative")
+    if isinstance(weights, tuple) and all(type(value) is float for value in weights):
+        return weights
+    return tuple(float(value) for value in values)
+
+
 class GroupLassoPenalty(_BaseGroupLassoPenalty):
     """Group Lasso with canonical layout and clone-safe constructor state.
 
-    ``groups`` is retained as the constructor parameter object so sklearn
-    versions that reconstruct from ``get_params(deep=False)`` can satisfy their
-    identity check. Internal group arrays are independently canonicalized.
+    ``groups`` is stored as an immutable normalized tuple. This prevents later
+    mutation of a caller-owned list/array from changing clone or pickle state
+    without changing the already-built numerical layout. A normalized tuple
+    received from sklearn reconstruction is retained by identity for the
+    sklearn <=1.2 constructor-identity gate.
 
     ``__setstate__`` intentionally rebuilds all derived layout metadata. This
     migrates objects serialized by versions that preserved unsorted nested
@@ -54,21 +109,21 @@ class GroupLassoPenalty(_BaseGroupLassoPenalty):
     """
 
     def __init__(self, alpha: float = 1.0, groups=None):
-        self.groups = groups
-        super().__init__(alpha=alpha, groups=groups)
+        normalized_groups = _normalize_groups_parameter(groups)
+        self.groups = normalized_groups
+        super().__init__(alpha=alpha, groups=normalized_groups)
 
     def _init_groups(self, groups):
-        # Preserve the exact constructor object for sklearn <=1.2 clone while
-        # using a canonical copy for numerical metadata and solver routing.
-        self.groups = groups
-        super()._init_groups(_canonicalize_nested_groups(groups))
+        normalized_groups = _normalize_groups_parameter(groups)
+        self.groups = normalized_groups
+        super()._init_groups(_canonicalize_nested_groups(normalized_groups))
 
     def __setstate__(self, state):
         if not isinstance(state, dict):
             raise TypeError("GroupLassoPenalty pickle state must be a dict")
         self.__dict__.update(state)
         groups = state.get("groups", state.get("_group_indices"))
-        self.groups = groups
+        self.groups = _normalize_groups_parameter(groups)
         if groups is not None:
             # Re-parse rather than trusting serialized derived fields such as
             # _is_contiguous, _flat_indices, padded indices, or device caches.
@@ -94,27 +149,11 @@ class AdaptiveGroupLassoPenalty(
         super().__init__(groups=groups, alpha=alpha, weights=None)
         self.set_weights(weights)
 
-    def _validate_group_weights(self, weights):
-        if weights is None:
-            return
-        try:
-            values = np.asarray(_weights_to_numpy(weights), dtype=np.float64)
-        except (TypeError, ValueError) as exc:
-            raise TypeError("group weights must be a one-dimensional numeric array") from exc
-        if values.ndim != 1 or values.shape[0] != self._n_groups:
-            raise ValueError(
-                f"group weights must have shape ({self._n_groups},), "
-                f"got {values.shape}"
-            )
-        if not np.all(np.isfinite(values)):
-            raise ValueError("group weights must contain only finite values")
-        if np.any(values < 0.0):
-            raise ValueError("group weights must be non-negative")
-
     def set_weights(self, weights):
         """Update validated per-group weights and invalidate device caches."""
-        self._validate_group_weights(weights)
-        self._group_weights = weights
+        self._group_weights = _normalize_weights_parameter(
+            weights, self._n_groups
+        )
         self._group_weights_torch = None
         self._group_weights_cupy = None
 
