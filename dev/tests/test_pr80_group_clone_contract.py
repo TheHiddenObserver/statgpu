@@ -50,6 +50,7 @@ def test_group_lasso_shallow_params_reconstruct_constructor_exactly():
     rebuilt = _assert_legacy_clone_reconstruction(penalty)
 
     assert type(rebuilt) is GroupLassoPenalty
+    assert penalty.groups == ((0, 3), (1, 2))
     np.testing.assert_array_equal(rebuilt._group_indices[0], np.array([0, 3]))
     np.testing.assert_array_equal(rebuilt._group_indices[1], np.array([1, 2]))
     assert rebuilt._is_contiguous is False
@@ -67,12 +68,35 @@ def test_adaptive_group_lasso_shallow_params_preserve_groups_and_weights():
     rebuilt = _assert_legacy_clone_reconstruction(penalty)
 
     assert isinstance(rebuilt, GroupLassoPenalty)
-    assert rebuilt._group_weights is weights
+    assert rebuilt._group_weights == (1.0, 1.5)
+    assert rebuilt.get_params(deep=False)["weights"] is penalty.get_params(
+        deep=False
+    )["weights"]
     np.testing.assert_array_equal(rebuilt._group_indices[0], np.array([0, 3]))
     np.testing.assert_array_equal(rebuilt._group_indices[1], np.array([1, 2]))
     assert rebuilt._is_contiguous is False
     assert "n_groups" not in penalty.get_params(deep=False)
     assert penalty.get_params()["n_groups"] == 2
+
+
+def test_constructor_snapshots_mutable_groups_and_weights():
+    groups = [[3, 0], [2, 1]]
+    weights = np.array([1.0, 1.5])
+    penalty = AdaptiveGroupLassoPenalty(
+        groups=groups,
+        alpha=0.07,
+        weights=weights,
+    )
+
+    groups[0][:] = [1, 2]
+    weights[:] = [9.0, 9.0]
+
+    assert penalty.groups == ((0, 3), (1, 2))
+    assert penalty._group_weights == (1.0, 1.5)
+    restored = pickle.loads(pickle.dumps(penalty))
+    assert restored.groups == penalty.groups
+    assert restored._group_weights == penalty._group_weights
+    np.testing.assert_array_equal(restored._flat_indices, np.array([0, 3, 1, 2]))
 
 
 def test_modern_sklearn_clone_preserves_public_penalty_types_and_layout():
@@ -126,6 +150,7 @@ def test_legacy_pickle_and_joblib_state_is_cloneable_after_migration():
 
     for restored in (restored_pickle, restored_joblib):
         assert type(restored) is GroupLassoPenalty
+        assert restored.groups == ((0, 3), (1, 2))
         np.testing.assert_array_equal(restored._group_indices[0], np.array([0, 3]))
         np.testing.assert_array_equal(restored._group_indices[1], np.array([1, 2]))
         np.testing.assert_array_equal(restored._flat_indices, np.array([0, 3, 1, 2]))
