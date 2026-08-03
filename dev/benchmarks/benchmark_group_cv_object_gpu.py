@@ -5,7 +5,9 @@ The runner verifies on both CuPy and Torch CUDA that:
 - Group Lasso/MCP/SCAD penalty objects evaluate every requested CV alpha;
 - object and string penalty forms produce the same fold scores, selection, and
   final refit;
-- the selected alpha reaches the final resolved penalty;
+- Adaptive Group Lasso object templates with different initial alpha produce
+  the same requested CV path;
+- the selected alpha reaches both resolved and public final penalty snapshots;
 - fit-local group completion does not mutate public penalty objects or kwargs.
 """
 
@@ -21,6 +23,7 @@ import numpy as np
 
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.penalties import (
+    AdaptiveGroupLassoPenalty,
     GroupLassoPenalty,
     GroupMCPPenalty,
     GroupSCADPenalty,
@@ -29,6 +32,7 @@ from statgpu.penalties import (
 
 SOURCE_FILES = (
     "dev/benchmarks/benchmark_group_cv_object_gpu.py",
+    "dev/tests/test_pr80_adaptive_group_public_capability_contract.py",
     "dev/tests/test_pr80_group_cv_object_alpha_contract.py",
     "dev/tests/test_pr80_group_penalty_object_isolation_contract.py",
     "dev/tests/test_pr80_group_failed_refit_state_contract.py",
@@ -41,6 +45,7 @@ SOURCE_FILES = (
     "statgpu/linear_model/penalized/_penalized_cv.py",
     "statgpu/linear_model/penalized/_group_penalty_model_contract.py",
     "statgpu/penalties/__init__.py",
+    "statgpu/penalties/_categories.py",
     "statgpu/penalties/_group_clone_contract.py",
     "statgpu/penalties/_group_dimension_contract.py",
     "statgpu/penalties/_group_lasso.py",
@@ -57,6 +62,7 @@ SOURCE_FILES = (
 
 GROUPS = [[0, 3], [1, 2]]
 ALPHAS = [0.35, 0.025]
+_CV_MARKER = "_statgpu_cv_alpha_from_estimator"
 
 
 def _git(*args):
@@ -164,6 +170,17 @@ def _fit_cv(penalty, X, y, device, loss, loss_kwargs, penalty_kwargs=None):
     ).fit(X, y)
 
 
+def _public_snapshot_ok(cv, original):
+    fitted = cv.estimator_.penalty
+    return bool(
+        type(fitted) is type(original)
+        and fitted is not original
+        and np.isclose(fitted.alpha, cv.alpha_, rtol=0.0, atol=1e-14)
+        and fitted.groups == cv.estimator_._penalty.groups
+        and not hasattr(fitted, _CV_MARKER)
+    )
+
+
 def _object_cases(name):
     X, y = _data()
     device, Xb, yb, device_name = _backend(name, X, y)
@@ -214,6 +231,7 @@ def _object_cases(name):
             and np.isclose(penalty_object.alpha, 1.0)
             and penalty_object.groups == ((0, 3), (1, 2))
         )
+        public_snapshot = _public_snapshot_ok(object_cv, penalty_object)
         passed = bool(
             score_error <= 8e-5
             and coef_error <= 8e-5
@@ -221,6 +239,7 @@ def _object_cases(name):
             and selected_equal
             and final_alpha_equal
             and object_restored
+            and public_snapshot
         )
         cases[penalty_name] = {
             "score_max_abs_error": score_error,
@@ -232,8 +251,73 @@ def _object_cases(name):
                 object_cv.estimator_._penalty.alpha
             ),
             "object_parameter_restored": object_restored,
+            "public_final_snapshot": public_snapshot,
             "passed": passed,
         }
+
+    # Adaptive Group Lasso is object-only. Different template alpha values must
+    # not alter a CV path whose actual alpha grid is supplied by the estimator.
+    first_parameter = AdaptiveGroupLassoPenalty(
+        groups=GROUPS, alpha=1.0, weights=[0.7, 1.4]
+    )
+    second_parameter = AdaptiveGroupLassoPenalty(
+        groups=GROUPS, alpha=2.0, weights=[0.7, 1.4]
+    )
+    first_cv = _fit_cv(
+        first_parameter, Xb, yb, device, "squared_error", None
+    )
+    second_cv = _fit_cv(
+        second_parameter, Xb, yb, device, "squared_error", None
+    )
+    adaptive_score_error = float(
+        np.max(
+            np.abs(
+                np.asarray(first_cv.cv_results_["all_scores"])
+                - np.asarray(second_cv.cv_results_["all_scores"])
+            )
+        )
+    )
+    adaptive_coef_error = float(
+        np.max(
+            np.abs(
+                _as_numpy(first_cv.coef_) - _as_numpy(second_cv.coef_)
+            )
+        )
+    )
+    adaptive_selected_equal = bool(
+        np.isclose(first_cv.alpha_, second_cv.alpha_, rtol=0.0, atol=1e-14)
+    )
+    adaptive_public = bool(
+        _public_snapshot_ok(first_cv, first_parameter)
+        and first_cv.estimator_.penalty._group_weights == (0.7, 1.4)
+    )
+    adaptive_restored = bool(
+        first_cv.penalty is first_parameter
+        and second_cv.penalty is second_parameter
+        and np.isclose(first_parameter.alpha, 1.0)
+        and np.isclose(second_parameter.alpha, 2.0)
+    )
+    adaptive_passed = bool(
+        adaptive_score_error <= 8e-5
+        and adaptive_coef_error <= 8e-5
+        and adaptive_selected_equal
+        and adaptive_public
+        and adaptive_restored
+        and not np.allclose(
+            np.asarray(first_cv.cv_results_["all_scores"])[:, 0],
+            np.asarray(first_cv.cv_results_["all_scores"])[:, 1],
+            rtol=1e-10,
+            atol=1e-12,
+        )
+    )
+    cases["adaptive_group_lasso"] = {
+        "template_score_max_abs_error": adaptive_score_error,
+        "template_coef_max_abs_error": adaptive_coef_error,
+        "selected_alpha": float(first_cv.alpha_),
+        "templates_restored": adaptive_restored,
+        "public_final_snapshot": adaptive_public,
+        "passed": adaptive_passed,
+    }
 
     # Fit-local completion for a string penalty: the estimator may use a full
     # group layout, but the constructor kwargs object must remain unchanged.
@@ -272,7 +356,7 @@ def main():
 
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full",
         "source_commit": _git("rev-parse", "HEAD"),
         "source_clean": not dirty,
