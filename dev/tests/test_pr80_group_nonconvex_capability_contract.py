@@ -58,7 +58,10 @@ def test_default_group_nonconvex_inference_fails_before_solver_work(
         device="cpu",
     )
 
-    with pytest.raises(NotImplementedError, match="Inference not supported"):
+    with pytest.raises(
+        NotImplementedError,
+        match="estimation-only.*inference is not implemented",
+    ):
         model.fit(X, y)
     assert solver_called is False
 
