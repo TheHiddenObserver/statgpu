@@ -1,18 +1,24 @@
-"""Transactional design-width validation for public group penalties.
+"""Transactional model contracts for public group penalties.
 
 Penalty constructors can validate index syntax but do not know the eventual
-design width. This module installs two narrow public-boundary hooks:
+design width. This module installs narrow in-place hooks so all specialized
+estimators and historical direct imports share the same behavior:
 
 - direct estimators validate/complete group coverage immediately after penalty
   resolution and before solver/backend work;
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
-  fold construction, or candidate fitting, then writes the canonical groups
-  back so every fold and the final refit use the same penalty.
+  fold construction, or candidate fitting, then writes canonical groups back;
+- squared-error Group Lasso retains its block-coordinate fast path, while every
+  non-quadratic loss uses its actual gradient with the Group Lasso proximal
+  operator instead of the Gaussian-only X'X/X'y update.
 """
 
 from __future__ import annotations
 
+import copy
+
 from ._base import PenalizedGeneralizedLinearModel
+from ._fit_mixin import _PenalizedFitMixin
 from ._penalized_cv import PenalizedGLM_CV
 
 
@@ -26,6 +32,7 @@ _GROUP_PENALTY_NAMES = frozenset(
         "gscad",
     }
 )
+_GROUP_LASSO_NAMES = frozenset({"group_lasso", "gl"})
 
 
 def _validate_resolved_group_penalty(penalty, n_features):
@@ -99,5 +106,65 @@ def _install_cv_contract():
     PenalizedGLM_CV.fit = _fit_with_group_contract
 
 
+def _install_nonquadratic_group_lasso_solver_contract():
+    current = _PenalizedFitMixin._fit_loss_backend
+    if getattr(current, "_statgpu_group_loss_contract", False):
+        return
+
+    def _fit_loss_backend_with_group_contract(
+        self,
+        X,
+        y,
+        sample_weight,
+        solver_name,
+        backend_name,
+    ):
+        penalty_name = str(
+            getattr(getattr(self, "_penalty", None), "name", "")
+        ).lower()
+        loss_name = str(
+            getattr(getattr(self, "_loss", None), "name", self.loss)
+        ).lower()
+        if (
+            penalty_name not in _GROUP_LASSO_NAMES
+            or loss_name == "squared_error"
+        ):
+            return current(
+                self,
+                X,
+                y,
+                sample_weight,
+                solver_name,
+                backend_name,
+            )
+
+        # The original group_lasso branch is a Gaussian block-coordinate
+        # update.  A shallow copy with a private routing name bypasses only
+        # that branch; value/proximal semantics and all group metadata remain
+        # unchanged, so the generic FISTA path uses the actual loss gradient.
+        original_penalty = self._penalty
+        routed_penalty = copy.copy(original_penalty)
+        routed_penalty.name = "_group_lasso_generic"
+        self._penalty = routed_penalty
+        try:
+            return current(
+                self,
+                X,
+                y,
+                sample_weight,
+                "fista",
+                backend_name,
+            )
+        finally:
+            self._penalty = original_penalty
+
+    _fit_loss_backend_with_group_contract._statgpu_group_loss_contract = True
+    _fit_loss_backend_with_group_contract._statgpu_original = current
+    _PenalizedFitMixin._fit_loss_backend = (
+        _fit_loss_backend_with_group_contract
+    )
+
+
 _install_direct_contract()
 _install_cv_contract()
+_install_nonquadratic_group_lasso_solver_contract()
