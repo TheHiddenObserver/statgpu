@@ -142,6 +142,67 @@ def _finite_column_mean(scores):
     return means
 
 
+def _normalize_scalar_alpha_grid(alpha_grid, *, penalty_name):
+    """Validate and filter a user scalar-response CV alpha grid.
+
+    Scalar-response CV searches strictly positive regularization strengths.
+    Invalid scalar values are filtered for compatibility with the dedicated
+    scalar CV estimators. ``None`` signals that the caller must generate the
+    default grid because the supplied grid was empty or fully filtered.
+    """
+    raw = np.asarray(_to_numpy(alpha_grid))
+    if np.iscomplexobj(raw):
+        raise ValueError("alpha_grid must contain real numeric values")
+    if raw.ndim != 1:
+        raise ValueError("alpha_grid must be a one-dimensional array")
+    if raw.dtype.kind == "b":
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not booleans"
+        )
+    try:
+        grid = np.asarray(raw, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("alpha_grid must contain real numeric values") from exc
+
+    valid = np.isfinite(grid) & (grid > 0.0)
+    n_invalid = int(grid.size - np.count_nonzero(valid))
+    penalty_label = str(penalty_name).lower().strip()
+    if grid.size == 0 or not np.any(valid):
+        warnings.warn(
+            "The scalar-response alpha_grid was empty or contained no finite "
+            "positive values; using the automatically generated default grid. "
+            f"The {penalty_label} CV path searches alpha > 0.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return None
+    if n_invalid:
+        warnings.warn(
+            f"Filtered {n_invalid} non-positive or non-finite alpha_grid "
+            f"value(s); the scalar-response {penalty_label} CV path searches "
+            "alpha > 0.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return grid[valid]
+
+
+def _validate_final_scalar_alpha_grid(alpha_grid):
+    """Require a generated or filtered scalar grid to be usable by CV."""
+    grid = np.asarray(alpha_grid, dtype=np.float64)
+    if (
+        grid.ndim != 1
+        or grid.size == 0
+        or not np.all(np.isfinite(grid))
+        or np.any(grid <= 0.0)
+    ):
+        raise ValueError(
+            "scalar-response alpha grid generation must produce a non-empty "
+            "one-dimensional array of finite positive values"
+        )
+    return grid
+
+
 def _nanargmin_prefer_larger_alpha(scores, alpha_grid, rel_tol=1e-10, abs_tol=1e-12):
     """Select min score with deterministic tie-break toward stronger regularization."""
     scores = np.asarray(scores, dtype=np.float64)
@@ -2329,8 +2390,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         tol = self.tol if tol is None else tol
 
         # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──
-        _is_explicit_gpu = device_name in ("cuda", "torch")
-        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_explicit_gpu:
+        _is_gpu_cv_device = device_name in ("cuda", "torch")
+        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_gpu_cv_device:
             all_scores = np.full((len(folds), n_alphas), np.nan)
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = _slice_rows(X, train_idx)
@@ -2711,13 +2772,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if not hasattr(y, 'shape'):
             y = np.asarray(y, dtype=np.float64)
 
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
+        alpha_grid = None
         if self._alpha_grid_input is not None:
-            alpha_grid = np.asarray(self._alpha_grid_input, dtype=np.float64)
-        else:
+            alpha_grid = _normalize_scalar_alpha_grid(
+                self._alpha_grid_input,
+                penalty_name=penalty_name,
+            )
+        if alpha_grid is None:
             alpha_grid = self._generate_alpha_grid(
                 X, y, sample_weight=sample_weight
             )
-        alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
+        alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         self.alpha_grid_ = alpha_grid
         n_samples = X.shape[0]
@@ -2731,7 +2799,6 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
         else:
             folds = kfold_indices(n_samples, self.cv, self.random_state)
-        penalty_name = str(self.penalty).lower()
         cv_device = self._effective_cv_device(
             X, penalty_name, n_alphas, n_folds=len(folds)
         )

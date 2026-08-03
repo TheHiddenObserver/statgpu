@@ -21,6 +21,11 @@
 - The architecture section now shows separate scalar-response and penalized-Cox
   execution orders, including one-shot fold materialization, evaluable-fold
   device sizing, and the selected-backend location of Cox automatic-grid work.
+- Scalar-response CV now validates the complete user alpha grid before device
+  routing: invalid scalar values are filtered with a warning, an empty or fully
+  filtered grid regenerates the default, and malformed shapes/types fail before
+  candidate or refit work. Ridge documentation now distinguishes CPU-only
+  exact eigensolve CV/refit computation from the selected prediction backend.
 
 ### Fixed (2026-08-02) — PR #80 penalized-Cox CV and backend follow-up
 

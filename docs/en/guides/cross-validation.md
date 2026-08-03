@@ -236,11 +236,17 @@ model = RidgeCV(
 model.fit(X, y)
 ```
 
-Scalar-response CV estimators filter non-positive or non-finite values and fall
-back to the default grid with a warning when none remain. Penalized Cox does
-not filter or replace a user grid: non-finite or negative values raise
-`ValueError`, and SCAD/MCP additionally require every alpha to be strictly
-positive. L1, L2, and ElasticNet Cox grids may include zero.
+Scalar-response CV estimators search strictly positive alpha values. A
+one-dimensional numeric user grid keeps its original order after non-positive
+and non-finite entries are filtered with a `RuntimeWarning`; an empty or
+fully-filtered grid emits a warning and regenerates the default grid. Zero is
+therefore not a scalar-CV candidate for L1, L2, ElasticNet, SCAD, or MCP; use a
+direct estimator with `alpha=0` for an unpenalized fit. Non-one-dimensional,
+complex, boolean, or non-numeric grids raise `ValueError` before device routing
+or candidate work. Penalized Cox uses a stricter contract and does not filter
+or replace a user grid: non-finite or negative values raise `ValueError`, and
+SCAD/MCP additionally require every alpha to be strictly positive. L1, L2, and
+ElasticNet Cox grids may include zero.
 
 ### Fitted Attributes
 
@@ -360,7 +366,10 @@ PenalizedGLM_CV._fit_standard(X, y)
   +-- 4. Score the alpha grid (_compute_cv_scores)
   |     +-- Ridge eigendecomposition, fold-batched, sparse, LLA, or fallback
   |
-  +-- 5. Select the best alpha and refit on cv_selected_device_
+  +-- 5. Select the best alpha and refit
+        +-- squared_error + l2: exact float64 eigensolve on CPU
+        |   while retaining cv_selected_device_ for prediction/output
+        +-- other paths: refit on the resolved selected backend
 ```
 
 #### Penalized-Cox sequence
@@ -394,7 +403,7 @@ the survival-aware fold path after its preparation sequence above.
 
 #### Path 1: Ridge Eigendecomposition (squared_error + l2)
 
-**When**: `loss="squared_error"`, `penalty="l2"`, `device` is CPU/auto, `sample_weight=None`.
+**When**: `loss="squared_error"`, `penalty="l2"`, the resolved CV device is CPU, and `sample_weight=None`.
 
 **Method**: Batch eigendecomposition per fold.
 
@@ -409,6 +418,15 @@ coef = Q @ (1/(eigvals + n*alpha) * Q.T @ Xc.T @ yc)
 **Complexity**: O(p^3) per fold (eigendecomposition), independent of n_alphas.
 
 **Why it's fast**: All alphas are solved from a single eigendecomposition. For 20 alphas x 5 folds, this is 5 eigendecompositions instead of 100 model fits.
+
+This batched scoring path depends on the resolved CV device, not the constructor
+spelling: `device="auto"` uses it only when auto routing resolves to CPU. If
+auto routing selects CUDA/Torch, CV uses the corresponding GPU scoring path.
+After selection, squared-error L2 always transfers the full refit data to NumPy
+and executes the exact float64 `_ridge_eig_single()` solve on CPU so CV/refit
+coefficient precision is stable. The fitted estimator still retains
+`cv_selected_device_` as its prediction/output backend contract; that metadata
+does not claim the refit eigensolve ran on the selected accelerator.
 
 #### Path 2: Fold-Batched CV (logistic, poisson, gamma, NB, inv.gauss, tweedie)
 

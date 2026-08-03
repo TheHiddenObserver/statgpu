@@ -515,7 +515,8 @@ gate；并新增公开标量响应 list/一次性 generator routing，以及五�
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
 分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source
 commit 之后的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的
-物理 GPU 覆盖。
+物理 GPU 覆盖。因此 schema-19 之后新增的标量 alpha-grid 校验尚待 schema-20 精确
+源码刷新，不能追溯继承上表证据。
 
 ## FAQ 与常见失败模式
 

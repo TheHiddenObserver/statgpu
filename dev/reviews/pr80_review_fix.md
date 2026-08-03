@@ -10,10 +10,10 @@
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
 > Current shared-CV boundary SHA-256: `c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc`<br>
-> Current penalized-CV orchestration SHA-256: `ac19fa0dd0754872f0f86ddd1fb2f4433222895b17aad92847a54cd8c5b5763c`<br>
+> Current penalized-CV orchestration SHA-256: `bc311d4795bf0003de4c3cf8d82ec95b30d8779ecdc9e03a438d1ddf83d14598`<br>
 > Current penalized-Cox CV SHA-256: `d9ca5923deb07452b6e2c158c0a3d0808894f3376a1a96cdb928333e6ac4c151`<br>
 > Current canonical-Cox CV SHA-256: `98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810`<br>
-> Current schema-19 runner SHA-256: `bf2b12d5aaf5de1af18e41ee2f13b91457477f8b1b91436551351d066e914f0d`<br>
+> Current schema-20 runner SHA-256: `a78e42ac94d691bef471d9be5e666782862ac3f1c27d75637ac3975dec343103`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
 > Final counting-solver SHA-256: `466bdc86891bc41749e2272d2566344cd28c112b7234fb5d1e104df25c61e2da`<br>
 > Final Cox dispatch SHA-256: `17738770458ae986037f5e1209a8da51e1bad41a1869d5d5518886c15ad348d0`<br>
@@ -37,7 +37,7 @@
 > Evaluable-fold routing artifact SHA-256: `4cc0cfb896d472cca601963f2cb6e86c6e1c5d9925fcba321df2f41942f2962c`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `COMPLETE`; scalar/evaluable-fold routing passes local-full and schema-19 exact-source P100 validation at tier `remote-full`
+> Status: `PARTIAL_REMOTE_PENDING`; scalar alpha-grid validation and Ridge routing documentation pass local-full, while schema-20 exact-source P100 evidence is pending
 
 ## Review Contract
 
@@ -63,10 +63,10 @@ while retaining PR #80's counting-process implementation.
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
 | Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
-| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, and evaluable-fold workload | fixed; local-full and schema-19 P100 validation pass |
-| Cross-validation | scalar-response and Cox custom-fold routing, plus canonical/penalized Cox selection contracts | fixed; local-full and schema-19 P100 validation pass |
+| Backends | NumPy/CuPy/Torch fit, prediction, CV selection, operational fallback, evaluable-fold workload, and scalar grid boundaries | fixed locally; schema-20 physical refresh pending |
+| Cross-validation | scalar-response and Cox custom-fold routing, scalar alpha-grid validation, plus canonical/penalized Cox selection contracts | fixed; local-full passes, schema-20 physical refresh pending |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-19 exact-source evidence passes |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | historical artifacts remain scoped; schema-20 alpha-grid evidence pending |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -1561,3 +1561,67 @@ physical evidence=`schema 19 remains applicable to its exact runtime source`.
 This is a documentation-only correction: no runtime, maintained test, runner,
 or artifact source changed. Documentation links, all 122 maintained contracts,
 and `git diff --check` pass; no new physical-GPU refresh is required.
+
+## Scalar Alpha-Grid and Ridge Refit Contract Follow-up
+
+Impact classification: numerical result=`affected for formerly invalid scalar
+grids`; selected alpha=`affected and corrected`; backend placement=`documented
+without runtime change`; public API=`warning/filter and strict malformed-grid
+contracts`; inference/formula=`unchanged`; exact-source physical evidence=
+`schema 20 pending`.
+
+### Capability decisions by touched public family
+
+| Public family | Backend | CV | Inference | Formula | Benchmark |
+|---|---|---|---|---|---|
+| Scalar-response `PenalizedGLM_CV` with L1/L2/ElasticNet/SCAD/MCP | `three-backend`; backend-native grid input accepted | `supported`; finite positive candidates only | `unchanged` | `not-formula-facing` | `required`; schema-20 case added |
+| Squared-error/L2 Ridge route through `PenalizedGLM_CV` | CPU/GPU CV according to resolved routing; CPU exact final eigensolve | `supported`; Ridge batch receives only validated candidates | `unchanged` | `not-formula-facing` | `required`; CPU-compute/selected-output contract tested |
+| Dedicated `RidgeCV` / `ElasticNetCV` | `unchanged` | existing scalar filtering policy retained | `unchanged` | `not-formula-facing` | existing evidence remains scoped |
+| Survival-aware `PenalizedGLM_CV(loss="cox_ph")` | `unchanged` | strict user-grid contract remains separate | `unchanged` | `not-formula-facing` | schema-19 Cox claims remain scoped |
+
+- [HIGH][BUG/API][fixed locally] The scalar `_fit_standard()` path previously
+  cast and flattened a user grid without validating emptiness, finiteness, sign,
+  shape, or type. Two policies were compared. A strict error for every invalid
+  scalar would be simple but would tighten the documented scalar contract and
+  diverge from the dedicated Ridge/ElasticNet CV behavior. The selected policy
+  preserves compatibility: a one-dimensional real numeric grid keeps its order,
+  filters non-positive/non-finite entries with `RuntimeWarning`, and regenerates
+  the default grid with a warning when no valid entries remain. Non-1D, complex,
+  boolean, and non-numeric inputs fail transactionally before device selection,
+  candidate scoring, or refit. A second invariant gate validates generated grids
+  as non-empty, one-dimensional, finite, and strictly positive.
+- [HIGH][TEST/MATRIX][fixed locally] Regression coverage includes negative,
+  NaN, Inf, zero, mixed-valid, empty, all-invalid, malformed-shape, complex,
+  boolean, and non-numeric inputs. L1/L2/ElasticNet/SCAD/MCP share the positive-
+  alpha zero policy; the CPU Ridge eig batch receives only the filtered grid;
+  backend-native NumPy/CuPy/Torch alpha arrays are accepted; malformed grids
+  prove all device/candidate/refit hooks remain untouched; failed fits clear
+  public fitted state.
+- [MEDIUM][DOC/BACKEND][fixed locally] EN/CN architecture and scoring sections
+  now use the resolved CV device as the Ridge batch condition. They explicitly
+  state that an auto-selected GPU uses GPU candidate scoring, while every
+  squared-error/L2 final refit converts the full data to NumPy and executes the
+  exact float64 eigensolve on CPU. `cv_selected_device_` remains the fitted
+  prediction/output backend contract and is not presented as the refit compute
+  location. A regression forces Torch routing and independently records CPU
+  refit computation plus Torch estimator metadata.
+
+Focused alpha-grid/Ridge coverage passes 17 tests with 8 expected physical-GPU
+skips; the complete penalized-CV contract file passes 76 tests with 30 expected
+GPU skips. The scalar-response safety set passes 89 tests with seven optional-
+backend skips. The 17-file schema-targeted matrix passes 434 tests with 147
+expected GPU skips and seven expected warnings, and the complete CPU tree passes
+1,623 tests with 521 expected GPU skips and eleven expected warnings.
+Documentation links, all 122 maintained documentation contracts, package/dev
+compileall, benchmark CLI parsing, and `git diff --check` pass. The local image
+does not provide `ruff`; pyflakes re-reports only pre-existing warnings outside
+these new symbols and changed-line inspection finds no new unused import or
+binding.
+
+The physical runner is advanced to schema 20. Its CuPy and Torch case now uses
+backend-native mixed and all-invalid scalar grids, records filtered/default
+candidate grids and warnings, proves malformed two-dimensional input reaches no
+device/candidate/refit work, and gates finite final coefficients. Because this
+runner and maintained tests changed after schema 19, the follow-up remains
+`PARTIAL_REMOTE_PENDING` until a clean implementation commit is validated in
+remote `myconda` and the exact-source JSON is written back.

@@ -228,9 +228,13 @@ model = RidgeCV(
 model.fit(X, y)
 ```
 
-标量响应 CV estimator 会过滤非正或非有限值；若无剩余值，则 warning 后回退默认
-网格。Penalized Cox 不会过滤或替换用户网格：非有限或负值会抛出 `ValueError`，
-SCAD/MCP 还要求每个 alpha 严格为正；L1、L2 与 ElasticNet Cox 网格允许零值。
+标量响应 CV estimator 只搜索严格为正的 alpha。一维数值用户网格会保留原顺序，
+非正与非有限项会伴随 `RuntimeWarning` 被过滤；空网格或过滤后为空会 warning 并重新
+生成默认网格。因此 L1、L2、ElasticNet、SCAD 与 MCP 的标量 CV 都不会把零作为候选；
+无惩罚拟合应直接使用 `alpha=0` 的 estimator。非一维、复数、布尔或非数值网格会在
+设备路由与 candidate 工作前抛出 `ValueError`。Penalized Cox 使用更严格的契约，
+不会过滤或替换用户网格：非有限或负值会抛出 `ValueError`，SCAD/MCP 还要求每个
+alpha 严格为正；L1、L2 与 ElasticNet Cox 网格允许零值。
 
 ## 拟合属性
 
@@ -336,7 +340,10 @@ PenalizedGLM_CV._fit_standard(X, y)
   ├─ 4. 对 alpha 网格评分 (_compute_cv_scores)
   │     └─ Ridge 特征分解、fold-batch、sparse、LLA 或兜底路径
   │
-  └─ 5. 选择最优 alpha，并在 cv_selected_device_ 上重拟合
+  └─ 5. 选择最优 alpha 并重拟合
+        ├─ squared_error + l2：在 CPU 上执行精确 float64 特征分解
+        │  同时保留 cv_selected_device_ 作为预测/输出后端契约
+        └─ 其他路径：在解析后的选定 backend 上重拟合
 ```
 
 ### 惩罚 Cox 顺序
@@ -370,7 +377,7 @@ survival-aware fold 路径。
 
 ### 路径 1：Ridge 特征分解（squared_error + l2）
 
-**条件**：`loss="squared_error"`、`penalty="l2"`、`device` 为 CPU/auto、`sample_weight=None`。
+**条件**：`loss="squared_error"`、`penalty="l2"`、解析后的 CV device 为 CPU，且 `sample_weight=None`。
 
 **方法**：每 fold 批量特征分解。
 
@@ -385,6 +392,13 @@ coef = Q @ (1/(eigvals + n*alpha) * Q.T @ Xc.T @ yc)
 **复杂度**：每 fold O(p³)（特征分解），与 n_alphas 无关。
 
 **为什么快**：所有 alpha 从一次特征分解求解。对于 20 alpha × 5 fold，这是 5 次特征分解而非 100 次模型拟合。
+
+这条批量 scoring 路径取决于解析后的 CV device，而不是 constructor 的字面值：
+`device="auto"` 只有在自动路由解析为 CPU 时才使用它；若自动路由选择 CUDA/Torch，
+CV 会使用相应的 GPU scoring 路径。完成选择后，squared-error L2 总会把完整重拟合
+数据转换到 NumPy，并在 CPU 上执行精确 float64 `_ridge_eig_single()`，以保持 CV 与
+重拟合系数的精度一致。拟合后的 estimator 仍保留 `cv_selected_device_` 作为预测/输出
+backend 契约；该 metadata 并不表示重拟合特征分解运行在所选 accelerator 上。
 
 ### 路径 2：Fold-Batch CV（logistic, poisson, gamma, NB, inv.gauss, tweedie）
 

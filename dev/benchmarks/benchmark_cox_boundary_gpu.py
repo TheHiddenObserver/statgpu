@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import time
+import warnings
 
 import numpy as np
 
@@ -2060,6 +2061,102 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
         tol=1e-7,
     ).fit(scalar_X, scalar_y)
 
+    scalar_grid_values = np.array(
+        [0.2, -1.0, np.nan, 0.0, np.inf, 0.05], dtype=np.float64
+    )
+    with warnings.catch_warnings(record=True) as filtered_warning_records:
+        warnings.simplefilter("always")
+        scalar_filtered_grid = PenalizedGLM_CV(
+            loss="squared_error",
+            penalty="l2",
+            alpha_grid=_array(name, xp, scalar_grid_values),
+            cv=2,
+            random_state=31,
+            device=device,
+            max_iter=200,
+            tol=1e-7,
+        ).fit(scalar_X, scalar_y)
+    filtered_warning_messages = [
+        str(record.message) for record in filtered_warning_records
+    ]
+
+    with warnings.catch_warnings(record=True) as default_warning_records:
+        warnings.simplefilter("always")
+        scalar_default_grid = PenalizedGLM_CV(
+            loss="squared_error",
+            penalty="l2",
+            alpha_grid=_array(
+                name,
+                xp,
+                np.array([-1.0, np.nan, 0.0, np.inf], dtype=np.float64),
+            ),
+            n_alphas=3,
+            cv=2,
+            random_state=32,
+            device=device,
+            max_iter=200,
+            tol=1e-7,
+        ).fit(scalar_X, scalar_y)
+    default_warning_messages = [
+        str(record.message) for record in default_warning_records
+    ]
+
+    invalid_grid_work_calls = []
+
+    class RejectingInvalidGridCV(PenalizedGLM_CV):
+        def _effective_cv_device(self, *args, **kwargs):
+            invalid_grid_work_calls.append("device")
+            raise AssertionError("invalid grid reached device routing")
+
+        def _compute_cv_scores(self, *args, **kwargs):
+            invalid_grid_work_calls.append("candidate")
+            raise AssertionError("invalid grid reached candidate work")
+
+        def _refit_best(self, *args, **kwargs):
+            invalid_grid_work_calls.append("refit")
+            raise AssertionError("invalid grid reached final refit")
+
+    invalid_grid_error = ""
+    try:
+        RejectingInvalidGridCV(
+            loss="squared_error",
+            penalty="l2",
+            alpha_grid=_array(
+                name,
+                xp,
+                np.array([[0.2, 0.1]], dtype=np.float64),
+            ),
+            cv=2,
+            device=device,
+        ).fit(scalar_X, scalar_y)
+    except ValueError as exc:
+        invalid_grid_error = str(exc)
+
+    filtered_grid_np = np.asarray(
+        scalar_filtered_grid.alpha_grid_, dtype=np.float64
+    )
+    default_grid_np = np.asarray(
+        scalar_default_grid.alpha_grid_, dtype=np.float64
+    )
+    scalar_alpha_grid_passed = all(
+        (
+            np.array_equal(filtered_grid_np, np.array([0.2, 0.05])),
+            scalar_filtered_grid.alpha_ in {0.2, 0.05},
+            np.all(np.isfinite(np.asarray(scalar_filtered_grid.coef_))),
+            any("Filtered 4" in value for value in filtered_warning_messages),
+            default_grid_np.shape == (3,),
+            np.all(np.isfinite(default_grid_np)),
+            np.all(default_grid_np > 0.0),
+            scalar_default_grid.alpha_ in set(default_grid_np),
+            any(
+                "automatically generated default" in value
+                for value in default_warning_messages
+            ),
+            "one-dimensional" in invalid_grid_error,
+            invalid_grid_work_calls == [],
+        )
+    )
+
     support_rng = np.random.default_rng(2292)
     support_X_np = support_rng.normal(size=(36, 2))
     support_event_np = np.zeros(36, dtype=np.float64)
@@ -2174,12 +2271,29 @@ def _case_penalized_cox_cv_and_backend_pin(name: str, xp) -> dict:
             all(result["passed"] for result in automatic_grid_results.values()),
             fold_work_passed,
             public_fold_routing_passed,
+            scalar_alpha_grid_passed,
         )
     )
     return {
         "backend": name,
         "penalty_families": penalty_results,
         "automatic_elasticnet_grid": automatic_grid_results,
+        "scalar_alpha_grid": {
+            "input_backend": name,
+            "contract": (
+                "filter non-positive/non-finite values before routing; "
+                "regenerate defaults when none remain; reject malformed shape"
+            ),
+            "filtered_grid": filtered_grid_np.tolist(),
+            "filtered_selected_alpha": float(scalar_filtered_grid.alpha_),
+            "filtered_warning_messages": filtered_warning_messages,
+            "default_grid": default_grid_np.tolist(),
+            "default_selected_alpha": float(scalar_default_grid.alpha_),
+            "default_warning_messages": default_warning_messages,
+            "malformed_error": invalid_grid_error,
+            "malformed_work_calls": invalid_grid_work_calls,
+            "passed": bool(scalar_alpha_grid_passed),
+        },
         "public_fold_routing": {
             "scalar_list_observed_count": (
                 scalar_single.observed_device_sizing_fold_count
@@ -2231,7 +2345,7 @@ def main() -> int:
     head = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
     report = {
-        "schema_version": 19,
+        "schema_version": 20,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty,

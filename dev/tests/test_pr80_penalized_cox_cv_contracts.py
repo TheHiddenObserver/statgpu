@@ -427,6 +427,211 @@ def test_scalar_glm_cv_passes_materialized_custom_fold_count(
     assert generator_iterations == ([] if fold_container == "list" else [1])
 
 
+@pytest.mark.parametrize("penalty_name", ["l1", "l2", "elasticnet", "scad", "mcp"])
+def test_scalar_alpha_grid_zero_is_filtered_for_every_tunable_penalty(
+    penalty_name,
+):
+    with pytest.warns(RuntimeWarning, match=penalty_name):
+        grid = penalized_cv_module._normalize_scalar_alpha_grid(
+            [0.0, 0.25],
+            penalty_name=penalty_name,
+        )
+
+    np.testing.assert_array_equal(grid, np.array([0.25]))
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+def test_scalar_alpha_grid_filters_invalid_values_end_to_end(backend_name):
+    rng = np.random.default_rng(8130)
+    X = rng.normal(size=(24, 3))
+    y = X @ np.array([0.8, -0.35, 0.2]) + rng.normal(scale=0.05, size=24)
+    device, Xb, yb = _backend_inputs(backend_name, X, y)
+    alpha_values = np.array(
+        [0.2, -1.0, np.nan, 0.0, np.inf, 0.05], dtype=np.float64
+    )
+    if backend_name == "cupy":
+        import cupy as cp
+
+        alpha_grid = cp.asarray(alpha_values)
+    elif backend_name == "torch":
+        import torch
+
+        alpha_grid = torch.as_tensor(
+            alpha_values, dtype=torch.float64, device="cuda"
+        )
+    else:
+        alpha_grid = alpha_values
+
+    with pytest.warns(RuntimeWarning, match="Filtered 4"):
+        model = PenalizedGLM_CV(
+            loss="squared_error",
+            penalty="l2",
+            alpha_grid=alpha_grid,
+            cv=2,
+            random_state=13,
+            device=device,
+            max_iter=200,
+            tol=1e-7,
+        ).fit(Xb, yb)
+
+    np.testing.assert_array_equal(model.alpha_grid_, np.array([0.2, 0.05]))
+    assert model.alpha_ in {0.2, 0.05}
+    assert np.all(np.isfinite(_as_numpy(model.coef_)))
+
+
+@pytest.mark.parametrize(
+    "alpha_grid",
+    [
+        np.array([], dtype=np.float64),
+        np.array([-1.0]),
+        np.array([np.nan]),
+        np.array([np.inf]),
+        np.array([0.0]),
+        np.array([-1.0, np.nan, np.inf, 0.0]),
+    ],
+    ids=["empty", "negative", "nan", "inf", "zero", "all-invalid"],
+)
+def test_scalar_alpha_grid_empty_or_all_invalid_uses_default(alpha_grid):
+    rng = np.random.default_rng(8131)
+    X = rng.normal(size=(20, 2))
+    y = X @ np.array([0.7, -0.25]) + rng.normal(scale=0.05, size=20)
+
+    with pytest.warns(RuntimeWarning, match="automatically generated default"):
+        model = PenalizedGLM_CV(
+            loss="squared_error",
+            penalty="l2",
+            alpha_grid=alpha_grid,
+            n_alphas=3,
+            cv=2,
+            device="cpu",
+        ).fit(X, y)
+
+    assert model.alpha_grid_.shape == (3,)
+    assert np.all(np.isfinite(model.alpha_grid_))
+    assert np.all(model.alpha_grid_ > 0.0)
+    assert model.alpha_ in set(model.alpha_grid_)
+
+
+def test_scalar_alpha_grid_filtered_values_reach_cpu_ridge_fast_path(
+    monkeypatch,
+):
+    rng = np.random.default_rng(8132)
+    X = rng.normal(size=(21, 3))
+    y = X @ np.array([0.6, -0.2, 0.4]) + rng.normal(scale=0.04, size=21)
+    observed_grids = []
+    original = penalized_cv_module._ridge_eig_batch
+
+    def capture_ridge_batch(X_train, y_train, X_val, y_val, alphas):
+        observed_grids.append(np.asarray(alphas, dtype=np.float64).copy())
+        return original(X_train, y_train, X_val, y_val, alphas)
+
+    monkeypatch.setattr(
+        penalized_cv_module, "_ridge_eig_batch", capture_ridge_batch
+    )
+    with pytest.warns(RuntimeWarning, match="Filtered 3"):
+        model = PenalizedGLM_CV(
+            loss="squared_error",
+            penalty="l2",
+            alpha_grid=[np.nan, -0.1, 0.0, 0.3, 0.07],
+            cv=3,
+            random_state=14,
+            device="cpu",
+        ).fit(X, y)
+
+    assert len(observed_grids) == 3
+    for observed in observed_grids:
+        np.testing.assert_array_equal(observed, np.array([0.3, 0.07]))
+    assert model.alpha_ in {0.3, 0.07}
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "cupy", "torch"])
+@pytest.mark.parametrize(
+    ("bad_grid", "message"),
+    [
+        (np.array([[0.2, 0.1]]), "one-dimensional"),
+        (np.array([0.2 + 0.1j]), "real numeric"),
+        (np.array([True, False]), "not booleans"),
+        (np.array(["invalid"]), "real numeric"),
+    ],
+    ids=["two-dimensional", "complex", "boolean", "non-numeric"],
+)
+def test_scalar_alpha_grid_validation_precedes_device_candidate_and_refit(
+    backend_name, bad_grid, message, monkeypatch
+):
+    rng = np.random.default_rng(8133)
+    X = rng.normal(size=(16, 2))
+    y = X @ np.array([0.5, -0.3])
+    device, Xb, yb = _backend_inputs(backend_name, X, y)
+    work_calls = []
+
+    def work_must_not_run(*args, **kwargs):
+        work_calls.append(True)
+        raise AssertionError(
+            "device selection, candidate work, and refit are forbidden"
+        )
+
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_effective_cv_device", work_must_not_run
+    )
+    monkeypatch.setattr(PenalizedGLM_CV, "_compute_cv_scores", work_must_not_run)
+    monkeypatch.setattr(PenalizedGLM_CV, "_refit_best", work_must_not_run)
+    model = PenalizedGLM_CV(
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=bad_grid,
+        cv=2,
+        device=device,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        model.fit(Xb, yb)
+
+    assert work_calls == []
+    assert model.alpha_ is None
+    assert model.estimator_ is None
+    assert model._fitted is False
+
+
+def test_scalar_generated_alpha_grid_is_validated_before_candidate_work(
+    monkeypatch,
+):
+    X = np.arange(24, dtype=np.float64).reshape(12, 2)
+    y = np.linspace(-1.0, 1.0, 12)
+    work_calls = []
+
+    def invalid_generated_grid(*args, **kwargs):
+        return np.array([np.nan])
+
+    def work_must_not_run(*args, **kwargs):
+        work_calls.append(True)
+        raise AssertionError("candidate work and refit are forbidden")
+
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_generate_alpha_grid", invalid_generated_grid
+    )
+    monkeypatch.setattr(
+        PenalizedGLM_CV, "_effective_cv_device", work_must_not_run
+    )
+    monkeypatch.setattr(PenalizedGLM_CV, "_compute_cv_scores", work_must_not_run)
+    monkeypatch.setattr(PenalizedGLM_CV, "_refit_best", work_must_not_run)
+    model = PenalizedGLM_CV(
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=[],
+        cv=2,
+        device="cpu",
+    )
+
+    with pytest.warns(RuntimeWarning, match="automatically generated default"):
+        with pytest.raises(ValueError, match="generation must produce"):
+            model.fit(X, y)
+
+    assert work_calls == []
+    assert model.alpha_ is None
+    assert model.estimator_ is None
+    assert model._fitted is False
+
+
 def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
     X = np.arange(36, dtype=np.float64).reshape(12, 3)
     y = np.linspace(-1.0, 1.0, 12)
@@ -437,6 +642,7 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
         )
     ]
     observed_refit_devices = []
+    observed_refit_compute_devices = []
 
     def select_torch(self, X_value, penalty_name, n_alphas, *, n_folds=None):
         return "torch"
@@ -445,6 +651,9 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
         return np.zeros((len(folds), len(alpha_grid)), dtype=np.float64)
 
     def eig_solution(X_value, y_value, alpha, sample_weight=None):
+        assert isinstance(X_value, np.ndarray)
+        assert isinstance(y_value, np.ndarray)
+        observed_refit_compute_devices.append("cpu")
         return np.zeros(X_value.shape[1], dtype=np.float64), 0.0
 
     def capture_refit(
@@ -475,6 +684,7 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
 
     assert model.cv_selected_device_ == "torch"
     assert observed_refit_devices == ["torch"]
+    assert observed_refit_compute_devices == ["cpu"]
     assert getattr(
         model.estimator_.device, "value", model.estimator_.device
     ) == "torch"
