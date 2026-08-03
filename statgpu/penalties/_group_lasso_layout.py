@@ -21,37 +21,37 @@ from . import _group_lasso as _group_lasso_impl
 
 _BaseGroupLassoPenalty = _group_lasso_impl.GroupLassoPenalty
 _BaseAdaptiveGroupLassoPenalty = _group_lasso_impl.AdaptiveGroupLassoPenalty
+_INT64_INFO = np.iinfo(np.int64)
 
 
 def _normalize_group_alpha(alpha):
     """Validate convex group-penalty strength without lossy coercion."""
-    if isinstance(alpha, (bool, np.bool_)):
+    if isinstance(alpha, (bool, np.bool_)) or not isinstance(alpha, Real):
         raise TypeError("alpha must be a finite non-negative numeric scalar")
-    try:
-        value = float(alpha)
-    except (TypeError, ValueError) as exc:
-        raise TypeError(
-            "alpha must be a finite non-negative numeric scalar"
-        ) from exc
+    value = float(alpha)
     if not np.isfinite(value) or value < 0.0:
         raise ValueError("alpha must be a finite non-negative scalar")
     return value
 
 
 def _coerce_group_integer(value, *, label):
-    """Accept integer scalars and exact finite integer-valued reals only."""
+    """Accept exact integer-valued reals representable as signed int64."""
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{label} must be integer-valued, not boolean")
     if isinstance(value, (Integral, np.integer)):
-        return int(value)
-    if isinstance(value, (Real, np.floating)):
+        result = int(value)
+    elif isinstance(value, (Real, np.floating)):
         numeric = float(value)
         if not np.isfinite(numeric):
             raise ValueError(f"{label} must be finite")
         if not numeric.is_integer():
             raise ValueError(f"{label} must be integer-valued")
-        return int(numeric)
-    raise TypeError(f"{label} must be an integer-valued numeric scalar")
+        result = int(numeric)
+    else:
+        raise TypeError(f"{label} must be an integer-valued numeric scalar")
+    if result < int(_INT64_INFO.min) or result > int(_INT64_INFO.max):
+        raise ValueError(f"{label} is outside the signed int64 range")
+    return result
 
 
 def _normalize_groups_parameter(groups):
@@ -142,7 +142,7 @@ def _canonicalize_nested_groups(groups):
     first = groups[0]
     if not isinstance(first, (list, tuple, np.ndarray)):
         return groups
-    return [np.asarray(group, dtype=int) for group in groups]
+    return [np.asarray(group, dtype=np.int64) for group in groups]
 
 
 def _canonical_internal_groups(penalty):
@@ -169,12 +169,7 @@ def _sync_groups_snapshot_after_base_init(penalty, normalized_groups):
 
 def _validate_group_feature_coverage(penalty, n_features):
     """Make group coverage solver-independent once the design width is known."""
-    if isinstance(n_features, (bool, np.bool_)):
-        raise TypeError("n_features must be a positive integer")
-    try:
-        n_features = int(n_features)
-    except (TypeError, ValueError) as exc:
-        raise TypeError("n_features must be a positive integer") from exc
+    n_features = _coerce_group_integer(n_features, label="n_features")
     if n_features < 1:
         raise ValueError("n_features must be a positive integer")
     if penalty._group_indices is None:
