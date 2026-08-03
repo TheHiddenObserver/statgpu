@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import copy
 
+import numpy as np
+
 from ._base import PenalizedGeneralizedLinearModel
 from ._fit_mixin import _PenalizedFitMixin
 from ._penalized_cv import PenalizedGLM_CV
@@ -62,17 +64,30 @@ def _install_direct_contract():
     )
 
 
+def _cv_design_width(X):
+    """Resolve public array-like design width without starting CV work."""
+    shape = getattr(X, "shape", None)
+    ndim = getattr(X, "ndim", None)
+    if shape is not None and ndim == 2:
+        return int(shape[1])
+    try:
+        host = np.asarray(X)
+    except Exception:
+        return None
+    if host.ndim != 2:
+        return None
+    return int(host.shape[1])
+
+
 def _prepare_cv_group_penalty(estimator, X):
     penalty_name = str(
         getattr(estimator.penalty, "name", estimator.penalty)
     ).lower().strip()
     if penalty_name not in _GROUP_PENALTY_NAMES:
         return
-    shape = getattr(X, "shape", None)
-    ndim = getattr(X, "ndim", None)
-    if shape is None or ndim != 2:
+    n_features = _cv_design_width(X)
+    if n_features is None:
         return
-    n_features = int(shape[1])
 
     penalty = estimator.penalty
     if getattr(penalty, "validate_n_features", None) is None:
