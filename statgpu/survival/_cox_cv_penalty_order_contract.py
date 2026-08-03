@@ -113,6 +113,21 @@ def _fit_cv_with_strict_penalty_grid(self, *args, **kwargs):
 _module._select_coxph_penalty_cv = _select_coxph_penalty_cv_order_invariant
 _module.CoxPHCV._fit_cv = _fit_cv_with_strict_penalty_grid
 
+_CUSTOM_GRID_DOC = """
+
+    Custom penalty-grid contract
+    ----------------------------
+    A supplied ``penalties`` grid must be a non-empty one-dimensional sequence
+    of real numeric scalars. Boolean, string/bytes, and complex values are
+    rejected before candidate work. The continuation and optional staged
+    screening paths always evaluate the grid from strongest to weakest
+    regularization. ``penalties_`` and every candidate-axis entry in
+    ``cv_results_`` retain the caller's original order; the internal order is
+    available as ``cv_results_['penalty_evaluation_order']``.
+"""
+if _CUSTOM_GRID_DOC.strip() not in (_module.CoxPHCV.__doc__ or ""):
+    _module.CoxPHCV.__doc__ = (_module.CoxPHCV.__doc__ or "") + _CUSTOM_GRID_DOC
+
 
 __all__ = [
     "_descending_penalty_order",
