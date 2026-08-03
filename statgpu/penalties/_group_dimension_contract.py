@@ -1,10 +1,12 @@
 """Strict coefficient-dimension contracts for public group penalties.
 
-Estimator intercepts are handled explicitly by ``SelectivePenalty``, which
-passes only feature coefficients to the inner penalty. Public penalty methods
-therefore require an exact one-dimensional feature vector. This prevents direct
-solver calls from silently leaving trailing coordinates unpenalized or using
-different coordinates across value, gradient, proximal, and LLA operations.
+Estimator intercepts are handled explicitly by ``SelectivePenalty``. Public
+penalty methods therefore require an exact one-dimensional feature vector. The
+only exception is an internal LLA surrogate created by the Group MCP/SCAD
+contract: it receives one trailing unpenalized intercept from the fused solver
+and opts in through a private capability flag. User-created penalties never get
+that flag, so direct solver calls cannot silently leave trailing coordinates
+unpenalized.
 """
 
 from __future__ import annotations
@@ -29,10 +31,21 @@ def _validate_dimension(penalty, coef, operation):
         raise ValueError("groups must be set before numerical penalty use")
     expected = int(feature_map.shape[0])
     actual = int(shape[0])
-    if actual != expected:
+    allow_internal_intercept = bool(
+        getattr(penalty, "_allow_trailing_unpenalized_intercept", False)
+    )
+    valid = actual == expected or (
+        allow_internal_intercept and actual == expected + 1
+    )
+    if not valid:
+        suffix = (
+            " or one internal trailing intercept"
+            if allow_internal_intercept
+            else ""
+        )
         raise ValueError(
             f"{type(penalty).__name__}.{operation} expected {expected} "
-            f"feature coefficients from groups, got {actual}"
+            f"feature coefficients from groups{suffix}, got {actual}"
         )
 
 
