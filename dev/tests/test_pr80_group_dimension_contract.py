@@ -86,5 +86,8 @@ def test_direct_fista_solver_rejects_uncovered_trailing_coordinate():
     )
     loss = get_glm_loss("squared_error")
 
-    with pytest.raises(ValueError, match="expected 4 feature coefficients, got 5"):
+    with pytest.raises(
+        ValueError,
+        match=r"expected 4 feature coefficients(?: from groups)?, got 5",
+    ):
         fista_solver(loss, penalty, X, y, max_iter=20, tol=1e-6)
