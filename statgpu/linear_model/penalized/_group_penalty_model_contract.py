@@ -14,6 +14,8 @@ estimators and historical direct imports share the same behavior:
 - PenalizedGLM_CV validates/completes coverage before alpha-grid generation,
   fold construction, or candidate fitting, using a temporary clone for penalty
   objects and restoring the original constructor parameter afterward;
+- temporary CV penalty objects are rebuilt at each candidate's alpha, so object
+  penalties and string penalties evaluate the same regularization grid;
 - every Group Lasso objective uses the actual loss gradient plus the exact
   Euclidean Group Lasso proximal operator. The historical Gaussian block update
   is bypassed because its inverse-Gram-then-threshold formula is exact only for
@@ -47,17 +49,27 @@ _GROUP_PENALTY_NAMES = frozenset(
     }
 )
 _GROUP_LASSO_NAMES = frozenset({"group_lasso", "gl"})
+_CV_ALPHA_MARKER = "_statgpu_cv_alpha_from_estimator"
 
 
 def _public_penalty_name(estimator):
     return str(getattr(estimator.penalty, "name", estimator.penalty)).lower().strip()
 
 
-def _clone_group_penalty(penalty):
-    clone = getattr(penalty, "clone", None)
-    if callable(clone):
-        return clone()
-    return copy.deepcopy(penalty)
+def _clone_group_penalty(penalty, *, alpha=None):
+    params = penalty.get_params(deep=False)
+    if alpha is not None:
+        params = dict(params)
+        params["alpha"] = alpha
+    try:
+        return type(penalty)(**params)
+    except Exception:
+        if alpha is not None:
+            raise
+        clone = getattr(penalty, "clone", None)
+        if callable(clone):
+            return clone()
+        return copy.deepcopy(penalty)
 
 
 def _validate_resolved_group_penalty(penalty, n_features):
@@ -155,7 +167,12 @@ def _install_direct_contract():
         penalty = current(self)
         penalty_name = str(getattr(penalty, "name", "")).lower().strip()
         if penalty is self.penalty and penalty_name in _GROUP_PENALTY_NAMES:
-            penalty = _clone_group_penalty(penalty)
+            forced_alpha = (
+                self.alpha
+                if bool(getattr(penalty, _CV_ALPHA_MARKER, False))
+                else None
+            )
+            penalty = _clone_group_penalty(penalty, alpha=forced_alpha)
         n_features = getattr(self, "n_features_in_", None)
         if n_features is not None:
             _validate_resolved_group_penalty(penalty, n_features)
@@ -232,6 +249,7 @@ def _prepare_cv_group_penalty(estimator, X):
         estimator._penalty_kwargs = kwargs
         return None
 
+    setattr(penalty, _CV_ALPHA_MARKER, True)
     estimator.penalty = penalty
     return original_penalty
 
