@@ -29,5 +29,6 @@ jobs:
         run: |
           python -m pytest \
             dev/tests/test_maintenance_024_025.py \
+            dev/tests/test_legacy_sklearn_integration.py \
             dev/tests/test_second_full_review.py::TestEstimatorCloneAndFeatureSelectionBackend::test_all_default_public_estimators_clone \
             -q --tb=short
