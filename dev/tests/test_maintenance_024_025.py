@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sys
 import types
 
@@ -146,3 +147,46 @@ def test_legacy_clone_preserves_raw_constructor_identity():
     replacement = {"threshold": 2.0}
     cloned.set_params(options=replacement)
     assert cloned.get_params(deep=False)["options"] is replacement
+
+
+def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
+    """Exercise the original Issue #45 path on a physical modern CUDA GPU."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("requires a physical Torch CUDA backend")
+
+    from packaging.version import Version
+
+    torch_version = Version(torch.__version__.split("+", 1)[0])
+    if torch_version < Version("2.1"):
+        pytest.skip("Issue #45 requires PyTorch 2.1 or newer")
+    if torch.cuda.get_device_capability()[0] < 7:
+        pytest.skip("torch.compile acceptance requires CUDA capability >= 7")
+
+    from statgpu.linear_model import Lasso
+
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    rng = np.random.default_rng(20260804)
+    X = rng.normal(size=(384, 24)).astype(np.float64)
+    beta = np.zeros(24, dtype=np.float64)
+    beta[:6] = np.array([1.5, -1.0, 0.8, -0.6, 0.4, -0.2])
+    y = X @ beta + 0.05 * rng.normal(size=X.shape[0])
+
+    kwargs = {"alpha": 0.01, "device": "torch"}
+    signature = inspect.signature(Lasso)
+    if "max_iter" in signature.parameters:
+        kwargs["max_iter"] = 80
+    if "tol" in signature.parameters:
+        kwargs["tol"] = 1e-7
+
+    model = Lasso(**kwargs)
+    model.fit(X, y)
+    first = np.asarray(model.predict(X))
+    model.fit(X, y)
+    second = np.asarray(model.predict(X))
+
+    assert first.shape == y.shape
+    assert second.shape == y.shape
+    assert np.isfinite(first).all()
+    assert np.isfinite(second).all()
+    np.testing.assert_allclose(first, second, rtol=1e-7, atol=1e-8)
