@@ -89,10 +89,28 @@ class BaseEstimator(ABC):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        declared_type = cls.__dict__.get("_estimator_type")
-        if declared_type not in {"classifier", "regressor"}:
+        declared = cls.__dict__.get("_estimator_type", ...)
+        if declared is ...:
+            inherited_type = next(
+                (
+                    base.__dict__.get("_estimator_type")
+                    for base in cls.__mro__[1:]
+                    if base.__dict__.get("_estimator_type")
+                    in {"classifier", "regressor"}
+                ),
+                None,
+            )
             name = cls.__name__.lower()
             module = cls.__module__
+            internal_module = module.startswith("statgpu.")
+            nonpredictive_module = module.startswith(
+                (
+                    "statgpu.covariance",
+                    "statgpu.unsupervised",
+                    "statgpu.preprocessing",
+                    "statgpu.feature_selection",
+                )
+            )
             classifier_module = module.startswith("statgpu.linear_model")
             regression_module = module.startswith(
                 (
@@ -102,8 +120,11 @@ class BaseEstimator(ABC):
                     "statgpu.semiparametric",
                 )
             )
-            inferred_type = None
-            if ("classifier" in name or "logistic" in name) and classifier_module:
+            if not internal_module:
+                inferred_type = inherited_type
+            elif nonpredictive_module:
+                inferred_type = None
+            elif ("classifier" in name or "logistic" in name) and classifier_module:
                 inferred_type = "classifier"
             elif (
                 "regressor" in name
@@ -129,9 +150,13 @@ class BaseEstimator(ABC):
                 )
             ):
                 inferred_type = "regressor"
-            # Override inherited classifications for covariance, unsupervised,
-            # transformers, and other non-predictive estimator families.
+            else:
+                inferred_type = inherited_type
             cls._estimator_type = inferred_type
+        elif declared not in {None, "classifier", "regressor"}:
+            raise ValueError(
+                "_estimator_type must be None, 'classifier', or 'regressor'"
+            )
         cls._install_constructor_capture()
         cls._install_public_finite_validation()
 

@@ -254,6 +254,11 @@ def test_current_sklearn_classifier_and_regressor_tags():
     assert not is_regressor(GraphicalLasso())
     assert not is_classifier(GraphicalLasso())
 
+    class ExternalRidge(Ridge):
+        pass
+
+    assert is_regressor(ExternalRidge(compute_inference=False))
+
 
 def test_extended_public_finite_validation_matrix():
     from statgpu.backends._validation import check_finite
