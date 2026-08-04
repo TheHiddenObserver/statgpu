@@ -9,14 +9,19 @@ import numpy as np
 
 
 def _raise_nonfinite(name: str) -> None:
-    raise ValueError(f"{name} must contain only finite values; found NaN or Inf")
+    raise ValueError(
+        f"{name} contains NaN or infinite values; only finite values are supported"
+    )
 
 
 def check_finite(value: Any, *, name: str = "array") -> Any:
     """Reject NaN/Inf without transferring complete GPU arrays to CPU.
 
-    Numeric NumPy, CuPy, Torch, pandas, scalar, and nested sequence
-    inputs are checked. Non-numeric labels are intentionally ignored.
+    Numeric NumPy, CuPy, Torch, scalar, and nested sequence inputs are checked.
+    Pandas objects are deliberately deferred to estimator/formula-aware
+    validation so model-specific missing-row and design-matrix semantics remain
+    visible. Non-numeric labels are intentionally ignored.
+
     Homogeneous Python sequences are converted once and checked with a
     vectorized reduction; only genuinely ragged sequences are traversed by
     top-level component. Only the final boolean reduction is synchronized for
@@ -53,15 +58,6 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
         return value
 
     if module.startswith("pandas"):
-        if hasattr(value, "select_dtypes"):
-            numeric = value.select_dtypes(include=["number", "bool"])
-            if getattr(numeric, "shape", (0, 0))[1] == 0:
-                return value
-            array = numeric.to_numpy()
-        else:
-            array = value.to_numpy()
-        if array.dtype.kind in "biufc" and not np.isfinite(array).all():
-            _raise_nonfinite(name)
         return value
 
     try:
