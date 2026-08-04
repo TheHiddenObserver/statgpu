@@ -1,0 +1,60 @@
+name: Agent maintenance PR bootstrap
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.head_ref == 'agent/maintenance-0.2.4-0.2.5' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Execute embedded implementation script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/agent-maintenance-bootstrap.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Install targeted validation environment"
+          block = source.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in block.splitlines()
+          )
+          exec(compile(script, '<maintenance-bootstrap>', 'exec'), {'__name__': '__main__'})
+          PY
+
+      - name: Install targeted validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" scipy pytest packaging "scikit-learn==1.2.2"
+          python -m pip install -e . --no-deps
+
+      - name: Run targeted maintenance validation
+        run: |
+          python -m compileall -q statgpu dev/tests/test_maintenance_024_025.py
+          python -m pytest -q \
+            dev/tests/test_maintenance_024_025.py \
+            dev/tests/test_second_full_review.py::TestEstimatorCloneAndFeatureSelectionBackend::test_all_default_public_estimators_clone
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu dev .gitignore CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: harden runtime and estimator contracts"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
