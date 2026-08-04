@@ -28,7 +28,7 @@ def test_staged_safety_guides_publish_backend_and_diagnostic_contract(path):
         "CuPy",
         "Torch",
     }
-    assert required.issubset(text)
+    assert all(token in text for token in required)
 
 
 @pytest.mark.parametrize(
