@@ -18,11 +18,18 @@
   重复完整 grid。
 - 一次性 `CoxPHCV.cv_splits` iterator 会私下 materialize 一次，并在重复 fit、
   scikit-learn clone、旧版参数重建与 pickle 中复用；fit 期间公开构造参数对象保持不变。
-- Hosted workflow #943 已在 implementation commit
-  `4c8f9493ee08e7ecf6ec88c7296c02070547cda2` 上通过：完整 CPU suite 为
+- Hosted workflow #946 已在精确 head
+  `a726937a39eb0ed5a370dd03362884b63a9e9818` 上通过：完整 CPU suite 为
   1879 passed、662 skipped，static、文档及 Python 3.9–3.12 regression job 全部通过。
-  在将本轮 review 提升为 COMPLETE 前，仍需对最终 clean exact head 重新执行
-  CuPy/Torch promotion suite。
+- 该 head 的原始物理结果现已持久发布为
+  [最终 promotion artifact](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)。
+  Artifact 记录 134/134 项检查通过、所有 return code 为 0、所有 gate-failure 数组为空，
+  SHA-256 为
+  `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。
+- 本后续提交将 final aggregation format 正式升级为 machine schema 3，同步 CoxPH
+  主模型页，并把 `.markdown` 历史页重新纳入维护文档检查。由于这些提交产生了新的
+  head，最终批准前必须对新 head 再运行一次 exact-head physical suite；上述 Gist
+  仍只证明 `a726937...`。
 
 ## 更早的历史记录
 
