@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Apply standalone review patch
-        run: python .github/review_fix_patch.py
+        run: python .github/review_fix_driver.py
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
