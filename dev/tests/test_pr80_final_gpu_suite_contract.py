@@ -19,6 +19,23 @@ def _assignment(tree, name):
     raise AssertionError(f"missing assignment: {name}")
 
 
+def _dict_assignment_value(tree, assignment_name, key):
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == assignment_name
+            for target in node.targets
+        ):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            continue
+        for dict_key, dict_value in zip(node.value.keys, node.value.values):
+            if isinstance(dict_key, ast.Constant) and dict_key.value == key:
+                return ast.literal_eval(dict_value)
+    raise AssertionError(f"missing {assignment_name}[{key!r}]")
+
+
 def test_final_gpu_suite_runs_all_canonical_exact_head_suites():
     final_suite = Path("dev/benchmarks/benchmark_pr80_final_gpu_suite.py")
     tree = ast.parse(final_suite.read_text())
@@ -38,3 +55,4 @@ def test_final_gpu_suite_runs_all_canonical_exact_head_suites():
     assert required.issubset(set(source_files))
     assert len(source_files) == len(set(source_files))
     assert all(Path(path).is_file() for path in source_files)
+    assert _dict_assignment_value(tree, "report", "schema_version") == 3
