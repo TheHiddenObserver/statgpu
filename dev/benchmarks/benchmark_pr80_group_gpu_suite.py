@@ -176,7 +176,7 @@ def _run_subrunner(path, head, *, root, runtime_env):
         failures = list(subreport.get("gate_failures") or [])
         source_commit = subreport.get("source_commit")
         source_clean = bool(subreport.get("source_clean", False))
-        source_clean_after = bool(subreport.get("source_clean_after", False))
+        source_clean_after = not bool(_git(root, "status", "--porcelain"))
         if source_commit != head:
             failures.append(
                 f"source_commit mismatch: expected {head}, got {source_commit}"
