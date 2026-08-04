@@ -60,9 +60,16 @@ The `Release package validation` workflow automatically:
    binaries in the universal wheel;
 6. confirms that the sdist contains every `.pyx` or `.pxd` source that currently
    exists in the repository;
-7. installs the wheel and sdist in separate clean virtual environments and runs
-   import/version smoke tests;
-8. uploads the validated distributions as a short-lived workflow artifact.
+7. installs the sdist in a clean Ubuntu virtual environment and checks its
+   version;
+8. uploads the validated wheel and sdist as a short-lived workflow artifact;
+9. downloads that exact wheel artifact on Ubuntu, Windows, and macOS, installs it
+   in a fresh virtual environment, imports the public linear-model and Cox APIs,
+   and runs a CPU `LinearRegression` fit/predict smoke test.
+
+The cross-platform matrix validates portability of the published
+`py3-none-any` CPU wheel. It does not claim Apple MPS support or replace the
+separate physical-NVIDIA-GPU acceptance required for CUDA behavior.
 
 For a local rehearsal, run:
 
@@ -104,7 +111,8 @@ Before merging, verify:
 - all release notes are accurate and synchronized in English and Chinese;
 - required GitHub Actions jobs are green on the exact release head;
 - required physical-GPU evidence is recorded for the exact source commit;
-- wheel and sdist validation and clean-install smoke tests pass;
+- wheel and sdist validation, the Ubuntu sdist clean-install check, and the
+  Ubuntu/Windows/macOS wheel smoke matrix pass;
 - the target version does not already exist on PyPI;
 - the `PYPI_TOKEN` repository secret remains valid and project-scoped.
 
