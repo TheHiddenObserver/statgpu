@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   publish:
+    name: Publish distributions to PyPI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
-      - name: Verify tag and package versions
+      - name: Verify tag, package versions, and release notes
         run: |
           python - <<'PY'
           import os
@@ -32,14 +33,15 @@ jobs:
           import re
           import tomllib
 
+          root = pathlib.Path.cwd()
           tag = os.environ["GITHUB_REF_NAME"]
           if not tag.startswith("v"):
               raise SystemExit(f"release tag must start with v: {tag}")
           tag_version = tag[1:]
 
-          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
           project_version = pyproject["project"]["version"]
-          init_text = pathlib.Path("statgpu/__init__.py").read_text(encoding="utf-8")
+          init_text = (root / "statgpu/__init__.py").read_text(encoding="utf-8")
           match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_text, re.M)
           if match is None:
               raise SystemExit("statgpu/__init__.py does not declare __version__")
@@ -51,7 +53,29 @@ jobs:
                   f"tag={tag_version}, pyproject.toml={project_version}, "
                   f"statgpu/__init__.py={package_version}"
               )
-          print(tag_version)
+
+          notes_path = root / ".github" / "releases" / f"{tag}.md"
+          if not notes_path.is_file():
+              raise SystemExit(f"missing GitHub Release notes: {notes_path.relative_to(root)}")
+          notes = notes_path.read_text(encoding="utf-8")
+          if not notes.startswith(f"# statgpu {tag_version}\n"):
+              raise SystemExit(
+                  f"GitHub Release notes title does not match tag {tag}: "
+                  f"{notes_path.relative_to(root)}"
+              )
+          required_sections = [
+              "## Highlights",
+              "## Installation and platform support",
+              "## Validation",
+              "## Upgrade notes and known limits",
+              "## Full change history",
+          ]
+          missing = [section for section in required_sections if section not in notes]
+          if missing:
+              raise SystemExit(
+                  "GitHub Release notes are incomplete: " + ", ".join(missing)
+              )
+          print(f"validated version {tag_version} and {notes_path.relative_to(root)}")
           PY
 
       - name: Build package (pure-Python wheel and sdist)
@@ -87,8 +111,57 @@ jobs:
           print(statgpu.__version__)
           PY
 
+      - name: Retain validated release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: statgpu-tagged-release-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
         run: python -m twine upload --non-interactive dist/*
+
+  github-release:
+    name: Publish GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: statgpu-tagged-release-distributions
+          path: dist
+
+      - name: Create or update GitHub Release from versioned notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+          NOTES_FILE=".github/releases/${TAG}.md"
+          TITLE="statgpu ${VERSION}"
+
+          test -f "$NOTES_FILE"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE"
+            gh release upload "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE"
+          fi
