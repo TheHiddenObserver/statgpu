@@ -7,8 +7,8 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
 from pathlib import Path
+import subprocess
 
 import numpy as np
 
@@ -19,11 +19,13 @@ from statgpu.survival import _cox_cv as cox_cv
 
 SOURCE_FILES = (
     "dev/benchmarks/benchmark_cox_cv_staged_safety_gpu.py",
+    "dev/tests/test_pr80_cox_cv_split_lifecycle_contract.py",
     "dev/tests/test_pr80_cox_cv_staged_safety_contract.py",
     "statgpu/survival/__init__.py",
     "statgpu/survival/_cox.py",
     "statgpu/survival/_cox_cv.py",
     "statgpu/survival/_cox_cv_penalty_order_contract.py",
+    "statgpu/survival/_cox_cv_split_lifecycle_contract.py",
     "statgpu/survival/_cox_cv_staged_safety_contract.py",
     "statgpu/survival/_risk_sets.py",
 )
@@ -120,6 +122,10 @@ def _run_backend(name, X_np, time_np, event_np):
     evaluation_order = np.asarray(
         results["penalty_evaluation_order"], dtype=np.float64
     )
+    preparation_count = int(
+        results["fold_backend_preparation_count_this_call"]
+    )
+    effective_folds = int(results["effective_n_folds"])
     passed = all(
         (
             results["two_stage_requested"] is True,
@@ -128,6 +134,9 @@ def _run_backend(name, X_np, time_np, event_np):
             results["successive_halving_enabled"] is False,
             results["staged_execution_mode"]
             == "exhaustive_safety_fallback",
+            results["staged_safety_strategy"] == "single_pass_exhaustive",
+            preparation_count == effective_folds,
+            not bool(results["fold_state_cache_enabled_this_call"]),
             not np.any(fast),
             np.all(full),
             not np.any(screened),
@@ -153,6 +162,12 @@ def _run_backend(name, X_np, time_np, event_np):
             "successive_halving_enabled"
         ],
         "staged_execution_mode": results["staged_execution_mode"],
+        "staged_safety_strategy": results["staged_safety_strategy"],
+        "fold_backend_preparation_count_this_call": preparation_count,
+        "effective_n_folds": effective_folds,
+        "fold_state_cache_enabled_this_call": bool(
+            results["fold_state_cache_enabled_this_call"]
+        ),
         "fast_pass_candidate_mask": fast.tolist(),
         "full_precision_candidate_mask": full.tolist(),
         "screened_out_candidate_mask": screened.tolist(),
@@ -185,12 +200,16 @@ def main():
     os.environ["STATGPU_COXPHCV_TWO_STAGE"] = "1"
     os.environ["STATGPU_COXPHCV_SUCCESSIVE_HALVING"] = "1"
     os.environ["STATGPU_COXPHCV_HALVING_TOPK"] = "1"
+    # A zero retained-fold cache makes repeated full-grid passes visible through
+    # the preparation counter. The safety wrapper must still prepare each valid
+    # fold exactly once on both CuPy and Torch.
+    os.environ["STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES"] = "0"
 
     head = _git("rev-parse", "HEAD")
     dirty_before = bool(_git("status", "--porcelain"))
     missing_sources = [path for path in SOURCE_FILES if not Path(path).is_file()]
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full",
         "source_commit": head,
         "source_clean": not dirty_before,
