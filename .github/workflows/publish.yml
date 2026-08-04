@@ -3,7 +3,7 @@ name: Publish to PyPI
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: read
@@ -17,34 +17,75 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip
           python -m pip install build twine
 
-      - name: Verify tag matches package version
+      - name: Verify tag and package versions
         run: |
-          TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          PKG_VERSION=$(python -c "import re; print(re.search(r\"version\s*=\s*['\\\"]([^'\\\"]+)['\\\"]\", open('pyproject.toml').read()).group(1))")
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "ERROR: Tag version ($TAG_VERSION) does not match package version ($PKG_VERSION)"
-            exit 1
-          fi
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+          import tomllib
 
-      - name: Build package (pure-Python wheel + sdist)
-        # STATGPU_NO_EXT=1 -> no compiled extensions, so the wheel is tagged
-        # py3-none-any (universal). The sdist still ships .pyx/.pxd sources for
-        # users who want to build the optional C accelerators locally.
+          tag = os.environ["GITHUB_REF_NAME"]
+          if not tag.startswith("v"):
+              raise SystemExit(f"release tag must start with v: {tag}")
+          tag_version = tag[1:]
+
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          project_version = pyproject["project"]["version"]
+          init_text = pathlib.Path("statgpu/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_text, re.M)
+          if match is None:
+              raise SystemExit("statgpu/__init__.py does not declare __version__")
+          package_version = match.group(1)
+
+          if len({tag_version, project_version, package_version}) != 1:
+              raise SystemExit(
+                  "release version mismatch: "
+                  f"tag={tag_version}, pyproject.toml={project_version}, "
+                  f"statgpu/__init__.py={package_version}"
+              )
+          print(tag_version)
+          PY
+
+      - name: Build package (pure-Python wheel and sdist)
         env:
           STATGPU_NO_EXT: "1"
-        run: python -m build
+        run: |
+          rm -rf build dist *.egg-info statgpu.egg-info
+          python -m build
 
       - name: Check distributions
         run: |
           python -m twine check dist/*
-          ls -l dist/
+          ls -lh dist/
+
+      - name: Smoke-install release wheel
+        run: |
+          WHEEL="$(realpath dist/*.whl)"
+          python -m venv "$RUNNER_TEMP/statgpu-publish-smoke"
+          "$RUNNER_TEMP/statgpu-publish-smoke/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/statgpu-publish-smoke/bin/python" -m pip install "$WHEEL"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/statgpu-publish-smoke/bin/python" - <<'PY'
+          import os
+          import statgpu
+          from statgpu.linear_model import LinearRegression
+          from statgpu.survival import CoxPH, CoxPHCV
+
+          expected = os.environ["GITHUB_REF_NAME"][1:]
+          assert statgpu.__version__ == expected
+          assert LinearRegression is not None
+          assert CoxPH is not None
+          assert CoxPHCV is not None
+          print(statgpu.__version__)
+          PY
 
       - name: Publish to PyPI
         env:
