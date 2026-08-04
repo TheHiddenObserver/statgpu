@@ -359,3 +359,12 @@ def test_cupy_finite_validation_stays_on_device():
     assert check_finite(value, name="X") is value
     with pytest.raises(ValueError, match="finite"):
         check_finite(cp.asarray([1.0, cp.inf]), name="X")
+
+
+
+def test_set_params_preserves_estimator_fit_validation_boundary():
+    from statgpu.survival import CoxPH
+
+    model = CoxPH()
+    model.set_params(compute_inference="False")
+    assert model.get_params(deep=False)["compute_inference"] == "False"
