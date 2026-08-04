@@ -30,8 +30,8 @@ jobs:
         run: |
           python -m pytest -q --tb=short \
             dev/tests/test_maintenance_024_025.py \
-            dev/tests/test_formula_missing_rows.py \
             dev/tests/test_panel_formula.py \
+            dev/tests/test_ridge_weighted_consistency.py \
             dev/tests/test_legacy_sklearn_integration.py \
             dev/tests/test_pr80_group_input_contract.py
       - name: Run structural audit
