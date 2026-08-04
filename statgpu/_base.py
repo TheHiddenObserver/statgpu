@@ -640,6 +640,47 @@ class BaseEstimator(ABC):
                 "Call 'fit' before using this method."
             )
     
+    def __sklearn_tags__(self):
+        """Return public estimator tags when sklearn >= 1.6 is installed.
+
+        scikit-learn remains an optional validation dependency. The
+        import occurs only when sklearn requests tags. Older releases
+        continue to use get_params/set_params and _more_tags.
+        """
+        try:
+            from sklearn.utils import (
+                ClassifierTags,
+                RegressorTags,
+                Tags,
+                TargetTags,
+            )
+        except ImportError:
+            return self._more_tags()
+
+        estimator_type = getattr(self, "_estimator_type", None)
+        if estimator_type not in {"classifier", "regressor"}:
+            estimator_type = None
+        return Tags(
+            estimator_type=estimator_type,
+            target_tags=TargetTags(required=estimator_type is not None),
+            classifier_tags=(
+                ClassifierTags() if estimator_type == "classifier" else None
+            ),
+            regressor_tags=(
+                RegressorTags() if estimator_type == "regressor" else None
+            ),
+            requires_fit=True,
+        )
+
+    def _more_tags(self):
+        """Return the legacy sklearn tag dictionary."""
+        estimator_type = getattr(self, "_estimator_type", None)
+        return {"requires_y": estimator_type in {"classifier", "regressor"}}
+
+    def __sklearn_is_fitted__(self):
+        """Expose statgpu fitted state to sklearn meta-estimators."""
+        return bool(getattr(self, "_fitted", False))
+
     def __sklearn_clone__(self):
         """Return an unfitted estimator clone for scikit-learn >= 1.3.
 
