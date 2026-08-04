@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-08-03<br>
+> 最后更新：2026-08-04<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -307,12 +307,17 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 `orchestration_device_` 记录 CV 编排设备。
 普通 GPU Breslow/Efron 预处理在选定后端完成排序，再把完整的已排序 time 与
 event 向量复制到 host 以构建失败组元数据，因此会报告
-`full_host_transfer_performed_=True`。普通 `CoxPHCV` 在一次完整 selector 调用中
-为每个 fold 只准备一次元数据，并由所有 staged penalty pass 复用。
-该复用仅在估算的保留 workspace 不超过
-`STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES`（默认 512 MiB）时启用；超限时各 stage
-会重新准备 fold，以避免无界的多 fold GPU 常驻内存。路由由
-`fold_state_cache_enabled` 及估算/上限字段记录。
+`full_host_transfer_performed_=True`。
+
+当请求 `STATGPU_COXPHCV_TWO_STAGE` 或
+`STATGPU_COXPHCV_SUCCESSIVE_HALVING` 时，为保证正确性，NumPy、CuPy 与 Torch
+当前都会禁用实验性 screening。CoxPHCV 会发出 `RuntimeWarning`，并对全部
+candidate 只执行一次普通 exhaustive full-precision pass。公开诊断记录
+`staged_safety_strategy="single_pass_exhaustive"`、两组 requested/effective
+状态、全 true 的 `full_precision_candidate_mask`，以及全 false 的
+`screened_out_candidate_mask`。每个 effective fold 在该单次 pass 中只准备一次；
+不会启用 staged retained cache，也不会跨 stage 重复准备。准备次数与 target
+传输次数仍保存在 `cv_results_` 中。
 `selection_cache_hit`、
 `requested_fit_device`、`fold_backend_preparation_count_this_call` 与
 `candidate_target_host_transfer_count_this_call` 描述本次调用；
@@ -488,34 +493,37 @@ unsupported，不会换名后充当外部证据。
 这些是绑定精确源码和特定 shape 的比较，不是普遍精度或性能保证。Exact ties 与
 性能结论仍绑定到 `dev/reviews/pr80_review_fix.md` 中列出的专用产物。
 
-### 精确源码物理 GPU 证据
+### 已发布的精确源码物理 GPU 证据
 
-物理 GPU 证据固定到精确 source commit，后续代码或文档变更不会自动继承更宽的
-验证声明。
+物理 GPU 证据绑定到一个精确 source commit。下面的持久 artifact 只证明 runtime
+commit `a726937...`；后续文档或 schema 提交不会自动继承这一验证声明。
 
-| 字段 | 当前可审计证据 |
+| 字段 | 已发布参考证据 |
 |---|---|
-| Source commit | `5bb55ede04eecb5ab7689a400e864996fb514240` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema21.json` |
-| Artifact SHA-256 | `c006b6c07309e4aba8c1f5b4ad31cad00e199b17a2d0edafc660c18eb804b463` |
-| Schema / tier | `21` / `remote-full` |
-| 硬件 | Tesla P100-SXM2-16GB |
-| 软件 | Python 3.9.16、NumPy 1.24.2、CuPy 13.6.0、Torch 2.0.0+cu117 |
-| Structured GPU cases | CuPy 14/14；Torch 14/14 |
-| 定向测试 | 630 passed，7 个预期 warning |
-| 源码审计 | `source_clean=true`；记录的 45/45 个 Git-blob hash 全部匹配 |
-| Gate failures | `[]` |
+| Source commit | `a726937a39eb0ed5a370dd03362884b63a9e9818` |
+| Artifact | [Gist](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139) |
+| Raw JSON | [pr80_final_gpu_suite_schema3.json](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json) |
+| Artifact SHA-256 | `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb` |
+| 大小 | 86,315 bytes |
+| Campaign 文件名 / machine schema | `schema3` / 历史 outer schema `2` |
+| Validation tier | `remote-full-final-promotion-suite` |
+| 汇总检查 | 134/134 passed |
+| Runtime provenance | 9 个 provenance payload；导入路径和 hash 均位于 `/root/statgpu` |
+| Group suite | CuPy 24/24；Torch CUDA 24/24 |
+| Gate failures | outer、child、nested 数组全部为 `[]` |
 
-schema-21 保留 schema-20 的全部预测/评分、CV fold 准备、prepared state、数值边界、
-推断、无事件 stratum、严格 fold、自动网格、backend pinning、clone 与聚合工作量
-gate；并新增 promotion-safe 混合网格拒绝、全部九类公开标量 penalty 的真实 CV/最终
-重拟合覆盖，以及 device-native Torch Group Lasso metadata。CuPy 与 Torch 物理 case
-均通过全部 14 个 structured gate。
+该 artifact 包含完整 outer report、3 个 child report、5 个 Group sub-runner、Cox
+order/cache inner runner 与 staged-safety inner runner。它记录了完全一致的 commit、
+运行前后 clean source、零 return code、全 candidate full-precision mask、零 screened
+candidate，以及每个 effective fold 只准备一次。
+
+final aggregation runner 现在正式输出 machine schema 3，并由 hosted structural
+contract 锁定。由于 runner 与本文档在上述 artifact 之后发生了变化，PR 的最终 head
+在批准前需要重新执行一次 clean physical run。已发布 artifact 仍是
+`a726937...` 的有效、可审计证据，不会被重新标记为后续 commit 的证据。
 
 该 artifact 不是新的性能 crossover benchmark，也不是新的 R 外部对齐；这些结论仍
-分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。上述 source
-commit 之后的运行时或维护测试变更必须刷新自己的精确源码证据，才能声明获得相同的
-物理 GPU 覆盖。
+分别绑定到专用 artifact，详细历史保留在 `dev/reviews/pr80_review_fix.md`。
 
 ## FAQ 与常见失败模式
 
