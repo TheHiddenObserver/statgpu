@@ -15,11 +15,13 @@ from pathlib import Path
 CHILD_SUITES = (
     "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
     "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
+    "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py",
 )
 SOURCE_FILES = (
     "dev/benchmarks/benchmark_pr80_final_gpu_suite.py",
     "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
     "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
+    "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py",
     "dev/tests/test_pr80_final_gpu_suite_contract.py",
 )
 
