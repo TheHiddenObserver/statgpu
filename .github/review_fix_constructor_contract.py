@@ -4,7 +4,12 @@ import ast
 import compileall
 import copy
 import inspect
+import sys
 from pathlib import Path
+
+# The script is executed from .github/, so expose the repository root before
+# importing the editable source tree.
+sys.path.insert(0, str(Path.cwd()))
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -356,6 +361,5 @@ for path in Path("statgpu").rglob("*.py"):
 if not compileall.compile_file("dev/tests/test_maintenance_024_025.py", quiet=1):
     raise SystemExit("maintenance test compile failed")
 
-# A direct post-patch structural check must already be zero for default exports.
 import importlib
 importlib.invalidate_caches()
