@@ -10,7 +10,7 @@ import numpy as np
 
 def _raise_nonfinite(name: str) -> None:
     raise ValueError(
-        f"{name} contains NaN or infinite values; only finite values are supported"
+        f"{name} must contain only finite values; found NaN or infinite values"
     )
 
 
