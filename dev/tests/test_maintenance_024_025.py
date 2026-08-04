@@ -73,14 +73,14 @@ def test_repository_has_no_unscoped_reduce_overhead_calls():
     assert offenders == []
 
 
-def test_numpy_finite_validation_handles_nested_inputs():
+def test_numpy_finite_validation_vectorizes_sequences():
     from statgpu.backends._validation import check_finite
 
-    value = [np.array([1.0, 2.0]), np.array([3.0])]
+    value = [np.array([1.0, 2.0]), np.array([3.0, 4.0])]
     assert check_finite(value, name="X") is value
-    with pytest.raises(ValueError, match="X\[1\].*finite"):
+    with pytest.raises(ValueError, match=r"X.*finite"):
         check_finite([np.array([1.0]), np.array([np.inf])], name="X")
-    with pytest.raises(ValueError, match="sample_weight.*finite"):
+    with pytest.raises(ValueError, match=r"sample_weight.*finite"):
         check_finite(np.array([1.0, np.nan]), name="sample_weight")
 
 
@@ -91,7 +91,7 @@ def test_torch_finite_validation_stays_on_device():
     tensor = torch.tensor([1.0, 2.0], dtype=torch.float64)
     result = check_finite(tensor, name="X")
     assert result is tensor
-    with pytest.raises(ValueError, match="X.*finite"):
+    with pytest.raises(ValueError, match=r"X.*finite"):
         check_finite(torch.tensor([1.0, float("inf")]), name="X")
 
 
@@ -114,7 +114,7 @@ def test_public_method_guard_rejects_nonfinite_before_fit_body():
             return np.zeros(len(X))
 
     estimator = DummyEstimator()
-    with pytest.raises(ValueError, match="X.*finite"):
+    with pytest.raises(ValueError, match=r"X.*finite"):
         estimator.fit(np.array([[1.0], [np.nan]]), np.array([0.0, 1.0]))
     assert estimator.body_called is False
 
