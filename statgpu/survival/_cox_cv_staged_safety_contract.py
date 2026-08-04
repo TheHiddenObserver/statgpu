@@ -157,8 +157,8 @@ def _select_coxph_penalty_cv_with_staged_safety(*args, **kwargs):
 
         warnings.warn(
             "CoxPHCV two-stage/successive-halving screening is temporarily "
-            "disabled for correctness; all candidates are evaluated at full "
-            "precision.",
+            "disabled for correctness; exhaustive full-precision CV over all "
+            "candidates is used.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -203,12 +203,12 @@ _STAGED_DOC = """
     Experimental screening safety
     -----------------------------
     The environment-controlled two-stage and successive-halving optimizations
-    currently evaluate every candidate at full precision on every backend. A
-    ``RuntimeWarning`` is emitted and ``cv_results_`` records the requested and
-    effective modes plus candidate masks. This prevents approximate screening
-    from silently changing the selected penalty. Explicit CuPy runs retain the
-    staged fold-workspace machinery with all candidate sets expanded to the
-    complete grid; CPU and Torch use a single exhaustive pass.
+    currently fall back to exhaustive full-precision CV over all candidates on
+    every backend. A ``RuntimeWarning`` is emitted and ``cv_results_`` records
+    the requested and effective modes plus candidate masks. This prevents
+    approximate screening from silently changing the selected penalty. Explicit
+    CuPy runs retain the staged fold-workspace machinery with all candidate sets
+    expanded to the complete grid; CPU and Torch use a single exhaustive pass.
 """
 if _STAGED_DOC.strip() not in (_module.CoxPHCV.__doc__ or ""):
     _module.CoxPHCV.__doc__ = (_module.CoxPHCV.__doc__ or "") + _STAGED_DOC
