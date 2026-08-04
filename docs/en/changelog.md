@@ -29,4 +29,4 @@
 ## Earlier history
 
 Detailed entries through 2026-08-03 are retained in
-[the archived changelog](changelog-history-through-2026-08-03.md).
+[the archived changelog](changelog-history-through-2026-08-03.markdown).

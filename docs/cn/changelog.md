@@ -27,4 +27,4 @@
 ## 更早的历史记录
 
 截至 2026-08-03 的详细条目保留在
-[归档 changelog](changelog-history-through-2026-08-03.md)。
+[归档 changelog](changelog-history-through-2026-08-03.markdown)。
