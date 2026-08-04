@@ -3,7 +3,7 @@
 > Runtime implementation validated through: `d74cfe2d75a182d11c40b3d89e867d9b9183ad2a`  
 > Hosted workflow: `#914` (`30868211509`)  
 > Runtime test result: `1864 passed, 662 skipped, 14 warnings`  
-> Status at report creation: `PARTIAL_REMOTE_PENDING`
+> Status at report update: `PARTIAL_REMOTE_PENDING`
 
 ## Scope and active gates
 
@@ -86,10 +86,12 @@ An intermediate version converted `max_iter`, `tol`, and `n_penalties` before th
 
 ### [MEDIUM][DOC][fixed] fallback semantics were documented only by class introspection
 
-**Fix:** added English and Chinese guides plus hosted documentation contracts:
+**Fix:** added synchronized English and Chinese guides, linked them from both language documentation indexes, and added hosted documentation contracts:
 
 - `docs/en/guides/cox-cv-staged-safety.md`;
 - `docs/cn/guides/cox-cv-staged-safety.md`;
+- `docs/en/README.md`;
+- `docs/cn/README.md`;
 - `dev/tests/test_pr80_cox_cv_staged_safety_docs.py`.
 
 ## Changed files
@@ -115,7 +117,10 @@ Physical evidence:
 Documentation:
 
 - `docs/en/guides/cox-cv-staged-safety.md`;
-- `docs/cn/guides/cox-cv-staged-safety.md`.
+- `docs/cn/guides/cox-cv-staged-safety.md`;
+- `docs/en/README.md`;
+- `docs/cn/README.md`;
+- `dev/reviews/pr80_staged_safety_review_fix_2026-08-04.md`.
 
 ## Review/fix iterations
 
@@ -126,6 +131,7 @@ Documentation:
 5. Independent re-review found premature public-control coercion; delayed conversion to preserve validation behavior.
 6. Workflow `#914` passed all hosted gates.
 7. Final documentation audit added synchronized English/Chinese user guidance and a docs contract.
+8. Documentation discoverability audit linked both guides from their language indexes and added an index-link contract.
 
 ## Hosted evidence
 
@@ -137,7 +143,7 @@ Workflow `#914` passed at runtime head `d74cfe2d75a182d11c40b3d89e867d9b9183ad2a
 - documentation contracts;
 - Python 3.9, 3.10, 3.11, and 3.12 regression matrices.
 
-A final exact-head hosted run is required after this report and the EN/CN documentation commits.
+A final exact-head hosted run is required after the report and documentation/index commits.
 
 ## Remaining physical GPU gate
 
