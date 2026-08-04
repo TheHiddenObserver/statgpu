@@ -58,7 +58,8 @@ The `Release package validation` workflow automatically:
    `statgpu-X.Y.Z.tar.gz`;
 5. rejects unsafe paths, credential-like files, cache directories, and compiled
    binaries in the universal wheel;
-6. confirms that the sdist contains the optional `.pyx` and `.pxd` sources;
+6. confirms that the sdist contains every `.pyx` or `.pxd` source that currently
+   exists in the repository;
 7. installs the wheel and sdist in separate clean virtual environments and runs
    import/version smoke tests;
 8. uploads the validated distributions as a short-lived workflow artifact.
