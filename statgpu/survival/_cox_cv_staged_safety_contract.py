@@ -66,7 +66,12 @@ def _candidate_count(kwargs):
             return int(len(penalties))
         except TypeError:
             pass
-    return int(kwargs.get("n_penalties", 100))
+    try:
+        return int(kwargs.get("n_penalties", 100))
+    except (TypeError, ValueError, OverflowError):
+        # The raw selector owns the public validation and error message. This
+        # fallback value is never consulted after that validation fails.
+        return 0
 
 
 def _annotate_exhaustive_fallback(
@@ -120,8 +125,8 @@ def _select_coxph_penalty_cv_with_staged_safety(*args, **kwargs):
         original_env_float = _module._env_float
         explicit_cupy = _explicit_cupy_request(kwargs)
         n_candidates = _candidate_count(kwargs)
-        max_iter = int(kwargs.get("max_iter", 100))
-        tol = float(kwargs.get("tol", 1e-9))
+        max_iter_value = kwargs.get("max_iter", 100)
+        tol_value = kwargs.get("tol", 1e-9)
 
         def exhaustive_env_flag(name, default=False):
             if not explicit_cupy and name in _STAGED_ENV_NAMES:
@@ -138,7 +143,7 @@ def _select_coxph_penalty_cv_with_staged_safety(*args, **kwargs):
             if explicit_cupy and name in {_COARSE_ENV, _WINDOW_ENV, _TOPK_ENV}:
                 return n_candidates
             if explicit_cupy and name == _FAST_ITER_ENV:
-                return max_iter
+                return int(max_iter_value)
             return original_env_int(
                 name,
                 default,
@@ -148,7 +153,7 @@ def _select_coxph_penalty_cv_with_staged_safety(*args, **kwargs):
 
         def full_precision_env_float(name, default, *, min_value=None):
             if explicit_cupy and name == _FAST_TOL_ENV:
-                return tol
+                return float(tol_value)
             return original_env_float(
                 name,
                 default,
