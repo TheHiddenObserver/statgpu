@@ -20,17 +20,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install bootstrap parser
+        run: python -m pip install pyyaml
       - name: Apply structured patch from bootstrap source
         run: |
           python - <<'PY'
           from pathlib import Path
-          source = Path('.github/workflows/review-fix-bootstrap.yml').read_text()
-          marker = "          python - <<'PY'\n"
-          start = source.index(marker) + len(marker)
-          end = source.index("\n          PY", start)
-          lines = source[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
-          exec(compile(script, '<review-fix-bootstrap>', 'exec'))
+          import subprocess
+          import yaml
+
+          workflow = yaml.safe_load(
+              Path('.github/workflows/review-fix-bootstrap.yml').read_text()
+          )
+          steps = workflow['jobs']['apply-review-fixes']['steps']
+          patch_step = next(step for step in steps if step.get('name') == 'Apply review fixes')
+          subprocess.run(patch_step['run'], shell=True, check=True, executable='/bin/bash')
           PY
       - name: Install validation environment
         run: |
