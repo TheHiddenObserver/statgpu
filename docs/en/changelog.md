@@ -5,35 +5,51 @@
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
-## 2026-08
+## 0.2.3 — 2026-08-04
 
-### Fixed (2026-08-04) — PR #80 exact-source CV review follow-up
+### Survival analysis
 
-- Canonical physical-GPU suites now prepend the audited Git checkout to
-  `PYTHONPATH`, disable the user site, verify that actual imported module paths
-  remain inside that checkout, and record SHA-256 hashes for those imported
-  files. Child and nested runners inherit the same controlled environment.
-- Requested CoxPHCV two-stage and successive-halving controls now produce one
-  explicit exhaustive full-precision candidate pass on NumPy, CuPy, and Torch.
-  Public diagnostics report `staged_safety_strategy="single_pass_exhaustive"`;
-  no candidate is screened out and CuPy no longer repeats the complete grid.
-- One-shot `CoxPHCV.cv_splits` iterators are materialized privately once and
-  reused for repeated fits, scikit-learn clone, legacy parameter reconstruction,
-  and pickle. Fit retains the original public constructor object.
-- Hosted workflow #946 passed on exact head
-  `a726937a39eb0ed5a370dd03362884b63a9e9818`: the full CPU suite reported
-  1879 passed and 662 skipped, while static, documentation, and Python 3.9–3.12
-  regression jobs all passed.
-- The unchanged physical result for that head is now durably published as
-  [the final promotion artifact](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139).
-  It records 134/134 passing checks, zero return codes, empty gate-failure arrays,
-  and SHA-256
-  `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`.
-- This follow-up makes the final aggregation format truly machine schema 3,
-  synchronizes the primary CoxPH model pages, and brings `.markdown` archives
-  back under maintained documentation checks. Because these commits create a
-  new head, the final exact-head physical suite must be rerun before approval;
-  the published Gist remains valid evidence for `a726937...` only.
+- Completed CoxPH Phase 1 with Breslow, Efron, and Exact ties; delayed-entry
+  and `(start, stop]` counting-process data; shared-coefficient stratification;
+  subject identifiers; and `Surv(start, stop, event)` formula input.
+- Added shared NumPy, CuPy, and Torch-CUDA risk-set primitives for objectives,
+  gradients, information matrices, and baseline estimation. Exact tied-event
+  partitions use backend-native dynamic programming.
+- Extended `CoxPHCV` held-out partial likelihood to all supported tie methods,
+  delayed entry, start-stop rows, strata, and subject-grouped folds.
+- Hardened Cox inference, centered risk-set numerics, log-domain baseline
+  prediction, formula NA alignment, singular-information handling, CV cache
+  identity, fold eligibility, selected-penalty refitting, and failed-fit state
+  resets.
+- Hardened L1, L2, Elastic Net, SCAD, and MCP penalized Cox estimation; removed
+  the unidentified intercept; corrected Cox-specific warm starts; and made the
+  Torch Efron value, gradient, and Hessian paths native.
+
+### Cross-validation and grouped penalties
+
+- Requested CoxPHCV two-stage and successive-halving controls now execute one
+  explicit exhaustive full-precision candidate pass, preserving deterministic
+  selection while avoiding repeated complete-grid fitting.
+- One-shot `CoxPHCV.cv_splits` iterators are reusable across repeated fit,
+  scikit-learn clone, parameter reconstruction, and pickle.
+- Public Group Lasso and Adaptive Group Lasso use the generic loss-gradient and
+  exact group-proximal path consistently across supported backends.
+
+### Validation and packaging
+
+- Hosted workflow #960 passed on final reviewed head
+  `f05a44ad363b46612e956e137e2f00d040765acb`: documentation, static, full CPU,
+  and Python 3.9–3.12 regression jobs all passed; the complete CPU suite reported
+  1881 passed and 662 skipped.
+- The final exact-head physical-GPU promotion artifact is published as
+  [schema-3 evidence](https://gist.github.com/TheHiddenObserver/afdcad86a243e68a918d852b92e984a4).
+  It records 134/134 passing checks, zero child and nested return codes, empty
+  gate-failure arrays, clean source state before and after execution, and SHA-256
+  `bd4058450def691dd29e9d78853534016c6da70c33192a97dc312d95cbe5d76d`.
+- The package version is now `0.2.3`. Release-package validation checks version
+  consistency, builds the pure-Python wheel and sdist, runs `twine check`,
+  validates artifact contents, and smoke-installs both distributions in clean
+  environments.
 
 ## Earlier history
 

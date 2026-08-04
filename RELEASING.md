@@ -1,6 +1,13 @@
-# Releasing statgpu to PyPI
+# Releasing statgpu to PyPI and GitHub
 
-This document is for maintainers preparing an official `statgpu` release. The repository currently publishes from GitHub Actions when a tag matching `v*` is pushed. The workflow is defined in [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
+This document is for maintainers preparing an official `statgpu` release.
+The repository publishes when a tag matching `v*` is pushed.
+
+The release automation is defined in:
+
+- [`.github/workflows/publish.yml`](.github/workflows/publish.yml) for PyPI and GitHub Release publication;
+- [`.github/workflows/release-package.yml`](.github/workflows/release-package.yml) for wheel and sdist validation;
+- [`.github/workflows/release-notes.yml`](.github/workflows/release-notes.yml) for versioned GitHub Release-note validation.
 
 ## Release model
 
@@ -9,163 +16,162 @@ The package version is maintained in two files and must match:
 - `pyproject.toml`: `project.version`;
 - `statgpu/__init__.py`: `__version__`.
 
-A release tag must use the same version with a leading `v`, for example:
+A release tag uses the same version with a leading `v`:
 
 ```text
-package version: 0.2.2
-tag:             v0.2.2
+package version: 0.2.3
+tag:             v0.2.3
 ```
 
-PyPI release files are immutable. A broken upload cannot be replaced under the same version; prepare a new patch version instead.
+Each release also has one authoritative GitHub Release body:
+
+```text
+.github/releases/vX.Y.Z.md
+```
+
+For example, the GitHub Release notes for 0.2.3 are stored at:
+
+```text
+.github/releases/v0.2.3.md
+```
+
+The tag workflow publishes this file verbatim as the GitHub Release body. Do not
+rely on GitHub's automatically generated PR list as the primary release notes,
+and do not compose the final release body manually in the GitHub UI.
+
+PyPI release files are immutable. A broken upload cannot be replaced under the
+same version; prepare a new patch version instead.
 
 ## 1. Prepare a focused release pull request
 
-Start from the latest `master` after the intended feature/fix pull requests are merged.
+Start from the latest `master` after the intended feature and fix pull requests
+are merged.
 
-Update both version declarations:
+Update both version declarations and all release-facing sources:
 
-```toml
-# pyproject.toml
-version = "0.2.2"
-```
-
-```python
-# statgpu/__init__.py
-__version__ = "0.2.2"
-```
-
-Update release-facing documentation:
-
+- `pyproject.toml`;
+- `statgpu/__init__.py`;
+- `.github/releases/vX.Y.Z.md`;
 - `CHANGELOG.md`;
 - `docs/en/changelog.md`;
 - `docs/cn/changelog.md`;
-- README or model documentation when installation, compatibility, or public behavior changed.
+- README or model documentation when installation, compatibility, limitations,
+  or public behavior changed.
 
-Keep release-only changes separate from large implementation work. The release pull request should primarily contain version, packaging, changelog, and release-validation updates.
+The versioned GitHub Release document must be user-facing. It should explain:
 
-## 2. Validate the release candidate
+- what major capability was added or changed;
+- which public APIs and workflows are affected;
+- installation and platform support;
+- behavioral changes and upgrade implications;
+- known limitations and unsupported combinations;
+- validation evidence without turning the document into an internal audit log;
+- links to the main implementation PR, release PR, version comparison, and
+  repository changelog.
 
-At minimum, run the full CPU suite:
+Keep release-only changes separate from implementation work. A release pull
+request should primarily contain version, packaging, changelog, release notes,
+and release-validation changes.
+
+## 2. Validate the release pull request
+
+The normal `Tests` workflow must pass, including the complete CPU suite, static
+contracts, documentation contracts, and the Python 3.9–3.12 regression matrix.
+For changes affecting CuPy, Torch, inference, device routing, or performance,
+record physical-GPU acceptance on the exact release source commit.
+
+### Package validation
+
+The `Release package validation` workflow automatically:
+
+1. checks that `pyproject.toml` and `statgpu/__init__.py` declare the same version;
+2. builds a pure-Python wheel and source distribution with `STATGPU_NO_EXT=1`;
+3. runs `twine check`;
+4. requires exactly `statgpu-X.Y.Z-py3-none-any.whl` and
+   `statgpu-X.Y.Z.tar.gz`;
+5. rejects unsafe paths, credential-like files, cache directories, and compiled
+   binaries in the universal wheel;
+6. confirms that the sdist contains every `.pyx` or `.pxd` source that currently
+   exists in the repository;
+7. installs the sdist in a clean Ubuntu virtual environment and checks its
+   version;
+8. uploads the validated wheel and sdist as a short-lived workflow artifact;
+9. downloads that exact wheel artifact on Ubuntu, Windows, and macOS, installs it
+   in a fresh virtual environment, imports the public linear-model and Cox APIs,
+   and runs a CPU `LinearRegression` fit/predict smoke test.
+
+The cross-platform matrix validates portability of the published
+`py3-none-any` CPU wheel. It does not claim Apple MPS support or replace the
+separate physical-NVIDIA-GPU acceptance required for CUDA behavior.
+
+### GitHub Release-note validation
+
+The `Release notes validation` workflow requires:
+
+- `.github/releases/vX.Y.Z.md` matching the package version;
+- a title of the form `# statgpu X.Y.Z`;
+- substantive Highlights, Installation and platform support, Validation,
+  Upgrade notes and known limits, and Full change history sections;
+- no unresolved `TODO`, `TBD`, `X.Y.Z`, or similar placeholders;
+- explicit installation, platform, and version-comparison information;
+- the same version to appear in the root, English, and Chinese changelogs.
+
+This gate prevents a release tag from being prepared with a generic or
+incomplete GitHub Release description.
+
+For a local rehearsal, run:
 
 ```bash
 python -m pip install -e ".[dev,validation,formula]"
 python -m pytest dev/tests -q --tb=short
-```
 
-Run focused physical-GPU acceptance for changes that affect CuPy, Torch, inference, device routing, or performance. Record the exact commit, GPU, CUDA/CuPy/Torch versions, and whether any test was skipped.
-
-Confirm that both version declarations agree:
-
-```bash
-python - <<'PY'
-import pathlib
-import re
-
-pyproject = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
-init_file = pathlib.Path("statgpu/__init__.py").read_text(encoding="utf-8")
-
-project_version = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', pyproject, re.M).group(1)
-package_version = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_file, re.M).group(1)
-assert project_version == package_version, (project_version, package_version)
-print(project_version)
-PY
-```
-
-## 3. Build clean artifacts locally
-
-Remove stale packaging output first:
-
-```bash
 rm -rf build dist *.egg-info statgpu.egg-info
 python -m pip install --upgrade build twine
-```
-
-The official PyPI workflow sets `STATGPU_NO_EXT=1`. This produces a universal pure-Python wheel while retaining optional Cython sources in the sdist:
-
-```bash
 STATGPU_NO_EXT=1 python -m build
 python -m twine check dist/*
 ls -lh dist/
 ```
 
-Expected artifacts:
+Do not validate only from the source checkout. Install the wheel and sdist in
+fresh environments, or rely on the successful release-package workflow for the
+exact PR head.
 
-```text
-statgpu-X.Y.Z-py3-none-any.whl
-statgpu-X.Y.Z.tar.gz
-```
+## 3. Optional TestPyPI rehearsal
 
-`MANIFEST.in` includes the `.pyx` and `.pxd` files required by users who choose to build the optional CPU extensions from the sdist.
-
-## 4. Test the wheel and sdist in clean environments
-
-Do not validate only from the source checkout. Install each artifact in a fresh environment.
-
-### Wheel
-
-```bash
-python -m venv /tmp/statgpu-wheel-test
-/tmp/statgpu-wheel-test/bin/python -m pip install --upgrade pip
-/tmp/statgpu-wheel-test/bin/python -m pip install dist/statgpu-X.Y.Z-py3-none-any.whl
-/tmp/statgpu-wheel-test/bin/python - <<'PY'
-import statgpu
-print(statgpu.__version__)
-from statgpu.linear_model import LinearRegression
-print(LinearRegression)
-PY
-```
-
-### Source distribution
-
-```bash
-python -m venv /tmp/statgpu-sdist-test
-/tmp/statgpu-sdist-test/bin/python -m pip install --upgrade pip
-STATGPU_NO_EXT=1 /tmp/statgpu-sdist-test/bin/python -m pip install dist/statgpu-X.Y.Z.tar.gz
-/tmp/statgpu-sdist-test/bin/python - <<'PY'
-import statgpu
-print(statgpu.__version__)
-PY
-```
-
-On Windows, replace `/tmp/.../bin/python` with the environment's `Scripts/python.exe`.
-
-For packaging changes, also inspect the artifact contents and confirm that no credentials, benchmark caches, local configuration, or unrelated result bundles are included.
-
-## 5. Optional TestPyPI rehearsal
-
-A TestPyPI upload is recommended when changing packaging metadata, package discovery, build behavior, dependencies, or release automation.
+A TestPyPI rehearsal is recommended when changing packaging metadata, package
+discovery, build behavior, dependencies, or release automation:
 
 ```bash
 python -m twine upload --repository testpypi dist/*
-```
-
-Install with PyPI available for dependencies:
-
-```bash
 python -m pip install \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
   statgpu==X.Y.Z
 ```
 
-TestPyPI and PyPI require separate credentials/tokens.
+TestPyPI and PyPI use separate credentials.
 
-## 6. Merge the release pull request
+## 4. Merge the release pull request
 
 Before merging, verify:
 
-- version fields match;
-- changelogs describe the release accurately;
-- CI is green on the exact release head;
-- required physical-GPU tests are recorded;
-- wheel and sdist both pass `twine check` and clean-install tests;
-- the target version does not already exist on PyPI.
+- both version declarations match the intended release;
+- `.github/releases/vX.Y.Z.md` accurately describes the user-visible release;
+- root, English, and Chinese changelogs are synchronized;
+- required GitHub Actions jobs are green on the exact release head;
+- required physical-GPU evidence is recorded for the exact source commit;
+- wheel and sdist validation, the Ubuntu sdist clean-install check, and the
+  Ubuntu/Windows/macOS wheel smoke matrix pass;
+- the target version does not already exist on PyPI;
+- the `PYPI_TOKEN` repository secret remains valid and project-scoped.
 
-Merge the focused release pull request into `master`.
+Merge the focused release pull request into `master`. Do not add unrelated
+commits after release validation; changes after validation require the release
+checks to run again.
 
-## 7. Create and push the release tag
+## 5. Create and push the release tag
 
-Update local `master` and tag the exact merge commit:
+Update local `master` and tag the exact release-PR merge commit:
 
 ```bash
 git checkout master
@@ -174,21 +180,32 @@ git tag -a vX.Y.Z -m "statgpu X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-Pushing the tag starts the `Publish to PyPI` workflow. The current workflow:
+Pushing the tag starts `Publish to PyPI`. The workflow:
 
 1. checks out the tagged commit;
-2. sets up Python 3.11;
-3. installs `build` and `twine`;
-4. verifies that the tag matches `pyproject.toml`;
-5. builds a pure-Python wheel and sdist with `STATGPU_NO_EXT=1`;
-6. runs `twine check`;
-7. uploads `dist/*` to PyPI using the repository secret `PYPI_TOKEN`.
+2. verifies that the tag, `pyproject.toml`, and `statgpu.__version__` agree;
+3. verifies that `.github/releases/vX.Y.Z.md` exists and has the required
+   versioned sections;
+4. builds a pure-Python wheel and sdist with `STATGPU_NO_EXT=1`;
+5. runs `twine check`;
+6. installs the wheel in a clean environment and checks its version and core
+   imports;
+7. retains the validated distributions as a workflow artifact;
+8. uploads the distributions to PyPI using the repository secret `PYPI_TOKEN`;
+9. only after the PyPI job succeeds, creates or updates the GitHub Release using
+   `.github/releases/vX.Y.Z.md` as the exact release body and attaches the same
+   wheel and sdist.
 
-The PyPI API token should be project-scoped and stored only as a GitHub Actions secret. Never place it in source files, command history committed to the repository, issue comments, or documentation examples.
+PyPI publication and GitHub Release creation are separate jobs. If the GitHub
+Release job fails after PyPI succeeds, rerun only the failed job; the successful
+PyPI upload does not need to be repeated.
 
-## 8. Verify the published release
+Never place the PyPI token in source files, committed command output, issues,
+pull requests, or documentation examples.
 
-After the workflow succeeds, verify the PyPI release in a new environment:
+## 6. Verify the published release
+
+After the workflow succeeds, verify the PyPI package from a new environment:
 
 ```bash
 python -m venv /tmp/statgpu-pypi-test
@@ -196,37 +213,59 @@ python -m venv /tmp/statgpu-pypi-test
 /tmp/statgpu-pypi-test/bin/python -m pip install --no-cache-dir statgpu==X.Y.Z
 /tmp/statgpu-pypi-test/bin/python - <<'PY'
 import statgpu
+from statgpu.survival import CoxPH, CoxPHCV
+
 print(statgpu.__version__)
+print(CoxPH, CoxPHCV)
 PY
 ```
 
 Also verify:
 
-- the PyPI project page renders the README correctly;
-- the wheel is `py3-none-any` as intended;
+- the PyPI page renders the README correctly;
+- the wheel is `py3-none-any`;
 - the sdist is present;
-- dependency extras are displayed;
-- the homepage and repository links are valid.
+- dependency extras and supported Python versions are correct;
+- project, documentation, issue, and changelog links work;
+- the GitHub Release title is `statgpu X.Y.Z`;
+- the GitHub Release body matches `.github/releases/vX.Y.Z.md` rather than an
+  automatically generated PR summary;
+- the GitHub Release includes the same wheel and sdist published by the tag
+  workflow.
 
-Create a GitHub Release from the same tag and use the changelog as the basis for release notes.
+## 7. Failure handling
 
-## 9. Failure handling
+### Version or release-note mismatch
 
-### Version mismatch
+The publish workflow stops before upload. Correct the version or release-note
+file in a new commit, merge a new release PR, and create a new tag. Do not move a
+published tag.
 
-If the tag and package version differ, the workflow stops before uploading. Correct the version in a new commit and create a new tag. Do not move an already published tag.
+### Partial PyPI upload
 
-### Upload partially succeeds
+PyPI may accept one artifact before another fails. Because filenames and
+versions are immutable, inspect the release and normally issue a new patch
+version rather than trying to replace the accepted file.
 
-PyPI may accept one artifact before another fails. Because filenames and versions are immutable, inspect the project release and normally issue a new patch version rather than attempting to replace uploaded files.
+### GitHub Release publication failure
+
+If the PyPI job succeeded and only the GitHub Release job failed, rerun the
+failed GitHub Release job. It is idempotent: an existing release is updated from
+the versioned notes file and attached artifacts are uploaded with replacement.
 
 ### Bad release already published
 
-- mark the PyPI release as yanked when appropriate;
+- yank the PyPI release when appropriate;
 - fix the problem in a new patch release;
-- document the incident and migration path in the changelog;
-- do not delete or recreate Git history to reuse the version.
+- document the incident and migration path in the changelog and versioned release
+  notes;
+- do not rewrite Git history or reuse the released version.
 
-## Recommended automation improvement
+## Future infrastructure improvement
 
-The current workflow uses a project-scoped API token through `PYPI_TOKEN`. PyPI Trusted Publishing is preferable for long-term maintenance because it removes the stored upload token and binds publishing to a specific GitHub repository/workflow/environment. Migrating should be handled in a dedicated release-infrastructure pull request and tested before removing the existing token path.
+The current workflow uses a project-scoped API token through `PYPI_TOKEN`.
+PyPI Trusted Publishing is preferable for long-term maintenance because it
+removes the stored upload token and binds publishing to a specific repository,
+workflow, and optional environment. Migrate in a dedicated infrastructure pull
+request and verify the trusted-publisher configuration before removing the token
+path.
