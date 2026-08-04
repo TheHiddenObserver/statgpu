@@ -14,14 +14,16 @@
 
 ## 后端行为
 
-NumPy、CuPy 和 Torch CUDA 遵循相同的统计契约：
+NumPy、CuPy 和 Torch CUDA 遵循相同的统计与执行契约：
 
 - 每个 candidate 都接受 full-precision evaluation；
 - 不筛除任何 candidate；
+- 原始 staged 与 successive-halving 分支均被禁用；
+- 只执行一次 exhaustive candidate pass；
 - 最终选择基于完整 candidate set；
 - 使用所选 penalty 在完整数据上重新拟合。
 
-显式 CuPy 运行可能继续使用 staged fold-workspace machinery，以复用已经准备好的 fold state；但是 coarse、refinement 和 finalist 集合都会扩展为完整 grid。CPU 和 Torch 使用单次 exhaustive pass。该实现差异不会改变 candidate set 或最终选择结果。
+特别地，CuPy 不再先把 staged candidate 集合扩展为完整 grid，再把同一批 full-precision finalists 重跑一遍。三个后端现在都只调用一次普通 exhaustive selector，从而消除后端特有的双重 full-grid 拟合，同时保持相同的 penalty 选择契约。
 
 ## 诊断字段
 
@@ -34,7 +36,7 @@ NumPy、CuPy 和 Torch CUDA 遵循相同的统计契约：
 | `successive_halving_requested` | 是否请求 successive halving |
 | `successive_halving_enabled` | screening 安全禁用期间恒为 `False` |
 | `staged_execution_mode` | `"exhaustive_safety_fallback"` |
-| `staged_safety_strategy` | exhaustive fallback 所采用的后端执行策略 |
+| `staged_safety_strategy` | 恒为 `"single_pass_exhaustive"` |
 | `staged_fallback_reason` | 禁用 screening 的用户可见原因 |
 | `fast_pass_candidate_mask` | 全部为 `False` |
 | `full_precision_candidate_mask` | 全部为 `True` |
@@ -57,8 +59,9 @@ model = CoxPHCV(
 ).fit(X, time, event)
 
 assert model.cv_results_["staged_execution_mode"] == "exhaustive_safety_fallback"
+assert model.cv_results_["staged_safety_strategy"] == "single_pass_exhaustive"
 assert model.cv_results_["full_precision_candidate_mask"].all()
 assert not model.cv_results_["screened_out_candidate_mask"].any()
 ```
 
-这些环境变量目前应被视为预留的实验性控制项。只有在 deterministic candidate ranking 以及 NumPy、CuPy、Torch 三后端 correctness evidence 完整之后，未来版本才可能重新启用实际 screening。
+这些环境变量目前应被视为预留的实验性控制项。只有在 deterministic candidate ranking 以及 NumPy、CuPy、Torch 三后端 correctness 与 performance evidence 完整之后，未来版本才可能重新启用实际 screening。
