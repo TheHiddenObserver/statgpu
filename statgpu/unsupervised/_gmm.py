@@ -321,9 +321,9 @@ class GaussianMixture(BaseEstimator):
             {
                 "n_components": self.n_components,
                 "covariance_type": self.covariance_type,
-                "tol": self._tol,
+                "tol": self.tol,
                 "reg_covar": self.reg_covar,
-                "max_iter": self._max_iter,
+                "max_iter": self.max_iter,
                 "n_init": self.n_init,
                 "init_params": self.init_params,
                 "random_state": self.random_state,

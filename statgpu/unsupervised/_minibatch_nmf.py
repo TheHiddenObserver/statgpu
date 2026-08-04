@@ -275,9 +275,9 @@ class MiniBatchNMF(BaseEstimator):
             {
                 "n_components": self.n_components,
                 "init": self.init,
-                "batch_size": self._batch_size,
-                "max_iter": self._max_iter,
-                "tol": self._tol,
+                "batch_size": self.batch_size,
+                "max_iter": self.max_iter,
+                "tol": self.tol,
                 "random_state": self.random_state,
             }
         )

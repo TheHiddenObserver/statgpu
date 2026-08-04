@@ -180,10 +180,10 @@ class NMF(BaseEstimator):
             {
                 "n_components": self.n_components,
                 "init": self.init,
-                "solver": self._solver,
+                "solver": self.solver,
                 "beta_loss": self.beta_loss,
-                "max_iter": self._max_iter,
-                "tol": self._tol,
+                "max_iter": self.max_iter,
+                "tol": self.tol,
                 "random_state": self.random_state,
             }
         )

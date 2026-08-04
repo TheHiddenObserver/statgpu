@@ -175,7 +175,7 @@ class IncrementalPCA(BaseEstimator):
         params.update(
             {
                 "n_components": self.n_components,
-                "batch_size": self._batch_size,
+                "batch_size": self.batch_size,
                 "whiten": self.whiten,
                 "copy": self.copy,
             }

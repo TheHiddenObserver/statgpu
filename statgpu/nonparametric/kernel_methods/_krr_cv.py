@@ -382,7 +382,7 @@ class KernelRidgeCV(BaseEstimator):
         params = super().get_params(deep=deep)
         params.update({
             "alphas": self.alphas,
-            "cv": self._cv,
+            "cv": self.cv,
             "kernel": self.kernel,
             "gamma": self.gamma,
             "degree": self.degree,

@@ -183,7 +183,7 @@ class TSNE(BaseEstimator):
                 "perplexity": self.perplexity,
                 "early_exaggeration": self.early_exaggeration,
                 "learning_rate": self.learning_rate,
-                "max_iter": self._max_iter,
+                "max_iter": self.max_iter,
                 "init": self.init,
                 "random_state": self.random_state,
                 "metric": self.metric,

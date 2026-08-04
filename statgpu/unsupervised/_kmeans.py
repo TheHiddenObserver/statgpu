@@ -258,8 +258,8 @@ class KMeans(BaseEstimator):
                 "n_clusters": self.n_clusters,
                 "init": self.init,
                 "n_init": self.n_init,
-                "max_iter": self._max_iter,
-                "tol": self._tol,
+                "max_iter": self.max_iter,
+                "tol": self.tol,
                 "random_state": self.random_state,
             }
         )

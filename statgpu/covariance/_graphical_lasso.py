@@ -175,7 +175,7 @@ class GraphicalLasso(EmpiricalCovariance):
 
     def get_params(self, deep=True):
         params = super().get_params(deep=deep)
-        params.update(alpha=self.alpha, max_iter=self._max_iter, tol=self._tol)
+        params.update(alpha=self.alpha, max_iter=self.max_iter, tol=self.tol)
         return params
 
     def set_params(self, **params):
@@ -294,9 +294,9 @@ class GraphicalLassoCV(EmpiricalCovariance):
         params = super().get_params(deep=deep)
         params.update(
             alphas=self.alphas,
-            cv=self._cv,
-            max_iter=self._max_iter,
-            tol=self._tol,
+            cv=self.cv,
+            max_iter=self.max_iter,
+            tol=self.tol,
             random_state=self.random_state,
         )
         return params

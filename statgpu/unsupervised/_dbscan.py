@@ -579,7 +579,7 @@ class DBSCAN(BaseEstimator):
                 "eps": self.eps,
                 "min_samples": self.min_samples,
                 "metric": self.metric,
-                "batch_size": self._batch_size,
+                "batch_size": self.batch_size,
             }
         )
         return params

@@ -720,3 +720,66 @@ def test_knockoff_manual_validation_is_marked():
                 "__statgpu_finite_validation__",
                 False,
             )
+
+
+
+def test_custom_get_params_do_not_expose_normalized_private_values():
+    import ast
+    from pathlib import Path
+
+    normalized_private = {
+        "_device", "_cov_type", "_hac_maxlags", "_gpu_memory_cleanup",
+        "_solver", "_cpu_solver", "_stopping", "_inference_method",
+        "_simultaneous_method", "_n_bootstrap",
+        "_enable_simultaneous_inference", "_simultaneous_alpha",
+        "_simultaneous_n_bootstrap", "_simultaneous_include_intercept",
+        "_method", "_admm_rho", "_alpha_min_ratio", "_cd_kkt_check_every",
+        "_compute_inference_enabled", "_cv", "_fit_intercept",
+        "_gpu_cv_mixed_precision", "_max_iter", "_n_alphas", "_tol",
+        "_n_Cs", "_C_min_ratio", "_penalty_kwargs", "_loss_kwargs",
+        "_epsilon", "_ties", "_acknowledge_approx", "_refine_top_k",
+        "_batch_size", "_min_effective_weight", "_quantile", "_cv_strategy",
+    }
+    offenders = []
+    for path in Path("statgpu").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        stack = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_FunctionDef(self, node):
+                stack.append(node.name)
+                self.generic_visit(node)
+                stack.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Attribute(self, node):
+                if (
+                    stack
+                    and stack[-1] == "get_params"
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "self"
+                    and node.attr in normalized_private
+                ):
+                    offenders.append((path.as_posix(), node.lineno, node.attr))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+    assert offenders == []
+
+
+def test_tsne_nondefault_get_params_preserve_raw_identity():
+    from sklearn.base import clone
+    from statgpu.unsupervised import TSNE
+
+    max_iter = np.int64(300)
+    device = "".join(("c", "pu"))
+    model = TSNE(max_iter=max_iter, device=device)
+    params = model.get_params(deep=False)
+    assert params["max_iter"] is max_iter
+    assert params["device"] is device
+
+    cloned = clone(model)
+    cloned_params = cloned.get_params(deep=False)
+    assert isinstance(cloned_params["max_iter"], np.integer)
+    assert cloned_params["device"] == "cpu"

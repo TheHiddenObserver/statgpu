@@ -289,10 +289,10 @@ class MiniBatchKMeans(BaseEstimator):
                 "n_clusters": self.n_clusters,
                 "init": self.init,
                 "n_init": self.n_init,
-                "batch_size": self._batch_size,
-                "max_iter": self._max_iter,
+                "batch_size": self.batch_size,
+                "max_iter": self.max_iter,
                 "max_no_improvement": self.max_no_improvement,
-                "tol": self._tol,
+                "tol": self.tol,
                 "random_state": self.random_state,
             }
         )
