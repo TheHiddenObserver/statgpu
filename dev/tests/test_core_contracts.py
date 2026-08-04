@@ -66,6 +66,21 @@ def test_set_params_rejects_unknown_and_supports_nested_estimators():
     assert parent._device is Device.AUTO
 
 
+def test_sklearn_clone_recursively_clears_nested_fitted_state():
+    from sklearn.base import clone
+
+    child = DummyEstimator(value=3).fit(np.ones((2, 1)))
+    parent = DummyEstimator(value=5, child=child)
+
+    cloned = clone(parent)
+
+    assert cloned is not parent
+    assert cloned.child is not child
+    assert cloned.child.value == 3
+    assert cloned.child._fitted is False
+    assert child._fitted is True
+
+
 def test_torch_rng_none_uses_entropy(monkeypatch):
     created = []
 
