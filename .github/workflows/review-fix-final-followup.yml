@@ -21,7 +21,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Apply final follow-up
-        run: python .github/review_fix_final_followup.py
+        run: |
+          python .github/review_fix_final_followup.py
+          python .github/review_fix_final_followup_v2.py
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
