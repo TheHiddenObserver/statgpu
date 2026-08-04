@@ -22,9 +22,7 @@ SWITCH_MARKERS = (
     "English:",
 )
 
-MARKDOWN_MD_LINK_RE = re.compile(
-    r"(\[[^\]]+\]\()([^)]+\.(?:md|markdown)(?:#[^)]*)?)(\))"
-)
+MARKDOWN_MD_LINK_RE = re.compile(r"(\[[^\]]+\]\()([^)]+\.md(?:#[^)]*)?)(\))")
 DEV_DOCS_LINK_RE = re.compile(r"(?:\.\./)+dev/docs/")
 RESULTS_LINK_RE = re.compile(r"(?:\.\./)+results/")
 
@@ -73,15 +71,13 @@ def normalize_file(path: Path, counterpart: Path) -> str:
 
 def iter_mirrored_pairs() -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
-    patterns = ("*.md", "*.markdown")
     for language, other_language in (("en", "cn"), ("cn", "en")):
         language_root = DOCS / language
         other_root = DOCS / other_language
-        for pattern in patterns:
-            for path in sorted(language_root.rglob(pattern)):
-                counterpart = other_root / path.relative_to(language_root)
-                if counterpart.is_file():
-                    pairs.append((path, counterpart))
+        for path in sorted(language_root.rglob("*.md")):
+            counterpart = other_root / path.relative_to(language_root)
+            if counterpart.is_file():
+                pairs.append((path, counterpart))
     return pairs
 
 
