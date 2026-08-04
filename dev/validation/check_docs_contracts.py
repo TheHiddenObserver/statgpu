@@ -19,6 +19,8 @@ MAINTAINED_PATHS = (
 MAINTAINED_GLOBS = (
     "docs/en/**/*.md",
     "docs/cn/**/*.md",
+    "docs/en/**/*.markdown",
+    "docs/cn/**/*.markdown",
 )
 
 FENCED_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
