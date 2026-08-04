@@ -16,22 +16,19 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
     """Reject NaN/Inf without transferring complete GPU arrays to CPU.
 
     Numeric NumPy, CuPy, Torch, pandas, scalar, and nested sequence
-    inputs are checked.  Non-numeric labels are intentionally ignored.
-    Only the final boolean reduction is synchronized for GPU arrays.
-    The original object is returned unchanged.
+    inputs are checked. Non-numeric labels are intentionally ignored.
+    Homogeneous Python sequences are converted once and checked with a
+    vectorized reduction; only genuinely ragged sequences are traversed by
+    top-level component. Only the final boolean reduction is synchronized for
+    GPU arrays. The original object is returned unchanged.
     """
     if value is None:
         return value
 
-    if isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            check_finite(item, name=f"{name}[{index}]")
-        return value
-
     if isinstance(value, (float, np.floating, complex, np.complexfloating)):
-        if not math.isfinite(value.real) or (
-            isinstance(value, complex) and not math.isfinite(value.imag)
-        ):
+        real = float(np.real(value))
+        imag = float(np.imag(value))
+        if not math.isfinite(real) or not math.isfinite(imag):
             _raise_nonfinite(name)
         return value
     if isinstance(value, (int, np.integer, bool, np.bool_)):
