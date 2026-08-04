@@ -128,7 +128,14 @@ class BaseEstimator(ABC):
                     bound = signature.bind(self, *args, **kwargs)
                 except TypeError:
                     return original(self, *args, **kwargs)
+                loss_value = getattr(self, "loss", "")
+                loss_name = str(getattr(loss_value, "name", loss_value)).lower()
                 for name, value in bound.arguments.items():
+                    if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
+                        # Cox response matrices have stronger joint time/event
+                        # contracts. Preserve model-specific errors and validate
+                        # them before device selection inside the Cox estimator.
+                        continue
                     if name in self._FINITE_PARAMETER_NAMES and value is not None:
                         check_finite(value, name=name)
                 return original(self, *args, **kwargs)
