@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Apply constructor regression fixes
-        run: python .github/review_fix_constructor_regressions_v2.py
+        run: python .github/review_fix_constructor_regressions_v3.py
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
