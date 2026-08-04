@@ -22,10 +22,6 @@ SWITCH_MARKERS = (
     "English:",
 )
 
-MARKDOWN_LINK_RE = re.compile(
-    r"(\[[^\]]+\]\.)([^)]+\.(?:md|markdown)(?:#[^)]*)?)(\))"
-)
-# Preserve the historical public name used by existing imports/tests.
 MARKDOWN_MD_LINK_RE = re.compile(
     r"(\[[^\]]+\]\()([^)]+\.(?:md|markdown)(?:#[^)]*)?)(\))"
 )
