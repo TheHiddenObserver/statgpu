@@ -1,0 +1,856 @@
+name: Agent maintenance bootstrap
+
+on:
+  push:
+    branches:
+      - "agent/maintenance-0.2.4-0.2.5"
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply maintenance changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import re
+          from pathlib import Path
+
+
+          def write(path: str, content: str) -> None:
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding="utf-8")
+
+
+          def add_import(text: str, import_line: str) -> str:
+              if import_line in text:
+                  return text
+              lines = text.splitlines(keepends=True)
+              insert_at = None
+              for index, line in enumerate(lines):
+                  if line.startswith("from __future__ import"):
+                      continue
+                  if line.startswith("import ") or line.startswith("from "):
+                      insert_at = index
+                      break
+              if insert_at is None:
+                  raise RuntimeError(f"could not locate import section for {import_line}")
+              lines.insert(insert_at, import_line + "\n")
+              return "".join(lines)
+
+
+          torch_compile_helper = '''"""Safe, centralized policy for internal :func:`torch.compile` use.
+
+          statgpu iterative solvers reuse tensors across calls.  PyTorch's
+          ``reduce-overhead`` mode enables CUDA Graphs and can therefore expose
+          overwritten-output lifecycle errors on PyTorch 2.1 and newer.  Internal
+          iterative call sites use ``default`` mode unless a user explicitly opts
+          into another mode through ``STATGPU_TORCH_COMPILE_MODE``.
+          """
+
+          from __future__ import annotations
+
+          import functools
+          import os
+          import warnings
+          from typing import Callable, Optional
+
+          _ENV_NAME = "STATGPU_TORCH_COMPILE_MODE"
+          _ALLOWED_MODES = frozenset({"auto", "default", "reduce-overhead", "disable"})
+          _CUDAGRAPH_RUNTIME_MARKERS = (
+              "CUDAGraphs",
+              "cudagraph",
+              "overwritten by a subsequent run",
+          )
+
+
+          def resolve_torch_compile_mode(
+              *,
+              workload: str = "general",
+              requested_mode: Optional[str] = None,
+          ) -> Optional[str]:
+              """Resolve the mode for a statgpu-owned compiled callable.
+
+              ``None`` means eager execution.  ``auto`` selects ``default`` for
+              iterative workloads because they retain and reuse tensors between
+              calls; other workloads preserve an explicitly requested safe mode
+              and otherwise use ``default``.
+              """
+              configured = os.environ.get(_ENV_NAME, "auto").strip().lower()
+              if configured not in _ALLOWED_MODES:
+                  allowed = ", ".join(sorted(_ALLOWED_MODES))
+                  raise ValueError(
+                      f"{_ENV_NAME} must be one of {allowed}; got {configured!r}"
+                  )
+              if configured == "disable":
+                  return None
+              if configured != "auto":
+                  return configured
+
+              if workload.strip().lower() == "iterative":
+                  return "default"
+              if requested_mode in (None, "reduce-overhead"):
+                  return "default"
+              return requested_mode
+
+
+          def torch_compile_available() -> bool:
+              """Return whether the local Torch installation can compile safely."""
+              try:
+                  import torch
+              except Exception:
+                  return False
+              if not callable(getattr(torch, "compile", None)):
+                  return False
+              try:
+                  if torch.cuda.is_available():
+                      return torch.cuda.get_device_capability()[0] >= 7
+              except Exception:
+                  return False
+              return True
+
+
+          def _is_cudagraph_lifecycle_error(exc: BaseException) -> bool:
+              message = str(exc)
+              return any(marker.lower() in message.lower() for marker in _CUDAGRAPH_RUNTIME_MARKERS)
+
+
+          def compile_torch(
+              fn: Callable,
+              *,
+              workload: str = "general",
+              mode: Optional[str] = None,
+              **compile_kwargs,
+          ) -> Callable:
+              """Compile ``fn`` under the statgpu policy, with eager fallback.
+
+              Construction failures retain the historical eager fallback.  A
+              known CUDA Graph output-lifecycle failure at invocation time also
+              disables the compiled callable permanently for that function.  All
+              unrelated runtime errors are re-raised.
+              """
+              resolved_mode = resolve_torch_compile_mode(
+                  workload=workload,
+                  requested_mode=mode,
+              )
+              if resolved_mode is None or not torch_compile_available():
+                  return fn
+
+              try:
+                  import torch
+                  compiled = torch.compile(fn, mode=resolved_mode, **compile_kwargs)
+              except Exception:
+                  return fn
+
+              state = {"disabled": False}
+
+              @functools.wraps(fn)
+              def guarded(*args, **kwargs):
+                  if state["disabled"]:
+                      return fn(*args, **kwargs)
+                  try:
+                      return compiled(*args, **kwargs)
+                  except RuntimeError as exc:
+                      if not _is_cudagraph_lifecycle_error(exc):
+                          raise
+                      state["disabled"] = True
+                      warnings.warn(
+                          "torch.compile CUDA Graph lifecycle failure; "
+                          "falling back to eager execution for this statgpu kernel",
+                          RuntimeWarning,
+                          stacklevel=2,
+                      )
+                      return fn(*args, **kwargs)
+
+              guarded.__statgpu_compile_mode__ = resolved_mode
+              guarded.__statgpu_compile_workload__ = workload
+              return guarded
+          '''
+          write("statgpu/backends/_torch_compile.py", torch_compile_helper)
+
+
+          validation_helper = '''"""Backend-native validation helpers for public numerical inputs."""
+
+          from __future__ import annotations
+
+          import math
+          from typing import Any
+
+          import numpy as np
+
+
+          def _raise_nonfinite(name: str) -> None:
+              raise ValueError(f"{name} must contain only finite values; found NaN or Inf")
+
+
+          def check_finite(value: Any, *, name: str = "array") -> Any:
+              """Reject NaN/Inf without transferring complete GPU arrays to CPU.
+
+              Numeric NumPy, CuPy, Torch, pandas, scalar, and nested sequence
+              inputs are checked.  Non-numeric labels are intentionally ignored.
+              Only the final boolean reduction is synchronized for GPU arrays.
+              The original object is returned unchanged.
+              """
+              if value is None:
+                  return value
+
+              if isinstance(value, (float, np.floating, complex, np.complexfloating)):
+                  if not math.isfinite(value.real) or (
+                      isinstance(value, complex) and not math.isfinite(value.imag)
+                  ):
+                      _raise_nonfinite(name)
+                  return value
+              if isinstance(value, (int, np.integer, bool, np.bool_)):
+                  return value
+
+              module = type(value).__module__
+              if module.startswith("torch"):
+                  import torch
+
+                  tensor = value
+                  if getattr(tensor, "is_sparse", False):
+                      tensor = tensor.coalesce().values()
+                  if not bool(torch.isfinite(tensor).all().item()):
+                      _raise_nonfinite(name)
+                  return value
+
+              if module.startswith("cupy"):
+                  import cupy as cp
+
+                  if not bool(cp.isfinite(value).all().item()):
+                      _raise_nonfinite(name)
+                  return value
+
+              if module.startswith("pandas"):
+                  if hasattr(value, "select_dtypes"):
+                      numeric = value.select_dtypes(include=["number", "bool"])
+                      if getattr(numeric, "shape", (0, 0))[1] == 0:
+                          return value
+                      array = numeric.to_numpy()
+                  else:
+                      array = value.to_numpy()
+                  if array.dtype.kind in "biufc" and not np.isfinite(array).all():
+                      _raise_nonfinite(name)
+                  return value
+
+              try:
+                  array = np.asarray(value)
+              except (TypeError, ValueError):
+                  if isinstance(value, (list, tuple)):
+                      for index, item in enumerate(value):
+                          check_finite(item, name=f"{name}[{index}]")
+                  return value
+
+              if array.dtype.kind in "biufc":
+                  if not np.isfinite(array).all():
+                      _raise_nonfinite(name)
+                  return value
+
+              if array.dtype.kind == "O" and isinstance(value, (list, tuple)):
+                  for index, item in enumerate(value):
+                      check_finite(item, name=f"{name}[{index}]")
+              return value
+          '''
+          write("statgpu/backends/_validation.py", validation_helper)
+
+
+          # Route every legacy reduce-overhead call through the central policy.
+          compile_paths = []
+          compile_import = "from statgpu.backends._torch_compile import compile_torch"
+          mode_pattern = re.compile(r"mode\s*=\s*(['\"])reduce-overhead\1")
+          for path in sorted(Path("statgpu").rglob("*.py")):
+              if path.name == "_torch_compile.py":
+                  continue
+              text = path.read_text(encoding="utf-8")
+              if "reduce-overhead" not in text:
+                  continue
+              if "torch.compile(" not in text:
+                  raise RuntimeError(f"unexpected reduce-overhead occurrence in {path}")
+              text = text.replace("torch.compile(", "compile_torch(")
+              text, replacements = mode_pattern.subn('workload="iterative"', text)
+              if replacements == 0:
+                  raise RuntimeError(f"did not replace compile mode in {path}")
+              text = add_import(text, compile_import)
+              path.write_text(text, encoding="utf-8")
+              compile_paths.append(path.as_posix())
+          if len(compile_paths) < 8:
+              raise RuntimeError(f"expected at least 8 compile call-site files, got {compile_paths}")
+          print("updated compile paths:", *compile_paths, sep="\n  ")
+
+
+          penalties_init = Path("statgpu/penalties/__init__.py")
+          text = penalties_init.read_text(encoding="utf-8")
+          start = text.index("def _torch_compile_ok():")
+          end = text.index("\n\n__all__", start)
+          replacement = '''def _torch_compile_ok():
+              """Compatibility alias for the centralized Torch compile policy."""
+              from statgpu.backends._torch_compile import torch_compile_available
+
+              return torch_compile_available()
+          '''
+          text = text[:start] + replacement + text[end:]
+          penalties_init.write_text(text, encoding="utf-8")
+
+
+          # BaseEstimator: raw constructor identity, shared finite-input contract,
+          # and set_params bookkeeping for sklearn <= 1.2.
+          base_path = Path("statgpu/_base.py")
+          text = base_path.read_text(encoding="utf-8")
+          old_imports = "from typing import Optional, Union, Any\nimport numpy as np\n"
+          new_imports = (
+              "from typing import Optional, Union, Any\n"
+              "import functools\n"
+              "import inspect\n"
+              "import numpy as np\n"
+          )
+          if old_imports not in text:
+              raise RuntimeError("BaseEstimator import marker changed")
+          text = text.replace(old_imports, new_imports, 1)
+
+          class_block = '''    _FINITE_PUBLIC_METHODS = frozenset({
+              "fit",
+              "partial_fit",
+              "fit_predict",
+              "fit_transform",
+              "predict",
+              "predict_proba",
+              "predict_log_proba",
+              "decision_function",
+              "transform",
+              "score",
+              "survfit",
+              "predict_survival",
+              "predict_survival_function",
+              "predict_cumulative_hazard",
+          })
+              _FINITE_PARAMETER_NAMES = frozenset({
+              "X",
+              "X_new",
+              "x",
+              "y",
+              "sample_weight",
+              "weights",
+              "offset",
+              "exposure",
+              "entry",
+              "start",
+              "stop",
+              "time",
+              "event",
+              "times",
+              "cluster",
+              "clusters",
+              "strata",
+              "subject",
+              "subjects",
+              "groups",
+              "init",
+              "init_coef",
+          })
+
+              def __init_subclass__(cls, **kwargs):
+              super().__init_subclass__(**kwargs)
+              cls._install_constructor_capture()
+              cls._install_public_finite_validation()
+
+              @classmethod
+              def _install_constructor_capture(cls):
+              original_init = cls.__dict__.get("__init__")
+              if original_init is None or getattr(
+                  original_init, "__statgpu_constructor_capture__", False
+              ):
+                  return
+              try:
+                  signature = inspect.signature(original_init)
+              except (TypeError, ValueError):
+                  return
+
+              @functools.wraps(original_init)
+              def wrapped(self, *args, **kwargs):
+                  try:
+                      bound = signature.bind(self, *args, **kwargs)
+                      bound.apply_defaults()
+                  except TypeError:
+                      return original_init(self, *args, **kwargs)
+                  raw_params = {
+                      name: value
+                      for name, value in bound.arguments.items()
+                      if name != "self"
+                      and signature.parameters[name].kind
+                      not in (
+                          inspect.Parameter.VAR_POSITIONAL,
+                          inspect.Parameter.VAR_KEYWORD,
+                      )
+                  }
+                  original_init(self, *args, **kwargs)
+                  # The outermost constructor wrapper runs last, so subclasses
+                  # retain their complete public signature rather than a base
+                  # class subset.
+                  self._constructor_params_raw = raw_params
+
+              wrapped.__statgpu_constructor_capture__ = True
+              cls.__init__ = wrapped
+
+              @classmethod
+              def _install_public_finite_validation(cls):
+              from statgpu.backends._validation import check_finite
+
+              def wrap_method(method_name, original):
+                  try:
+                      signature = inspect.signature(original)
+                  except (TypeError, ValueError):
+                      return original
+
+                  @functools.wraps(original)
+                  def guarded(self, *args, **kwargs):
+                      try:
+                          bound = signature.bind(self, *args, **kwargs)
+                      except TypeError:
+                          return original(self, *args, **kwargs)
+                      for name, value in bound.arguments.items():
+                          if (
+                              name in self._FINITE_PARAMETER_NAMES
+                              and value is not None
+                          ):
+                              check_finite(value, name=name)
+                      return original(self, *args, **kwargs)
+
+                  guarded.__statgpu_finite_validation__ = True
+                  return guarded
+
+              for method_name in cls._FINITE_PUBLIC_METHODS:
+                  original = cls.__dict__.get(method_name)
+                  if original is None or not callable(original):
+                      continue
+                  if getattr(original, "__isabstractmethod__", False):
+                      continue
+                  if getattr(original, "__statgpu_finite_validation__", False):
+                      continue
+                  setattr(cls, method_name, wrap_method(method_name, original))
+
+          '''
+          init_marker = "    def __init__(\n"
+          if init_marker not in text:
+              raise RuntimeError("BaseEstimator __init__ marker changed")
+          text = text.replace(init_marker, class_block + init_marker, 1)
+
+          params_marker = "        params = {}\n        try:\n"
+          if params_marker not in text:
+              raise RuntimeError("BaseEstimator get_params marker changed")
+          text = text.replace(
+              params_marker,
+              "        params = {}\n"
+              "        raw_params = getattr(self, \"_constructor_params_raw\", {})\n"
+              "        try:\n",
+              1,
+          )
+          old_param_read = '''            if hasattr(self, name):
+                  params[name] = getattr(self, name)
+              elif hasattr(self, f"_{name}"):
+                  params[name] = getattr(self, f"_{name}")
+          '''
+          new_param_read = '''            if name in raw_params:
+                  params[name] = raw_params[name]
+              elif hasattr(self, name):
+                  params[name] = getattr(self, name)
+              elif hasattr(self, f"_{name}"):
+                  params[name] = getattr(self, f"_{name}")
+          '''
+          if old_param_read not in text:
+              raise RuntimeError("BaseEstimator parameter-read marker changed")
+          text = text.replace(old_param_read, new_param_read, 1)
+
+          key_marker = "        for key, value in params.items():\n            root, delimiter, sub_key = key.partition(\"__\")\n"
+          if key_marker not in text:
+              raise RuntimeError("BaseEstimator set_params loop marker changed")
+          text = text.replace(
+              key_marker,
+              "        for key, value in params.items():\n"
+              "            root, delimiter, sub_key = key.partition(\"__\")\n"
+              "            raw_value = value\n",
+              1,
+          )
+          set_marker = '''            if hasattr(self, root):
+                  setattr(self, root, value)
+              else:
+                  setattr(self, f"_{root}", value)
+          '''
+          set_replacement = '''            if hasattr(self, root):
+                  setattr(self, root, value)
+              else:
+                  setattr(self, f"_{root}", value)
+              raw_params = getattr(self, "_constructor_params_raw", None)
+              if raw_params is None:
+                  raw_params = {}
+                  self._constructor_params_raw = raw_params
+              raw_params[root] = raw_value
+          '''
+          if set_marker not in text:
+              raise RuntimeError("BaseEstimator setattr marker changed")
+          text = text.replace(set_marker, set_replacement, 1)
+          return_marker = "            nested_estimator.set_params(**sub_params)\n\n        return self\n"
+          if return_marker not in text:
+              raise RuntimeError("BaseEstimator return marker changed")
+          text = text.replace(
+              return_marker,
+              "            nested_estimator.set_params(**sub_params)\n\n"
+              "        refresh = getattr(self, \"_statgpu_refresh_normalized_params\", None)\n"
+              "        if callable(refresh):\n"
+              "            refresh()\n\n"
+              "        return self\n",
+              1,
+          )
+          base_path.write_text(text, encoding="utf-8")
+
+
+          # Legacy sklearn regression must now pass rather than XFAIL.
+          clone_test = Path("dev/tests/test_second_full_review.py")
+          text = clone_test.read_text(encoding="utf-8")
+          class_start = text.index("class TestEstimatorCloneAndFeatureSelectionBackend:")
+          decorator_start = text.index("    @pytest.mark.xfail(", class_start)
+          test_start = text.index("    def test_all_default_public_estimators_clone", decorator_start)
+          text = text[:decorator_start] + text[test_start:]
+          clone_test.write_text(text, encoding="utf-8")
+
+
+          maintenance_tests = '''"""Maintenance regressions for issues #45, #81, #82, and #83."""
+
+          from __future__ import annotations
+
+          import sys
+          import types
+
+          import numpy as np
+          import pytest
+
+
+          def test_iterative_compile_policy_defaults_to_non_cudagraph_mode(monkeypatch):
+              from statgpu.backends._torch_compile import resolve_torch_compile_mode
+
+              monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+              assert resolve_torch_compile_mode(workload="iterative") == "default"
+              monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "disable")
+              assert resolve_torch_compile_mode(workload="iterative") is None
+              monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "reduce-overhead")
+              assert resolve_torch_compile_mode(workload="iterative") == "reduce-overhead"
+
+
+          def test_compile_runtime_cudagraph_failure_falls_back_once(monkeypatch):
+              fake_torch = types.ModuleType("torch")
+
+              class FakeCuda:
+                  @staticmethod
+                  def is_available():
+                      return False
+
+              calls = {"compiled": 0, "eager": 0}
+
+              def fake_compile(fn, *, mode, **kwargs):
+                  assert mode == "default"
+
+                  def broken(*args, **call_kwargs):
+                      calls["compiled"] += 1
+                      raise RuntimeError(
+                          "accessing tensor output of CUDAGraphs that has been "
+                          "overwritten by a subsequent run"
+                      )
+
+                  return broken
+
+              fake_torch.cuda = FakeCuda()
+              fake_torch.compile = fake_compile
+              monkeypatch.setitem(sys.modules, "torch", fake_torch)
+              monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+
+              from statgpu.backends._torch_compile import compile_torch
+
+              def eager(value):
+                  calls["eager"] += 1
+                  return value + 1
+
+              guarded = compile_torch(eager, workload="iterative")
+              with pytest.warns(RuntimeWarning, match="CUDA Graph lifecycle"):
+                  assert guarded(1) == 2
+              assert guarded(2) == 3
+              assert calls == {"compiled": 1, "eager": 2}
+
+
+          def test_repository_has_no_unscoped_reduce_overhead_calls():
+              from pathlib import Path
+
+              offenders = []
+              for path in Path("statgpu").rglob("*.py"):
+                  if path.name == "_torch_compile.py":
+                      continue
+                  text = path.read_text(encoding="utf-8")
+                  if "mode='reduce-overhead'" in text or 'mode="reduce-overhead"' in text:
+                      offenders.append(path.as_posix())
+              assert offenders == []
+
+
+          def test_numpy_finite_validation_handles_nested_inputs():
+              from statgpu.backends._validation import check_finite
+
+              value = [np.array([1.0, 2.0]), np.array([3.0])]
+              assert check_finite(value, name="X") is value
+              with pytest.raises(ValueError, match="X\\[1\\].*finite"):
+                  check_finite([np.array([1.0]), np.array([np.inf])], name="X")
+              with pytest.raises(ValueError, match="sample_weight.*finite"):
+                  check_finite(np.array([1.0, np.nan]), name="sample_weight")
+
+
+          def test_torch_finite_validation_stays_on_device():
+              torch = pytest.importorskip("torch")
+              from statgpu.backends._validation import check_finite
+
+              tensor = torch.tensor([1.0, 2.0], dtype=torch.float64)
+              result = check_finite(tensor, name="X")
+              assert result is tensor
+              with pytest.raises(ValueError, match="X.*finite"):
+                  check_finite(torch.tensor([1.0, float("inf")]), name="X")
+
+
+          def test_public_method_guard_rejects_nonfinite_before_fit_body():
+              from statgpu._base import BaseEstimator
+
+              class DummyEstimator(BaseEstimator):
+                  def __init__(self, options=None, device="cpu"):
+                      super().__init__(device=device)
+                      self.options = dict(options or {})
+                      self.body_called = False
+
+                  def fit(self, X, y=None):
+                      self.body_called = True
+                      self._fitted = True
+                      return self
+
+                  def predict(self, X):
+                      self.body_called = True
+                      return np.zeros(len(X))
+
+              estimator = DummyEstimator()
+              with pytest.raises(ValueError, match="X.*finite"):
+                  estimator.fit(np.array([[1.0], [np.nan]]), np.array([0.0, 1.0]))
+              assert estimator.body_called is False
+
+
+          def test_legacy_clone_preserves_raw_constructor_identity():
+              from sklearn.base import clone
+              from statgpu._base import BaseEstimator
+
+              class CopyingEstimator(BaseEstimator):
+                  def __init__(self, options=None, solver="AUTO", device="cpu"):
+                      super().__init__(device=device)
+                      self.options = dict(options or {})
+                      self.solver = str(solver).lower()
+
+                  def fit(self, X, y=None):
+                      self._fitted = True
+                      return self
+
+                  def predict(self, X):
+                      return np.zeros(len(X))
+
+              options = {"threshold": 1.0}
+              estimator = CopyingEstimator(options=options, solver="AUTO")
+              assert estimator.get_params(deep=False)["options"] is options
+              assert estimator.get_params(deep=False)["solver"] == "AUTO"
+              cloned = clone(estimator)
+              assert type(cloned) is CopyingEstimator
+              assert cloned.solver == "auto"
+              replacement = {"threshold": 2.0}
+              cloned.set_params(options=replacement)
+              assert cloned.get_params(deep=False)["options"] is replacement
+          '''
+          write("dev/tests/test_maintenance_024_025.py", maintenance_tests)
+
+
+          manual_readme = '''# Manual GPU diagnostics
+
+          This directory is for intentionally ad-hoc GPU reproduducers and
+          hardware-specific exploratory scripts.  Files here are not collected by
+          the maintained pytest gate.
+
+          Maintained regression coverage belongs under `dev/tests/test_*.py` and
+          must:
+
+          - expose discoverable pytest functions or classes;
+          - avoid substantial work at module import time;
+          - use explicit CuPy/Torch/CUDA availability checks and deterministic skip
+            reasons;
+          - run from a clean checkout without ignored local fixtures;
+          - assert the current public inference and device contracts.
+
+          The historical scripts named in issue #83 were ignored local diagnostics,
+          not versioned test assets.  Their still-relevant contracts are represented
+          by maintained backend, Cox, inference, and maintenance regression tests;
+          future one-off scripts should be placed here rather than hidden inside
+          `dev/tests/`.
+          '''
+          write("dev/manual/gpu_diagnostics/README.md", manual_readme)
+
+
+          # A test-looking file is now always visible to git.  Manual and remote
+          # scripts must live under dev/manual instead of being hidden by patterns.
+          gitignore = Path(".gitignore")
+          text = gitignore.read_text(encoding="utf-8")
+          ownership_rule = '''
+          # Maintained pytest modules must always be visible to git.  Move manual,
+          # remote, benchmark, or exploratory scripts to dev/manual instead.
+          !dev/tests/test_*.py
+          '''
+          if "!dev/tests/test_*.py" not in text:
+              marker = "# Build artifacts\n"
+              if marker not in text:
+                  raise RuntimeError(".gitignore build marker changed")
+              text = text.replace(marker, ownership_rule + "\n" + marker, 1)
+          gitignore.write_text(text, encoding="utf-8")
+
+
+          dev_readme = Path("dev/README.md")
+          text = dev_readme.read_text(encoding="utf-8")
+          ownership_section = '''
+          ## Maintained tests versus manual diagnostics
+
+          Every `dev/tests/test_*.py` file is maintained pytest coverage and must be
+          tracked, discoverable, side-effect free at import time, and runnable from a
+          clean checkout.  Hardware-specific experiments and one-off reproducers
+          belong under `dev/manual/gpu_diagnostics/`; `.gitignore` is not a test
+          ownership mechanism.
+
+          '''
+          if "## Maintained tests versus manual diagnostics" not in text:
+              marker = "## Remote GPU Testing\n"
+              if marker not in text:
+                  raise RuntimeError("dev README remote testing marker changed")
+              text = text.replace(marker, ownership_section + marker, 1)
+          dev_readme.write_text(text, encoding="utf-8")
+
+
+          def insert_unreleased(path: str, section: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if "Issue #45" in text and "Issue #82" in text:
+                  return
+              first_section = text.find("\n## ")
+              if first_section < 0:
+                  raise RuntimeError(f"no section marker in {path}")
+              text = text[: first_section + 1] + section + "\n" + text[first_section + 1 :]
+              target.write_text(text, encoding="utf-8")
+
+
+          insert_unreleased(
+              "CHANGELOG.md",
+              '''## Unreleased — maintenance hardening
+
+          - Fixed Issue #45 by routing statgpu-owned Torch compilation through a
+            centralized policy that avoids CUDA Graph lifecycle hazards for iterative
+            solvers and falls back to eager execution for the known runtime failure.
+          - Addressed Issue #81 with backend-native finite-value validation at public
+            estimator boundaries without full GPU-array transfers.
+          - Addressed Issue #82 by preserving exact raw constructor arguments for
+            legacy scikit-learn clone identity while retaining normalized runtime
+            attributes and `set_params` bookkeeping.
+          - Addressed Issue #83 by making maintained `test_*.py` files visible to git,
+            documenting the manual GPU diagnostic boundary, and adding maintained
+            regression coverage.''',
+          )
+          insert_unreleased(
+              "docs/en/changelog.md",
+              '''## Unreleased — PyTorch, validation, and sklearn compatibility
+
+          ### Runtime safety
+
+          - Internal iterative Torch kernels now use a centralized compile policy.
+            The default avoids `reduce-overhead` CUDA Graph capture, while
+            `STATGPU_TORCH_COMPILE_MODE` permits explicit `default`,
+            `reduce-overhead`, or eager-only operation.  Known CUDA Graph output
+            lifecycle failures fall back to eager execution once; unrelated runtime
+            errors remain visible.
+          - Public estimator numerical inputs are checked for NaN/Inf using NumPy,
+            CuPy, or Torch reductions on the selected device.
+
+          ### Estimator and test contracts
+
+          - Exact constructor arguments are retained separately from normalized
+            runtime attributes so `sklearn.base.clone` works under legacy
+            scikit-learn identity checks.
+          - Maintained pytest modules can no longer be hidden by broad `.gitignore`
+            rules; manual GPU diagnostics have an explicit directory and ownership
+            policy.
+
+          Related: Issue #45, Issue #81, Issue #82, Issue #83.''',
+          )
+          insert_unreleased(
+              "docs/cn/changelog.md",
+              '''## 未发布 — PyTorch、输入校验与 sklearn 兼容性维护
+
+          ### 运行时安全
+
+          - statgpu 内部迭代式 Torch kernel 统一通过集中式 compile policy。
+            默认不再使用会启用 CUDA Graph 的 `reduce-overhead`；用户仍可通过
+            `STATGPU_TORCH_COMPILE_MODE` 显式选择 `default`、
+            `reduce-overhead` 或完全 eager。遇到已知 CUDA Graph 输出生命周期错误时，
+            对应 callable 会永久回退 eager；其他运行时错误不会被吞掉。
+          - 公共 estimator 的数值输入统一采用 NumPy、CuPy 或 Torch 原生 reduction
+            检查 NaN/Inf，不把完整 GPU 数组搬回 CPU。
+
+          ### Estimator 与测试契约
+
+          - 构造函数原始参数与运行时标准化属性分开保存，使旧版 scikit-learn 的
+            constructor identity clone 检查也能通过。
+          - `.gitignore` 不再隐藏应维护的 `test_*.py`；手工 GPU 诊断脚本使用独立目录
+            和明确的 ownership policy。
+
+          关联：Issue #45、Issue #81、Issue #82、Issue #83。''',
+          )
+
+
+          # Guard against accidental unresolved legacy mode call sites.
+          offenders = []
+          for path in Path("statgpu").rglob("*.py"):
+              if path.name == "_torch_compile.py":
+                  continue
+              source = path.read_text(encoding="utf-8")
+              if "mode='reduce-overhead'" in source or 'mode="reduce-overhead"' in source:
+                  offenders.append(path.as_posix())
+          if offenders:
+              raise RuntimeError(f"unmigrated reduce-overhead call sites: {offenders}")
+          PY
+
+      - name: Install targeted validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" scipy pytest packaging "scikit-learn==1.2.2"
+          python -m pip install -e . --no-deps
+
+      - name: Run targeted maintenance validation
+        run: |
+          python -m compileall -q statgpu dev/tests/test_maintenance_024_025.py
+          python -m pytest -q \
+            dev/tests/test_maintenance_024_025.py \
+            dev/tests/test_second_full_review.py::TestEstimatorCloneAndFeatureSelectionBackend::test_all_default_public_estimators_clone
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu dev .gitignore CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: harden runtime and estimator contracts"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
