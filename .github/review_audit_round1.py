@@ -35,7 +35,6 @@ def public_estimators():
 
 def audit_constructor_contracts():
     mismatches = []
-    mutable_divergence = []
     for name, cls, estimator in public_estimators():
         params = estimator.get_params(deep=False)
         raw = getattr(estimator, "_constructor_params_raw", {})
@@ -59,11 +58,40 @@ def audit_constructor_contracts():
                     "attr": safe_repr(attr_value),
                     "in_raw_ledger": param_name in raw,
                 })
-                if isinstance(param_value, (dict, list, set, np.ndarray)):
-                    mutable_divergence.append((name, param_name))
     print("CONSTRUCTOR_MISMATCH_COUNT", len(mismatches))
-    print(json.dumps(mismatches, indent=2, sort_keys=True))
-    print("MUTABLE_DIVERGENCE", mutable_divergence)
+    print("CONSTRUCTOR_MISMATCHES", json.dumps(mismatches, sort_keys=True))
+
+    probes = []
+    probe_specs = [
+        ("PenalizedLinearRegression", {"penalty_kwargs": {"alpha": 7}, "loss_kwargs": {"scale": 2}}),
+        ("PenalizedLogisticRegression", {"penalty_kwargs": {"alpha": 7}, "loss_kwargs": {"scale": 2}}),
+        ("PenalizedGeneralizedLinearModel", {"penalty_kwargs": {"alpha": 7}, "loss_kwargs": {"scale": 2}}),
+    ]
+    for name, kwargs in probe_specs:
+        cls = getattr(statgpu, name, None)
+        if cls is None:
+            continue
+        originals = {key: value.copy() for key, value in kwargs.items()}
+        try:
+            estimator = cls(**originals)
+        except Exception as exc:
+            probes.append((name, "init-error", type(exc).__name__, str(exc)))
+            continue
+        params = estimator.get_params(deep=False)
+        for key, original in originals.items():
+            attr = getattr(estimator, key, None)
+            before = safe_repr(attr)
+            original["external_mutation"] = True
+            probes.append((
+                name,
+                key,
+                "param_is_original", params.get(key) is original,
+                "attr_is_original", attr is original,
+                "attr_before", before,
+                "attr_after", safe_repr(getattr(estimator, key, None)),
+                "param_after", safe_repr(estimator.get_params(deep=False).get(key)),
+            ))
+    print("MUTABLE_PARAMETER_PROBES", json.dumps(probes, default=str))
 
 
 def audit_tags():
@@ -73,15 +101,22 @@ def audit_tags():
         from sklearn.utils._tags import get_tags
     missing_transformer = []
     type_rows = []
+    tag_errors = []
     for name, cls, estimator in public_estimators():
-        tags = get_tags(estimator)
+        try:
+            tags = get_tags(estimator)
+        except Exception as exc:
+            tag_errors.append((name, type(exc).__name__, str(exc)))
+            continue
         estimator_type = getattr(tags, "estimator_type", None)
         transformer_tags = getattr(tags, "transformer_tags", None)
-        type_rows.append((name, estimator_type, hasattr(estimator, "transform"), transformer_tags is not None))
-        if hasattr(estimator, "transform") and transformer_tags is None:
+        has_transform = callable(getattr(estimator, "transform", None))
+        type_rows.append((name, estimator_type, has_transform, transformer_tags is not None))
+        if has_transform and transformer_tags is None:
             missing_transformer.append(name)
     print("TAG_ROWS", json.dumps(type_rows, default=str))
-    print("MISSING_TRANSFORMER_TAGS", missing_transformer)
+    print("TAG_ERRORS", json.dumps(tag_errors, default=str))
+    print("MISSING_TRANSFORMER_TAGS", json.dumps(missing_transformer))
 
 
 def audit_finite_wrappers():
@@ -90,7 +125,8 @@ def audit_finite_wrappers():
         "exposure", "entry", "start", "stop", "time", "event", "times",
         "cluster", "clusters", "strata", "subject", "subjects", "groups",
         "init", "init_coef", "initial_coef", "time_index", "entity_ids",
-        "time_ids", "pvalues", "data", "values", "arrays",
+        "time_ids", "pvalues", "data", "values", "arrays", "scores",
+        "labels", "thresholds",
     }
     missing = []
     for name, cls, estimator in public_estimators():
@@ -160,23 +196,52 @@ def audit_runtime_edges():
     from statgpu.panel import PooledOLS
     pooled = PooledOLS()
     pooled._fitted = True
+    pooled.marker_ = "must-survive-on-error"
     try:
         pooled.set_params(cov_type="invalid", kernel="PARZEN")
-        print("POOLED_INVALID_SET_PARAMS", pooled.cov_type, pooled.kernel, pooled._fitted, pooled.get_params(deep=False))
+        print("POOLED_INVALID_SET_PARAMS_ACCEPTED", pooled.cov_type, pooled.kernel, pooled._fitted, getattr(pooled, "marker_", None), pooled.get_params(deep=False))
     except Exception as exc:
-        print("POOLED_INVALID_SET_PARAMS_RAISED", type(exc).__name__, str(exc))
+        print("POOLED_INVALID_SET_PARAMS_RAISED", type(exc).__name__, str(exc), pooled.cov_type, pooled.kernel, pooled._fitted, getattr(pooled, "marker_", None))
 
     from statgpu.backends._validation import check_finite
     try:
         import pandas as pd
-        value = pd.Series([True, pd.NA], dtype="boolean")
-        try:
-            check_finite(value, name="X")
-            print("PANDAS_NULLABLE_MISSING_ACCEPTED")
-        except Exception as exc:
-            print("PANDAS_NULLABLE_MISSING_REJECTED", type(exc).__name__, str(exc))
+        values = [
+            pd.Series([True, pd.NA], dtype="boolean"),
+            pd.Series([1, pd.NA], dtype="Int64"),
+            pd.Series([1.0, pd.NA], dtype="Float64"),
+        ]
+        for value in values:
+            try:
+                check_finite(value, name="X")
+                print("PANDAS_NULLABLE_MISSING_ACCEPTED", str(value.dtype))
+            except Exception as exc:
+                print("PANDAS_NULLABLE_MISSING_REJECTED", str(value.dtype), type(exc).__name__, str(exc))
     except ImportError:
         print("PANDAS_UNAVAILABLE")
+
+    try:
+        import os
+        import statgpu.penalties._l1 as l1_module
+        from statgpu.penalties import L1Penalty
+        old = os.environ.get("STATGPU_TORCH_COMPILE_MODE")
+        os.environ["STATGPU_TORCH_COMPILE_MODE"] = "definitely-invalid"
+        l1_module._L1_PROXIMAL_TORCH_COMPILED = None
+        try:
+            import torch
+            value = torch.tensor([1.0])
+            try:
+                L1Penalty(alpha=0.1).proximal(value, 0.1, backend="torch")
+                print("INVALID_COMPILE_ENV_SWALLOWED")
+            except Exception as exc:
+                print("INVALID_COMPILE_ENV_RAISED", type(exc).__name__, str(exc))
+        finally:
+            if old is None:
+                os.environ.pop("STATGPU_TORCH_COMPILE_MODE", None)
+            else:
+                os.environ["STATGPU_TORCH_COMPILE_MODE"] = old
+    except ImportError:
+        print("TORCH_UNAVAILABLE")
 
 
 if __name__ == "__main__":
