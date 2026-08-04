@@ -89,6 +89,29 @@ class BaseEstimator(ABC):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+        if "_estimator_type" not in cls.__dict__:
+            name = cls.__name__.lower()
+            if "classifier" in name or "logistic" in name:
+                cls._estimator_type = "classifier"
+            elif any(
+                token in name
+                for token in (
+                    "regression",
+                    "regressor",
+                    "ridge",
+                    "lasso",
+                    "elasticnet",
+                    "quantile",
+                    "cox",
+                    "panel",
+                    "ols",
+                    "effects",
+                    "fama",
+                    "kernelridge",
+                    "gam",
+                )
+            ):
+                cls._estimator_type = "regressor"
         cls._install_constructor_capture()
         cls._install_public_finite_validation()
 
