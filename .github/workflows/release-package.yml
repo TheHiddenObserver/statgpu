@@ -13,8 +13,10 @@ on:
       - "docs/en/changelog.md"
       - "docs/cn/changelog.md"
       - "RELEASING.md"
+      - ".github/releases/**"
       - ".github/workflows/publish.yml"
       - ".github/workflows/release-package.yml"
+      - ".github/workflows/release-notes.yml"
   workflow_dispatch:
 
 permissions:
