@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-08-03<br>
+> Last updated: 2026-08-04<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -349,13 +349,18 @@ even when the design matrix remains on the GPU. `orchestration_device_` records
 where CV orchestration ran. Ordinary GPU Breslow/Efron preprocessing sorts on
 the selected backend, then copies the complete sorted time and event vectors to
 the host to build failure-group metadata, so it reports
-`full_host_transfer_performed_=True`. Ordinary `CoxPHCV` prepares that metadata
-once per fold and reuses it across every staged penalty pass in the complete
-selector invocation when the estimated retained workspace fits
-`STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES` (512 MiB by default). Above that gate,
-stages repeat fold preparation so retained GPU memory stays bounded.
-`fold_state_cache_enabled` and the estimate/limit fields make that routing
-auditable. Preparation and target-transfer counts are exposed in `cv_results_`.
+`full_host_transfer_performed_=True`.
+
+When either `STATGPU_COXPHCV_TWO_STAGE` or
+`STATGPU_COXPHCV_SUCCESSIVE_HALVING` is requested, experimental screening is
+currently disabled for correctness on NumPy, CuPy, and Torch. CoxPHCV emits a
+`RuntimeWarning` and executes one ordinary exhaustive full-precision pass over
+all candidates. Public diagnostics report
+`staged_safety_strategy="single_pass_exhaustive"`, both requested/effective
+mode pairs, an all-true `full_precision_candidate_mask`, and an all-false
+`screened_out_candidate_mask`. Each effective fold is prepared once for that
+single pass; no retained staged cache or repeated stage preparation is used.
+Preparation and target-transfer counts remain exposed in `cv_results_`.
 The invocation fields
 `selection_cache_hit`, `requested_fit_device`,
 `fold_backend_preparation_count_this_call`, and
@@ -557,36 +562,42 @@ These are fixed-source, shape-specific comparisons, not a universal accuracy or
 performance guarantee. Exact-ties and performance conclusions remain bound to
 their dedicated artifacts listed in `dev/reviews/pr80_review_fix.md`.
 
-### Exact-Source Physical-GPU Evidence
+### Published Exact-Source Physical-GPU Evidence
 
-Physical-GPU evidence is pinned to an exact source commit so that later code or
-documentation changes cannot silently inherit a broader validation claim.
+Physical-GPU evidence is pinned to one exact source commit. The durable artifact
+below certifies runtime commit `a726937...`; later documentation or schema
+commits do not automatically inherit that claim.
 
-| Field | Current audited evidence |
+| Field | Published reference evidence |
 |---|---|
-| Source commit | `5bb55ede04eecb5ab7689a400e864996fb514240` |
-| Artifact | `results/benchmark_frontend_sources/coxph_completion_contract_pr80_20260803_schema21.json` |
-| Artifact SHA-256 | `c006b6c07309e4aba8c1f5b4ad31cad00e199b17a2d0edafc660c18eb804b463` |
-| Schema / tier | `21` / `remote-full` |
-| Hardware | Tesla P100-SXM2-16GB |
-| Software | Python 3.9.16, NumPy 1.24.2, CuPy 13.6.0, Torch 2.0.0+cu117 |
-| Structured GPU cases | CuPy 14/14; Torch 14/14 |
-| Targeted tests | 630 passed, 7 expected warnings |
-| Source audit | `source_clean=true`; 45/45 recorded Git-blob hashes matched |
-| Gate failures | `[]` |
+| Source commit | `a726937a39eb0ed5a370dd03362884b63a9e9818` |
+| Artifact | [Gist](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139) |
+| Raw JSON | [pr80_final_gpu_suite_schema3.json](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json) |
+| Artifact SHA-256 | `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb` |
+| Size | 86,315 bytes |
+| Campaign filename / machine schema | `schema3` / historical outer schema `2` |
+| Validation tier | `remote-full-final-promotion-suite` |
+| Aggregate checks | 134/134 passed |
+| Runtime provenance | nine provenance payloads; imported paths and hashes under `/root/statgpu` |
+| Group suite | CuPy 24/24; Torch CUDA 24/24 |
+| Gate failures | all outer, child, and nested arrays `[]` |
 
-The schema-21 scope retains every schema-20 prediction/scoring, CV preparation,
-prepared-state, numerical-boundary, inference, eventless-stratum, strict-fold,
-automatic-grid, backend-pinning, clone, and aggregate-work gate. It adds
-promotion-safe mixed-grid rejection, real CV/final-refit coverage for all nine
-public scalar penalty families, and device-native Torch Group Lasso metadata.
-Both CuPy and Torch physical cases pass all 14 structured gates.
+The artifact contains the complete outer report, all three child reports, the
+five Group sub-runners, the Cox order/cache inner runner, and the staged-safety
+inner runner. It records identical commits, clean source before and after, zero
+return codes, all-candidate full-precision masks, no screened candidates, and
+one fold preparation per effective fold.
+
+The final aggregation runner now emits machine schema 3 and has a hosted
+structural contract. Because that runner and this documentation were changed
+after the published artifact, the PR's final head requires a refreshed clean
+physical run before final approval. The published artifact remains valid and
+auditable evidence for `a726937...`; it is not relabeled as evidence for later
+commits.
 
 This is not a new performance-crossover benchmark or a new R external-alignment
 run; those claims remain tied to their dedicated artifacts and detailed history
-in `dev/reviews/pr80_review_fix.md`. Runtime or maintained-test changes after
-the source commit above require their own exact-source refresh before they can
-claim the same physical-GPU evidence.
+in `dev/reviews/pr80_review_fix.md`.
 
 ## FAQ and Common Failure Modes
 
