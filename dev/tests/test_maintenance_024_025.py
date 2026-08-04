@@ -783,3 +783,21 @@ def test_tsne_nondefault_get_params_preserve_raw_identity():
     cloned_params = cloned.get_params(deep=False)
     assert isinstance(cloned_params["max_iter"], np.integer)
     assert cloned_params["device"] == "cpu"
+
+
+
+def test_supervised_generic_estimators_have_sklearn_types():
+    from sklearn.base import is_classifier, is_regressor
+    from statgpu.linear_model import (
+        GeneralizedLinearModel,
+        OrderedGeneralizedLinearModel,
+        PenalizedGLM_CV,
+        PenalizedGeneralizedLinearModel,
+    )
+    from statgpu.nonparametric import KernelRegression
+
+    assert is_regressor(GeneralizedLinearModel())
+    assert is_classifier(OrderedGeneralizedLinearModel())
+    assert is_regressor(PenalizedGeneralizedLinearModel())
+    assert is_regressor(PenalizedGLM_CV())
+    assert is_regressor(KernelRegression())

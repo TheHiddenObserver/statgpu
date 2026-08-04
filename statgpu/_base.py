@@ -171,6 +171,7 @@ class BaseEstimator(ABC):
             regression_module = module.startswith(
                 (
                     "statgpu.linear_model",
+                    "statgpu.nonparametric",
                     "statgpu.panel",
                     "statgpu.survival",
                     "statgpu.semiparametric",
@@ -185,6 +186,7 @@ class BaseEstimator(ABC):
                 or "logistic" in name
                 or "logit" in name
                 or "probit" in name
+                or "orderedgeneralizedlinearmodel" in name
             ) and classifier_module:
                 inferred_type = "classifier"
             elif (
@@ -196,6 +198,8 @@ class BaseEstimator(ABC):
                         token in name
                         for token in (
                             "regression",
+                            "generalizedlinearmodel",
+                            "glm",
                             "ridge",
                             "lasso",
                             "elasticnet",
