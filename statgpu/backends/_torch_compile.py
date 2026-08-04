@@ -1,8 +1,8 @@
 """Safe, centralized policy for internal :func:`torch.compile` use.
 
-statgpu iterative solvers reuse tensors across calls.  PyTorch's
+statgpu iterative solvers reuse tensors across calls. PyTorch's
 ``reduce-overhead`` mode enables CUDA Graphs and can therefore expose
-overwritten-output lifecycle errors on PyTorch 2.1 and newer.  Internal
+overwritten-output lifecycle errors on PyTorch 2.1 and newer. Internal
 iterative call sites use ``default`` mode unless a user explicitly opts
 into another mode through ``STATGPU_TORCH_COMPILE_MODE``.
 """
@@ -16,11 +16,7 @@ from typing import Callable, Optional
 
 _ENV_NAME = "STATGPU_TORCH_COMPILE_MODE"
 _ALLOWED_MODES = frozenset({"auto", "default", "reduce-overhead", "disable"})
-_CUDAGRAPH_RUNTIME_MARKERS = (
-    "CUDAGraphs",
-    "cudagraph",
-    "overwritten by a subsequent run",
-)
+_COMPILE_DIAGNOSTICS = []
 
 
 def resolve_torch_compile_mode(
@@ -28,13 +24,7 @@ def resolve_torch_compile_mode(
     workload: str = "general",
     requested_mode: Optional[str] = None,
 ) -> Optional[str]:
-    """Resolve the mode for a statgpu-owned compiled callable.
-
-    ``None`` means eager execution.  ``auto`` selects ``default`` for
-    iterative workloads because they retain and reuse tensors between
-    calls; other workloads preserve an explicitly requested safe mode
-    and otherwise use ``default``.
-    """
+    """Resolve the mode for a statgpu-owned compiled callable."""
     configured = os.environ.get(_ENV_NAME, "auto").strip().lower()
     if configured not in _ALLOWED_MODES:
         allowed = ", ".join(sorted(_ALLOWED_MODES))
@@ -45,7 +35,6 @@ def resolve_torch_compile_mode(
         return None
     if configured != "auto":
         return configured
-
     if workload.strip().lower() == "iterative":
         return "default"
     if requested_mode in (None, "reduce-overhead"):
@@ -69,9 +58,38 @@ def torch_compile_available() -> bool:
     return True
 
 
+def _record_compile_event(*, fn, status, mode, workload, error=None) -> None:
+    _COMPILE_DIAGNOSTICS.append(
+        {
+            "function": getattr(
+                fn, "__qualname__", getattr(fn, "__name__", repr(fn))
+            ),
+            "status": status,
+            "mode": mode,
+            "workload": workload,
+            "error": error,
+        }
+    )
+
+
+def get_torch_compile_diagnostics(*, clear: bool = False):
+    """Return snapshots of internal Torch compile decisions.
+
+    The returned dictionaries expose whether a callable is compiled, disabled,
+    unavailable, or using an explicit construction/runtime eager fallback.
+    """
+    snapshot = tuple(dict(event) for event in _COMPILE_DIAGNOSTICS)
+    if clear:
+        _COMPILE_DIAGNOSTICS.clear()
+    return snapshot
+
+
 def _is_cudagraph_lifecycle_error(exc: BaseException) -> bool:
-    message = str(exc)
-    return any(marker.lower() in message.lower() for marker in _CUDAGRAPH_RUNTIME_MARKERS)
+    message = str(exc).lower()
+    has_cudagraph = "cudagraph" in message
+    has_overwrite = "overwrit" in message
+    has_tensor_output = "tensor output" in message or "accessing tensor" in message
+    return has_cudagraph and has_overwrite and has_tensor_output
 
 
 def compile_torch(
@@ -81,25 +99,53 @@ def compile_torch(
     mode: Optional[str] = None,
     **compile_kwargs,
 ) -> Callable:
-    """Compile ``fn`` under the statgpu policy, with eager fallback.
+    """Compile ``fn`` under the statgpu policy with observable eager fallback.
 
-    Construction failures retain the historical eager fallback.  A
-    known CUDA Graph output-lifecycle failure at invocation time also
-    disables the compiled callable permanently for that function.  All
-    unrelated runtime errors are re-raised.
+    A construction failure emits a warning and returns an eager wrapper carrying
+    diagnostic attributes. At invocation time, only the known CUDA Graph tensor
+    output lifecycle failure disables compilation; unrelated runtime errors are
+    re-raised.
     """
     resolved_mode = resolve_torch_compile_mode(
         workload=workload,
         requested_mode=mode,
     )
-    if resolved_mode is None or not torch_compile_available():
-        return fn
+
+    def eager_wrapper(status, error=None):
+        @functools.wraps(fn)
+        def eager(*args, **kwargs):
+            return fn(*args, **kwargs)
+
+        eager.__statgpu_compile_mode__ = resolved_mode
+        eager.__statgpu_compile_workload__ = workload
+        eager.__statgpu_compile_status__ = status
+        eager.__statgpu_compile_error__ = error
+        _record_compile_event(
+            fn=fn,
+            status=status,
+            mode=resolved_mode,
+            workload=workload,
+            error=error,
+        )
+        return eager
+
+    if resolved_mode is None:
+        return eager_wrapper("disabled")
+    if not torch_compile_available():
+        return eager_wrapper("unavailable")
 
     try:
         import torch
         compiled = torch.compile(fn, mode=resolved_mode, **compile_kwargs)
-    except Exception:
-        return fn
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        warnings.warn(
+            "torch.compile construction failed; falling back to eager execution "
+            f"for this statgpu kernel: {error}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return eager_wrapper("construction-fallback", error)
 
     state = {"disabled": False}
 
@@ -113,6 +159,16 @@ def compile_torch(
             if not _is_cudagraph_lifecycle_error(exc):
                 raise
             state["disabled"] = True
+            error = f"{type(exc).__name__}: {exc}"
+            guarded.__statgpu_compile_status__ = "runtime-fallback"
+            guarded.__statgpu_compile_error__ = error
+            _record_compile_event(
+                fn=fn,
+                status="runtime-fallback",
+                mode=resolved_mode,
+                workload=workload,
+                error=error,
+            )
             warnings.warn(
                 "torch.compile CUDA Graph lifecycle failure; "
                 "falling back to eager execution for this statgpu kernel",
@@ -123,4 +179,12 @@ def compile_torch(
 
     guarded.__statgpu_compile_mode__ = resolved_mode
     guarded.__statgpu_compile_workload__ = workload
+    guarded.__statgpu_compile_status__ = "compiled"
+    guarded.__statgpu_compile_error__ = None
+    _record_compile_event(
+        fn=fn,
+        status="compiled",
+        mode=resolved_mode,
+        workload=workload,
+    )
     return guarded

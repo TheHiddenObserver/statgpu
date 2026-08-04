@@ -15,8 +15,10 @@
   `reduce-overhead`, or eager-only operation.  Known CUDA Graph output
   lifecycle failures fall back to eager execution once; unrelated runtime
   errors remain visible.
-- Public estimator numerical inputs are checked for NaN/Inf using NumPy,
-  CuPy, or Torch reductions on the selected device.
+- Maintained public numerical entry points are checked for NaN/Inf using
+  NumPy, CuPy, or Torch reductions on the selected device. The matrix includes
+  fit/predict/transform, inverse-transform, scoring, initialization arrays,
+  and panel identifiers while preserving formula-owned missing-row semantics.
 
 ### Estimator and test contracts
 

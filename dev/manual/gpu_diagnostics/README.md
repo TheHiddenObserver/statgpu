@@ -41,3 +41,13 @@ is exploratory or a minimized reproducer. Once a behavior becomes a supported
 contract or regression, move the smallest deterministic assertion into
 `dev/tests/` and leave the manual script only when it remains useful for
 hardware investigation.
+
+
+## Torch compile performance note
+
+The maintenance release prioritizes correctness by defaulting iterative kernels
+to Torch `default` compile mode. No claim is made that this matches the
+steady-state latency of `reduce-overhead`; representative Lasso, ElasticNet,
+nonconvex, adaptive, and group-penalty benchmarks remain an optimization task.
+Users may opt into `reduce-overhead` explicitly, and construction/runtime
+fallback decisions remain available through `get_torch_compile_diagnostics()`.

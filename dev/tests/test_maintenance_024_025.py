@@ -59,6 +59,8 @@ def test_compile_runtime_cudagraph_failure_falls_back_once(monkeypatch):
         assert guarded(1) == 2
     assert guarded(2) == 3
     assert calls == {"compiled": 1, "eager": 2}
+    assert guarded.__statgpu_compile_status__ == "runtime-fallback"
+    assert "overwritten" in guarded.__statgpu_compile_error__
 
 
 def test_repository_has_no_unscoped_reduce_overhead_calls():
@@ -191,3 +193,169 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
     assert np.isfinite(first).all()
     assert np.isfinite(second).all()
     np.testing.assert_allclose(first, second, rtol=1e-7, atol=1e-8)
+
+
+
+def test_compile_construction_fallback_is_visible(monkeypatch):
+    fake_torch = types.ModuleType("torch")
+
+    class FakeCuda:
+        @staticmethod
+        def is_available():
+            return False
+
+    def broken_compile(fn, **kwargs):
+        raise RuntimeError("compiler unavailable")
+
+    fake_torch.cuda = FakeCuda()
+    fake_torch.compile = broken_compile
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+
+    from statgpu.backends._torch_compile import (
+        compile_torch,
+        get_torch_compile_diagnostics,
+    )
+
+    get_torch_compile_diagnostics(clear=True)
+    with pytest.warns(RuntimeWarning, match="construction failed"):
+        wrapped = compile_torch(lambda x: x + 1, workload="iterative")
+    assert wrapped(2) == 3
+    assert wrapped.__statgpu_compile_status__ == "construction-fallback"
+    assert "compiler unavailable" in wrapped.__statgpu_compile_error__
+    assert get_torch_compile_diagnostics(clear=True)[-1]["status"] == "construction-fallback"
+
+
+def test_set_params_rebuilds_normalized_panel_state():
+    from statgpu.panel import PooledOLS
+
+    model = PooledOLS()
+    model._fitted = True
+    model.set_params(cov_type="HAC")
+    assert model.get_params(deep=False)["cov_type"] == "HAC"
+    assert model.cov_type == "hac"
+    assert model._fitted is False
+
+
+def test_current_sklearn_classifier_and_regressor_tags():
+    pytest.importorskip("sklearn")
+    from sklearn.base import is_classifier, is_regressor
+    from statgpu.linear_model import LogisticRegression, Ridge
+
+    assert is_classifier(LogisticRegression())
+    assert is_regressor(Ridge(compute_inference=False))
+
+
+def test_extended_public_finite_validation_matrix():
+    from statgpu.backends._validation import check_finite
+    from statgpu.unsupervised import PCA
+
+    with pytest.raises(ValueError, match="finite"):
+        check_finite(np.array([1.0, np.nan], dtype=object), name="X")
+
+    X = np.arange(24, dtype=float).reshape(8, 3)
+    model = PCA(n_components=2).fit(X)
+    with pytest.raises(ValueError, match="finite"):
+        model.inverse_transform(np.array([[np.nan, 0.0]]))
+
+
+def _require_modern_torch_cuda():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("requires a physical Torch CUDA backend")
+    from packaging.version import Version
+    if Version(torch.__version__.split("+", 1)[0]) < Version("2.1"):
+        pytest.skip("requires PyTorch 2.1 or newer")
+    if torch.cuda.get_device_capability()[0] < 7:
+        pytest.skip("requires CUDA capability >= 7")
+    return torch
+
+
+def test_physical_cuda_compile_path_is_observable(monkeypatch):
+    torch = _require_modern_torch_cuda()
+    from statgpu.backends._torch_compile import (
+        compile_torch,
+        get_torch_compile_diagnostics,
+    )
+
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    get_torch_compile_diagnostics(clear=True)
+
+    def add_one(x):
+        return x + 1
+
+    compiled = compile_torch(add_one, workload="iterative")
+    x = torch.arange(16, device="cuda", dtype=torch.float64)
+    result = compiled(x)
+    torch.cuda.synchronize()
+    assert compiled.__statgpu_compile_status__ == "compiled"
+    assert torch.allclose(result, x + 1)
+    assert get_torch_compile_diagnostics(clear=True)[-1]["status"] == "compiled"
+
+
+def test_torch_penalty_compile_matrix_py21(monkeypatch):
+    torch = _require_modern_torch_cuda()
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+
+    from statgpu.backends._torch_compile import get_torch_compile_diagnostics
+    import statgpu.penalties._adaptive_l1 as adaptive_module
+    import statgpu.penalties._group_lasso as group_lasso_module
+    import statgpu.penalties._group_mcp as group_mcp_module
+    import statgpu.penalties._group_scad as group_scad_module
+    import statgpu.penalties._l1 as l1_module
+    import statgpu.penalties._mcp as mcp_module
+    import statgpu.penalties._scad as scad_module
+    from statgpu.penalties import (
+        AdaptiveL1Penalty,
+        GroupLassoPenalty,
+        GroupMCPPenalty,
+        GroupSCADPenalty,
+        L1Penalty,
+        MCPPenalty,
+        SCADPenalty,
+    )
+
+    l1_module._L1_PROXIMAL_TORCH_COMPILED = None
+    adaptive_module._ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = None
+    scad_module._SCAD_PROXIMAL_TORCH_COMPILED = None
+    mcp_module._MCP_PROXIMAL_TORCH_COMPILED = None
+    group_lasso_module._GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL = None
+    group_scad_module._GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None
+    group_mcp_module._GROUP_MCP_PROXIMAL_TORCH_COMPILED = None
+    get_torch_compile_diagnostics(clear=True)
+
+    groups = [[0, 1], [2, 3], [4, 5], [6, 7]]
+    penalties = [
+        L1Penalty(alpha=0.2),
+        AdaptiveL1Penalty(alpha=0.2, weights=np.ones(8)),
+        SCADPenalty(alpha=0.2),
+        MCPPenalty(alpha=0.2),
+        GroupLassoPenalty(alpha=0.2, groups=groups),
+        GroupSCADPenalty(alpha=0.2, groups=groups),
+        GroupMCPPenalty(alpha=0.2, groups=groups),
+    ]
+    w = torch.linspace(-2.0, 2.0, 8, device="cuda", dtype=torch.float64)
+    for penalty in penalties:
+        result = penalty.proximal(w, step=0.1, backend="torch")
+        assert result.is_cuda
+        assert torch.isfinite(result).all()
+    torch.cuda.synchronize()
+
+    events = get_torch_compile_diagnostics(clear=True)
+    assert len([event for event in events if event["status"] == "compiled"]) >= len(penalties)
+    assert [event for event in events if "fallback" in event["status"]] == []
+
+
+def test_cupy_finite_validation_stays_on_device():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.backends._validation import check_finite
+
+    value = cp.asarray([1.0, 2.0])
+    assert check_finite(value, name="X") is value
+    with pytest.raises(ValueError, match="finite"):
+        check_finite(cp.asarray([1.0, cp.inf]), name="X")

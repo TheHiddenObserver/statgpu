@@ -14,8 +14,10 @@
   `STATGPU_TORCH_COMPILE_MODE` 显式选择 `default`、
   `reduce-overhead` 或完全 eager。遇到已知 CUDA Graph 输出生命周期错误时，
   对应 callable 会永久回退 eager；其他运行时错误不会被吞掉。
-- 公共 estimator 的数值输入统一采用 NumPy、CuPy 或 Torch 原生 reduction
-  检查 NaN/Inf，不把完整 GPU 数组搬回 CPU。
+- 维护矩阵覆盖的公共 estimator 数值入口采用 NumPy、CuPy 或 Torch 原生
+  reduction 检查 NaN/Inf，不把完整 GPU 数组搬回 CPU；矩阵覆盖
+  fit/predict/transform、inverse-transform、scoring、初始化数组和 panel ID，
+  同时保留 formula 路径对缺失行的专属语义。
 
 ### Estimator 与测试契约
 

@@ -46,6 +46,17 @@ class BaseEstimator(ABC):
         "predict_survival",
         "predict_survival_function",
         "predict_cumulative_hazard",
+        "inverse_transform",
+        "score_samples",
+        "bic",
+        "aic",
+        "predict_with_threshold",
+        "confusion_matrix",
+        "classification_table",
+        "roc_curve",
+        "roc_auc_score",
+        "precision_recall_curve",
+        "average_precision_score",
     })
     _FINITE_PARAMETER_NAMES = frozenset({
         "X",
@@ -70,6 +81,10 @@ class BaseEstimator(ABC):
         "groups",
         "init",
         "init_coef",
+        "initial_coef",
+        "time_index",
+        "entity_ids",
+        "time_ids",
     })
 
     def __init_subclass__(cls, **kwargs):
@@ -130,11 +145,20 @@ class BaseEstimator(ABC):
                     return original(self, *args, **kwargs)
                 loss_value = getattr(self, "loss", "")
                 loss_name = str(getattr(loss_value, "name", loss_value)).lower()
+                formula_active = (
+                    bound.arguments.get("formula") is not None
+                    or bound.arguments.get("data") is not None
+                    or getattr(self, "_design_info", None) is not None
+                )
                 for name, value in bound.arguments.items():
                     if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
                         # Cox response matrices have stronger joint time/event
                         # contracts. Preserve model-specific errors and validate
                         # them before device selection inside the Cox estimator.
+                        continue
+                    if formula_active and type(value).__module__.startswith("pandas"):
+                        # Formula/model-matrix code owns row dropping, categorical
+                        # encoding, and aligned side-array error semantics.
                         continue
                     if name in self._FINITE_PARAMETER_NAMES and value is not None:
                         check_finite(value, name=name)
@@ -640,13 +664,38 @@ class BaseEstimator(ABC):
                 "Call 'fit' before using this method."
             )
     
-    def __sklearn_tags__(self):
-        """Return public estimator tags when sklearn >= 1.6 is installed.
+    def _statgpu_estimator_type(self):
+        """Infer sklearn estimator type without requiring sklearn at runtime."""
+        explicit = getattr(self, "_estimator_type", None)
+        if explicit in {"classifier", "regressor"}:
+            return explicit
+        name = type(self).__name__.lower()
+        if "classifier" in name or "logistic" in name:
+            return "classifier"
+        if any(
+            token in name
+            for token in (
+                "regression",
+                "regressor",
+                "ridge",
+                "lasso",
+                "elasticnet",
+                "quantile",
+                "cox",
+                "panel",
+                "ols",
+                "effects",
+                "fama",
+                "kernelridge",
+                "gam",
+            )
+        ):
+            return "regressor"
+        return None
 
-        scikit-learn remains an optional validation dependency. The
-        import occurs only when sklearn requests tags. Older releases
-        continue to use get_params/set_params and _more_tags.
-        """
+    def __sklearn_tags__(self):
+        """Return public estimator tags when sklearn >= 1.6 is installed."""
+        estimator_type = self._statgpu_estimator_type()
         try:
             from sklearn.utils import (
                 ClassifierTags,
@@ -657,9 +706,6 @@ class BaseEstimator(ABC):
         except ImportError:
             return self._more_tags()
 
-        estimator_type = getattr(self, "_estimator_type", None)
-        if estimator_type not in {"classifier", "regressor"}:
-            estimator_type = None
         return Tags(
             estimator_type=estimator_type,
             target_tags=TargetTags(required=estimator_type is not None),
@@ -674,7 +720,7 @@ class BaseEstimator(ABC):
 
     def _more_tags(self):
         """Return the legacy sklearn tag dictionary."""
-        estimator_type = getattr(self, "_estimator_type", None)
+        estimator_type = self._statgpu_estimator_type()
         return {"requires_y": estimator_type in {"classifier", "regressor"}}
 
     def __sklearn_is_fitted__(self):
@@ -731,53 +777,51 @@ class BaseEstimator(ABC):
 
 
     def set_params(self, **params):
-        """Set estimator parameters, validating names and nesting."""
+        """Set parameters and rebuild normalized runtime state transactionally."""
         if not params:
             return self
 
-        valid_params = self.get_params(deep=True)
-        nested_params = {}
+        import copy
+        from collections.abc import Iterator
 
+        valid_deep = self.get_params(deep=True)
+        direct = self.get_params(deep=False)
+        nested = {}
         for key, value in params.items():
             root, delimiter, sub_key = key.partition("__")
-            raw_value = value
-            if root not in valid_params:
-                valid_names = sorted(name for name in valid_params if "__" not in name)
+            if key not in valid_deep and root not in direct:
+                valid_names = sorted(
+                    name for name in valid_deep if "__" not in name
+                )
                 raise ValueError(
                     f"Invalid parameter {root!r} for estimator "
-                    f"{self.__class__.__name__}. Valid parameters are: "
-                    f"{', '.join(valid_names)}."
+                    f"{type(self).__name__}. Valid parameters are: {valid_names}."
                 )
-
             if delimiter:
-                nested_params.setdefault(root, {})[sub_key] = value
-                continue
-
-            if root == "device" and isinstance(value, str):
-                value = Device(value)
-            if hasattr(self, root):
-                setattr(self, root, value)
+                nested.setdefault(root, {})[sub_key] = value
             else:
-                setattr(self, f"_{root}", value)
-            raw_params = getattr(self, "_constructor_params_raw", None)
-            if raw_params is None:
-                raw_params = {}
-                self._constructor_params_raw = raw_params
-            raw_params[root] = raw_value
+                direct[root] = value
 
-        for root, sub_params in nested_params.items():
-            nested_estimator = getattr(self, root, None)
+        for key, value in tuple(direct.items()):
+            if isinstance(value, Iterator):
+                snapshot = getattr(self, "_cox_cv_split_snapshot", None)
+                if snapshot is None:
+                    snapshot = list(value)
+                direct[key] = copy.deepcopy(snapshot)
+
+        # Constructor validation and normalization occur before mutating self.
+        fresh = type(self)(**direct)
+        for root, sub_params in nested.items():
+            nested_estimator = getattr(fresh, root, None)
             if nested_estimator is None:
-                nested_estimator = getattr(self, f"_{root}", None)
+                nested_estimator = getattr(fresh, f"_{root}", None)
             if not hasattr(nested_estimator, "set_params"):
                 raise ValueError(
-                    f"Parameter {root!r} of {self.__class__.__name__} "
-                    "does not support nested parameters."
+                    f"Parameter {root!r} of {type(self).__name__} does not "
+                    "support nested parameters."
                 )
             nested_estimator.set_params(**sub_params)
 
-        refresh = getattr(self, "_statgpu_refresh_normalized_params", None)
-        if callable(refresh):
-            refresh()
-
+        self.__dict__.clear()
+        self.__dict__.update(fresh.__dict__)
         return self

@@ -6,7 +6,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 - Fixed Issue #45 by routing statgpu-owned Torch compilation through a
   centralized policy that avoids CUDA Graph lifecycle hazards for iterative
-  solvers and falls back to eager execution for the known runtime failure.
+  solvers; compile decisions are observable, and only the known lifecycle
+  failure falls back to eager execution. Performance comparison with
+  `reduce-overhead` remains explicitly deferred.
 - Addressed Issue #81 with backend-native finite-value validation at public
   estimator boundaries without full GPU-array transfers.
 - Addressed Issue #82 by preserving exact raw constructor arguments for

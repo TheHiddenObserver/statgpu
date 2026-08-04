@@ -17,15 +17,10 @@ def _raise_nonfinite(name: str) -> None:
 def check_finite(value: Any, *, name: str = "array") -> Any:
     """Reject NaN/Inf without transferring complete GPU arrays to CPU.
 
-    Numeric NumPy, CuPy, Torch, scalar, and nested sequence inputs are checked.
-    Pandas objects are deliberately deferred to estimator/formula-aware
-    validation so model-specific missing-row and design-matrix semantics remain
-    visible. Non-numeric labels are intentionally ignored.
-
-    Homogeneous Python sequences are converted once and checked with a
-    vectorized reduction; only genuinely ragged sequences are traversed by
-    top-level component. Only the final boolean reduction is synchronized for
-    GPU arrays. The original object is returned unchanged.
+    NumPy, CuPy, Torch, scipy/cupyx sparse values, pandas numerical data,
+    scalars, and nested/object sequences are checked. GPU arrays perform the
+    reduction on device and synchronize only the final scalar boolean. The
+    original object is returned unchanged.
     """
     if value is None:
         return value
@@ -40,12 +35,17 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
         return value
 
     module = type(value).__module__
+
+    if module.startswith("scipy.sparse") or module.startswith("cupyx.scipy.sparse"):
+        check_finite(value.data, name=name)
+        return value
+
     if module.startswith("torch"):
         import torch
 
         tensor = value
-        if getattr(tensor, "is_sparse", False):
-            tensor = tensor.coalesce().values()
+        if getattr(tensor, "layout", torch.strided) != torch.strided:
+            tensor = tensor.values()
         if not bool(torch.isfinite(tensor).all().item()):
             _raise_nonfinite(name)
         return value
@@ -58,6 +58,17 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
         return value
 
     if module.startswith("pandas"):
+        try:
+            array = value.to_numpy()
+        except Exception:
+            return value
+        if array.dtype.kind in "biufc":
+            if not np.isfinite(array).all():
+                _raise_nonfinite(name)
+            return value
+        if array.dtype.kind == "O":
+            for index, item in np.ndenumerate(array):
+                check_finite(item, name=f"{name}{index}")
         return value
 
     try:
@@ -73,7 +84,9 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
             _raise_nonfinite(name)
         return value
 
-    if array.dtype.kind == "O" and isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            check_finite(item, name=f"{name}[{index}]")
+    if array.dtype.kind == "O":
+        for index, item in np.ndenumerate(array):
+            if item is value:
+                continue
+            check_finite(item, name=f"{name}{index}")
     return value
