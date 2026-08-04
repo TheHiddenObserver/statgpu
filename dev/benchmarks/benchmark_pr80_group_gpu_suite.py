@@ -20,10 +20,33 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+
+try:
+    from ._exact_source_runtime import prepare_exact_source_runtime
+except ImportError:
+    try:
+        from dev.benchmarks._exact_source_runtime import (
+            prepare_exact_source_runtime,
+        )
+    except ImportError:  # direct or importlib file execution
+        import importlib.util
+
+        _helper_path = Path(__file__).with_name("_exact_source_runtime.py")
+        _helper_spec = importlib.util.spec_from_file_location(
+            "_statgpu_exact_source_runtime",
+            _helper_path,
+        )
+        if _helper_spec is None or _helper_spec.loader is None:
+            raise ImportError(f"cannot load exact-source helper: {_helper_path}")
+        _helper_module = importlib.util.module_from_spec(_helper_spec)
+        _helper_spec.loader.exec_module(_helper_module)
+        prepare_exact_source_runtime = (
+            _helper_module.prepare_exact_source_runtime
+        )
 
 
 RUNNERS = (
@@ -35,8 +58,10 @@ RUNNERS = (
 )
 
 SOURCE_FILES = (
+    "dev/benchmarks/_exact_source_runtime.py",
     "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
     *RUNNERS,
+    "dev/tests/test_pr80_exact_source_runtime_provenance.py",
     "dev/tests/test_pr80_adaptive_group_lipschitz_contract.py",
     "dev/tests/test_pr80_adaptive_group_penalty_contract.py",
     "dev/tests/test_pr80_adaptive_group_public_capability_contract.py",
@@ -89,9 +114,12 @@ SOURCE_FILES = (
 )
 
 
-def _git(*args):
+def _git(root, *args):
     return subprocess.check_output(
-        ["git", *args], text=True, stderr=subprocess.DEVNULL
+        ["git", *args],
+        cwd=root,
+        text=True,
+        stderr=subprocess.DEVNULL,
     ).strip()
 
 
@@ -99,11 +127,28 @@ def _sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _run_subrunner(path, head):
+def _tree_dirty_excluding_output(root, output):
+    output_path = output.resolve()
+    try:
+        output_relative = output_path.relative_to(root).as_posix()
+    except ValueError:
+        output_relative = None
+    retained = []
+    for line in _git(root, "status", "--porcelain").splitlines():
+        path = line[3:].strip().strip('"') if len(line) >= 4 else ""
+        if output_relative is not None and path == output_relative:
+            continue
+        retained.append(line)
+    return bool(retained)
+
+
+def _run_subrunner(path, head, *, root, runtime_env):
     with tempfile.TemporaryDirectory(prefix="statgpu-pr80-group-") as temp_dir:
         output = Path(temp_dir) / (Path(path).stem + ".json")
         completed = subprocess.run(
-            [sys.executable, path, "--output", str(output)],
+            [sys.executable, str(root / path), "--output", str(output)],
+            cwd=root,
+            env=runtime_env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -131,20 +176,25 @@ def _run_subrunner(path, head):
         failures = list(subreport.get("gate_failures") or [])
         source_commit = subreport.get("source_commit")
         source_clean = bool(subreport.get("source_clean", False))
+        source_clean_after = bool(subreport.get("source_clean_after", False))
         if source_commit != head:
             failures.append(
                 f"source_commit mismatch: expected {head}, got {source_commit}"
             )
         if not source_clean:
             failures.append("sub-runner source_clean is false")
+        if not source_clean_after:
+            failures.append("sub-runner source_clean_after is false")
         if completed.returncode != 0:
             failures.append(f"runner returncode={completed.returncode}")
 
+        failures = list(dict.fromkeys(failures))
         return {
             "runner": path,
             "returncode": int(completed.returncode),
             "source_commit": source_commit,
             "source_clean": source_clean,
+            "source_clean_after": source_clean_after,
             "schema_version": subreport.get("schema_version"),
             "gate_failures": failures,
             "backends": subreport.get("backends"),
@@ -158,27 +208,41 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    output = Path(args.output).resolve()
 
-    head = _git("rev-parse", "HEAD")
-    dirty_before = bool(_git("status", "--porcelain"))
-    missing_sources = [path for path in SOURCE_FILES if not Path(path).is_file()]
+    root, runtime_env, provenance, provenance_failures = (
+        prepare_exact_source_runtime(
+            (
+                "statgpu",
+                "statgpu.linear_model.penalized",
+                "statgpu.penalties",
+                "statgpu.solvers",
+            )
+        )
+    )
+    head = _git(root, "rev-parse", "HEAD")
+    dirty_before = bool(_git(root, "status", "--porcelain"))
+    missing_sources = [
+        path for path in SOURCE_FILES if not (root / path).is_file()
+    ]
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "validation_tier": "remote-full-canonical-suite",
         "source_commit": head,
         "source_clean": not dirty_before,
+        "runtime_import_provenance": provenance,
         "source_sha256": {
-            path: _sha256(path)
+            path: _sha256(root / path)
             for path in SOURCE_FILES
-            if Path(path).is_file()
+            if (root / path).is_file()
         },
         "command": (
             "python dev/benchmarks/benchmark_pr80_group_gpu_suite.py "
             "--output <path>"
         ),
         "subrunners": {},
-        "gate_failures": [],
+        "gate_failures": list(provenance_failures),
     }
 
     if dirty_before:
@@ -190,18 +254,23 @@ def main():
 
     if not report["gate_failures"]:
         for runner in RUNNERS:
-            result = _run_subrunner(runner, head)
+            result = _run_subrunner(
+                runner,
+                head,
+                root=root,
+                runtime_env=runtime_env,
+            )
             report["subrunners"][runner] = result
             if not result["passed"]:
                 report["gate_failures"].append(f"{runner}: failed")
 
-    dirty_after = bool(_git("status", "--porcelain"))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    dirty_after = _tree_dirty_excluding_output(root, output)
     report["source_clean_after"] = not dirty_after
     if dirty_after:
         report["gate_failures"].append("source tree is dirty after suite")
-
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
+    report["gate_failures"] = list(dict.fromkeys(report["gate_failures"]))
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 1 if report["gate_failures"] else 0
