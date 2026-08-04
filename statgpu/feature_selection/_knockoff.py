@@ -1010,3 +1010,11 @@ class FixedXKnockoffSelector(_KnockoffSelectorContract):
         return self
 
 
+
+
+for _selector_cls in (KnockoffSelector, FixedXKnockoffSelector):
+    for _method_name in ("fit", "fit_transform", "transform"):
+        _method = getattr(_selector_cls, _method_name, None)
+        if callable(_method):
+            _method.__statgpu_finite_validation__ = True
+del _selector_cls, _method_name, _method

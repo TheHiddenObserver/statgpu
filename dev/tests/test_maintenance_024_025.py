@@ -640,3 +640,83 @@ def test_delegated_wrapper_parameters_exist_publicly():
     assert gamma.link == "log"
     assert negative_binomial.alpha == 0.75
     assert tweedie.power == 1.7
+
+
+
+def test_all_public_numeric_methods_expose_finite_contract():
+    import inspect
+    import statgpu
+
+    candidate_names = {
+        "X", "X_new", "x", "y", "sample_weight", "weights", "offset",
+        "exposure", "entry", "start", "stop", "time", "event", "times",
+        "cluster", "clusters", "strata", "subject", "subjects", "groups",
+        "init", "init_coef", "initial_coef", "time_index", "entity_ids",
+        "time_ids", "pvalues", "arrays", "scores", "thresholds", "Xk",
+        "mu", "Sigma",
+    }
+    missing = []
+    for estimator_name, estimator in _default_public_estimators():
+        cls = type(estimator)
+        for method_name in dir(cls):
+            if method_name.startswith("_"):
+                continue
+            method = getattr(cls, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                signature = inspect.signature(method)
+            except (TypeError, ValueError):
+                continue
+            if not (set(signature.parameters) & candidate_names):
+                continue
+            if not getattr(method, "__statgpu_finite_validation__", False):
+                missing.append((estimator_name, method_name))
+    assert missing == []
+
+
+def test_inherited_penalized_fit_rejects_nonfinite_before_solver():
+    from statgpu.linear_model import PenalizedLinearRegression
+
+    model = PenalizedLinearRegression(compute_inference=False, device="cpu")
+    X = np.array([[1.0, 0.0], [np.nan, 1.0], [2.0, 2.0]])
+    y = np.array([1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        model.fit(X, y)
+    assert model._fitted is False
+
+
+def test_inherited_ridge_predict_rejects_nonfinite():
+    from statgpu.linear_model import Ridge
+
+    X = np.arange(24, dtype=float).reshape(8, 3)
+    y = np.arange(8, dtype=float)
+    model = Ridge(compute_inference=False, device="cpu").fit(X, y)
+    bad = X.copy()
+    bad[0, 0] = np.inf
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        model.predict(bad)
+
+
+def test_inherited_lasso_score_rejects_nonfinite_target():
+    from statgpu.linear_model import Lasso
+
+    X = np.arange(30, dtype=float).reshape(10, 3)
+    y = np.arange(10, dtype=float)
+    model = Lasso(alpha=0.01, compute_inference=False, device="cpu").fit(X, y)
+    bad_y = y.copy()
+    bad_y[0] = np.nan
+    with pytest.raises(ValueError, match=r"y.*finite"):
+        model.score(X, bad_y)
+
+
+def test_knockoff_manual_validation_is_marked():
+    from statgpu.feature_selection import FixedXKnockoffSelector, KnockoffSelector
+
+    for cls in (KnockoffSelector, FixedXKnockoffSelector):
+        for method_name in ("fit", "fit_transform", "transform"):
+            assert getattr(
+                getattr(cls, method_name),
+                "__statgpu_finite_validation__",
+                False,
+            )

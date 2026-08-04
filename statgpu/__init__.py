@@ -261,3 +261,11 @@ __all__ = [
     "UMAP",
     "TSNE",
 ]
+
+
+# Some maintained methods are supplied by mixins or attached after class
+# creation. Refresh finite-value guards after the complete public API is bound.
+from ._base import refresh_public_finite_validation_contracts as _refresh_finite_contracts
+
+_refresh_finite_contracts()
+del _refresh_finite_contracts

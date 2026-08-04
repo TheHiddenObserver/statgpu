@@ -359,8 +359,13 @@ class BaseEstimator(ABC):
             guarded.__statgpu_finite_validation__ = True
             return guarded
 
-        for method_name, original in tuple(cls.__dict__.items()):
-            if method_name.startswith("_") or not callable(original):
+        candidate_names = set(cls._FINITE_PUBLIC_METHODS)
+        candidate_names.update(
+            name for name in dir(cls) if not name.startswith("_")
+        )
+        for method_name in sorted(candidate_names):
+            original = getattr(cls, method_name, None)
+            if not callable(original):
                 continue
             if getattr(original, "__isabstractmethod__", False):
                 continue
@@ -1031,6 +1036,20 @@ class BaseEstimator(ABC):
         self.__dict__.clear()
         self.__dict__.update(fresh.__dict__)
         return self
+
+
+def refresh_public_finite_validation_contracts():
+    """Install finite guards after all estimator mixins and aliases are bound."""
+    BaseEstimator._install_public_finite_validation()
+    seen = set()
+    stack = list(BaseEstimator.__subclasses__())
+    while stack:
+        estimator_cls = stack.pop()
+        if estimator_cls in seen:
+            continue
+        seen.add(estimator_cls)
+        stack.extend(estimator_cls.__subclasses__())
+        estimator_cls._install_public_finite_validation()
 
 
 BaseEstimator._install_public_finite_validation()
