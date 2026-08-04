@@ -1,0 +1,42 @@
+name: Review fix legacy tags
+
+on:
+  pull_request:
+    branches: [master]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-legacy-tags:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply legacy tag compatibility
+        run: python .github/review_fix_legacy_tags.py
+      - name: Install legacy environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" scipy pytest packaging "scikit-learn==1.2.2"
+          python -m pip install -e . --no-deps
+      - name: Run legacy and current contracts
+        run: |
+          python -m pytest -q --tb=short \
+            dev/tests/test_maintenance_024_025.py::test_current_sklearn_classifier_and_regressor_tags \
+            dev/tests/test_legacy_sklearn_integration.py \
+            dev/tests/test_second_full_review.py::TestEstimatorCloneAndFeatureSelectionBackend::test_all_default_public_estimators_clone
+      - name: Commit legacy tag fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add statgpu/_base.py
+          git commit -m 'fix: expose estimator type to legacy sklearn'
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
