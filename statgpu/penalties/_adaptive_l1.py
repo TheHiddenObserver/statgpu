@@ -26,19 +26,11 @@ def _get_adaptive_l1_torch_compiled():
     global _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED
     if _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED is not None:
         return _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w, thresh_tensor):
-            return torch.sign(w) * torch.relu(torch.abs(w) - thresh_tensor)
-        _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
-    except Exception:
-        _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w, thresh_tensor):
+        return torch.sign(w) * torch.relu(torch.abs(w) - thresh_tensor)
+    _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED
-
 
 class AdaptiveL1Penalty(Penalty):
     """Adaptive L1 penalty (Adaptive Lasso).

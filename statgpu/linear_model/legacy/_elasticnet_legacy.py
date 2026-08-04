@@ -187,17 +187,11 @@ def _get_torch_compiled_proximal():
             torch.tensor(0.0, device=w_tilde.device, dtype=w_tilde.dtype)
         ) / l2_scale
 
-    # Compile the proximal operator
-    try:
-        torch._dynamo.config.suppress_errors = True
-        torch._dynamo.config.guard_immutable_object = False
-        _elastic_net_proximal_compiled = compile_torch(
-            _elastic_net_proximal_torch, workload="iterative"
-        )
-    except (AttributeError, RuntimeError):
-        _elastic_net_proximal_compiled = _elastic_net_proximal_torch
-
-    return _elastic_net_proximal_compiled
+    # Compile through the centralized observable policy. Do not mutate
+    # process-global Dynamo suppression settings here.
+    return compile_torch(
+        _elastic_net_proximal_torch, workload="iterative"
+    )
 
 
 def _fit_elasticnet_torch_optimized(X, y, alpha, l1_ratio, n_samples, n_features,

@@ -85,6 +85,13 @@ class BaseEstimator(ABC):
         "time_index",
         "entity_ids",
         "time_ids",
+        "pvalues",
+        "arrays",
+        "scores",
+        "thresholds",
+        "Xk",
+        "mu",
+        "Sigma",
     })
 
     def __init_subclass__(cls, **kwargs):
@@ -124,7 +131,12 @@ class BaseEstimator(ABC):
                 inferred_type = inherited_type
             elif nonpredictive_module:
                 inferred_type = None
-            elif ("classifier" in name or "logistic" in name) and classifier_module:
+            elif (
+                "classifier" in name
+                or "logistic" in name
+                or "logit" in name
+                or "probit" in name
+            ) and classifier_module:
                 inferred_type = "classifier"
             elif (
                 "regressor" in name
@@ -235,13 +247,19 @@ class BaseEstimator(ABC):
             guarded.__statgpu_finite_validation__ = True
             return guarded
 
-        for method_name in cls._FINITE_PUBLIC_METHODS:
-            original = cls.__dict__.get(method_name)
-            if original is None or not callable(original):
+        for method_name, original in tuple(cls.__dict__.items()):
+            if method_name.startswith("_") or not callable(original):
                 continue
             if getattr(original, "__isabstractmethod__", False):
                 continue
             if getattr(original, "__statgpu_finite_validation__", False):
+                continue
+            try:
+                signature = inspect.signature(original)
+            except (TypeError, ValueError):
+                continue
+            numerical_parameters = set(signature.parameters) & cls._FINITE_PARAMETER_NAMES
+            if method_name not in cls._FINITE_PUBLIC_METHODS and not numerical_parameters:
                 continue
             setattr(cls, method_name, wrap_method(original))
 
@@ -748,13 +766,16 @@ class BaseEstimator(ABC):
                 RegressorTags,
                 Tags,
                 TargetTags,
+                TransformerTags,
             )
         except ImportError:
             return self._more_tags()
 
+        has_transform = callable(getattr(self, "transform", None))
         return Tags(
             estimator_type=estimator_type,
             target_tags=TargetTags(required=estimator_type is not None),
+            transformer_tags=TransformerTags() if has_transform else None,
             classifier_tags=(
                 ClassifierTags() if estimator_type == "classifier" else None
             ),
@@ -823,7 +844,7 @@ class BaseEstimator(ABC):
 
 
     def set_params(self, **params):
-        """Set parameters and rebuild normalized runtime state transactionally."""
+        """Set parameters transactionally and refresh normalized state."""
         if not params:
             return self
 
@@ -832,6 +853,7 @@ class BaseEstimator(ABC):
 
         valid_deep = self.get_params(deep=True)
         direct = self.get_params(deep=False)
+        direct_updates = {}
         nested = {}
         for key, value in params.items():
             root, delimiter, sub_key = key.partition("__")
@@ -847,12 +869,9 @@ class BaseEstimator(ABC):
                 nested.setdefault(root, {})[sub_key] = value
             else:
                 direct[root] = value
+                direct_updates[root] = value
 
-        explicitly_updated = {
-            key.partition("__")[0]
-            for key in params
-            if "__" not in key
-        }
+        explicitly_updated = set(direct_updates)
         for key, value in tuple(direct.items()):
             if isinstance(value, Iterator) and key not in explicitly_updated:
                 snapshot = getattr(self, "_cox_cv_split_snapshot", None)
@@ -860,40 +879,27 @@ class BaseEstimator(ABC):
                     snapshot = list(value)
                 direct[key] = copy.deepcopy(snapshot)
 
-        # Valid constructor values rebuild normalized runtime state. Some
-        # estimators intentionally defer selected validation to fit(); preserve
-        # that established boundary when the constructor rejects a set_params
-        # value, while retaining the raw constructor ledger for sklearn clone.
         try:
             fresh = type(self)(**direct)
         except (TypeError, ValueError):
-            for key, value in params.items():
-                root, delimiter, _ = key.partition("__")
-                if delimiter:
-                    continue
-                raw_value = value
-                if root == "device" and isinstance(value, str):
-                    value = Device(value)
-                if hasattr(self, root):
-                    setattr(self, root, value)
-                else:
-                    setattr(self, f"_{root}", value)
+            deferred = set(getattr(type(self), "_DEFERRED_SET_PARAMS", ()))
+            if nested or not direct_updates or not set(direct_updates).issubset(deferred):
+                raise
+            # A small number of estimators intentionally validate selected
+            # controls at fit time. Apply only those explicitly declared values
+            # after the complete update has been classified as deferred.
+            for key, value in direct_updates.items():
+                setattr(self, key, value)
                 raw_params = getattr(self, "_constructor_params_raw", None)
                 if raw_params is None:
                     raw_params = {}
                     self._constructor_params_raw = raw_params
-                raw_params[root] = raw_value
-
-            for root, sub_params in nested.items():
-                nested_estimator = getattr(self, root, None)
-                if nested_estimator is None:
-                    nested_estimator = getattr(self, f"_{root}", None)
-                if not hasattr(nested_estimator, "set_params"):
-                    raise ValueError(
-                        f"Parameter {root!r} of {type(self).__name__} does not "
-                        "support nested parameters."
-                    )
-                nested_estimator.set_params(**sub_params)
+                raw_params[key] = value
+            reset = getattr(self, "_reset_fit_state", None)
+            if callable(reset):
+                reset()
+            else:
+                self._fitted = False
             return self
 
         for root, sub_params in nested.items():
@@ -910,3 +916,6 @@ class BaseEstimator(ABC):
         self.__dict__.clear()
         self.__dict__.update(fresh.__dict__)
         return self
+
+
+BaseEstimator._install_public_finite_validation()

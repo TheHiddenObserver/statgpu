@@ -50,18 +50,16 @@ def _get_sqerr_proximal_torch():
         # Fall back to JIT script for older GPUs (P100 = 6.0).
         _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
         if _cap >= 7:
-            try:
-                @compile_torch(workload="iterative", backend='inductor')
-                def _fused_update(y_current, grad, step, thresh, coef_old, beta):
-                    w = y_current - step * grad
-                    abs_w = w.abs()
-                    sign_w = w.sign()
-                    coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
-                    y_k = coef_new + beta * (coef_new - coef_old)
-                    return coef_new, y_k
-                _SQERR_PROXIMAL_TORCH = _fused_update
-            except (RuntimeError, TypeError):
-                pass
+            def _fused_update(y_current, grad, step, thresh, coef_old, beta):
+                w = y_current - step * grad
+                abs_w = w.abs()
+                sign_w = w.sign()
+                coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
+                y_k = coef_new + beta * (coef_new - coef_old)
+                return coef_new, y_k
+            _SQERR_PROXIMAL_TORCH = compile_torch(
+                _fused_update, workload="iterative", backend="inductor"
+            )
         if _SQERR_PROXIMAL_TORCH is None:
             def _fused_update_eager(y_current, grad, step, thresh, coef_old, beta):
                 w = y_current - step * grad
@@ -128,11 +126,9 @@ def _get_fused_proximal_clip_torch():
         # Try torch.compile on capable GPUs
         _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
         if _cap >= 7:
-            try:
-                _FUSED_PROXIMAL_CLIP_TORCH = compile_torch(
-                    _fused, workload="iterative", backend='inductor')
-            except (RuntimeError, TypeError):
-                _FUSED_PROXIMAL_CLIP_TORCH = _fused
+            _FUSED_PROXIMAL_CLIP_TORCH = compile_torch(
+                _fused, workload="iterative", backend="inductor"
+            )
         else:
             _FUSED_PROXIMAL_CLIP_TORCH = _fused
     return _FUSED_PROXIMAL_CLIP_TORCH

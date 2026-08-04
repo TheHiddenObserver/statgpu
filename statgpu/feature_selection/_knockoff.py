@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from statgpu.feature_selection import _knockoff_utils as _kutils
+from statgpu.backends._validation import check_finite
 from statgpu.feature_selection._knockoff_utils import (
     _build_fixed_x_knockoffs,
     _build_model_x_knockoffs,
@@ -743,7 +744,40 @@ def knockoff_filter(
     )
 
 
-class KnockoffSelector:
+class _KnockoffSelectorContract:
+    """Shared sklearn and finite-input contract for knockoff selectors."""
+
+    def _more_tags(self):
+        return {"requires_y": True}
+
+    def __sklearn_tags__(self):
+        try:
+            from sklearn.utils import Tags, TargetTags, TransformerTags
+        except ImportError:
+            return self._more_tags()
+        return Tags(
+            estimator_type=None,
+            target_tags=TargetTags(required=True),
+            transformer_tags=TransformerTags(),
+            requires_fit=True,
+        )
+
+    def __sklearn_is_fitted__(self):
+        return getattr(self, "selected_features_", None) is not None
+
+    @staticmethod
+    def _validate_fit_inputs(X, y, Xk=None):
+        check_finite(X, name="X")
+        check_finite(y, name="y")
+        if Xk is not None:
+            check_finite(Xk, name="Xk")
+
+    @staticmethod
+    def _validate_transform_input(X):
+        check_finite(X, name="X")
+
+
+class KnockoffSelector(_KnockoffSelectorContract):
     """Sklearn-like wrapper for unified knockoff feature selection."""
 
     def __init__(
@@ -786,6 +820,7 @@ class KnockoffSelector:
         self.selected_features_: Optional[np.ndarray] = None
 
     def fit(self, X, y, Xk=None):
+        self._validate_fit_inputs(X, y, Xk)
         self.result_ = knockoff_filter(
             X,
             y,
@@ -819,6 +854,7 @@ class KnockoffSelector:
         return mask
 
     def transform(self, X):
+        self._validate_transform_input(X)
         if self.selected_features_ is None:
             raise RuntimeError("Selector has not been fitted yet")
         module = type(X).__module__
@@ -883,7 +919,7 @@ class KnockoffSelector:
         return self
 
 
-class FixedXKnockoffSelector:
+class FixedXKnockoffSelector(_KnockoffSelectorContract):
     """Sklearn-like wrapper for fixed-X knockoff feature selection."""
 
     def __init__(
@@ -921,6 +957,7 @@ class FixedXKnockoffSelector:
         self.selected_features_: Optional[np.ndarray] = None
 
     def fit(self, X, y, Xk=None):
+        self._validate_fit_inputs(X, y, Xk)
         self._selector.fit(X, y, Xk=Xk)
         self.result_ = self._selector.result_
         self.selected_features_ = self._selector.selected_features_
@@ -930,6 +967,7 @@ class FixedXKnockoffSelector:
         return self._selector.get_support()
 
     def transform(self, X):
+        self._validate_transform_input(X)
         return self._selector.transform(X)
 
     def fit_transform(self, X, y, Xk=None):

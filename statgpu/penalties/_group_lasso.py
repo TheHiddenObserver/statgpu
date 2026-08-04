@@ -25,24 +25,16 @@ def _get_group_lasso_torch_compiled_equal():
     global _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL
     if _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL is not None:
         return _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL = None
-        return None
-    try:
-        import torch
-        def _prox(w_mat, sqrt_pg, alpha, step):
-            thresh = alpha * sqrt_pg * step
-            norms = torch.linalg.norm(w_mat, dim=1)
-            scale = torch.clamp(1.0 - thresh / (norms + 1e-12), min=0.0)
-            return (w_mat * scale[:, None]).reshape(-1)
-        _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL = compile_torch(
-            _prox, dynamic=True, workload="iterative"
-        )
-    except Exception:
-        _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL = None
+    import torch
+    def _prox(w_mat, sqrt_pg, alpha, step):
+        thresh = alpha * sqrt_pg * step
+        norms = torch.linalg.norm(w_mat, dim=1)
+        scale = torch.clamp(1.0 - thresh / (norms + 1e-12), min=0.0)
+        return (w_mat * scale[:, None]).reshape(-1)
+    _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL = compile_torch(
+        _prox, dynamic=True, workload="iterative"
+    )
     return _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL
-
 
 def _vector_norm(x, xp, dim=None):
     """Backend-aware L2 norm along a dimension."""

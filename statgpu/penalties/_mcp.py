@@ -29,32 +29,24 @@ def _get_mcp_torch_compiled():
     global _MCP_PROXIMAL_TORCH_COMPILED
     if _MCP_PROXIMAL_TORCH_COMPILED is not None:
         return _MCP_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _MCP_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w, step, alpha, gamma):
-            max_step = 0.9 * gamma
-            step = torch.clamp(step, max=max_step)
-            t = alpha * step
-            abs_w = torch.abs(w)
-            sign_w = torch.sign(w)
-            r1 = abs_w <= t
-            r3 = abs_w > gamma * alpha
-            r2 = ~(r1 | r3)
-            result = torch.where(r1,
-                torch.zeros_like(w),
-                torch.where(r2,
-                    sign_w * (abs_w - t) / (1.0 - step / gamma),
-                    w))
-            return result
-        _MCP_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
-    except Exception:
-        _MCP_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w, step, alpha, gamma):
+        max_step = 0.9 * gamma
+        step = torch.clamp(step, max=max_step)
+        t = alpha * step
+        abs_w = torch.abs(w)
+        sign_w = torch.sign(w)
+        r1 = abs_w <= t
+        r3 = abs_w > gamma * alpha
+        r2 = ~(r1 | r3)
+        result = torch.where(r1,
+            torch.zeros_like(w),
+            torch.where(r2,
+                sign_w * (abs_w - t) / (1.0 - step / gamma),
+                w))
+        return result
+    _MCP_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _MCP_PROXIMAL_TORCH_COMPILED
-
 
 class MCPPenalty(Penalty):
     """MCP penalty.

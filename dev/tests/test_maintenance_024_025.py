@@ -392,3 +392,130 @@ def test_set_params_preserves_estimator_fit_validation_boundary():
     model = CoxPH()
     model.set_params(compute_inference="False")
     assert model.get_params(deep=False)["compute_inference"] == "False"
+
+
+
+def test_compile_call_sites_do_not_swallow_policy_errors():
+    import ast
+    from pathlib import Path
+
+    offenders = []
+    for path in Path("statgpu").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "compile_torch" not in source and "suppress_errors" not in source:
+            continue
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for decorator in node.decorator_list:
+                    if (
+                        isinstance(decorator, ast.Call)
+                        and isinstance(decorator.func, ast.Name)
+                        and decorator.func.id == "compile_torch"
+                    ):
+                        offenders.append((path.as_posix(), decorator.lineno, "decorator"))
+            if isinstance(node, ast.Try):
+                contains_compile = any(
+                    isinstance(child, ast.Call)
+                    and isinstance(child.func, ast.Name)
+                    and child.func.id == "compile_torch"
+                    for stmt in node.body
+                    for child in ast.walk(stmt)
+                )
+                if contains_compile:
+                    offenders.append((path.as_posix(), node.lineno, "caught"))
+        if "torch._dynamo.config.suppress_errors" in source:
+            offenders.append((path.as_posix(), 0, "suppress_errors"))
+    assert offenders == []
+
+
+def test_invalid_compile_mode_reaches_penalty_callsite(monkeypatch):
+    fake_torch = types.ModuleType("torch")
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "invalid-mode")
+
+    import statgpu.penalties._l1 as l1_module
+    from statgpu.penalties import L1Penalty
+
+    l1_module._L1_PROXIMAL_TORCH_COMPILED = None
+    with pytest.raises(ValueError, match="STATGPU_TORCH_COMPILE_MODE"):
+        L1Penalty(alpha=0.1).proximal(np.array([1.0]), 0.1, backend="torch")
+
+
+def test_set_params_invalid_update_is_transactional():
+    from statgpu.panel import PooledOLS
+
+    model = PooledOLS(cov_type="robust", kernel="bartlett")
+    model._fitted = True
+    model.marker_ = object()
+    marker = model.marker_
+    before = model.get_params(deep=False).copy()
+
+    with pytest.raises(ValueError, match="cov_type"):
+        model.set_params(cov_type="invalid", kernel="PARZEN")
+
+    assert model.get_params(deep=False) == before
+    assert model.cov_type == "robust"
+    assert model.kernel == "bartlett"
+    assert model._fitted is True
+    assert model.marker_ is marker
+
+
+def test_pandas_nullable_boolean_missing_is_rejected():
+    pd = pytest.importorskip("pandas")
+    from statgpu.backends._validation import check_finite
+
+    with pytest.raises(ValueError, match="finite"):
+        check_finite(pd.Series([True, pd.NA], dtype="boolean"), name="X")
+
+
+def test_public_sklearn_tags_are_available_and_transformers_are_marked():
+    import inspect
+    import statgpu
+    from sklearn.utils import get_tags
+
+    errors = []
+    missing_transformer_tags = []
+    for name in statgpu.__all__:
+        cls = getattr(statgpu, name, None)
+        if not inspect.isclass(cls) or not hasattr(cls, "fit") or inspect.isabstract(cls):
+            continue
+        signature = inspect.signature(cls)
+        required = [
+            parameter
+            for parameter in signature.parameters.values()
+            if parameter.default is inspect._empty
+            and parameter.kind
+            not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        ]
+        if required:
+            continue
+        try:
+            estimator = cls()
+            tags = get_tags(estimator)
+        except Exception as exc:
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+            continue
+        if callable(getattr(estimator, "transform", None)) and tags.transformer_tags is None:
+            missing_transformer_tags.append(name)
+
+    assert errors == []
+    assert missing_transformer_tags == []
+
+
+def test_knockoff_selectors_reject_nonfinite_inputs():
+    from statgpu.feature_selection import FixedXKnockoffSelector, KnockoffSelector
+
+    X = np.array([[1.0, np.nan], [2.0, 3.0]])
+    y = np.array([0.0, 1.0])
+    for selector in (KnockoffSelector(), FixedXKnockoffSelector()):
+        with pytest.raises(ValueError, match="finite"):
+            selector.fit(X, y)
+
+
+def test_base_inference_helpers_reject_nonfinite_inputs():
+    from statgpu.linear_model import LinearRegression
+
+    model = LinearRegression()
+    with pytest.raises(ValueError, match="finite"):
+        model.combine_pvalues(np.array([0.1, np.nan]))

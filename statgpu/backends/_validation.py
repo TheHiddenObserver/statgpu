@@ -58,6 +58,13 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
         return value
 
     if module.startswith("pandas"):
+        import pandas as pd
+
+        missing = pd.isna(value)
+        if hasattr(missing, "to_numpy"):
+            missing = missing.to_numpy()
+        if bool(np.asarray(missing).any()):
+            _raise_nonfinite(name)
         try:
             array = value.to_numpy()
         except Exception:

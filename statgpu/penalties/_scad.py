@@ -30,32 +30,24 @@ def _get_scad_torch_compiled():
     global _SCAD_PROXIMAL_TORCH_COMPILED
     if _SCAD_PROXIMAL_TORCH_COMPILED is not None:
         return _SCAD_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _SCAD_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w, step, alpha, a):
-            max_step = 0.9 * (a - 1.0)
-            step = torch.clamp(step, max=max_step)
-            t = alpha * step
-            abs_w = torch.abs(w)
-            sign_w = torch.sign(w)
-            r1 = abs_w <= alpha + t
-            r3 = abs_w > a * alpha
-            r2 = ~(r1 | r3)
-            result = torch.where(r1,
-                sign_w * torch.relu(abs_w - t),
-                torch.where(r2,
-                    sign_w * ((a - 1.0) * abs_w - a * t) / (a - 1.0 - step),
-                    w))
-            return result
-        _SCAD_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
-    except Exception:
-        _SCAD_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w, step, alpha, a):
+        max_step = 0.9 * (a - 1.0)
+        step = torch.clamp(step, max=max_step)
+        t = alpha * step
+        abs_w = torch.abs(w)
+        sign_w = torch.sign(w)
+        r1 = abs_w <= alpha + t
+        r3 = abs_w > a * alpha
+        r2 = ~(r1 | r3)
+        result = torch.where(r1,
+            sign_w * torch.relu(abs_w - t),
+            torch.where(r2,
+                sign_w * ((a - 1.0) * abs_w - a * t) / (a - 1.0 - step),
+                w))
+        return result
+    _SCAD_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _SCAD_PROXIMAL_TORCH_COMPILED
-
 
 class SCADPenalty(Penalty):
     """SCAD penalty.

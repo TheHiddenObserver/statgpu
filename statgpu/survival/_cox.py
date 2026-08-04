@@ -197,6 +197,9 @@ class CoxPH(BaseEstimator):
     """
 
     _estimator_type = "regressor"
+    _DEFERRED_SET_PARAMS = frozenset({
+        "compute_inference", "compute_cindex", "gpu_memory_cleanup"
+    })
     _canonical_fit_path = "counting_process"
 
     def __sklearn_tags__(self):
