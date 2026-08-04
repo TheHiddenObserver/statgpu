@@ -161,7 +161,7 @@ def main():
         path for path in SOURCE_FILES if not (root / path).is_file()
     ]
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "validation_tier": "remote-full-final-promotion-suite",
         "source_commit": head,
         "source_clean": not dirty_before,
