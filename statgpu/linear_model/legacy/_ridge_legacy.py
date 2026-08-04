@@ -1,13 +1,17 @@
 """
 Optimized Ridge regression with GPU support.
 """
+
 from __future__ import annotations
+
 from typing import Optional, Union
 import numpy as np
 from scipy import stats
+
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str
+
 
 class _RidgeLegacy(BaseEstimator):
     """
@@ -34,17 +38,29 @@ class _RidgeLegacy(BaseEstimator):
         or ``'hac'`` (Newey-West HAC with Bartlett kernel).
     """
 
-    def __init__(self, alpha: float=1.0, fit_intercept: bool=True, device: Union[str, Device]=Device.AUTO, n_jobs: Optional[int]=None, gpu_memory_cleanup: bool=False, compute_inference: bool=True, cov_type: str='nonrobust', hac_maxlags: Optional[int]=None):
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        fit_intercept: bool = True,
+        device: Union[str, Device] = Device.AUTO,
+        n_jobs: Optional[int] = None,
+        gpu_memory_cleanup: bool = False,
+        compute_inference: bool = True,
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
+    ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.compute_inference = compute_inference
         self.cov_type = cov_type.lower()
-        if self.cov_type not in ('nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'):
-            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'")
+        if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
+            )
         if hac_maxlags is not None and int(hac_maxlags) < 0:
-            raise ValueError('hac_maxlags must be a non-negative integer or None')
+            raise ValueError("hac_maxlags must be a non-negative integer or None")
         self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
         self.coef_ = None
         self.intercept_ = None
@@ -89,7 +105,7 @@ class _RidgeLegacy(BaseEstimator):
         if maxlags == 0:
             return meat
         for lag in range(1, maxlags + 1):
-            weight = 1.0 - lag / (maxlags + 1.0)
+            weight = 1.0 - (lag / (maxlags + 1.0))
             gamma = scores[lag:].T @ scores[:-lag]
             meat = meat + weight * (gamma + gamma.T)
         return meat
@@ -97,13 +113,14 @@ class _RidgeLegacy(BaseEstimator):
     def _hac_meat_cupy(self, scores):
         """CuPy Bartlett-kernel HAC meat from per-observation score matrix."""
         import cupy as cp
+
         n_obs = int(scores.shape[0])
         meat = scores.T @ scores
         maxlags = self._resolve_hac_maxlags(n_obs)
         if maxlags == 0:
             return meat
         for lag in range(1, maxlags + 1):
-            weight = 1.0 - lag / (maxlags + 1.0)
+            weight = 1.0 - (lag / (maxlags + 1.0))
             gamma = scores[lag:].T @ scores[:-lag]
             meat = meat + weight * (gamma + gamma.T)
         return meat
@@ -112,90 +129,113 @@ class _RidgeLegacy(BaseEstimator):
         """Compute robust/HAC covariance matrix for Ridge score equations."""
         n, k = X.shape
         e = np.asarray(resid, dtype=float).reshape(-1)
-        if self.cov_type == 'hac':
+
+        if self.cov_type == "hac":
             scores = X * e[:, np.newaxis]
             meat = self._hac_meat_numpy(scores)
             return XtX_inv @ meat @ XtX_inv
-        if self.cov_type in ('hc2', 'hc3'):
-            leverage = np.einsum('ij,jk,ik->i', X, XtX_inv, X)
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = np.einsum("ij,jk,ik->i", X, XtX_inv, X)
             leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
-            if self.cov_type == 'hc2':
-                e2 = e ** 2 / (1.0 - leverage)
+            if self.cov_type == "hc2":
+                e2 = (e ** 2) / (1.0 - leverage)
             else:
-                e2 = e ** 2 / (1.0 - leverage) ** 2
+                e2 = (e ** 2) / ((1.0 - leverage) ** 2)
         else:
             e2 = e ** 2
+
         Xw = X * e2[:, np.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == 'hc1' and n > k:
+        if self.cov_type == "hc1" and n > k:
             cov_params *= n / (n - k)
         return cov_params
 
     def _robust_covariance_cupy(self, X, resid, XtX_inv):
         """Compute robust/HAC covariance matrix for Ridge score equations on GPU."""
         import cupy as cp
+
         n, k = X.shape
         e = resid.reshape(-1)
-        if self.cov_type == 'hac':
+
+        if self.cov_type == "hac":
             scores = X * e[:, cp.newaxis]
             meat = self._hac_meat_cupy(scores)
             return XtX_inv @ meat @ XtX_inv
-        if self.cov_type in ('hc2', 'hc3'):
-            leverage = cp.einsum('ij,jk,ik->i', X, XtX_inv, X)
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = cp.einsum("ij,jk,ik->i", X, XtX_inv, X)
             leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
-            if self.cov_type == 'hc2':
+            if self.cov_type == "hc2":
                 e2 = cp.square(e) / (1.0 - leverage)
             else:
                 e2 = cp.square(e) / cp.square(1.0 - leverage)
         else:
             e2 = cp.square(e)
+
         Xw = X * e2[:, cp.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == 'hc1' and n > k:
+        if self.cov_type == "hc1" and n > k:
             cov_params = cov_params * (n / (n - k))
         return cov_params
-
+    
     def fit(self, X, y, sample_weight=None):
         """Fit Ridge regression model."""
+        # Store y (may be CuPy/Torch array, convert later)
         self._y = y
-        backend = self._get_backend(backend='auto')
+
+        # Get backend - support explicit torch backend selection
+        backend = self._get_backend(backend="auto")
         backend_name = backend.name
+
         X_arr = self._to_array(X, backend=backend_name)
         y_arr = self._to_array(y, backend=backend_name)
+
         device = self._get_compute_device()
-        if backend_name == 'torch':
+
+        # Route to appropriate backend
+        if backend_name == "torch":
             self._fit_torch(X_arr, y_arr, sample_weight)
-        elif backend_name == 'cupy':
+        elif backend_name == "cupy":
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
-        if hasattr(self._y, 'get'):
+
+        # Now convert y to numpy for diagnostics
+        if hasattr(self._y, 'get'):  # CuPy
             self._y = self._y.get()
-        elif hasattr(self._y, 'cpu'):
+        elif hasattr(self._y, 'cpu'):  # Torch
             self._y = self._y.cpu().numpy()
         else:
             self._y = np.asarray(self._y)
+
+        # GPU path already computes inference on-device in _fit_gpu/_fit_torch().
         if self.compute_inference and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
-
+    
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU with optimized memory usage."""
         X = np.asarray(X)
         y = np.asarray(y)
         n_samples, n_features = X.shape
         self._nobs = n_samples
+        
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight)
             sqrt_sw = np.sqrt(sample_weight)
             X = X * sqrt_sw[:, np.newaxis]
             y = y * sqrt_sw
+        
         if self.fit_intercept:
             X_mean = np.mean(X, axis=0)
             y_mean = np.mean(y)
+            # Avoid creating full X_centered (n×p) matrix when computing XtX/Xty.
+            # Use the centering formula: X_centered.T @ X_centered = X.T@X - n*outer(mean)
+            # This reduces memory from O(n*p) to O(p²).
             XtX = X.T @ X
             XtX -= n_samples * np.outer(X_mean, X_mean)
             Xty = X.T @ y
@@ -204,15 +244,21 @@ class _RidgeLegacy(BaseEstimator):
             y_mean = 0.0
             XtX = X.T @ X
             Xty = X.T @ y
+
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
+
         I = np.eye(n_features)
         XtX_reg = XtX + self.alpha * I
+        
         try:
             coef = np.linalg.solve(XtX_reg, Xty)
         except np.linalg.LinAlgError:
             coef = np.linalg.lstsq(XtX_reg, Xty, rcond=None)[0]
+        
         coef = coef.flatten()
+        
+        # Only build design matrix and compute residuals when inference is needed
         if self.fit_intercept:
             self.intercept_ = float(y_mean - X_mean @ coef)
             self.coef_ = coef
@@ -221,7 +267,9 @@ class _RidgeLegacy(BaseEstimator):
             self.intercept_ = 0.0
             self.coef_ = coef
             self._params = self.coef_.copy()
+        
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        
         if self.compute_inference:
             if self.fit_intercept:
                 self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
@@ -237,19 +285,24 @@ class _RidgeLegacy(BaseEstimator):
             self._X_design = None
             self._resid = None
             self._scale = np.nan
-
+    
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU (optimized)."""
         import cupy as cp
+        
         n_samples, n_features = X.shape
         self._nobs = n_samples
+        
+        # Ensure CuPy arrays
         X = cp.asarray(X)
         y = cp.asarray(y)
+        
         if sample_weight is not None:
             sample_weight = cp.asarray(sample_weight)
             sqrt_sw = cp.sqrt(sample_weight)
             X = X * sqrt_sw[:, np.newaxis]
             y = y * sqrt_sw
+        
         if self.fit_intercept:
             X_mean = cp.mean(X, axis=0)
             y_mean = cp.mean(y)
@@ -258,42 +311,57 @@ class _RidgeLegacy(BaseEstimator):
         else:
             X_centered = X
             y_mean = cp.array(0.0)
+        
         if y.ndim == 1:
             y_centered = y_centered.reshape(-1, 1)
+        
+        # Ridge closed-form
         XtX = X_centered.T @ X_centered
         Xty = X_centered.T @ y_centered
+        
         I = cp.eye(n_features)
         XtX_reg = XtX + self.alpha * I
+        
         try:
+            # Cholesky for better performance
             L = cp.linalg.cholesky(XtX_reg)
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
         except _LINALG_ERRORS:
             coef = cp.linalg.solve(XtX_reg, Xty)
+        
+        # Keep on GPU for residuals
         if self.fit_intercept:
             X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
             coef_full = cp.concatenate([y_mean - X_mean @ coef, coef.flatten()])
         else:
             X_design = X
             coef_full = coef.flatten()
+        
         y_pred = X_design @ coef_full
         resid = y - y_pred
+        
         df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         if df_resid > 0:
             scale = cp.sum(resid ** 2) / df_resid
         else:
             scale = cp.nan
+        
+        # Compute ALL statistics on GPU
         from statgpu.backends._gpu_inference_cupy import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
         from statgpu.inference._distributions_backend import norm
+
         if self.compute_inference:
-            if self.cov_type == 'nonrobust':
-                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
+            if self.cov_type == "nonrobust":
+                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                    compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
             else:
                 XtX_cov = X_design.T @ X_design
+                # Apply ridge penalty excluding the intercept column
                 k_design = X_design.shape[1]
                 penalty_diag = cp.ones(k_design, dtype=cp.float64) * self.alpha
                 if self.fit_intercept:
-                    penalty_diag[0] = 0.0
+                    penalty_diag[0] = 0.0  # no penalty on the intercept term
                 XtX_pen = XtX_cov + cp.diag(penalty_diag)
                 try:
                     XtX_inv = cp.linalg.inv(XtX_pen)
@@ -304,21 +372,33 @@ class _RidgeLegacy(BaseEstimator):
                 self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
                 z_crit = norm.ppf(0.975)
-                self._conf_int_gpu = cp.stack([coef_full - z_crit * self._bse_gpu, coef_full + z_crit * self._bse_gpu], axis=1)
+                self._conf_int_gpu = cp.stack([
+                    coef_full - z_crit * self._bse_gpu,
+                    coef_full + z_crit * self._bse_gpu,
+                ], axis=1)
+
             self._rsquared_gpu = compute_r2_gpu(y, resid)
+
             k = n_features + (1 if self.fit_intercept else 0)
             scale_mle = cp.sum(resid ** 2) / n_samples
             self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
+
             self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+        
+        # Single transfer to CPU at the end
         coef_full_np = coef_full.get()
         resid_np = resid.get()
         scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
+
+        # Transfer inference results
         if self.compute_inference:
             self._bse = self._bse_gpu.get()
             self._tvalues = self._tvalues_gpu.get()
             self._pvalues = self._pvalues_gpu.get()
             self._conf_int = self._conf_int_gpu.get()
+        
+        # Store
         if self.fit_intercept:
             self.intercept_ = float(coef_full_np[0])
             self.coef_ = coef_full_np[1:]
@@ -327,10 +407,13 @@ class _RidgeLegacy(BaseEstimator):
             self.intercept_ = 0.0
             self.coef_ = coef_full_np
             self._params = coef_full_np
+        
         self._X_design = X_design_np
         self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_float
+
+        # Release large temporary GPU tensors early.
         try:
             del X_design
         except Exception:
@@ -368,38 +451,43 @@ class _RidgeLegacy(BaseEstimator):
     def _robust_covariance_torch(self, X, resid, XtX_inv):
         """Compute robust/HAC covariance matrix for Ridge score equations on Torch GPU."""
         import torch
+
         n, k = X.shape
         e = resid.reshape(-1)
-        if self.cov_type == 'hac':
+
+        if self.cov_type == "hac":
             scores = X * e[:, None]
             meat = self._hac_meat_torch(scores)
             return XtX_inv @ meat @ XtX_inv
-        if self.cov_type in ('hc2', 'hc3'):
-            leverage = torch.einsum('ij,jk,ik->i', X, XtX_inv, X)
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = torch.einsum("ij,jk,ik->i", X, XtX_inv, X)
             leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
-            if self.cov_type == 'hc2':
+            if self.cov_type == "hc2":
                 e2 = torch.square(e) / (1.0 - leverage)
             else:
                 e2 = torch.square(e) / torch.square(1.0 - leverage)
         else:
             e2 = torch.square(e)
+
         Xw = X * e2[:, None]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == 'hc1' and n > k:
+        if self.cov_type == "hc1" and n > k:
             cov_params = cov_params * (n / (n - k))
         return cov_params
 
     def _hac_meat_torch(self, scores):
         """Torch Bartlett-kernel HAC meat from per-observation score matrix."""
         import torch
+
         n_obs = int(scores.shape[0])
         meat = scores.T @ scores
         maxlags = self._resolve_hac_maxlags(n_obs)
         if maxlags == 0:
             return meat
         for lag in range(1, maxlags + 1):
-            weight = 1.0 - lag / (maxlags + 1.0)
+            weight = 1.0 - (lag / (maxlags + 1.0))
             gamma = scores[lag:].T @ scores[:-lag]
             meat = meat + weight * (gamma + gamma.T)
         return meat
@@ -407,11 +495,21 @@ class _RidgeLegacy(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU."""
         import torch
-        from statgpu.backends._gpu_inference_torch import compute_inference_torch, compute_r2_torch, compute_aic_bic_torch, compute_f_stat_torch
+        from statgpu.backends._gpu_inference_torch import (
+            compute_inference_torch,
+            compute_r2_torch,
+            compute_aic_bic_torch,
+            compute_f_stat_torch,
+        )
         from statgpu.inference._distributions_backend import norm
+
+        # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
         torch_device = _get_torch_device_str()
+
         n_samples, n_features = X.shape
         self._nobs = n_samples
+
+        # Ensure Torch tensors on GPU
         if not isinstance(X, torch.Tensor):
             X = torch.from_numpy(X).to(torch_device)
         if not isinstance(y, torch.Tensor):
@@ -420,12 +518,14 @@ class _RidgeLegacy(BaseEstimator):
             y = y.to(torch.float64)
         if X.dtype != torch.float64:
             X = X.to(torch.float64)
+
         if sample_weight is not None:
             if not isinstance(sample_weight, torch.Tensor):
                 sample_weight = torch.from_numpy(sample_weight).to(torch_device)
             sqrt_sw = torch.sqrt(sample_weight)
             X = X * sqrt_sw[:, None]
             y = y * sqrt_sw
+
         if self.fit_intercept:
             X_mean = torch.mean(X, axis=0)
             y_mean = torch.mean(y)
@@ -434,18 +534,26 @@ class _RidgeLegacy(BaseEstimator):
         else:
             X_centered = X
             y_mean = torch.tensor(0.0, device=torch_device)
+
         if y.ndim == 1:
             y_centered = y_centered.reshape(-1, 1)
+
+        # Ridge closed-form
         XtX = X_centered.T @ X_centered
         Xty = X_centered.T @ y_centered
+
         I = torch.eye(n_features, dtype=torch.float64, device=torch_device)
         XtX_reg = XtX + self.alpha * I
+
         try:
+            # Cholesky for better performance
             L = torch.linalg.cholesky(XtX_reg)
             tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
             coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
         except _LINALG_ERRORS:
             coef = torch.linalg.solve(XtX_reg, Xty)
+
+        # Keep on GPU for residuals
         if self.fit_intercept:
             X_design = torch.cat([torch.ones(n_samples, 1, dtype=torch.float64, device=torch_device), X], dim=1)
             intercept_coef = y_mean - X_mean @ coef
@@ -453,22 +561,28 @@ class _RidgeLegacy(BaseEstimator):
         else:
             X_design = X
             coef_full = coef.flatten()
+
         y_pred = X_design @ coef_full
         resid = y - y_pred
+
         df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         if df_resid > 0:
             scale = torch.sum(resid ** 2) / df_resid
         else:
             scale = torch.tensor(float('nan'), dtype=torch.float64, device=torch_device)
+
+        # Compute ALL statistics on GPU
         if self.compute_inference:
-            if self.cov_type == 'nonrobust':
-                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = compute_inference_torch(X_design, resid, scale, df_resid, coef_full, device=torch_device)
+            if self.cov_type == "nonrobust":
+                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                    compute_inference_torch(X_design, resid, scale, df_resid, coef_full, device=torch_device)
             else:
                 XtX_cov = X_design.T @ X_design
+                # Apply ridge penalty excluding the intercept column
                 k_design = X_design.shape[1]
                 penalty_diag = torch.ones(k_design, dtype=torch.float64, device=torch_device) * self.alpha
                 if self.fit_intercept:
-                    penalty_diag[0] = 0.0
+                    penalty_diag[0] = 0.0  # no penalty on the intercept term
                 XtX_pen = XtX_cov + torch.diag(penalty_diag)
                 try:
                     XtX_inv = torch.linalg.inv(XtX_pen)
@@ -479,21 +593,33 @@ class _RidgeLegacy(BaseEstimator):
                 self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = torch.minimum(torch.tensor(1.0, device=torch_device), 2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device))
                 z_crit = norm.ppf(0.975, device=torch_device)
-                self._conf_int_gpu = torch.stack([coef_full - z_crit * self._bse_gpu, coef_full + z_crit * self._bse_gpu], dim=1)
+                self._conf_int_gpu = torch.stack([
+                    coef_full - z_crit * self._bse_gpu,
+                    coef_full + z_crit * self._bse_gpu,
+                ], dim=1)
+
             self._rsquared_gpu = compute_r2_torch(y, resid)
+
             k = n_features + (1 if self.fit_intercept else 0)
             scale_mle = torch.sum(resid ** 2) / n_samples
             self._aic_gpu, self._bic_gpu = compute_aic_bic_torch(n_samples, k, scale_mle, device=torch_device)
+
             self._fvalue_gpu, self._f_pvalue = compute_f_stat_torch(y, resid, X_design, df_resid, device=torch_device)
+
+        # Single transfer to CPU at the end
         coef_full_np = coef_full.cpu().numpy()
         resid_np = resid.cpu().numpy()
         scale_float = float(scale.cpu().numpy()) if not torch.isnan(scale) else np.nan
         X_design_np = X_design.cpu().numpy()
+
+        # Transfer inference results
         if self.compute_inference:
             self._bse = self._bse_gpu.cpu().numpy()
             self._tvalues = self._tvalues_gpu.cpu().numpy()
             self._pvalues = self._pvalues_gpu.cpu().numpy()
             self._conf_int = self._conf_int_gpu.cpu().numpy()
+
+        # Store
         if self.fit_intercept:
             self.intercept_ = float(coef_full_np[0])
             self.coef_ = coef_full_np[1:]
@@ -502,10 +628,13 @@ class _RidgeLegacy(BaseEstimator):
             self.intercept_ = 0.0
             self.coef_ = coef_full_np
             self._params = coef_full_np
+
         self._X_design = X_design_np
         self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_float
+
+        # Release large temporary GPU tensors early.
         try:
             del X_design
         except Exception:
@@ -527,38 +656,52 @@ class _RidgeLegacy(BaseEstimator):
         except Exception:
             pass
         self._cleanup_torch_memory()
-
+    
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values, and CIs."""
         if self._X_design is None or self._scale is None or np.isnan(self._scale):
             return
+
         X = self._X_design
         n = X.shape[0]
         k = X.shape[1]
+
+        # Build the penalized bread (X'X + alpha·P)^{-1} where the penalty
+        # matrix P excludes the intercept column (if fit_intercept is True).
+        # This ensures SE/t/p are consistent with the ridge fit rather than OLS.
         XtX = X.T @ X
         penalty_diag = np.ones(k) * self.alpha
         if self.fit_intercept:
-            penalty_diag[0] = 0.0
+            penalty_diag[0] = 0.0  # no penalty on the intercept term
         XtX_pen = XtX + np.diag(penalty_diag)
         try:
             XtX_inv = np.linalg.inv(XtX_pen)
         except np.linalg.LinAlgError:
             XtX_inv = np.linalg.pinv(XtX_pen)
+
         alpha = 0.05
-        if self.cov_type == 'nonrobust':
+
+        if self.cov_type == "nonrobust":
             cov_params = self._scale * XtX_inv
             self._bse = np.sqrt(np.diag(cov_params))
             self._tvalues = self._params / (self._bse + 1e-30)
             self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
             t_crit = stats.t.ppf(1 - alpha / 2, self._df_resid)
-            self._conf_int = np.column_stack([self._params - t_crit * self._bse, self._params + t_crit * self._bse])
+            self._conf_int = np.column_stack([
+                self._params - t_crit * self._bse,
+                self._params + t_crit * self._bse,
+            ])
         else:
             cov_params = self._robust_covariance_numpy(X, self._resid, XtX_inv)
             self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
             self._tvalues = self._params / (self._bse + 1e-30)
+            # Robust path uses large-sample normal approximation.
             self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._tvalues)))
             z_crit = stats.norm.ppf(1 - alpha / 2)
-            self._conf_int = np.column_stack([self._params - z_crit * self._bse, self._params + z_crit * self._bse])
+            self._conf_int = np.column_stack([
+                self._params - z_crit * self._bse,
+                self._params + z_crit * self._bse,
+            ])
 
     def predict(self, X):
         """Predict."""
@@ -566,15 +709,19 @@ class _RidgeLegacy(BaseEstimator):
         device = self._get_compute_device()
         if device == Device.CUDA:
             import cupy as cp
+
             X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
             return X_gpu @ coef_gpu + intercept_gpu
         if device == Device.TORCH:
             import torch
-            X_torch = self._to_array(X, Device.TORCH, backend='torch').to(torch.float64)
+
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
             coef_torch = torch.as_tensor(self.coef_, dtype=X_torch.dtype, device=X_torch.device)
-            intercept_torch = torch.as_tensor(self.intercept_, dtype=X_torch.dtype, device=X_torch.device)
+            intercept_torch = torch.as_tensor(
+                self.intercept_, dtype=X_torch.dtype, device=X_torch.device
+            )
             return X_torch @ coef_torch + intercept_torch
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
@@ -586,13 +733,15 @@ class _RidgeLegacy(BaseEstimator):
         device = self._get_compute_device()
         if device == Device.CUDA:
             import cupy as cp
+
             yb = cp.asarray(self._to_array(y, Device.CUDA))
             ss_res = cp.sum((yb - y_pred) ** 2)
             ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
             return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
         if device == Device.TORCH:
             import torch
-            yb = self._to_array(y, Device.TORCH, backend='torch').to(y_pred.dtype)
+
+            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
             ss_res = torch.sum((yb - y_pred) ** 2)
             ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
             return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
@@ -635,7 +784,7 @@ class _RidgeLegacy(BaseEstimator):
         k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
         if k == 0 or ss_res <= 0:
             return np.inf
-        return ss_reg / k / (ss_res / self._df_resid)
+        return (ss_reg / k) / (ss_res / self._df_resid)
 
     @property
     def f_pvalue(self):
@@ -674,32 +823,41 @@ class _RidgeLegacy(BaseEstimator):
     def summary(self):
         """Print summary table similar to R's summary(lm())."""
         if not self._fitted:
-            raise RuntimeError('Model has not been fitted yet.')
+            raise RuntimeError("Model has not been fitted yet.")
         if not self.compute_inference:
-            raise RuntimeError('compute_inference=False: summary/inference statistics are not available. Re-fit with compute_inference=True (default).')
+            raise RuntimeError(
+                "compute_inference=False: summary/inference statistics are not available. "
+                "Re-fit with compute_inference=True (default)."
+            )
         if self._bse is None:
-            raise RuntimeError('Inference statistics are not available.')
+            raise RuntimeError("Inference statistics are not available.")
+
         if self.fit_intercept:
-            feature_names = ['(Intercept)'] + [f'x{i + 1}' for i in range(len(self.coef_))]
+            feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
         else:
-            feature_names = [f'x{i + 1}' for i in range(len(self.coef_))]
-        print('=' * 80)
-        print('                              Ridge Regression Results')
-        print('=' * 80)
-        print(f'Alpha (L2 penalty):         {self.alpha:>15.4f}')
-        print(f'Covariance Type:            {self.cov_type:>15}')
-        print(f'No. Observations:           {self._nobs:>15}')
-        print(f'Degrees of Freedom:         {self._df_resid:>15}')
-        print(f'R-squared:                  {self.rsquared:>15.4f}')
-        print(f'Adj. R-squared:             {self.rsquared_adj:>15.4f}')
-        print(f'F-statistic:                {self.fvalue:>15.4f}')
-        print(f'Prob (F-statistic):         {self.f_pvalue:>15.4e}')
-        print(f'Log-Likelihood:             {self.llf:>15.4f}')
-        print(f'AIC:                        {self.aic:>15.4f}')
-        print(f'BIC:                        {self.bic:>15.4f}')
-        print('-' * 80)
+            feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
+
+        print("=" * 80)
+        print("                              Ridge Regression Results")
+        print("=" * 80)
+        print(f"Alpha (L2 penalty):         {self.alpha:>15.4f}")
+        print(f"Covariance Type:            {self.cov_type:>15}")
+        print(f"No. Observations:           {self._nobs:>15}")
+        print(f"Degrees of Freedom:         {self._df_resid:>15}")
+        print(f"R-squared:                  {self.rsquared:>15.4f}")
+        print(f"Adj. R-squared:             {self.rsquared_adj:>15.4f}")
+        print(f"F-statistic:                {self.fvalue:>15.4f}")
+        print(f"Prob (F-statistic):         {self.f_pvalue:>15.4e}")
+        print(f"Log-Likelihood:             {self.llf:>15.4f}")
+        print(f"AIC:                        {self.aic:>15.4f}")
+        print(f"BIC:                        {self.bic:>15.4f}")
+        print("-" * 80)
         print(f"{'':<15} {'coef':>12} {'std err':>12} {'t':>10} {'P>|t|':>10} {'[0.025':>12} {'0.975]':>12}")
-        print('-' * 80)
+        print("-" * 80)
+
         for i, name in enumerate(feature_names):
-            print(f'{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} {self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} {self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}')
-        print('=' * 80)
+            print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
+                  f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
+                  f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
+
+        print("=" * 80)

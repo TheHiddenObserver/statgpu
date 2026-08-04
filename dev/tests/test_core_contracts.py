@@ -62,8 +62,7 @@ def test_set_params_rejects_unknown_and_supports_nested_estimators():
     with pytest.raises(ValueError, match="Invalid parameter"):
         parent.set_params(unknown=3)
     parent.set_params(device="auto")
-    assert parent.device == "auto"
-    assert parent._device is Device.AUTO
+    assert parent.device is Device.AUTO
 
 
 def test_torch_rng_none_uses_entropy(monkeypatch):
