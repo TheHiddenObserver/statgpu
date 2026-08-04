@@ -62,14 +62,14 @@ class MiniBatchKMeans(BaseEstimator):
             if not isinstance(self.n_init, (int, np.integer)) or int(self.n_init) < 1:
                 raise ValueError("n_init must be 'auto' or a positive integer")
             n_init = int(self.n_init)
-        if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
+        if not isinstance(self._batch_size, (int, np.integer)) or int(self._batch_size) < 1:
             raise ValueError("batch_size must be a positive integer")
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
         if self.max_no_improvement is not None:
             if not isinstance(self.max_no_improvement, (int, np.integer)) or int(self.max_no_improvement) < 0:
                 raise ValueError("max_no_improvement must be None or a non-negative integer")
-        if float(self.tol) < 0.0:
+        if float(self._tol) < 0.0:
             raise ValueError("tol must be non-negative")
         return n_clusters, n_init
 
@@ -80,9 +80,9 @@ class MiniBatchKMeans(BaseEstimator):
             init=init,
             n_init=1,
             max_iter=1,
-            tol=self.tol,
+            tol=self._tol,
             random_state=self.random_state,
-            device=self.device,
+            device=self._device,
             n_jobs=self.n_jobs,
         )
 
@@ -133,7 +133,7 @@ class MiniBatchKMeans(BaseEstimator):
         centers = self._init_centers(backend, X, rng, n_clusters, helper)
         counts = backend.zeros((n_clusters,), dtype=backend.float64)
         n_samples = X.shape[0]
-        batch_size = min(int(self.batch_size), n_samples)
+        batch_size = min(int(self._batch_size), n_samples)
         best_batch_inertia = None
         no_improvement = 0
         n_steps = 0
@@ -141,7 +141,7 @@ class MiniBatchKMeans(BaseEstimator):
         last_centers = backend.copy(centers)
         track_improvement = self.max_no_improvement is not None
 
-        for n_iter in range(1, int(self.max_iter) + 1):
+        for n_iter in range(1, int(self._max_iter) + 1):
             order = rng.permutation(n_samples)
             order_backend = backend.asarray(order, dtype=backend.int64)
             for start in range(0, n_samples, batch_size):
@@ -162,7 +162,7 @@ class MiniBatchKMeans(BaseEstimator):
 
             center_shift = scalar_to_float(backend.sum((centers - last_centers) ** 2))
             last_centers = backend.copy(centers)
-            if center_shift <= float(self.tol):
+            if center_shift <= float(self._tol):
                 break
             if track_improvement and no_improvement >= int(self.max_no_improvement):
                 break
@@ -289,10 +289,10 @@ class MiniBatchKMeans(BaseEstimator):
                 "n_clusters": self.n_clusters,
                 "init": self.init,
                 "n_init": self.n_init,
-                "batch_size": self.batch_size,
-                "max_iter": self.max_iter,
+                "batch_size": self._batch_size,
+                "max_iter": self._max_iter,
                 "max_no_improvement": self.max_no_improvement,
-                "tol": self.tol,
+                "tol": self._tol,
                 "random_state": self.random_state,
             }
         )

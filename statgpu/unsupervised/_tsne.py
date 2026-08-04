@@ -56,7 +56,7 @@ class TSNE(BaseEstimator):
             raise ValueError("perplexity must be in (0, n_samples)")
         if float(self.early_exaggeration) <= 0.0:
             raise ValueError("early_exaggeration must be positive")
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 250:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 250:
             raise ValueError("max_iter must be an integer >= 250")
         if self.init not in ("pca", "random"):
             raise ValueError("init must be one of: 'pca', 'random'")
@@ -101,7 +101,7 @@ class TSNE(BaseEstimator):
             n_components=int(self.n_components),
             svd_solver="auto",
             random_state=self.random_state,
-            device=self.device,
+            device=self._device,
             n_jobs=self.n_jobs,
         )
         init = pca.fit_transform(X)
@@ -133,10 +133,10 @@ class TSNE(BaseEstimator):
         velocity = backend.zeros_like(Y)
         gains = backend.ones_like(Y)
         off_diag = 1.0 - eye(backend, n_samples, dtype=backend.float64)
-        exaggeration_iters = min(250, int(self.max_iter) // 2)
+        exaggeration_iters = min(250, int(self._max_iter) // 2)
 
         kl = None
-        for it in range(int(self.max_iter)):
+        for it in range(int(self._max_iter)):
             P_use = P * float(self.early_exaggeration) if it < exaggeration_iters else P
             dist_sq = squared_euclidean_distances(backend, Y)
             inv = (1.0 / (1.0 + dist_sq)) * off_diag
@@ -160,7 +160,7 @@ class TSNE(BaseEstimator):
 
         self.embedding_ = Y
         self.kl_divergence_ = scalar_to_float(kl)
-        self.n_iter_ = int(self.max_iter)
+        self.n_iter_ = int(self._max_iter)
         self.n_features_in_ = int(n_features)
         self._backend_name = backend.name
         self._fitted = True
@@ -183,7 +183,7 @@ class TSNE(BaseEstimator):
                 "perplexity": self.perplexity,
                 "early_exaggeration": self.early_exaggeration,
                 "learning_rate": self.learning_rate,
-                "max_iter": self.max_iter,
+                "max_iter": self._max_iter,
                 "init": self.init,
                 "random_state": self.random_state,
                 "metric": self.metric,

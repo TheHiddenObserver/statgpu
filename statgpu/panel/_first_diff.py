@@ -131,7 +131,7 @@ class FirstDifferenceOLS(BaseEstimator):
 
         _compute_ols_inference(
             self, X_diff, resid, params, scale, n, k, xp, backend.name,
-            self.cov_type, self.alpha, dist_df=n - k
+            self._cov_type, self.alpha, dist_df=n - k
         )
 
         y_bar = xp.mean(y_diff)
@@ -168,7 +168,7 @@ class FirstDifferenceOLS(BaseEstimator):
         )
         return PanelSummary(
             model_type="FirstDifferenceOLS",
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             coef=np.asarray(self.coef_),
             bse=np.asarray(self.bse_),
             tvalues=np.asarray(self.tvalues_),

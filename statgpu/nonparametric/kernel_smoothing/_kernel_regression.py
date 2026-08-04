@@ -186,7 +186,7 @@ class KernelRegression(BaseEstimator):
             raise RuntimeError("Model not fitted. Call fit() first.")
 
     def _cleanup_cuda_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -196,7 +196,7 @@ class KernelRegression(BaseEstimator):
             pass
 
     def _cleanup_torch_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -528,9 +528,9 @@ class KernelRegression(BaseEstimator):
     ):
         self._require_fitted()
         if batch_size is None:
-            batch_size = int(self.batch_size)
+            batch_size = int(self._batch_size)
         if min_effective_weight is None:
-            min_effective_weight = float(self.min_effective_weight)
+            min_effective_weight = float(self._min_effective_weight)
 
         xp = _get_xp(self.backend_)
         points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)

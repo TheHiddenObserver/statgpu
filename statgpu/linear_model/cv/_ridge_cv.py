@@ -1084,15 +1084,15 @@ class RidgeCV(CVEstimatorBase):
             X,
             y,
             alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            cv_folds=self.cv,
+            n_alphas=self._n_alphas,
+            alpha_min_ratio=self._alpha_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
+            fit_intercept=self._fit_intercept,
             device=device_name,
-            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
@@ -1117,12 +1117,12 @@ class RidgeCV(CVEstimatorBase):
         # alpha_ stores the CV-selected value; pass it directly to Ridge.
         estimator = Ridge(
             alpha=self.alpha_,
-            fit_intercept=self.fit_intercept,
-            device=self.device,
+            fit_intercept=self._fit_intercept,
+            device=self._device,
             n_jobs=self.n_jobs,
-            compute_inference=self.compute_inference,
-            cov_type=self.cov_type,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
+            compute_inference=self._compute_inference,
+            cov_type=self._cov_type,
+            gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
 
         estimator.fit(X, y, sample_weight=sample_weight)

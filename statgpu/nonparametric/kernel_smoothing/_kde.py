@@ -171,7 +171,7 @@ class KernelDensityEstimator(BaseEstimator):
             raise RuntimeError("Estimator not fitted. Call fit() first.")
 
     def _cleanup_cuda_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -181,7 +181,7 @@ class KernelDensityEstimator(BaseEstimator):
             pass
 
     def _cleanup_torch_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch

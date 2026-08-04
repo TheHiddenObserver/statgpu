@@ -2064,7 +2064,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
     def _solver_for_cv(self, cv_device=None, X=None):
         """Return the strict internal solver used by the CV loop."""
-        solver = str(self.solver).lower()
+        solver = str(self._solver).lower()
         if solver != "auto":
             return solver
         from statgpu.linear_model.penalized._fit_mixin import _preferred_penalized_glm_solver
@@ -2073,7 +2073,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             self.loss,
             getattr(self.penalty, "name", self.penalty),
             backend_name=_backend_name_for_cv_device(
-                self.device if cv_device is None else cv_device
+                self._device if cv_device is None else cv_device
             ),
             l1_ratio=self.l1_ratio,
             cv_mode=True,
@@ -2082,16 +2082,16 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
     def _effective_cv_device(self, X, penalty_name, n_alphas, *, n_folds=None):
         """Resolve device for CV-level work; explicit devices are untouched."""
-        self.cv_selected_device_ = self.device
+        self.cv_selected_device_ = self._device
         self._cv_auto_reason_ = None
-        if _device_to_name(self.device) != "auto":
-            return self.device
+        if _device_to_name(self._device) != "auto":
+            return self._device
 
         n_samples, n_features = X.shape
         penalty_name = str(penalty_name).lower()
         loss_name = str(self.loss).lower()
         nx = int(n_samples) * int(n_features)
-        fold_count = int(self.cv) if n_folds is None else int(n_folds)
+        fold_count = int(self._cv) if n_folds is None else int(n_folds)
         if fold_count < 1:
             raise ValueError("n_folds must be a positive integer")
 
@@ -2223,7 +2223,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             alpha_max = 1.0
 
-        grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
+        grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self._n_alphas)
         return grid
 
     def _solve_ridge_fold_batch(self, X_train, y_train, X_val, y_val, alphas):
@@ -2311,9 +2311,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         # Resolve refit device (used by Ridge and general paths)
-        refit_device = self.device
-        if _device_to_name(self.device) == "auto":
-            refit_device = getattr(self, "cv_selected_device_", self.device) or self.device
+        refit_device = self._device
+        if _device_to_name(self._device) == "auto":
+            refit_device = getattr(self, "cv_selected_device_", self._device) or self._device
 
         # For Ridge: use eigendecomposition to match CV path exactly.
         # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
@@ -2325,7 +2325,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             model = PenalizedGeneralizedLinearModel(
                 loss='squared_error', penalty='l2', alpha=best_alpha,
                 device=refit_device, compute_inference=False,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 loss_kwargs=getattr(self, '_loss_kwargs', None),
             )
             return self._populate_refit_model(model, coef, intercept, X, refit_device)
@@ -2339,19 +2339,19 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if self.loss == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
             refit_paths.append(lambda: _logistic_sparse_cv_path(
                 X, y, alpha_arr, penalty_name, self.l1_ratio,
-                _logistic_sparse_effective_max_iter(self.max_iter, refit_device, penalty_name, refit=True),
-                self.tol, refit_device, sample_weight=sample_weight,
+                _logistic_sparse_effective_max_iter(self._max_iter, refit_device, penalty_name, refit=True),
+                self._tol, refit_device, sample_weight=sample_weight,
             ))
         if self.loss == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
             refit_paths.append(lambda: _squared_error_sparse_cv_path(
                 X, y, alpha_arr, penalty_name, self.l1_ratio,
-                self.max_iter, self.tol, refit_device, sample_weight=sample_weight,
+                self._max_iter, self._tol, refit_device, sample_weight=sample_weight,
             ))
         cv_solver = self._solver_for_cv(refit_device, X=X)
         if self._uses_glm_sparse_path(penalty_name, cv_solver):
             refit_paths.append(lambda: _glm_sparse_cv_path(
                 self.loss, X, y, alpha_arr, penalty_name, self.l1_ratio,
-                self.max_iter, self.tol, refit_device,
+                self._max_iter, self._tol, refit_device,
                 return_path=True, solver_name=cv_solver, cv_mode=False,
                 sample_weight=sample_weight,
             ))
@@ -2362,8 +2362,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 model = PenalizedGeneralizedLinearModel(
                     loss=self.loss, penalty=self.penalty, alpha=best_alpha,
                     l1_ratio=self.l1_ratio, device=refit_device,
-                    compute_inference=False, max_iter=self.max_iter,
-                    tol=self.tol, solver=cv_solver,
+                    compute_inference=False, max_iter=self._max_iter,
+                    tol=self._tol, solver=cv_solver,
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
                     penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
@@ -2376,8 +2376,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         model = PenalizedGeneralizedLinearModel(
             loss=self.loss, penalty=self.penalty, alpha=best_alpha,
             l1_ratio=self.l1_ratio, device=refit_device,
-            compute_inference=can_infer, max_iter=self.max_iter,
-            tol=self.tol, solver=cv_solver,
+            compute_inference=can_infer, max_iter=self._max_iter,
+            tol=self._tol, solver=cv_solver,
             loss_kwargs=getattr(self, '_loss_kwargs', None),
             penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
@@ -2440,8 +2440,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(self.penalty).lower()
         loss_name = str(self.loss).lower()
         device_name = _device_to_name(cv_device)
-        max_iter = int(self.max_iter if max_iter is None else max_iter)
-        tol = self.tol if tol is None else tol
+        max_iter = int(self._max_iter if max_iter is None else max_iter)
+        tol = self._tol if tol is None else tol
 
         # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──
         _is_gpu_cv_device = device_name in ("cuda", "torch")
@@ -2852,19 +2852,19 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 else self.cv_splits
             )
         else:
-            folds = kfold_indices(n_samples, self.cv, self.random_state)
+            folds = kfold_indices(n_samples, self._cv, self.random_state)
         cv_device = self._effective_cv_device(
             X, penalty_name, n_alphas, n_folds=len(folds)
         )
         cv_solver = self._solver_for_cv(cv_device, X=X)
-        self.cv_strategy_ = self.cv_strategy
+        self.cv_strategy_ = self._cv_strategy
         self.cv_selected_device_ = _device_to_name(cv_device)
         all_scores_stage1 = None
         mean_scores_stage1 = None
         refined_mask = np.ones(n_alphas, dtype=bool)
 
-        if self.cv_strategy == "two_stage":
-            if not self.acknowledge_approx:
+        if self._cv_strategy == "two_stage":
+            if not self._acknowledge_approx:
                 warnings.warn(
                     "PenalizedGLM_CV(cv_strategy='two_stage') uses relaxed CV "
                     "solves to screen the alpha grid before strict refinement. "
@@ -2873,8 +2873,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     ApproximateCVWarning,
                     stacklevel=2,
                 )
-            stage1_max_iter = min(int(self.max_iter), max(50, int(self.max_iter) // 4))
-            stage1_tol = max(float(self.tol) * 10.0, 1e-4)
+            stage1_max_iter = min(int(self._max_iter), max(50, int(self._max_iter) // 4))
+            stage1_tol = max(float(self._tol) * 10.0, 1e-4)
             all_scores_stage1 = self._compute_cv_scores(
                 X,
                 y,
@@ -2889,7 +2889,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             mean_scores_stage1 = _finite_column_mean(all_scores_stage1)
             refined_mask = _two_stage_candidate_mask(
                 mean_scores_stage1,
-                refine_top_k=self.refine_top_k,
+                refine_top_k=self._refine_top_k,
             )
             if self.loss == "squared_error" and penalty_name in ("scad", "mcp"):
                 refined_mask[:] = True
@@ -2904,8 +2904,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 cv_device,
                 folds,
                 sample_weight=sample_weight,
-                max_iter=self.max_iter,
-                tol=self.tol,
+                max_iter=self._max_iter,
+                tol=self._tol,
                 strict=True,
             )
             all_scores = np.array(all_scores_stage1, copy=True)
@@ -2926,8 +2926,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 cv_device,
                 folds,
                 sample_weight=sample_weight,
-                max_iter=self.max_iter,
-                tol=self.tol,
+                max_iter=self._max_iter,
+                tol=self._tol,
                 strict=True,
             )
             mean_scores = _finite_column_mean(all_scores)

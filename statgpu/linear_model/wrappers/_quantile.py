@@ -96,9 +96,9 @@ class QuantileRegression(BaseEstimator):
         y_arr = self._to_array(y, backend=backend_name)
         n, p = X_arr.shape
 
-        loss = QuantileLoss(quantile=self.quantile)
+        loss = QuantileLoss(quantile=self._quantile)
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             from statgpu.penalties._l2 import L2Penalty
             from statgpu.backends._utils import _get_xp, xp_ones
             xp = _get_xp(backend_name)
@@ -106,7 +106,7 @@ class QuantileRegression(BaseEstimator):
             X_aug = xp.column_stack([X_arr, ones])
             pen = L2Penalty(alpha=0.0)
             params, n_iter = fista_solver(loss, pen, X_aug, y_arr,
-                                          max_iter=self.max_iter, tol=self.tol,
+                                          max_iter=self._max_iter, tol=self._tol,
                                           sample_weight=sample_weight)
             self.coef_ = np.asarray(_to_numpy(params[:-1]))
             self.intercept_ = float(_to_numpy(params[-1]))
@@ -114,24 +114,24 @@ class QuantileRegression(BaseEstimator):
             from statgpu.penalties._l2 import L2Penalty
             pen = L2Penalty(alpha=0.0)
             params, n_iter = fista_solver(loss, pen, X_arr, y_arr,
-                                          max_iter=self.max_iter, tol=self.tol,
+                                          max_iter=self._max_iter, tol=self._tol,
                                           sample_weight=sample_weight)
             self.coef_ = np.asarray(_to_numpy(params))
             self.intercept_ = 0.0
 
         self.n_iter_ = n_iter
-        if self.fit_intercept:
+        if self._fit_intercept:
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             self._params = self.coef_.copy()
         self._selected_backend_name = backend_name
         self._fitted = True
 
-        if self.compute_inference:
+        if self._compute_inference:
             self._compute_inference(X_arr, y_arr, loss,
                                      backend_name=backend_name)
 
-        if self.gpu_memory_cleanup:
+        if self._gpu_memory_cleanup:
             self._cleanup_backend_memory(backend_name)
 
         return self
@@ -139,12 +139,12 @@ class QuantileRegression(BaseEstimator):
     def _compute_inference(self, X, y, loss, backend_name="numpy"):
         """Dispatch to kernel-based or bootstrap inference."""
         _valid = {"kernel", "bootstrap"}
-        if self.inference_method not in _valid:
+        if self._inference_method not in _valid:
             raise ValueError(
-                f"Unknown inference_method='{self.inference_method}'. "
+                f"Unknown inference_method='{self._inference_method}'. "
                 f"Valid options: {sorted(_valid)}."
             )
-        if self.inference_method == "bootstrap":
+        if self._inference_method == "bootstrap":
             self._compute_inference_bootstrap(X, y)
         elif backend_name == "numpy":
             self._compute_inference_kernel(X, y)
@@ -205,7 +205,7 @@ class QuantileRegression(BaseEstimator):
         _norm = get_distribution("norm", backend="numpy")
         import numpy as _np
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             X_design = np.column_stack([np.ones(X.shape[0]), X])
             params = np.concatenate([[self.intercept_], self.coef_])
         else:
@@ -214,7 +214,7 @@ class QuantileRegression(BaseEstimator):
 
         n, k = X_design.shape
         resid = y - X_design @ params
-        tau = self.quantile
+        tau = self._quantile
 
         # Bandwidth
         h = self._get_bandwidth_h(n, tau, self.bandwidth, resid, float(np.std(y)))
@@ -284,7 +284,7 @@ class QuantileRegression(BaseEstimator):
         dev = X.device if is_torch else None
         n = X.shape[0]
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             ones = xp_ones((n, 1), X.dtype, xp, ref_arr=X)
             X_design = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
             inter = xp_asarray([self.intercept_], dtype=X.dtype, xp=xp, ref_arr=X)
@@ -296,7 +296,7 @@ class QuantileRegression(BaseEstimator):
 
         k = X_design.shape[1]
         resid = (y - X_design @ params).ravel()
-        tau = self.quantile
+        tau = self._quantile
 
         # Bandwidth (scipy operates on CPU scalars only)
         resid_cpu = np.asarray(_to_numpy(resid)).ravel()
@@ -354,9 +354,9 @@ class QuantileRegression(BaseEstimator):
         backend = _resolve_backend("auto", X)
         xp = _get_xp(backend)
         is_torch = (backend == "torch")
-        n = X.shape[0]; tau = self.quantile; p = X.shape[1]
+        n = X.shape[0]; tau = self._quantile; p = X.shape[1]
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             ones = xp_ones((n, 1), X.dtype, xp, ref_arr=X)
             Xd = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
             inter = xp_asarray([self.intercept_], dtype=X.dtype, xp=xp, ref_arr=X)
@@ -370,7 +370,7 @@ class QuantileRegression(BaseEstimator):
         eta = Xd @ params
         resid_cpu = np.asarray(_to_numpy((y - eta).ravel()))
         eta_cpu = np.asarray(_to_numpy(eta))
-        B = self.n_bootstrap
+        B = self._n_bootstrap
         rng = np.random.default_rng(self.random_state)
         y_batch = np.array([eta_cpu + resid_cpu[rng.integers(0, n, size=n)] for _ in range(B)])
         y_gpu = xp_asarray(y_batch, dtype=X.dtype, xp=xp, ref_arr=X)
@@ -394,7 +394,7 @@ class QuantileRegression(BaseEstimator):
             def _pinball_loss_kernel(_r, _out):
                 _out[:] = xp.where(_r > 0, float(tau) * _r, float(tau - 1.0) * _r)
 
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             # ---- Gradient (all backends) ----
             pred_z = Xd @ z
             r_z = y_gpu.T - pred_z  # (n, B)
@@ -410,7 +410,7 @@ class QuantileRegression(BaseEstimator):
             grad = Xd.T @ d_eta / n
 
             # ---- Convergence check ----
-            if float(xp.max(xp.abs(grad))) < self.tol:
+            if float(xp.max(xp.abs(grad))) < self._tol:
                 break
 
             # ---- Backtracking line search ----
@@ -461,7 +461,7 @@ class QuantileRegression(BaseEstimator):
            works on ``(p, B)`` coefficients for parallel solves and includes
            its own backtracking line search with Armijo condition.
         """
-        if self.fit_intercept:
+        if self._fit_intercept:
             params = np.concatenate([[self.intercept_], self.coef_])
         else:
             params = self.coef_.copy()
@@ -485,7 +485,7 @@ class QuantileRegression(BaseEstimator):
             pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
             distribution="bootstrap_percentile",
             metadata={
-                "n_bootstrap": self.n_bootstrap,
+                "n_bootstrap": self._n_bootstrap,
                 "ci_method": "percentile",
                 "pvalue_method": "bootstrap_sign_test",
                 "solver": "batched_pinball_fista",
@@ -504,14 +504,14 @@ class QuantileRegression(BaseEstimator):
         raw = X_arr @ coef + intercept
         from statgpu.backends import _to_numpy
         result = np.asarray(_to_numpy(raw)) if backend_name != "numpy" else raw
-        if self.gpu_memory_cleanup:
+        if self._gpu_memory_cleanup:
             self._cleanup_backend_memory(backend_name)
         return result
 
     # ---- GPU memory management ----
 
     def _cleanup_cuda_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -521,7 +521,7 @@ class QuantileRegression(BaseEstimator):
             pass
 
     def _cleanup_torch_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -552,7 +552,7 @@ class QuantileRegression(BaseEstimator):
             return f"{self.__class__.__name__}(not fitted)"
         lines = [
             f"{'='*60}",
-            f"  QuantileRegression (τ={self.quantile})",
+            f"  QuantileRegression (τ={self._quantile})",
             f"{'='*60}",
         ]
         if self._inference_result is not None:

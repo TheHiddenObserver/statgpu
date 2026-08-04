@@ -188,14 +188,14 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         """Resolve Cox loss while keeping public ``loss_kwargs`` clone-safe."""
         from statgpu.losses import get_loss
 
-        kwargs = dict(self.loss_kwargs)
+        kwargs = dict(self._loss_kwargs)
         if "ties" in kwargs:
             supplied = str(kwargs["ties"]).lower()
-            if supplied != str(self.ties).lower():
+            if supplied != str(self._ties).lower():
                 raise ValueError(
                     "ties and loss_kwargs['ties'] specify different tie methods"
                 )
-        kwargs["ties"] = str(self.ties).lower()
+        kwargs["ties"] = str(self._ties).lower()
         return get_loss("cox_ph", **kwargs)
 
     @property
@@ -211,7 +211,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         data.  Failing here gives callers a stable public contract instead of
         allowing a later shape-dependent ``ValueError``.
         """
-        if self.compute_inference:
+        if self._compute_inference:
             raise NotImplementedError(
                 "PenalizedCoxPHModel is currently estimation-only: "
                 "compute_inference=True is not supported for penalized Cox "
@@ -264,8 +264,8 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             if not np.isfinite(l1_ratio) or not 0 <= l1_ratio <= 1:
                 raise ValueError("l1_ratio must be between 0 and 1")
 
-        prospective_ties = str(params.get("ties", self.ties)).lower()
-        prospective_loss_kwargs = params.get("loss_kwargs", self.loss_kwargs)
+        prospective_ties = str(params.get("ties", self._ties)).lower()
+        prospective_loss_kwargs = params.get("loss_kwargs", self._loss_kwargs)
         if (
             prospective_loss_kwargs is not None
             and "ties" in prospective_loss_kwargs
@@ -396,8 +396,8 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             raise ValueError("alpha must be a finite non-negative number")
         if not np.isfinite(l1_ratio) or not 0 <= l1_ratio <= 1:
             raise ValueError("l1_ratio must be between 0 and 1")
-        self._validate_positive_integer(self.max_iter, "max_iter")
-        self._validate_finite_positive(self.tol, "tol")
+        self._validate_positive_integer(self._max_iter, "max_iter")
+        self._validate_finite_positive(self._tol, "tol")
         self._validate_positive_integer(self.max_lla_iters, "max_lla_iters")
         self._validate_finite_positive(self.lla_tol, "lla_tol")
         if self.lipschitz_L is not None:

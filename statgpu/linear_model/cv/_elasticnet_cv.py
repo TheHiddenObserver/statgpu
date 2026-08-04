@@ -773,16 +773,16 @@ class ElasticNetCV(CVEstimatorBase):
             X, y,
             l1_ratios=l1_ratios,
             alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            cv_folds=self.cv,
+            n_alphas=self._n_alphas,
+            alpha_min_ratio=self._alpha_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
+            fit_intercept=self._fit_intercept,
             device=compute_device,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            max_iter=self._max_iter,
+            tol=self._tol,
             return_details=True,
         )
 
@@ -805,10 +805,10 @@ class ElasticNetCV(CVEstimatorBase):
         final_model = ElasticNet(
             alpha=self.alpha_,
             l1_ratio=self.l1_ratio_,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            fit_intercept=self.fit_intercept,
-            device=self.device,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            fit_intercept=self._fit_intercept,
+            device=self._device,
         )
         final_model.fit(X, y, sample_weight=sample_weight)
 

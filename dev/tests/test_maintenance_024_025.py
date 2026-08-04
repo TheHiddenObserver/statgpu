@@ -145,7 +145,8 @@ def test_legacy_clone_preserves_raw_constructor_identity():
     assert estimator.get_params(deep=False)["solver"] == "AUTO"
     cloned = clone(estimator)
     assert type(cloned) is CopyingEstimator
-    assert cloned.solver == "auto"
+    assert cloned.solver == "AUTO"
+    assert cloned._solver == "auto"
     replacement = {"threshold": 2.0}
     cloned.set_params(options=replacement)
     assert cloned.get_params(deep=False)["options"] is replacement
@@ -238,7 +239,8 @@ def test_set_params_rebuilds_normalized_panel_state():
     model._fitted = True
     model.set_params(cov_type="HAC")
     assert model.get_params(deep=False)["cov_type"] == "HAC"
-    assert model.cov_type == "hac"
+    assert model.cov_type == "HAC"
+    assert model._cov_type == "hac"
     assert model._fitted is False
 
 
@@ -519,3 +521,112 @@ def test_base_inference_helpers_reject_nonfinite_inputs():
     model = LinearRegression()
     with pytest.raises(ValueError, match="finite"):
         model.combine_pvalues(np.array([0.1, np.nan]))
+
+
+
+def _default_public_estimators():
+    import inspect
+    import statgpu
+
+    for name in statgpu.__all__:
+        cls = getattr(statgpu, name, None)
+        if not inspect.isclass(cls) or not hasattr(cls, "fit") or inspect.isabstract(cls):
+            continue
+        signature = inspect.signature(cls)
+        required = [
+            parameter
+            for parameter in signature.parameters.values()
+            if parameter.default is inspect._empty
+            and parameter.kind
+            not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        ]
+        if required:
+            continue
+        try:
+            yield name, cls()
+        except Exception:
+            continue
+
+
+def test_public_constructor_attributes_preserve_identity():
+    mismatches = []
+    for estimator_name, estimator in _default_public_estimators():
+        for parameter, value in estimator.get_params(deep=False).items():
+            if not hasattr(estimator, parameter):
+                mismatches.append((estimator_name, parameter, "missing"))
+            elif getattr(estimator, parameter) is not value:
+                mismatches.append((estimator_name, parameter, "identity"))
+    assert mismatches == []
+
+
+def test_public_raw_private_normalized_choice_contracts():
+    from statgpu.linear_model import LassoCV
+    from statgpu.panel import PooledOLS
+
+    panel = PooledOLS(cov_type="HAC")
+    assert panel.cov_type == "HAC"
+    assert panel._cov_type == "hac"
+
+    lasso = LassoCV(method="STANDARD", solver="AUTO")
+    assert lasso.method == "STANDARD"
+    assert lasso._method == "standard"
+    assert lasso.solver == "AUTO"
+    assert lasso._solver == "AUTO"
+
+
+def test_public_raw_private_mutable_kwargs_are_decoupled():
+    from statgpu.linear_model import PenalizedLinearRegression
+
+    penalty_kwargs = {"gamma": 3.0}
+    loss_kwargs = {"scale": 2.0}
+    model = PenalizedLinearRegression(
+        penalty_kwargs=penalty_kwargs,
+        loss_kwargs=loss_kwargs,
+    )
+    assert model.penalty_kwargs is penalty_kwargs
+    assert model.loss_kwargs is loss_kwargs
+    assert model._penalty_kwargs == penalty_kwargs
+    assert model._loss_kwargs == loss_kwargs
+    assert model._penalty_kwargs is not penalty_kwargs
+    assert model._loss_kwargs is not loss_kwargs
+
+    penalty_kwargs["external"] = True
+    loss_kwargs["external"] = True
+    assert "external" not in model._penalty_kwargs
+    assert "external" not in model._loss_kwargs
+
+
+def test_device_public_value_and_private_runtime_are_separate():
+    from statgpu.linear_model import Ridge
+    from statgpu._config import Device
+
+    model = Ridge(device="cpu", compute_inference=False)
+    assert model.device == "cpu"
+    assert model._device is Device.CPU
+    assert model._get_compute_device() is Device.CPU
+
+
+def test_set_params_refreshes_public_and_private_constructor_state():
+    from statgpu.panel import PooledOLS
+
+    model = PooledOLS(cov_type="robust")
+    model._fitted = True
+    model.set_params(cov_type="HAC")
+    assert model.cov_type == "HAC"
+    assert model._cov_type == "hac"
+    assert model._fitted is False
+
+
+def test_delegated_wrapper_parameters_exist_publicly():
+    from statgpu.linear_model import (
+        GammaRegression,
+        NegativeBinomialRegression,
+        TweedieRegression,
+    )
+
+    gamma = GammaRegression(link="log")
+    negative_binomial = NegativeBinomialRegression(alpha=0.75)
+    tweedie = TweedieRegression(power=1.7)
+    assert gamma.link == "log"
+    assert negative_binomial.alpha == 0.75
+    assert tweedie.power == 1.7

@@ -47,11 +47,11 @@ class GaussianMixture(BaseEstimator):
             raise ValueError("covariance_type must be one of: 'diag', 'spherical', 'tied', 'full'")
         if self.init_params not in ("kmeans", "random"):
             raise ValueError("init_params must be one of: 'kmeans', 'random'")
-        if float(self.tol) < 0.0:
+        if float(self._tol) < 0.0:
             raise ValueError("tol must be non-negative")
         if float(self.reg_covar) < 0.0:
             raise ValueError("reg_covar must be non-negative")
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
         if not isinstance(self.n_init, (int, np.integer)) or int(self.n_init) < 1:
             raise ValueError("n_init must be a positive integer")
@@ -177,9 +177,9 @@ class GaussianMixture(BaseEstimator):
             km = KMeans(
                 n_clusters=int(self.n_components),
                 n_init=1,
-                max_iter=min(50, int(self.max_iter)),
+                max_iter=min(50, int(self._max_iter)),
                 random_state=seed,
-                device=self.device,
+                device=self._device,
             ).fit(X)
             means = km.cluster_centers_
         else:
@@ -231,11 +231,11 @@ class GaussianMixture(BaseEstimator):
             lower_bound = -np.inf
             converged = False
             n_iter = 0
-            for n_iter in range(1, int(self.max_iter) + 1):
+            for n_iter in range(1, int(self._max_iter) + 1):
                 prev_lower_bound = lower_bound
                 lower_bound, resp = self._e_step(backend, X_arr, weights, means, covariances)
                 weights, means, covariances = self._m_step(backend, X_arr, resp)
-                if abs(lower_bound - prev_lower_bound) < float(self.tol):
+                if abs(lower_bound - prev_lower_bound) < float(self._tol):
                     converged = True
                     break
             if best is None or lower_bound > best[0]:
@@ -321,9 +321,9 @@ class GaussianMixture(BaseEstimator):
             {
                 "n_components": self.n_components,
                 "covariance_type": self.covariance_type,
-                "tol": self.tol,
+                "tol": self._tol,
                 "reg_covar": self.reg_covar,
-                "max_iter": self.max_iter,
+                "max_iter": self._max_iter,
                 "n_init": self.n_init,
                 "init_params": self.init_params,
                 "random_state": self.random_state,

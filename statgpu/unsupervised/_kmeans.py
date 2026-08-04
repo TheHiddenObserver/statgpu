@@ -71,9 +71,9 @@ class KMeans(BaseEstimator):
             if not isinstance(self.n_init, (int, np.integer)) or int(self.n_init) < 1:
                 raise ValueError("n_init must be 'auto' or a positive integer")
             n_init = int(self.n_init)
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
-        if float(self.tol) < 0.0:
+        if float(self._tol) < 0.0:
             raise ValueError("tol must be non-negative")
         return n_clusters, n_init
 
@@ -175,13 +175,13 @@ class KMeans(BaseEstimator):
         labels = None
         min_dist_sq = None
         n_iter = 0
-        for n_iter in range(1, int(self.max_iter) + 1):
+        for n_iter in range(1, int(self._max_iter) + 1):
             distances = self._squared_distances_with_x_norm(backend, X, x_norm, centers)
             labels, min_dist_sq = self._labels_min_distances(backend, distances)
             new_centers = self._compute_centers(backend, X, labels, min_dist_sq, centers)
             center_shift = backend.sum((new_centers - centers) ** 2)
             centers = new_centers
-            if scalar_to_float(center_shift) <= float(self.tol):
+            if scalar_to_float(center_shift) <= float(self._tol):
                 break
         distances = self._squared_distances_with_x_norm(backend, X, x_norm, centers)
         labels, min_dist_sq = self._labels_min_distances(backend, distances)
@@ -258,8 +258,8 @@ class KMeans(BaseEstimator):
                 "n_clusters": self.n_clusters,
                 "init": self.init,
                 "n_init": self.n_init,
-                "max_iter": self.max_iter,
-                "tol": self.tol,
+                "max_iter": self._max_iter,
+                "tol": self._tol,
                 "random_state": self.random_state,
             }
         )

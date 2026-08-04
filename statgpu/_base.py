@@ -8,6 +8,7 @@ __all__ = ["BaseEstimator"]
 
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
+import copy
 import functools
 import inspect
 import numpy as np
@@ -58,6 +59,46 @@ class BaseEstimator(ABC):
         "precision_recall_curve",
         "average_precision_score",
     })
+    _NORMALIZED_CONSTRUCTOR_PARAMS = frozenset({
+        "device",
+        "cov_type",
+        "hac_maxlags",
+        "gpu_memory_cleanup",
+        "solver",
+        "cpu_solver",
+        "stopping",
+        "inference_method",
+        "simultaneous_method",
+        "n_bootstrap",
+        "enable_simultaneous_inference",
+        "simultaneous_alpha",
+        "simultaneous_n_bootstrap",
+        "simultaneous_include_intercept",
+        "method",
+        "admm_rho",
+        "alpha_min_ratio",
+        "cd_kkt_check_every",
+        "compute_inference",
+        "cv",
+        "fit_intercept",
+        "gpu_cv_mixed_precision",
+        "max_iter",
+        "n_alphas",
+        "tol",
+        "n_Cs",
+        "C_min_ratio",
+        "penalty_kwargs",
+        "loss_kwargs",
+        "epsilon",
+        "ties",
+        "acknowledge_approx",
+        "refine_top_k",
+        "batch_size",
+        "min_effective_weight",
+        "quantile",
+        "cv_strategy",
+    })
+
     _FINITE_PARAMETER_NAMES = frozenset({
         "X",
         "X_new",
@@ -202,6 +243,28 @@ class BaseEstimator(ABC):
                 )
             }
             original_init(self, *args, **kwargs)
+            normalized_names = type(self)._NORMALIZED_CONSTRUCTOR_PARAMS
+            for name, raw_value in raw_params.items():
+                private_name = f"_{name}"
+                if name in normalized_names:
+                    # Constructor wrappers are nested across the inheritance
+                    # chain. An inner wrapper may already have restored the
+                    # public raw value, so the private runtime value is the
+                    # authoritative source when it exists.
+                    if hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    elif hasattr(self, name):
+                        runtime_value = getattr(self, name)
+                    else:
+                        runtime_value = raw_value
+                    if isinstance(runtime_value, (dict, list, set, np.ndarray)):
+                        runtime_value = copy.deepcopy(runtime_value)
+                    setattr(self, private_name, runtime_value)
+                    setattr(self, name, raw_value)
+                elif not hasattr(self, name):
+                    # Parameters delegated to a superclass or represented only
+                    # by a private runtime field must still exist publicly.
+                    setattr(self, name, raw_value)
             self._constructor_params_raw = raw_params
 
         wrapped.__statgpu_constructor_capture__ = True
@@ -279,15 +342,16 @@ class BaseEstimator(ABC):
             Number of parallel jobs for CPU computation.
             -1 means using all processors.
         """
-        self.device = device if isinstance(device, Device) else Device(device)
+        self.device = device
+        self._device = device if isinstance(device, Device) else Device(device)
         self.n_jobs = n_jobs
         self._fitted = False
     
     def _get_compute_device(self) -> Device:
         """Resolve device for actual computation."""
-        if self.device == Device.AUTO:
+        if self._device == Device.AUTO:
             return get_device()
-        return self.device
+        return self._device
 
     def _get_backend(self, backend: str = "auto") -> BackendBase:
         """
@@ -309,7 +373,7 @@ class BaseEstimator(ABC):
         device_str = compute_device.value  # 'cpu', 'cuda', or 'torch'
 
         if (
-            self.device != Device.AUTO
+            self._device != Device.AUTO
             and compute_device == Device.CUDA
             and backend == "auto"
         ):

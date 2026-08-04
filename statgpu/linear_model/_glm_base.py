@@ -155,7 +155,7 @@ class GeneralizedLinearModel(BaseEstimator):
         """
         if self._use_intercept is not None:
             return self._use_intercept
-        return self.fit_intercept
+        return self._fit_intercept
 
     def _get_family(self):
         """Return the GLM Family instance. Override in subclass."""
@@ -182,7 +182,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not bool(self.gpu_memory_cleanup):
+        if not bool(self._gpu_memory_cleanup):
             return
         try:
             import cupy as cp
@@ -193,7 +193,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch CUDA memory cleanup."""
-        if not bool(self.gpu_memory_cleanup):
+        if not bool(self._gpu_memory_cleanup):
             return
         try:
             import torch
@@ -310,7 +310,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
         result = m_estimation_inference(
             self._loss, self._X_design, self._y_inf, self._params,
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             penalty_curvature_diag=curv,
             sample_weight=self._sample_weight_inf,
         )
@@ -336,9 +336,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 "dispersion": result["dispersion"],
                 "wald_stat": result["wald_stat"],
                 "wald_pval": result["wald_pval"],
-                "meat_type": self.cov_type,
+                "meat_type": self._cov_type,
                 "covariance_convention": _infer_covariance_convention(
-                    self.cov_type, curv is not None
+                    self._cov_type, curv is not None
                 ),
                 "solver_used": self._fit_metadata.get("solver_used"),
                 "inference_backend": backend,
@@ -511,7 +511,7 @@ class GeneralizedLinearModel(BaseEstimator):
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()
-        _solver_lower = self.solver.lower() if isinstance(self.solver, str) else self.solver
+        _solver_lower = self._solver.lower() if isinstance(self._solver, str) else self._solver
         if _solver_lower == "auto":
             # Heuristic: IRLS for smooth/no penalties, FISTA for non-smooth
             _pen = getattr(self, "_penalty", None)
@@ -556,7 +556,7 @@ class GeneralizedLinearModel(BaseEstimator):
         self._loss = self._resolve_loss_for_inference()
 
         # ---- Compute inference if requested ----
-        if self.compute_inference:
+        if self._compute_inference:
             if sample_weight is not None:
                 sw = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
                 if is_gpu:
@@ -607,7 +607,7 @@ class GeneralizedLinearModel(BaseEstimator):
         else:
             X_design = X
 
-        solver = IRLSSolver(family, max_iter=self.max_iter, tol=self.tol)
+        solver = IRLSSolver(family, max_iter=self._max_iter, tol=self._tol)
         params, n_iter = solver.fit(
             X_design, y,
             sample_weight=sample_weight,
@@ -745,7 +745,7 @@ class GeneralizedLinearModel(BaseEstimator):
                             init = init * (target / (med_abs + 1e-12))
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
             self.coef_ = _to_numpy(coef)
@@ -795,7 +795,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
             full_coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_aug, y,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
 
@@ -824,7 +824,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y_centered,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=None, sample_weight=sample_weight,
             )
 
@@ -886,11 +886,11 @@ class GeneralizedLinearModel(BaseEstimator):
 
         if solver_name == "newton":
             params, n_iter = newton_solver(
-                loss, None, X_work, y, max_iter=self.max_iter, tol=self.tol
+                loss, None, X_work, y, max_iter=self._max_iter, tol=self._tol
             )
         else:
             params, n_iter = lbfgs_solver(
-                loss, None, X_work, y, max_iter=self.max_iter, tol=self.tol
+                loss, None, X_work, y, max_iter=self._max_iter, tol=self._tol
             )
 
         params_np = _to_numpy(params)
@@ -1069,7 +1069,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             self._df_resid = self._nobs - (p + K - 1)
             self._params = np.concatenate([self.coef_, self._thresh_est])
 
-            if self.compute_inference:
+            if self._compute_inference:
                 self._compute_ordered_inference(X, y)
             self._fitted = True
         finally:
@@ -1121,9 +1121,9 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         d = len(theta); nll_old = xp.inf; ridge = 1e-4
 
-        if self.max_iter <= 0:
+        if self._max_iter <= 0:
             raise ValueError(
-                f"max_iter must be > 0, got {self.max_iter}. "
+                f"max_iter must be > 0, got {self._max_iter}. "
                 "Newton-Raphson requires at least 1 iteration."
             )
 
@@ -1147,7 +1147,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             return t
 
         # ---- Newton loop ----
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             thresh = _enforce_thresh_gaps(theta[p:])
             theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
@@ -1174,10 +1174,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                     f"NLL became non-finite ({float(nll):.4g}) at iteration "
                     f"{iteration}. Coefficients may have diverged."
                 )
-            if iteration > 0 and abs(float(nll_old - nll)) < self.tol:
+            if iteration > 0 and abs(float(nll_old - nll)) < self._tol:
                 break
             grad_inf = float(xp.max(xp.abs(grad)))
-            if grad_inf < self.tol:
+            if grad_inf < self._tol:
                 break
             nll_old = nll
 
@@ -1303,11 +1303,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         ``_ordered_hessian_analytical`` and backend-native linalg + distributions.
         """
         # Only nonrobust covariance is supported for ordered models
-        cov_type = self.cov_type.lower()
+        cov_type = self._cov_type.lower()
         if cov_type not in ("nonrobust",):
             raise NotImplementedError(
                 f"Ordered model inference only supports cov_type='nonrobust', "
-                f"got '{self.cov_type}'. HC0/HC1 sandwich and penalized "
+                f"got '{self._cov_type}'. HC0/HC1 sandwich and penalized "
                 f"inference are not yet available for ordered models."
             )
 

@@ -1686,7 +1686,7 @@ class CoxPHCV(CVEstimatorBase):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -1698,7 +1698,7 @@ class CoxPHCV(CVEstimatorBase):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch CUDA cache cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -1773,14 +1773,14 @@ class CoxPHCV(CVEstimatorBase):
                 "robust covariance is not yet defined for ties='exact'; "
                 "use cov_type='nonrobust' or compute_inference=False"
             )
-        max_iter = _validate_positive_integer(self.max_iter, "max_iter")
-        tol = _validate_finite_positive(self.tol, "tol")
+        max_iter = _validate_positive_integer(self._max_iter, "max_iter")
+        tol = _validate_finite_positive(self._tol, "tol")
         if self.cv_splits is None:
-            cv_folds = _validate_positive_integer(self.cv, "cv")
+            cv_folds = _validate_positive_integer(self._cv, "cv")
             if cv_folds < 2:
                 raise ValueError("cv must be at least 2")
         else:
-            cv_folds = self.cv
+            cv_folds = self._cv
         if self.penalties is None:
             n_penalties = _validate_positive_integer(
                 self.n_penalties, "n_penalties"

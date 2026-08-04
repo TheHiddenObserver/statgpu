@@ -80,12 +80,12 @@ class GraphicalLasso(EmpiricalCovariance):
         if not np.isfinite(alpha) or alpha < 0:
             raise ValueError("alpha must be finite and non-negative")
         if (
-            isinstance(self.max_iter, bool)
-            or not isinstance(self.max_iter, (int, np.integer))
-            or int(self.max_iter) < 1
+            isinstance(self._max_iter, bool)
+            or not isinstance(self._max_iter, (int, np.integer))
+            or int(self._max_iter) < 1
         ):
             raise ValueError("max_iter must be a positive integer")
-        if not np.isfinite(float(self.tol)) or float(self.tol) <= 0:
+        if not np.isfinite(float(self._tol)) or float(self._tol) <= 0:
             raise ValueError("tol must be finite and positive")
 
         backend_name, xp, X_arr = self._prepare_input(X)
@@ -104,7 +104,7 @@ class GraphicalLasso(EmpiricalCovariance):
             self.n_iter_ = 1
         else:
             covariance = _copy_array(empirical)
-            inner_tol = min(1e-8, float(self.tol) * 0.1)
+            inner_tol = min(1e-8, float(self._tol) * 0.1)
             # A full device-to-host scalar transfer after every coordinate
             # sweep dominates small GPU solves. Preserve Gauss-Seidel updates,
             # but check convergence only after a bounded batch of sweeps.
@@ -122,7 +122,7 @@ class GraphicalLasso(EmpiricalCovariance):
                     "GraphicalLasso encountered a non-positive covariance diagonal"
                 )
 
-            for outer in range(int(self.max_iter)):
+            for outer in range(int(self._max_iter)):
                 previous = _copy_array(covariance)
                 self.n_iter_ = outer + 1
 
@@ -157,7 +157,7 @@ class GraphicalLasso(EmpiricalCovariance):
                     covariance[j, j] = empirical[j, j]
 
                 outer_delta = _to_float_scalar(xp.max(xp.abs(covariance - previous)))
-                if outer_delta <= float(self.tol):
+                if outer_delta <= float(self._tol):
                     break
 
             covariance = 0.5 * (covariance + covariance.T)
@@ -175,7 +175,7 @@ class GraphicalLasso(EmpiricalCovariance):
 
     def get_params(self, deep=True):
         params = super().get_params(deep=deep)
-        params.update(alpha=self.alpha, max_iter=self.max_iter, tol=self.tol)
+        params.update(alpha=self.alpha, max_iter=self._max_iter, tol=self._tol)
         return params
 
     def set_params(self, **params):
@@ -211,19 +211,19 @@ class GraphicalLassoCV(EmpiricalCovariance):
     def fit(self, X, y=None):
         probe = GraphicalLasso(
             alpha=0.0,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            max_iter=self._max_iter,
+            tol=self._tol,
             assume_centered=self.assume_centered,
-            device=self.device,
+            device=self._device,
         )
         backend_name, xp, X_arr = probe._prepare_input(X)
         n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
 
         if (
-            isinstance(self.cv, bool)
-            or not isinstance(self.cv, (int, np.integer))
-            or int(self.cv) < 2
-            or int(self.cv) > n
+            isinstance(self._cv, bool)
+            or not isinstance(self._cv, (int, np.integer))
+            or int(self._cv) < 2
+            or int(self._cv) > n
         ):
             raise ValueError("cv must satisfy 2 <= cv <= n_samples")
 
@@ -237,17 +237,17 @@ class GraphicalLassoCV(EmpiricalCovariance):
             raise ValueError("alphas must be finite, non-negative, and non-empty")
 
         rng = np.random.RandomState(self.random_state)
-        folds = np.array_split(rng.permutation(n), int(self.cv))
+        folds = np.array_split(rng.permutation(n), int(self._cv))
         cv_results = []
         best_score = -np.inf
         best_alpha = float(alpha_grid[0])
 
         for alpha in alpha_grid:
             scores = []
-            for fold_index in range(int(self.cv)):
+            for fold_index in range(int(self._cv)):
                 test_np = folds[fold_index]
                 train_np = np.concatenate(
-                    [folds[j] for j in range(int(self.cv)) if j != fold_index]
+                    [folds[j] for j in range(int(self._cv)) if j != fold_index]
                 )
                 train_idx = _index_array(train_np, xp, X_arr)
                 test_idx = _index_array(test_np, xp, X_arr)
@@ -256,10 +256,10 @@ class GraphicalLassoCV(EmpiricalCovariance):
 
                 model = GraphicalLasso(
                     alpha=float(alpha),
-                    max_iter=self.max_iter,
-                    tol=self.tol,
+                    max_iter=self._max_iter,
+                    tol=self._tol,
                     assume_centered=self.assume_centered,
-                    device=self.device,
+                    device=self._device,
                 ).fit(X_train)
                 scores.append(float(model.score(X_test)))
 
@@ -273,10 +273,10 @@ class GraphicalLassoCV(EmpiricalCovariance):
 
         final = GraphicalLasso(
             alpha=best_alpha,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            max_iter=self._max_iter,
+            tol=self._tol,
             assume_centered=self.assume_centered,
-            device=self.device,
+            device=self._device,
         ).fit(X_arr)
 
         self.covariance_ = final.covariance_
@@ -294,9 +294,9 @@ class GraphicalLassoCV(EmpiricalCovariance):
         params = super().get_params(deep=deep)
         params.update(
             alphas=self.alphas,
-            cv=self.cv,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            cv=self._cv,
+            max_iter=self._max_iter,
+            tol=self._tol,
             random_state=self.random_state,
         )
         return params

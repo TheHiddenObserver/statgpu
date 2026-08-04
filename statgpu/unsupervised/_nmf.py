@@ -50,13 +50,13 @@ class NMF(BaseEstimator):
             n_components = int(self.n_components)
         if self.init != "random":
             raise NotImplementedError("NMF v1 only supports init='random'")
-        if self.solver != "mu":
+        if self._solver != "mu":
             raise NotImplementedError("NMF v1 only supports solver='mu'")
         if self.beta_loss != "frobenius":
             raise NotImplementedError("NMF v1 only supports beta_loss='frobenius'")
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
-        if float(self.tol) < 0.0:
+        if float(self._tol) < 0.0:
             raise ValueError("tol must be non-negative")
         return n_components
 
@@ -120,14 +120,14 @@ class NMF(BaseEstimator):
         else:
             # GPU/torch backends check less frequently than CPU to reduce host-sync
             # overhead while still preserving tol-based early stopping.
-            error_check_interval = max(1, min(25, int(self.max_iter) // 5))
-        for n_iter in range(1, int(self.max_iter) + 1):
+            error_check_interval = max(1, min(25, int(self._max_iter) // 5))
+        for n_iter in range(1, int(self._max_iter) + 1):
             W = self._update_w(backend, X_arr, W, H, eps)
             H = self._update_h(backend, X_arr, W, H, eps)
-            if n_iter % error_check_interval == 0 or n_iter == int(self.max_iter):
+            if n_iter % error_check_interval == 0 or n_iter == int(self._max_iter):
                 error = self._reconstruction_error(backend, X_arr, W, H)
                 if previous_error is not None:
-                    if abs(previous_error - error) / max(previous_error, eps) <= float(self.tol):
+                    if abs(previous_error - error) / max(previous_error, eps) <= float(self._tol):
                         break
                 previous_error = error
 
@@ -155,7 +155,7 @@ class NMF(BaseEstimator):
             raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         eps = np.finfo(np.float64).eps
         W = self._init_w_from_data(backend, X_arr, self.components_, eps)
-        for _ in range(int(self.max_iter)):
+        for _ in range(int(self._max_iter)):
             W = self._update_w(backend, X_arr, W, self.components_, eps)
         return W
 
@@ -180,10 +180,10 @@ class NMF(BaseEstimator):
             {
                 "n_components": self.n_components,
                 "init": self.init,
-                "solver": self.solver,
+                "solver": self._solver,
                 "beta_loss": self.beta_loss,
-                "max_iter": self.max_iter,
-                "tol": self.tol,
+                "max_iter": self._max_iter,
+                "tol": self._tol,
                 "random_state": self.random_state,
             }
         )

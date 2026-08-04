@@ -145,7 +145,7 @@ class BetweenOLS(BaseEstimator):
         # Inference
         _compute_ols_inference(
             self, X_mean, resid, params, scale, n, k, xp, backend.name,
-            self.cov_type, self.alpha, dist_df=n - k
+            self._cov_type, self.alpha, dist_df=n - k
         )
 
         # R-squared
@@ -188,7 +188,7 @@ class BetweenOLS(BaseEstimator):
         )
         return PanelSummary(
             model_type="BetweenOLS",
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             coef=np.asarray(self.coef_),
             bse=np.asarray(self.bse_),
             tvalues=np.asarray(self.tvalues_),

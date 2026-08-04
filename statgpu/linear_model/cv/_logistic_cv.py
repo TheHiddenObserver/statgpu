@@ -832,17 +832,17 @@ class LogisticRegressionCV(CVEstimatorBase):
             X,
             y,
             Cs=self.Cs,
-            n_Cs=self.n_Cs,
-            C_min_ratio=self.C_min_ratio,
-            cv_folds=self.cv,
+            n_Cs=self._n_Cs,
+            C_min_ratio=self._C_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            fit_intercept=self._fit_intercept,
+            max_iter=self._max_iter,
+            tol=self._tol,
             device=device_name,
-            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
@@ -864,14 +864,14 @@ class LogisticRegressionCV(CVEstimatorBase):
         # Fit final model with selected C
         estimator = LogisticRegression(
             C=self.C_,
-            fit_intercept=self.fit_intercept,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            device=self.device,
+            fit_intercept=self._fit_intercept,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            device=self._device,
             n_jobs=self.n_jobs,
-            compute_inference=self.compute_inference,
-            cov_type=self.cov_type,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
+            compute_inference=self._compute_inference,
+            cov_type=self._cov_type,
+            gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
 
         estimator.fit(X, y, sample_weight=sample_weight)

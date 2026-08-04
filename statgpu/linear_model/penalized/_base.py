@@ -281,7 +281,7 @@ class PenalizedGeneralizedLinearModel(
         """Return effective intercept flag. Formula path overrides via _use_intercept."""
         if self._use_intercept is not None:
             return self._use_intercept
-        return self.fit_intercept
+        return self._fit_intercept
 
     def _resolve_penalty(self) -> "Penalty":
         """Resolve penalty string or instance to a Penalty object."""
@@ -296,7 +296,7 @@ class PenalizedGeneralizedLinearModel(
         if pen_name in ("none", "null", ""):
             return get_penalty("l2", alpha=0.0)
 
-        kwargs = {**self.penalty_kwargs, "alpha": self.alpha}
+        kwargs = {**self._penalty_kwargs, "alpha": self.alpha}
         if pen_name in ("elasticnet", "en"):
             kwargs["l1_ratio"] = self.l1_ratio
 
@@ -310,17 +310,17 @@ class PenalizedGeneralizedLinearModel(
         """
         try:
             from statgpu.glm_core import get_glm_loss
-            return get_glm_loss(self.loss, **self.loss_kwargs)
+            return get_glm_loss(self.loss, **self._loss_kwargs)
         except (ValueError, KeyError, TypeError):
             from statgpu.losses import get_loss
-            return get_loss(self.loss, **self.loss_kwargs)
+            return get_loss(self.loss, **self._loss_kwargs)
 
     def _validate_solver_penalty(self):
         """Validate solver/penalty combinations before backend dispatch."""
-        solver_name = self.solver
+        solver_name = self._solver
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         non_smooth = _NONSMOOTH_PENALTIES
-        if self.solver == "exact":
+        if self._solver == "exact":
             if self.loss != "squared_error" or penalty_name != "l2":
                 raise ValueError(
                     "solver='exact' is only supported for squared-error L2/Ridge models."
@@ -361,7 +361,7 @@ class PenalizedGeneralizedLinearModel(
         - SCAD/MCP + oracle/bootstrap: oracle active-set or bootstrap
         - Any loss + bootstrap: universal fallback
         """
-        if not self.compute_inference:
+        if not self._compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         inference_method = str(getattr(self, "inference_method", "sandwich")).lower()

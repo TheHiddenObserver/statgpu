@@ -137,7 +137,7 @@ class LogisticRegression(BaseEstimator):
         """Best-effort CuPy memory pool cleanup."""
         self._train_pred_cache = None
         self._train_eval_cache = None
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -150,10 +150,10 @@ class LogisticRegression(BaseEstimator):
         """Resolve HAC lag count with a Newey-West style default rule."""
         if n_obs <= 1:
             return 0
-        if self.hac_maxlags is None:
+        if self._hac_maxlags is None:
             maxlags = int(np.floor(4.0 * (n_obs / 100.0) ** (2.0 / 9.0)))
         else:
-            maxlags = int(self.hac_maxlags)
+            maxlags = int(self._hac_maxlags)
         return max(0, min(maxlags, n_obs - 1))
 
     def _hac_meat_numpy(self, scores: np.ndarray) -> np.ndarray:
@@ -236,7 +236,7 @@ class LogisticRegression(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
-        if self.compute_inference and device == Device.CPU:
+        if self._compute_inference and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -250,7 +250,7 @@ class LogisticRegression(BaseEstimator):
         self._nobs = n_samples
         
         # Add intercept if needed
-        if self.fit_intercept:
+        if self._fit_intercept:
             self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
         else:
             self._X_design = X.copy()
@@ -263,7 +263,7 @@ class LogisticRegression(BaseEstimator):
         
         # IRLS iteration
         iteration = 0
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             params_old = params.copy()
             
             # Predicted probabilities
@@ -287,7 +287,7 @@ class LogisticRegression(BaseEstimator):
             # Add L2 regularization (don't regularize intercept)
             if alpha > 0:
                 reg_diag = np.full(XtWX.shape[0], alpha)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag[0] = 0.0  # Don't regularize intercept
                 XtWX += np.diag(reg_diag)
             
@@ -299,13 +299,13 @@ class LogisticRegression(BaseEstimator):
                 params = np.linalg.lstsq(XtWX, Xtz, rcond=None)[0]
             
             # Check convergence
-            if np.linalg.norm(params - params_old) < self.tol:
+            if np.linalg.norm(params - params_old) < self._tol:
                 break
         
         self.n_iter_ = iteration + 1
         self._params = params
         
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(params[0])
             self.coef_ = params[1:]
         else:
@@ -313,7 +313,7 @@ class LogisticRegression(BaseEstimator):
             self.coef_ = params.copy()
         
         # Degrees of freedom
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
     
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with IRLS."""
@@ -324,7 +324,7 @@ class LogisticRegression(BaseEstimator):
         self._nobs = n_samples
         
         # Add intercept if needed
-        if self.fit_intercept:
+        if self._fit_intercept:
             X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
         else:
             X_design = X
@@ -337,7 +337,7 @@ class LogisticRegression(BaseEstimator):
         
         # IRLS iteration
         iteration = 0
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             params_old = params.copy()
             
             # Predicted probabilities
@@ -360,7 +360,7 @@ class LogisticRegression(BaseEstimator):
             # Add L2 regularization
             if alpha > 0:
                 reg_diag = cp.full(XtWX.shape[0], alpha)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag[0] = 0.0
                 XtWX += cp.diag(reg_diag)
             
@@ -372,7 +372,7 @@ class LogisticRegression(BaseEstimator):
                 params = cp.linalg.lstsq(XtWX, Xtz)[0]
             
             # Check convergence
-            if cp.linalg.norm(params - params_old) < self.tol:
+            if cp.linalg.norm(params - params_old) < self._tol:
                 break
         
         self.n_iter_ = iteration + 1
@@ -390,14 +390,14 @@ class LogisticRegression(BaseEstimator):
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
 
-        if self.compute_inference:
+        if self._compute_inference:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
             W_inf = p * (1 - p)
             W_inf = cp.clip(W_inf, 1e-8, 1 - 1e-8)
             H = X_design.T @ (X_design * W_inf[:, cp.newaxis])
             if alpha > 0:
                 reg_diag_inf = cp.full(H.shape[0], alpha)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag_inf[0] = 0.0
                 H += cp.diag(reg_diag_inf)
             try:
@@ -406,26 +406,26 @@ class LogisticRegression(BaseEstimator):
             except Exception:
                 bread = cp.linalg.pinv(H)
 
-            if self.cov_type == "nonrobust":
+            if self._cov_type == "nonrobust":
                 cov_params = bread
             else:
                 resid_score = y - p
                 scores = X_design * resid_score[:, cp.newaxis]
 
-                if self.cov_type == "hac":
+                if self._cov_type == "hac":
                     meat = self._hac_meat_cupy(scores)
                 else:
-                    if self.cov_type in ("hc2", "hc3"):
+                    if self._cov_type in ("hc2", "hc3"):
                         leverage = W_inf * cp.einsum("ij,jk,ik->i", X_design, bread, X_design)
                         leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
-                        if self.cov_type == "hc2":
+                        if self._cov_type == "hc2":
                             scores = scores / cp.sqrt(1.0 - leverage)[:, cp.newaxis]
                         else:
                             scores = scores / (1.0 - leverage)[:, cp.newaxis]
                     meat = scores.T @ scores
 
                 cov_params = bread @ meat @ bread
-                if self.cov_type == "hc1":
+                if self._cov_type == "hc1":
                     n = X_design.shape[0]
                     k = X_design.shape[1]
                     if n > k:
@@ -451,14 +451,14 @@ class LogisticRegression(BaseEstimator):
         self._X_design = X_design_np
         self._params = params_np
         
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
         else:
             self.intercept_ = 0.0
             self.coef_ = params_np.copy()
         
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
         self._loglik = float(cp.asnumpy(self._loglik_gpu))
         self._accuracy = float(cp.asnumpy(self._accuracy_gpu))
         y_mean = cp.mean(y)
@@ -506,7 +506,7 @@ class LogisticRegression(BaseEstimator):
         """Best-effort Torch CUDA memory cleanup."""
         self._train_pred_cache = None
         self._train_eval_cache = None
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -538,7 +538,7 @@ class LogisticRegression(BaseEstimator):
             X = X.to(torch.float64)
 
         # Add intercept if needed
-        if self.fit_intercept:
+        if self._fit_intercept:
             X_design = torch.cat([torch.ones(n_samples, 1, dtype=torch.float64, device=torch_device), X], dim=1)
         else:
             X_design = X
@@ -551,7 +551,7 @@ class LogisticRegression(BaseEstimator):
 
         # IRLS iteration
         iteration = 0
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             params_old = params.clone()
 
             # Predicted probabilities
@@ -580,7 +580,7 @@ class LogisticRegression(BaseEstimator):
             # Add L2 regularization
             if alpha > 0:
                 reg_diag = torch.full((XtWX.shape[0],), alpha, dtype=torch.float64, device=torch_device)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag[0] = 0.0
                 XtWX += torch.diag(reg_diag)
 
@@ -592,7 +592,7 @@ class LogisticRegression(BaseEstimator):
                 params = torch.linalg.lstsq(XtWX, Xtz)[0]
 
             # Check convergence
-            if torch.linalg.norm(params - params_old) < self.tol:
+            if torch.linalg.norm(params - params_old) < self._tol:
                 break
 
         self.n_iter_ = iteration + 1
@@ -611,14 +611,14 @@ class LogisticRegression(BaseEstimator):
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
 
-        if self.compute_inference:
+        if self._compute_inference:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
             W_inf = p * (1 - p)
             W_inf = torch.clamp(W_inf, 1e-8, 1 - 1e-8)
             H = X_design.T @ (X_design * W_inf[:, None])
             if alpha > 0:
                 reg_diag_inf = torch.full((H.shape[0],), alpha, dtype=torch.float64, device=torch_device)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag_inf[0] = 0.0
                 H += torch.diag(reg_diag_inf)
             try:
@@ -627,26 +627,26 @@ class LogisticRegression(BaseEstimator):
             except Exception:
                 bread = torch.linalg.pinv(H)
 
-            if self.cov_type == "nonrobust":
+            if self._cov_type == "nonrobust":
                 cov_params = bread
             else:
                 resid_score = y - p
                 scores = X_design * resid_score[:, None]
 
-                if self.cov_type == "hac":
+                if self._cov_type == "hac":
                     meat = self._hac_meat_torch(scores)
                 else:
-                    if self.cov_type in ("hc2", "hc3"):
+                    if self._cov_type in ("hc2", "hc3"):
                         leverage = W_inf * torch.einsum("ij,jk,ik->i", X_design, bread, X_design)
                         leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
-                        if self.cov_type == "hc2":
+                        if self._cov_type == "hc2":
                             scores = scores / torch.sqrt(1.0 - leverage)[:, None]
                         else:
                             scores = scores / (1.0 - leverage)[:, None]
                     meat = scores.T @ scores
 
                 cov_params = bread @ meat @ bread
-                if self.cov_type == "hc1":
+                if self._cov_type == "hc1":
                     n = X_design.shape[0]
                     k = X_design.shape[1]
                     if n > k:
@@ -672,14 +672,14 @@ class LogisticRegression(BaseEstimator):
         self._X_design = X_design_np
         self._params = params_np
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
         else:
             self.intercept_ = 0.0
             self.coef_ = params_np.copy()
 
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
         self._loglik = float(self._loglik_gpu.cpu().numpy())
         self._accuracy = float(self._accuracy_gpu.cpu().numpy())
         y_mean = torch.mean(y)
@@ -755,7 +755,7 @@ class LogisticRegression(BaseEstimator):
         alpha = 1.0 / self.C if self.C > 0 else 0.0
         if alpha > 0:
             reg_diag = np.full(XtWX.shape[0], alpha)
-            if self.fit_intercept:
+            if self._fit_intercept:
                 reg_diag[0] = 0.0
             XtWX += np.diag(reg_diag)
         
@@ -764,26 +764,26 @@ class LogisticRegression(BaseEstimator):
         except np.linalg.LinAlgError:
             bread = np.linalg.pinv(XtWX)
 
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             cov_params = bread
         else:
             resid_score = self._y - p
 
             scores = self._X_design * resid_score[:, np.newaxis]
-            if self.cov_type == "hac":
+            if self._cov_type == "hac":
                 meat = self._hac_meat_numpy(scores)
             else:
-                if self.cov_type in ("hc2", "hc3"):
+                if self._cov_type in ("hc2", "hc3"):
                     leverage = W * np.einsum("ij,jk,ik->i", self._X_design, bread, self._X_design)
                     leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
-                    if self.cov_type == "hc2":
+                    if self._cov_type == "hc2":
                         scores = scores / np.sqrt(1.0 - leverage)[:, np.newaxis]
                     else:
                         scores = scores / (1.0 - leverage)[:, np.newaxis]
                 meat = scores.T @ scores
 
             cov_params = bread @ meat @ bread
-            if self.cov_type == "hc1":
+            if self._cov_type == "hc1":
                 n = self._X_design.shape[0]
                 k = self._X_design.shape[1]
                 if n > k:
@@ -829,7 +829,7 @@ class LogisticRegression(BaseEstimator):
         if self._train_eval_cache is not None:
             return self._train_eval_cache.get("classification_table")
 
-        X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
+        X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
         device = self._get_compute_device()
         if device == Device.CUDA:
             cp = _require_cupy("_train_classification_table")
@@ -1396,7 +1396,7 @@ class LogisticRegression(BaseEstimator):
             )
         
         # Build feature names
-        if self.fit_intercept:
+        if self._fit_intercept:
             feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
         else:
             feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
@@ -1407,7 +1407,7 @@ class LogisticRegression(BaseEstimator):
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"Iterations:                 {self.n_iter_:>15}")
-        print(f"Covariance Type:            {self.cov_type:>15}")
+        print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"Log-Likelihood:             {self.loglikelihood:>15.4f}")
         print(f"Log-Likelihood (Null):      {self.loglikelihood_null:>15.4f}")
         print(f"Pseudo R-squared:           {self.pseudo_rsquared:>15.4f}")

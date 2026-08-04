@@ -165,7 +165,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
     def summary(self):
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
-        if not self.compute_inference:
+        if not self._compute_inference:
             raise RuntimeError(
                 "compute_inference=False: summary/inference statistics are not available. "
                 "Re-fit with compute_inference=True to use summary()."
@@ -209,7 +209,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
 
         print(f"Alpha:                      {float(self.alpha):>15.4f}")
         if not is_debiased:
-            print(f"Covariance Type:            {self.cov_type:>15}")
+            print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"R-squared:                  {_fmt(self.rsquared, '>15.4f')}")

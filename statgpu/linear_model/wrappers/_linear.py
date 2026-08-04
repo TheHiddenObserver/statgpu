@@ -106,7 +106,7 @@ class LinearRegression(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -119,10 +119,10 @@ class LinearRegression(BaseEstimator):
         """Resolve HAC lag count with a Newey-West style default rule."""
         if n_obs <= 1:
             return 0
-        if self.hac_maxlags is None:
+        if self._hac_maxlags is None:
             maxlags = int(np.floor(4.0 * (n_obs / 100.0) ** (2.0 / 9.0)))
         else:
-            maxlags = int(self.hac_maxlags)
+            maxlags = int(self._hac_maxlags)
         return max(0, min(maxlags, n_obs - 1))
 
     def _benchmark_hac_numpy_kernel(
@@ -245,15 +245,15 @@ class LinearRegression(BaseEstimator):
         n, k = X.shape
         e = np.asarray(resid, dtype=float).reshape(-1)
 
-        if self.cov_type == "hac":
+        if self._cov_type == "hac":
             scores = X * e[:, np.newaxis]
             meat = self._hac_meat_numpy(scores)
             return XtX_inv @ meat @ XtX_inv
 
-        if self.cov_type in ("hc2", "hc3"):
+        if self._cov_type in ("hc2", "hc3"):
             leverage = np.einsum("ij,jk,ik->i", X, XtX_inv, X)
             leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
-            if self.cov_type == "hc2":
+            if self._cov_type == "hc2":
                 e2 = (e ** 2) / (1.0 - leverage)
             else:
                 e2 = (e ** 2) / ((1.0 - leverage) ** 2)
@@ -263,7 +263,7 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, np.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
+        if self._cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
             cov_params *= (n / self._df_resid)
         return cov_params
 
@@ -274,15 +274,15 @@ class LinearRegression(BaseEstimator):
         n, k = X.shape
         e = resid.reshape(-1)
 
-        if self.cov_type == "hac":
+        if self._cov_type == "hac":
             scores = X * e[:, cp.newaxis]
             meat = self._hac_meat_cupy(scores)
             return XtX_inv @ meat @ XtX_inv
 
-        if self.cov_type in ("hc2", "hc3"):
+        if self._cov_type in ("hc2", "hc3"):
             leverage = cp.einsum("ij,jk,ik->i", X, XtX_inv, X)
             leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
-            if self.cov_type == "hc2":
+            if self._cov_type == "hc2":
                 e2 = cp.square(e) / (1.0 - leverage)
             else:
                 e2 = cp.square(e) / cp.square(1.0 - leverage)
@@ -292,7 +292,7 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, cp.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1":
+        if self._cov_type == "hc1":
             correction_df = df_resid if df_resid is not None else (n - k)
             if correction_df > 0:
                 cov_params = cov_params * (n / correction_df)
@@ -326,7 +326,7 @@ class LinearRegression(BaseEstimator):
 
         # Formula syntax controls the fitted design without mutating the
         # public constructor parameter required by sklearn-style cloning.
-        effective_fit_intercept = bool(self.fit_intercept)
+        effective_fit_intercept = bool(self._fit_intercept)
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -415,12 +415,12 @@ class LinearRegression(BaseEstimator):
         # GPU single-output inference is computed in _fit_gpu/_fit_torch().
         # Multi-output GPU inference is not implemented yet; do not fall back to
         # the NumPy inference path when the user selected a GPU backend.
-        if self.compute_inference and self._is_multi_output and device in (Device.CUDA, Device.TORCH):
+        if self._compute_inference and self._is_multi_output and device in (Device.CUDA, Device.TORCH):
             raise NotImplementedError(
                 "Multi-output LinearRegression inference is not implemented for "
                 f"device='{device.value}'. Set compute_inference=False or use device='cpu'."
             )
-        if self.compute_inference and device == Device.CPU:
+        if self._compute_inference and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -586,9 +586,9 @@ class LinearRegression(BaseEstimator):
                 scale = cp.nan
         
         # Compute inference-related statistics only when requested.
-        if self.compute_inference and not self._is_multi_output:
+        if self._compute_inference and not self._is_multi_output:
             coef_flat = coef.flatten()
-            if self.cov_type == "nonrobust":
+            if self._cov_type == "nonrobust":
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
                     compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
             else:
@@ -629,7 +629,7 @@ class LinearRegression(BaseEstimator):
             scale_np = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
         
-        if self.compute_inference and not self._is_multi_output:
+        if self._compute_inference and not self._is_multi_output:
             # Transfer inference results
             self._bse = self._bse_gpu.get()
             self._tvalues = self._tvalues_gpu.get()
@@ -666,7 +666,7 @@ class LinearRegression(BaseEstimator):
         )
         self._df_resid = df_resid
         self._scale = scale_np
-        if self.compute_inference and not self._is_multi_output:
+        if self._compute_inference and not self._is_multi_output:
             self._wrap_gaussian_inference_result()
 
         # Release large temporary GPU tensors early.
@@ -694,7 +694,7 @@ class LinearRegression(BaseEstimator):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch memory cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -728,16 +728,16 @@ class LinearRegression(BaseEstimator):
         if device is None:
             device = 'cuda' if X.is_cuda else 'cpu'
 
-        if self.cov_type == "hac":
+        if self._cov_type == "hac":
             # HAC requires temporal ordering - compute score matrix and apply Bartlett kernel
             scores = X * e[:, None]
             meat = self._hac_meat_torch(scores)
             return XtX_inv @ meat @ XtX_inv
 
-        if self.cov_type in ("hc2", "hc3"):
+        if self._cov_type in ("hc2", "hc3"):
             leverage = torch.einsum("ij,jk,ik->i", X, XtX_inv, X)
             leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
-            if self.cov_type == "hc2":
+            if self._cov_type == "hc2":
                 e2 = torch.square(e) / (1.0 - leverage)
             else:
                 e2 = torch.square(e) / torch.square(1.0 - leverage)
@@ -747,7 +747,7 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, None]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1":
+        if self._cov_type == "hc1":
             correction_df = df_resid if df_resid is not None else (n - k)
             if correction_df > 0:
                 cov_params = cov_params * (n / correction_df)
@@ -849,9 +849,9 @@ class LinearRegression(BaseEstimator):
                 scale = torch.tensor(float('nan'), dtype=y.dtype, device=torch_device)
 
         # Compute inference-related statistics only when requested.
-        if self.compute_inference and not self._is_multi_output:
+        if self._compute_inference and not self._is_multi_output:
             coef_flat = coef.flatten()
-            if self.cov_type == "nonrobust":
+            if self._cov_type == "nonrobust":
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
                     compute_inference_torch(X_design, resid, scale, df_resid, coef_flat, cov_type="nonrobust", device=torch_device)
             else:
@@ -895,7 +895,7 @@ class LinearRegression(BaseEstimator):
             scale_np = float(scale_val) if not np.isnan(scale_val) else np.nan
         X_design_np = X_design.detach().cpu().numpy()
 
-        if self.compute_inference and not self._is_multi_output:
+        if self._compute_inference and not self._is_multi_output:
             # Transfer inference results
             self._bse = self._bse_gpu.detach().cpu().numpy()
             self._tvalues = self._tvalues_gpu.detach().cpu().numpy()
@@ -932,7 +932,7 @@ class LinearRegression(BaseEstimator):
         )
         self._df_resid = df_resid
         self._scale = scale_np
-        if self.compute_inference and not self._is_multi_output:
+        if self._compute_inference and not self._is_multi_output:
             self._wrap_gaussian_inference_result()
 
         # Release large temporary Torch tensors early.
@@ -966,8 +966,8 @@ class LinearRegression(BaseEstimator):
             self._resid,
             self._scale,
             self._df_resid,
-            self.cov_type,
-            hac_maxlags=self.hac_maxlags,
+            self._cov_type,
+            hac_maxlags=self._hac_maxlags,
         )
         if result is None:
             self._clear_inference_result()
@@ -989,15 +989,15 @@ class LinearRegression(BaseEstimator):
         return [f"x{i+1}" for i in range(n_features)]
 
     def _wrap_gaussian_inference_result(self):
-        method = "classical" if self.cov_type == "nonrobust" else "sandwich"
-        distribution = "t" if self.cov_type == "nonrobust" else "normal"
+        method = "classical" if self._cov_type == "nonrobust" else "sandwich"
+        distribution = "t" if self._cov_type == "nonrobust" else "normal"
         result = GaussianInferenceResult(
             params=self._params,
             bse=self._bse,
             statistic=self._tvalues,
             pvalues=self._pvalues,
             conf_int=self._conf_int,
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             distribution=distribution,
             df=self._df_resid,
             method=method,
@@ -1139,7 +1139,7 @@ class LinearRegression(BaseEstimator):
         if not self._fitted:
             raise RuntimeError("Model has not been fitted yet.")
 
-        if not self.compute_inference:
+        if not self._compute_inference:
             raise RuntimeError(
                 "compute_inference=False: summary/inference statistics are not available. "
                 "Re-fit with compute_inference=True (default)."
@@ -1165,7 +1165,7 @@ class LinearRegression(BaseEstimator):
         print("=" * 80)
         print("                            Linear Regression Results")
         print("=" * 80)
-        print(f"Covariance Type:            {self.cov_type:>15}")
+        print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"R-squared:                  {self.rsquared:>15.4f}")
