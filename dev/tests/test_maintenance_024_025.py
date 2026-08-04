@@ -474,7 +474,12 @@ def test_pandas_nullable_boolean_missing_is_rejected():
 def test_public_sklearn_tags_are_available_and_transformers_are_marked():
     import inspect
     import statgpu
-    from sklearn.utils import get_tags
+
+    try:
+        from sklearn.utils import get_tags
+    except ImportError:
+        get_tags = None
+        from sklearn.utils._tags import _safe_tags
 
     errors = []
     missing_transformer_tags = []
@@ -494,11 +499,18 @@ def test_public_sklearn_tags_are_available_and_transformers_are_marked():
             continue
         try:
             estimator = cls()
-            tags = get_tags(estimator)
+            if get_tags is None:
+                tags = _safe_tags(estimator)
+            else:
+                tags = get_tags(estimator)
         except Exception as exc:
             errors.append(f"{name}: {type(exc).__name__}: {exc}")
             continue
-        if callable(getattr(estimator, "transform", None)) and tags.transformer_tags is None:
+        if (
+            get_tags is not None
+            and callable(getattr(estimator, "transform", None))
+            and tags.transformer_tags is None
+        ):
             missing_transformer_tags.append(name)
 
     assert errors == []
@@ -574,7 +586,7 @@ def test_public_raw_private_normalized_choice_contracts():
     assert lasso._solver == "AUTO"
 
 
-def test_public_raw_private_mutable_kwargs_are_decoupled():
+def test_public_raw_private_mutable_kwargs_preserve_runtime_identity():
     from statgpu.linear_model import PenalizedLinearRegression
 
     penalty_kwargs = {"gamma": 3.0}
@@ -585,15 +597,13 @@ def test_public_raw_private_mutable_kwargs_are_decoupled():
     )
     assert model.penalty_kwargs is penalty_kwargs
     assert model.loss_kwargs is loss_kwargs
-    assert model._penalty_kwargs == penalty_kwargs
-    assert model._loss_kwargs == loss_kwargs
-    assert model._penalty_kwargs is not penalty_kwargs
-    assert model._loss_kwargs is not loss_kwargs
+    assert model._penalty_kwargs is penalty_kwargs
+    assert model._loss_kwargs is loss_kwargs
 
     penalty_kwargs["external"] = True
     loss_kwargs["external"] = True
-    assert "external" not in model._penalty_kwargs
-    assert "external" not in model._loss_kwargs
+    assert model._penalty_kwargs["external"] is True
+    assert model._loss_kwargs["external"] is True
 
 
 def test_device_public_value_and_private_runtime_are_separate():

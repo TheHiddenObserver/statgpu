@@ -4,29 +4,13 @@ LassoCV: Cross-validated Lasso regression with GPU support.
 This module exports LassoCV which delegates to _select_lasso_alpha_cv
 from _lasso.py for all CV logic (cache, fast-refit, backend-aware).
 """
-
-__all__ = ["LassoCV"]
-
+__all__ = ['LassoCV']
 from typing import Optional, Union
-
 import numpy as np
-
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
-from statgpu.linear_model.wrappers._lasso import (
-    Lasso,
-    _normalize_lassocv_method,
-    _normalize_cd_kkt_check_every,
-)
-
-
-# Shared hash function from _cv_base.py
+from statgpu.linear_model.wrappers._lasso import Lasso, _normalize_lassocv_method, _normalize_cd_kkt_check_every
 from statgpu.cross_validation._base import hash_cv_data as _hash_data
-
-
-# =============================================================================
-# LassoCV Class
-# =============================================================================
 
 class LassoCV(CVEstimatorBase):
     """
@@ -89,37 +73,8 @@ class LassoCV(CVEstimatorBase):
     >>> print(f"Best CV score: {model.best_score_:.4f}")
     """
 
-    def __init__(
-        self,
-        alphas=None,
-        n_alphas: int = 12,
-        alpha_min_ratio: float = 1e-3,
-        cv: int = 5,
-        cv_splits=None,
-        fit_intercept: bool = True,
-        device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None,
-        compute_inference: bool = False,
-        max_iter: int = 3000,
-        tol: float = 1e-4,
-        stopping: str = "coef_delta",
-        solver: str = "fista",
-        cpu_solver: str = "coordinate_descent",
-        method: str = "standard",
-        cd_kkt_check_every: Optional[int] = None,
-        inference_method: str = "cpu_ols_inference",
-        lipschitz_L: Optional[float] = None,
-        admm_rho: float = 1.0,
-        gpu_memory_cleanup: bool = False,
-        random_state: Optional[int] = None,
-        gpu_cv_mixed_precision: bool = True,
-    ):
-        super().__init__(
-            cv=cv,
-            random_state=random_state,
-            device=device,
-            n_jobs=n_jobs,
-        )
+    def __init__(self, alphas=None, n_alphas: int=12, alpha_min_ratio: float=0.001, cv: int=5, cv_splits=None, fit_intercept: bool=True, device: Union[str, Device]=Device.AUTO, n_jobs: Optional[int]=None, compute_inference: bool=False, max_iter: int=3000, tol: float=0.0001, stopping: str='coef_delta', solver: str='fista', cpu_solver: str='coordinate_descent', method: str='standard', cd_kkt_check_every: Optional[int]=None, inference_method: str='cpu_ols_inference', lipschitz_L: Optional[float]=None, admm_rho: float=1.0, gpu_memory_cleanup: bool=False, random_state: Optional[int]=None, gpu_cv_mixed_precision: bool=True):
+        super().__init__(cv=cv, random_state=random_state, device=device, n_jobs=n_jobs)
         self.alphas = alphas
         self.n_alphas = int(n_alphas)
         self.alpha_min_ratio = float(alpha_min_ratio)
@@ -139,7 +94,6 @@ class LassoCV(CVEstimatorBase):
         self.admm_rho = float(admm_rho)
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.gpu_cv_mixed_precision = bool(gpu_cv_mixed_precision)
-
         self.alpha_ = None
         self.alphas_ = None
         self.cv_results_ = None
@@ -173,77 +127,30 @@ class LassoCV(CVEstimatorBase):
             Fitted estimator.
         """
         from statgpu.linear_model.wrappers._lasso import _select_lasso_alpha_cv, Lasso
-
         device_name = self._get_compute_device().value
-        effective_cpu_solver = (
-            "coordinate_descent" if str(self._method).lower() == "glmnet" else str(self._cpu_solver)
-        )
+        effective_cpu_solver = 'coordinate_descent' if str(self._method).lower() == 'glmnet' else str(self._cpu_solver)
         effective_cd_kkt = self._cd_kkt_check_every
         if effective_cd_kkt is None:
-            effective_cd_kkt = 4 if str(self._method).lower() == "glmnet" else 1
-
-        details = _select_lasso_alpha_cv(
-            X, y,
-            alphas=self.alphas,
-            n_alphas=self._n_alphas,
-            alpha_min_ratio=self._alpha_min_ratio,
-            cv_folds=self._cv,
-            cv_splits=self.cv_splits,
-            random_state=self.random_state,
-            sample_weight=sample_weight,
-            fit_intercept=self._fit_intercept,
-            device=device_name,
-            max_iter=self._max_iter,
-            tol=self._tol,
-            cpu_solver=effective_cpu_solver,
-            method=self._method,
-            cd_kkt_check_every=effective_cd_kkt,
-            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
-            return_details=True,
-        )
-
-        # Store CV results
-        self.alpha_ = float(details["alpha"])
-        self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
-        mse_path = np.asarray(details["mse_path"], dtype=np.float64)
-        mean_mse = np.asarray(details["mean_mse"], dtype=np.float64)
-
-        self.cv_results_ = {"mse_path": mse_path}
+            effective_cd_kkt = 4 if str(self._method).lower() == 'glmnet' else 1
+        details = _select_lasso_alpha_cv(X, y, alphas=self.alphas, n_alphas=self._n_alphas, alpha_min_ratio=self._alpha_min_ratio, cv_folds=self._cv, cv_splits=self.cv_splits, random_state=self.random_state, sample_weight=sample_weight, fit_intercept=self._fit_intercept, device=device_name, max_iter=self._max_iter, tol=self._tol, cpu_solver=effective_cpu_solver, method=self._method, cd_kkt_check_every=effective_cd_kkt, gpu_cv_mixed_precision=self._gpu_cv_mixed_precision, return_details=True)
+        self.alpha_ = float(details['alpha'])
+        self.alphas_ = np.asarray(details['alphas'], dtype=np.float64)
+        mse_path = np.asarray(details['mse_path'], dtype=np.float64)
+        mean_mse = np.asarray(details['mean_mse'], dtype=np.float64)
+        self.cv_results_ = {'mse_path': mse_path}
         self.mse_path_ = mse_path
         self.mean_mse_ = mean_mse
-        # sklearn convention: best_score_ is negative MSE (higher is better)
         self.best_score_ = -float(np.nanmin(mean_mse)) if np.any(np.isfinite(mean_mse)) else np.nan
-
-        # Fit final model with selected alpha
-        estimator = Lasso(
-            alpha=self.alpha_,
-            fit_intercept=self._fit_intercept,
-            max_iter=self._max_iter,
-            tol=self._tol,
-            stopping=self._stopping,
-            inference_method=self._inference_method,
-            device=self._device,
-            n_jobs=self.n_jobs,
-            compute_inference=self._compute_inference,
-            solver=self._solver,
-            cpu_solver=effective_cpu_solver,
-            lipschitz_L=self.lipschitz_L,
-            admm_rho=self._admm_rho,
-            gpu_memory_cleanup=self._gpu_memory_cleanup,
-        )
+        estimator = Lasso(alpha=self.alpha_, fit_intercept=self._fit_intercept, max_iter=self._max_iter, tol=self._tol, stopping=self._stopping, inference_method=self._inference_method, device=self._device, n_jobs=self.n_jobs, compute_inference=self._compute_inference_enabled, solver=self._solver, cpu_solver=effective_cpu_solver, lipschitz_L=self.lipschitz_L, admm_rho=self._admm_rho, gpu_memory_cleanup=self._gpu_memory_cleanup)
         estimator.fit(X, y, sample_weight=sample_weight)
-
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
-
-        # Copy inference attributes if available (preserve underscore prefix)
         for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
             val = getattr(estimator, attr, None)
             if val is not None:
                 setattr(self, attr, np.asarray(val))
-
         self._fitted = True
         return self
 

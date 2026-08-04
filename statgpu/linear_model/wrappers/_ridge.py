@@ -6,58 +6,21 @@ with ``penalty="l2"`` and ``solver="exact"``.
 
 The legacy standalone implementation has been moved to ``_ridge_legacy.py``.
 """
-
 from __future__ import annotations
-
-__all__ = ["Ridge"]
-
+__all__ = ['Ridge']
 from typing import Optional, Union
-
 import numpy as np
-
 from statgpu._config import Device
-
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression as _PenalizedLinearRegression
-
 
 class Ridge(_PenalizedLinearRegression):
     """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L2 penalty."""
 
-    def __init__(
-        self,
-        alpha: float = 1.0,
-        fit_intercept: bool = True,
-        device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None,
-        gpu_memory_cleanup: bool = False,
-        compute_inference: bool = True,
-        cov_type: str = "nonrobust",
-        hac_maxlags: Optional[int] = None,
-        max_iter: int = 1000,
-        tol: float = 1e-4,
-        solver: str = "exact",
-        cpu_solver: str = "fista",
-        lipschitz_L: Optional[float] = None,
-    ):
+    def __init__(self, alpha: float=1.0, fit_intercept: bool=True, device: Union[str, Device]=Device.AUTO, n_jobs: Optional[int]=None, gpu_memory_cleanup: bool=False, compute_inference: bool=True, cov_type: str='nonrobust', hac_maxlags: Optional[int]=None, max_iter: int=1000, tol: float=0.0001, solver: str='exact', cpu_solver: str='fista', lipschitz_L: Optional[float]=None):
         _ct = str(cov_type).lower()
         self.cov_type = cov_type if cov_type == _ct else _ct
         self.hac_maxlags = hac_maxlags
-        super().__init__(
-            penalty="l2",
-            alpha=alpha,
-            fit_intercept=fit_intercept,
-            max_iter=max_iter,
-            tol=tol,
-            device=device,
-            n_jobs=n_jobs,
-            gpu_memory_cleanup=gpu_memory_cleanup,
-            compute_inference=compute_inference,
-            cov_type=cov_type,
-            hac_maxlags=hac_maxlags,
-            solver=solver,
-            cpu_solver=cpu_solver,
-            lipschitz_L=lipschitz_L,
-        )
+        super().__init__(penalty='l2', alpha=alpha, fit_intercept=fit_intercept, max_iter=max_iter, tol=tol, device=device, n_jobs=n_jobs, gpu_memory_cleanup=gpu_memory_cleanup, compute_inference=compute_inference, cov_type=cov_type, hac_maxlags=hac_maxlags, solver=solver, cpu_solver=cpu_solver, lipschitz_L=lipschitz_L)
 
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
         """Fit Ridge regression model with optimized memory-efficient path.
@@ -65,36 +28,29 @@ class Ridge(_PenalizedLinearRegression):
         Uses centering formulas to avoid allocating the full centered design matrix,
         and skips expensive inference computations when ``compute_inference=False``.
         """
-        if (formula is not None
-                or self._get_compute_device() != Device.CPU
-                or self._solver != "exact"):
-            # Fall back to parent for formula, GPU, or non-exact solver
+        if formula is not None or self._get_compute_device() != Device.CPU or self._solver != 'exact':
             return super().fit(X=X, y=y, sample_weight=sample_weight, formula=formula, data=data)
-
         X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
         y_np = np.asarray(self._to_array(y, Device.CPU), dtype=np.float64)
         if X_np.ndim != 2:
-            raise ValueError("X must be a 2D array")
+            raise ValueError('X must be a 2D array')
         if y_np.ndim != 1:
-            raise ValueError("y must be one-dimensional")
+            raise ValueError('y must be one-dimensional')
         if y_np.shape[0] != X_np.shape[0]:
-            raise ValueError("X and y must contain the same number of samples")
-
+            raise ValueError('X and y must contain the same number of samples')
         n_samples, n_features = X_np.shape
         self._nobs = n_samples
         self._fitted = False
-
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
         if sw is not None:
             if sw.shape[0] != n_samples:
-                raise ValueError("sample_weight must have length n_samples")
+                raise ValueError('sample_weight must have length n_samples')
             if not np.all(np.isfinite(sw)):
-                raise ValueError("sample_weight must be finite")
+                raise ValueError('sample_weight must be finite')
             if np.any(sw < 0):
-                raise ValueError("sample_weight must be non-negative")
+                raise ValueError('sample_weight must be non-negative')
             if float(np.sum(sw)) <= 0.0:
-                raise ValueError("sample_weight must have a positive sum")
-
+                raise ValueError('sample_weight must have a positive sum')
         if self._fit_intercept:
             if sw is not None:
                 w_sum = float(sw.sum())
@@ -103,13 +59,7 @@ class Ridge(_PenalizedLinearRegression):
             else:
                 X_wmean = np.mean(X_np, axis=0)
                 y_wmean = np.mean(y_np)
-
-        # Build Gram matrix and RHS.
-        # Weighted: X'WX, X'Wy.  Unweighted: X'X, X'y.
-        # Centering for intercept: subtract weighted/unweighted outer product.
         if sw is not None:
-            # Weighted average-loss normal equations:
-            # (X'WX + sum(w)*alpha*I) coef = X'Wy.
             sw_col = sw[:, None]
             XtX = (X_np * sw_col).T @ X_np
             Xty = (X_np * sw_col).T @ y_np
@@ -131,21 +81,15 @@ class Ridge(_PenalizedLinearRegression):
                 XtX = X_np.T @ X_np
                 Xty = X_np.T @ y_np
             n_eff = float(n_samples)
-
         if Xty.ndim == 0:
             Xty = Xty.reshape(1)
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
-
-        # LossBase uses an average data-fit term and L2Penalty uses
-        # (alpha/2)||coef||^2, hence the normal equation contains
-        # n_eff*alpha. This preserves loss/penalty/solver consistency.
         A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
         except np.linalg.LinAlgError:
             coef = np.linalg.lstsq(A, Xty, rcond=None)[0].flatten()
-
         if self._fit_intercept:
             self.intercept_ = float(y_wmean - X_wmean @ coef)
             self.coef_ = coef
@@ -154,15 +98,12 @@ class Ridge(_PenalizedLinearRegression):
             self.intercept_ = 0.0
             self.coef_ = coef
             self._params = self.coef_.copy()
-
         self._X_design = None
         self._resid = None
         self._scale = np.nan
         self.n_iter_ = 1
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
-
-        # Build design matrix and compute residuals only when inference is needed
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             if self._fit_intercept:
                 self._X_design = np.column_stack([np.ones(n_samples, dtype=X_np.dtype), X_np])
             else:
@@ -172,11 +113,6 @@ class Ridge(_PenalizedLinearRegression):
             if self._df_resid > 0:
                 resid_sq = self._resid ** 2
                 self._scale = float(np.sum(resid_sq)) / self._df_resid
-            # Compute inference statistics (bse, tvalues, pvalues, conf_int).
-            # For weighted fits, _compute_post_fit_gaussian_inference uses
-            # sqrt(w)*X internally, producing correct weighted scale and
-            # consistent inference attributes.
             self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
-
         self._fitted = True
         return self
