@@ -2,7 +2,7 @@
 
 ## Scope and active gates
 
-Reviewed head: `e4a25bccb2a47df099085e26f31244df48f80038` as the starting point.
+Starting head: `e4a25bccb2a47df099085e26f31244df48f80038`.
 
 Active axes:
 
@@ -13,7 +13,7 @@ Active axes:
 | Inference | Unchanged by this cycle |
 | Formula | Not formula-facing in this cycle |
 | Benchmark | Exact-source physical CuPy and Torch evidence required |
-| Docs | Public staged-fallback and evidence contracts must be synchronized |
+| Docs | Public staged-fallback, changelog, and evidence contracts synchronized before the final physical run |
 
 ## Findings and fixes
 
@@ -44,6 +44,7 @@ Fix:
 
 Evidence:
 - `dev/tests/test_pr80_cox_cv_staged_safety_contract.py`;
+- `dev/tests/test_pr80_target_transfer_overflow_cache.py`;
 - `dev/benchmarks/benchmark_cox_cv_staged_safety_gpu.py`;
 - synchronized EN/CN staged-safety guides.
 
@@ -62,28 +63,36 @@ Fix:
 Evidence:
 - `dev/tests/test_pr80_cox_cv_split_lifecycle_contract.py`, including repeated public CPU fit, clone, legacy parameter reconstruction, pickle, and setter invalidation.
 
-[MEDIUM][DOC][partially fixed] staged safety and exact-source evidence behavior.
+[MEDIUM][DOC][fixed] staged safety, current changelogs, and exact-source evidence behavior.
 
 Fix:
 - synchronized the EN/CN staged-safety guide with the one-pass contract;
-- added this review/fix report;
-- canonical reports now carry runtime import provenance.
+- synchronized root, EN, and CN changelog entry points for 2026-08-04;
+- preserved all earlier changelog content in date-labelled archive files linked from the current entry points;
+- canonical reports now carry runtime import provenance;
+- this review/fix report records the remaining exact-head physical promotion gate without publishing a premature PASS claim.
 
-Remaining documentation action:
-- root, EN, and CN changelog entries must be added after the final exact-head hosted and physical validation identifiers are known, so they do not publish a stale commit or artifact claim.
+## Review-fix iterations and hosted validation
 
-## Local/static validation performed before commit
+1. The first hosted run exposed two existing tests that still treated repeated staged fold preparation as correct when the retained fold cache was disabled. Those tests were updated to the new safety contract: independent of cache limit, requested staged execution prepares each effective fold once and reports `fold_state_cache_enabled=False`.
+2. Re-review found that historical Group sub-runners do not publish `source_clean_after`. The canonical Group suite now checks the actual checkout status immediately after every sub-runner rather than trusting a missing nested field.
+3. Re-review found the revised single-pass cache regression absent from the staged exact-source manifests. Both the inner runner and canonical suite now hash that test.
+4. GitHub Actions workflow #943 passed on implementation head `4c8f9493ee08e7ecf6ec88c7296c02070547cda2`:
+   - full CPU: 1879 passed, 662 skipped, 15 warnings;
+   - static contracts: passed;
+   - documentation contracts: passed;
+   - Python 3.9, 3.10, 3.11, and 3.12 regression matrices: passed.
+5. The final documentation-only synchronization commits must receive the same hosted gates before physical promotion.
 
-- all new and rewritten Python files compile with `py_compile`;
-- source manifests include the runtime-provenance helper and hosted regression;
-- canonical child lists remain unchanged;
-- physical runner gates now fail the old CuPy double-pass implementation.
+## Current audit conclusion
+
+A third independent delta review found no remaining locally reproducible CRITICAL, HIGH, or actionable MEDIUM issue in the runtime, lifecycle, provenance, runner, test, or documentation changes covered by this cycle.
 
 ## Exit status
 
 `PARTIAL_REMOTE_PENDING`
 
-No known local CRITICAL/HIGH code issue remains in this cycle. Hosted CI must pass on the implementation head. A clean exact-head physical run is then required:
+A clean exact-head physical run is required after the final hosted workflow passes:
 
 ```bash
 python dev/benchmarks/benchmark_pr80_final_gpu_suite.py \
@@ -100,3 +109,5 @@ Promotion requires:
 - staged strategy `single_pass_exhaustive`;
 - fold preparation count equal to effective folds on both GPU backends;
 - every `gate_failures` array empty.
+
+No commit may be added after a passing physical artifact without rerunning this exact-head gate.
