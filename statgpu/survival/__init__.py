@@ -18,8 +18,14 @@ from ._cox_errors import CoxFitNumericalError
 from . import _cox_cv_penalty_order_contract as _cox_cv_penalty_order_contract
 
 # Experimental two-stage/successive-halving screening currently has no complete
-# three-backend correctness proof. Convert any request into an explicit
+# three-backend correctness proof. Convert any request into an explicit single
 # exhaustive full-precision run rather than allowing silent candidate removal.
 from . import _cox_cv_staged_safety_contract as _cox_cv_staged_safety_contract
+
+# Preserve one-shot custom split generators across repeated fit, clone, and
+# serialization without rewriting the public constructor parameter.
+from . import (
+    _cox_cv_split_lifecycle_contract as _cox_cv_split_lifecycle_contract,
+)
 
 __all__ = ['CoxPH', 'CoxPHCV', 'CoxFitNumericalError']
