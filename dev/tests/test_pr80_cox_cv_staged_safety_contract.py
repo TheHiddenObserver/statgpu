@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import inspect
+import threading
+import time
+import warnings
 
 import numpy as np
 import pytest
@@ -15,9 +19,9 @@ from statgpu.survival import _cox_cv_staged_safety_contract as staged
 def _sample():
     rng = np.random.default_rng(14001)
     X = rng.normal(size=(30, 2))
-    time = np.linspace(1.0, 30.0, 30)
+    time_values = np.linspace(1.0, 30.0, 30)
     event = np.tile(np.array([1.0, 0.0, 1.0]), 10)
-    return X, time, event
+    return X, time_values, event
 
 
 def test_staged_request_is_explicit_exhaustive_fallback(monkeypatch):
@@ -126,6 +130,54 @@ def test_staged_fallback_restores_env_reader_after_failure(monkeypatch):
     assert cox_cv._env_flag is original_env_flag
 
 
+def test_staged_fallback_serializes_concurrent_requests(monkeypatch):
+    active = 0
+    maximum_active = 0
+    guard = threading.Lock()
+
+    def fake_selector(*args, **kwargs):
+        nonlocal active, maximum_active
+        assert cox_cv._env_flag("STATGPU_COXPHCV_TWO_STAGE", False) is False
+        assert (
+            cox_cv._env_flag("STATGPU_COXPHCV_SUCCESSIVE_HALVING", False)
+            is False
+        )
+        with guard:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        try:
+            time.sleep(0.05)
+            return 1.0, {
+                "penalty": 1.0,
+                "penalties": np.array([1.0, 0.5]),
+                "mean_pl": np.array([2.0, 1.0]),
+            }
+        finally:
+            with guard:
+                active -= 1
+
+    monkeypatch.setattr(staged, "_ORIGINAL_SELECT_COXPH_PENALTY_CV", fake_selector)
+    monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE", "1")
+    monkeypatch.setenv("STATGPU_COXPHCV_SUCCESSIVE_HALVING", "1")
+
+    def invoke():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return cox_cv._select_coxph_penalty_cv(
+                np.zeros((4, 1)),
+                np.arange(1.0, 5.0),
+                np.array([1.0, 0.0, 1.0, 0.0]),
+                penalties=[1.0, 0.5],
+                return_details=True,
+            )[0]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        selected = list(executor.map(lambda _: invoke(), range(2)))
+
+    assert selected == [1.0, 1.0]
+    assert maximum_active == 1
+
+
 def test_real_selector_evaluates_every_candidate_when_halving_requested(
     monkeypatch,
 ):
@@ -139,10 +191,10 @@ def test_real_selector_evaluates_every_candidate_when_halving_requested(
             self.coef_ = np.array([self.penalty, 0.0], dtype=np.float64)
             return self
 
-    def score_from_penalty(X, time, event, coef, **kwargs):
+    def score_from_penalty(X, time_values, event, coef, **kwargs):
         return float(coef[0])
 
-    X, time, event = _sample()
+    X, time_values, event = _sample()
     penalties = np.geomspace(1.0, 0.01, 8)
     cox_cv._COXPH_CV_CACHE.clear()
     monkeypatch.setattr(cox_cv, "CoxPH", DeterministicCoxPH)
@@ -154,7 +206,7 @@ def test_real_selector_evaluates_every_candidate_when_halving_requested(
     with pytest.warns(RuntimeWarning, match="exhaustive full-precision"):
         best, details = cox_cv._select_coxph_penalty_cv(
             X,
-            time,
+            time_values,
             event,
             penalties=penalties,
             cv_folds=3,
