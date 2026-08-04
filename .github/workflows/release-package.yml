@@ -113,12 +113,28 @@ jobs:
               raise SystemExit("universal wheel unexpectedly contains compiled binaries")
 
           with tarfile.open(sdist, "r:gz") as archive:
-              sdist_names = archive.getnames()
+              sdist_names = set(archive.getnames())
           validate_paths(sdist_names, sdist.name)
-          if not any(name.endswith(".pyx") for name in sdist_names):
-              raise SystemExit("sdist does not contain optional Cython .pyx sources")
-          if not any(name.endswith(".pxd") for name in sdist_names):
-              raise SystemExit("sdist does not contain optional Cython .pxd sources")
+
+          cython_sources = sorted(
+              path.relative_to(root).as_posix()
+              for path in (root / "statgpu").rglob("*")
+              if path.is_file() and path.suffix in {".pyx", ".pxd"}
+          )
+          if not cython_sources:
+              raise SystemExit("repository contains no optional Cython sources to validate")
+
+          sdist_prefix = f"statgpu-{version}/"
+          missing_cython_sources = [
+              path
+              for path in cython_sources
+              if f"{sdist_prefix}{path}" not in sdist_names
+          ]
+          if missing_cython_sources:
+              raise SystemExit(
+                  "sdist is missing repository Cython sources: "
+                  + ", ".join(missing_cython_sources)
+              )
 
           metadata = next(name for name in wheel_names if name.endswith(".dist-info/METADATA"))
           with zipfile.ZipFile(wheel) as archive:
@@ -126,7 +142,10 @@ jobs:
           if not re.search(rf"^Version: {re.escape(version)}$", metadata_text, re.M):
               raise SystemExit("wheel metadata version does not match pyproject.toml")
 
-          print(f"validated {wheel.name} and {sdist.name}")
+          print(
+              f"validated {wheel.name}, {sdist.name}, and "
+              f"{len(cython_sources)} repository Cython sources"
+          )
           PY
 
       - name: Smoke-install wheel in a clean environment
