@@ -1,0 +1,274 @@
+name: Agent maintenance PR bootstrap v3
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.head_ref == 'agent/maintenance-0.2.4-0.2.5' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply implementation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          source = Path('.github/workflows/agent-maintenance-bootstrap.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Install targeted validation environment"
+          block = source.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in block.splitlines()
+          )
+          base_start = script.index("# BaseEstimator: raw constructor identity")
+          base_end = script.index("# Legacy sklearn regression must now pass")
+          exec(
+              compile(script[:base_start] + script[base_end:], '<maintenance-bootstrap>', 'exec'),
+              {'__name__': '__main__'},
+          )
+
+          base_path = Path('statgpu/_base.py')
+          text = base_path.read_text(encoding='utf-8')
+          if 'import functools\n' not in text:
+              text = text.replace(
+                  'from typing import Optional, Union, Any\nimport numpy as np\n',
+                  'from typing import Optional, Union, Any\nimport functools\nimport inspect\nimport numpy as np\n',
+                  1,
+              )
+
+          class_source = textwrap.dedent('''\
+          _FINITE_PUBLIC_METHODS = frozenset({
+              "fit",
+              "partial_fit",
+              "fit_predict",
+              "fit_transform",
+              "predict",
+              "predict_proba",
+              "predict_log_proba",
+              "decision_function",
+              "transform",
+              "score",
+              "survfit",
+              "predict_survival",
+              "predict_survival_function",
+              "predict_cumulative_hazard",
+          })
+          _FINITE_PARAMETER_NAMES = frozenset({
+              "X",
+              "X_new",
+              "x",
+              "y",
+              "sample_weight",
+              "weights",
+              "offset",
+              "exposure",
+              "entry",
+              "start",
+              "stop",
+              "time",
+              "event",
+              "times",
+              "cluster",
+              "clusters",
+              "strata",
+              "subject",
+              "subjects",
+              "groups",
+              "init",
+              "init_coef",
+          })
+
+          def __init_subclass__(cls, **kwargs):
+              super().__init_subclass__(**kwargs)
+              cls._install_constructor_capture()
+              cls._install_public_finite_validation()
+
+          @classmethod
+          def _install_constructor_capture(cls):
+              original_init = cls.__dict__.get("__init__")
+              if original_init is None or getattr(
+                  original_init, "__statgpu_constructor_capture__", False
+              ):
+                  return
+              try:
+                  signature = inspect.signature(original_init)
+              except (TypeError, ValueError):
+                  return
+
+              @functools.wraps(original_init)
+              def wrapped(self, *args, **kwargs):
+                  try:
+                      bound = signature.bind(self, *args, **kwargs)
+                      bound.apply_defaults()
+                  except TypeError:
+                      return original_init(self, *args, **kwargs)
+                  raw_params = {
+                      name: value
+                      for name, value in bound.arguments.items()
+                      if name != "self"
+                      and signature.parameters[name].kind
+                      not in (
+                          inspect.Parameter.VAR_POSITIONAL,
+                          inspect.Parameter.VAR_KEYWORD,
+                      )
+                  }
+                  original_init(self, *args, **kwargs)
+                  self._constructor_params_raw = raw_params
+
+              wrapped.__statgpu_constructor_capture__ = True
+              cls.__init__ = wrapped
+
+          @classmethod
+          def _install_public_finite_validation(cls):
+              from statgpu.backends._validation import check_finite
+
+              def wrap_method(original):
+                  try:
+                      signature = inspect.signature(original)
+                  except (TypeError, ValueError):
+                      return original
+
+                  @functools.wraps(original)
+                  def guarded(self, *args, **kwargs):
+                      try:
+                          bound = signature.bind(self, *args, **kwargs)
+                      except TypeError:
+                          return original(self, *args, **kwargs)
+                      for name, value in bound.arguments.items():
+                          if name in self._FINITE_PARAMETER_NAMES and value is not None:
+                              check_finite(value, name=name)
+                      return original(self, *args, **kwargs)
+
+                  guarded.__statgpu_finite_validation__ = True
+                  return guarded
+
+              for method_name in cls._FINITE_PUBLIC_METHODS:
+                  original = cls.__dict__.get(method_name)
+                  if original is None or not callable(original):
+                      continue
+                  if getattr(original, "__isabstractmethod__", False):
+                      continue
+                  if getattr(original, "__statgpu_finite_validation__", False):
+                      continue
+                  setattr(cls, method_name, wrap_method(original))
+          ''')
+          class_block = textwrap.indent(class_source, '    ') + '\n'
+          if '_FINITE_PUBLIC_METHODS' not in text:
+              marker = '    def __init__(\n'
+              if marker not in text:
+                  raise RuntimeError('BaseEstimator __init__ marker changed')
+              text = text.replace(marker, class_block + marker, 1)
+
+          if 'raw_params = getattr(self, "_constructor_params_raw", {})' not in text:
+              marker = '        params = {}\n        try:\n'
+              if marker not in text:
+                  raise RuntimeError('get_params initialization marker changed')
+              text = text.replace(
+                  marker,
+                  '        params = {}\n        raw_params = getattr(self, "_constructor_params_raw", {})\n        try:\n',
+                  1,
+              )
+
+          param_pattern = re.compile(
+              r'(?P<indent>\s+)if hasattr\(self, name\):\n'
+              r'(?P=indent)    params\[name\] = getattr\(self, name\)\n'
+              r'(?P=indent)elif hasattr\(self, f"_\{name\}"\):\n'
+              r'(?P=indent)    params\[name\] = getattr\(self, f"_\{name\}"\)'
+          )
+          def replace_get(match):
+              indent = match.group('indent')
+              return (
+                  f'{indent}if name in raw_params:\n'
+                  f'{indent}    params[name] = raw_params[name]\n'
+                  f'{indent}elif hasattr(self, name):\n'
+                  f'{indent}    params[name] = getattr(self, name)\n'
+                  f'{indent}elif hasattr(self, f"_{{name}}"):\n'
+                  f'{indent}    params[name] = getattr(self, f"_{{name}}")'
+              )
+          text, count = param_pattern.subn(replace_get, text, count=1)
+          if count != 1:
+              raise RuntimeError(f'expected one get_params attribute block, got {count}')
+
+          loop_marker = '        for key, value in params.items():\n            root, delimiter, sub_key = key.partition("__")\n'
+          if '            raw_value = value\n' not in text:
+              if loop_marker not in text:
+                  raise RuntimeError('set_params loop marker changed')
+              text = text.replace(loop_marker, loop_marker + '            raw_value = value\n', 1)
+
+          set_pattern = re.compile(
+              r'(?P<indent>\s+)if hasattr\(self, root\):\n'
+              r'(?P=indent)    setattr\(self, root, value\)\n'
+              r'(?P=indent)else:\n'
+              r'(?P=indent)    setattr\(self, f"_\{root\}", value\)'
+          )
+          def replace_set(match):
+              indent = match.group('indent')
+              return (
+                  f'{indent}if hasattr(self, root):\n'
+                  f'{indent}    setattr(self, root, value)\n'
+                  f'{indent}else:\n'
+                  f'{indent}    setattr(self, f"_{{root}}", value)\n'
+                  f'{indent}raw_params = getattr(self, "_constructor_params_raw", None)\n'
+                  f'{indent}if raw_params is None:\n'
+                  f'{indent}    raw_params = {{}}\n'
+                  f'{indent}    self._constructor_params_raw = raw_params\n'
+                  f'{indent}raw_params[root] = raw_value'
+              )
+          text, count = set_pattern.subn(replace_set, text, count=1)
+          if count != 1:
+              raise RuntimeError(f'expected one set_params attribute block, got {count}')
+
+          if '_statgpu_refresh_normalized_params' not in text:
+              marker = '            nested_estimator.set_params(**sub_params)\n\n        return self\n'
+              if marker not in text:
+                  raise RuntimeError('set_params return marker changed')
+              text = text.replace(
+                  marker,
+                  '            nested_estimator.set_params(**sub_params)\n\n'
+                  '        refresh = getattr(self, "_statgpu_refresh_normalized_params", None)\n'
+                  '        if callable(refresh):\n'
+                  '            refresh()\n\n'
+                  '        return self\n',
+                  1,
+              )
+
+          base_path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Install targeted validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" scipy pytest packaging "scikit-learn==1.2.2"
+          python -m pip install -e . --no-deps
+
+      - name: Run targeted maintenance validation
+        run: |
+          python -m compileall -q statgpu dev/tests/test_maintenance_024_025.py
+          python -m pytest -q \
+            dev/tests/test_maintenance_024_025.py \
+            dev/tests/test_second_full_review.py::TestEstimatorCloneAndFeatureSelectionBackend::test_all_default_public_estimators_clone
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu dev .gitignore CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: harden runtime and estimator contracts"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
