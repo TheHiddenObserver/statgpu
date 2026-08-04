@@ -10,6 +10,7 @@ explicit exhaustive full-precision run.
 from __future__ import annotations
 
 from functools import wraps
+import os
 import threading
 import warnings
 
@@ -21,8 +22,17 @@ from . import _cox_cv as _module
 _TWO_STAGE_ENV = "STATGPU_COXPHCV_TWO_STAGE"
 _HALVING_ENV = "STATGPU_COXPHCV_SUCCESSIVE_HALVING"
 _STAGED_ENV_NAMES = frozenset({_TWO_STAGE_ENV, _HALVING_ENV})
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 _ORIGINAL_SELECT_COXPH_PENALTY_CV = _module._select_coxph_penalty_cv
 _STAGED_FALLBACK_LOCK = threading.RLock()
+
+
+def _raw_staged_request_present():
+    """Check the process environment without consulting a patched reader."""
+    return any(
+        str(os.environ.get(name, "")).strip().lower() in _TRUTHY_ENV_VALUES
+        for name in _STAGED_ENV_NAMES
+    )
 
 
 def _requested_staged_controls():
@@ -60,12 +70,20 @@ def _annotate_exhaustive_fallback(details, *, two_stage_requested, halving_reque
 @wraps(_ORIGINAL_SELECT_COXPH_PENALTY_CV)
 def _select_coxph_penalty_cv_with_staged_safety(*args, **kwargs):
     """Run exhaustive full-precision CV when staged screening is requested."""
-    two_stage_requested, halving_requested = _requested_staged_controls()
-    if not (two_stage_requested or halving_requested):
+    # The common non-staged path does not pay a global serialization cost.
+    # When either process-wide environment switch is truthy, every selector
+    # invocation first enters the lock before reading the mutable module-level
+    # env reader. This prevents a concurrent call from observing the temporary
+    # exhaustive reader and later re-entering the unsafe branch after restore.
+    if not _raw_staged_request_present():
         return _ORIGINAL_SELECT_COXPH_PENALTY_CV(*args, **kwargs)
 
     requested_details = bool(kwargs.get("return_details", False))
     with _STAGED_FALLBACK_LOCK:
+        two_stage_requested, halving_requested = _requested_staged_controls()
+        if not (two_stage_requested or halving_requested):
+            return _ORIGINAL_SELECT_COXPH_PENALTY_CV(*args, **kwargs)
+
         original_env_flag = _module._env_flag
 
         def exhaustive_env_flag(name, default=False):
@@ -122,5 +140,6 @@ if _STAGED_DOC.strip() not in (_module.CoxPHCV.__doc__ or ""):
 
 __all__ = [
     "_annotate_exhaustive_fallback",
+    "_raw_staged_request_present",
     "_select_coxph_penalty_cv_with_staged_safety",
 ]
