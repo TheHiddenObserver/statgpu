@@ -162,7 +162,7 @@ class Ridge(_PenalizedLinearRegression):
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
 
         # Build design matrix and compute residuals only when inference is needed
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             if self._fit_intercept:
                 self._X_design = np.column_stack([np.ones(n_samples, dtype=X_np.dtype), X_np])
             else:

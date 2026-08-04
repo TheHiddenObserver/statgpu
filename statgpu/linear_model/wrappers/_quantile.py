@@ -127,7 +127,7 @@ class QuantileRegression(BaseEstimator):
         self._selected_backend_name = backend_name
         self._fitted = True
 
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             self._compute_inference(X_arr, y_arr, loss,
                                      backend_name=backend_name)
 

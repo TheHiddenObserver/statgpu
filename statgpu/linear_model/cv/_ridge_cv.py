@@ -1120,7 +1120,7 @@ class RidgeCV(CVEstimatorBase):
             fit_intercept=self._fit_intercept,
             device=self._device,
             n_jobs=self.n_jobs,
-            compute_inference=self._compute_inference,
+            compute_inference=self._compute_inference_enabled,
             cov_type=self._cov_type,
             gpu_memory_cleanup=self._gpu_memory_cleanup,
         )

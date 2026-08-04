@@ -415,12 +415,12 @@ class LinearRegression(BaseEstimator):
         # GPU single-output inference is computed in _fit_gpu/_fit_torch().
         # Multi-output GPU inference is not implemented yet; do not fall back to
         # the NumPy inference path when the user selected a GPU backend.
-        if self._compute_inference and self._is_multi_output and device in (Device.CUDA, Device.TORCH):
+        if self._compute_inference_enabled and self._is_multi_output and device in (Device.CUDA, Device.TORCH):
             raise NotImplementedError(
                 "Multi-output LinearRegression inference is not implemented for "
                 f"device='{device.value}'. Set compute_inference=False or use device='cpu'."
             )
-        if self._compute_inference and device == Device.CPU:
+        if self._compute_inference_enabled and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -586,7 +586,7 @@ class LinearRegression(BaseEstimator):
                 scale = cp.nan
         
         # Compute inference-related statistics only when requested.
-        if self._compute_inference and not self._is_multi_output:
+        if self._compute_inference_enabled and not self._is_multi_output:
             coef_flat = coef.flatten()
             if self._cov_type == "nonrobust":
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
@@ -629,7 +629,7 @@ class LinearRegression(BaseEstimator):
             scale_np = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
         
-        if self._compute_inference and not self._is_multi_output:
+        if self._compute_inference_enabled and not self._is_multi_output:
             # Transfer inference results
             self._bse = self._bse_gpu.get()
             self._tvalues = self._tvalues_gpu.get()
@@ -666,7 +666,7 @@ class LinearRegression(BaseEstimator):
         )
         self._df_resid = df_resid
         self._scale = scale_np
-        if self._compute_inference and not self._is_multi_output:
+        if self._compute_inference_enabled and not self._is_multi_output:
             self._wrap_gaussian_inference_result()
 
         # Release large temporary GPU tensors early.
@@ -849,7 +849,7 @@ class LinearRegression(BaseEstimator):
                 scale = torch.tensor(float('nan'), dtype=y.dtype, device=torch_device)
 
         # Compute inference-related statistics only when requested.
-        if self._compute_inference and not self._is_multi_output:
+        if self._compute_inference_enabled and not self._is_multi_output:
             coef_flat = coef.flatten()
             if self._cov_type == "nonrobust":
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
@@ -895,7 +895,7 @@ class LinearRegression(BaseEstimator):
             scale_np = float(scale_val) if not np.isnan(scale_val) else np.nan
         X_design_np = X_design.detach().cpu().numpy()
 
-        if self._compute_inference and not self._is_multi_output:
+        if self._compute_inference_enabled and not self._is_multi_output:
             # Transfer inference results
             self._bse = self._bse_gpu.detach().cpu().numpy()
             self._tvalues = self._tvalues_gpu.detach().cpu().numpy()
@@ -932,7 +932,7 @@ class LinearRegression(BaseEstimator):
         )
         self._df_resid = df_resid
         self._scale = scale_np
-        if self._compute_inference and not self._is_multi_output:
+        if self._compute_inference_enabled and not self._is_multi_output:
             self._wrap_gaussian_inference_result()
 
         # Release large temporary Torch tensors early.
@@ -1139,7 +1139,7 @@ class LinearRegression(BaseEstimator):
         if not self._fitted:
             raise RuntimeError("Model has not been fitted yet.")
 
-        if not self._compute_inference:
+        if not self._compute_inference_enabled:
             raise RuntimeError(
                 "compute_inference=False: summary/inference statistics are not available. "
                 "Re-fit with compute_inference=True (default)."

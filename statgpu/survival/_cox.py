@@ -1443,7 +1443,7 @@ class CoxPH(BaseEstimator):
         fitted_compute_inference = (
             controls.compute_inference
             if controls is not None
-            else bool(self._compute_inference)
+            else bool(self._compute_inference_enabled)
         )
         fitted_penalty = (
             controls.penalty if controls is not None else float(self.penalty)

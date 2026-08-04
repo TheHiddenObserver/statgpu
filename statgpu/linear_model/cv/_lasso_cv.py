@@ -224,7 +224,7 @@ class LassoCV(CVEstimatorBase):
             inference_method=self._inference_method,
             device=self._device,
             n_jobs=self.n_jobs,
-            compute_inference=self._compute_inference,
+            compute_inference=self._compute_inference_enabled,
             solver=self._solver,
             cpu_solver=effective_cpu_solver,
             lipschitz_L=self.lipschitz_L,

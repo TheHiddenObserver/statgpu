@@ -59,6 +59,14 @@ class BaseEstimator(ABC):
         "precision_recall_curve",
         "average_precision_score",
     })
+    _NORMALIZED_PRIVATE_NAMES = {
+        "compute_inference": "_compute_inference_enabled",
+    }
+
+    @classmethod
+    def _normalized_private_name(cls, name):
+        return cls._NORMALIZED_PRIVATE_NAMES.get(name, f"_{name}")
+
     _NORMALIZED_CONSTRUCTOR_PARAMS = frozenset({
         "device",
         "cov_type",
@@ -242,30 +250,71 @@ class BaseEstimator(ABC):
                     inspect.Parameter.VAR_KEYWORD,
                 )
             }
-            original_init(self, *args, **kwargs)
+
+            depth = int(getattr(self, "_statgpu_constructor_depth", 0))
+            if depth == 0:
+                self._statgpu_constructor_raw_pending = {}
+            self._statgpu_constructor_depth = depth + 1
+
+            try:
+                result = original_init(self, *args, **kwargs)
+            except BaseException:
+                if depth == 0:
+                    self.__dict__.pop("_statgpu_constructor_depth", None)
+                    self.__dict__.pop("_statgpu_constructor_raw_pending", None)
+                else:
+                    self._statgpu_constructor_depth = depth
+                raise
+
+            pending = self._statgpu_constructor_raw_pending
+            # Inner wrappers finish first; the most-derived constructor finishes
+            # last and therefore overrides shared defaults with its actual call.
+            pending.update(raw_params)
             normalized_names = type(self)._NORMALIZED_CONSTRUCTOR_PARAMS
+
+            # Make runtime values available to any outer constructor code without
+            # restoring public raw values until the complete chain has returned.
             for name, raw_value in raw_params.items():
-                private_name = f"_{name}"
+                private_name = type(self)._normalized_private_name(name)
                 if name in normalized_names:
-                    # Constructor wrappers are nested across the inheritance
-                    # chain. An inner wrapper may already have restored the
-                    # public raw value, so the private runtime value is the
-                    # authoritative source when it exists.
-                    if hasattr(self, private_name):
+                    if name == "device" and hasattr(self, private_name):
                         runtime_value = getattr(self, private_name)
                     elif hasattr(self, name):
                         runtime_value = getattr(self, name)
+                    elif hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
                     else:
                         runtime_value = raw_value
-                    if isinstance(runtime_value, (dict, list, set, np.ndarray)):
-                        runtime_value = copy.deepcopy(runtime_value)
                     setattr(self, private_name, runtime_value)
-                    setattr(self, name, raw_value)
                 elif not hasattr(self, name):
-                    # Parameters delegated to a superclass or represented only
-                    # by a private runtime field must still exist publicly.
                     setattr(self, name, raw_value)
-            self._constructor_params_raw = raw_params
+
+            remaining = depth
+            if remaining > 0:
+                self._statgpu_constructor_depth = remaining
+                return result
+
+            self.__dict__.pop("_statgpu_constructor_depth", None)
+            merged_raw = dict(pending)
+            self.__dict__.pop("_statgpu_constructor_raw_pending", None)
+
+            for name, raw_value in merged_raw.items():
+                private_name = type(self)._normalized_private_name(name)
+                if name in normalized_names:
+                    if name == "device" and hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    elif hasattr(self, name):
+                        runtime_value = getattr(self, name)
+                    elif hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    else:
+                        runtime_value = raw_value
+                    setattr(self, private_name, runtime_value)
+                # sklearn <=1.2 requires the public attribute to be the exact
+                # object supplied to the outermost constructor.
+                setattr(self, name, raw_value)
+            self._constructor_params_raw = merged_raw
+            return result
 
         wrapped.__statgpu_constructor_capture__ = True
         cls.__init__ = wrapped
@@ -954,6 +1003,8 @@ class BaseEstimator(ABC):
             # after the complete update has been classified as deferred.
             for key, value in direct_updates.items():
                 setattr(self, key, value)
+                if key in self._NORMALIZED_CONSTRUCTOR_PARAMS:
+                    setattr(self, self._normalized_private_name(key), value)
                 raw_params = getattr(self, "_constructor_params_raw", None)
                 if raw_params is None:
                     raw_params = {}

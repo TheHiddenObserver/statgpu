@@ -556,7 +556,7 @@ class GeneralizedLinearModel(BaseEstimator):
         self._loss = self._resolve_loss_for_inference()
 
         # ---- Compute inference if requested ----
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             if sample_weight is not None:
                 sw = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
                 if is_gpu:
@@ -1069,7 +1069,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             self._df_resid = self._nobs - (p + K - 1)
             self._params = np.concatenate([self.coef_, self._thresh_est])
 
-            if self._compute_inference:
+            if self._compute_inference_enabled:
                 self._compute_ordered_inference(X, y)
             self._fitted = True
         finally:

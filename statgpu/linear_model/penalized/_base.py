@@ -361,7 +361,7 @@ class PenalizedGeneralizedLinearModel(
         - SCAD/MCP + oracle/bootstrap: oracle active-set or bootstrap
         - Any loss + bootstrap: universal fallback
         """
-        if not self._compute_inference:
+        if not self._compute_inference_enabled:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         inference_method = str(getattr(self, "inference_method", "sandwich")).lower()

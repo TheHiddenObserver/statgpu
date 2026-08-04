@@ -59,7 +59,7 @@ class _PenalizedInferenceMixin:
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
         """Populate inference state after fit. Routes to sandwich/debiased/oracle."""
-        if not self._compute_inference:
+        if not self._compute_inference_enabled:
             return
 
         # Non-squared_error Hessian losses + smooth/L2 penalties: penalized sandwich

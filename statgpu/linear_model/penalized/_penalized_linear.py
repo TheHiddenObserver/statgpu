@@ -165,7 +165,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
     def summary(self):
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
-        if not self._compute_inference:
+        if not self._compute_inference_enabled:
             raise RuntimeError(
                 "compute_inference=False: summary/inference statistics are not available. "
                 "Re-fit with compute_inference=True to use summary()."

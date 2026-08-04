@@ -211,7 +211,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         data.  Failing here gives callers a stable public contract instead of
         allowing a later shape-dependent ``ValueError``.
         """
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             raise NotImplementedError(
                 "PenalizedCoxPHModel is currently estimation-only: "
                 "compute_inference=True is not supported for penalized Cox "

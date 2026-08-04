@@ -236,7 +236,7 @@ class LogisticRegression(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
-        if self._compute_inference and device == Device.CPU:
+        if self._compute_inference_enabled and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -390,7 +390,7 @@ class LogisticRegression(BaseEstimator):
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
 
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
             W_inf = p * (1 - p)
             W_inf = cp.clip(W_inf, 1e-8, 1 - 1e-8)
@@ -611,7 +611,7 @@ class LogisticRegression(BaseEstimator):
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
 
-        if self._compute_inference:
+        if self._compute_inference_enabled:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
             W_inf = p * (1 - p)
             W_inf = torch.clamp(W_inf, 1e-8, 1 - 1e-8)

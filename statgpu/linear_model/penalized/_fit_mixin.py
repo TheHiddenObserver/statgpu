@@ -293,6 +293,12 @@ class _PenalizedFitMixin:
         self : PenalizedLinearRegression
             Fitted estimator.
         """
+        # Direct public parameter replacement is part of the refit API.
+        self._penalty_kwargs = (
+            self.penalty_kwargs if self.penalty_kwargs is not None else {}
+        )
+        self._loss_kwargs = self.loss_kwargs if self.loss_kwargs is not None else {}
+
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -1087,7 +1093,7 @@ class _PenalizedFitMixin:
             else:
                 coef_full_gpu = coef.reshape(-1)
 
-            if self._compute_inference:
+            if self._compute_inference_enabled:
                 infer_fn = getattr(self, f'_precompute_exact_l2_inference_{"torch" if is_torch else "cupy"}')
                 infer_fn(
                     X, y, XtX, X_mean, coef_full_gpu, n_samples,
@@ -1331,7 +1337,7 @@ class _PenalizedFitMixin:
         self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
 
         # Debiased inference on GPU (before cleanup)
-        if self._compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+        if self._compute_inference_enabled and "debiased" in str(getattr(self, "inference_method", "")).lower():
             penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
             if penalty_name in ("l1", "elasticnet", "en"):
                 infer_fn = getattr(self, f'_compute_inference_debiased_{"torch" if is_torch else "gpu"}')
