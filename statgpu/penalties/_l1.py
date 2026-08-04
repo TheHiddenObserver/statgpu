@@ -101,7 +101,7 @@ class L1Penalty(Penalty):
         from statgpu.backends._array_ops import _soft_threshold
         return _soft_threshold(w, thresh)
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
         params["alpha"] = self.alpha
         return params

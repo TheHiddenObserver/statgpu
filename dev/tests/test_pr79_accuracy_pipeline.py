@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from dev.benchmarks.pr79 import run_accuracy as accuracy_module
 from dev.benchmarks.pr79 import aggregate_results as aggregate_module
 from dev.benchmarks.pr79.aggregate_results import (
     AggregationError,
@@ -173,6 +174,57 @@ def test_safe_run_retains_structured_failure_evidence():
     assert record["traceback"]
 
 
+def test_penalized_cox_accuracy_run_does_not_read_classical_aic_bic(monkeypatch):
+    captured = {}
+
+    class FakeCoxPH:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        @property
+        def aic(self):
+            raise RuntimeError("AIC is unavailable for penalized CoxPH")
+
+        @property
+        def bic(self):
+            raise RuntimeError("BIC is unavailable for penalized CoxPH")
+
+        def fit(self, X, *, time, event, entry=None):
+            self.coef_ = np.zeros(X.shape[1])
+            self._var_matrix = np.eye(X.shape[1])
+            self._bse = np.ones(X.shape[1])
+            self._log_likelihood = -2.0
+            self._penalized_objective = -2.1
+            self._final_kkt_inf = 0.0
+            self._final_kkt_normalized = 0.0
+            self._converged = True
+            self._termination_reason = "converged"
+            self._iterations = 1
+            return self
+
+        def predict_risk_score(self, X):
+            return np.zeros(X.shape[0])
+
+    import statgpu.survival
+
+    monkeypatch.setattr(statgpu.survival, "CoxPH", FakeCoxPH)
+    measured = accuracy_module._bench_coxph(
+        np.zeros((6, 2)),
+        np.arange(1.0, 7.0),
+        np.array([1, 1, 1, 0, 1, 0]),
+        "numpy",
+        penalty=0.1,
+        n_meas=1,
+    )
+
+    assert captured["penalty"] == 0.1
+    results = measured[0]["results"]
+    assert "aic" not in results
+    assert "bic" not in results
+    assert results["_penalized_objective"] == -2.1
+    assert results["_final_kkt_normalized"] == 0.0
+
+
 def test_non_finite_bse_is_a_hard_numerical_failure():
     with pytest.raises(NumericalValidationError, match="NaN or Inf"):
         bse_rel_error(np.array([np.nan]), np.array([np.nan]))
@@ -300,6 +352,70 @@ def _cox_case_and_run():
         }
     )
     return case, run
+
+
+def test_cox_penalized_covariance_uses_unpenalized_information_meat():
+    case = {
+        "model_id": "CoxPH",
+        "parameters": {"ties": "breslow", "penalty": 1.75},
+        "inputs": {
+            "X": [[2.0, 0.0], [0.0, 1.0], [1.0, -1.0], [-1.0, 2.0]],
+            "time": [1.0, 2.0, 3.0, 4.0],
+            "event": [1, 1, 1, 0],
+            "entry": None,
+        },
+    }
+    run = {
+        "parameters": {"ties": "breslow", "penalty": 1.75},
+        "results": {"coef_": [0.0, 0.0]},
+    }
+
+    recomputed = recompute_cox_final_state(run, case)
+
+    # Analytic observed information at beta=0 from the three suffix risk sets.
+    # This constant is intentionally independent of the recomputation helper.
+    unpenalized_information = np.array(
+        [[35.0 / 12.0, -7.0 / 2.0], [-7.0 / 2.0, 91.0 / 18.0]]
+    )
+    penalized_information = unpenalized_information + 3.5 * np.eye(2)
+    bread = np.linalg.solve(penalized_information, np.eye(2))
+    expected_covariance = bread @ unpenalized_information @ bread
+
+    np.testing.assert_allclose(
+        recomputed["unpenalized_information"],
+        unpenalized_information,
+        rtol=1e-14,
+        atol=1e-14,
+    )
+    np.testing.assert_allclose(
+        recomputed["covariance"], expected_covariance, rtol=1e-14, atol=1e-14
+    )
+    assert not np.allclose(
+        recomputed["covariance"], bread, rtol=1e-6, atol=1e-8
+    )
+
+
+def test_cox_delayed_entry_excludes_rows_entering_at_failure_time():
+    case = {
+        "model_id": "CoxPH",
+        "parameters": {"ties": "breslow", "penalty": 0.0},
+        "inputs": {
+            "X": [[0.0], [100.0], [2.0]],
+            "time": [1.0, 3.0, 2.0],
+            "event": [0, 0, 1],
+            "entry": [0.0, 2.0, 0.0],
+        },
+    }
+    run = {
+        "parameters": {"ties": "breslow", "penalty": 0.0},
+        "results": {"coef_": [0.0]},
+    }
+
+    recomputed = recompute_cox_final_state(run, case)
+
+    assert recomputed["log_likelihood"] == pytest.approx(0.0, abs=1e-15)
+    np.testing.assert_allclose(recomputed["gradient"], [0.0], atol=1e-15)
+    np.testing.assert_allclose(recomputed["hessian"], [[0.0]], atol=1e-15)
 
 
 def test_cox_final_state_is_recomputed_at_stored_beta():

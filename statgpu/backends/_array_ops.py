@@ -9,6 +9,7 @@ a single code path for all backends.
 import numpy as np
 
 from statgpu.backends._base import _resolve_backend
+from statgpu.backends._utils import _is_complex_array
 
 
 def _xp(arr):
@@ -243,10 +244,12 @@ def _sync_scalars(*dev_vals, backend):
         stacked = torch.stack(
             [torch.as_tensor(v, device=device, dtype=dtype) for v in dev_vals]
         )
-        return tuple(stacked[i].item() for i in range(len(dev_vals)))
+        host = stacked.detach().cpu().numpy()
+        return tuple(float(value) for value in host)
     import cupy as cp
     stacked = cp.stack([cp.asarray(v) for v in dev_vals])
-    return tuple(float(stacked[i]) for i in range(len(dev_vals)))
+    host = cp.asnumpy(stacked)
+    return tuple(float(value) for value in host)
 
 
 def _abs_sum(x):
@@ -502,6 +505,8 @@ def _xp_asarray(arr, dtype, ref_arr):
 
     Handles numpy→cupy, numpy→torch, and same-backend dtype casts.
     """
+    if _is_complex_array(arr):
+        raise ValueError("complex input cannot be converted to a real dtype")
     xp = _xp(ref_arr)
     if xp.__name__ == "torch":
         import torch

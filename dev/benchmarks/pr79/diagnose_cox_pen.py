@@ -255,11 +255,15 @@ def _covariance_from_hessian(unpenalized_hessian, penalty):
     penalized_hessian = np.asarray(
         unpenalized_hessian, dtype=np.float64
     ) - 2.0 * penalty * np.eye(p, dtype=np.float64)
-    information = -penalized_hessian
+    score_information = -np.asarray(unpenalized_hessian, dtype=np.float64)
+    penalized_information = -penalized_hessian
     try:
-        covariance = np.linalg.solve(information, np.eye(p, dtype=np.float64))
+        bread = np.linalg.solve(
+            penalized_information, np.eye(p, dtype=np.float64)
+        )
     except np.linalg.LinAlgError:
-        covariance = np.linalg.pinv(information)
+        bread = np.linalg.pinv(penalized_information)
+    covariance = bread @ score_information @ bread
     covariance = 0.5 * (covariance + covariance.T)
     bse = np.sqrt(np.maximum(np.diag(covariance), 0.0))
     return penalized_hessian, covariance, bse
@@ -299,8 +303,11 @@ def evaluate_fixed_beta(
         inference_mode=inference_mode,
         cov_type=cov_type,
     )
+    from statgpu.survival._cox_legacy import _LegacyCoxReference
+
+    reference = _LegacyCoxReference(model)
     efron_pre = (
-        model._efron_unique_failure_indices(time_values, event_values)
+        reference._efron_unique_failure_indices(time_values, event_values)
         if ties == "efron"
         else None
     )
@@ -321,30 +328,30 @@ def evaluate_fixed_beta(
     if backend == "numpy":
         # Independent reference: these calls must never be replaced by a GPU
         # helper or by cached values from a fitted model.
-        gradient_raw, hessian_raw = model._compute_gradient_hessian(
+        gradient_raw, hessian_raw = reference._compute_gradient_hessian(
             beta_b, X_b, time_b, event_b, efron_pre, entry=entry_b
         )
-        log_likelihood_raw = model._compute_log_likelihood(
+        log_likelihood_raw = reference._compute_log_likelihood(
             beta_b, X_b, time_b, event_b, efron_pre, entry=entry_b
         )
     elif backend == "cupy":
-        gradient_raw, hessian_raw, _ = model._compute_gradient_hessian_gpu(
+        gradient_raw, hessian_raw, _ = reference._compute_gradient_hessian_gpu(
             beta_b, X_b, time_b, event_b, efron_pre, return_aux=True, entry=entry_b
         )
-        log_likelihood_raw = model._compute_log_likelihood_gpu(
+        log_likelihood_raw = reference._compute_log_likelihood_gpu(
             beta_b, X_b, time_b, event_b, efron_pre, entry=entry_b
         )
     else:
-        gradient_raw, hessian_raw, _ = model._compute_gradient_hessian_torch(
+        gradient_raw, hessian_raw, _ = reference._compute_gradient_hessian_torch(
             beta_b, X_b, time_b, event_b, efron_pre, return_aux=True, entry=entry_b
         )
-        log_likelihood_raw = model._compute_log_likelihood_torch(
+        log_likelihood_raw = reference._compute_log_likelihood_torch(
             beta_b, X_b, time_b, event_b, efron_pre, entry=entry_b
         )
 
     gradient = np.asarray(_to_numpy(backend, gradient_raw), dtype=np.float64)
     raw_hessian = np.asarray(_to_numpy(backend, hessian_raw), dtype=np.float64)
-    unpen_hessian, orientation = _canonical_loglik_hessian(model, raw_hessian)
+    unpen_hessian, orientation = _canonical_loglik_hessian(reference, raw_hessian)
     pen_hessian, covariance, bse = _covariance_from_hessian(unpen_hessian, penalty)
     log_likelihood = _to_float(backend, log_likelihood_raw)
     beta_np = np.asarray(beta, dtype=np.float64)
@@ -357,6 +364,7 @@ def evaluate_fixed_beta(
         "penalized_gradient": gradient - 2.0 * penalty * beta_np,
         "raw_unpenalized_hessian": 0.5 * (raw_hessian + raw_hessian.T),
         "raw_hessian_orientation": orientation,
+        "covariance_contract": "A^-1 J A^-1",
         "unpenalized_hessian": unpen_hessian,
         "penalized_hessian": pen_hessian,
         "covariance": covariance,
@@ -476,6 +484,7 @@ def _fit_backend(
         "inference_fallback_reason": getattr(
             model, "inference_fallback_reason_", None
         ),
+        "covariance_contract": at_solution["covariance_contract"],
         "covariance": covariance,
         "bse": bse,
         "fixed_beta_covariance_at_solution": at_solution["covariance"],
@@ -664,7 +673,7 @@ def _add_numpy_self_checks(checks, fixed, fitted, *, max_iter):
     )
     _add_metric_check(
         checks,
-        "fitted_bse_matches_final_beta_hessian",
+        "fitted_bse_matches_final_fixed_penalty_covariance",
         _max_relative_difference(fitted["fixed_beta_bse_at_solution"], fitted["bse"]),
         1e-8,
         backend="numpy",
@@ -758,7 +767,7 @@ def _add_backend_parity_checks(checks, backend, fixed_ref, fixed, fitted_ref, fi
     )
     _add_metric_check(
         checks,
-        "fitted_bse_matches_own_final_beta_hessian",
+        "fitted_bse_matches_own_final_fixed_penalty_covariance",
         _max_relative_difference(fitted["fixed_beta_bse_at_solution"], fitted["bse"]),
         1e-8,
         backend=backend,
@@ -1027,7 +1036,7 @@ def run_physical_gpu_matrix_case(case, *, tol=DEFAULT_TOL, max_iter=DEFAULT_MAX_
         if compute_inference and case["cov_type"] == "nonrobust":
             _add_metric_check(
                 checks,
-                "fitted_bse_matches_own_final_beta_hessian",
+                "fitted_bse_matches_own_final_fixed_penalty_covariance",
                 _max_relative_difference(
                     fitted_gpu["fixed_beta_bse_at_solution"], fitted_gpu["bse"]
                 ),

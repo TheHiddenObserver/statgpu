@@ -1,7 +1,7 @@
 # 模型总览
 
 > 语言：中文  
-> 最后更新：2026-07-24  
+> 最后更新：2026-07-30  
 > 切换：[English](../../en/models/README.md)
 
 本页仅作为导航。当前 solver、penalty、后端与推断覆盖以
@@ -37,8 +37,23 @@
 
 - [Cox 比例风险模型](coxph.md)
 
-Cox 模型页是 `CoxPH`、`CoxPHCV` 与相关惩罚路径的 ties、delayed-entry、
-robust/cluster 推断、可选依赖及后端支持矩阵的权威来源。
+### 如何选择 Cox estimator
+
+| 需求 | Estimator | 导入路径 | 当前契约 |
+|---|---|---|---|
+| 完整 Cox 拟合、baseline hazard、生存预测、formula 与统计推断 | `CoxPH` | `from statgpu.survival import CoxPH` | Breslow/Efron/Exact ties、delayed entry、`(start, stop]`、strata、robust/cluster 协方差、NumPy/CuPy/Torch |
+| 通过 held-out partial likelihood 选择非负 L2 penalty | `CoxPHCV` | `from statgpu.survival import CoxPHCV` | CV 期间沿用 canonical Cox 语义，并使用最佳 penalty 最终重拟合 `CoxPH` |
+| 使用 L1、L2、ElasticNet、SCAD 或 MCP 进行估计 | `PenalizedCoxPHModel` | `from statgpu.linear_model import PenalizedCoxPHModel` | 广义 penalty 与通用 solver 路径；当前仅支持 estimation，`compute_inference=True` 会被拒绝 |
+
+`CoxPH(penalty=...)` 与 `PenalizedCoxPHModel` 不是可互换的别名。需要
+counting-process、strata、baseline prediction 或统计推断时，应使用 canonical
+`CoxPH`/`CoxPHCV` 路径；主要需求是更广的 penalty family 且 estimation-only
+结果足够时，使用 `PenalizedCoxPHModel`。
+
+[Cox 模型页](coxph.md)是 Breslow/Efron/Exact ties、delayed-entry 与
+`(start, stop]` 数据、strata、robust/cluster 推断、subject-grouped CV、预测数值边界
+以及 NumPy/CuPy/Torch 支持矩阵的用户侧权威来源。内部模块 ownership、调用图与扩展
+规则见 [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTURE.md#5-survival--cox-architecture)。
 
 ## 专业统计模块
 

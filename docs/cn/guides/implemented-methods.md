@@ -127,11 +127,13 @@ model.fit(X, y)
 
 | Class | 说明 | 后端 |
 |---|---|---|
-| `CoxPH` | Breslow/Efron ties、delayed entry、robust/cluster 推断契约与后端原生预测 | NumPy, CuPy, Torch |
-| `PenalizedCoxPHModel` | 支持范围内的凸/非凸 Cox 惩罚 | NumPy, CuPy, Torch |
+| `CoxPH` | Breslow/Efron/Exact ties、delayed entry、`(start, stop]` 行、strata、robust/cluster 推断与后端原生预测 | NumPy, CuPy, Torch |
+| `CoxPHCV` | 使用同一风险集语义的 L2 网格选择，并保持受试者完整分组 | NumPy, CuPy, Torch |
+| `PenalizedCoxPHModel` | 支持范围内的标准右删失凸/非凸 Cox 惩罚 | NumPy, CuPy, Torch |
 
-Exact Efron robust inference 与 delayed-entry reference path 所需的可选 CPU
-依赖可通过 `pip install statgpu[survival]` 安装。精确支持矩阵见
+基础安装已包含维护中的 Cox 实现。可选 `statgpu[survival]` extra 安装
+statsmodels，用于外部验证与比较；delayed entry 和 strict Breslow/Efron
+稳健推断不依赖该 extra。精确支持矩阵见
 [Cox 比例风险模型](../models/coxph.md)。
 
 ## 特征选择与诊断

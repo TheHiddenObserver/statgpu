@@ -38,7 +38,7 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Nonparametric** | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases, and SplineTransformer |
 | **Semiparametric** | GAM with penalized B-splines and GCV |
 | **Unsupervised** | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, and AgglomerativeClustering |
-| **Survival** | CoxPH and PenalizedCoxPHModel |
+| **Survival** | CoxPH/CoxPHCV with Breslow, Efron, or Exact ties, `(start, stop]` data, strata, robust covariance, and subject-grouped CV; PenalizedCoxPHModel |
 | **Feature selection** | Stepwise selection plus fixed-X and model-X knockoff filters and wrappers |
 | **Diagnostics** | RegressionDiagnostics and `diagnose_model` |
 | **Multiple testing** | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
@@ -79,7 +79,7 @@ pip install "statgpu[torch]"
 # Formula/dataframe interfaces
 pip install "statgpu[formula]"
 
-# CPU delayed entry and exact Efron robust Cox inference
+# Optional statsmodels dependency for external Cox validation
 pip install "statgpu[survival]"
 
 # Development environment

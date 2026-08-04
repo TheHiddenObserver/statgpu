@@ -91,8 +91,8 @@ class ElasticNetPenalty(Penalty):
         from statgpu.backends._array_ops import _soft_threshold
         return _soft_threshold(w, thresh) / l2_scale
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
         params["alpha"] = self.alpha
         params["l1_ratio"] = self.l1_ratio
         return params

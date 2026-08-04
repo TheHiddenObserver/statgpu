@@ -17,8 +17,8 @@
 - [变更记录](changelog.md)
 
 CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；
-PyTorch 后端使用 `statgpu[torch]`；可选 CPU 生存分析依赖使用
-`statgpu[survival]`。
+PyTorch 后端使用 `statgpu[torch]`。维护中的 Cox 实现已包含在基础安装中；
+`statgpu[survival]` 仅增加 statsmodels，用于可选外部验证与比较。
 
 ## 模型族
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 __all__ = ["CVEstimatorBase", "folds_are_complete", "INTERCEPT_CLIP_BOUND"]
 
+
 import hashlib
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -22,6 +23,7 @@ from statgpu.backends import (
     _resolve_backend,
     _to_float_scalar,
     _to_numpy,
+    get_backend,
     xp_asarray,
 )
 
@@ -32,13 +34,17 @@ _FULL_HASH_THRESHOLD = 10_000_000
 _LARGE_HASH_SAMPLE_ROWS = 100
 
 
-def _torch_cuda_available():
-    """Check if torch CUDA is available (shared utility)."""
+def _cuda_backend_available(backend_name: str) -> bool:
+    """Return whether a named CUDA backend is operational, not merely importable."""
     try:
-        import torch
-        return torch.cuda.is_available()
+        return bool(get_backend(backend_name, device="cuda").is_available())
     except Exception:
         return False
+
+
+def _torch_cuda_available():
+    """Backward-compatible wrapper around the shared backend availability gate."""
+    return _cuda_backend_available("torch")
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +107,90 @@ def kfold_indices(
 
     return folds
 
+
+def _coerce_cv_indices(values, *, fold_idx: int, name: str) -> np.ndarray:
+    """Validate custom fold indices before converting them to ``int64``.
+
+    Boolean values, numeric strings, fractional or non-finite floating-point
+    values, and integers outside the signed-int64 range are rejected before any
+    cast can change the split selected by the caller.
+    """
+    if isinstance(values, (list, tuple)):
+        object_values = np.asarray(values, dtype=object)
+        if object_values.ndim == 1 and any(
+            isinstance(value, (bool, np.bool_)) for value in object_values
+        ):
+            raise ValueError(
+                f"cv_splits fold {fold_idx} {name} indices must contain integers, "
+                "not booleans"
+            )
+    try:
+        values_np = np.asarray(_to_numpy(values))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"cv_splits fold {fold_idx} {name} indices must contain integers"
+        ) from exc
+
+    if values_np.ndim != 1:
+        raise ValueError(
+            f"cv_splits fold {fold_idx} {name} indices must be 1-dimensional"
+        )
+
+    kind = values_np.dtype.kind
+    if kind == "b":
+        raise ValueError(
+            f"cv_splits fold {fold_idx} {name} indices must contain integers, "
+            "not booleans"
+        )
+    if kind in {"i", "u"}:
+        if kind == "u" and np.any(values_np > np.iinfo(np.int64).max):
+            raise ValueError(
+                f"cv_splits fold {fold_idx} {name} indices exceed the int64 range"
+            )
+        return values_np.astype(np.int64, copy=False)
+    if kind == "f":
+        valid = (
+            np.all(np.isfinite(values_np))
+            and np.all(values_np == np.floor(values_np))
+            and np.all(values_np >= -(2**63))
+            and np.all(values_np < 2**63)
+        )
+        if valid:
+            return values_np.astype(np.int64)
+        raise ValueError(
+            f"cv_splits fold {fold_idx} {name} indices must contain integers"
+        )
+    if kind == "O":
+        int64_info = np.iinfo(np.int64)
+        normalized = []
+        for value in values_np.tolist():
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(
+                    f"cv_splits fold {fold_idx} {name} indices must contain "
+                    "integers, not booleans"
+                )
+            if isinstance(value, (int, np.integer)):
+                integer = int(value)
+            elif (
+                isinstance(value, (float, np.floating))
+                and np.isfinite(value)
+                and float(value).is_integer()
+            ):
+                integer = int(value)
+            else:
+                raise ValueError(
+                    f"cv_splits fold {fold_idx} {name} indices must contain integers"
+                )
+            if integer < int64_info.min or integer > int64_info.max:
+                raise ValueError(
+                    f"cv_splits fold {fold_idx} {name} indices exceed the int64 range"
+                )
+            normalized.append(integer)
+        return np.asarray(normalized, dtype=np.int64)
+
+    raise ValueError(
+        f"cv_splits fold {fold_idx} {name} indices must contain integers"
+    )
 
 def folds_are_complete(folds, n_samples: int) -> bool:
     """Check that validation folds cover every sample exactly once."""
@@ -329,6 +419,20 @@ class CVCache:
             self._cache.move_to_end(key)
             while len(self._cache) > self._maxsize:
                 self._cache.popitem(last=False)
+
+    def pop(self, key, default=None):
+        """Remove and return one cached value under the cache lock."""
+        with self._lock:
+            return self._cache.pop(key, default)
+
+    def clear(self) -> None:
+        """Remove every cached value under the cache lock."""
+        with self._lock:
+            self._cache.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
 
     @staticmethod
     def make_key(*args) -> str:

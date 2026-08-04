@@ -1,0 +1,2355 @@
+{
+  "status": "complete",
+  "generated_at": "2026-07-27T10:50:10.784466+00:00",
+  "git_commit": "98de333d5be17715a2cafa0c560aa78a9c92b3e1",
+  "tracked_worktree_dirty_before_run": false,
+  "statgpu_version": "0.2.2",
+  "python": "3.9.16",
+  "numpy": "1.24.2",
+  "source_hashes": {
+    "cox_ph_loss": "7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea",
+    "fista_lla": "3c9a665d0d46bebc32c6e43dbd2f777d989fe09114f73a2c7ae1e9bdb1642536",
+    "fit_mixin": "56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d",
+    "penalized_cox_estimator": "8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55",
+    "risk_sets": "0770b7b71462d57426234b9e1a7772b4f02a1098a2d7abd2827f04a72540a12b",
+    "backend_array_ops": "a547b359dab0cd2717f3708441adb1ba0b1c88394b1c3da0a858e77a57c86876",
+    "backend_utils": "eb80d5564f322a7a4fc14c2c81c6d132dc6e97246f78b3aa3d9a25cea68c6bfd"
+  },
+  "benchmark_sha256": "a6754d02ef0d24b793229dcec5c9e18d9784fd1299800f0f3759619a6d03b5f1",
+  "command_argv": [
+    "/root/miniconda3/envs/myconda/bin/python",
+    "dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py"
+  ],
+  "device_metadata": {
+    "cupy_version": "13.6.0",
+    "cupy_gpu": "Tesla P100-SXM2-16GB",
+    "cupy_compute_capability": [
+      6,
+      0
+    ],
+    "torch_version": "2.0.0+cu117",
+    "torch_cuda_version": "11.7",
+    "torch_gpu": "Tesla P100-SXM2-16GB",
+    "torch_compute_capability": [
+      6,
+      0
+    ]
+  },
+  "scenarios": {
+    "departing_maximum": {
+      "X": [
+        [
+          1000.0
+        ],
+        [
+          0.0
+        ]
+      ],
+      "time": [
+        1.0,
+        2.0
+      ],
+      "event": [
+        0.0,
+        1.0
+      ],
+      "initial_coef": [
+        1.0
+      ],
+      "expected_gradient": [
+        0.0
+      ]
+    },
+    "signed_moment_cancellation": {
+      "X_template": [
+        [
+          -1.5
+        ],
+        [
+          0.5
+        ],
+        [
+          "scale"
+        ],
+        [
+          "-scale + 1"
+        ]
+      ],
+      "scales": [
+        100000000.0,
+        1000000000000.0,
+        1000000000000000.0
+      ],
+      "time": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "event": [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "initial_coef": [
+        0.0
+      ],
+      "expected_gradient": [
+        0.0
+      ]
+    }
+  },
+  "timing_protocol": {
+    "cold_process_measured": false,
+    "cold_process_fit_seconds": null,
+    "python_import_and_backend_initialization_included": false,
+    "gradient_path_preheated_before_fit_cases": true,
+    "first_fit_in_warm_process": "first estimator fit for that scenario/ties/penalty/backend; may include estimator or proximal first-use compilation",
+    "steady_state_fit": "second fresh estimator fit immediately after the first fit",
+    "performance_timing": "one synchronized warmup is excluded, then five synchronized fresh-estimator fits are timed and summarized by the median",
+    "cupy_rawkernel_jit_applicable": false,
+    "interpretation": "diagnostic warm-process timing, not fresh-Python cold-start latency"
+  },
+  "thresholds": {
+    "gradient_max_abs": 1e-12,
+    "coefficient_max_abs_vs_numpy": 1e-12,
+    "objective_abs_vs_numpy": 1e-10,
+    "kkt_max_abs": 1e-08,
+    "expected_predictor_range_sync_calls": 1,
+    "workspace_max_bytes": 67108864,
+    "performance_coefficient_max_abs_vs_numpy": 1e-08,
+    "performance_gpu_speedup_min": 1.0
+  },
+  "gradient_cases": [
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_host_scalar_sync_calls": 1,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    }
+  ],
+  "fit_cases": [
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0031485557556152344,
+      "steady_state_fit_seconds": 0.0024916231632232666,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.030875205993652344,
+      "steady_state_fit_seconds": 0.023762106895446777,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023499999952036887,
+      "objective": 0.00023499999952036887,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0141831636428833,
+      "steady_state_fit_seconds": 0.01384851336479187,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 4.796311459977221e-13
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0026617348194122314,
+      "steady_state_fit_seconds": 0.002571702003479004,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.02156198024749756,
+      "steady_state_fit_seconds": 0.022979646921157837,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.0001500000071246177,
+      "objective": 0.0001500000071246177,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.01365402340888977,
+      "steady_state_fit_seconds": 0.013270646333694458,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 7.124617681843887e-12
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.002888500690460205,
+      "steady_state_fit_seconds": 0.0028221607208251953,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.025929629802703857,
+      "steady_state_fit_seconds": 0.027117222547531128,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023499999952036887,
+      "objective": 0.00023499999952036887,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.015308886766433716,
+      "steady_state_fit_seconds": 0.015262514352798462,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 4.796311459977221e-13
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.002972722053527832,
+      "steady_state_fit_seconds": 0.0028792619705200195,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.024889498949050903,
+      "steady_state_fit_seconds": 0.02676817774772644,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "departing_maximum",
+      "scale": null,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.0001500000071246177,
+      "objective": 0.0001500000071246177,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0150831937789917,
+      "steady_state_fit_seconds": 0.014667391777038574,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 7.124617681843887e-12
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0023868978023529053,
+      "steady_state_fit_seconds": 0.0022658705711364746,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.021437644958496094,
+      "steady_state_fit_seconds": 0.022427350282669067,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.012779831886291504,
+      "steady_state_fit_seconds": 0.0124073326587677,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.002434760332107544,
+      "steady_state_fit_seconds": 0.0023605525493621826,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.020554840564727783,
+      "steady_state_fit_seconds": 0.02185988426208496,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.01265019178390503,
+      "steady_state_fit_seconds": 0.012516975402832031,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0026786327362060547,
+      "steady_state_fit_seconds": 0.0025838911533355713,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.02378830313682556,
+      "steady_state_fit_seconds": 0.02516835927963257,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.013880014419555664,
+      "steady_state_fit_seconds": 0.013479530811309814,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0025693774223327637,
+      "steady_state_fit_seconds": 0.002411454916000366,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.023409485816955566,
+      "steady_state_fit_seconds": 0.02508637309074402,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 100000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.014252811670303345,
+      "steady_state_fit_seconds": 0.014049887657165527,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0024964213371276855,
+      "steady_state_fit_seconds": 0.002424180507659912,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.021238505840301514,
+      "steady_state_fit_seconds": 0.02246272563934326,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.012787461280822754,
+      "steady_state_fit_seconds": 0.012731075286865234,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0025328993797302246,
+      "steady_state_fit_seconds": 0.002447456121444702,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.020869672298431396,
+      "steady_state_fit_seconds": 0.02187246084213257,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.01261889934539795,
+      "steady_state_fit_seconds": 0.012560397386550903,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0027310848236083984,
+      "steady_state_fit_seconds": 0.0026560425758361816,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.023895174264907837,
+      "steady_state_fit_seconds": 0.02393987774848938,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.014107823371887207,
+      "steady_state_fit_seconds": 0.01353687047958374,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.002514958381652832,
+      "steady_state_fit_seconds": 0.0024682581424713135,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0230848491191864,
+      "steady_state_fit_seconds": 0.024523377418518066,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.013851076364517212,
+      "steady_state_fit_seconds": 0.013884007930755615,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0024437904357910156,
+      "steady_state_fit_seconds": 0.002473205327987671,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.021613717079162598,
+      "steady_state_fit_seconds": 0.02230966091156006,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.012490123510360718,
+      "steady_state_fit_seconds": 0.012403488159179688,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0024465620517730713,
+      "steady_state_fit_seconds": 0.0023572444915771484,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.019941329956054688,
+      "steady_state_fit_seconds": 0.02062031626701355,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.012157678604125977,
+      "steady_state_fit_seconds": 0.011849373579025269,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0024726688861846924,
+      "steady_state_fit_seconds": 0.0024138987064361572,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.02317523956298828,
+      "steady_state_fit_seconds": 0.025488436222076416,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.013972431421279907,
+      "steady_state_fit_seconds": 0.013915717601776123,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.2746530721670274,
+      "penalty_value": 0.0,
+      "objective": 0.2746530721670274,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.0026446282863616943,
+      "steady_state_fit_seconds": 0.0025597810745239258,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.02387005090713501,
+      "steady_state_fit_seconds": 0.024940699338912964,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "scenario": "signed_moment_cancellation",
+      "scale": 1000000000000000.0,
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        0.0
+      ],
+      "coef": [
+        0.0
+      ],
+      "loss_value": 0.27465307216702745,
+      "penalty_value": 0.0,
+      "objective": 0.27465307216702745,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "first_fit_in_warm_process_seconds": 0.013840317726135254,
+      "steady_state_fit_seconds": 0.013988256454467773,
+      "n_iter": 5,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 5.551115123125783e-17
+    }
+  ],
+  "performance_cases": [
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "penalty": "scad",
+      "ties": "efron",
+      "alpha": 0.04,
+      "n": 4096,
+      "p": 12,
+      "time_bins": 64,
+      "warmups": 1,
+      "repeats": 5,
+      "seconds": [
+        0.0847773551940918,
+        0.08350154757499695,
+        0.08313173055648804,
+        0.08288353681564331,
+        0.08575406670570374
+      ],
+      "median_seconds": 0.08350154757499695,
+      "representative_run_index": 1,
+      "coef": [
+        -0.0,
+        0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0
+      ],
+      "n_iter": 5,
+      "all_finite": true,
+      "coef_max_abs_vs_numpy": 0.0,
+      "speedup_vs_numpy": 1.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "penalty": "scad",
+      "ties": "efron",
+      "alpha": 0.04,
+      "n": 4096,
+      "p": 12,
+      "time_bins": 64,
+      "warmups": 1,
+      "repeats": 5,
+      "seconds": [
+        0.032033830881118774,
+        0.03153863549232483,
+        0.031435757875442505,
+        0.031478703022003174,
+        0.03145357966423035
+      ],
+      "median_seconds": 0.031478703022003174,
+      "representative_run_index": 3,
+      "coef": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "n_iter": 5,
+      "all_finite": true,
+      "coef_max_abs_vs_numpy": 0.0,
+      "speedup_vs_numpy": 2.6526362130177517
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "penalty": "scad",
+      "ties": "efron",
+      "alpha": 0.04,
+      "n": 4096,
+      "p": 12,
+      "time_bins": 64,
+      "warmups": 1,
+      "repeats": 5,
+      "seconds": [
+        0.02137923240661621,
+        0.02156415581703186,
+        0.021238267421722412,
+        0.021263033151626587,
+        0.021368354558944702
+      ],
+      "median_seconds": 0.021368354558944702,
+      "representative_run_index": 4,
+      "coef": [
+        -0.0,
+        0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0
+      ],
+      "n_iter": 5,
+      "all_finite": true,
+      "coef_max_abs_vs_numpy": 0.0,
+      "speedup_vs_numpy": 3.9077200513805384
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "penalty": "mcp",
+      "ties": "efron",
+      "alpha": 0.04,
+      "n": 4096,
+      "p": 12,
+      "time_bins": 64,
+      "warmups": 1,
+      "repeats": 5,
+      "seconds": [
+        0.08321651816368103,
+        0.08303073048591614,
+        0.09460511803627014,
+        0.08647304773330688,
+        0.08468833565711975
+      ],
+      "median_seconds": 0.08468833565711975,
+      "representative_run_index": 4,
+      "coef": [
+        -0.0,
+        0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0
+      ],
+      "n_iter": 5,
+      "all_finite": true,
+      "coef_max_abs_vs_numpy": 0.0,
+      "speedup_vs_numpy": 1.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "penalty": "mcp",
+      "ties": "efron",
+      "alpha": 0.04,
+      "n": 4096,
+      "p": 12,
+      "time_bins": 64,
+      "warmups": 1,
+      "repeats": 5,
+      "seconds": [
+        0.03116890788078308,
+        0.03115352988243103,
+        0.030998557806015015,
+        0.030933469533920288,
+        0.030922502279281616
+      ],
+      "median_seconds": 0.030998557806015015,
+      "representative_run_index": 2,
+      "coef": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "n_iter": 5,
+      "all_finite": true,
+      "coef_max_abs_vs_numpy": 0.0,
+      "speedup_vs_numpy": 2.732008894965
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "penalty": "mcp",
+      "ties": "efron",
+      "alpha": 0.04,
+      "n": 4096,
+      "p": 12,
+      "time_bins": 64,
+      "warmups": 1,
+      "repeats": 5,
+      "seconds": [
+        0.02172890305519104,
+        0.021332085132598877,
+        0.021361887454986572,
+        0.02129015326499939,
+        0.02125611901283264
+      ],
+      "median_seconds": 0.021332085132598877,
+      "representative_run_index": 1,
+      "coef": [
+        -0.0,
+        0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0
+      ],
+      "n_iter": 5,
+      "all_finite": true,
+      "coef_max_abs_vs_numpy": 0.0,
+      "speedup_vs_numpy": 3.9699980161668433
+    }
+  ],
+  "workspace_cases": [
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "n": 300000,
+      "p": 1,
+      "measurement": "cupy_allocator_total_growth",
+      "baseline_bytes": 17203712,
+      "workspace_bytes": 6758400,
+      "gradient_finite": true
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "n": 300000,
+      "p": 1,
+      "measurement": "torch_peak_active_delta",
+      "baseline_bytes": 25775104,
+      "workspace_bytes": 6076928,
+      "gradient_finite": true
+    }
+  ],
+  "gate_failures": []
+}

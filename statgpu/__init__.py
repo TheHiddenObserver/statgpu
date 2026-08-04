@@ -38,7 +38,7 @@ from .linear_model import (
     ElasticNet,
     ElasticNetCV,
 )
-from .survival import CoxPH, CoxPHCV
+from .survival import CoxFitNumericalError, CoxPH, CoxPHCV
 from .losses import (
     LossBase,
     QuantileLoss,
@@ -165,6 +165,7 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    "CoxFitNumericalError",
     # Losses (LossBase subclasses)
     "LossBase",
     "QuantileLoss",

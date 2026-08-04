@@ -4,7 +4,7 @@ Covers:
 - CPU/CuPy/Torch rank-deficient HC1 effective-df
 - HC1 repeated-fit state isolation
 - Delayed-entry baseline hazard backend parity
-- Delayed-entry robust covariance contract (NotImplementedError)
+- Delayed-entry robust covariance backend-native contract
 - Torch baseline exactly-once (no duplicate compute)
 """
 
@@ -29,7 +29,6 @@ def test_cpu_rank_deficient_hc1_uses_effective_df():
     y = X[:, 0] * 1.5 + X[:, 1] * (-0.5) + rng.normal(scale=0.3, size=n)
 
     model_fr = LinearRegression(cov_type="hc1").fit(X, y)
-    model_def = LinearRegression(cov_type="hc1").fit(X[:, :4], y)
 
     # df_resid should be n - rank, not n - n_columns
     assert model_fr.rank_ is not None, "rank_ should be set"
@@ -183,7 +182,7 @@ def test_delayed_entry_baseline_manual_reference(backend):
 
 @pytest.mark.parametrize("backend", ["cpu", "cupy", "torch"])
 def test_delayed_entry_robust_covariance_contract(backend):
-    """Robust covariance with delayed entry raises NotImplementedError."""
+    """Delayed-entry robust covariance is exact and backend-native."""
     if backend == "cupy":
         cp = pytest.importorskip("cupy")
         if cp.cuda.runtime.getDeviceCount() < 1:
@@ -201,28 +200,41 @@ def test_delayed_entry_robust_covariance_contract(backend):
     time = np.arange(1.0, n + 1.0)
     event = np.ones(n, dtype=np.int32)
     entry = np.zeros(n, dtype=np.float64)
+    kwargs = {
+        "cov_type": "hc1",
+        "compute_cindex": False,
+        "tol": 1e-6,
+        "max_iter": 30,
+    }
 
-    kwargs = {"cov_type": "hc1", "compute_cindex": False, "tol": 1e-6, "max_iter": 30}
     if backend == "cupy":
-        model = CoxPH(device="cuda", **kwargs)
-        with pytest.raises(NotImplementedError, match="delayed entry"):
-            model.fit(cp.asarray(X), time=time, event=event, entry=entry)
+        model = CoxPH(device="cuda", **kwargs).fit(
+            cp.asarray(X), time=time, event=event, entry=entry
+        )
+        expected_backend = "cupy"
     elif backend == "torch":
-        model = CoxPH(device="torch", **kwargs)
-        with pytest.raises(NotImplementedError, match="delayed entry"):
-            model.fit(
-                torch.as_tensor(X, dtype=torch.float64, device="cuda"),
-                time=time, event=event, entry=entry)
+        model = CoxPH(device="torch", **kwargs).fit(
+            torch.as_tensor(X, dtype=torch.float64, device="cuda"),
+            time=time,
+            event=event,
+            entry=entry,
+        )
+        expected_backend = "torch"
     else:
-        # CPU with entry goes through statsmodels path which may silently accept
-        model = CoxPH(**kwargs)
-        with pytest.raises(NotImplementedError, match="delayed entry"):
-            model.fit(X, time=time, event=event, entry=entry)
+        model = CoxPH(device="cpu", **kwargs).fit(
+            X, time=time, event=event, entry=entry
+        )
+        expected_backend = "numpy"
+
+    assert model.inference_method_ == "counting_process_score_sandwich"
+    assert model.inference_backend_ == expected_backend
+    assert model.inference_approximate_ is False
+    assert np.all(np.isfinite(model._bse))
 
 
 @pytest.mark.parametrize("cov_type", ["hc0", "hc1", "cluster"])
-def test_entry_robust_inference_is_explicitly_unsupported(cov_type):
-    """entry + robust cov_type + compute_inference=True → NotImplementedError."""
+def test_entry_robust_inference_is_backend_native(cov_type):
+    """Delayed-entry HC/cluster inference uses exact internal residuals."""
     from statgpu.survival import CoxPH
 
     rng = np.random.default_rng(42)
@@ -240,15 +252,18 @@ def test_entry_robust_inference_is_explicitly_unsupported(cov_type):
         compute_cindex=False,
         tol=1e-6,
         max_iter=30,
+    ).fit(
+        X,
+        time=time,
+        event=event,
+        entry=entry,
+        **({"cluster": cluster} if cluster is not None else {}),
     )
-    with pytest.raises(
-        NotImplementedError,
-        match="Robust/cluster covariance with delayed entry",
-    ):
-        model.fit(
-            X, time=time, event=event, entry=entry,
-            **({"cluster": cluster} if cluster is not None else {}),
-        )
+
+    assert model.inference_method_ == "counting_process_score_sandwich"
+    assert model.inference_backend_ == "numpy"
+    assert model.inference_approximate_ is False
+    assert np.all(np.isfinite(model._bse))
 
 
 @pytest.mark.parametrize("cov_type", ["hc0", "hc1", "cluster"])
@@ -282,7 +297,7 @@ def test_entry_robust_cov_type_is_allowed_when_inference_disabled(cov_type):
 
 
 @pytest.mark.parametrize("backend", ["cupy", "torch"])
-def test_torch_baseline_called_once(backend, monkeypatch):
+def test_gpu_baseline_called_once(backend, monkeypatch):
     """Baseline hazard computed exactly once per fit (no double compute)."""
     if backend == "cupy":
         cp = pytest.importorskip("cupy")
@@ -300,33 +315,23 @@ def test_torch_baseline_called_once(backend, monkeypatch):
     X = rng.normal(size=(n, 2))
     time = np.arange(1.0, n + 1.0)
     event = np.ones(n, dtype=np.int32)
+    import statgpu.survival._cox_counting as counting_module
+
+    original = counting_module.cox_baseline_hazard
+    call_count = [0]
+
+    def counting_baseline(*args, **kwargs):
+        call_count[0] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        counting_module, "cox_baseline_hazard", counting_baseline
+    )
 
     if backend == "cupy":
-        import statgpu.survival._cox as cox_module
-        original = cox_module.CoxPH._compute_baseline_hazard_gpu
-        call_count = [0]
-
-        def counting_baseline(self, *args, **kwargs):
-            call_count[0] += 1
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(
-            cox_module.CoxPH, "_compute_baseline_hazard_gpu", counting_baseline)
-
         model = CoxPH(device="cuda", compute_cindex=False, tol=1e-6, max_iter=30)
         model.fit(cp.asarray(X), time=time, event=event)
     else:
-        import statgpu.survival._cox as cox_module
-        original = cox_module.CoxPH._compute_baseline_hazard_torch
-        call_count = [0]
-
-        def counting_baseline(self, *args, **kwargs):
-            call_count[0] += 1
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(
-            cox_module.CoxPH, "_compute_baseline_hazard_torch", counting_baseline)
-
         model = CoxPH(device="torch", compute_cindex=False, tol=1e-6, max_iter=30)
         model.fit(
             torch.as_tensor(X, dtype=torch.float64, device="cuda"),

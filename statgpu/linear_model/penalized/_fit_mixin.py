@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import TYPE_CHECKING
 
 from statgpu._config import Device
-from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
+from statgpu.backends import get_backend, _to_numpy, _LINALG_ERRORS
 from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
-
-if TYPE_CHECKING:
-    from ._base import PenalizedGeneralizedLinearModel as _Self
 
 # ---------------------------------------------------------------------------
 # Solver dispatch table for solver='auto'
@@ -1500,6 +1496,23 @@ class _PenalizedFitMixin:
         _n_groups = len(_g_indices)
         _sqrt_pg = [float(s) for s in _sqrt_pg_np]
 
+        # Group metadata originates from the public host-side penalty
+        # specification. Normalize it against the design-matrix reference
+        # once so Torch never creates CPU tensors inside a CUDA solve.
+        _g_indices_backend = [
+            _xp_asarray(
+                np.asarray(g_idx, dtype=np.int64),
+                xp.int64,
+                X_work,
+            )
+            for g_idx in _g_indices
+        ]
+        _sqrt_pg_arr = _xp_asarray(
+            np.asarray(_sqrt_pg, dtype=np.float64),
+            X_work.dtype,
+            X_work,
+        )
+
         XtX = X_work.T @ X_work / n
         Xty = (X_work.T @ y_arr.flatten()) / n
 
@@ -1507,7 +1520,7 @@ class _PenalizedFitMixin:
         from statgpu.backends._array_ops import _scalar_tensor
         _XtX_blocks = []
         _ridge = _scalar_tensor(1e-10, X_work)
-        for g_idx in _g_indices:
+        for g_idx in _g_indices_backend:
             block = XtX[g_idx][:, g_idx]
             block = block + _ridge * _xp_eye(block.shape[0], block.dtype, block)
             _XtX_blocks.append(block)
@@ -1526,9 +1539,18 @@ class _PenalizedFitMixin:
         _contiguous = _equal_size and all(
             _g_indices[g][0] == g * _gs for g in range(_n_groups)
         )
+        _flat_idx_backend = None
+        if _equal_size and not _contiguous:
+            _flat_idx_backend = _xp_asarray(
+                np.asarray(
+                    [i for group in _g_indices for i in group],
+                    dtype=np.int64,
+                ),
+                xp.int64,
+                X_work,
+            )
         if _equal_size and _n_groups > 1:
             _XtX_batched = xp.stack(_XtX_blocks)  # (G, gs, gs)
-            _sqrt_pg_arr = xp.asarray(_sqrt_pg, dtype=X_work.dtype)
 
         iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
@@ -1544,10 +1566,9 @@ class _PenalizedFitMixin:
                     XtX_coef_mat = XtX_coef[:p].reshape(_n_groups, _gs)
                     Xty_mat = Xty[:p].reshape(_n_groups, _gs)
                 else:
-                    flat_idx = xp.asarray([i for g in _g_indices for i in g], dtype=xp.int64)
-                    coef_mat = coef[flat_idx].reshape(_n_groups, _gs)
-                    XtX_coef_mat = XtX_coef[flat_idx].reshape(_n_groups, _gs)
-                    Xty_mat = Xty[flat_idx].reshape(_n_groups, _gs)
+                    coef_mat = coef[_flat_idx_backend].reshape(_n_groups, _gs)
+                    XtX_coef_mat = XtX_coef[_flat_idx_backend].reshape(_n_groups, _gs)
+                    Xty_mat = Xty[_flat_idx_backend].reshape(_n_groups, _gs)
 
                 # rho_g = Xty[g] - XtX[g,:] @ coef + XtX_blocks[g] @ coef[g]
                 #       = Xty[g] - XtX_coef[g] + diag_blocks @ coef_g
@@ -1573,11 +1594,11 @@ class _PenalizedFitMixin:
                 if _contiguous:
                     coef[:p] = scaled_mat.reshape(-1)
                 else:
-                    coef[flat_idx] = scaled_mat.reshape(-1)
+                    coef[_flat_idx_backend] = scaled_mat.reshape(-1)
             else:
                 # ── Serial path: unequal groups ──
                 for g in range(_n_groups):
-                    g_idx = _g_indices[g]
+                    g_idx = _g_indices_backend[g]
                     rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
                     try:
                         w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
@@ -1708,7 +1729,6 @@ class _PenalizedFitMixin:
 
         if _use_fista:
             # FISTA for GLM+adaptive_l1 -- works on any backend.
-            from statgpu.solvers import fista_solver
             params, n_iter = fista_solver(
                 self._loss, pen, X_work, y_arr,
                 max_iter=self.max_iter, tol=self.tol,
@@ -1773,18 +1793,37 @@ class _PenalizedFitMixin:
 
             xp = get_backend(backend_name).xp
 
-            # lambda_max with backend-native arrays (no CPU-GPU transfer)
+            # lambda_max with backend-native arrays (no CPU-GPU transfer).
+            # Cox has a two-column (time, event) response, so the GLM-style
+            # X.T @ centered(y) expression is both dimensionally wrong for a
+            # coefficient path and unrelated to the Cox score.  At beta=0 the
+            # maximum absolute partial-likelihood gradient is the correct
+            # zero-solution threshold for the weighted-L1 LLA subproblem.
             X_feat = X_work[:, :p] if self._effective_intercept else X_work
             _n = X_feat.shape[0]
-            _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
-            if backend_name == "torch":
-                import torch
-                _col_norms = torch.clamp(_col_norms, min=1e-20)
+            if _loss_name == "cox_ph":
+                X_feat, y_lla = self._loss.preprocess(X_feat, y_arr)
+                if backend_name == "torch":
+                    import torch
+                    _zero_coef = torch.zeros(
+                        p, dtype=X_feat.dtype, device=X_feat.device
+                    )
+                else:
+                    _zero_coef = xp.zeros(p, dtype=X_feat.dtype)
+                _score_at_zero = self._loss.gradient(
+                    X_feat, y_lla, _zero_coef, sample_weight=sample_weight
+                )
+                _lam_max = float(xp.max(xp.abs(_score_at_zero)))
             else:
-                _col_norms = xp.maximum(_col_norms, 1e-20)
-            X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
-            y_c = y_arr - xp.mean(y_arr)
-            _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
+                _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
+                if backend_name == "torch":
+                    import torch
+                    _col_norms = torch.clamp(_col_norms, min=1e-20)
+                else:
+                    _col_norms = xp.maximum(_col_norms, 1e-20)
+                X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
+                y_c = y_arr - xp.mean(y_arr)
+                _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
             _cv_alpha_path = getattr(self, '_cv_alpha_path', None)
             _cv_return_path = _cv_alpha_path is not None
             if _cv_return_path:
@@ -1815,7 +1854,14 @@ class _PenalizedFitMixin:
                 _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
                             for i in range(_n_cont)]
 
-            X_orig = X_work[:, :p] if self._effective_intercept else X_work
+            X_orig = (
+                X_feat
+                if _loss_name == "cox_ph"
+                else X_work[:, :p]
+                if self._effective_intercept
+                else X_work
+            )
+            y_lla = y_lla if _loss_name == "cox_ph" else y_arr
 
             _warm_coef = None
             _warm_intercept = None
@@ -1832,18 +1878,28 @@ class _PenalizedFitMixin:
                             getattr(self, '_init_intercept', 0.0) or 0.0
                         )
 
-            # For losses with Hessian (Bisquare, Huber, etc.): use OLS as
+            # For one-dimensional losses with Hessian (Bisquare, Huber,
+            # etc.): use OLS as
             # warm-start if no explicit init_coef is provided. This prevents
             # the continuation path from shrinking everything to zero at the
-            # first (large-alpha) step.
-            if _warm_coef is None and getattr(self._loss, 'has_hessian', False):
+            # first (large-alpha) step.  Cox's response is (time, event): OLS
+            # would return a (p, 2) matrix which cannot warm-start a p-vector.
+            # Cox therefore follows the continuation path from zero unless an
+            # explicit p-vector warm start is supplied by the caller/CV layer.
+            _y_ndim = getattr(y_arr, "ndim", None)
+            if _y_ndim is None:
+                _y_ndim = np.asarray(y_arr).ndim
+            _y_ndim = int(_y_ndim)
+            if (_warm_coef is None
+                    and getattr(self._loss, 'has_hessian', False)
+                    and _y_ndim == 1):
                 _X_np = np.asarray(_to_numpy(X_orig), dtype=np.float64)
                 _y_np = np.asarray(_to_numpy(y_arr), dtype=np.float64)
                 _warm_coef = np.linalg.lstsq(_X_np, _y_np, rcond=None)[0]
 
             _lla_result = fista_lla_path(
                 self._loss, self._penalty,
-                X_orig, y_arr,
+                X_orig, y_lla,
                 alpha_path=_alpha_path,
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),

@@ -17,13 +17,11 @@ from statgpu.backends._array_ops import (
     _clip_grad_on_device,
     _copy_arr,
     _norm2_dev,
-    _sync_scalars,
     _zeros,
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
 from ._constants import (
-    _DIVERGE_COEF_NORM_CAP,
     _GRAD_CLIP_COEF_FACTOR,
     _GRAD_CLIP_ABS_FLOOR,
     _GRAD_CLIP_MAX,
@@ -223,7 +221,10 @@ def fista_lla_path(
     total_iter : int
     """
     backend = _resolve_backend("auto", X)
-    if backend == "torch":
+    _is_preprocessed = bool(
+        getattr(loss, "is_preprocessed", lambda _X, _y: False)(X, y)
+    )
+    if backend == "torch" and not _is_preprocessed:
         import torch as xp
         torch = xp
         x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
@@ -233,9 +234,14 @@ def fista_lla_path(
         y = torch.as_tensor(y, device=X.device, dtype=common_dtype)
     elif backend == "cupy":
         import cupy as xp
+    elif backend == "torch":
+        import torch as xp
     else:
         xp = np
-    X_proc, y_proc = loss.preprocess(X, y)
+    if _is_preprocessed:
+        X_proc, y_proc = X, y
+    else:
+        X_proc, y_proc = loss.preprocess(X, y)
     _is_quadratic = getattr(loss, '_is_quadratic', False)
     _no_momentum = getattr(loss, '_skip_momentum', False)
     _non_smooth_pen_lla = getattr(scad_penalty, 'name', '') in _NONSMOOTH_ALL
@@ -264,9 +270,11 @@ def fista_lla_path(
     _augment_intercept = fit_intercept and not _is_quadratic
     if _augment_intercept:
         # Augment X with a column of ones
-        ones_col = xp_ones((X.shape[0], 1), dtype=X.dtype, xp=xp, ref_arr=X)
-        X_c = xp.concatenate([X, ones_col], axis=1)
-        y_c = y
+        ones_col = xp_ones(
+            (X_proc.shape[0], 1), dtype=X_proc.dtype, xp=xp, ref_arr=X_proc
+        )
+        X_c = xp.concatenate([X_proc, ones_col], axis=1)
+        y_c = y_proc
         n_aug = n_features + 1
     elif fit_intercept:
         # Squared-error centering is exact for the identity link. With sample
@@ -274,17 +282,17 @@ def fista_lla_path(
         # ordinary means would solve a different intercept problem.
         if _sw_arr is not None:
             sw_sum = xp.sum(_sw_arr)
-            X_mean = xp.sum(X * _sw_arr[:, None], axis=0) / sw_sum
-            y_mean = xp.sum(y * _sw_arr) / sw_sum
+            X_mean = xp.sum(X_proc * _sw_arr[:, None], axis=0) / sw_sum
+            y_mean = xp.sum(y_proc * _sw_arr) / sw_sum
         else:
-            X_mean = xp.mean(X, axis=0)
-            y_mean = xp.mean(y)
-        X_c = X - X_mean
-        y_c = y - y_mean
+            X_mean = xp.mean(X_proc, axis=0)
+            y_mean = xp.mean(y_proc)
+        X_c = X_proc - X_mean
+        y_c = y_proc - y_mean
         n_aug = n_features
     else:
-        X_c = X
-        y_c = y
+        X_c = X_proc
+        y_c = y_proc
         n_aug = n_features
 
     # Precompute Lipschitz using loss-specific method.
@@ -483,10 +491,16 @@ def fista_lla_path(
         # proximal Newton for genuinely non-quadratic Hessian-equipped losses.
         # For losses with Hessian: use Proximal Newton (5-10 iter per LLA step).
         # For losses without Hessian: use FISTA (300+ iter per LLA step).
-        # Quadratic losses use the fixed-step FISTA branch below. Routing
-        # CPU/weighted squared error through proximal Newton caused avoidable
-        # line-search failures and could return the initial iterate unchanged.
-        _has_hessian = getattr(loss, 'has_hessian', False) and not _is_quadratic
+        # Cox partial likelihood has a Hessian, but the generic composite
+        # proximal-Newton Armijo rule is not reliable for its risk-set
+        # objective and frequently rejects every step.  Use the backend-native
+        # FISTA-LLA path for Cox until a Cox-specific proximal Newton line
+        # search is available.
+        _has_hessian = (
+            getattr(loss, 'has_hessian', False)
+            and not _is_quadratic
+            and getattr(loss, 'name', '') != 'cox_ph'
+        )
         _is_numpy = backend == "numpy"
 
         if _has_hessian:
@@ -592,11 +606,21 @@ def fista_lla_path(
                         coef_old = _copy_arr(coef)
 
                         # Gradient: X.T @ per_sample_grad (2 matmuls, unavoidable)
-                        if sample_weight is not None:
-                            _, grad = loss.fused_value_and_gradient(
-                                X_c, y_c, y_k, sample_weight=_sw_arr)
+                        if (
+                            hasattr(loss, "gradient_preprocessed")
+                            and getattr(
+                                loss,
+                                "is_preprocessed",
+                                lambda _X, _y: False,
+                            )(X_c, y_c)
+                        ):
+                            grad = loss.gradient_preprocessed(y_k)
+                        elif sample_weight is not None:
+                            grad = loss.gradient(
+                                X_c, y_c, y_k, sample_weight=_sw_arr
+                            )
                         else:
-                            _, grad = loss.fused_value_and_gradient(X_c, y_c, y_k)
+                            grad = loss.gradient(X_c, y_c, y_k)
 
                         # Momentum
                         if _no_momentum:
@@ -639,13 +663,38 @@ def fista_lla_path(
                             coef = inner_pen.proximal(w_tilde, step, backend=backend)
                             y_k = coef + beta_mom * (coef - coef_old)
 
+                        # Count every completed proximal update, including the
+                        # update that satisfies the convergence criterion.
+                        total_iter += 1
+
                         # Convergence check
                         if iteration % _conv_check_freq == 0:
                             _conv_dev = _abs_sum_dev(coef - coef_old)
                             if backend != "numpy":
-                                if bool(_to_numpy(_conv_dev < xp.asarray(tol))):
+                                _finite_dev = (
+                                    xp.all(xp.isfinite(grad))
+                                    & xp.all(xp.isfinite(coef))
+                                )
+                                _status = xp.stack(
+                                    [_finite_dev, _conv_dev < tol]
+                                )
+                                _finite, _converged = np.asarray(
+                                    _to_numpy(_status), dtype=bool
+                                )
+                                if not bool(_finite):
+                                    raise FloatingPointError(
+                                        "FISTA-LLA produced non-finite state"
+                                    )
+                                if bool(_converged):
                                     break
                             else:
+                                if not (
+                                    np.all(np.isfinite(grad))
+                                    and np.all(np.isfinite(coef))
+                                ):
+                                    raise FloatingPointError(
+                                        "FISTA-LLA produced non-finite state"
+                                    )
                                 if float(_to_numpy(_conv_dev)) < tol:
                                     break
 
@@ -657,8 +706,6 @@ def fista_lla_path(
                             if L_new > L * 1.5 or L_new < L / 1.5:
                                 L = max(L_new, L_base * 0.1)
                                 step = 1.0 / L
-
-                        total_iter += 1
 
                     # LLA convergence check
                     delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import TYPE_CHECKING
 
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
@@ -12,9 +11,6 @@ from statgpu.backends import _to_numpy
 # Prevents overflow in exp(eta) for log-link families and sigmoid(eta) for logistic.
 # Value of 500 is safe because exp(500) ≈ 1.4e217 (within float64 range).
 _ETA_CLIP = 500.0
-
-if TYPE_CHECKING:
-    from ._base import PenalizedGeneralizedLinearModel as _Self
 
 
 class _PenalizedPredictMixin:
@@ -29,10 +25,16 @@ class _PenalizedPredictMixin:
             if pd is not None and isinstance(X, pd.DataFrame):
                 from statgpu.core.formula import FormulaParser
 
+                n_input_rows = len(X)
                 parser = FormulaParser.__new__(FormulaParser)
                 parser._design_info = self._design_info
                 parser.formula = None
                 X = parser.transform(X)
+                if X.shape[0] != n_input_rows:
+                    raise ValueError(
+                        "formula prediction data contains missing values; "
+                        "rows cannot be dropped silently"
+                    )
                 col_names = list(self._design_info.column_names)
                 if self._formula_has_intercept and "Intercept" in col_names:
                     X = np.delete(X, col_names.index("Intercept"), axis=1)

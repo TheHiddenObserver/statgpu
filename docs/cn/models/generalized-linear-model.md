@@ -1,7 +1,7 @@
 # GeneralizedLinearModel 与 Penalized GLM
 
 > 语言: 中文  
-> 最后更新: 2026-05-20  
+> 最后更新: 2026-08-02
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/generalized-linear-model.md)
 
@@ -185,6 +185,36 @@ fast_cv = PenalizedGLM_CV(
     device="cuda",
 )
 ```
+
+### 生存感知的惩罚 Cox 交叉验证
+
+`PenalizedGLM_CV(loss="cox_ph")` 使用独立的生存分析路径，不会进入标量响应
+GLM scorer。`y` 必须是 `(n_samples, 2)` 数组，两列依次为 `[time, event]`。
+L1、L2、ElasticNet、SCAD 与 MCP 均支持 NumPy、CuPy CUDA 和 Torch CUDA。
+该路径会：
+
+- 保留二维生存目标，且绝不拟合截距；
+- 用未惩罚的逐行 Cox 负 partial likelihood 评价 held-out fold；
+- 仅在每个可评估 fold 都提供有限证据时选择 alpha；
+- 所有候选均无效时 hard-fail，且不发布任何拟合状态；
+- 最终以 `compute_inference=False` 重拟合 `PenalizedCoxPHModel`。
+
+```python
+survival_y = np.column_stack([time, event])
+cox_cv = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="scad",              # l1、l2、elasticnet、scad 或 mcp
+    alpha_grid=[0.1, 0.03, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cpu",                # 也可用 "cuda" / "torch"
+).fit(X, survival_y)
+```
+
+该 Cox 分支不支持 `cv_strategy="two_stage"`、`sample_weight`、字典 target
+或 post-selection 系数推断。`cv_results_` 会记录逐 fold loss、有效证据数、
+event 数、失败原因、ties 方法和最终重拟合模型类型。
 
 ## Outputs
 

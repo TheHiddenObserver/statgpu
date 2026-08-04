@@ -1,7 +1,10 @@
 # Loss × Penalty × Solver 框架
 
-> 语言：中文  
-> 最后更新：2026-07-01
+> 语言：中文
+>
+> 最后更新：2026-07-12
+>
+> 切换：[English](../../en/guides/loss-penalty-solver-framework.md)
 
 ## 概述
 
@@ -19,7 +22,8 @@ fit(X, y, sample_weight)
        ├── fista / fista_bb / fista_lla → FISTA 家族
        ├── newton / irls                  → 光滑路径
        ├── proximal_irls_cd              → quantile + SCAD/MCP
-       ├── proximal_newton               → Huber/Bisquare/Cox + SCAD/MCP
+       ├── proximal_newton               → Huber/Bisquare + SCAD/MCP
+       ├── Cox + SCAD/MCP                → Cox 专用 FISTA-LLA
        └── lbfgs / admm                 → 拟牛顿 / 增广拉格朗日
 ```
 
@@ -66,8 +70,18 @@ $$\ell(u) = \begin{cases} \frac{1}{2}u^2 & |u| \leq k \\ k|u| - \frac{1}{2}k^2 &
 **Bisquare (Tukey biweight)** (c = 4.685):
 $$\ell(u) = \begin{cases} \frac{c^2}{6}[1 - (1-(u/c)^2)^3] & |u| \leq c \\ c^2/6 & |u| > c \end{cases}$$
 
-**Cox 部分似然** (Breslow / Efron ties):
+**Cox 部分似然**（`CoxPartialLikelihoodLoss` 的 Breslow / Efron ties）：
 $$L(\beta) = \prod_{i:\delta_i=1} \frac{\exp(X_i\beta)}{\sum_{j:T_j \geq T_i} \exp(X_j\beta)}$$
+
+该 loss 对象接收 `[time, event]` 二列响应并服务于惩罚 Cox estimator。完整
+`CoxPH`/`CoxPHCV` 还支持 Exact ties 与计数过程风险集
+
+$$
+R_s(t)=\{j:\operatorname{strata}_j=s,\;\operatorname{start}_j<t\leq
+\operatorname{stop}_j\},
+$$
+
+以及 `subject_id` 语义；这些不是通用 loss 对象当前的输入轴。
 
 ## 2. 惩罚函数
 
@@ -134,16 +148,17 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 3. 并行对角化 + LLA 阈值
 4. GPU：收敛检查在 device 上比较，仅同步 bool
 
-**Proximal Newton** (Huber/Bisquare/Cox + SCAD/MCP):
+**Proximal Newton** (Huber/Bisquare + SCAD/MCP):
 1. 计算 Hessian `H = ∇²ℓ(β)` 和梯度 `g = ∇ℓ(β)`
 2. Newton 方向：`d = -H⁻¹·g`
 3. Armijo 线搜索 + proximal 步
 4. 通常 5-10 次迭代收敛
 
-**FISTA-LLA** (通用非凸路径):
+**FISTA-LLA**（通用非凸路径；也是 Cox + SCAD/MCP 的当前路径）：
 1. Continuation path：λ_max → 目标 α（3-5 步）
 2. LLA 外层循环（每步 2-5 次迭代）
-3. FISTA 或 Proximal Newton 内层求解
+3. 根据 loss 选择 FISTA 或 Proximal Newton 内层；Cox 明确使用后端原生 FISTA，
+   因为通用 composite proximal-Newton 的线搜索尚不适用于风险集目标
 
 ## 4. 后端覆盖
 
@@ -155,7 +170,8 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | FISTA-BB (加权) | ✅ | ✅ | ✅ |
 | FISTA-LLA (加权) | ✅ | ✅ | ✅ |
 | Quantile IRLS (光滑惩罚) | ✅ | ✅ | ✅ |
-| CoxPH Efron GPU | ✅ | ✅ (kernel) | ✅ (DLPack→CuPy) |
+| CoxPH Breslow/Efron loss | ✅ | ✅（后端原生） | ✅（后端原生） |
+| CoxPH Exact / start-stop / strata / subject | ✅ | ✅（共享计数过程实现） | ✅（共享计数过程实现） |
 | DBSCAN | ✅ | GPU 距离 + host-sync 连通分量 | ✅ on-device |
 | UMAP | ✅ | backend-aware + host transfer | backend-aware + host transfer |
 
@@ -169,7 +185,11 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
 | `PenalizedQuantileRegression` | quantile | scad/mcp/l2 | proximal_irls_cd/fista/irls |
 | `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
-| `PenalizedCoxRegression` | cox_ph | scad/mcp/l2 | proximal_newton |
+| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | FISTA；SCAD/MCP 为 FISTA-LLA |
+
+`PenalizedCoxPHModel` 仅提供惩罚估计，不拟合截距，也不提供协方差、显著性检验、
+baseline 或生存曲线。`fit_intercept=True` 会报错；`compute_inference=True` 会抛出
+`NotImplementedError`。需要这些结果时使用 `statgpu.survival.CoxPH`。
 
 ## 6. 快速参考
 
@@ -184,10 +204,16 @@ from statgpu.linear_model.penalized import PenalizedRobustRegression
 model = PenalizedRobustRegression(loss='huber', penalty='mcp', alpha=0.1)
 model.fit(X, y)
 
-# Cox PH + SCAD 惩罚
-from statgpu.linear_model.penalized import PenalizedCoxRegression
-model = PenalizedCoxRegression(penalty='scad', alpha=0.1)
-model.fit(X, (time, event))
+# Cox PH + SCAD 惩罚（FISTA-LLA；响应为 [time, event]）
+import numpy as np
+from statgpu.linear_model import PenalizedCoxPHModel
+
+y_surv = np.column_stack([time, event])
+model = PenalizedCoxPHModel(
+    penalty='scad', alpha=0.1,
+    fit_intercept=False, compute_inference=False,
+)
+model.fit(X, y_surv)
 
 # 全部惩罚 + 损失通过 PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel

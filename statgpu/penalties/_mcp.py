@@ -231,7 +231,7 @@ class MCPPenalty(Penalty):
 
     # ----------------------------------------------------------------
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
         params.update({"alpha": self.alpha, "gamma": self.gamma})
         return params

@@ -346,3 +346,21 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
 
     # With tight convergence (tol=1e-10), CPU and GPU should agree closely
     assert np.allclose(cpu_pred, gpu_pred, rtol=1e-4, atol=1e-4)
+
+
+def test_penalty_instances_support_sklearn_clone_without_changing_serialization():
+    from sklearn.base import clone
+    from statgpu.penalties import ElasticNetPenalty
+
+    penalty = ElasticNetPenalty(alpha=0.3, l1_ratio=0.25)
+    # sklearn <=1.2 reconstructs from get_params(deep=False) instead of
+    # honoring __sklearn_clone__. Both paths must remain supported.
+    constructor_params = penalty.get_params(deep=False)
+    reconstructed = penalty.__class__(**constructor_params)
+    cloned = clone(penalty)
+
+    assert reconstructed.get_params() == penalty.get_params()
+    assert cloned is not penalty
+    assert cloned.__class__ is penalty.__class__
+    assert cloned.get_params() == penalty.get_params()
+    assert penalty.get_params()["name"] == "elasticnet"

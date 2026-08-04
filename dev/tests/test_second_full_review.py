@@ -625,8 +625,10 @@ class TestPublicFeatureSelectionAndDiagnosticsExports:
 class TestCoxInferenceComputation:
     def test_score_test_reuses_single_gradient_hessian_call(self):
         from statgpu.survival import CoxPH
+        from statgpu.survival._cox_legacy import _LegacyCoxReference
 
         model = CoxPH(compute_inference=False, compute_cindex=False)
+        reference = _LegacyCoxReference(model)
         model.coef_ = np.array([0.2, -0.1])
         model._log_likelihood = -10.0
         model._log_likelihood_null = -11.0
@@ -638,9 +640,9 @@ class TestCoxInferenceComputation:
                 return np.array([1.0, 2.0]), -np.eye(2)
             return np.zeros(2), -2.0 * np.eye(2)
 
-        model._compute_gradient_hessian = fake_gradient_hessian
+        reference._compute_gradient_hessian = fake_gradient_hessian
         X = np.ones((5, 2))
-        model._compute_inference_cpu(X, np.arange(5.0), np.ones(5))
+        reference._compute_inference_cpu(X, np.arange(5.0), np.ones(5))
 
         assert len(calls) == 2
         assert model._score_test_stat == pytest.approx(5.0)

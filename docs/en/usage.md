@@ -18,8 +18,9 @@ version-sensitive support tables.
 - [Changelog](changelog.md)
 
 Use `pip install statgpu[gpu11]` or `statgpu[gpu12]` for the matching CuPy
-CUDA major version, `statgpu[torch]` for the PyTorch backend, and
-`statgpu[survival]` for optional CPU survival-analysis dependencies.
+CUDA major version and `statgpu[torch]` for the PyTorch backend. The maintained
+Cox implementation is included in the base install; `statgpu[survival]` adds
+statsmodels for optional external validation and comparison.
 
 ## Model Families
 

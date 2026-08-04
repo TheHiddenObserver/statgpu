@@ -1,9 +1,10 @@
 """
 Unified cross-validated penalized GLM estimator.
 
-Supports all GLM loss functions (squared_error, logistic, poisson, gamma,
-inverse_gaussian, negative_binomial, tweedie) with all penalty types
-(l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso).
+Supports scalar-response GLM losses (squared_error, logistic, poisson, gamma,
+inverse_gaussian, negative_binomial, tweedie) plus a separate survival-aware
+``cox_ph`` path with its supported penalty types
+(l1, l2, elasticnet, scad, mcp).
 
 Optimizations:
 - Warm-start across alpha values (descending order)
@@ -28,7 +29,11 @@ from statgpu._config import Device
 from statgpu.backends import _to_numpy
 from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
 from statgpu.backends._utils import _to_float_scalar
-from statgpu.cross_validation._base import CVEstimatorBase, kfold_indices
+from statgpu.cross_validation._base import (
+    CVEstimatorBase,
+    _cuda_backend_available,
+    kfold_indices,
+)
 from statgpu.solvers._utils import _nesterov_momentum
 
 
@@ -126,15 +131,143 @@ def _slice_rows(arr, idx):
         return np.asarray(arr)[idx]
 
 
+def _finite_column_mean(scores):
+    """Return per-candidate means without emitting empty-slice warnings."""
+    scores = np.asarray(scores, dtype=np.float64)
+    present = ~np.isnan(scores)
+    counts = np.sum(present, axis=0)
+    totals = np.sum(np.where(present, scores, 0.0), axis=0)
+    means = np.full(scores.shape[1], np.nan, dtype=np.float64)
+    np.divide(totals, counts, out=means, where=counts > 0)
+    return means
+
+
+def _coerce_scalar_alpha_grid_values(alpha_grid):
+    """Return float64 grid values without hiding malformed element types."""
+    if isinstance(alpha_grid, (list, tuple)):
+        # Object dtype preserves mixed Python element types. A normal
+        # ``np.asarray`` would silently promote True to 1.0 and numeric text
+        # to strings before the public validator can reject either contract.
+        raw = np.asarray(alpha_grid, dtype=object)
+    else:
+        raw = np.asarray(_to_numpy(alpha_grid))
+
+    if raw.ndim != 1:
+        raise ValueError("alpha_grid must be a one-dimensional array")
+
+    kind = raw.dtype.kind
+    if kind == "b":
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not booleans"
+        )
+    if kind == "c":
+        raise ValueError("alpha_grid must contain real numeric values")
+    if kind in ("S", "U"):
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not strings or bytes"
+        )
+
+    if kind == "O":
+        grid = np.empty(raw.size, dtype=np.float64)
+        for index, value in enumerate(raw):
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not booleans"
+                )
+            if isinstance(value, (str, bytes, np.str_, np.bytes_)):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not strings "
+                    "or bytes"
+                )
+            value_array = np.asarray(value)
+            if value_array.ndim != 0:
+                raise ValueError(
+                    "alpha_grid must contain scalar real numeric values"
+                )
+            value_kind = value_array.dtype.kind
+            if value_kind == "b":
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not booleans"
+                )
+            if value_kind == "c" or np.iscomplexobj(value):
+                raise ValueError("alpha_grid must contain real numeric values")
+            if value_kind in ("S", "U"):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not strings "
+                    "or bytes"
+                )
+            try:
+                grid[index] = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    "alpha_grid must contain real numeric values"
+                ) from exc
+        return grid
+
+    if kind not in ("i", "u", "f"):
+        raise ValueError("alpha_grid must contain real numeric values")
+    return np.asarray(raw, dtype=np.float64)
+
+
+def _normalize_scalar_alpha_grid(alpha_grid, *, penalty_name):
+    """Validate and filter a user scalar-response CV alpha grid.
+
+    Scalar-response CV searches strictly positive regularization strengths.
+    Invalid scalar values are filtered for compatibility with the dedicated
+    scalar CV estimators. ``None`` signals that the caller must generate the
+    default grid because the supplied grid was empty or fully filtered.
+    """
+    grid = _coerce_scalar_alpha_grid_values(alpha_grid)
+    valid = np.isfinite(grid) & (grid > 0.0)
+    n_invalid = int(grid.size - np.count_nonzero(valid))
+    penalty_label = str(penalty_name).lower().strip()
+    if grid.size == 0 or not np.any(valid):
+        warnings.warn(
+            "The scalar-response alpha_grid was empty or contained no finite "
+            "positive values; using the automatically generated default grid. "
+            f"The {penalty_label} CV path searches alpha > 0.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return None
+    if n_invalid:
+        warnings.warn(
+            f"Filtered {n_invalid} non-positive or non-finite alpha_grid "
+            f"value(s); the scalar-response {penalty_label} CV path searches "
+            "alpha > 0.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return grid[valid]
+
+
+def _validate_final_scalar_alpha_grid(alpha_grid):
+    """Require a generated or filtered scalar grid to be usable by CV."""
+    grid = np.asarray(alpha_grid, dtype=np.float64)
+    if (
+        grid.ndim != 1
+        or grid.size == 0
+        or not np.all(np.isfinite(grid))
+        or np.any(grid <= 0.0)
+    ):
+        raise ValueError(
+            "scalar-response alpha grid generation must produce a non-empty "
+            "one-dimensional array of finite positive values"
+        )
+    return grid
+
+
 def _nanargmin_prefer_larger_alpha(scores, alpha_grid, rel_tol=1e-10, abs_tol=1e-12):
     """Select min score with deterministic tie-break toward stronger regularization."""
     scores = np.asarray(scores, dtype=np.float64)
     alpha_grid = np.asarray(alpha_grid, dtype=np.float64)
     finite = np.isfinite(scores)
     if not np.any(finite):
-        # All scores are NaN/Inf — fall back to first alpha (strongest regularization)
-        warnings.warn("All CV scores are NaN/Inf; returning first alpha.", stacklevel=2)
-        return 0
+        # A selected alpha must have finite validation evidence.
+        raise RuntimeError(
+            "Cross-validation produced no finite candidate score; no "
+            "regularization parameter was selected."
+        )
     best = float(np.nanmin(scores))
     tol = max(float(abs_tol), abs(best) * float(rel_tol))
     candidates = np.flatnonzero(finite & (scores <= best + tol))
@@ -370,10 +503,6 @@ def _backend_name_for_cv_device(device):
     if name == "torch":
         return "torch"
     return "numpy"
-
-
-# Import shared utility from _cv_base
-from statgpu.cross_validation._base import _torch_cuda_available
 
 
 def _logistic_sparse_effective_max_iter(max_iter, device, penalty_name, refit=False):
@@ -1861,7 +1990,13 @@ _CV_DEVICE_ALWAYS_CPU = {
 
 
 class PenalizedGLM_CV(CVEstimatorBase):
-    """Cross-validated penalized GLM supporting all loss + penalty combinations."""
+    """Cross-validated penalized GLM and right-censored Cox estimator.
+
+    Scalar-response losses use the optimized GLM CV engine. ``loss="cox_ph"``
+    uses a survival-specific strict-CV path that preserves the two-column
+    target, scores unpenalized held-out partial likelihood, forbids an
+    intercept, and refits :class:`PenalizedCoxPHModel`.
+    """
 
     def __init__(
         self,
@@ -1913,6 +2048,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_selected_device_ = None
         self._cv_auto_reason_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear fitted selection state before every CV invocation."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alpha_grid_ = None
+        self.best_score_ = None
+        self.cv_results_ = None
+        self.estimator_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.cv_strategy_ = None
+        self.cv_selected_device_ = None
+        self._cv_auto_reason_ = None
+
     def _solver_for_cv(self, cv_device=None, X=None):
         """Return the strict internal solver used by the CV loop."""
         solver = str(self.solver).lower()
@@ -1922,7 +2071,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         return _preferred_penalized_glm_solver(
             self.loss,
-            self.penalty,
+            getattr(self.penalty, "name", self.penalty),
             backend_name=_backend_name_for_cv_device(
                 self.device if cv_device is None else cv_device
             ),
@@ -1931,7 +2080,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             problem_size=None if X is None else int(X.shape[0]) * int(X.shape[1]),
         )
 
-    def _effective_cv_device(self, X, penalty_name, n_alphas):
+    def _effective_cv_device(self, X, penalty_name, n_alphas, *, n_folds=None):
         """Resolve device for CV-level work; explicit devices are untouched."""
         self.cv_selected_device_ = self.device
         self._cv_auto_reason_ = None
@@ -1942,6 +2091,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(penalty_name).lower()
         loss_name = str(self.loss).lower()
         nx = int(n_samples) * int(n_features)
+        fold_count = int(self.cv) if n_folds is None else int(n_folds)
+        if fold_count < 1:
+            raise ValueError("n_folds must be a positive integer")
 
         # Small problems: always CPU
         if nx < _SMALL_PROBLEM_THRESHOLD:
@@ -1964,7 +2116,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 # OR condition: n_features >= or_min_feat AND nx >= 1_000_000
                 if not cond and or_min_feat > 0:
                     cond = int(n_features) >= or_min_feat and nx >= 1_000_000
-                if cond and _torch_cuda_available():
+                if cond and _cuda_backend_available("torch"):
                     self.cv_selected_device_ = "torch"
                     self._cv_auto_reason_ = reason
                     return "torch"
@@ -1974,28 +2126,22 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         # Fallback: large effective work → GPU
         continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
-        effective_work = nx * int(self.cv) * int(n_alphas) * continuation_factor
+        effective_work = nx * fold_count * int(n_alphas) * continuation_factor
         if effective_work < _GPU_BREAK_EVEN_THRESHOLD:
             self.cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
             return "cpu"
 
-        # Resolve device: if AUTO, prefer torch when CUDA available, else cpu
-        try:
-            import torch
-            if torch.cuda.is_available():
-                self.cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "GPU selected for large CV effective work"
-                return "torch"
-        except ImportError:
-            pass
-        try:
-            import cupy
-            self.cv_selected_device_ = "cupy"
+        # Resolve an operational backend rather than treating an importable GPU
+        # wheel as evidence that its CUDA driver and device are usable.
+        if _cuda_backend_available("torch"):
+            self.cv_selected_device_ = "torch"
             self._cv_auto_reason_ = "GPU selected for large CV effective work"
-            return "cupy"
-        except ImportError:
-            pass
+            return "torch"
+        if _cuda_backend_available("cupy"):
+            self.cv_selected_device_ = "cuda"
+            self._cv_auto_reason_ = "GPU selected for large CV effective work"
+            return "cuda"
         self.cv_selected_device_ = "cpu"
         self._cv_auto_reason_ = "No GPU available, falling back to CPU"
         return "cpu"
@@ -2167,7 +2313,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # Resolve refit device (used by Ridge and general paths)
         refit_device = self.device
         if _device_to_name(self.device) == "auto":
-            refit_device = getattr(self, "_cv_selected_device_", self.device) or self.device
+            refit_device = getattr(self, "cv_selected_device_", self.device) or self.device
 
         # For Ridge: use eigendecomposition to match CV path exactly.
         # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
@@ -2298,8 +2444,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         tol = self.tol if tol is None else tol
 
         # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──
-        _is_explicit_gpu = device_name in ("cuda", "torch")
-        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_explicit_gpu:
+        _is_gpu_cv_device = device_name in ("cuda", "torch")
+        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_gpu_cv_device:
             all_scores = np.full((len(folds), n_alphas), np.nan)
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = _slice_rows(X, train_idx)
@@ -2672,36 +2818,47 @@ class PenalizedGLM_CV(CVEstimatorBase):
                      "n_effective": n_effective}
         return cache, L_np
 
-    def fit(self, X, y, sample_weight=None):
-        """Fit the CV model with optimized strict or explicit two-stage CV."""
+    def _fit_standard(self, X, y, sample_weight=None):
+        """Fit scalar-response CV after public transactional setup."""
         # Normalize array-like inputs (lists, tuples, etc.) to arrays
         if not hasattr(X, 'shape'):
             X = np.asarray(X, dtype=np.float64)
         if not hasattr(y, 'shape'):
             y = np.asarray(y, dtype=np.float64)
 
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
+        alpha_grid = None
         if self._alpha_grid_input is not None:
-            alpha_grid = np.asarray(self._alpha_grid_input, dtype=np.float64)
-        else:
+            alpha_grid = _normalize_scalar_alpha_grid(
+                self._alpha_grid_input,
+                penalty_name=penalty_name,
+            )
+        if alpha_grid is None:
             alpha_grid = self._generate_alpha_grid(
                 X, y, sample_weight=sample_weight
             )
-        alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
+        alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         self.alpha_grid_ = alpha_grid
         n_samples = X.shape[0]
         n_alphas = len(alpha_grid)
-        penalty_name = str(self.penalty).lower()
-        cv_device = self._effective_cv_device(X, penalty_name, n_alphas)
+        if self.cv_splits is not None:
+            # Normalize to list (generators would exhaust on first pass).
+            folds = (
+                list(self.cv_splits)
+                if not isinstance(self.cv_splits, list)
+                else self.cv_splits
+            )
+        else:
+            folds = kfold_indices(n_samples, self.cv, self.random_state)
+        cv_device = self._effective_cv_device(
+            X, penalty_name, n_alphas, n_folds=len(folds)
+        )
         cv_solver = self._solver_for_cv(cv_device, X=X)
         self.cv_strategy_ = self.cv_strategy
         self.cv_selected_device_ = _device_to_name(cv_device)
-
-        if self.cv_splits is not None:
-            # Normalize to list (generators would exhaust on first pass)
-            folds = list(self.cv_splits) if not isinstance(self.cv_splits, list) else self.cv_splits
-        else:
-            folds = kfold_indices(n_samples, self.cv, self.random_state)
         all_scores_stage1 = None
         mean_scores_stage1 = None
         refined_mask = np.ones(n_alphas, dtype=bool)
@@ -2729,7 +2886,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=stage1_tol,
                 strict=False,
             )
-            mean_scores_stage1 = np.nanmean(all_scores_stage1, axis=0)
+            mean_scores_stage1 = _finite_column_mean(all_scores_stage1)
             refined_mask = _two_stage_candidate_mask(
                 mean_scores_stage1,
                 refine_top_k=self.refine_top_k,
@@ -2753,8 +2910,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             all_scores = np.array(all_scores_stage1, copy=True)
             all_scores[:, refined_mask] = refined_scores
-            mean_scores = np.nanmean(all_scores, axis=0)
-            refined_mean = np.nanmean(refined_scores, axis=0)
+            mean_scores = _finite_column_mean(all_scores)
+            refined_mean = _finite_column_mean(refined_scores)
             refined_best = self._best_index_from_scores(
                 refined_mean,
                 refined_alpha_grid,
@@ -2773,7 +2930,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=self.tol,
                 strict=True,
             )
-            mean_scores = np.nanmean(all_scores, axis=0)
+            mean_scores = _finite_column_mean(all_scores)
             best_idx = self._best_index_from_scores(mean_scores, alpha_grid, cv_solver)
 
         best_alpha = float(alpha_grid[best_idx])
@@ -2784,6 +2941,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             "alpha": alpha_grid,
             "mean_score": mean_scores,
             "all_scores": all_scores,
+            "device_sizing_fold_count": len(folds),
             "cv_strategy_": self.cv_strategy_,
             "cv_selected_device_": self.cv_selected_device_,
             "mean_score_stage1": mean_scores_stage1,
@@ -2798,6 +2956,21 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self._fitted = True
         return self
 
+    def fit(self, X, y, sample_weight=None):
+        """Fit with a dedicated survival path and transactional state."""
+        self._reset_cv_fit_state()
+        try:
+            if str(self.loss).lower() == "cox_ph":
+                from ._penalized_cox_cv import fit_penalized_cox_cv
+
+                return fit_penalized_cox_cv(
+                    self, X, y, sample_weight=sample_weight
+                )
+            return self._fit_standard(X, y, sample_weight=sample_weight)
+        except Exception:
+            self._reset_cv_fit_state()
+            raise
+
     def predict(self, X):
         """Predict using the refit estimator with the best alpha."""
         if not getattr(self, '_fitted', False):
@@ -2808,7 +2981,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """Return the score on the given data.
 
         For squared_error loss, returns R². For GLM losses, returns
-        the deviance-based pseudo-R² (1 - deviance/null_deviance).
+        the deviance-based pseudo-R² (1 - deviance/null_deviance). For
+        ``cox_ph``, delegates to the final penalized Cox concordance score.
 
         Note: ``best_score_`` is negative CV loss (sklearn convention),
         while ``score()`` returns R² or accuracy. These are different metrics.

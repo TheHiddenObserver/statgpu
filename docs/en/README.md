@@ -1,6 +1,9 @@
 # StatGPU Documentation
 
-> Language: English  
+> Language: English
+>
+> Last updated: 2026-08-04
+>
 > Switch: [Chinese](../cn/README.md)
 
 ## Getting Started
@@ -12,6 +15,7 @@
 - [Inference API](guides/inference-api.md) — distributions, multiple testing, permutation test, bootstrap
 - [Implemented Methods](guides/implemented-methods.md) — full method list with solvers, penalties, link functions
 - [Cross-Validation](guides/cross-validation.md) — CV API, architecture, GPU acceleration, caching
+- [CoxPHCV Experimental Screening Safety](guides/cox-cv-staged-safety.md) — full-candidate fallback, diagnostics, and backend behavior
 - [Solver × Penalty Matrix](guides/solver-penalty-matrix.md) — loss × penalty × solver compatibility
 - [Device and GPU Memory](guides/device-and-memory.md) — device selection, memory cleanup
 - [PyTorch Backend](guides/pytorch-backend.md) — torch backend guide, torch.compile
@@ -43,7 +47,13 @@
 - [Ordered Models](models/ordered.md) — ordered logit/probit
 
 ### Survival
-- [CoxPH](models/coxph.md) — Cox proportional hazards + penalized
+- [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with
+  delayed-entry/start-stop data, strata, robust covariance, and native
+  NumPy/CuPy/Torch paths
+- [CoxPHCV](models/coxph.md) — L2 grid selection and refit with
+  subject-preserving folds
+- [PenalizedCoxPHModel](models/coxph.md) — estimation-only
+  L1/L2/ElasticNet/SCAD/MCP Cox fits; no intercept
 
 ### Unsupervised
 - [Unsupervised Overview](models/unsupervised.md) — 13 algorithms: PCA, KMeans, DBSCAN, GMM, UMAP, NNDescent, t-SNE, NMF, Agglomerative, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, MiniBatchNMF

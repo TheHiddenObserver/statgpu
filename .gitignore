@@ -18,7 +18,18 @@ SECURITY.md
 .claude/
 
 # Results
+# Keep the final PR80 Exact benchmark source available to the PR76 dashboard
+# pipeline while continuing to ignore ad-hoc result artifacts.
 results/
+!results/
+results/*
+!results/benchmark_frontend_sources/
+results/benchmark_frontend_sources/*
+!results/benchmark_frontend_sources/coxph_exact_pr80_20260726.json
+!results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json
+!results/benchmark_frontend_sources/coxph_exact_delayed_entry_strata_pr80_20260727.json
+!results/benchmark_frontend_sources/coxph_exact_strata_count_pr80_20260727.json
+!results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json
 
 # Dev tooling (benchmarks, scripts, plans, docs — not production code)
 dev/benchmarks/
@@ -26,6 +37,9 @@ dev/benchmarks/
 # continuing to ignore ad-hoc benchmark artifacts elsewhere.
 !dev/benchmarks/
 dev/benchmarks/*
+!dev/benchmarks/benchmark_exact_ties_scaling.py
+!dev/benchmarks/benchmark_exact_strata_count_scaling.py
+!dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py
 !dev/benchmarks/pr79/
 dev/benchmarks/pr79/*
 !dev/benchmarks/pr79/aggregate_results.py

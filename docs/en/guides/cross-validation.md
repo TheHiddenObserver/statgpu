@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-06-12  
+> Last updated: 2026-08-03
 > This page: Unified CV guide — API reference, architecture, GPU acceleration, and caching  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -19,7 +19,7 @@ statgpu provides cross-validated estimators for all penalized models. Each CV es
 | `LassoCV` | `Lasso` | l1 | `statgpu.linear_model.LassoCV` |
 | `ElasticNetCV` | `ElasticNet` | elasticnet | `statgpu.linear_model.ElasticNetCV` |
 | `LogisticRegressionCV` | `LogisticRegression` | l2 | `statgpu.linear_model.LogisticRegressionCV` |
-| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` | any | `statgpu.linear_model.PenalizedGLM_CV` |
+| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` or `PenalizedCoxPHModel` | family-supported | `statgpu.linear_model.PenalizedGLM_CV` |
 
 ### Quick Start
 
@@ -76,6 +76,30 @@ model.fit(X, y)
 pred = model.predict(X_test)
 ```
 
+#### Penalized Cox CV
+
+Cox targets must remain two-dimensional throughout selection:
+
+```python
+survival_y = np.column_stack([time, event])
+model = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="elasticnet",        # l1, l2, elasticnet, scad, or mcp
+    l1_ratio=0.4,
+    alpha_grid=[0.2, 0.05, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cuda",               # NumPy CPU and Torch CUDA are also supported
+).fit(X_cuda, survival_y_cuda)
+```
+
+This path uses finite held-out Cox partial-likelihood evidence from every
+evaluable fold and refits `PenalizedCoxPHModel` without an intercept. It raises
+instead of selecting a default alpha if no candidate has complete evidence.
+The branch is estimation-only: it does not publish post-selection coefficient
+inference. `two_stage`, sample weights, and dictionary targets are unsupported.
+
 #### LogisticRegressionCV
 
 ```python
@@ -128,11 +152,10 @@ print(f"Accuracy: {model.score(X_test, y_test):.4f}")
 | `loss` | str | `"squared_error"` | Loss family (see [Solver x Penalty Matrix](solver-penalty-matrix.md)). |
 | `penalty` | str | `"l2"` | Penalty type. |
 | `penalty_kwargs` | dict | `{}` | Penalty parameters (e.g., `{"a": 3.7}` for SCAD). |
-| `alphas` | array | `None` | Alpha grid. |
+| `alpha_grid` | array | `None` | Alpha grid. |
 | `n_alphas` | int | `100` | Number of alphas. |
 | `cv_splits` | list | `None` | Custom fold splits `[(train_idx, val_idx), ...]`. |
-| `scoring` | str | `"auto"` | Scoring metric. `"auto"` selects based on loss. |
-| `compute_inference` | bool | `False` | Compute debiased inference (l1 only). |
+| `loss_kwargs` | dict | `{}` | Loss options; Cox accepts `ties="breslow"` or `ties="efron"`. |
 
 ### Custom CV Splits
 
@@ -159,9 +182,18 @@ model.fit(X, y)
 
 When `cv_splits=None` (default), the estimator uses `kfold_indices(n, cv, random_state)` with shuffled folds.
 
+For penalized Cox CV, each custom train/validation pair may be any non-empty,
+disjoint split; training need not be the validation complement, and validation
+rows need not form a one-time partition across folds. This supports forward
+`TimeSeriesSplit` and repeated holdout designs. Indices must be one-dimensional,
+exact integers within signed-int64 and sample bounds. Boolean, numeric-string,
+fractional, non-finite, overflowing, duplicate, overlapping, or out-of-range
+indices are rejected before any candidate fit. Each evaluated Cox train and
+validation partition must contain an observed event.
+
 ### Sample Weight
 
-All CV estimators support `sample_weight`:
+Most scalar-response CV estimators support `sample_weight`; see the survival limitation below:
 
 ```python
 model = RidgeCV(cv=5)
@@ -171,7 +203,8 @@ print(f"Weighted R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 
 **Limitations** (see [Known Limitations](#known-limitations) below):
 - Non-uniform weights with l1/elasticnet/SCAD/MCP raise `ValueError` at the solver level.
-- Uniform weights (all equal) work for all penalties.
+- Uniform weights (all equal) work for supported scalar-response penalties.
+- `loss="cox_ph"` rejects `sample_weight`; weighted penalized Cox CV is not implemented.
 
 ### Alpha Grid
 
@@ -181,6 +214,15 @@ When `alphas=None`, the grid is generated as:
 1. Compute `alpha_max = max(|X'y|) / n` (or weighted variant)
 2. Generate `n_alphas` values from `alpha_max` down to `alpha_max * alpha_min_ratio`
 3. Grid is log-spaced: `np.logspace(log10(alpha_max * ratio), log10(alpha_max), n_alphas)`
+
+Penalized Cox uses the infinity norm of the partial-likelihood gradient at the
+zero model. For ElasticNet with `l1_ratio=rho > 0`, the first value is the
+zero-model KKT boundary `alpha_max = ||gradient L(0)||_inf / rho`; a string
+penalty uses the estimator's `l1_ratio`, while an `ElasticNetPenalty` object
+uses its own value. `rho=0` is pure L2 and has no finite all-zero KKT threshold,
+so `||gradient L(0)||_inf` is recorded as an explicit grid heuristic. The
+no-penalty aliases `"none"`, `"null"`, and `""` are non-tunable and are rejected
+by Cox CV; fit `PenalizedCoxPHModel` directly for an unpenalized run.
 
 #### Custom Grid
 
@@ -194,7 +236,21 @@ model = RidgeCV(
 model.fit(X, y)
 ```
 
-Non-positive and non-finite values are automatically filtered. If all provided alphas are filtered, a warning is emitted and the default grid is used.
+Scalar-response CV estimators search strictly positive alpha values. A
+one-dimensional numeric user grid keeps its original order after non-positive
+and non-finite entries are filtered with a `RuntimeWarning`; an empty or
+fully-filtered grid emits a warning and regenerates the default grid. Zero is
+therefore not a scalar-CV candidate for L1, L2, ElasticNet, SCAD, MCP,
+Adaptive L1, Group Lasso, Group SCAD, or Group MCP; use a direct estimator with
+`alpha=0` for an unpenalized fit. Before NumPy dtype promotion, Python sequence
+and object-array elements are checked individually: booleans and strings/bytes
+(including numeric text such as `"0.2"`) are rejected instead of becoming 1.0
+or 0.2. Non-one-dimensional, complex, boolean, string/bytes, or other
+non-numeric grids raise `ValueError` before device routing or candidate work.
+Penalized Cox uses a stricter contract and does not filter
+or replace a user grid: non-finite or negative values raise `ValueError`, and
+SCAD/MCP additionally require every alpha to be strictly positive. L1, L2, and
+ElasticNet Cox grids may include zero.
 
 ### Fitted Attributes
 
@@ -234,14 +290,24 @@ When `device="auto"`, the CV estimator selects the backend based on problem size
 |-----------|----------|--------|
 | n*p < 200,000 | CPU | Kernel launch overhead dominates |
 | squared_error + l1/en, p>=256, n*p>=1M | Torch GPU | Batched alpha path |
-| logistic + l1/en, n>=5000, n*p>=500k | Torch GPU | Fold-batched path |
+| logistic + l1/en, p>=100, n*p>=500k | Torch GPU | Fold-batched path |
 | poisson + l1/en, p>=500, n*p>=1M | Torch GPU | Fold-batched path |
 | gamma + l1/en, p>=500, n*p>=2M | Torch GPU | Fold-batched path |
-| SCAD/MCP, n*p>=1M | Torch GPU | Async FISTA |
-| NB (any penalty) | CPU | Complex gradient overhead |
-| Otherwise | CPU | Default fallback |
+| non-squared-error SCAD/MCP, n*p>=1M | Torch GPU | Async FISTA |
+| NB + l1/l2/en | CPU | Complex gradient overhead |
+| Generic fallback work < 100M | CPU | Below measured GPU break-even |
+| Generic fallback work >= 100M | Torch, then CuPy; CPU if neither is operational | Large aggregate CV work |
 
 For explicit control: `device="cpu"` forces CPU, `device="cuda"` forces GPU. The thresholds are benchmark-backed and stored in `_effective_cv_device()`.
+`device="auto"` selects a GPU only after the backend reports an operational
+CUDA driver and device; an installed but unusable CuPy wheel does not prevent a
+CPU fallback. The generic fallback work is `n * p * n_work_folds * n_alphas`,
+with a continuation factor of 20 for non-squared-error SCAD/MCP. Scalar-
+response CV uses the normalized generated/custom fold count; Cox CV uses only
+folds with events in both training and validation. The earlier empirical
+loss/penalty rows are evaluated first and remain driven by their documented
+`n * p` and feature conditions, without a fold multiplier. Explicit
+`device="cuda"` remains strict and raises when CuPy CUDA is unavailable.
 
 ### Inference After CV
 
@@ -282,32 +348,66 @@ For `PenalizedGLM_CV` with `penalty="l1"` and `compute_inference=True`:
 
 ### Architecture
 
+`PenalizedGLM_CV.fit()` dispatches to two preparation and routing sequences.
+They share selection and final-refit contracts, but automatic-grid construction
+runs at different points and therefore must not be represented as one ordered
+pipeline.
+
+#### Scalar-response sequence
+
 ```
-PenalizedGLM_CV.fit(X, y)
+PenalizedGLM_CV._fit_standard(X, y)
   |
-  +-- 1. Auto-device selection (_effective_cv_device)
-  |     +-- Selects CPU/CuPy/Torch based on problem size and loss
+  +-- 1. Validate or generate the complete alpha grid
+  |     +-- Automatic grids are generated before CV-device selection
   |
-  +-- 2. Alpha grid generation (_generate_alpha_grid)
-  |     +-- Generates descending alpha grid from alpha_max
+  +-- 2. Materialize generated/custom folds exactly once
+  |     +-- One-shot generators become a reusable fold list
   |
-  +-- 3. CV scoring (_compute_cv_scores)
-  |     +-- Fast path: Ridge eigendecomposition (squared_error + l2)
-  |     +-- Fold-batched path (logistic, poisson, gamma, NB, inv.gauss, tweedie)
-  |     +-- Sparse CV path (squared_error + l1/en)
-  |     +-- LLA path (SCAD/MCP)
-  |     +-- General per-fold path (fallback)
+  +-- 3. Select the CV device (_effective_cv_device)
+  |     +-- Generic work sizing uses len(folds)
   |
-  +-- 4. Best alpha selection
+  +-- 4. Score the alpha grid (_compute_cv_scores)
+  |     +-- Ridge eigendecomposition, fold-batched, sparse, LLA, or fallback
   |
-  +-- 5. Refit on full data (_refit_best)
+  +-- 5. Select the best alpha and refit
+        +-- squared_error + l2: exact float64 eigensolve on CPU
+        |   while retaining cv_selected_device_ for prediction/output
+        +-- other paths: refit on the resolved selected backend
+```
+
+#### Penalized-Cox sequence
+
+```
+fit_penalized_cox_cv(estimator, X, (time, event))
+  |
+  +-- 1. Normalize the survival target and materialize folds
+  |
+  +-- 2. Validate the alpha-grid request
+  |     +-- Explicit grids are validated; automatic grids are not built yet
+  |
+  +-- 3. Validate event support for every fold
+  |     +-- Compute fold_valid and n_effective_folds
+  |
+  +-- 4. Select the CV device (_effective_cv_device)
+  |     +-- Generic work sizing uses n_effective_folds
+  |
+  +-- 5. Convert to the selected backend and preprocess the Cox loss
+  |     +-- Automatic alpha grids are generated here on that backend
+  |
+  +-- 6. Score only evaluable folds; retain skipped-fold diagnostics
+  |
+  +-- 7. Require complete finite candidate evidence, select, and refit
 ```
 
 ### CV Scoring Paths
 
+The numbered paths below describe scalar-response scoring. Penalized Cox uses
+the survival-aware fold path after its preparation sequence above.
+
 #### Path 1: Ridge Eigendecomposition (squared_error + l2)
 
-**When**: `loss="squared_error"`, `penalty="l2"`, `device` is CPU/auto, `sample_weight=None`.
+**When**: `loss="squared_error"`, `penalty="l2"`, the resolved CV device is CPU, and `sample_weight=None`.
 
 **Method**: Batch eigendecomposition per fold.
 
@@ -322,6 +422,15 @@ coef = Q @ (1/(eigvals + n*alpha) * Q.T @ Xc.T @ yc)
 **Complexity**: O(p^3) per fold (eigendecomposition), independent of n_alphas.
 
 **Why it's fast**: All alphas are solved from a single eigendecomposition. For 20 alphas x 5 folds, this is 5 eigendecompositions instead of 100 model fits.
+
+This batched scoring path depends on the resolved CV device, not the constructor
+spelling: `device="auto"` uses it only when auto routing resolves to CPU. If
+auto routing selects CUDA/Torch, CV uses the corresponding GPU scoring path.
+After selection, squared-error L2 always transfers the full refit data to NumPy
+and executes the exact float64 `_ridge_eig_single()` solve on CPU so CV/refit
+coefficient precision is stable. The fitted estimator still retains
+`cv_selected_device_` as its prediction/output backend contract; that metadata
+does not claim the refit eigensolve ran on the selected accelerator.
 
 #### Path 2: Fold-Batched CV (logistic, poisson, gamma, NB, inv.gauss, tweedie)
 

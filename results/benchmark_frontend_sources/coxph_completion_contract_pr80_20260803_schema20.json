@@ -1,0 +1,1164 @@
+{
+  "backends": {
+    "cupy": {
+      "cases": {
+        "completion_contract": {
+          "backend": "cupy",
+          "cleanup_calls_after_error": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "cleanup_calls_after_success": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "complex_prediction_rejected": true,
+          "concordance": 0.6152512998266898,
+          "dispatch_direct_backend_imports_absent": true,
+          "fractional_subject_id_rejected": true,
+          "import_time_adapter_absent": true,
+          "inference_result_contract": true,
+          "legacy_mixin_isolated": true,
+          "ordinary_concordance_sync_calls": [
+            {
+              "backend": "cupy",
+              "values": 3
+            }
+          ],
+          "passed": true,
+          "summary_truthful": true
+        },
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "cupy",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.05162253975868225,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "cupy",
+          "candidate_cluster_used": false,
+          "candidate_label_preparation": true,
+          "candidate_strata_preencoded": true,
+          "candidate_subject_id_used": false,
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cv_full_host_transfer_performed": true,
+          "effective_device": "cuda",
+          "final_refit_full_host_transfer_performed": true,
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.4797888994216919,
+          "fold_backend_preparation_count": 2,
+          "full_host_transfer_performed": true,
+          "input_backends": [
+            "cupy"
+          ],
+          "orchestration_device": "cpu",
+          "passed": true,
+          "single_cleanup_owner": true,
+          "transfer_provenance": true
+        },
+        "eventless_stratum_survival": {
+          "automatic_max_abs_error_from_one": 0.0,
+          "automatic_times_count": 39,
+          "backend": "cupy",
+          "baseline_contract": "no failures => cumulative hazard 0 => survival 1",
+          "cv_max_abs_error_from_one": 0.0,
+          "cv_shape": [
+            2,
+            3
+          ],
+          "empty_baseline_shape": [
+            0
+          ],
+          "explicit_max_abs_error_from_one": 0.0,
+          "explicit_times_shape": [
+            3,
+            3
+          ],
+          "mixed_eventful_min_survival": 0.01382839050499962,
+          "mixed_eventless_max_abs_error_from_one": 0.0,
+          "mixed_shape": [
+            2,
+            3
+          ],
+          "passed": true
+        },
+        "hazard_ratio_boundary": {
+          "backend": "cupy",
+          "canonical_log_risk": [
+            800.0,
+            800.0
+          ],
+          "canonical_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          },
+          "passed": true,
+          "penalized_complex_log_risk_rejected": true,
+          "penalized_log_risk": [
+            800.0,
+            800.0
+          ],
+          "penalized_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          }
+        },
+        "ordinary_cv_preparation": {
+          "backend": "cupy",
+          "candidate_right_censored_preparation_count": 2,
+          "candidate_target_host_transfer_count": 2,
+          "candidate_target_host_vector_transfer_count": 4,
+          "cv_full_host_transfer_performed": true,
+          "expected_loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "final_refit_full_host_transfer_performed": true,
+          "fold_backend_preparation_count_this_call": 2,
+          "full_host_transfer_performed": true,
+          "loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "passed": true,
+          "selection_cache_hit": false,
+          "strict_content_validation_calls": 0,
+          "ties": "efron"
+        },
+        "penalized_cox_cv_and_backend_pin": {
+          "actual_fold_count_auto_device": {
+            "configured_cv": 99,
+            "contract": "generic fallback uses supplied work-fold count",
+            "five_fold_device": "torch",
+            "n_alphas": 100,
+            "n_features": 100,
+            "n_samples": 2000,
+            "passed": true,
+            "single_fold_device": "cpu"
+          },
+          "automatic_elasticnet_grid": {
+            "object": {
+              "actual_alpha_max": 1.1684133668211947,
+              "alpha_grid_rule": "elasticnet_zero_score_kkt",
+              "expected_alpha_max": 1.1684133668211947,
+              "general_disjoint_split_count": 2,
+              "l1_ratio": 0.25,
+              "passed": true,
+              "raw_zero_score_inf_norm": 0.29210334170529867
+            },
+            "pure_l2": {
+              "actual_alpha_max": 0.29210334170529867,
+              "alpha_grid_rule": "zero_score_l2_heuristic",
+              "expected_alpha_max": 0.29210334170529867,
+              "general_disjoint_split_count": 2,
+              "l1_ratio": 0.0,
+              "passed": true,
+              "raw_zero_score_inf_norm": 0.29210334170529867
+            },
+            "string": {
+              "actual_alpha_max": 0.7302583542632466,
+              "alpha_grid_rule": "elasticnet_zero_score_kkt",
+              "expected_alpha_max": 0.7302583542632466,
+              "general_disjoint_split_count": 2,
+              "l1_ratio": 0.4,
+              "passed": true,
+              "raw_zero_score_inf_norm": 0.29210334170529867
+            }
+          },
+          "backend": "cupy",
+          "backend_pin_passed": true,
+          "effective_device": "cuda",
+          "final_refit_contract": "PenalizedCoxPHModel without intercept",
+          "fitted_backend": "cupy",
+          "passed": true,
+          "penalty_families": {
+            "elasticnet": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0929840016673738,
+                1.0559181969060727
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "l1": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.128245188434891,
+                1.0582001036248936
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "l2": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.077759857277937,
+                1.0547418455016262
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "mcp": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0952426884112554,
+                1.0527532038865421
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "scad": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0952426885229052,
+                1.0527532039240541
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            }
+          },
+          "prediction_backend_after_global_device_change": "cupy",
+          "public_fold_routing": {
+            "cox_evaluable_fold_count": 1,
+            "cox_normalized_fold_count": 5,
+            "cox_observed_device_sizing_fold_count": 1,
+            "passed": true,
+            "scalar_generator_iterations": 1,
+            "scalar_generator_observed_count": 4,
+            "scalar_list_observed_count": 1
+          },
+          "scalar_alpha_grid": {
+            "contract": "filter non-positive/non-finite values before routing; regenerate defaults when none remain; reject malformed shape",
+            "default_grid": [
+              0.30948003447285266,
+              0.003094800344728527,
+              3.0948003447285266e-05
+            ],
+            "default_selected_alpha": 3.0948003447285266e-05,
+            "default_warning_messages": [
+              "The scalar-response alpha_grid was empty or contained no finite positive values; using the automatically generated default grid. The l2 CV path searches alpha > 0."
+            ],
+            "filtered_grid": [
+              0.2,
+              0.05
+            ],
+            "filtered_selected_alpha": 0.05,
+            "filtered_warning_messages": [
+              "Filtered 4 non-positive or non-finite alpha_grid value(s); the scalar-response l2 CV path searches alpha > 0."
+            ],
+            "input_backend": "cupy",
+            "malformed_error": "alpha_grid must be a one-dimensional array",
+            "malformed_work_calls": [],
+            "passed": true
+          },
+          "score_after_global_device_change": 0.675,
+          "selection_contract": "finite held-out Cox partial likelihood from every evaluable fold"
+        },
+        "penalized_inference_and_strata": {
+          "backend": "cupy",
+          "covariance_contract": "A^-1 J A^-1",
+          "covariance_convention": "fixed_penalty_model_based_sandwich",
+          "covariance_max_abs_error": 1.734723475976807e-17,
+          "cv_inference_method": "m_estimation",
+          "cv_penalty_selection_adjusted": false,
+          "differs_from_penalized_curvature_inverse": 0.0013617644346005653,
+          "inference_method": "m_estimation",
+          "inference_target": "penalized_estimating_equation",
+          "missing_score_error": "strata is required when scoring a stratified CoxPH fit",
+          "passed": true,
+          "penalty": 0.4,
+          "penalty_conditioning": "fixed_penalty",
+          "penalty_selection_adjusted": false,
+          "score_test_contract": "suppressed_penalized_fit",
+          "shape_errors": {
+            "prediction_two_dimensional": "strata must have shape (n_samples,)",
+            "scalar": "strata must have shape (n_samples,)",
+            "two_dimensional": "strata must have shape (n_samples,)",
+            "wrong_length": "strata must have shape (n_samples,)"
+          },
+          "unknown_prediction_error": "unknown prediction stratum: 10",
+          "unknown_score_error": "unknown scoring stratum: 10",
+          "valid_stratified_score": 0.627906976744186,
+          "valid_survival_shape": [
+            4,
+            42
+          ]
+        },
+        "prediction_fast_path_and_fit_controls": {
+          "active_controls_normalized": true,
+          "backend": "cupy",
+          "constructor_parameters_stable": true,
+          "fast_path_eligibility": {
+            "breslow_multiple_strata_rejected": true,
+            "breslow_nonzero_start_rejected": true,
+            "breslow_ordinary_inputs_accepted": true,
+            "efron_multiple_strata_rejected": true,
+            "efron_nonzero_start_rejected": true,
+            "efron_ordinary_inputs_accepted": true
+          },
+          "one_dimensional_multifeature_row": true,
+          "passed": true,
+          "set_params_representation_stable": true,
+          "shape_rejections": {
+            "three_dimensional": true,
+            "wrong_one_dimensional_length": true
+          },
+          "single_explicit_stratum_prediction": {
+            "cv_missing_rejected": true,
+            "known_accepted": true,
+            "missing_rejected": true,
+            "unknown_rejected": true
+          },
+          "termination_provenance": {
+            "interpreted": "stalled_with_large_kkt",
+            "passed": true,
+            "raw": "max_iter"
+          }
+        },
+        "prepared_state_and_packed_target": {
+          "backend": "cupy",
+          "cv_full_host_transfer_performed": true,
+          "full_host_transfer_performed": true,
+          "packed_target_input_backends": [
+            "cupy",
+            "numpy"
+          ],
+          "packed_target_transfer_disclosed": true,
+          "passed": true,
+          "prepared_mismatch_rejected": true
+        },
+        "public_boundary": {
+          "backend": "cupy",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cpu_input_transfer_disclosed": true,
+          "device_normalized": true,
+          "extreme_survival_log_domain": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 2.4722570180892944,
+          "loss_target_host_copy_shapes": [
+            [
+              72
+            ],
+            [
+              72
+            ]
+          ],
+          "passed": true,
+          "target_transfer_disclosed": true
+        },
+        "robust_inference_units": {
+          "backend": "cupy",
+          "equal_units_hc1": {
+            "error": "HC1 covariance requires n_units > n_features",
+            "state_cleared": true
+          },
+          "materially_indefinite_covariance": {
+            "classification": "materially_indefinite",
+            "cox_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cox_state_cleared": true,
+            "cv_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cv_state_cleared": true,
+            "minimum_eigenvalue": -1.0
+          },
+          "p_plus_one_units": {
+            "finite_sample_correction": 4.0,
+            "hc0_wald_available": true,
+            "hc1_wald_available": true,
+            "n_features": 3,
+            "n_units": 4,
+            "pvalues": [
+              0.13677991678249743,
+              0.061403244683292404,
+              0.8633852692389653
+            ],
+            "standard_errors": [
+              0.41141984649147234,
+              0.16658917791332561,
+              0.4963030458435012
+            ],
+            "variance_ratio_matches": true
+          },
+          "passed": true,
+          "rank_deficient_joint_wald": {
+            "cluster_marginal_standard_errors": [
+              0.055693449981579636,
+              0.06728663149973936,
+              0.10832193633026384
+            ],
+            "cluster_units": 2,
+            "cluster_wald_available": false,
+            "failure_reason": "robust covariance is rank-deficient for the full-parameter Wald test",
+            "subject_hc0_marginal_standard_errors": [
+              0.1987889345848793,
+              0.24674211755374295,
+              0.3583374713277635
+            ],
+            "subject_hc0_wald_available": false,
+            "subject_units": 3,
+            "summary_contract": true
+          },
+          "single_cluster": {
+            "error": "cluster covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_cluster_estimation_only": {
+            "coefficients": [
+              0.6121474575206017,
+              -0.3116184735321358,
+              -0.08539711529317247
+            ],
+            "fitted": true,
+            "inference_unset": true
+          },
+          "single_subject_hc0": {
+            "error": "hc0 covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_subject_hc1": {
+            "error": "hc1 covariance requires at least two independent units",
+            "state_cleared": true
+          }
+        },
+        "single_group_workspace": {
+          "backend": "cupy",
+          "max_abs_differences": {
+            "information": 1.3322676295501878e-14,
+            "log_likelihood": 0.0,
+            "score": 6.661338147750939e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.44491755962371826,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "cupy",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 4.440892098500626e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.016490638256072998,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "13.6.0"
+    },
+    "torch": {
+      "cases": {
+        "completion_contract": {
+          "backend": "torch",
+          "cleanup_calls_after_error": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "cleanup_calls_after_success": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "complex_prediction_rejected": true,
+          "concordance": 0.6152512998266898,
+          "dispatch_direct_backend_imports_absent": true,
+          "fractional_subject_id_rejected": true,
+          "import_time_adapter_absent": true,
+          "inference_result_contract": true,
+          "legacy_mixin_isolated": true,
+          "ordinary_concordance_sync_calls": [
+            {
+              "backend": "torch",
+              "values": 3
+            }
+          ],
+          "passed": true,
+          "summary_truthful": true
+        },
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "torch",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.03517043590545654,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "torch",
+          "candidate_cluster_used": false,
+          "candidate_label_preparation": true,
+          "candidate_strata_preencoded": true,
+          "candidate_subject_id_used": false,
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cv_full_host_transfer_performed": true,
+          "effective_device": "torch",
+          "final_refit_full_host_transfer_performed": true,
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.19509875774383545,
+          "fold_backend_preparation_count": 2,
+          "full_host_transfer_performed": true,
+          "input_backends": [
+            "torch-device"
+          ],
+          "orchestration_device": "cpu",
+          "passed": true,
+          "single_cleanup_owner": true,
+          "transfer_provenance": true
+        },
+        "eventless_stratum_survival": {
+          "automatic_max_abs_error_from_one": 0.0,
+          "automatic_times_count": 39,
+          "backend": "torch",
+          "baseline_contract": "no failures => cumulative hazard 0 => survival 1",
+          "cv_max_abs_error_from_one": 0.0,
+          "cv_shape": [
+            2,
+            3
+          ],
+          "empty_baseline_shape": [
+            0
+          ],
+          "explicit_max_abs_error_from_one": 0.0,
+          "explicit_times_shape": [
+            3,
+            3
+          ],
+          "mixed_eventful_min_survival": 0.013828390504999595,
+          "mixed_eventless_max_abs_error_from_one": 0.0,
+          "mixed_shape": [
+            2,
+            3
+          ],
+          "passed": true
+        },
+        "hazard_ratio_boundary": {
+          "backend": "torch",
+          "canonical_log_risk": [
+            800.0,
+            800.0
+          ],
+          "canonical_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          },
+          "passed": true,
+          "penalized_complex_log_risk_rejected": true,
+          "penalized_log_risk": [
+            800.0,
+            800.0
+          ],
+          "penalized_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          }
+        },
+        "ordinary_cv_preparation": {
+          "backend": "torch",
+          "candidate_right_censored_preparation_count": 2,
+          "candidate_target_host_transfer_count": 2,
+          "candidate_target_host_vector_transfer_count": 4,
+          "cv_full_host_transfer_performed": true,
+          "expected_loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "final_refit_full_host_transfer_performed": true,
+          "fold_backend_preparation_count_this_call": 2,
+          "full_host_transfer_performed": true,
+          "loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "passed": true,
+          "selection_cache_hit": false,
+          "strict_content_validation_calls": 0,
+          "ties": "efron"
+        },
+        "penalized_cox_cv_and_backend_pin": {
+          "actual_fold_count_auto_device": {
+            "configured_cv": 99,
+            "contract": "generic fallback uses supplied work-fold count",
+            "five_fold_device": "torch",
+            "n_alphas": 100,
+            "n_features": 100,
+            "n_samples": 2000,
+            "passed": true,
+            "single_fold_device": "cpu"
+          },
+          "automatic_elasticnet_grid": {
+            "object": {
+              "actual_alpha_max": 1.1684133668211947,
+              "alpha_grid_rule": "elasticnet_zero_score_kkt",
+              "expected_alpha_max": 1.1684133668211947,
+              "general_disjoint_split_count": 2,
+              "l1_ratio": 0.25,
+              "passed": true,
+              "raw_zero_score_inf_norm": 0.29210334170529867
+            },
+            "pure_l2": {
+              "actual_alpha_max": 0.29210334170529867,
+              "alpha_grid_rule": "zero_score_l2_heuristic",
+              "expected_alpha_max": 0.29210334170529867,
+              "general_disjoint_split_count": 2,
+              "l1_ratio": 0.0,
+              "passed": true,
+              "raw_zero_score_inf_norm": 0.29210334170529867
+            },
+            "string": {
+              "actual_alpha_max": 0.7302583542632466,
+              "alpha_grid_rule": "elasticnet_zero_score_kkt",
+              "expected_alpha_max": 0.7302583542632466,
+              "general_disjoint_split_count": 2,
+              "l1_ratio": 0.4,
+              "passed": true,
+              "raw_zero_score_inf_norm": 0.29210334170529867
+            }
+          },
+          "backend": "torch",
+          "backend_pin_passed": true,
+          "effective_device": "torch",
+          "final_refit_contract": "PenalizedCoxPHModel without intercept",
+          "fitted_backend": "torch",
+          "passed": true,
+          "penalty_families": {
+            "elasticnet": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0929840016673738,
+                1.0559181969060727
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "l1": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.128245188434891,
+                1.0582001036248936
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "l2": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0777598572779372,
+                1.0547418455016262
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "mcp": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0952426884112554,
+                1.0527532038865424
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            },
+            "scad": {
+              "final_refit_coefficient_max_abs_error": 0.0,
+              "mean_partial_likelihood_loss": [
+                1.0952426885229056,
+                1.0527532039240541
+              ],
+              "passed": true,
+              "required_valid_score_count": 2,
+              "selected_alpha": 0.03,
+              "valid_score_counts": [
+                2,
+                2
+              ]
+            }
+          },
+          "prediction_backend_after_global_device_change": "torch",
+          "public_fold_routing": {
+            "cox_evaluable_fold_count": 1,
+            "cox_normalized_fold_count": 5,
+            "cox_observed_device_sizing_fold_count": 1,
+            "passed": true,
+            "scalar_generator_iterations": 1,
+            "scalar_generator_observed_count": 4,
+            "scalar_list_observed_count": 1
+          },
+          "scalar_alpha_grid": {
+            "contract": "filter non-positive/non-finite values before routing; regenerate defaults when none remain; reject malformed shape",
+            "default_grid": [
+              0.30948003447285266,
+              0.003094800344728527,
+              3.0948003447285266e-05
+            ],
+            "default_selected_alpha": 3.0948003447285266e-05,
+            "default_warning_messages": [
+              "The scalar-response alpha_grid was empty or contained no finite positive values; using the automatically generated default grid. The l2 CV path searches alpha > 0."
+            ],
+            "filtered_grid": [
+              0.2,
+              0.05
+            ],
+            "filtered_selected_alpha": 0.05,
+            "filtered_warning_messages": [
+              "Filtered 4 non-positive or non-finite alpha_grid value(s); the scalar-response l2 CV path searches alpha > 0."
+            ],
+            "input_backend": "torch",
+            "malformed_error": "alpha_grid must be a one-dimensional array",
+            "malformed_work_calls": [],
+            "passed": true
+          },
+          "score_after_global_device_change": 0.675,
+          "selection_contract": "finite held-out Cox partial likelihood from every evaluable fold"
+        },
+        "penalized_inference_and_strata": {
+          "backend": "torch",
+          "covariance_contract": "A^-1 J A^-1",
+          "covariance_convention": "fixed_penalty_model_based_sandwich",
+          "covariance_max_abs_error": 2.0816681711721685e-17,
+          "cv_inference_method": "m_estimation",
+          "cv_penalty_selection_adjusted": false,
+          "differs_from_penalized_curvature_inverse": 0.0013617644346005514,
+          "inference_method": "m_estimation",
+          "inference_target": "penalized_estimating_equation",
+          "missing_score_error": "strata is required when scoring a stratified CoxPH fit",
+          "passed": true,
+          "penalty": 0.4,
+          "penalty_conditioning": "fixed_penalty",
+          "penalty_selection_adjusted": false,
+          "score_test_contract": "suppressed_penalized_fit",
+          "shape_errors": {
+            "prediction_two_dimensional": "strata must have shape (n_samples,)",
+            "scalar": "strata must have shape (n_samples,)",
+            "two_dimensional": "strata must have shape (n_samples,)",
+            "wrong_length": "strata must have shape (n_samples,)"
+          },
+          "unknown_prediction_error": "unknown prediction stratum: 10",
+          "unknown_score_error": "unknown scoring stratum: 10",
+          "valid_stratified_score": 0.627906976744186,
+          "valid_survival_shape": [
+            4,
+            42
+          ]
+        },
+        "prediction_fast_path_and_fit_controls": {
+          "active_controls_normalized": true,
+          "backend": "torch",
+          "constructor_parameters_stable": true,
+          "fast_path_eligibility": {
+            "breslow_multiple_strata_rejected": true,
+            "breslow_nonzero_start_rejected": true,
+            "breslow_ordinary_inputs_accepted": true,
+            "efron_multiple_strata_rejected": true,
+            "efron_nonzero_start_rejected": true,
+            "efron_ordinary_inputs_accepted": true
+          },
+          "one_dimensional_multifeature_row": true,
+          "passed": true,
+          "set_params_representation_stable": true,
+          "shape_rejections": {
+            "three_dimensional": true,
+            "wrong_one_dimensional_length": true
+          },
+          "single_explicit_stratum_prediction": {
+            "cv_missing_rejected": true,
+            "known_accepted": true,
+            "missing_rejected": true,
+            "unknown_rejected": true
+          },
+          "termination_provenance": {
+            "interpreted": "stalled_with_large_kkt",
+            "passed": true,
+            "raw": "max_iter"
+          }
+        },
+        "prepared_state_and_packed_target": {
+          "backend": "torch",
+          "cv_full_host_transfer_performed": true,
+          "full_host_transfer_performed": true,
+          "packed_target_input_backends": [
+            "numpy",
+            "torch-device"
+          ],
+          "packed_target_transfer_disclosed": true,
+          "passed": true,
+          "prepared_mismatch_rejected": true
+        },
+        "public_boundary": {
+          "backend": "torch",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cpu_input_transfer_disclosed": true,
+          "device_normalized": true,
+          "extreme_survival_log_domain": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 0.19023698568344116,
+          "loss_target_host_copy_shapes": [
+            [
+              72
+            ],
+            [
+              72
+            ]
+          ],
+          "passed": true,
+          "target_transfer_disclosed": true
+        },
+        "robust_inference_units": {
+          "backend": "torch",
+          "equal_units_hc1": {
+            "error": "HC1 covariance requires n_units > n_features",
+            "state_cleared": true
+          },
+          "materially_indefinite_covariance": {
+            "classification": "materially_indefinite",
+            "cox_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cox_state_cleared": true,
+            "cv_error": "cluster covariance is not positive semidefinite (minimum eigenvalue=-1; tolerance=9e-12)",
+            "cv_state_cleared": true,
+            "minimum_eigenvalue": -1.0
+          },
+          "p_plus_one_units": {
+            "finite_sample_correction": 4.0,
+            "hc0_wald_available": true,
+            "hc1_wald_available": true,
+            "n_features": 3,
+            "n_units": 4,
+            "pvalues": [
+              0.13677991678249743,
+              0.061403244683292404,
+              0.8633852692389652
+            ],
+            "standard_errors": [
+              0.41141984649147234,
+              0.16658917791332561,
+              0.49630304584350127
+            ],
+            "variance_ratio_matches": true
+          },
+          "passed": true,
+          "rank_deficient_joint_wald": {
+            "cluster_marginal_standard_errors": [
+              0.055693449981579636,
+              0.0672866314997394,
+              0.10832193633026385
+            ],
+            "cluster_units": 2,
+            "cluster_wald_available": false,
+            "failure_reason": "robust covariance is rank-deficient for the full-parameter Wald test",
+            "subject_hc0_marginal_standard_errors": [
+              0.1987889345848794,
+              0.24674211755374278,
+              0.3583374713277636
+            ],
+            "subject_hc0_wald_available": false,
+            "subject_units": 3,
+            "summary_contract": true
+          },
+          "single_cluster": {
+            "error": "cluster covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_cluster_estimation_only": {
+            "coefficients": [
+              0.6121474575206017,
+              -0.31161847353213584,
+              -0.08539711529317248
+            ],
+            "fitted": true,
+            "inference_unset": true
+          },
+          "single_subject_hc0": {
+            "error": "hc0 covariance requires at least two independent units",
+            "state_cleared": true
+          },
+          "single_subject_hc1": {
+            "error": "hc1 covariance requires at least two independent units",
+            "state_cleared": true
+          }
+        },
+        "single_group_workspace": {
+          "backend": "torch",
+          "max_abs_differences": {
+            "information": 1.199040866595169e-14,
+            "log_likelihood": 0.0,
+            "score": 8.881784197001252e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.2185775339603424,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "torch",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 4.440892098500626e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.007772386074066162,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "2.0.0+cu117"
+    }
+  },
+  "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path> --run-targeted-tests",
+  "gate_failures": [],
+  "numpy": "1.24.2",
+  "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
+  "schema_version": 20,
+  "source_clean": true,
+  "source_commit": "a7053af2cb628880708cf2e4bfab121b1354725a",
+  "source_sha256": {
+    ".github/workflows/test.yml": "d2392afaf6869ae48dd50f0cbf98a44a23a9c711254729d323d09b62193baf70",
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "a78e42ac94d691bef471d9be5e666782862ac3f1c27d75637ac3975dec343103",
+    "dev/benchmarks/benchmark_cox_cluster.py": "7e7f373cbfe6730b768da7912f3942720c01b8a932364f07d75363a8c4ce0234",
+    "dev/benchmarks/pr79/diagnose_cox_pen.py": "2eb537fae6fe24e5e98dea331ef93fd3ff974988cb81056c92ea3357522666fc",
+    "dev/benchmarks/pr79/validators/numerical.py": "c0d6738218e1e783b480629b2d0470e08792541c42c8c85f27e5f5eeaa5bbb1f",
+    "dev/tests/test_cox_core_completion.py": "397ce633e03b8a939b9e6e477a993ec38b79c7d65476d260120971d0ecdb7006",
+    "dev/tests/test_cox_cv.py": "e0ff945d1932e3cf800b655718517b35b059701d59dbf1c78477e142acd5d81b",
+    "dev/tests/test_cox_phase1_completion.py": "e797625fc8a714c07a16e344b3a3fcbcdf8b220f72a6da11fe0eb4098d8248fb",
+    "dev/tests/test_pr79_accuracy_pipeline.py": "2ed7c54068a6e400e5c96420d524121c43cdae02ee8dfe2b1d5b941c1a5e3871",
+    "dev/tests/test_pr79_complete_review_fixes.py": "1de58872d25929968afd23adc60a7b1ed942447b247f01b12fd17546a9118fa3",
+    "dev/tests/test_pr79_cox_parity_smoke.py": "db25612047926f3fdacd45fb13c6efe052a51fcf2a704e4c28a189f60809096b",
+    "dev/tests/test_pr80_complete_review_cycle.py": "8dd9075dfe43c2fb1a8caf529bf99cb5c870972e605b2a1b7a1dcb5764e67c82",
+    "dev/tests/test_pr80_completion_contract_followup.py": "280cf942507525ba0e676c0b8320e22888880102cb718224d6322d56fb465bed",
+    "dev/tests/test_pr80_constructor_boundaries.py": "c323eabbca82907513e35a73f2ec17e33c2201dcf6b768b303db87ad957afd23",
+    "dev/tests/test_pr80_cox_stability_review.py": "f9e2d407a1bf2ad5493a07150354297220857b90dc6334b009274a4c0de56ac4",
+    "dev/tests/test_pr80_cv_fit_boundary.py": "a911c024d9d8101000167a6a96b648245227982c17aa822ae8e71ac5c2fa5231",
+    "dev/tests/test_pr80_fit_boundary.py": "54ad8ecfcd6e7a4dc78546edf8cd902e5d1c5ebac520dde5b9f4b12b5af59b28",
+    "dev/tests/test_pr80_penalized_cox_cv_contracts.py": "a2eaea7df76317a02c2fe5909224f28350da6d4c4592798187a41374f34eb48e",
+    "dev/tests/test_pr80_penalized_inference_strata.py": "717c08dc12e011305daf2d775efae6a033c14347b0bef7b4686d68819f8ced5b",
+    "dev/tests/test_pr80_robust_inference_units.py": "f6b24dd4e4c8484ba617d948ffb888bb0e04d5cac52f8ed19e40e4d68875c498",
+    "dev/tests/test_pr80_target_transfer_overflow_cache.py": "ded3f04329ab5aade62acd74c214b05e7cfb7f2992eb0609d0315a65f94078ab",
+    "dev/tests/test_pr80_workspace_estimator.py": "30ef8f5d9f3db9f8a66d33d0e97af0a1dcac36be3617de523d71de303698247a",
+    "statgpu/__init__.py": "f385dd53e235f6afc81d80c1d4538bbcefe4f84f9e7830bd67d2e927a8c72a2d",
+    "statgpu/backends/_array_ops.py": "7cf8794477fa60857c9e8e77479894260099fb1d9936d2b0c6ad0c94c301c0be",
+    "statgpu/backends/_utils.py": "afc33ff8287c2fccc43486957e72c89b6801a82c570d5fd3d3049fcc5eb91880",
+    "statgpu/cross_validation/_base.py": "c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc",
+    "statgpu/inference/_covariance.py": "0b4e9f7f7b3419b445c2c43ba44417f81d02c88cf90a16bb45dca18f20c35602",
+    "statgpu/linear_model/penalized/_penalized_cox.py": "440e80eff8d1b3b9000a3c6712d52fd37c02eb69ad4d3f6e4790de023fd9c1db",
+    "statgpu/linear_model/penalized/_penalized_cox_cv.py": "d9ca5923deb07452b6e2c158c0a3d0808894f3376a1a96cdb928333e6ac4c151",
+    "statgpu/linear_model/penalized/_penalized_cv.py": "bc311d4795bf0003de4c3cf8d82ec95b30d8779ecdc9e03a438d1ddf83d14598",
+    "statgpu/losses/_cox_ph.py": "7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea",
+    "statgpu/penalties/_base.py": "a90cca0d588cccd0ff13d0ac15c298025ac051465be064e86965b74066526fc7",
+    "statgpu/survival/__init__.py": "97592d8c53b8dd64eccf428980bc949ac2069b1db555dfdd4ec26981b7e46024",
+    "statgpu/survival/_concordance.py": "e07c113d7d362bb3098a7f91fe67d218fd190d03529134d1806f9aeccecf15fa",
+    "statgpu/survival/_cox.py": "ac7355575fbfbb15dad9e081e71931cf41d2bc751d3ce38c906e263114992678",
+    "statgpu/survival/_cox_counting.py": "59d4ac0973d491938d4303e0639f1a44dc044f25991bbe12ee3a0422e464cf85",
+    "statgpu/survival/_cox_cv.py": "98b9ba1a0274381f93b34ce09165d52021d195bb3cabc762648df05aa822e810",
+    "statgpu/survival/_cox_errors.py": "be41af4f1c5df64f2c5fc9e254f8602e36b4fd1b3a57939999ee1ecf8d806f4f",
+    "statgpu/survival/_cox_fit_adapter.py": "27203f07c312867d3127bab21f3fe3c51ab26bbdd0158426e80bae3ce76de826",
+    "statgpu/survival/_cox_inference.py": "9eda150bf3fba838b204b6cd9050f72b4892224b1146ce481c1cff3e17e1eed1",
+    "statgpu/survival/_cox_legacy.py": "e7198c4fe223e99a465263422000b425bad764916e828fb9141c96af4cd44d77",
+    "statgpu/survival/_cox_score.py": "86c74293b0bf38cd27250fb19f72b4da897904068d89e825b008adf40ec8146b",
+    "statgpu/survival/_numeric.py": "04ef6ccd828b4415e06f7b19e1aa937429407bc2b145461d099d184243cde094",
+    "statgpu/survival/_risk_sets.py": "294c15eb62632bca638a850b6be3273b8d34d333d8e9dc0dec940c178c9cf65a"
+  },
+  "targeted_tests": {
+    "command": "STATGPU_REQUIRE_PHYSICAL_GPU=1 /root/miniconda3/envs/myconda/bin/python -m pytest -q dev/tests/test_pr79_accuracy_pipeline.py dev/tests/test_pr79_complete_review_fixes.py dev/tests/test_pr79_cox_parity_smoke.py dev/tests/test_cox_core_completion.py dev/tests/test_cox_phase1_completion.py dev/tests/test_pr80_complete_review_cycle.py dev/tests/test_pr80_completion_contract_followup.py dev/tests/test_pr80_constructor_boundaries.py dev/tests/test_pr80_workspace_estimator.py dev/tests/test_pr80_fit_boundary.py dev/tests/test_pr80_cv_fit_boundary.py dev/tests/test_pr80_cox_stability_review.py dev/tests/test_cox_cv.py dev/tests/test_pr80_target_transfer_overflow_cache.py dev/tests/test_pr80_robust_inference_units.py dev/tests/test_pr80_penalized_inference_strata.py dev/tests/test_pr80_penalized_cox_cv_contracts.py",
+    "output_tail": "dev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_line_search_failure_is_not_converged\n  /root/statgpu-validation/worktrees/pr80-schema20-a7053af2/statgpu/survival/_cox.py:696: RuntimeWarning: CoxPH did not converge after 1 iterations (stop_reason=line_search_failed)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr79_complete_review_fixes.py::test_public_termination_distinguishes_interpreted_and_raw_max_iter\ndev/tests/test_cox_core_completion.py::test_refit_resets_convergence_and_inference_state\n  /root/statgpu-validation/worktrees/pr80-schema20-a7053af2/statgpu/survival/_cox.py:696: RuntimeWarning: CoxPH did not converge after 1 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_small_step_large_kkt_is_stalled\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_final_kkt_overrides_false_success\n  /root/statgpu-validation/worktrees/pr80-schema20-a7053af2/statgpu/survival/_cox.py:696: RuntimeWarning: CoxPH did not converge after 3 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr80_completion_contract_followup.py::test_summary_preserves_exact_formula_call\n  /root/statgpu-validation/worktrees/pr80-schema20-a7053af2/statgpu/survival/_cox.py:696: RuntimeWarning: CoxPH did not converge after 100 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n581 passed, 7 warnings in 49.14s",
+    "passed": true,
+    "passed_count": 581,
+    "returncode": 0,
+    "summary": "581 passed, 7 warnings in 49.14s"
+  },
+  "validation_tier": "remote-full"
+}

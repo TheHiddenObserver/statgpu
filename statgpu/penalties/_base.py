@@ -12,7 +12,7 @@ __all__ = ["Penalty", "CompositePenalty"]
 
 
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Any
+from typing import Optional
 import numpy as np
 
 from statgpu.backends._array_ops import _xp
@@ -141,16 +141,34 @@ class Penalty(ABC):
         xp = _xp(coef)
         return xp.zeros_like(coef)
 
-    def get_params(self) -> dict:
+    def __sklearn_clone__(self):
+        """Return an independent penalty copy for sklearn estimator cloning.
+
+        Penalty ``get_params()`` is a serialization API that includes the
+        non-constructor ``name`` field, so routing it through sklearn's generic
+        estimator reconstruction is incorrect.  The clone hook preserves the
+        configured penalty object without imposing estimator semantics on every
+        penalty subclass.
         """
-        Get penalty parameters for serialization.
+        import copy
+
+        return copy.deepcopy(self)
+
+    def get_params(self, deep: bool = True) -> dict:
+        """
+        Get penalty parameters for serialization or sklearn reconstruction.
 
         Returns
         -------
         dict
             Dictionary of penalty parameters.
         """
-        return {"name": self.name}
+        # sklearn <=1.2 does not call ``__sklearn_clone__``. Its clone
+        # implementation calls ``get_params(deep=False)`` and forwards the
+        # result to the constructor, where the serialization-only ``name``
+        # field is invalid. Keep the public/default serialization unchanged
+        # while exposing constructor parameters to older sklearn releases.
+        return {"name": self.name} if deep else {}
 
     def _check_coef_shape(self, coef: np.ndarray) -> None:
         """Validate coefficient array shape."""
@@ -221,7 +239,19 @@ class CompositePenalty(Penalty):
                 raise ValueError("weights must be non-negative")
             if float(weights_array.sum()) <= 0.0:
                 raise ValueError("at least one composite weight must be positive")
-        self.weights = tuple(float(weight) for weight in weights_array)
+        normalized_weights = tuple(float(weight) for weight in weights_array)
+        # sklearn <=1.2 requires every shallow constructor parameter to be
+        # stored by identity. A cloned CompositePenalty reaches this
+        # constructor with the already-normalized tuple returned by
+        # get_params(deep=False); preserve that tuple instead of rebuilding it.
+        # User tuples with non-float values are still normalized so runtime
+        # arithmetic never retains strings or other merely coercible objects.
+        if isinstance(weights, tuple) and all(
+            type(weight) is float for weight in weights
+        ):
+            self.weights = weights
+        else:
+            self.weights = normalized_weights
 
         # Composite is convex only if all components are convex.
         self.is_convex = all(p.is_convex for p in self.penalties)
@@ -279,11 +309,19 @@ class CompositePenalty(Penalty):
                 result = result + weight * pen.lla_weights(coef)
         return result
 
-    def get_params(self) -> dict:
-        params = {
+    def get_params(self, deep: bool = True) -> dict:
+        """Return constructor params for clone or descriptive serialization."""
+        if not deep:
+            # sklearn <=1.2 reconstructs estimators from exactly these values.
+            # Do not expose serialization-only names or replace component
+            # penalty objects with their string labels on this path.
+            return {
+                "penalties": self.penalties,
+                "weights": self.weights,
+            }
+        return {
             "name": "composite",
             "n_penalties": self.n_penalties,
             "penalties": [p.name for p in self.penalties],
             "weights": list(self.weights),
         }
-        return params

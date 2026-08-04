@@ -132,11 +132,13 @@ backend-preserving prediction contracts.
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Breslow/Efron ties, delayed entry, robust/cluster inference contracts, backend-native prediction | NumPy, CuPy, Torch |
-| `PenalizedCoxPHModel` | Cox partial likelihood with convex/non-convex penalties where supported | NumPy, CuPy, Torch |
+| `CoxPH` | Breslow/Efron/Exact ties, delayed entry, `(start, stop]` rows, strata, robust/cluster inference, backend-native prediction | NumPy, CuPy, Torch |
+| `CoxPHCV` | L2 grid selection with the same risk-set semantics and subject-preserving folds | NumPy, CuPy, Torch |
+| `PenalizedCoxPHModel` | Standard right-censored Cox partial likelihood with convex/non-convex penalties where supported | NumPy, CuPy, Torch |
 
-Optional CPU dependencies for exact Efron robust inference and delayed-entry reference
-paths are installed with `pip install statgpu[survival]`. See
+The base installation contains the maintained Cox implementation. The optional
+`statgpu[survival]` extra installs statsmodels for external validation and comparison;
+it is not required for delayed entry or strict Breslow/Efron robust inference. See
 [Cox Proportional Hazards](../models/coxph.md) for the precise support matrix.
 
 ## Feature Selection and Diagnostics

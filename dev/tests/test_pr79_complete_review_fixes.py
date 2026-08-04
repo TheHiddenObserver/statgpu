@@ -8,7 +8,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from statgpu.losses import CoxPartialLikelihoodLoss
 from statgpu.survival import CoxPH
+from statgpu.survival._cox_legacy import _LegacyCoxReference
 
 
 def _cox_sample(seed=7901, n=100, p=3):
@@ -35,14 +37,14 @@ def test_cpu_cox_line_search_failure_does_not_update_beta(monkeypatch):
         device='cpu', compute_inference=False, compute_cindex=False, max_iter=3
     )
 
-    def derivatives(beta, *_args, **_kwargs):
-        return np.ones_like(beta), -np.eye(beta.size)
+    def objective(_loss, eta, X_sorted, *_args, **_kwargs):
+        loglik = 0.0 if np.array_equal(eta, np.zeros_like(eta)) else -1.0
+        p = X_sorted.shape[1]
+        return np.asarray(loglik), np.ones(p), -np.eye(p)
 
-    def objective(beta, *_args, **_kwargs):
-        return 0.0 if np.array_equal(beta, np.zeros_like(beta)) else -1.0
-
-    monkeypatch.setattr(model, '_compute_gradient_hessian', derivatives)
-    monkeypatch.setattr(model, '_compute_log_likelihood', objective)
+    monkeypatch.setattr(
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
+    )
     model.fit(X, time=time, event=event)
 
     assert_allclose(model.coef_, np.zeros(1), atol=0.0)
@@ -55,23 +57,36 @@ def test_cpu_cox_line_search_failure_is_not_converged(monkeypatch):
         device='cpu', compute_inference=False, compute_cindex=False, max_iter=3
     )
 
+    def objective(_loss, eta, X_sorted, *_args, **_kwargs):
+        loglik = 0.0 if np.array_equal(eta, np.zeros_like(eta)) else -1.0
+        p = X_sorted.shape[1]
+        return np.asarray(loglik), np.ones(p), -np.eye(p)
+
     monkeypatch.setattr(
-        model,
-        '_compute_gradient_hessian',
-        lambda beta, *_args, **_kwargs: (np.ones_like(beta), -np.eye(beta.size)),
-    )
-    monkeypatch.setattr(
-        model,
-        '_compute_log_likelihood',
-        lambda beta, *_args, **_kwargs: (
-            0.0 if np.array_equal(beta, np.zeros_like(beta)) else -1.0
-        ),
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
     )
     model.fit(X, time=time, event=event)
 
     assert model.converged_ is False
     assert model.termination_reason_ == 'line_search_failed'
+    assert model.optimization_stop_reason_ == 'line_search_failed'
     assert model.final_kkt_normalized_ is not None
+
+
+def test_public_termination_distinguishes_interpreted_and_raw_max_iter(capsys):
+    X, time, event = _cox_sample(n=80, p=2, seed=7902)
+    model = CoxPH(
+        device='cpu', penalty=0.1, compute_inference=False,
+        compute_cindex=False, max_iter=1, tol=1e-15,
+    ).fit(X, time=time, event=event)
+
+    assert model.converged_ is False
+    assert model.termination_reason_ == 'stalled_with_large_kkt'
+    assert model.optimization_stop_reason_ == 'max_iter'
+    model.summary()
+    output = capsys.readouterr().out
+    assert 'Termination reason: stalled_with_large_kkt' in output
+    assert 'Optimization stop reason: max_iter' in output
 
 
 def test_cpu_cox_small_step_large_kkt_is_stalled(monkeypatch):
@@ -79,15 +94,12 @@ def test_cpu_cox_small_step_large_kkt_is_stalled(monkeypatch):
     model = CoxPH(
         device='cpu', compute_inference=False, compute_cindex=False, max_iter=3
     )
+    def objective(_loss, _eta, X_sorted, *_args, **_kwargs):
+        p = X_sorted.shape[1]
+        return np.asarray(0.0), np.ones(p), -1e20 * np.eye(p)
+
     monkeypatch.setattr(
-        model,
-        '_compute_gradient_hessian',
-        lambda beta, *_args, **_kwargs: (
-            np.ones_like(beta), -1e20 * np.eye(beta.size)
-        ),
-    )
-    monkeypatch.setattr(
-        model, '_compute_log_likelihood', lambda *_args, **_kwargs: 0.0
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
     )
     model.fit(X, time=time, event=event)
 
@@ -103,18 +115,17 @@ def test_cpu_cox_final_kkt_overrides_false_success(monkeypatch):
     )
     calls = {'count': 0}
 
-    def derivatives(beta, *_args, **_kwargs):
+    def objective(_loss, _eta, X_sorted, *_args, **_kwargs):
         calls['count'] += 1
-        gradient = np.zeros_like(beta) if calls['count'] == 2 else np.ones_like(beta)
-        return gradient, -1e20 * np.eye(beta.size)
+        p = X_sorted.shape[1]
+        return np.asarray(0.0), np.ones(p), -1e20 * np.eye(p)
 
-    monkeypatch.setattr(model, '_compute_gradient_hessian', derivatives)
     monkeypatch.setattr(
-        model, '_compute_log_likelihood', lambda *_args, **_kwargs: 0.0
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
     )
     model.fit(X, time=time, event=event)
 
-    assert calls['count'] >= 3
+    assert calls['count'] >= 4
     assert model.converged_ is False
     assert model.termination_reason_ == 'stalled_with_large_kkt'
 
@@ -126,8 +137,11 @@ def test_cpu_cupy_torch_termination_contract_matches(backend):
     device = 'cpu'
     if backend == 'cupy':
         cp = pytest.importorskip('cupy')
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA unavailable')
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip('CuPy CUDA unavailable')
+        except Exception as exc:
+            pytest.skip(f'CuPy CUDA unavailable: {exc}')
         X_backend = cp.asarray(X)
         device = 'cuda'
     elif backend == 'torch':
@@ -144,6 +158,7 @@ def test_cpu_cupy_torch_termination_contract_matches(backend):
 
     assert model.converged_ is True
     assert model.termination_reason_ == 'kkt_converged'
+    assert model.optimization_stop_reason_ == 'kkt_converged'
     assert model.final_kkt_normalized_ <= 1e-7
     assert model.n_iter_ == model._iterations
 
@@ -161,29 +176,34 @@ def test_cpu_penalized_objective_is_monotone_within_tolerance():
     assert np.isclose(model._penalized_objective, history[-1], atol=1e-9)
 
 
-def test_delayed_entry_penalty_and_robust_contracts_are_explicit():
+def test_delayed_entry_penalty_and_robust_contracts_are_backend_native():
     X, time, event = _cox_sample(n=45, p=2)
     entry = np.maximum(0.0, time * 0.25)
-    # Penalised delayed-entry on CPU is unsupported (Guard 2).
-    with pytest.raises(NotImplementedError, match='penalty'):
-        CoxPH(device='cpu', penalty=0.1).fit(
-            X, time=time, event=event, entry=entry
-        )
-    # Robust covariance with delayed entry + inference is unsupported (Guard 1).
-    with pytest.raises(NotImplementedError, match='Robust/cluster'):
-        CoxPH(device='cpu', cov_type='hc0', compute_inference=True).fit(
-            X, time=time, event=event, entry=entry
-        )
-    # But robust covariance with delayed entry is allowed when inference is off.
-    model = CoxPH(
-        device='cpu', cov_type='hc0', compute_inference=False, compute_cindex=False,
+    penalized = CoxPH(
+        device='cpu', penalty=0.1, compute_cindex=False,
     ).fit(X, time=time, event=event, entry=entry)
-    assert model.coef_ is not None
-    assert model._bse is None
-    assert model._conf_int is None
+    assert penalized.converged_
+    assert np.all(np.isfinite(penalized.coef_))
+
+    robust = CoxPH(
+        device='cpu', cov_type='hc0', compute_inference=True,
+        compute_cindex=False,
+    ).fit(X, time=time, event=event, entry=entry)
+    assert robust.inference_method_ == 'counting_process_score_sandwich'
+    assert robust.inference_backend_ == 'numpy'
+    assert robust.inference_approximate_ is False
+    assert np.all(np.isfinite(robust._bse))
+
+    no_inference = CoxPH(
+        device='cpu', cov_type='hc0', compute_inference=False,
+        compute_cindex=False,
+    ).fit(X, time=time, event=event, entry=entry)
+    assert no_inference.coef_ is not None
+    assert no_inference._bse is None
+    assert no_inference._conf_int is None
 
 
-def test_delayed_entry_missing_statsmodels_has_actionable_error(monkeypatch):
+def test_delayed_entry_does_not_require_statsmodels(monkeypatch):
     X, time, event = _cox_sample(n=30, p=2)
     entry = np.maximum(0.0, time * 0.2)
     real_import = builtins.__import__
@@ -194,59 +214,49 @@ def test_delayed_entry_missing_statsmodels_has_actionable_error(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, '__import__', blocked_import)
-    with pytest.raises(ImportError, match=r'statgpu\[survival\]'):
-        CoxPH(device='cpu').fit(X, time=time, event=event, entry=entry)
+    model = CoxPH(device='cpu', compute_cindex=False).fit(
+        X, time=time, event=event, entry=entry
+    )
+    assert model.converged_
 
 
-def test_robust_strict_requires_exact_dependency(monkeypatch):
+def test_robust_strict_efron_uses_internal_exact_residuals():
     X, time, event = _cox_sample(n=55, p=2)
     model = CoxPH(
         device='cpu', ties='efron', cov_type='hc0', inference_mode='strict',
         compute_cindex=False,
     )
-    monkeypatch.setattr(
-        model, '_score_residuals_via_statsmodels_if_available',
-        lambda *_args, **_kwargs: None,
-    )
-    with pytest.raises(RuntimeError, match='inference_mode=approx'):
-        model.fit(X, time=time, event=event)
+    model.fit(X, time=time, event=event)
+    assert model.inference_method_ == 'counting_process_score_sandwich'
+    assert model.inference_backend_ == 'numpy'
+    assert model.inference_approximate_ is False
 
 
-def test_robust_strict_breslow_uses_internal_exact_residuals(monkeypatch):
+def test_robust_strict_breslow_uses_internal_exact_residuals():
     X, time, event = _cox_sample(n=55, p=2)
     model = CoxPH(
         device='cpu', ties='breslow', cov_type='hc0', inference_mode='strict',
         compute_cindex=False,
     )
-    monkeypatch.setattr(
-        model, '_score_residuals_via_statsmodels_if_available',
-        lambda *_args, **_kwargs: None,
-    )
     model.fit(X, time=time, event=event)
 
-    assert model.inference_method_ == 'exact_breslow_score_sandwich'
+    assert model.inference_method_ == 'counting_process_score_sandwich'
     assert model.inference_backend_ == 'numpy'
     assert model.inference_approximate_ is False
 
 
-def test_robust_approx_is_explicit_and_disclosed(monkeypatch):
+def test_robust_approx_is_explicit_and_disclosed():
     X, time, event = _cox_sample(n=55, p=2)
     model = CoxPH(
         device='cpu', ties='efron', cov_type='hc0', inference_mode='approx',
         compute_cindex=False,
     )
-    monkeypatch.setattr(
-        model, '_score_residuals_via_statsmodels_if_available',
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError('approx mode must not select the exact dependency')
-        ),
-    )
     model.fit(X, time=time, event=event)
 
-    assert model.inference_method_ == 'event_row_score_sandwich'
+    assert model.inference_method_ == 'counting_process_score_sandwich'
     assert model.inference_backend_ == 'numpy'
-    assert model.inference_approximate_ is True
-    assert model.inference_fallback_reason_
+    assert model.inference_approximate_ is False
+    assert model.inference_fallback_reason_ is None
 
 
 def test_cpu_prediction_contract_validation_and_custom_times():
@@ -273,12 +283,15 @@ def test_cpu_prediction_contract_validation_and_custom_times():
 
 
 @pytest.mark.parametrize('backend', ['cupy', 'torch'])
-def test_gpu_prediction_is_native_and_does_not_require_full_host_transfer(backend):
+def test_gpu_prediction_is_native_and_discloses_target_host_transfer(backend):
     X, time, event = _cox_sample(n=55, p=2)
     if backend == 'cupy':
         xp = pytest.importorskip('cupy')
-        if xp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA unavailable')
+        try:
+            if xp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip('CuPy CUDA unavailable')
+        except Exception as exc:
+            pytest.skip(f'CuPy CUDA unavailable: {exc}')
         X_backend = xp.asarray(X)
         model = CoxPH(device='cuda', compute_cindex=False)
         native_type = xp.ndarray
@@ -296,7 +309,7 @@ def test_gpu_prediction_is_native_and_does_not_require_full_host_transfer(backen
     assert isinstance(prediction, native_type)
     assert isinstance(survival, native_type)
     assert isinstance(prediction_times, native_type)
-    assert model.full_host_transfer_performed_ is False
+    assert model.full_host_transfer_performed_ is True
     assert_allclose(
         model._to_numpy(prediction), np.exp(X[:4] @ model.coef_),
         rtol=1e-8, atol=1e-9,
@@ -315,8 +328,11 @@ def test_rbf_complex_inputs_fail_consistently(backend):
         X_backend = xp.as_tensor(X)
     else:
         xp = pytest.importorskip('cupy')
-        if xp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA unavailable')
+        try:
+            if xp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip('CuPy CUDA unavailable')
+        except Exception as exc:
+            pytest.skip(f'CuPy CUDA unavailable: {exc}')
         X_backend = xp.asarray(X)
     with pytest.raises(ValueError, match='complex-valued'):
         rbf_kernel(X_backend, xp=xp)
@@ -335,7 +351,9 @@ def test_torch_streaming_hessian_matches_grouped_reference():
     total = X_exp.T @ X
 
     model = CoxPH(device='cpu')
-    actual = model._compute_hessian_grouped_streaming_torch(
+    actual = _LegacyCoxReference(
+        model
+    )._compute_hessian_grouped_streaming_torch(
         X, X_exp, total, risk_at, risk_X, first_idx, weights
     )
     expected = torch.zeros_like(total)
@@ -373,8 +391,11 @@ def test_cox_chi_square_tests_use_distribution_survival_function(monkeypatch):
 @pytest.mark.gpu
 def test_cupy_gaussian_inference_uses_cholesky_solves(monkeypatch):
     cp = pytest.importorskip('cupy')
-    if cp.cuda.runtime.getDeviceCount() < 1:
-        pytest.skip('CuPy CUDA unavailable')
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip('CuPy CUDA unavailable')
+    except Exception as exc:
+        pytest.skip(f'CuPy CUDA unavailable: {exc}')
     from statgpu.backends._gpu_inference_cupy import compute_inference_gpu
 
     monkeypatch.setattr(

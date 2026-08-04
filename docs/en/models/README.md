@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-07-30  
 > Switch: [Chinese](../../cn/models/README.md)
 
 This page is a navigation overview. Current solver, penalty, backend, and inference
@@ -38,9 +38,25 @@ the linked model pages.
 
 - [Cox Proportional Hazards](coxph.md)
 
-The Cox page contains the authoritative ties, delayed-entry, robust/cluster inference,
-optional dependency, and backend support matrix for `CoxPH`, `CoxPHCV`, and related
-penalized paths.
+### Choosing a Cox estimator
+
+| Need | Estimator | Import | Contract |
+|---|---|---|---|
+| Full Cox fitting, baseline hazards, survival prediction, formula input, and inference | `CoxPH` | `from statgpu.survival import CoxPH` | Breslow/Efron/Exact ties, delayed entry, `(start, stop]`, strata, robust/cluster covariance, NumPy/CuPy/Torch |
+| Select a non-negative L2 penalty by held-out partial likelihood | `CoxPHCV` | `from statgpu.survival import CoxPHCV` | Uses the canonical Cox semantics during CV and performs a final `CoxPH` refit |
+| Estimate with L1, L2, ElasticNet, SCAD, or MCP | `PenalizedCoxPHModel` | `from statgpu.linear_model import PenalizedCoxPHModel` | Broad penalty and generic solver path; currently estimation-only and rejects `compute_inference=True` |
+
+`CoxPH(penalty=...)` and `PenalizedCoxPHModel` are not interchangeable aliases.
+Use the canonical `CoxPH`/`CoxPHCV` path when counting-process features,
+stratification, baseline prediction, or statistical inference are required. Use
+`PenalizedCoxPHModel` when the broader penalty family is the primary requirement
+and estimation-only output is sufficient.
+
+The [Cox model page](coxph.md) is the authoritative user-facing source for
+Breslow/Efron/Exact ties, delayed-entry and `(start, stop]` data, strata,
+robust/cluster inference, subject-grouped CV, prediction boundaries, and the
+NumPy/CuPy/Torch support matrix. Internal module ownership and extension rules
+are documented in [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTURE.md#5-survival--cox-architecture).
 
 ## Specialized Statistical Modules
 
