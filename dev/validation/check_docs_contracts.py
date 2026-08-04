@@ -127,6 +127,24 @@ def validate_links(path: Path, text: str) -> list[str]:
     return errors
 
 
+def validate_archive_counterpart(path: Path) -> list[str]:
+    """Require every maintained EN/CN archive to have its bilingual peer."""
+    if path.suffix.lower() != ".markdown":
+        return []
+    rel = path.relative_to(ROOT)
+    parts = rel.parts
+    if len(parts) < 3 or parts[0] != "docs" or parts[1] not in {"en", "cn"}:
+        return []
+    other_language = "cn" if parts[1] == "en" else "en"
+    counterpart = ROOT / "docs" / other_language / Path(*parts[2:])
+    if counterpart.is_file():
+        return []
+    return [
+        f"{rel.as_posix()}: missing bilingual archive counterpart "
+        f"{counterpart.relative_to(ROOT).as_posix()}"
+    ]
+
+
 def is_historical(rel: str) -> bool:
     normalized = f"/{rel.lower()}"
     return any(part in normalized for part in HISTORICAL_PARTS)
@@ -181,6 +199,7 @@ def main() -> int:
     for path in files:
         text = path.read_text(encoding="utf-8")
         errors.extend(validate_links(path, text))
+        errors.extend(validate_archive_counterpart(path))
         errors.extend(validate_content(path, text))
         errors.extend(validate_python_fences(path, text))
 
