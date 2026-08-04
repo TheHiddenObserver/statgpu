@@ -148,30 +148,6 @@ jobs:
           )
           PY
 
-      - name: Smoke-install wheel in a clean environment
-        run: |
-          WHEEL="$(realpath dist/*.whl)"
-          python -m venv "$RUNNER_TEMP/statgpu-wheel-test"
-          "$RUNNER_TEMP/statgpu-wheel-test/bin/python" -m pip install --upgrade pip
-          "$RUNNER_TEMP/statgpu-wheel-test/bin/python" -m pip install "$WHEEL"
-          cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/statgpu-wheel-test/bin/python" - <<'PY'
-          import os
-          import pathlib
-          import tomllib
-          import statgpu
-          from statgpu.linear_model import LinearRegression
-          from statgpu.survival import CoxPH, CoxPHCV
-
-          pyproject = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "pyproject.toml"
-          expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
-          assert statgpu.__version__ == expected
-          assert LinearRegression is not None
-          assert CoxPH is not None
-          assert CoxPHCV is not None
-          print(statgpu.__version__)
-          PY
-
       - name: Smoke-install sdist in a clean environment
         env:
           STATGPU_NO_EXT: "1"
@@ -200,3 +176,99 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 7
+
+  smoke-install-wheel:
+    name: wheel smoke (${{ matrix.os }})
+    needs: validate-distributions
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download validated distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: statgpu-release-distributions
+          path: dist
+
+      - name: Smoke-install universal wheel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import subprocess
+          import tempfile
+          import tomllib
+          import venv
+
+          root = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          wheel = root / "dist" / f"statgpu-{version}-py3-none-any.whl"
+          if not wheel.is_file():
+              raise SystemExit(f"missing downloaded wheel: {wheel}")
+
+          temp_root = pathlib.Path(tempfile.mkdtemp(prefix="statgpu-wheel-smoke-"))
+          env_dir = temp_root / "venv"
+          venv.EnvBuilder(with_pip=True, clear=True).create(env_dir)
+          if os.name == "nt":
+              env_python = env_dir / "Scripts" / "python.exe"
+          else:
+              env_python = env_dir / "bin" / "python"
+
+          subprocess.run(
+              [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
+              check=True,
+          )
+          subprocess.run(
+              [str(env_python), "-m", "pip", "install", str(wheel)],
+              check=True,
+          )
+
+          smoke_code = r'''
+          import os
+          import numpy as np
+          import statgpu
+          from statgpu.linear_model import LinearRegression
+          from statgpu.survival import CoxPH, CoxPHCV
+
+          expected = os.environ["EXPECTED_STATGPU_VERSION"]
+          assert statgpu.__version__ == expected
+
+          X = np.array(
+              [
+                  [0.0, 0.0],
+                  [1.0, 0.0],
+                  [0.0, 1.0],
+                  [1.0, 1.0],
+                  [2.0, 1.0],
+                  [1.0, 2.0],
+              ],
+              dtype=float,
+          )
+          y = 1.0 + 2.0 * X[:, 0] - 0.5 * X[:, 1]
+          model = LinearRegression(device="cpu")
+          model.fit(X, y)
+          prediction = np.asarray(model.predict(X))
+          assert prediction.shape == y.shape
+          assert np.isfinite(prediction).all()
+          assert CoxPH is not None
+          assert CoxPHCV is not None
+          print(statgpu.__version__)
+          '''
+
+          smoke_env = os.environ.copy()
+          smoke_env["EXPECTED_STATGPU_VERSION"] = version
+          subprocess.run(
+              [str(env_python), "-c", smoke_code],
+              cwd=temp_root,
+              env=smoke_env,
+              check=True,
+          )
