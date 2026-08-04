@@ -100,8 +100,19 @@ def _getstate_with_reusable_splits(self):
     else:
         state = dict(_ORIGINAL_COXPHCV_GETSTATE(self))
 
-    if _is_one_shot_iterator(state.get("cv_splits")):
-        state["cv_splits"] = copy.deepcopy(_materialize_cv_splits(self))
+    raw_params = state.get("_constructor_params_raw")
+    public_one_shot = _is_one_shot_iterator(state.get("cv_splits"))
+    raw_one_shot = isinstance(raw_params, dict) and _is_one_shot_iterator(
+        raw_params.get("cv_splits")
+    )
+    if public_one_shot or raw_one_shot:
+        reusable_splits = copy.deepcopy(_materialize_cv_splits(self))
+        state["cv_splits"] = reusable_splits
+        if isinstance(raw_params, dict):
+            raw_params = raw_params.copy()
+            raw_params["cv_splits"] = copy.deepcopy(reusable_splits)
+            state["_constructor_params_raw"] = raw_params
+
     state["_cox_cv_split_source"] = None
     state["_cox_cv_split_snapshot"] = None
     return state
