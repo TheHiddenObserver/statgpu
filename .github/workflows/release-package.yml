@@ -137,15 +137,15 @@ jobs:
           "$RUNNER_TEMP/statgpu-wheel-test/bin/python" -m pip install "$WHEEL"
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/statgpu-wheel-test/bin/python" - <<'PY'
+          import os
           import pathlib
           import tomllib
           import statgpu
           from statgpu.linear_model import LinearRegression
           from statgpu.survival import CoxPH, CoxPHCV
 
-          expected = tomllib.loads(
-              pathlib.Path("${GITHUB_WORKSPACE}/pyproject.toml").read_text(encoding="utf-8")
-          )["project"]["version"]
+          pyproject = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "pyproject.toml"
+          expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
           assert statgpu.__version__ == expected
           assert LinearRegression is not None
           assert CoxPH is not None
@@ -163,13 +163,13 @@ jobs:
           "$RUNNER_TEMP/statgpu-sdist-test/bin/python" -m pip install "$SDIST"
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/statgpu-sdist-test/bin/python" - <<'PY'
+          import os
           import pathlib
           import tomllib
           import statgpu
 
-          expected = tomllib.loads(
-              pathlib.Path("${GITHUB_WORKSPACE}/pyproject.toml").read_text(encoding="utf-8")
-          )["project"]["version"]
+          pyproject = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "pyproject.toml"
+          expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
           assert statgpu.__version__ == expected
           print(statgpu.__version__)
           PY
