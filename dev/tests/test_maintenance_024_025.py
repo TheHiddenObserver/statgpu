@@ -166,9 +166,11 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
         pytest.skip("torch.compile acceptance requires CUDA capability >= 7")
 
     from statgpu.backends import _to_numpy
+    from statgpu.backends._torch_compile import get_torch_compile_diagnostics
     from statgpu.linear_model import Lasso
 
     monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    get_torch_compile_diagnostics(clear=True)
     rng = np.random.default_rng(20260804)
     X = rng.normal(size=(384, 24)).astype(np.float64)
     beta = np.zeros(24, dtype=np.float64)
@@ -193,6 +195,9 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
     assert np.isfinite(first).all()
     assert np.isfinite(second).all()
     np.testing.assert_allclose(first, second, rtol=1e-7, atol=1e-8)
+    events = get_torch_compile_diagnostics(clear=True)
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
 
 
 
@@ -242,8 +247,12 @@ def test_current_sklearn_classifier_and_regressor_tags():
     from sklearn.base import is_classifier, is_regressor
     from statgpu.linear_model import LogisticRegression, Ridge
 
+    from statgpu.covariance import GraphicalLasso
+
     assert is_classifier(LogisticRegression())
     assert is_regressor(Ridge(compute_inference=False))
+    assert not is_regressor(GraphicalLasso())
+    assert not is_classifier(GraphicalLasso())
 
 
 def test_extended_public_finite_validation_matrix():
@@ -284,11 +293,16 @@ def test_physical_cuda_compile_path_is_observable(monkeypatch):
     def add_one(x):
         return x + 1
 
+    torch._dynamo.reset()
+    counters = torch._dynamo.utils.counters
+    before_graphs = int(counters["stats"].get("unique_graphs", 0))
     compiled = compile_torch(add_one, workload="iterative")
     x = torch.arange(16, device="cuda", dtype=torch.float64)
     result = compiled(x)
     torch.cuda.synchronize()
+    after_graphs = int(counters["stats"].get("unique_graphs", 0))
     assert compiled.__statgpu_compile_status__ == "compiled"
+    assert after_graphs > before_graphs
     assert torch.allclose(result, x + 1)
     assert get_torch_compile_diagnostics(clear=True)[-1]["status"] == "compiled"
 
@@ -323,6 +337,9 @@ def test_torch_penalty_compile_matrix_py21(monkeypatch):
     group_scad_module._GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None
     group_mcp_module._GROUP_MCP_PROXIMAL_TORCH_COMPILED = None
     get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+    counters = torch._dynamo.utils.counters
+    before_graphs = int(counters["stats"].get("unique_graphs", 0))
 
     groups = [[0, 1], [2, 3], [4, 5], [6, 7]]
     penalties = [
@@ -341,7 +358,9 @@ def test_torch_penalty_compile_matrix_py21(monkeypatch):
         assert torch.isfinite(result).all()
     torch.cuda.synchronize()
 
+    after_graphs = int(counters["stats"].get("unique_graphs", 0))
     events = get_torch_compile_diagnostics(clear=True)
+    assert after_graphs > before_graphs
     assert len([event for event in events if event["status"] == "compiled"]) >= len(penalties)
     assert [event for event in events if "fallback" in event["status"]] == []
 

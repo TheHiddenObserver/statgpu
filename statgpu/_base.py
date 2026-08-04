@@ -89,29 +89,49 @@ class BaseEstimator(ABC):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        if "_estimator_type" not in cls.__dict__:
+        declared_type = cls.__dict__.get("_estimator_type")
+        if declared_type not in {"classifier", "regressor"}:
             name = cls.__name__.lower()
-            if "classifier" in name or "logistic" in name:
-                cls._estimator_type = "classifier"
-            elif any(
-                token in name
-                for token in (
-                    "regression",
-                    "regressor",
-                    "ridge",
-                    "lasso",
-                    "elasticnet",
-                    "quantile",
-                    "cox",
-                    "panel",
-                    "ols",
-                    "effects",
-                    "fama",
-                    "kernelridge",
-                    "gam",
+            module = cls.__module__
+            classifier_module = module.startswith("statgpu.linear_model")
+            regression_module = module.startswith(
+                (
+                    "statgpu.linear_model",
+                    "statgpu.panel",
+                    "statgpu.survival",
+                    "statgpu.semiparametric",
+                )
+            )
+            inferred_type = None
+            if ("classifier" in name or "logistic" in name) and classifier_module:
+                inferred_type = "classifier"
+            elif (
+                "regressor" in name
+                or "kernelridge" in name
+                or (
+                    regression_module
+                    and any(
+                        token in name
+                        for token in (
+                            "regression",
+                            "ridge",
+                            "lasso",
+                            "elasticnet",
+                            "quantile",
+                            "cox",
+                            "panel",
+                            "ols",
+                            "effects",
+                            "fama",
+                            "gam",
+                        )
+                    )
                 )
             ):
-                cls._estimator_type = "regressor"
+                inferred_type = "regressor"
+            # Override inherited classifications for covariance, unsupervised,
+            # transformers, and other non-predictive estimator families.
+            cls._estimator_type = inferred_type
         cls._install_constructor_capture()
         cls._install_public_finite_validation()
 
@@ -688,32 +708,10 @@ class BaseEstimator(ABC):
             )
     
     def _statgpu_estimator_type(self):
-        """Infer sklearn estimator type without requiring sklearn at runtime."""
-        explicit = getattr(self, "_estimator_type", None)
-        if explicit in {"classifier", "regressor"}:
-            return explicit
-        name = type(self).__name__.lower()
-        if "classifier" in name or "logistic" in name:
-            return "classifier"
-        if any(
-            token in name
-            for token in (
-                "regression",
-                "regressor",
-                "ridge",
-                "lasso",
-                "elasticnet",
-                "quantile",
-                "cox",
-                "panel",
-                "ols",
-                "effects",
-                "fama",
-                "kernelridge",
-                "gam",
-            )
-        ):
-            return "regressor"
+        """Return the class-level sklearn estimator classification."""
+        estimator_type = getattr(type(self), "_estimator_type", None)
+        if estimator_type in {"classifier", "regressor"}:
+            return estimator_type
         return None
 
     def __sklearn_tags__(self):
@@ -825,8 +823,13 @@ class BaseEstimator(ABC):
             else:
                 direct[root] = value
 
+        explicitly_updated = {
+            key.partition("__")[0]
+            for key in params
+            if "__" not in key
+        }
         for key, value in tuple(direct.items()):
-            if isinstance(value, Iterator):
+            if isinstance(value, Iterator) and key not in explicitly_updated:
                 snapshot = getattr(self, "_cox_cv_split_snapshot", None)
                 if snapshot is None:
                     snapshot = list(value)

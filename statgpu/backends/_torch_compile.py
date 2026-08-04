@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import functools
 import os
+from collections import deque
 import warnings
 from typing import Callable, Optional
 
 _ENV_NAME = "STATGPU_TORCH_COMPILE_MODE"
 _ALLOWED_MODES = frozenset({"auto", "default", "reduce-overhead", "disable"})
-_COMPILE_DIAGNOSTICS = []
+_COMPILE_DIAGNOSTICS = deque(maxlen=256)
 
 
 def resolve_torch_compile_mode(
