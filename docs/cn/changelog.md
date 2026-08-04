@@ -5,31 +5,48 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
-## 2026-08
+## 0.2.3 — 2026-08-04
 
-### 修复（2026-08-04）— PR #80 精确源码 CV 复审后续
+### 生存分析
 
-- 规范物理 GPU suite 现在会把受审计的 Git checkout 放在 `PYTHONPATH`
-  首位、禁用 user site，核验实际导入模块的路径均位于该 checkout 内，并记录这些
-  实际导入文件的 SHA-256；child 与 nested runner 继承同一受控环境。
-- 请求 CoxPHCV two-stage 或 successive-halving 后，NumPy、CuPy 与 Torch 现在都只
-  执行一次显式 exhaustive full-precision candidate pass。公开诊断记录
-  `staged_safety_strategy="single_pass_exhaustive"`；不筛除任何 candidate，CuPy 也不再
-  重复完整 grid。
-- 一次性 `CoxPHCV.cv_splits` iterator 会私下 materialize 一次，并在重复 fit、
-  scikit-learn clone、旧版参数重建与 pickle 中复用；fit 期间公开构造参数对象保持不变。
-- Hosted workflow #946 已在精确 head
-  `a726937a39eb0ed5a370dd03362884b63a9e9818` 上通过：完整 CPU suite 为
-  1879 passed、662 skipped，static、文档及 Python 3.9–3.12 regression job 全部通过。
-- 该 head 的原始物理结果现已持久发布为
-  [最终 promotion artifact](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)。
-  Artifact 记录 134/134 项检查通过、所有 return code 为 0、所有 gate-failure 数组为空，
-  SHA-256 为
-  `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。
-- 本后续提交将 final aggregation format 正式升级为 machine schema 3，同步 CoxPH
-  主模型页，并把 `.markdown` 历史页重新纳入维护文档检查。由于这些提交产生了新的
-  head，最终批准前必须对新 head 再运行一次 exact-head physical suite；上述 Gist
-  仍只证明 `a726937...`。
+- 完成 CoxPH Phase 1：支持 Breslow、Efron 与 Exact ties，delayed entry、
+  `(start, stop]` counting-process 数据、共享系数的分层模型、subject identifier，
+  以及 `Surv(start, stop, event)` 公式输入。
+- 为 NumPy、CuPy 与 Torch-CUDA 增加共享的 Cox risk-set objective、gradient、
+  information matrix 与 baseline estimation primitive；Exact tied-event partition
+  使用 backend-native dynamic programming。
+- `CoxPHCV` 的 held-out partial likelihood 现支持全部 tie method、delayed entry、
+  start-stop row、strata 与按 subject 分组的 fold。
+- 强化 Cox inference、centered risk-set 数值计算、log-domain baseline prediction、
+  公式 NA 对齐、奇异 information 检查、CV cache identity、fold eligibility、
+  selected-penalty 全数据 refit 与失败 fit 的状态清理。
+- 强化 L1、L2、Elastic Net、SCAD 与 MCP penalized Cox estimation；移除不可识别
+  intercept，修正 Cox-specific warm start，并使 Torch Efron 的 value、gradient
+  与 Hessian 路径保持原生实现。
+
+### 交叉验证与分组惩罚
+
+- 请求 CoxPHCV two-stage 或 successive-halving 时，统一执行一次显式 exhaustive
+  full-precision candidate pass，在保持确定性选择语义的同时避免重复完整 grid fit。
+- 一次性 `CoxPHCV.cv_splits` iterator 可在重复 fit、scikit-learn clone、参数重建
+  与 pickle 中复用。
+- 公开 Group Lasso 与 Adaptive Group Lasso 在支持的 backend 上统一采用 generic
+  loss-gradient 与 exact group-proximal 路径。
+
+### 验证与打包
+
+- Hosted workflow #960 已在最终审查 head
+  `f05a44ad363b46612e956e137e2f00d040765acb` 上通过：文档、static、完整 CPU
+  与 Python 3.9–3.12 regression job 均通过；完整 CPU suite 为 1881 passed、
+  662 skipped。
+- 最终 exact-head 物理 GPU promotion artifact 已作为
+  [schema-3 evidence](https://gist.github.com/TheHiddenObserver/afdcad86a243e68a918d852b92e984a4)
+  持久发布。它记录 134/134 项检查通过、child 与 nested return code 均为 0、
+  gate-failure 数组为空、运行前后源码状态干净，SHA-256 为
+  `bd4058450def691dd29e9d78853534016c6da70c33192a97dc312d95cbe5d76d`。
+- 包版本更新为 `0.2.3`。新增 release-package validation：检查版本一致性，构建
+  pure-Python wheel 与 sdist，执行 `twine check`，核验 artifact 内容，并在干净
+  环境中分别 smoke-install 两种发行包。
 
 ## 更早的历史记录
 
