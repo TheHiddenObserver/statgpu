@@ -20,12 +20,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Apply constructor contract refactor
-        run: python .github/review_fix_constructor_contract.py
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[validation,formula]'
+      - name: Apply constructor contract refactor
+        run: python .github/review_fix_constructor_contract.py
       - name: Import complete package
         run: python -c "import statgpu; import statgpu.linear_model; import statgpu.panel"
       - name: Run constructor and compatibility gates
