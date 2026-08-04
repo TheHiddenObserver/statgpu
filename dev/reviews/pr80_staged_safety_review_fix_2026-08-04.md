@@ -94,6 +94,12 @@ An intermediate version converted `max_iter`, `tol`, and `n_penalties` before th
 - `docs/cn/README.md`;
 - `dev/tests/test_pr80_cox_cv_staged_safety_docs.py`.
 
+### [LOW][TEST][fixed] first documentation token assertion used set semantics on a string
+
+Workflow `#922` exposed that the new documentation contract used `required.issubset(text)`. That expression treats the Markdown string as an iterable of characters rather than testing whether each required token is a substring.
+
+**Fix:** the contract now uses `all(token in text for token in required)`. The guide content itself was unchanged.
+
 ## Changed files
 
 Runtime and import boundary:
@@ -132,6 +138,7 @@ Documentation:
 6. Workflow `#914` passed all hosted gates.
 7. Final documentation audit added synchronized English/Chinese user guidance and a docs contract.
 8. Documentation discoverability audit linked both guides from their language indexes and added an index-link contract.
+9. Workflow `#922` found two failures in the newly added docs token test (`1866 passed, 662 skipped, 2 failed`); corrected substring checking without changing runtime or documentation behavior.
 
 ## Hosted evidence
 
@@ -143,7 +150,7 @@ Workflow `#914` passed at runtime head `d74cfe2d75a182d11c40b3d89e867d9b9183ad2a
 - documentation contracts;
 - Python 3.9, 3.10, 3.11, and 3.12 regression matrices.
 
-A final exact-head hosted run is required after the report and documentation/index commits.
+Workflow `#922` additionally confirmed static, docs, and Python 3.9–3.12 gates after the documentation/index changes; its full CPU job failed only because of the corrected docs-test assertion described above. A final exact-head hosted run is required.
 
 ## Remaining physical GPU gate
 
