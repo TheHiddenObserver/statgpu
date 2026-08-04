@@ -64,6 +64,7 @@ def test_staged_request_is_explicit_exhaustive_fallback(monkeypatch):
     assert details["successive_halving_requested"] is True
     assert details["successive_halving_enabled"] is False
     assert details["staged_execution_mode"] == "exhaustive_safety_fallback"
+    assert details["staged_safety_strategy"] == "single_pass_exhaustive"
     np.testing.assert_array_equal(
         details["fast_pass_candidate_mask"], np.zeros(3, dtype=bool)
     )
@@ -73,6 +74,47 @@ def test_staged_request_is_explicit_exhaustive_fallback(monkeypatch):
     np.testing.assert_array_equal(
         details["screened_out_candidate_mask"], np.zeros(3, dtype=bool)
     )
+
+
+def test_explicit_cupy_request_does_not_patch_staged_budget_readers(monkeypatch):
+    """CuPy must not retain the old full-grid staged machinery."""
+    original_env_int = cox_cv._env_int
+    original_env_float = cox_cv._env_float
+    calls = []
+
+    def fake_selector(*args, **kwargs):
+        calls.append(kwargs.get("device"))
+        assert cox_cv._env_flag("STATGPU_COXPHCV_TWO_STAGE", False) is False
+        assert (
+            cox_cv._env_flag("STATGPU_COXPHCV_SUCCESSIVE_HALVING", False)
+            is False
+        )
+        assert cox_cv._env_int is original_env_int
+        assert cox_cv._env_float is original_env_float
+        return 0.5, {
+            "penalty": 0.5,
+            "penalties": np.array([1.0, 0.5]),
+            "mean_pl": np.array([1.0, 2.0]),
+        }
+
+    monkeypatch.setattr(staged, "_ORIGINAL_SELECT_COXPH_PENALTY_CV", fake_selector)
+    monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE", "1")
+    monkeypatch.setenv("STATGPU_COXPHCV_SUCCESSIVE_HALVING", "1")
+    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_TOPK", "1")
+
+    with pytest.warns(RuntimeWarning):
+        best, details = cox_cv._select_coxph_penalty_cv(
+            np.zeros((4, 1)),
+            np.arange(1.0, 5.0),
+            np.array([1.0, 0.0, 1.0, 0.0]),
+            penalties=[1.0, 0.5],
+            device="cuda",
+            return_details=True,
+        )
+
+    assert best == pytest.approx(0.5)
+    assert calls == ["cuda"]
+    assert details["staged_safety_strategy"] == "single_pass_exhaustive"
 
 
 def test_staged_scalar_and_detailed_calls_share_selected_penalty(monkeypatch):
@@ -202,6 +244,7 @@ def test_real_selector_evaluates_every_candidate_when_halving_requested(
     monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE", "1")
     monkeypatch.setenv("STATGPU_COXPHCV_SUCCESSIVE_HALVING", "1")
     monkeypatch.setenv("STATGPU_COXPHCV_HALVING_TOPK", "1")
+    monkeypatch.setenv("STATGPU_COXPHCV_FOLD_CACHE_MAX_BYTES", "0")
 
     with pytest.warns(RuntimeWarning, match="exhaustive full-precision"):
         best, details = cox_cv._select_coxph_penalty_cv(
@@ -222,10 +265,15 @@ def test_real_selector_evaluates_every_candidate_when_halving_requested(
     assert np.all(details["full_precision_candidate_mask"])
     assert not np.any(details["fast_pass_candidate_mask"])
     assert not np.any(details["screened_out_candidate_mask"])
+    assert details["staged_safety_strategy"] == "single_pass_exhaustive"
+    assert (
+        details["fold_backend_preparation_count_this_call"]
+        == details["effective_n_folds"]
+    )
 
 
 def test_coxphcv_docstring_discloses_staged_safety_fallback():
     documentation = inspect.getdoc(CoxPHCV)
     assert documentation is not None
     assert "Experimental screening safety" in documentation
-    assert "exhaustive full-precision CV" in documentation
+    assert "one exhaustive full-precision CV pass" in documentation
