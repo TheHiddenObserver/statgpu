@@ -34,6 +34,19 @@ GPU test in `dev/tests/test_maintenance_024_025.py`. It skips deterministically
 unless PyTorch is at least 2.1, CUDA is available, and the device has compute
 capability 7 or newer.
 
+## Exact-head hardware evidence
+
+Before recording a physical-GPU result, update the branch with a fast-forward
+pull and capture `git rev-parse HEAD`. The recorded evidence must identify the
+exact commit, GPU model and compute capability, backend/library versions, test
+command, exit status, and pass/skip counts. A result from a superseded commit is
+historical context, not acceptance evidence for the current head.
+
+Do not record hostnames, ports, credentials, account names, or other private
+infrastructure identifiers in pull requests or committed diagnostics. Environment
+metadata should be limited to the hardware and software properties needed to
+reproduce or interpret the result.
+
 ## Adding a new diagnostic
 
 A manual script should state its environment, expected command, and whether it
@@ -41,7 +54,6 @@ is exploratory or a minimized reproducer. Once a behavior becomes a supported
 contract or regression, move the smallest deterministic assertion into
 `dev/tests/` and leave the manual script only when it remains useful for
 hardware investigation.
-
 
 ## Torch compile performance note
 
