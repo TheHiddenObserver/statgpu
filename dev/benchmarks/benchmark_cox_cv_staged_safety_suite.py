@@ -42,6 +42,7 @@ SOURCE_FILES = (
     "dev/benchmarks/benchmark_cox_cv_staged_safety_gpu.py",
     "dev/tests/test_pr80_cox_cv_split_lifecycle_contract.py",
     "dev/tests/test_pr80_cox_cv_staged_safety_contract.py",
+    "dev/tests/test_pr80_target_transfer_overflow_cache.py",
     "dev/tests/test_pr80_cox_cv_staged_safety_suite_contract.py",
     "dev/tests/test_pr80_exact_source_runtime_provenance.py",
     "statgpu/survival/__init__.py",
