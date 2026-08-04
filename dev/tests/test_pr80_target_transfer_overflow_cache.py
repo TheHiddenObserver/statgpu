@@ -296,12 +296,9 @@ def test_cv_reuses_one_right_censored_preparation_per_fold(monkeypatch, ties):
     assert details["selection_cache_hit"] is False
 
 
-@pytest.mark.parametrize(
-    "cache_limit, cache_expected",
-    [(str(1 << 30), True), ("0", False)],
-)
-def test_staged_cv_fold_state_cache_is_workspace_bounded(
-    monkeypatch, cache_limit, cache_expected
+@pytest.mark.parametrize("cache_limit", [str(1 << 30), "0"])
+def test_staged_safety_uses_one_exhaustive_fold_preparation(
+    monkeypatch, cache_limit
 ):
     from statgpu.losses import _cox_ph as cox_loss_module
 
@@ -344,7 +341,7 @@ def test_staged_cv_fold_state_cache_is_workspace_bounded(
         cox_cv, "_prepare_cox_cv_fold_backend", recording_fold_prepare
     )
     monkeypatch.setattr(cox_loss_module, "_to_numpy", recording_to_numpy)
-    key = f"staged-fold-state-reuse-{cache_limit}"
+    key = f"staged-single-pass-{cache_limit}"
     _COXPH_CV_CACHE.pop(key, None)
 
     _, details = _select_coxph_penalty_cv(
@@ -359,19 +356,14 @@ def test_staged_cv_fold_state_cache_is_workspace_bounded(
         cache_key=key,
     )
 
-    assert details["fold_state_cache_enabled"] is cache_expected
-    assert details["fold_state_cache_enabled_this_call"] is cache_expected
+    assert details["staged_safety_strategy"] == "single_pass_exhaustive"
+    assert details["fold_state_cache_enabled"] is False
+    assert details["fold_state_cache_enabled_this_call"] is False
     assert details["fold_state_cache_limit_bytes"] == int(cache_limit)
-    if cache_expected:
-        assert fold_preparations == 3
-        assert loss_transfers == 6
-        assert details["fold_backend_preparation_count"] == 3
-        assert details["candidate_right_censored_preparation_count"] == 3
-    else:
-        assert fold_preparations > 3
-        assert loss_transfers > 6
-        assert details["fold_backend_preparation_count"] > 3
-        assert details["candidate_right_censored_preparation_count"] > 3
+    assert fold_preparations == 3
+    assert loss_transfers == 6
+    assert details["fold_backend_preparation_count"] == 3
+    assert details["candidate_right_censored_preparation_count"] == 3
 
 
 @pytest.mark.parametrize("ties", ["breslow", "efron"])
