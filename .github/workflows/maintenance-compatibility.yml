@@ -1,0 +1,33 @@
+name: Maintenance compatibility
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-sklearn-and-maintenance-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install legacy compatibility environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" scipy pytest packaging "scikit-learn==1.2.2"
+          python -m pip install -e . --no-deps
+
+      - name: Run maintenance regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_maintenance_024_025.py \
+            dev/tests/test_second_full_review.py::TestEstimatorCloneAndFeatureSelectionBackend::test_all_default_public_estimators_clone \
+            -q --tb=short
