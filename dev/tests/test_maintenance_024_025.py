@@ -163,6 +163,7 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
     if torch.cuda.get_device_capability()[0] < 7:
         pytest.skip("torch.compile acceptance requires CUDA capability >= 7")
 
+    from statgpu.backends import _to_numpy
     from statgpu.linear_model import Lasso
 
     monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
@@ -181,9 +182,9 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
 
     model = Lasso(**kwargs)
     model.fit(X, y)
-    first = np.asarray(model.predict(X))
+    first = np.asarray(_to_numpy(model.predict(X)))
     model.fit(X, y)
-    second = np.asarray(model.predict(X))
+    second = np.asarray(_to_numpy(model.predict(X)))
 
     assert first.shape == y.shape
     assert second.shape == y.shape
