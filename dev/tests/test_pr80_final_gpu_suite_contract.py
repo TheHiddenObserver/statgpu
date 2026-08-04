@@ -19,7 +19,7 @@ def _assignment(tree, name):
     raise AssertionError(f"missing assignment: {name}")
 
 
-def test_final_gpu_suite_runs_both_canonical_exact_head_suites():
+def test_final_gpu_suite_runs_all_canonical_exact_head_suites():
     final_suite = Path("dev/benchmarks/benchmark_pr80_final_gpu_suite.py")
     tree = ast.parse(final_suite.read_text())
     child_suites = _assignment(tree, "CHILD_SUITES")
@@ -28,6 +28,7 @@ def test_final_gpu_suite_runs_both_canonical_exact_head_suites():
     assert child_suites == (
         "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
         "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
+        "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py",
     )
     required = {
         final_suite.as_posix(),
