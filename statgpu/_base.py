@@ -8,6 +8,8 @@ __all__ = ["BaseEstimator"]
 
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
+import functools
+import inspect
 import numpy as np
 
 from statgpu._config import Device, get_device
@@ -29,6 +31,121 @@ class BaseEstimator(ABC):
     Provides common functionality for device management and input validation.
     """
     
+    _FINITE_PUBLIC_METHODS = frozenset({
+        "fit",
+        "partial_fit",
+        "fit_predict",
+        "fit_transform",
+        "predict",
+        "predict_proba",
+        "predict_log_proba",
+        "decision_function",
+        "transform",
+        "score",
+        "survfit",
+        "predict_survival",
+        "predict_survival_function",
+        "predict_cumulative_hazard",
+    })
+    _FINITE_PARAMETER_NAMES = frozenset({
+        "X",
+        "X_new",
+        "x",
+        "y",
+        "sample_weight",
+        "weights",
+        "offset",
+        "exposure",
+        "entry",
+        "start",
+        "stop",
+        "time",
+        "event",
+        "times",
+        "cluster",
+        "clusters",
+        "strata",
+        "subject",
+        "subjects",
+        "groups",
+        "init",
+        "init_coef",
+    })
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls._install_constructor_capture()
+        cls._install_public_finite_validation()
+
+    @classmethod
+    def _install_constructor_capture(cls):
+        original_init = cls.__dict__.get("__init__")
+        if original_init is None or getattr(
+            original_init, "__statgpu_constructor_capture__", False
+        ):
+            return
+        try:
+            signature = inspect.signature(original_init)
+        except (TypeError, ValueError):
+            return
+
+        @functools.wraps(original_init)
+        def wrapped(self, *args, **kwargs):
+            try:
+                bound = signature.bind(self, *args, **kwargs)
+                bound.apply_defaults()
+            except TypeError:
+                return original_init(self, *args, **kwargs)
+            raw_params = {
+                name: value
+                for name, value in bound.arguments.items()
+                if name != "self"
+                and signature.parameters[name].kind
+                not in (
+                    inspect.Parameter.VAR_POSITIONAL,
+                    inspect.Parameter.VAR_KEYWORD,
+                )
+            }
+            original_init(self, *args, **kwargs)
+            self._constructor_params_raw = raw_params
+
+        wrapped.__statgpu_constructor_capture__ = True
+        cls.__init__ = wrapped
+
+    @classmethod
+    def _install_public_finite_validation(cls):
+        from statgpu.backends._validation import check_finite
+
+        def wrap_method(original):
+            try:
+                signature = inspect.signature(original)
+            except (TypeError, ValueError):
+                return original
+
+            @functools.wraps(original)
+            def guarded(self, *args, **kwargs):
+                try:
+                    bound = signature.bind(self, *args, **kwargs)
+                except TypeError:
+                    return original(self, *args, **kwargs)
+                for name, value in bound.arguments.items():
+                    if name in self._FINITE_PARAMETER_NAMES and value is not None:
+                        check_finite(value, name=name)
+                return original(self, *args, **kwargs)
+
+            guarded.__statgpu_finite_validation__ = True
+            return guarded
+
+        for method_name in cls._FINITE_PUBLIC_METHODS:
+            original = cls.__dict__.get(method_name)
+            if original is None or not callable(original):
+                continue
+            if getattr(original, "__isabstractmethod__", False):
+                continue
+            if getattr(original, "__statgpu_finite_validation__", False):
+                continue
+            setattr(cls, method_name, wrap_method(original))
+
     def __init__(
         self,
         device: Union[str, Device] = Device.AUTO,
@@ -538,6 +655,7 @@ class BaseEstimator(ABC):
         import inspect
 
         params = {}
+        raw_params = getattr(self, "_constructor_params_raw", {})
         try:
             sig = inspect.signature(type(self).__init__)
         except (ValueError, TypeError):
@@ -549,7 +667,9 @@ class BaseEstimator(ABC):
                 inspect.Parameter.VAR_KEYWORD,
             ):
                 continue
-            if hasattr(self, name):
+            if name in raw_params:
+                params[name] = raw_params[name]
+            elif hasattr(self, name):
                 params[name] = getattr(self, name)
             elif hasattr(self, f"_{name}"):
                 params[name] = getattr(self, f"_{name}")
@@ -572,6 +692,7 @@ class BaseEstimator(ABC):
 
         for key, value in params.items():
             root, delimiter, sub_key = key.partition("__")
+            raw_value = value
             if root not in valid_params:
                 valid_names = sorted(name for name in valid_params if "__" not in name)
                 raise ValueError(
@@ -590,6 +711,11 @@ class BaseEstimator(ABC):
                 setattr(self, root, value)
             else:
                 setattr(self, f"_{root}", value)
+            raw_params = getattr(self, "_constructor_params_raw", None)
+            if raw_params is None:
+                raw_params = {}
+                self._constructor_params_raw = raw_params
+            raw_params[root] = raw_value
 
         for root, sub_params in nested_params.items():
             nested_estimator = getattr(self, root, None)
@@ -601,5 +727,9 @@ class BaseEstimator(ABC):
                     "does not support nested parameters."
                 )
             nested_estimator.set_params(**sub_params)
+
+        refresh = getattr(self, "_statgpu_refresh_normalized_params", None)
+        if callable(refresh):
+            refresh()
 
         return self

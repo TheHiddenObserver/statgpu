@@ -12,6 +12,7 @@ The weights are set via set_weights() using an initial OLS or Ridge estimate.
 
 __all__ = ["AdaptiveL1Penalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 import numpy as np
 from statgpu.backends._array_ops import _xp
@@ -33,7 +34,7 @@ def _get_adaptive_l1_torch_compiled():
         import torch
         def _prox(w, thresh_tensor):
             return torch.sign(w) * torch.relu(torch.abs(w) - thresh_tensor)
-        _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, dynamic=True, mode='reduce-overhead')
+        _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     except Exception:
         _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = None
     return _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED

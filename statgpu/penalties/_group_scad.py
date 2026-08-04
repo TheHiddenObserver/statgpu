@@ -12,6 +12,7 @@ where SCAD(t; lambda, a) is the element-wise SCAD penalty.
 
 __all__ = ["GroupSCADPenalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional, List, Union
 import numpy as np
 from statgpu.penalties._base import Penalty
@@ -46,8 +47,8 @@ def _get_group_scad_torch_compiled():
             scale = torch.where(mask_r1, scale_r1, 1.0)
             scale = torch.where(mask_r2, scale_r2, scale)
             return (w_mat * scale[:, None]).reshape(-1)
-        _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = torch.compile(
-            _prox, dynamic=True, mode='reduce-overhead'
+        _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = compile_torch(
+            _prox, dynamic=True, workload="iterative"
         )
     except Exception:
         _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None

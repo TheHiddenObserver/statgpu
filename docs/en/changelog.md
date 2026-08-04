@@ -5,6 +5,29 @@
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
+## Unreleased — PyTorch, validation, and sklearn compatibility
+
+### Runtime safety
+
+- Internal iterative Torch kernels now use a centralized compile policy.
+  The default avoids `reduce-overhead` CUDA Graph capture, while
+  `STATGPU_TORCH_COMPILE_MODE` permits explicit `default`,
+  `reduce-overhead`, or eager-only operation.  Known CUDA Graph output
+  lifecycle failures fall back to eager execution once; unrelated runtime
+  errors remain visible.
+- Public estimator numerical inputs are checked for NaN/Inf using NumPy,
+  CuPy, or Torch reductions on the selected device.
+
+### Estimator and test contracts
+
+- Exact constructor arguments are retained separately from normalized
+  runtime attributes so `sklearn.base.clone` works under legacy
+  scikit-learn identity checks.
+- Maintained pytest modules can no longer be hidden by broad `.gitignore`
+  rules; manual GPU diagnostics have an explicit directory and ownership
+  policy.
+
+Related: Issue #45, Issue #81, Issue #82, Issue #83.
 ## 0.2.3 — 2026-08-04
 
 ### Survival analysis

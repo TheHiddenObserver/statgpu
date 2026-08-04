@@ -15,6 +15,7 @@ Supports both FISTA direct (proximal) and LLA (lla_weights) optimization.
 
 __all__ = ["SCADPenalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 import numpy as np
 from statgpu.penalties._base import Penalty
@@ -50,7 +51,7 @@ def _get_scad_torch_compiled():
                     sign_w * ((a - 1.0) * abs_w - a * t) / (a - 1.0 - step),
                     w))
             return result
-        _SCAD_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, dynamic=True, mode='reduce-overhead')
+        _SCAD_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     except Exception:
         _SCAD_PROXIMAL_TORCH_COMPILED = None
     return _SCAD_PROXIMAL_TORCH_COMPILED

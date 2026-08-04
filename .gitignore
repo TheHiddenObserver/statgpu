@@ -103,6 +103,11 @@ dev/tests/verify_*.py
 dev/tests/REMOTE_GPU_TEST_GUIDE.md
 dev/tests/TORCH_BACKEND_CV_TESTING.md
 
+
+# Maintained pytest modules must always be visible to git.  Move manual,
+# remote, benchmark, or exploratory scripts to dev/manual instead.
+!dev/tests/test_*.py
+
 # Build artifacts
 build/
 dist/

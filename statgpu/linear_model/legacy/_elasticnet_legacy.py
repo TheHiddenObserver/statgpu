@@ -11,9 +11,10 @@ where:
 Optimized implementations:
 - CPU: FISTA with pre-computed Gram matrix
 - GPU (CuPy): Fused kernel operations with @cp.fuse()
-- GPU (Torch): torch.compile() with warm-up strategy
+- GPU (Torch): compile_torch() with warm-up strategy
 """
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional, Union
 import warnings
 import numpy as np
@@ -190,8 +191,8 @@ def _get_torch_compiled_proximal():
     try:
         torch._dynamo.config.suppress_errors = True
         torch._dynamo.config.guard_immutable_object = False
-        _elastic_net_proximal_compiled = torch.compile(
-            _elastic_net_proximal_torch, mode='reduce-overhead'
+        _elastic_net_proximal_compiled = compile_torch(
+            _elastic_net_proximal_torch, workload="iterative"
         )
     except (AttributeError, RuntimeError):
         _elastic_net_proximal_compiled = _elastic_net_proximal_torch
@@ -203,7 +204,7 @@ def _fit_elasticnet_torch_optimized(X, y, alpha, l1_ratio, n_samples, n_features
                                      max_iter=1000, tol=1e-4, lipschitz_L=None,
                                      stopping='coef_delta', warmup=True):
     """
-    Fit Elastic Net using optimized PyTorch operations with torch.compile().
+    Fit Elastic Net using optimized PyTorch operations with compile_torch().
     """
     import torch
 
@@ -848,7 +849,7 @@ class ElasticNet(BaseEstimator):
 
     def _fit_torch(self, X, y, sample_weight=None):
         """
-        Fit using Torch GPU with optimized FISTA solver and torch.compile().
+        Fit using Torch GPU with optimized FISTA solver and compile_torch().
         """
         import torch
 
@@ -889,7 +890,7 @@ class ElasticNet(BaseEstimator):
             y_mean = torch.tensor(0.0, dtype=X.dtype, device=X.device)
             y_centered = y
 
-        # Use optimized implementation with torch.compile()
+        # Use optimized implementation with compile_torch()
         coef, self.n_iter_ = _fit_elasticnet_torch_optimized(
             X=X_centered,
             y=y_centered,

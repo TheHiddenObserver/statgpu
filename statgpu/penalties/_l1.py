@@ -7,6 +7,7 @@ P(w) = α * ||w||₁
 __all__ = ["L1Penalty"]
 
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 from statgpu.backends._array_ops import _xp
 import numpy as np
@@ -28,7 +29,7 @@ def _get_l1_torch_compiled():
         import torch
         def _prox(w, thresh):
             return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
-        _L1_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, mode='reduce-overhead')
+        _L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, workload="iterative")
     except Exception:
         _L1_PROXIMAL_TORCH_COMPILED = None
     return _L1_PROXIMAL_TORCH_COMPILED

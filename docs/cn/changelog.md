@@ -5,6 +5,26 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+## 未发布 — PyTorch、输入校验与 sklearn 兼容性维护
+
+### 运行时安全
+
+- statgpu 内部迭代式 Torch kernel 统一通过集中式 compile policy。
+  默认不再使用会启用 CUDA Graph 的 `reduce-overhead`；用户仍可通过
+  `STATGPU_TORCH_COMPILE_MODE` 显式选择 `default`、
+  `reduce-overhead` 或完全 eager。遇到已知 CUDA Graph 输出生命周期错误时，
+  对应 callable 会永久回退 eager；其他运行时错误不会被吞掉。
+- 公共 estimator 的数值输入统一采用 NumPy、CuPy 或 Torch 原生 reduction
+  检查 NaN/Inf，不把完整 GPU 数组搬回 CPU。
+
+### Estimator 与测试契约
+
+- 构造函数原始参数与运行时标准化属性分开保存，使旧版 scikit-learn 的
+  constructor identity clone 检查也能通过。
+- `.gitignore` 不再隐藏应维护的 `test_*.py`；手工 GPU 诊断脚本使用独立目录
+  和明确的 ownership policy。
+
+关联：Issue #45、Issue #81、Issue #82、Issue #83。
 ## 0.2.3 — 2026-08-04
 
 ### 生存分析

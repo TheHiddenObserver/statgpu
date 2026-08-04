@@ -181,18 +181,12 @@ class FirstDifferenceOLS(BaseEstimator):
         )
 
     def get_params(self, deep=True):
-        params = super().get_params(deep=deep)
-        params["cov_type"] = self.cov_type
-        params["alpha"] = self.alpha
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        for key in ["cov_type", "alpha"]:
-            if key in params:
-                setattr(self, key, params.pop(key))
-        if params:
-            super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)
 
 
 def _first_diff_transform(X, y, entity_ids, time_ids, xp):

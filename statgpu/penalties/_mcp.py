@@ -14,6 +14,7 @@ Supports both FISTA direct (proximal) and LLA (lla_weights) optimization.
 
 __all__ = ["MCPPenalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 import numpy as np
 from statgpu.penalties._base import Penalty
@@ -49,7 +50,7 @@ def _get_mcp_torch_compiled():
                     sign_w * (abs_w - t) / (1.0 - step / gamma),
                     w))
             return result
-        _MCP_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, dynamic=True, mode='reduce-overhead')
+        _MCP_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     except Exception:
         _MCP_PROXIMAL_TORCH_COMPILED = None
     return _MCP_PROXIMAL_TORCH_COMPILED

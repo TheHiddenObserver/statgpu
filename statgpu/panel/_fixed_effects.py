@@ -460,23 +460,12 @@ class PanelOLS(BaseEstimator):
         return s
 
     def get_params(self, deep=True):
-        """Get parameters for this estimator."""
-        params = super().get_params(deep)
-        params.update({
-            'entity_effects': self.entity_effects,
-            'time_effects': self.time_effects,
-            'cov_type': self.cov_type,
-            'alpha': self.alpha,
-        })
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        """Set parameters for this estimator."""
-        for key in ('entity_effects', 'time_effects', 'cov_type', 'alpha'):
-            if key in params:
-                setattr(self, key, params.pop(key))
-        super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)
 
 
 # Alias for naming consistency with RandomEffects, PooledOLS, etc.

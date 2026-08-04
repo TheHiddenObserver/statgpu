@@ -284,19 +284,9 @@ class FamaMacBeth(BaseEstimator):
         )
 
     def get_params(self, deep=True):
-        params = super().get_params(deep=deep)
-        params.update(
-            cov_type=self.cov_type,
-            bandwidth=self.bandwidth,
-            alpha=self.alpha,
-            min_obs_per_period=self.min_obs_per_period,
-        )
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        for key in ["cov_type", "bandwidth", "alpha", "min_obs_per_period"]:
-            if key in params:
-                setattr(self, key, params.pop(key))
-        if params:
-            super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)

@@ -39,6 +39,15 @@ The canonical developer architecture entry point is
 defines the current Cox module ownership, canonical statistical source,
 CV/refit reuse contract, and inference boundaries.
 
+
+## Maintained tests versus manual diagnostics
+
+Every `dev/tests/test_*.py` file is maintained pytest coverage and must be
+tracked, discoverable, side-effect free at import time, and runnable from a
+clean checkout.  Hardware-specific experiments and one-off reproducers
+belong under `dev/manual/gpu_diagnostics/`; `.gitignore` is not a test
+ownership mechanism.
+
 ## Remote GPU Testing
 
 ### Server Access

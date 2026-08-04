@@ -7,6 +7,7 @@ recompute, array allocation) that accumulates over 300+ fista_solver calls.
 
 __all__ = ["fista_lla_path"]
 
+from statgpu.backends._torch_compile import compile_torch
 import copy
 import numpy as np
 
@@ -50,7 +51,7 @@ def _get_sqerr_proximal_torch():
         _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
         if _cap >= 7:
             try:
-                @torch.compile(mode='reduce-overhead', backend='inductor')
+                @compile_torch(workload="iterative", backend='inductor')
                 def _fused_update(y_current, grad, step, thresh, coef_old, beta):
                     w = y_current - step * grad
                     abs_w = w.abs()
@@ -128,8 +129,8 @@ def _get_fused_proximal_clip_torch():
         _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
         if _cap >= 7:
             try:
-                _FUSED_PROXIMAL_CLIP_TORCH = torch.compile(
-                    _fused, mode='reduce-overhead', backend='inductor')
+                _FUSED_PROXIMAL_CLIP_TORCH = compile_torch(
+                    _fused, workload="iterative", backend='inductor')
             except (RuntimeError, TypeError):
                 _FUSED_PROXIMAL_CLIP_TORCH = _fused
         else:

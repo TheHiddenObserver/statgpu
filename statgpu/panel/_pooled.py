@@ -287,17 +287,9 @@ class PooledOLS(BaseEstimator):
         self.conf_int_ = _to_numpy(xp.stack([conf_low, conf_high], axis=1))
 
     def get_params(self, deep=True):
-        params = super().get_params(deep=deep)
-        params["cov_type"] = self.cov_type
-        params["alpha"] = self.alpha
-        params["bandwidth"] = self.bandwidth
-        params["kernel"] = self.kernel
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        for key in ["cov_type", "alpha", "bandwidth", "kernel"]:
-            if key in params:
-                setattr(self, key, params.pop(key))
-        if params:
-            super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from statgpu.backends._torch_compile import compile_torch
 import numpy as np
 
 from statgpu._config import Device
@@ -1218,7 +1219,7 @@ class _PenalizedFitMixin:
                                 c = _st_fn(w, _thresh, xp) / _l2_scale
                                 y = c + _beta * (c - _coef_old)
                                 return c, y
-                            _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
+                            _fused_step_l2 = compile_torch(_fista_elementwise_l2, workload="iterative")
                         except Exception:
                             _fused_step_l2 = None
                 else:
@@ -1232,7 +1233,7 @@ class _PenalizedFitMixin:
                                 c = _st_fn(w, _thresh, xp)
                                 y = c + _beta * (c - _coef_old)
                                 return c, y
-                            _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
+                            _fused_step = compile_torch(_fista_elementwise, workload="iterative")
                         except Exception:
                             _fused_step = None
             else:

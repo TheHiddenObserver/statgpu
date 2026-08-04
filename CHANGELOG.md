@@ -2,6 +2,19 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — maintenance hardening
+
+- Fixed Issue #45 by routing statgpu-owned Torch compilation through a
+  centralized policy that avoids CUDA Graph lifecycle hazards for iterative
+  solvers and falls back to eager execution for the known runtime failure.
+- Addressed Issue #81 with backend-native finite-value validation at public
+  estimator boundaries without full GPU-array transfers.
+- Addressed Issue #82 by preserving exact raw constructor arguments for
+  legacy scikit-learn clone identity while retaining normalized runtime
+  attributes and `set_params` bookkeeping.
+- Addressed Issue #83 by making maintained `test_*.py` files visible to git,
+  documenting the manual GPU diagnostic boundary, and adding maintained
+  regression coverage.
 ## 0.2.3 — 2026-08-04
 
 ### Added

@@ -36,15 +36,10 @@ from . import _group_clone_contract as _group_clone_contract
 
 
 def _torch_compile_ok():
-    """Check if torch.compile is usable (CUDA capability >= 7.0 required)."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability()
-            return cap[0] >= 7
-        return True  # CPU-only torch can compile
-    except Exception:
-        return False
+    """Compatibility alias for the centralized Torch compile policy."""
+    from statgpu.backends._torch_compile import torch_compile_available
+
+    return torch_compile_available()
 
 
 __all__ = [
