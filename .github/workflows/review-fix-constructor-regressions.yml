@@ -20,8 +20,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Apply constructor regression fixes
-        run: python .github/review_fix_constructor_regressions_v3.py
+      - name: Revert broad formatting rewrite
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git revert --no-edit 8e7af497c5f4f70b358825fe95b81ee63d6cd82b
+      - name: Apply minimal constructor regression fixes
+        run: python .github/review_fix_constructor_regressions_minimal.py
+      - name: Enforce focused diff budget
+        run: |
+          git diff --check
+          files=$(git diff --name-only -- statgpu dev/tests | wc -l)
+          lines=$(git diff --numstat -- statgpu dev/tests | awk '{a+=$1; d+=$2} END {print a+d+0}')
+          echo "changed_files=$files changed_lines=$lines"
+          test "$files" -le 25
+          test "$lines" -le 1500
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
@@ -43,10 +56,8 @@ jobs:
             dev/tests/test_legacy_sklearn_integration.py
       - name: Run constructor mismatch audit
         run: python .github/review_constructor_map.py
-      - name: Commit regression fixes
+      - name: Commit minimal regression fixes
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add statgpu dev/tests
           git commit -m 'fix: preserve constructor runtime semantics'
           git push origin HEAD:agent/maintenance-0.2.4-0.2.5
