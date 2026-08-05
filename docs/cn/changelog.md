@@ -1,5 +1,7 @@
 # Changelog
 
+- 专用 Ridge、ElasticNet 与 Logistic CV 现在严格保留显式 Torch/CuPy 后端选择，统一规范化 Device 枚举，并在生成网格或提前返回前验证解析权重。
+
 - 修正 NumPy、CuPy 与 Torch 下解析权重 LogisticRegression 的 IRLS：权重仅进入 WLS 曲率而不进入工作响应分母，且加权似然与推断保持同一目标；同时收窄 penalized-CV alpha 网格与 CuPy 精确 Ridge 的降级范围，使编程错误、CUDA OOM 与设备错误继续抛出。
 
 - 完成惩罚 CV 降级边界加固：可选 Lipschitz 提示统一识别 NumPy/CuPy/Torch 的秩失败，而 alpha 网格估计不再隐藏内存或 GPU 基础设施错误。

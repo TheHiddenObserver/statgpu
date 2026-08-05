@@ -17,6 +17,7 @@ from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev, xp_maximum
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model.wrappers._ridge import Ridge
+from ._device import resolve_cv_backend, validate_cv_sample_weight
 
 
 # =============================================================================
@@ -325,45 +326,22 @@ def _select_ridge_alpha_cv(
     details : dict (if return_details=True)
         Full CV results including alpha grid, MSE path, etc.
     """
-    if isinstance(device, Device):
-        device = device.value
-    device_name = str(device).lower()
-    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value, "torch")
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        # Check if inputs are already on GPU (CuPy or Torch)
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-
-        # Also check for torch tensors
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     X_np = None
     y_np = None
     sample_weight_np = None
 
     if gpu_input_cupy or gpu_input_torch:
-        # GPU inputs - get backend for validation
-        # Use torch backend for torch tensors, cupy for cupy arrays
-        if gpu_input_torch:
-            backend = get_backend(backend='torch', device='cuda')
-        else:
-            backend = get_backend(backend='cupy', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
@@ -387,12 +365,14 @@ def _select_ridge_alpha_cv(
             raise ValueError("sample_weight must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
 
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
+
     # Generate alpha grid
     if alphas is None:
         if gpu_input_cupy or gpu_input_torch or use_gpu:
-            backend = get_backend(
-                backend='torch' if gpu_input_torch else 'cupy', device='cuda'
-            )
+            # backend was selected strictly by resolve_cv_backend above
             alpha_grid = _default_ridge_alpha_grid_backend(
                 X, y, backend, n_alphas=n_alphas,
                 alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight,
@@ -473,13 +453,7 @@ def _select_ridge_alpha_cv(
                 cupy_available = False
 
             # Detect input type and select appropriate backend
-            if hasattr(X, '__module__') and 'torch' in str(type(X).__module__):
-                backend = _torch_backend
-            elif cupy_available and hasattr(X, '__cuda_array_interface__'):
-                backend = _cupy_backend
-            else:
-                # Default to auto-selection for numpy input
-                backend = get_backend(backend='auto', device='cuda')
+            # backend was selected strictly by resolve_cv_backend above
 
             xp = backend.xp
 

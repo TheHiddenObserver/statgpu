@@ -13,6 +13,7 @@ from statgpu._config import Device, cuda_available
 from statgpu.cross_validation._base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.linear_model.wrappers._elasticnet import ElasticNet
+from ._device import resolve_cv_backend, validate_cv_sample_weight
 
 
 # =============================================================================
@@ -297,43 +298,15 @@ def _select_elasticnet_params_cv(
     best_l1_ratio : float
     details : dict (if return_details=True)
     """
-    if isinstance(device, Device):
-        device_name = device.value
-    else:
-        device_name = str(device).lower()
-        if device_name.startswith("device."):
-            enum_name = device_name.split(".", 1)[1].upper()
-            if enum_name not in Device.__members__:
-                valid = ", ".join(sorted(d.value for d in Device))
-                raise ValueError(f"Invalid device '{device}'. Expected one of: {valid}")
-            device_name = Device[enum_name].value
-    if device_name == Device.AUTO.value:
-        use_gpu = bool(cuda_available())
-    elif device_name in (Device.CUDA.value, Device.TORCH.value):
-        use_gpu = True
-    else:
-        use_gpu = False
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    # Detect GPU input
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     # Validate inputs
     X_np = None
@@ -344,7 +317,7 @@ def _select_elasticnet_params_cv(
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
-        backend = get_backend(backend='auto', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         y_check = backend.asarray(y).reshape(-1)
         if int(y_check.shape[0]) != n_samples:
             raise ValueError("y must have the same number of rows as X")
@@ -358,6 +331,10 @@ def _select_elasticnet_params_cv(
         if y_np.shape[0] != X_np.shape[0]:
             raise ValueError("y must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
+
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
 
     # Default l1_ratios
     if l1_ratios is None:
@@ -376,7 +353,7 @@ def _select_elasticnet_params_cv(
     for l1_idx, l1r in enumerate(l1_ratios_arr):
         if alphas is None:
             if gpu_input_cupy or gpu_input_torch:
-                backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
+                # backend was selected strictly by resolve_cv_backend above
                 alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
                     X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                 )
@@ -390,7 +367,7 @@ def _select_elasticnet_params_cv(
             alpha_grid = alpha_grid[alpha_grid > 0.0]
             if alpha_grid.size == 0:
                 if gpu_input_cupy or gpu_input_torch:
-                    backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
+                    # backend was selected strictly by resolve_cv_backend above
                     alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
                         X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                     )
@@ -441,13 +418,7 @@ def _select_elasticnet_params_cv(
     max_n_alphas = max(len(ag) for ag in alpha_grids.values())
     mse_path = np.full((n_l1_ratios, max_n_alphas, n_folds), np.nan, dtype=np.float64)
 
-    # Get backend
-    if gpu_input_torch:
-        backend = get_backend(backend='torch', device='cuda')
-    elif gpu_input_cupy:
-        backend = get_backend(backend='cupy', device='cuda')
-    else:
-        backend = get_backend(backend='auto', device='cuda' if use_gpu else 'cpu')
+    # backend was selected strictly by resolve_cv_backend above
 
     xp = backend.xp
 

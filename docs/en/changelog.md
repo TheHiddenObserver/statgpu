@@ -1,5 +1,7 @@
 # Changelog
 
+- Dedicated Ridge, ElasticNet, and Logistic CV routines now preserve explicit Torch versus CuPy backend requests, normalize Device enum values consistently, and validate analytic weights before grid generation or degenerate returns.
+
 - Corrected analytic-weight LogisticRegression IRLS across NumPy, CuPy, and Torch: weights now enter WLS curvature rather than the working-response denominator, and weighted likelihood/inference use the same objective. Narrowed penalized-CV alpha-grid and exact CuPy Ridge fallbacks so programming, CUDA OOM, and device errors propagate.
 
 - Completed penalized-CV fallback hardening: optional Lipschitz recovery now recognizes NumPy/CuPy/Torch rank failures consistently, while alpha-grid estimation no longer hides memory or GPU infrastructure failures.

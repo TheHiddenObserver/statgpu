@@ -14,6 +14,7 @@ from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model.wrappers._logistic import LogisticRegression
+from ._device import resolve_cv_backend, validate_cv_sample_weight
 
 
 # =============================================================================
@@ -399,31 +400,15 @@ def _select_logistic_c_cv(
     details : dict (if return_details=True)
         Full CV results including C grid, loss path, etc.
     """
-    device_name = str(device).lower()
-    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value)
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        # Check if inputs are already on GPU (CuPy or Torch)
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-
-        # Also check for torch tensors
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     X_np = None
     y_np = None
@@ -431,7 +416,7 @@ def _select_logistic_c_cv(
 
     if gpu_input_cupy or gpu_input_torch:
         # GPU inputs - get backend for validation
-        backend = get_backend(backend='auto', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
@@ -446,13 +431,17 @@ def _select_logistic_c_cv(
             raise ValueError("y must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
 
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
+
     # Generate C grid
     if Cs is None:
         if gpu_input_cupy or gpu_input_torch:
             # GPU path for C grid generation
             # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
             # Do NOT center X/y — centering is incorrect for logistic regression
-            backend = get_backend(backend='auto', device='cuda')
+            # backend was selected strictly by resolve_cv_backend above
             X_temp = backend.asarray(X)
             y_temp = backend.asarray(y)
             grad = X_temp.T @ (y_temp - 0.5)
@@ -470,7 +459,7 @@ def _select_logistic_c_cv(
         if C_grid.size == 0:
             if gpu_input_cupy or gpu_input_torch:
                 # GPU path for C grid generation
-                backend = get_backend(backend='auto', device='cuda')
+                # backend was selected strictly by resolve_cv_backend above
                 X_temp = backend.asarray(X)
                 y_temp = backend.asarray(y)
                 grad = X_temp.T @ (y_temp - 0.5)
@@ -523,7 +512,7 @@ def _select_logistic_c_cv(
     if use_gpu:
         try:
             # Get backend - supports both CuPy and Torch
-            backend = get_backend(backend='auto', device='cuda')
+            # backend was selected strictly by resolve_cv_backend above
             xp = backend.xp
 
             cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
@@ -616,7 +605,7 @@ def _select_logistic_c_cv(
 
         except Exception as exc:
             raise RuntimeError(
-                "GPU path failed in _select_logistic_c_cv with device='cuda'; "
+                f"GPU path failed in _select_logistic_c_cv with backend={backend_name!r}; "
                 "CPU fallback is disabled for strict CUDA execution."
             ) from exc
 

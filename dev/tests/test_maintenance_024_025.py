@@ -3813,3 +3813,91 @@ def test_exact_cupy_ridge_does_not_mask_cuda_oom(monkeypatch):
     model.alpha = 0.1
     with pytest.raises(RuntimeError, match="CUDA out of memory"):
         model._solve_exact_cupy(np.eye(2), np.ones(2), 4.0)
+
+
+def test_dedicated_cv_device_resolution_preserves_explicit_backend(monkeypatch):
+    import numpy as np
+    import statgpu.linear_model.cv._device as cv_device
+    from statgpu._config import Device
+
+    calls = []
+
+    class NumpyBackend:
+        pass
+
+    class CuPyBackend:
+        pass
+
+    class TorchBackend:
+        pass
+
+    classes = {
+        "numpy": NumpyBackend,
+        "cupy": CuPyBackend,
+        "torch": TorchBackend,
+        "auto": NumpyBackend,
+    }
+
+    def fake_get_backend(*, backend, device):
+        calls.append((backend, device))
+        return classes[backend]()
+
+    monkeypatch.setattr(cv_device, "get_backend", fake_get_backend)
+    X = np.zeros((4, 2))
+
+    result = cv_device.resolve_cv_backend(Device.TORCH, X)
+    assert result[0] == "torch"
+    assert result[1] == "torch"
+    assert result[3] is True
+    assert calls[-1] == ("torch", "cuda")
+
+    result = cv_device.resolve_cv_backend("cuda", X)
+    assert result[1] == "cupy"
+    assert calls[-1] == ("cupy", "cuda")
+
+
+def test_dedicated_cv_device_resolution_rejects_cross_library_switch():
+    import statgpu.linear_model.cv._device as cv_device
+
+    FakeTorchCuda = type("FakeTorchCuda", (), {"__module__": "torch"})
+    value = FakeTorchCuda()
+    value.device = "cuda:0"
+
+    with pytest.raises(ValueError, match="selects CuPy"):
+        cv_device.resolve_cv_backend("cuda", value)
+
+
+@pytest.mark.parametrize(
+    "selector, kwargs",
+    [
+        ("logistic", {"Cs": [1.0], "cv_folds": 1}),
+        ("ridge", {"alphas": [1.0], "cv_folds": 1}),
+        (
+            "elasticnet",
+            {"alphas": [1.0], "l1_ratios": [0.5], "cv_folds": 1},
+        ),
+    ],
+)
+def test_dedicated_cv_validates_weights_before_degenerate_return(selector, kwargs):
+    X = np.arange(12.0).reshape(6, 2)
+    y = np.array([0, 1, 0, 1, 0, 1], dtype=float)
+
+    if selector == "logistic":
+        from statgpu.linear_model.cv._logistic_cv import _select_logistic_c_cv
+        fn = _select_logistic_c_cv
+    elif selector == "ridge":
+        from statgpu.linear_model.cv._ridge_cv import _select_ridge_alpha_cv
+        fn = _select_ridge_alpha_cv
+    else:
+        from statgpu.linear_model.cv._elasticnet_cv import _select_elasticnet_params_cv
+        fn = _select_elasticnet_params_cv
+
+    with pytest.raises(ValueError, match="non-negative"):
+        fn(
+            X,
+            y,
+            sample_weight=np.array([1, 1, 1, 1, 1, -1.0]),
+            **kwargs,
+        )
+    with pytest.raises(ValueError, match="finite positive sum"):
+        fn(X, y, sample_weight=np.zeros(6), **kwargs)
