@@ -11,14 +11,17 @@ import numpy as np
 
 
 def _parse_formula_if_provided(formula, data, X, y):
-    """Parse formula+data or fall back to raw arrays. Returns (y, X, info)."""
+    """Parse formula data and return retained row positions for side arrays."""
     if formula is not None:
-        from statgpu.core.formula import parse_formula
-        return parse_formula(formula, data)
-    y = np.asarray(y)
-    if y.ndim == 2 and y.shape[1] == 1:
-        y = y.ravel()
-    return y, np.asarray(X), None
+        from statgpu.core.formula import FormulaParser
+
+        parser = FormulaParser(formula)
+        y_arr, X_arr, design_info = parser.eval(data)
+        return y_arr, X_arr, design_info, parser.row_positions
+    y_arr = np.asarray(y)
+    if y_arr.ndim == 2 and y_arr.shape[1] == 1:
+        y_arr = y_arr.ravel()
+    return y_arr, np.asarray(X), None, None
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
@@ -476,9 +479,21 @@ class GeneralizedLinearModel(BaseEstimator):
                     "formula was provided but data is None. "
                     "Pass data=your_dataframe when using formula."
                 )
-            y_arr, X_arr, design_info = _parse_formula_if_provided(
+            y_arr, X_arr, design_info, retained_rows = _parse_formula_if_provided(
                 formula, data, None, None
             )
+            if sample_weight is not None:
+                from statgpu.backends import _to_numpy as _formula_to_numpy
+
+                weights = np.asarray(_formula_to_numpy(sample_weight)).reshape(-1)
+                if weights.shape[0] == len(data):
+                    weights = weights[retained_rows]
+                elif weights.shape[0] != X_arr.shape[0]:
+                    raise ValueError(
+                        "For formula fitting, sample_weight must have length "
+                        "len(data) or the number of rows retained by the formula."
+                    )
+                sample_weight = np.asarray(weights, dtype=np.float64)
             self._design_info = design_info
             formula_column_names = list(design_info.column_names)
             self._formula_has_intercept = "Intercept" in formula_column_names

@@ -24,6 +24,18 @@ _PRECISION_RTOL = 1e-6
 _PRECISION_ATOL = 1e-8
 
 
+def _validate_compile_evidence(mode, case, events, graph_delta):
+    """Require actual graph execution for every default-mode benchmark case."""
+    if mode != "default":
+        return
+    if int(graph_delta) <= 0:
+        raise RuntimeError(f"{case}:{mode} did not create a Dynamo graph")
+    if not any(event.get("status") == "compiled" for event in events):
+        raise RuntimeError(f"{case}:{mode} has no compiled diagnostic")
+    if any("fallback" in str(event.get("status", "")) for event in events):
+        raise RuntimeError(f"{case}:{mode} entered fallback")
+
+
 def _json_value(value):
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -108,6 +120,10 @@ def _run_child(mode: str, repeats: int) -> dict:
     case_results = {}
     for name, factory in cases.items():
         get_torch_compile_diagnostics(clear=True)
+        torch._dynamo.reset()
+        before_graphs = int(
+            torch._dynamo.utils.counters["stats"].get("unique_graphs", 0)
+        )
         timings = []
         prediction = None
         model = None
@@ -119,14 +135,17 @@ def _run_child(mode: str, repeats: int) -> dict:
             timings.append(time.perf_counter() - start)
             prediction = np.asarray(_to_numpy(model.predict(X)))
         events = get_torch_compile_diagnostics(clear=True)
+        after_graphs = int(
+            torch._dynamo.utils.counters["stats"].get("unique_graphs", 0)
+        )
+        graph_delta = after_graphs - before_graphs
+        _validate_compile_evidence(mode, name, events, graph_delta)
         coefficients = np.asarray(_to_numpy(model.coef_))
         finite_prediction = bool(np.isfinite(prediction).all())
         finite_coefficients = bool(np.isfinite(coefficients).all())
         fallback_seen = any("fallback" in event["status"] for event in events)
         if not finite_prediction or not finite_coefficients:
             raise RuntimeError(f"{name}:{mode} produced non-finite output")
-        if mode == "default" and fallback_seen:
-            raise RuntimeError(f"{name}:{mode} entered fallback")
 
         case_results[name] = {
             "fit_seconds": timings,
@@ -137,6 +156,12 @@ def _run_child(mode: str, repeats: int) -> dict:
             "n_iter": _json_value(getattr(model, "n_iter_", None)),
             "converged": _json_value(getattr(model, "converged_", None)),
             "compile_events": events,
+            "compiled_event_count": sum(
+                event["status"] == "compiled" for event in events
+            ),
+            "unique_graphs_before": before_graphs,
+            "unique_graphs_after": after_graphs,
+            "unique_graphs_delta": graph_delta,
             "fallback_seen": fallback_seen,
         }
 

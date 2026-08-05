@@ -172,6 +172,8 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
 
     monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
     get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+    before_graphs = _dynamo_unique_graphs(torch)
     rng = np.random.default_rng(20260804)
     X = rng.normal(size=(384, 24)).astype(np.float64)
     beta = np.zeros(24, dtype=np.float64)
@@ -197,6 +199,8 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
     assert np.isfinite(second).all()
     np.testing.assert_allclose(first, second, rtol=1e-7, atol=1e-8)
     events = get_torch_compile_diagnostics(clear=True)
+    after_graphs = _dynamo_unique_graphs(torch)
+    assert after_graphs > before_graphs
     assert any(event["status"] == "compiled" for event in events)
     assert not any("fallback" in event["status"] for event in events)
 
@@ -287,6 +291,10 @@ def _require_modern_torch_cuda():
     return torch
 
 
+def _dynamo_unique_graphs(torch):
+    return int(torch._dynamo.utils.counters["stats"].get("unique_graphs", 0))
+
+
 def test_physical_cuda_compile_path_is_observable(monkeypatch):
     torch = _require_modern_torch_cuda()
     from statgpu.backends._torch_compile import (
@@ -360,10 +368,13 @@ def test_torch_penalty_compile_matrix_py21(monkeypatch):
     ]
     w = torch.linspace(-2.0, 2.0, 8, device="cuda", dtype=torch.float64)
     for penalty in penalties:
+        case_before_graphs = _dynamo_unique_graphs(torch)
         result = penalty.proximal(w, step=0.1, backend="torch")
+        torch.cuda.synchronize()
+        case_after_graphs = _dynamo_unique_graphs(torch)
+        assert case_after_graphs > case_before_graphs, penalty.name
         assert result.is_cuda
         assert torch.isfinite(result).all()
-    torch.cuda.synchronize()
 
     after_graphs = int(counters["stats"].get("unique_graphs", 0))
     events = get_torch_compile_diagnostics(clear=True)
@@ -966,6 +977,7 @@ def test_torch_nonconvex_model_level_compile_matrix_py21(
         group_mcp_module._GROUP_MCP_PROXIMAL_TORCH_COMPILED = None
     get_torch_compile_diagnostics(clear=True)
     torch._dynamo.reset()
+    before_graphs = _dynamo_unique_graphs(torch)
 
     rng = np.random.default_rng(20260805)
     X = rng.normal(size=(192, 6)).astype(np.float64)
@@ -988,18 +1000,22 @@ def test_torch_nonconvex_model_level_compile_matrix_py21(
     assert np.isfinite(prediction).all()
     assert np.isfinite(np.asarray(_to_numpy(model.coef_))).all()
     events = get_torch_compile_diagnostics(clear=True)
+    after_graphs = _dynamo_unique_graphs(torch)
+    assert after_graphs > before_graphs
     assert any(event["status"] == "compiled" for event in events)
     assert not any("fallback" in event["status"] for event in events)
 
 
 def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
-    _require_modern_torch_cuda()
+    torch = _require_modern_torch_cuda()
     monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
     from statgpu.backends import _to_numpy
     from statgpu.backends._torch_compile import get_torch_compile_diagnostics
     from statgpu.linear_model import ElasticNet
 
     get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+    before_graphs = _dynamo_unique_graphs(torch)
     rng = np.random.default_rng(20260806)
     X = rng.normal(size=(192, 10)).astype(np.float64)
     y = X[:, 0] - 0.5 * X[:, 1] + 0.05 * rng.normal(size=X.shape[0])
@@ -1013,6 +1029,8 @@ def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
     prediction = np.asarray(_to_numpy(model.predict(X)))
     assert np.isfinite(prediction).all()
     events = get_torch_compile_diagnostics(clear=True)
+    after_graphs = _dynamo_unique_graphs(torch)
+    assert after_graphs > before_graphs
     assert any(event["status"] == "compiled" for event in events)
     assert not any("fallback" in event["status"] for event in events)
 
@@ -1093,3 +1111,70 @@ def test_knockoff_selector_set_params_is_transactional(selector_name):
     assert selector.q == 0.2
     assert selector.result_ is None
     assert selector.selected_features_ is None
+
+
+# PR87_SECOND_REVIEW_FORMULA_WEIGHT_TESTS
+def test_glm_formula_sample_weight_aligns_patsy_retained_rows():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    data = pd.DataFrame(
+        {
+            "y": [1.0, 2.0, 3.0, 5.0, 8.0],
+            "x": [0.0, 1.0, np.nan, 3.0, 4.0],
+        }
+    )
+    original_weights = np.array([1.0, 2.0, 1000.0, 4.0, 5.0])
+    retained = np.array([0, 1, 3, 4])
+
+    formula_model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    ).fit(
+        formula="y ~ x", data=data, sample_weight=original_weights
+    )
+    direct_model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    ).fit(
+        data.loc[retained, ["x"]].to_numpy(),
+        data.loc[retained, "y"].to_numpy(),
+        sample_weight=original_weights[retained],
+    )
+    np.testing.assert_allclose(formula_model.coef_, direct_model.coef_)
+    np.testing.assert_allclose(formula_model.intercept_, direct_model.intercept_)
+
+    aligned_model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    ).fit(
+        formula="y ~ x", data=data, sample_weight=original_weights[retained]
+    )
+    np.testing.assert_allclose(aligned_model.coef_, direct_model.coef_)
+    np.testing.assert_allclose(aligned_model.intercept_, direct_model.intercept_)
+
+    with pytest.raises(ValueError, match="sample_weight must have length"):
+        GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0, device="cpu"
+        ).fit(
+            formula="y ~ x", data=data, sample_weight=np.ones(3)
+        )
+
+
+def test_compile_benchmark_has_hard_per_case_graph_gate():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path("dev/benchmarks/benchmark_torch_compile_maintenance.py")
+    spec = importlib.util.spec_from_file_location("compile_benchmark", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    module._validate_compile_evidence(
+        "default", "lasso", [{"status": "compiled"}], graph_delta=1
+    )
+    with pytest.raises(RuntimeError, match="Dynamo graph"):
+        module._validate_compile_evidence(
+            "default", "lasso", [{"status": "compiled"}], graph_delta=0
+        )
+    with pytest.raises(RuntimeError, match="compiled diagnostic"):
+        module._validate_compile_evidence(
+            "default", "lasso", [], graph_delta=1
+        )
