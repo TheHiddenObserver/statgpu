@@ -1330,7 +1330,7 @@ def test_cupy_formula_sample_weight_alignment_stays_on_device():
 def test_torch_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
     torch = _require_modern_torch_cuda()
     pd = pytest.importorskip("pandas")
-    import statgpu.backends as backends
+    import statgpu.linear_model._glm_base as glm_module
     from statgpu.linear_model import GeneralizedLinearModel
 
     data = pd.DataFrame(
@@ -1341,7 +1341,7 @@ def test_torch_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
         dtype=torch.float64,
         device="cuda",
     )
-    original_to_numpy = backends._to_numpy
+    original_to_numpy = glm_module._to_numpy
 
     def guarded_to_numpy(value):
         if (
@@ -1353,7 +1353,7 @@ def test_torch_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
             raise AssertionError("formula sample_weight copied to CPU")
         return original_to_numpy(value)
 
-    monkeypatch.setattr(backends, "_to_numpy", guarded_to_numpy)
+    monkeypatch.setattr(glm_module, "_to_numpy", guarded_to_numpy)
     model = GeneralizedLinearModel(
         family="gaussian",
         solver="irls",
@@ -1374,14 +1374,14 @@ def test_cupy_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
     except Exception:
         pytest.skip("requires a working CuPy CUDA backend")
     pd = pytest.importorskip("pandas")
-    import statgpu.backends as backends
+    import statgpu.linear_model._glm_base as glm_module
     from statgpu.linear_model import GeneralizedLinearModel
 
     data = pd.DataFrame(
         {"y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], "x": [0., 1., 2., 3., 4., 5.]}
     )
     weights = cp.asarray([1.0, 1.5, 2.0, 2.5, 3.0, 3.5], dtype=cp.float64)
-    original_to_numpy = backends._to_numpy
+    original_to_numpy = glm_module._to_numpy
 
     def guarded_to_numpy(value):
         if (
@@ -1392,7 +1392,7 @@ def test_cupy_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
             raise AssertionError("formula sample_weight copied to CPU")
         return original_to_numpy(value)
 
-    monkeypatch.setattr(backends, "_to_numpy", guarded_to_numpy)
+    monkeypatch.setattr(glm_module, "_to_numpy", guarded_to_numpy)
     model = GeneralizedLinearModel(
         family="gaussian",
         solver="irls",
