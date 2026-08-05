@@ -342,22 +342,14 @@ class LinearRegression(BaseEstimator):
             self._feature_names = [name for name in formula_column_names if name != "Intercept"]
 
             if sample_weight is not None:
-                from statgpu.backends import _to_numpy
+                from statgpu.core.formula import align_formula_sample_weight
 
-                weights = np.asarray(_to_numpy(sample_weight), dtype=float)
-                if weights.ndim != 1:
-                    raise ValueError("sample_weight must be one-dimensional")
-                retained_rows = np.asarray(retained_rows, dtype=np.int64)
-                if weights.shape[0] == len(data):
-                    sample_weight = weights[retained_rows]
-                elif weights.shape[0] == len(y_arr):
-                    # Already aligned weights are accepted for programmatic use.
-                    sample_weight = weights
-                else:
-                    raise ValueError(
-                        "sample_weight must match the original data length or "
-                        "the number of formula rows retained after missing-value filtering"
-                    )
+                sample_weight = align_formula_sample_weight(
+                    sample_weight,
+                    data_length=len(data),
+                    retained_rows=retained_rows,
+                    retained_length=len(y_arr),
+                )
 
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")

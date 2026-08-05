@@ -483,17 +483,14 @@ class GeneralizedLinearModel(BaseEstimator):
                 formula, data, None, None
             )
             if sample_weight is not None:
-                from statgpu.backends import _to_numpy as _formula_to_numpy
+                from statgpu.core.formula import align_formula_sample_weight
 
-                weights = np.asarray(_formula_to_numpy(sample_weight)).reshape(-1)
-                if weights.shape[0] == len(data):
-                    weights = weights[retained_rows]
-                elif weights.shape[0] != X_arr.shape[0]:
-                    raise ValueError(
-                        "For formula fitting, sample_weight must have length "
-                        "len(data) or the number of rows retained by the formula."
-                    )
-                sample_weight = np.asarray(weights, dtype=np.float64)
+                sample_weight = align_formula_sample_weight(
+                    sample_weight,
+                    data_length=len(data),
+                    retained_rows=retained_rows,
+                    retained_length=X_arr.shape[0],
+                )
             self._design_info = design_info
             formula_column_names = list(design_info.column_names)
             self._formula_has_intercept = "Intercept" in formula_column_names
@@ -524,6 +521,34 @@ class GeneralizedLinearModel(BaseEstimator):
         if hasattr(y_arr, 'ndim') and y_arr.ndim == 2 and y_arr.shape[1] == 1:
             y_arr = y_arr.ravel()
         self._nobs = X_arr.shape[0]
+
+        if sample_weight is not None:
+            sample_weight = self._to_array(sample_weight, backend=backend_name)
+            if int(sample_weight.ndim) != 1:
+                raise ValueError("sample_weight must be one-dimensional")
+            if int(sample_weight.shape[0]) != int(self._nobs):
+                raise ValueError("sample_weight must have length n_samples")
+            from statgpu.backends._validation import check_finite
+
+            check_finite(sample_weight, name="sample_weight")
+            if backend_name == "torch":
+                import torch
+
+                if bool(torch.any(sample_weight < 0).item()):
+                    raise ValueError("sample_weight must be non-negative")
+                weight_sum = float(torch.sum(sample_weight).item())
+            elif backend_name == "cupy":
+                import cupy as cp
+
+                if bool(cp.any(sample_weight < 0).item()):
+                    raise ValueError("sample_weight must be non-negative")
+                weight_sum = float(cp.sum(sample_weight).item())
+            else:
+                if np.any(np.asarray(sample_weight) < 0):
+                    raise ValueError("sample_weight must be non-negative")
+                weight_sum = float(np.sum(np.asarray(sample_weight)))
+            if weight_sum <= 0.0:
+                raise ValueError("sample_weight must have a positive sum")
 
         family = self._get_family()
         _solver_lower = self._solver.lower() if isinstance(self._solver, str) else self._solver

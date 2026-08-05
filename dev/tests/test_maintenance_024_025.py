@@ -1150,7 +1150,7 @@ def test_glm_formula_sample_weight_aligns_patsy_retained_rows():
     np.testing.assert_allclose(aligned_model.coef_, direct_model.coef_)
     np.testing.assert_allclose(aligned_model.intercept_, direct_model.intercept_)
 
-    with pytest.raises(ValueError, match="sample_weight must have length"):
+    with pytest.raises(ValueError, match="sample_weight must (?:have length|match)"):
         GeneralizedLinearModel(
             family="gaussian", solver="irls", C=0.0, device="cpu"
         ).fit(
@@ -1178,3 +1178,82 @@ def test_compile_benchmark_has_hard_per_case_graph_gate():
         module._validate_compile_evidence(
             "default", "lasso", [], graph_delta=1
         )
+
+
+# PR87_FORMULA_WEIGHT_SHARED_ALIGNMENT_TESTS
+@pytest.mark.parametrize("kind", ["linear", "glm", "penalized"])
+def test_formula_sample_weight_validates_after_row_alignment(kind):
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import (
+        GeneralizedLinearModel,
+        LinearRegression,
+        PenalizedLinearRegression,
+    )
+
+    data = pd.DataFrame(
+        {"y": [1.0, 2.0, 3.0, 5.0], "x": [0.0, 1.0, np.nan, 3.0]}
+    )
+    if kind == "linear":
+        factory = lambda: LinearRegression(device="cpu", compute_inference=False)
+    elif kind == "glm":
+        factory = lambda: GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0, device="cpu"
+        )
+    else:
+        factory = lambda: PenalizedLinearRegression(
+            penalty="l1",
+            alpha=0.01,
+            max_iter=30,
+            device="cpu",
+            compute_inference=False,
+        )
+
+    # Non-finite value belongs only to the row Patsy drops, so it is removed
+    # before the retained side array is validated.
+    model = factory().fit(
+        formula="y ~ x",
+        data=data,
+        sample_weight=np.array([1.0, 1.0, np.nan, 1.0]),
+    )
+    assert model is not None
+
+    with pytest.raises(ValueError, match=r"sample_weight.*finite"):
+        factory().fit(
+            formula="y ~ x",
+            data=data,
+            sample_weight=pd.Series([1.0, np.nan, 1.0, 1.0]),
+        )
+    with pytest.raises(ValueError, match="one-dimensional"):
+        factory().fit(
+            formula="y ~ x",
+            data=data,
+            sample_weight=np.ones((len(data), 1)),
+        )
+    with pytest.raises(ValueError, match="non-negative"):
+        factory().fit(
+            formula="y ~ x",
+            data=data,
+            sample_weight=np.array([1.0, -1.0, 1.0, 1.0]),
+        )
+    with pytest.raises(ValueError, match="positive sum"):
+        factory().fit(
+            formula="y ~ x",
+            data=data,
+            sample_weight=np.zeros(len(data)),
+        )
+
+
+def test_glm_direct_sample_weight_semantic_contract():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.arange(8.0).reshape(4, 2)
+    y = np.arange(4.0)
+    factory = lambda: GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    )
+    with pytest.raises(ValueError, match="one-dimensional"):
+        factory().fit(X, y, sample_weight=np.ones((4, 1)))
+    with pytest.raises(ValueError, match="non-negative"):
+        factory().fit(X, y, sample_weight=np.array([1.0, 1.0, -1.0, 1.0]))
+    with pytest.raises(ValueError, match="positive sum"):
+        factory().fit(X, y, sample_weight=np.zeros(4))

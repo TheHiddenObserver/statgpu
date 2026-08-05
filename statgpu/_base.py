@@ -353,11 +353,17 @@ class BaseEstimator(ABC):
                         and name == "X"
                         and getattr(self, "_design_info", None) is not None
                     )
-                    if formula_owned_pandas and type(value).__module__.startswith("pandas"):
-                        # Current formula calls own all pandas row-alignment semantics.
+                    formula_owned_side_array = formula_active and name == "sample_weight"
+                    if formula_owned_side_array or (
+                        formula_owned_pandas
+                        and type(value).__module__.startswith("pandas")
+                    ):
+                        # Current formula calls own pandas row alignment and
+                        # sample-weight alignment. Model-specific formula code checks
+                        # the retained side array after Patsy has selected rows.
                         # After a formula fit, only X passed to a prediction-like
                         # method is transformed by stored design_info; direct refits
-                        # and side arrays such as y still use the shared finite guard.
+                        # and unrelated side arrays still use the shared finite guard.
                         continue
                     if name in self._FINITE_PARAMETER_NAMES and value is not None:
                         check_finite(value, name=name)
