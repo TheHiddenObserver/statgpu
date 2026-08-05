@@ -36,69 +36,15 @@ jobs:
           source = gzip.decompress(base64.b64decode(payload, validate=True))
           exec(compile(source, "pr87_patch_v56.py", "exec"))
           PY
-      - name: Normalize generated LogisticCV indentation
+      - name: Diagnose raw generated LogisticCV source
         run: |
           python - <<'PY'
           from pathlib import Path
-
-          path = Path("statgpu/linear_model/cv/_logistic_cv.py")
-          lines = path.read_text(encoding="utf-8").splitlines()
-          function_start = next(
-              index for index, line in enumerate(lines)
-              if line.startswith("def _select_logistic_c_cv(")
-          )
-          grid_start = next(
-              index for index in range(function_start + 1, len(lines))
-              if lines[index].lstrip().startswith("# Generate a grid for the same weighted objective")
-          )
-          degenerate_start = next(
-              index for index in range(grid_start + 1, len(lines))
-              if lines[index].lstrip() == "# Handle degenerate cases"
-          )
-          fold_start = next(
-              index for index in range(degenerate_start + 1, len(lines))
-              if lines[index].lstrip() == "# Generate CV folds"
-          )
-
-          input_start = grid_start
-          while input_start > function_start + 1:
-              candidate = lines[input_start - 1]
-              if not candidate:
-                  input_start -= 1
-                  continue
-              indent = len(candidate) - len(candidate.lstrip(" "))
-              if indent < 8:
-                  break
-              input_start -= 1
-
-          def normalize_region(start, end, target=4):
-              nonblank = [line for line in lines[start:end] if line]
-              minimum = min(len(line) - len(line.lstrip(" ")) for line in nonblank)
-              delta = target - minimum
-              for index in range(start, end):
-                  line = lines[index]
-                  if not line:
-                      continue
-                  if delta >= 0:
-                      lines[index] = " " * delta + line
-                  else:
-                      remove = -delta
-                      if not line.startswith(" " * remove):
-                          raise SystemExit(f"cannot dedent line {index + 1} by {remove}")
-                      lines[index] = line[remove:]
-
-          normalize_region(input_start, grid_start)
-          normalize_region(grid_start, degenerate_start)
-          normalize_region(degenerate_start, fold_start)
-          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          lines = Path("statgpu/linear_model/cv/_logistic_cv.py").read_text(encoding="utf-8").splitlines()
+          for number in range(390, min(511, len(lines) + 1)):
+              print(f"{number}: {lines[number - 1]!r}")
           PY
-      - name: Compile generated source
-        run: |
-          python -m py_compile \
-            statgpu/linear_model/cv/_device.py \
-            statgpu/linear_model/cv/_logistic_cv.py \
-            statgpu/linear_model/cv/_elasticnet_cv.py \
-            dev/tests/test_maintenance_024_025.py
+          python -m py_compile statgpu/linear_model/cv/_logistic_cv.py
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
