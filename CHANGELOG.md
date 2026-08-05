@@ -4,6 +4,8 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Narrowed Newton-family Armijo trial exception handling to expected numeric-domain failures so CUDA OOM, device, and infrastructure errors remain visible to callers.
+- Preserved backend RuntimeError failures (including CUDA OOM/device errors) during solver sample-weight validation instead of rewriting them as ordinary invalid-input ValueError exceptions.
 - Aligned the executable loss/penalty/solver matrix with the maintained compatibility contract: Elastic Net precision is tested through FISTA, while smooth solvers are tested to reject it explicitly.
 - Smooth Newton/L-BFGS solvers now reject Elastic Net and other non-smooth penalties before preprocessing instead of silently omitting their non-smooth objective component.
 - Normalized Newton, proximal-Newton, L-BFGS, L-BFGS-B, and ADMM warm starts onto the preprocessed design backend, device, and dtype; added physical Torch/CuPy regression entry points.

@@ -3081,3 +3081,85 @@ def test_smooth_solvers_reject_elasticnet_before_numerical_work():
     for solver in (newton_solver, lbfgs_solver, lbfgs_b_solver):
         with pytest.raises(ValueError, match="supports only l2/none"):
             solver(GuardedLoss(), penalty, X, y)
+
+# PR87_REVIEW_FIX_V43
+def test_solver_weight_validation_does_not_mask_runtime_failures(monkeypatch):
+    import statgpu.solvers._utils as solver_utils
+
+    class RuntimeFailingXP:
+        @staticmethod
+        def all(value):
+            return value
+
+        @staticmethod
+        def isfinite(values):
+            raise RuntimeError("CUDA out of memory")
+
+    monkeypatch.setattr(
+        solver_utils,
+        "_native_sample_weight",
+        lambda sample_weight: ("numpy", RuntimeFailingXP(), np.ones(2)),
+    )
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        solver_utils._validate_sample_weight(np.ones(2), 2)
+
+
+def test_solver_weight_validation_runtime_catches_are_narrow():
+    from pathlib import Path
+
+    source = Path("statgpu/solvers/_utils.py").read_text(encoding="utf-8")
+    native_block = source.split("def _native_sample_weight", 1)[1].split(
+        "def _validated_sample_weight", 1
+    )[0]
+    validated_block = source.split("def _validated_sample_weight", 1)[1].split(
+        "def _validate_uniform_sample_weight", 1
+    )[0]
+    assert "except (TypeError, ValueError, RuntimeError)" not in native_block
+    assert "except (TypeError, ValueError, RuntimeError)" not in validated_block
+
+
+# PR87_REVIEW_FIX_V44
+def test_newton_line_search_does_not_mask_runtime_failures():
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import newton_solver
+
+    class RuntimeFailingTrialLoss:
+        name = "runtime_failing_trial"
+        _has_constant_hessian = False
+
+        def __init__(self):
+            self.value_calls = 0
+
+        def preprocess(self, X, y):
+            return np.asarray(X), np.asarray(y)
+
+        def gradient(self, X, y, coef):
+            return np.ones(X.shape[1], dtype=np.float64)
+
+        def hessian(self, X, y, coef):
+            return np.eye(X.shape[1], dtype=np.float64)
+
+        def fused_value_and_gradient(self, X, y, coef):
+            self.value_calls += 1
+            if self.value_calls == 1:
+                return np.array(1.0), np.ones(X.shape[1], dtype=np.float64)
+            raise RuntimeError("CUDA out of memory")
+
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        newton_solver(
+            RuntimeFailingTrialLoss(),
+            get_penalty("l2", alpha=0.1),
+            np.ones((4, 1), dtype=np.float64),
+            np.ones(4, dtype=np.float64),
+            max_iter=2,
+        )
+
+
+def test_trial_error_classifier_is_narrow():
+    from statgpu.solvers._utils import _trial_error_is_numerical
+
+    assert _trial_error_is_numerical(RuntimeError("invalid value in log"))
+    assert _trial_error_is_numerical(ValueError("domain error"))
+    assert not _trial_error_is_numerical(RuntimeError("CUDA out of memory"))
+    assert not _trial_error_is_numerical(RuntimeError("device-side assert"))
+

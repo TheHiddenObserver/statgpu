@@ -46,6 +46,23 @@ def _runtime_error_is_singular(exc):
     )
 
 
+def _trial_error_is_numerical(exc):
+    """Return whether a trial-point exception is an expected numeric-domain failure."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "overflow",
+            "invalid value",
+            "nan",
+            "non-finite",
+            "nonfinite",
+            "domain error",
+            "out of range",
+        )
+    )
+
+
 def _native_sample_weight(sample_weight):
     """Return sample weights on their current backend without a full D2H copy."""
     backend = _resolve_backend("auto", sample_weight)
@@ -59,7 +76,7 @@ def _native_sample_weight(sample_weight):
                 if torch.is_tensor(sample_weight)
                 else torch.as_tensor(sample_weight)
             )
-        except (TypeError, ValueError, RuntimeError) as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError("sample_weight must be a real numeric array-like") from exc
         if torch.is_complex(values):
             raise ValueError("sample_weight must contain real numeric values")
@@ -82,7 +99,7 @@ def _validated_sample_weight(sample_weight, n_samples):
         negative = xp.any(values < 0)
         total_dev = xp.sum(values)
         total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)
-    except (TypeError, ValueError, RuntimeError) as exc:
+    except (TypeError, ValueError) as exc:
         raise ValueError("sample_weight must contain real finite values") from exc
     if not _scalar_bool(finite):
         raise ValueError("sample_weight must contain only finite values")

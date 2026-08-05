@@ -30,6 +30,7 @@ from ._utils import (
     _runtime_error_is_singular,
     _as_backend_vector,
     _validate_smooth_penalty,
+    _trial_error_is_numerical,
 )
 
 
@@ -186,8 +187,11 @@ def newton_solver(
                     params = params_try
                     accepted = True
                     break
-            except (ValueError, RuntimeError, FloatingPointError):
+            except FloatingPointError:
                 pass
+            except (ValueError, RuntimeError) as exc:
+                if not _trial_error_is_numerical(exc):
+                    raise
             step *= 0.5
         if not accepted:
             # Never accept an unverified trial step.  A tiny rejected step

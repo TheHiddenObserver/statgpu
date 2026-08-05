@@ -1,4 +1,4 @@
-"""Proximal Newton solver for smooth loss + non-smooth penalty.
+"""Newton solver with explicit non-smooth FISTA delegation.
 
 Solves smooth loss plus a smooth penalty with Newton updates.
 
@@ -30,6 +30,7 @@ from ._utils import (
     _smooth_penalty_hessian,
     _validate_sample_weight,
     _as_backend_vector,
+    _trial_error_is_numerical,
 )
 
 
@@ -220,11 +221,7 @@ def proximal_newton_solver(
             except RuntimeError as exc:
                 # Only swallow trial-point numerical failures; infrastructure
                 # and device errors remain visible to the caller.
-                err_msg = str(exc).lower()
-                if not any(
-                    marker in err_msg
-                    for marker in ("overflow", "invalid value", "nan")
-                ):
+                if not _trial_error_is_numerical(exc):
                     raise
             step *= 0.5
 

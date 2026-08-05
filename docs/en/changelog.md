@@ -9,6 +9,8 @@
 
 ### Runtime safety
 
+- Newton-family Armijo backtracking now suppresses only recognized numeric-domain trial failures and propagates CUDA OOM/device/runtime infrastructure errors.
+- Solver sample-weight validation now propagates backend RuntimeError failures such as CUDA OOM/device errors instead of masking them as invalid-input ValueError exceptions.
 - The executable solver matrix now treats Elastic Net as non-smooth and validates its precision through FISTA rather than a smooth-only solver.
 - Newton, L-BFGS, and L-BFGS-B now fail explicitly for Elastic Net and other non-smooth penalties rather than optimizing only their smooth part.
 - Newton-family, L-BFGS-family, and ADMM warm starts now follow the preprocessed design backend, device, and dtype rather than retaining the caller's original array placement.

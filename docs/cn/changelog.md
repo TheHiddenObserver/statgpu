@@ -9,6 +9,8 @@
 
 ### 运行时安全
 
+- Newton 系列 Armijo 回溯现在仅忽略明确的数值域 trial failure，并保留 CUDA OOM/device/runtime 基础设施错误。
+- solver sample-weight 校验现在会保留 CUDA OOM/device 等 backend RuntimeError，不再将其掩盖为普通输入 ValueError。
 - 可执行 solver matrix 现在将 Elastic Net 视为非光滑惩罚，并通过 FISTA 而不是仅支持光滑目标的 solver 验证其精度。
 - Newton、L-BFGS 与 L-BFGS-B 现在会对 Elastic Net 和其他非光滑惩罚显式失败，不再只优化其中的光滑部分。
 - Newton 系列、L-BFGS 系列与 ADMM 的 warm start 现在统一跟随预处理设计矩阵的 backend、device 与 dtype，不再保留调用方原始数组的位置。
