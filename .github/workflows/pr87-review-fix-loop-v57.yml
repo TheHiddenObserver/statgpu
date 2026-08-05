@@ -1,0 +1,68 @@
+name: PR87 review fix batch v57
+
+on:
+  push:
+    branches:
+      - agent/maintenance-0.2.4-0.2.5
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr87-review-fix-v57
+  cancel-in-progress: false
+
+jobs:
+  apply-review-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Apply AUTO CV routing fixes
+        run: python pr87_patch_v57.py
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile changed modules
+        run: |
+          python -m py_compile \
+            statgpu/linear_model/cv/_ridge_cv.py \
+            statgpu/linear_model/cv/_elasticnet_cv.py \
+            statgpu/linear_model/cv/_logistic_cv.py \
+            dev/tests/test_maintenance_024_025.py
+      - name: Run targeted AUTO routing tests
+        run: |
+          python -m pytest \
+            dev/tests/test_maintenance_024_025.py::test_public_dedicated_cv_preserves_auto_device_request \
+            dev/tests/test_maintenance_024_025.py::test_logistic_cv_binary_validation_preserves_torch_response \
+            dev/tests/test_maintenance_024_025.py::test_auto_cv_router_prefers_gpu_resident_input_backend \
+            -q --tb=short
+      - name: Run full CPU and documentation validation
+        run: |
+          python -m pytest dev/tests -q --tb=short
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+      - name: Commit reviewed source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f \
+            pr87_patch_v57.py \
+            .github/workflows/pr87-review-fix-loop-v57.yml
+          git add \
+            statgpu/linear_model/cv/_ridge_cv.py \
+            statgpu/linear_model/cv/_elasticnet_cv.py \
+            statgpu/linear_model/cv/_logistic_cv.py \
+            dev/tests/test_maintenance_024_025.py \
+            CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: preserve auto CV backend routing"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
