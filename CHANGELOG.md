@@ -4,6 +4,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Narrowed the shared backend linear-system fallback to genuine rank failures; CUDA OOM, device, and unrelated RuntimeError failures now propagate instead of being silently retried with least squares.
 - Made shared NumPy zero/conversion helpers honor a floating reference array dtype, matching the existing CuPy/Torch backend contract while retaining float64 defaults for integer references.
 - Normalized FISTA/FISTA-BB warm starts to the preprocessed design and converted smooth proximal-Newton sample weights to the active backend, device, and dtype before loss evaluation.
 - Narrowed Newton-family Armijo trial exception handling to expected numeric-domain failures so CUDA OOM, device, and infrastructure errors remain visible to callers.

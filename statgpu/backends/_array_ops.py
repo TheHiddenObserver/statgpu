@@ -201,6 +201,23 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
     return np.asarray(arr, dtype=out_dtype)
 
 
+def _linear_solve_runtime_is_rank_failure(exc):
+    """Classify backend solve errors that may safely use least squares."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "singular",
+            "not invertible",
+            "zero pivot",
+            "rank deficient",
+            "ill-conditioned",
+            "not positive-definite",
+            "not positive definite",
+        )
+    )
+
+
 def _solve_linear_system(A, b, backend="auto"):
     """Solve a linear system, falling back to least squares if singular."""
     backend = _resolve_backend(backend, A)
@@ -214,18 +231,21 @@ def _solve_linear_system(A, b, backend="auto"):
             import cupy as cp
             return cp.linalg.solve(A, b)
         return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, RuntimeError):
-        # LinAlgError for numpy/cupy singular matrices
-        # RuntimeError for torch singular matrices
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.lstsq(A, b_col).solution
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        if backend == "cupy":
-            import cupy as cp
-            return cp.linalg.lstsq(A, b)[0]
-        return np.linalg.lstsq(A, b, rcond=None)[0]
+    except np.linalg.LinAlgError:
+        pass
+    except RuntimeError as exc:
+        if not _linear_solve_runtime_is_rank_failure(exc):
+            raise
+
+    if backend == "torch":
+        import torch
+        b_col = b.unsqueeze(1) if b.ndim == 1 else b
+        sol = torch.linalg.lstsq(A, b_col).solution
+        return sol.squeeze(1) if b.ndim == 1 else sol
+    if backend == "cupy":
+        import cupy as cp
+        return cp.linalg.lstsq(A, b)[0]
+    return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
 def _eye_like(n, ref):

@@ -3304,3 +3304,41 @@ def test_numpy_backend_constructors_follow_floating_reference_dtype():
     ref_int = np.ones(3, dtype=np.int64)
     assert _zeros(3, "numpy", ref_tensor=ref_int).dtype == np.float64
     assert _to_backend([1, 2], "numpy", ref_tensor=ref_int).dtype == np.float64
+
+# PR87_REVIEW_FIX_V47
+def test_shared_linear_solve_does_not_mask_runtime_failures(monkeypatch):
+    from statgpu.backends._array_ops import _solve_linear_system
+
+    def oom(*args, **kwargs):
+        raise RuntimeError("CUDA out of memory")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("lstsq must not mask infrastructure failures")
+
+    monkeypatch.setattr(np.linalg, "solve", oom)
+    monkeypatch.setattr(np.linalg, "lstsq", forbidden)
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        _solve_linear_system(np.eye(2), np.ones(2), backend="numpy")
+
+
+def test_shared_linear_solve_retains_rank_failure_fallback(monkeypatch):
+    from statgpu.backends._array_ops import _solve_linear_system
+
+    expected = np.array([0.25, -0.5])
+
+    def singular(*args, **kwargs):
+        raise np.linalg.LinAlgError("singular matrix")
+
+    monkeypatch.setattr(np.linalg, "solve", singular)
+    monkeypatch.setattr(np.linalg, "lstsq", lambda *args, **kwargs: (expected, None, None, None))
+    result = _solve_linear_system(np.eye(2), np.ones(2), backend="numpy")
+    np.testing.assert_allclose(result, expected)
+
+
+def test_shared_linear_solve_runtime_classifier_is_narrow():
+    from statgpu.backends._array_ops import _linear_solve_runtime_is_rank_failure
+
+    assert _linear_solve_runtime_is_rank_failure(RuntimeError("singular matrix"))
+    assert _linear_solve_runtime_is_rank_failure(RuntimeError("rank deficient"))
+    assert not _linear_solve_runtime_is_rank_failure(RuntimeError("CUDA out of memory"))
+    assert not _linear_solve_runtime_is_rank_failure(RuntimeError("device-side assert"))

@@ -9,6 +9,7 @@
 
 ### Runtime safety
 
+- Shared backend linear solves now use least-squares fallback only for recognized rank failures and preserve CUDA OOM/device RuntimeErrors.
 - Shared NumPy constructors now follow floating reference dtypes like the CuPy/Torch implementations, while integer references retain float64 numerical defaults.
 - FISTA-family warm starts now follow the preprocessed design, and smooth proximal-Newton weights are normalized to the active backend/device/dtype before loss evaluation.
 - Newton-family Armijo backtracking now suppresses only recognized numeric-domain trial failures and propagates CUDA OOM/device/runtime infrastructure errors.

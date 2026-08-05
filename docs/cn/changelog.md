@@ -9,6 +9,7 @@
 
 ### 运行时安全
 
+- shared backend 线性方程求解现在仅对明确的秩失败使用 least-squares 降级，并保留 CUDA OOM/device RuntimeError。
 - shared NumPy constructor 现在与 CuPy/Torch 一样跟随浮点 reference dtype；整数 reference 仍采用 float64 数值默认值。
 - FISTA 系列 warm start 现在跟随预处理设计矩阵；smooth proximal-Newton 权重会在 loss 计算前转换到当前 backend/device/dtype。
 - Newton 系列 Armijo 回溯现在仅忽略明确的数值域 trial failure，并保留 CUDA OOM/device/runtime 基础设施错误。
