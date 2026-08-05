@@ -63,18 +63,24 @@ jobs:
                   lines[index] = "    " + lines[index]
           path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
-      - name: Install validation environment
+      - name: Diagnose and compile generated source
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation,formula]"
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Compile changed modules
-        run: |
+          python - <<'PY'
+          from pathlib import Path
+          lines = Path("statgpu/linear_model/cv/_logistic_cv.py").read_text(encoding="utf-8").splitlines()
+          for number in range(430, min(511, len(lines) + 1)):
+              print(f"{number}: {lines[number - 1]!r}")
+          PY
           python -m py_compile \
             statgpu/linear_model/cv/_device.py \
             statgpu/linear_model/cv/_logistic_cv.py \
             statgpu/linear_model/cv/_elasticnet_cv.py \
             dev/tests/test_maintenance_024_025.py
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Run targeted weighted-grid tests
         run: |
           python -m pytest \
