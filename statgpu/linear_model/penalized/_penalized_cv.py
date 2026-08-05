@@ -89,6 +89,67 @@ class ApproximateCVWarning(UserWarning):
     """Warning emitted when approximate two-stage CV screening is enabled."""
 
 
+def _cv_exception_is_infrastructure_failure(exc) -> bool:
+    """Return whether a CV exception must never be converted to fallback data.
+
+    Candidate-level numerical failures may be represented by ``NaN`` or routed
+    to a slower implementation. Hardware/runtime failures must remain visible,
+    otherwise CV can silently continue after CUDA OOM, device mismatch, illegal
+    memory access, or an indexing/programming error.
+    """
+    if isinstance(exc, MemoryError):
+        return True
+    exc_type = type(exc)
+    type_text = f"{exc_type.__module__}.{exc_type.__name__}".lower()
+    if "outofmemory" in type_text or "out_of_memory" in type_text:
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "out of memory",
+            "cuda error",
+            "hip error",
+            "device-side assert",
+            "illegal memory access",
+            "invalid device ordinal",
+            "expected all tensors to be on the same device",
+            "device mismatch",
+            "index out of range",
+            "cublas",
+            "cudnn",
+            "nvrtc",
+        )
+    )
+
+
+def _raise_cv_infrastructure_failure(exc) -> None:
+    """Re-raise failures that make a CV fallback unsafe or misleading."""
+    if _cv_exception_is_infrastructure_failure(exc):
+        raise exc
+
+
+def _weighted_mse_fallback(y_true, y_pred, sample_weight=None) -> float:
+    """Squared-error-only emergency evaluator preserving validation weights."""
+    residual_sq = (np.asarray(y_true, dtype=np.float64).ravel() -
+                   np.asarray(y_pred, dtype=np.float64).ravel()) ** 2
+    if sample_weight is None:
+        return float(np.mean(residual_sq))
+    weights = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+    if weights.shape != residual_sq.shape:
+        raise ValueError("validation sample_weight must match validation rows")
+    if not np.all(np.isfinite(weights)) or np.any(weights < 0):
+        raise ValueError("validation sample_weight must be finite and non-negative")
+    total = float(np.sum(weights))
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("validation sample_weight must have a finite positive sum")
+    return float(np.dot(weights, residual_sq) / total)
+
+
+def _is_squared_error_loss_name(loss_name) -> bool:
+    return str(loss_name).lower() in ("squared_error", "gaussian", "normal")
+
+
 def _is_uniform_weight(sample_weight) -> bool:
     """Check uniformity on the current backend and synchronize one boolean."""
     if sample_weight is None:
@@ -1587,7 +1648,10 @@ def _glm_sparse_cv_path(
             lipschitz_L = float(_to_numpy(loss_fn.lipschitz(X_work, zero_lip, y=yb)))
             if not np.isfinite(lipschitz_L) or lipschitz_L <= 0.0:
                 lipschitz_L = None
-        except Exception:
+        except (NotImplementedError, ValueError, FloatingPointError,
+                OverflowError, np.linalg.LinAlgError):
+            # A solver may estimate L internally when the optional closed-form
+            # Lipschitz hint is unavailable or numerically invalid.
             lipschitz_L = None
 
     scores = []
@@ -2290,22 +2354,46 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 model.fit_intercept,
                 sample_weight=sample_weight,
             )
-        except Exception:
-            # Fallback: use loss_fn.value() for correct loss, not raw MSE
+        except Exception as primary_exc:
+            _raise_cv_infrastructure_failure(primary_exc)
+            # Preserve the declared objective by retrying through the generic
+            # loss interface, including analytic validation weights.
             try:
                 if model.fit_intercept:
                     X_design = np.column_stack([np.ones(n_val), X_val_np])
-                    coef_full = np.concatenate([[float(model.intercept_)], _to_numpy(model.coef_).ravel()])
+                    coef_full = np.concatenate(
+                        [[float(model.intercept_)], _to_numpy(model.coef_).ravel()]
+                    )
                 else:
                     X_design = X_val_np
                     coef_full = _to_numpy(model.coef_).ravel()
-                val_loss = float(loss_fn.value(X_design, y_val_np, coef_full))
-            except Exception:
+                val_loss = float(
+                    loss_fn.value(
+                        X_design,
+                        y_val_np,
+                        coef_full,
+                        sample_weight=(
+                            None
+                            if sample_weight is None
+                            else np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+                        ),
+                    )
+                )
+            except Exception as fallback_exc:
+                _raise_cv_infrastructure_failure(fallback_exc)
+                if not _is_squared_error_loss_name(self.loss):
+                    raise RuntimeError(
+                        f"Could not evaluate declared validation loss '{self.loss}'. "
+                        "Refusing to substitute mean squared error because that "
+                        "could select a different regularization parameter."
+                    ) from fallback_exc
                 y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
-                val_loss = float(np.mean((y_val_np - y_pred_np) ** 2))
+                val_loss = _weighted_mse_fallback(
+                    y_val_np, y_pred_np, sample_weight=sample_weight
+                )
                 warnings.warn(
-                    f"_evaluate_single: loss evaluation failed for '{self.loss}', "
-                    f"falling back to MSE. CV scores may be inaccurate for non-Gaussian losses.",
+                    "_evaluate_single: both squared-error evaluators failed; "
+                    "using an equivalent weighted-MSE calculation.",
                     RuntimeWarning,
                     stacklevel=2,
                 )
@@ -2483,6 +2571,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     )
                     all_scores[fold_idx, :] = mse
                 except Exception as e:
+                    _raise_cv_infrastructure_failure(e)
                     warnings.warn(
                         f"Ridge eig batch failed for fold {fold_idx}: {e}",
                         RuntimeWarning,
@@ -2515,6 +2604,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[:, sort_idx] = path["scores"]
                     return all_scores
             except Exception as e:
+                _raise_cv_infrastructure_failure(e)
                 warnings.warn(
                     f"Fold-batched {loss_name} sparse CV failed on {device_name}; "
                     f"falling back to per-fold path: {e}",
@@ -2611,6 +2701,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         fold_handled = True
                         break
                 except Exception as e:
+                    _raise_cv_infrastructure_failure(e)
                     warnings.warn(
                         f"{path_fn.__name__} failed for {loss_name}+{penalty_name} "
                         f"fold {fold_idx}: {e}",
@@ -2722,7 +2813,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     # _preserve_cv_cache are still needed for the warm-start fallback.
                     for attr in ("_cv_alpha_path", "_cv_path_results"):
                         if hasattr(model, attr): delattr(model, attr)
-            except Exception:
+            except Exception as exc:
+                _raise_cv_infrastructure_failure(exc)
                 # Same as path-is-None: keep _cv_cache for warm-start fallback.
                 for attr in ("_cv_alpha_path", "_cv_path_results"):
                     if hasattr(model, attr): delattr(model, attr)
@@ -2752,6 +2844,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
             except Exception as exc:
+                _raise_cv_infrastructure_failure(exc)
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
                 logger.warning(

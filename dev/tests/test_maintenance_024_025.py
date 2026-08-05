@@ -3489,3 +3489,124 @@ def test_kernel_ridge_retry_preserves_nonrank_runtime_failure(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="CUDA out of memory"):
         _solve_linear_system_with_ridge(np.eye(2), np.ones(2), np)
+
+
+
+def test_penalized_cv_does_not_substitute_mse_for_non_gaussian_loss(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    owner = object.__new__(cv_mod.PenalizedGLM_CV)
+    owner.loss = "poisson"
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            raise ValueError("generic poisson evaluation failed")
+
+    class Model:
+        coef_ = np.array([0.2])
+        intercept_ = 0.1
+        fit_intercept = True
+
+        def predict(self, X):
+            pytest.fail("non-Gaussian CV must not fall back to MSE predictions")
+
+    monkeypatch.setattr(
+        cv_mod,
+        "_evaluate_loss_numpy",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("registered poisson evaluation failed")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="Refusing to substitute mean squared error"):
+        owner._evaluate_single(
+            Model(),
+            np.array([[1.0], [2.0]]),
+            np.array([1.0, 3.0]),
+            loss_fn=Loss(),
+        )
+
+
+def test_penalized_cv_squared_error_emergency_fallback_preserves_weights(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    owner = object.__new__(cv_mod.PenalizedGLM_CV)
+    owner.loss = "squared_error"
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            raise ValueError("generic squared evaluation failed")
+
+    class Model:
+        coef_ = np.array([0.0])
+        intercept_ = 0.0
+        fit_intercept = True
+
+        def predict(self, X):
+            return np.array([0.0, 2.0])
+
+    monkeypatch.setattr(
+        cv_mod,
+        "_evaluate_loss_numpy",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("registered squared evaluation failed")
+        ),
+    )
+    weights = np.array([1.0, 3.0])
+    with pytest.warns(RuntimeWarning, match="weighted-MSE"):
+        value = owner._evaluate_single(
+            Model(),
+            np.array([[1.0], [2.0]]),
+            np.array([1.0, 4.0]),
+            loss_fn=Loss(),
+            sample_weight=weights,
+        )
+    expected = (1.0 * (1.0 - 0.0) ** 2 + 3.0 * (4.0 - 2.0) ** 2) / 4.0
+    assert value == pytest.approx(expected)
+
+
+def test_penalized_cv_loss_evaluation_preserves_infrastructure_failure(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    owner = object.__new__(cv_mod.PenalizedGLM_CV)
+    owner.loss = "poisson"
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            pytest.fail("generic loss fallback must not run after CUDA OOM")
+
+    class Model:
+        coef_ = np.array([0.2])
+        intercept_ = 0.1
+        fit_intercept = True
+
+    monkeypatch.setattr(
+        cv_mod,
+        "_evaluate_loss_numpy",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("CUDA out of memory")
+        ),
+    )
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        owner._evaluate_single(
+            Model(),
+            np.array([[1.0], [2.0]]),
+            np.array([1.0, 3.0]),
+            loss_fn=Loss(),
+        )
+
+
+def test_penalized_cv_infrastructure_classifier_is_narrow():
+    from statgpu.linear_model.penalized._penalized_cv import (
+        _cv_exception_is_infrastructure_failure,
+    )
+
+    assert _cv_exception_is_infrastructure_failure(RuntimeError("CUDA out of memory"))
+    assert _cv_exception_is_infrastructure_failure(RuntimeError("index out of range"))
+    assert _cv_exception_is_infrastructure_failure(MemoryError("allocation failed"))
+    assert not _cv_exception_is_infrastructure_failure(
+        np.linalg.LinAlgError("singular matrix")
+    )
+    assert not _cv_exception_is_infrastructure_failure(
+        ValueError("numeric domain error")
+    )
