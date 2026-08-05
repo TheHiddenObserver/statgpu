@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-04<br>
+> Last updated: 2026-08-05<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -19,6 +19,12 @@
   NumPy, CuPy, or Torch reductions on the selected device. The matrix includes
   fit/predict/transform, inverse-transform, scoring, initialization arrays,
   and panel identifiers while preserving formula-owned missing-row semantics.
+- Formula sample weights are aligned only after Patsy selects retained rows,
+  then checked for shape, finite values, non-negativity, and positive total
+  weight. Torch and CuPy alignment and inference weights remain device-native.
+- Gaussian GLM FISTA now profiles the intercept with weighted feature and
+  response means, matching the declared weighted squared-loss objective and
+  closed-form weighted least squares when the penalty is zero.
 
 ### Estimator and test contracts
 

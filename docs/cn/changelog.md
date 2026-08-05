@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-04<br>
+> 最后更新：2026-08-05<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -18,6 +18,10 @@
   reduction 检查 NaN/Inf，不把完整 GPU 数组搬回 CPU；矩阵覆盖
   fit/predict/transform、inverse-transform、scoring、初始化数组和 panel ID，
   同时保留 formula 路径对缺失行的专属语义。
+- formula sample weight 在 Patsy 确定保留行之后才进行对齐，并检查一维形状、
+  finite、非负性与正权重和；Torch/CuPy 的对齐及 inference 权重保持在设备端。
+- Gaussian GLM 的 FISTA 路径改用加权的特征均值与响应均值 profile intercept；
+  在零惩罚时与闭式 weighted least squares 一致，不再优化错误的未加权中心化目标。
 
 ### Estimator 与测试契约
 

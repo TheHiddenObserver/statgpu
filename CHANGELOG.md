@@ -11,6 +11,10 @@ All notable changes to statgpu are documented here, organized by release and dat
   `reduce-overhead` remains explicitly deferred.
 - Addressed Issue #81 with backend-native finite-value validation at public
   estimator boundaries without full GPU-array transfers.
+- Aligned formula sample weights after missing-row filtering across linear,
+  GLM, and penalized estimators; retained Torch/CuPy weights on device; and
+  corrected Gaussian GLM FISTA to use weighted centering and the intended
+  weighted squared-loss intercept.
 - Addressed Issue #82 by preserving exact raw constructor arguments for
   legacy scikit-learn clone identity while retaining normalized runtime
   attributes and `set_params` bookkeeping.
