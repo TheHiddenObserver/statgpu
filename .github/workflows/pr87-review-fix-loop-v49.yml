@@ -1,0 +1,55 @@
+name: PR87 review fix batch v49
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths:
+      - .github/workflows/pr87-review-fix-loop-v49.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Apply trial-classifier fix
+        run: python pr87_patch_v49.py
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run targeted trial-classifier tests
+        run: |
+          python -m py_compile statgpu/solvers/_utils.py statgpu/solvers/_proximal_newton.py dev/tests/test_maintenance_024_025.py
+          python -m pytest \
+            dev/tests/test_maintenance_024_025.py::test_trial_error_classifier_does_not_mask_index_out_of_range \
+            dev/tests/test_maintenance_024_025.py::test_proximal_newton_propagates_index_out_of_range_trial_error \
+            dev/tests/test_maintenance_024_025.py::test_proximal_newton_backtracks_on_numeric_domain_value_error \
+            dev/tests/test_maintenance_024_025.py::test_newton_line_search_does_not_mask_runtime_failures \
+            -q --tb=short
+      - name: Run full CPU and documentation validation
+        run: |
+          python -m pytest dev/tests -q --tb=short
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+      - name: Commit reviewed source fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f pr87_patch_v49.py .github/workflows/pr87-review-fix-loop-v49.yml
+          git add \
+            statgpu/solvers/_utils.py \
+            dev/tests/test_maintenance_024_025.py \
+            CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: preserve Armijo index errors"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
