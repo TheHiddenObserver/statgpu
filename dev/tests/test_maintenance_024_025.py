@@ -1050,3 +1050,15 @@ def test_stepwise_transform_and_set_params_lifecycle():
     with pytest.raises(ValueError, match="criterion"):
         selector.set_params(criterion="invalid")
     assert selector.get_params(deep=False) == before
+
+
+# PR87_DATA_ONLY_FORMULA_GUARD_TEST
+def test_data_argument_alone_does_not_disable_direct_pandas_finite_guard():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import LinearRegression
+
+    X_bad = pd.DataFrame({"x": [0.0, np.nan, 2.0, 3.0]})
+    y = pd.Series([1.0, 2.0, 3.0, 4.0])
+    unrelated_data = pd.DataFrame({"z": [1.0, 2.0, 3.0, 4.0]})
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        LinearRegression(device="cpu").fit(X_bad, y, data=unrelated_data)

@@ -341,10 +341,7 @@ class BaseEstimator(ABC):
                     return original(self, *args, **kwargs)
                 loss_value = getattr(self, "loss", "")
                 loss_name = str(getattr(loss_value, "name", loss_value)).lower()
-                formula_active = (
-                    bound.arguments.get("formula") is not None
-                    or bound.arguments.get("data") is not None
-                )
+                formula_active = bound.arguments.get("formula") is not None
                 for name, value in bound.arguments.items():
                     if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
                         # Cox response matrices have stronger joint time/event
