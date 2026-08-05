@@ -93,6 +93,10 @@ For `kkt` mode, the optimality condition is:
 | `warm_start` | `False` | Reuse previous fit as initialization |
 | `random_state` | `None` | Random seed for reproducibility |
 | `gpu_memory_cleanup` | `False` | Clean GPU memory after fit (CuPy only) |
+| `compute_inference` | `False` | Compute post-fit coefficient inference |
+| `inference_method` | `"debiased"` | Debiased, post-selection OLS, or bootstrap inference |
+| `cov_type` | `"nonrobust"` | Covariance convention where applicable |
+| `hac_maxlags` | `None` | HAC lag count where supported |
 
 ## CPU/GPU Examples
 
@@ -129,17 +133,29 @@ model_gpu_torch.fit(X, y)
 
 ## Covariance/Inference
 
-ElasticNet does not provide built-in inference (standard errors, p-values, confidence intervals) because the L1 penalty introduces bias in the coefficient estimates, making standard OLS-based inference invalid.
+`ElasticNet` is estimation-only by default. Set `compute_inference=True` to run
+post-fit inference through the shared penalized-linear inference engine. The
+default `inference_method="debiased"` uses nodewise Lasso to construct a
+bias-corrected estimator, standard errors, z statistics, p-values, and 95%
+confidence intervals. `summary()` is available after inference succeeds.
 
-**Planned inference support**:
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `compute_inference` | `False` | Enable post-fit coefficient inference |
+| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
+| `cov_type` | `"nonrobust"` | Covariance convention where applicable |
+| `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC |
 
-| Method | Description | Status |
-|--------|-------------|--------|
-| Debiased Lasso | Bias-corrected inference via nodewise regression | 待实现 — `PenalizedGeneralizedLinearModel` with `compute_inference=True` |
-| Bootstrap | Empirical confidence intervals via resampling | 待实现 |
-| Selection inference | Post-selection conditional inference | 待实现 |
+Debiased inference is implemented for NumPy, CuPy, and Torch fitting paths. CPU
+validation is part of the hosted test suite; physical CUDA validation for CuPy
+and Torch remains a required remote gate for each exact release candidate.
+Post-selection OLS is a heuristic and does not provide valid selective-inference
+coverage. Inference is conditional on the selected regularization parameters
+and does not alter the fitted penalized coefficients.
 
-For debiased inference with ElasticNet penalties, use `PenalizedGeneralizedLinearModel(loss='squared_error', penalty='elasticnet')` which will support the debiased Lasso path once implemented.
+For `ElasticNetCV`, `compute_inference=True` applies inference only to the final
+full-data refit after alpha and `l1_ratio` have been selected. Fold models remain
+estimation-only.
 
 ## strict/approx difference
 

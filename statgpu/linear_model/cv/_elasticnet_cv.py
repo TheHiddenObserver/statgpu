@@ -746,6 +746,9 @@ class ElasticNetCV(CVEstimatorBase):
             tol=self._tol,
             fit_intercept=self._fit_intercept,
             device=refit_device,
+            n_jobs=self.n_jobs,
+            compute_inference=self._compute_inference_enabled,
+            inference_method="debiased",
         )
         final_model.fit(X, y, sample_weight=sample_weight)
 

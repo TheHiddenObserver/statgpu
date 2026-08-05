@@ -139,6 +139,9 @@ print(f"准确率: {model.score(X_test, y_test):.4f}")
 | `l1_ratio` | float/list | `0.5` | L1 混合比。传列表可搜索多个值。 |
 | `alphas` | array | `None` | Alpha 网格。 |
 | `n_alphas` | int | `100` | Alpha 数量。 |
+| `compute_inference` | bool | `False` | 对最终全数据 ElasticNet 重拟合执行 debiased 推断。 |
+
+各折拟合仍仅用于估计；只有在所选 `alpha` 与 `l1_ratio` 使用全部观测重拟合后才计算推断。
 
 ### PenalizedGLM_CV 专用
 

@@ -93,6 +93,10 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (1 + alpha * (1 - l1_rati
 | `warm_start` | `False` | 复用前一次拟合结果作为初始化 |
 | `random_state` | `None` | 随机种子 |
 | `gpu_memory_cleanup` | `False` | 拟合后清理 GPU 内存（仅 CuPy） |
+| `compute_inference` | `False` | 计算拟合后系数推断 |
+| `inference_method` | `"debiased"` | Debiased、post-selection OLS 或 bootstrap 推断 |
+| `cov_type` | `"nonrobust"` | 适用方法中的协方差约定 |
+| `hac_maxlags` | `None` | 支持 HAC 时使用的滞后阶数 |
 
 ## CPU/GPU 示例
 
@@ -129,17 +133,25 @@ model_gpu_torch.fit(X, y)
 
 ## 协方差/推断
 
-ElasticNet 不提供内置推断（标准误、p 值、置信区间），因为 L1 惩罚会引入系数估计的偏误，使基于 OLS 的标准推断无效。
+`ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，将通过共享的
+penalized-linear 推断引擎执行拟合后推断。默认
+`inference_method="debiased"` 使用 nodewise Lasso 构造偏误校正估计量、标准误、
+z 统计量、p 值与 95% 置信区间；推断成功后可调用 `summary()`。
 
-**计划中的推断支持**：
+| 参数 | 默认值 | 含义 |
+|------|--------|------|
+| `compute_inference` | `False` | 启用拟合后系数推断 |
+| `inference_method` | `"debiased"` | `"debiased"`、`"cpu_ols"` 或 `"bootstrap"` |
+| `cov_type` | `"nonrobust"` | 在相应推断方法中使用的协方差约定 |
+| `hac_maxlags` | `None` | 所选方法支持 HAC 时使用的滞后阶数 |
 
-| 方法 | 说明 | 状态 |
-|------|------|------|
-| Debiased Lasso | 通过 nodewise 回归进行偏误校正推断 | 待实现 — `PenalizedGeneralizedLinearModel` with `compute_inference=True` |
-| Bootstrap | 通过重抽样获得经验置信区间 | 待实现 |
-| Selection inference | 选择后条件推断 | 待实现 |
+NumPy、CuPy 与 Torch 拟合路径均已实现 debiased 推断。CPU 验证属于托管测试套件；
+每个精确发布候选仍必须通过 CuPy 与 Torch 的物理 CUDA 远程验证。
+Post-selection OLS 只是启发式方法，不保证有效的选择后覆盖率。推断以已选定的正则化
+参数为条件，不会改变原 penalized coefficient。
 
-如需 ElasticNet 惩罚的 debiased 推断，请使用 `PenalizedGeneralizedLinearModel(loss='squared_error', penalty='elasticnet')`，实现后将支持 debiased Lasso 路径。
+对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio`
+选定后的全数据最终重拟合；各折模型仍仅用于估计和评分。
 
 ## strict/approx 区别
 

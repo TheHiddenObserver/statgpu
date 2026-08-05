@@ -4400,3 +4400,192 @@ def test_finite_guard_does_not_reset_cv_state_on_prediction_failure():
     assert estimator._fitted is True
     assert estimator.alpha_ == pytest.approx(0.5)
     assert estimator.estimator_ is not None
+
+
+
+def _elasticnet_inference_fixture(seed=20260805):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(96, 3))
+    beta = np.array([1.4, -0.9, 0.65])
+    y = 0.35 + X @ beta + rng.normal(scale=0.35, size=X.shape[0])
+    return X.astype(np.float64), y.astype(np.float64)
+
+
+def _assert_elasticnet_inference_contract(model, n_features=3):
+    n_params = n_features + 1
+    assert model._compute_inference_enabled is True
+    assert model._inference_result is not None
+    assert model._inference_result.method == "debiased"
+    assert np.asarray(model._params).shape == (n_params,)
+    assert np.asarray(model._bse).shape == (n_params,)
+    assert np.asarray(model._pvalues).shape == (n_params,)
+    assert np.asarray(model._conf_int).shape == (n_params, 2)
+    assert np.all(np.isfinite(np.asarray(model._params)))
+    assert np.all(np.isfinite(np.asarray(model._bse)))
+    assert np.all(np.isfinite(np.asarray(model._pvalues)))
+    assert np.all(np.isfinite(np.asarray(model._conf_int)))
+    model.summary()
+
+
+def test_elasticnet_wrapper_cpu_debiased_inference_contract():
+    from statgpu.linear_model import ElasticNet
+
+    X, y = _elasticnet_inference_fixture()
+    model = ElasticNet(
+        alpha=0.02,
+        l1_ratio=0.5,
+        max_iter=2000,
+        tol=1e-7,
+        device="cpu",
+        compute_inference=True,
+        inference_method="debiased",
+    ).fit(X, y)
+
+    _assert_elasticnet_inference_contract(model)
+    params = model.get_params(deep=False)
+    assert params["compute_inference"] is True
+    assert params["inference_method"] == "debiased"
+    assert params["cov_type"] == "nonrobust"
+    assert params["hac_maxlags"] is None
+
+
+def test_elasticnet_cv_compute_inference_runs_on_final_refit():
+    from statgpu.linear_model import ElasticNetCV
+
+    X, y = _elasticnet_inference_fixture(seed=20260806)
+    model = ElasticNetCV(
+        l1_ratio=[0.5],
+        alphas=[0.02],
+        cv=2,
+        max_iter=1500,
+        tol=1e-7,
+        device="cpu",
+        compute_inference=True,
+        random_state=17,
+    ).fit(X, y)
+
+    assert model.estimator_ is not None
+    _assert_elasticnet_inference_contract(model.estimator_)
+    model.summary()
+
+
+def test_elasticnet_cv_passes_inference_flag_to_final_model(monkeypatch):
+    import statgpu.linear_model.cv._elasticnet_cv as module
+
+    details = {
+        "mse_path": np.array([[[1.0]]]),
+        "mean_mse": np.array([[1.0]]),
+        "std_mse": np.array([[0.0]]),
+        "alphas": {0: np.array([0.02])},
+        "l1_ratios": np.array([0.5]),
+        "best_mse": 1.0,
+    }
+    monkeypatch.setattr(
+        module,
+        "_select_elasticnet_params_cv",
+        lambda *args, **kwargs: (0.02, 0.5, details),
+    )
+    observed = []
+
+    class FakeElasticNet:
+        def __init__(self, *args, **kwargs):
+            observed.append(kwargs)
+            self.coef_ = np.zeros(3)
+            self.intercept_ = 0.0
+            self.n_iter_ = 1
+
+        def fit(self, X, y, sample_weight=None):
+            return self
+
+        def predict(self, X):
+            return np.zeros(int(X.shape[0]))
+
+    monkeypatch.setattr(module, "ElasticNet", FakeElasticNet)
+    X, y = _elasticnet_inference_fixture(seed=20260807)
+    model = module.ElasticNetCV(
+        l1_ratio=[0.5],
+        alphas=[0.02],
+        cv=2,
+        device="cpu",
+        compute_inference=True,
+        n_jobs=3,
+    ).fit(X, y)
+
+    assert len(observed) == 1
+    assert observed[0]["compute_inference"] is True
+    assert observed[0]["inference_method"] == "debiased"
+    assert observed[0]["n_jobs"] == 3
+    assert model.estimator_ is not None
+
+
+def test_torch_cuda_elasticnet_inference_contract():
+    torch = _require_modern_torch_cuda()
+    from statgpu.linear_model import ElasticNet, ElasticNetCV
+
+    X_np, y_np = _elasticnet_inference_fixture(seed=20260808)
+    X = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+    y = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+
+    direct = ElasticNet(
+        alpha=0.02,
+        l1_ratio=0.5,
+        max_iter=1200,
+        tol=1e-6,
+        device="torch",
+        compute_inference=True,
+    ).fit(X, y)
+    _assert_elasticnet_inference_contract(direct)
+
+    cv_model = ElasticNetCV(
+        l1_ratio=[0.5],
+        alphas=[0.02],
+        cv=2,
+        max_iter=800,
+        tol=1e-6,
+        device="torch",
+        compute_inference=True,
+        random_state=19,
+    ).fit(X, y)
+    _assert_elasticnet_inference_contract(cv_model.estimator_)
+
+
+def _require_physical_cupy_v61():
+    cp = pytest.importorskip("cupy")
+    try:
+        count = int(cp.cuda.runtime.getDeviceCount())
+    except Exception as exc:
+        pytest.skip(f"requires a physical CuPy CUDA backend: {exc}")
+    if count < 1:
+        pytest.skip("requires a physical CuPy CUDA backend")
+    return cp
+
+
+def test_cupy_elasticnet_inference_contract():
+    cp = _require_physical_cupy_v61()
+    from statgpu.linear_model import ElasticNet, ElasticNetCV
+
+    X_np, y_np = _elasticnet_inference_fixture(seed=20260809)
+    X = cp.asarray(X_np)
+    y = cp.asarray(y_np)
+
+    direct = ElasticNet(
+        alpha=0.02,
+        l1_ratio=0.5,
+        max_iter=1200,
+        tol=1e-6,
+        device="cuda",
+        compute_inference=True,
+    ).fit(X, y)
+    _assert_elasticnet_inference_contract(direct)
+
+    cv_model = ElasticNetCV(
+        l1_ratio=[0.5],
+        alphas=[0.02],
+        cv=2,
+        max_iter=800,
+        tol=1e-6,
+        device="cuda",
+        compute_inference=True,
+        random_state=23,
+    ).fit(X, y)
+    _assert_elasticnet_inference_contract(cv_model.estimator_)

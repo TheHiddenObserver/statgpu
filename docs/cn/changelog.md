@@ -1,5 +1,7 @@
 # Changelog
 
+- 完成公开 ElasticNet 推断契约：独立 wrapper 现暴露并透传推断选项，ElasticNetCV 的最终全数据重拟合会真实执行 `compute_inference=True`，并补充 NumPy/CuPy/Torch 矩阵测试。
+
 - 将事务式 CV 重置接入共享的公开有限值校验，使 NaN/Inf 重拟合在抛错前先使旧的 RidgeCV、ElasticNetCV、LogisticRegressionCV 与统一 penalized-CV 状态失效。
 
 - 使专用 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 的重拟合具备失败安全语义：每次 fit 均先清除旧拟合状态，仅在最终模型重拟合成功后发布 CV 选择结果。

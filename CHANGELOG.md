@@ -1,5 +1,7 @@
 # Changelog
 
+- Completed the public ElasticNet inference contract: the standalone wrapper now exposes and forwards inference options, and ElasticNetCV honors `compute_inference=True` on its final full-data refit with NumPy/CuPy/Torch matrix tests.
+
 - Integrated transactional CV reset with the shared public finite-input guard, so NaN/Inf refit attempts invalidate stale RidgeCV, ElasticNetCV, LogisticRegressionCV, and unified penalized-CV state before validation raises.
 
 - Made dedicated RidgeCV, ElasticNetCV, and LogisticRegressionCV refits failure-safe: every fit attempt clears stale fitted state, and CV selections are published only after the final model refit succeeds.

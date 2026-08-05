@@ -36,6 +36,10 @@ class ElasticNet(_PenalizedLinearRegression):
         cpu_solver: str = "fista",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        inference_method: str = "debiased",
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
     ):
         if alpha < 0:
             raise ValueError(f"alpha must be non-negative, got {alpha}")
@@ -54,6 +58,10 @@ class ElasticNet(_PenalizedLinearRegression):
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
             stopping=stopping,
+            compute_inference=compute_inference,
+            inference_method=inference_method,
+            cov_type=cov_type,
+            hac_maxlags=hac_maxlags,
         )
 
     def fit(self, X=None, y=None, sample_weight=None, initial_coef=None, **kwargs):
