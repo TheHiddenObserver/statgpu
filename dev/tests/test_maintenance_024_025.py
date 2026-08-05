@@ -1348,7 +1348,7 @@ def test_torch_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
             torch.is_tensor(value)
             and value.is_cuda
             and tuple(value.shape) == tuple(weights.shape)
-            and bool(torch.allclose(value, weights).item())
+            and bool(torch.allclose(value, weights))
         ):
             raise AssertionError("formula sample_weight copied to CPU")
         return original_to_numpy(value)
@@ -1387,7 +1387,7 @@ def test_cupy_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
         if (
             isinstance(value, cp.ndarray)
             and tuple(value.shape) == tuple(weights.shape)
-            and bool(cp.allclose(value, weights).item())
+            and bool(cp.allclose(value, weights))
         ):
             raise AssertionError("formula sample_weight copied to CPU")
         return original_to_numpy(value)
