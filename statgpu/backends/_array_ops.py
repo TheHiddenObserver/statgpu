@@ -100,7 +100,15 @@ def _zeros(n, backend, ref_tensor=None, dtype=None):
     """Create a 1-D zeros vector on the requested backend."""
     backend = _resolve_backend(backend, ref_tensor)
     if backend == "numpy":
-        return np.zeros(n, dtype=dtype)
+        ref_dtype = getattr(ref_tensor, "dtype", None)
+        out_dtype = dtype
+        if out_dtype is None:
+            out_dtype = (
+                ref_dtype
+                if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating)
+                else np.float64
+            )
+        return np.zeros(n, dtype=out_dtype)
     if backend == "cupy":
         import cupy as cp
         out_dtype = (
@@ -182,7 +190,15 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
             else torch.float64
         )
         return torch.as_tensor(arr, dtype=out_dtype, device=device)
-    return np.asarray(arr, dtype=dtype or float)
+    out_dtype = dtype
+    if out_dtype is None:
+        ref_dtype = getattr(ref_tensor, "dtype", None)
+        out_dtype = (
+            ref_dtype
+            if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating)
+            else float
+        )
+    return np.asarray(arr, dtype=out_dtype)
 
 
 def _solve_linear_system(A, b, backend="auto"):

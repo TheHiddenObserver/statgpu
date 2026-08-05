@@ -99,6 +99,11 @@ def proximal_newton_solver(
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     _validate_sample_weight(sample_weight, X_proc.shape[0])
+    _sw_arr = (
+        None
+        if sample_weight is None
+        else _as_backend_vector(sample_weight, backend, X_proc)
+    )
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
@@ -139,11 +144,11 @@ def proximal_newton_solver(
         # Gradient and Hessian of smooth loss
         if _has_fused:
             loss_grad, loss_hess = loss.fused_gradient_and_hessian(
-                X_proc, y_proc, params, sample_weight=sample_weight
+                X_proc, y_proc, params, sample_weight=_sw_arr
             )
         else:
-            loss_grad = loss.gradient(X_proc, y_proc, params, sample_weight=sample_weight)
-            loss_hess = loss.hessian(X_proc, y_proc, params, sample_weight=sample_weight)
+            loss_grad = loss.gradient(X_proc, y_proc, params, sample_weight=_sw_arr)
+            loss_hess = loss.hessian(X_proc, y_proc, params, sample_weight=_sw_arr)
 
         # Only smooth penalties reach this path. Their gradient and
         # curvature are included exactly once in the Newton system.
@@ -178,7 +183,7 @@ def proximal_newton_solver(
             direction = grad
 
         # Armijo backtracking line search with proximal step
-        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old, sample_weight=sample_weight)
+        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old, sample_weight=_sw_arr)
         _has_pen_value = hasattr(penalty, 'value')
         if _has_pen_value:
             pen_old = float(_to_numpy(penalty.value(params_old[:n_features])))
@@ -208,7 +213,7 @@ def proximal_newton_solver(
             # direction; applying their proximal operator here would count the
             # same penalty a second time.
             try:
-                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try, sample_weight=sample_weight)
+                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try, sample_weight=_sw_arr)
                 pen_try = float(_to_numpy(penalty.value(params_try[:n_features]))) if _has_pen_value else 0.0
 
                 # Composite Armijo: f(x_new) + g(x_new) <= f(x_old) + g(x_old) + c*step*gdd

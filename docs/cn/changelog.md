@@ -9,6 +9,8 @@
 
 ### 运行时安全
 
+- shared NumPy constructor 现在与 CuPy/Torch 一样跟随浮点 reference dtype；整数 reference 仍采用 float64 数值默认值。
+- FISTA 系列 warm start 现在跟随预处理设计矩阵；smooth proximal-Newton 权重会在 loss 计算前转换到当前 backend/device/dtype。
 - Newton 系列 Armijo 回溯现在仅忽略明确的数值域 trial failure，并保留 CUDA OOM/device/runtime 基础设施错误。
 - solver sample-weight 校验现在会保留 CUDA OOM/device 等 backend RuntimeError，不再将其掩盖为普通输入 ValueError。
 - 可执行 solver matrix 现在将 Elastic Net 视为非光滑惩罚，并通过 FISTA 而不是仅支持光滑目标的 solver 验证其精度。

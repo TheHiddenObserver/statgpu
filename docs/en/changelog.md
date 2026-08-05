@@ -9,6 +9,8 @@
 
 ### Runtime safety
 
+- Shared NumPy constructors now follow floating reference dtypes like the CuPy/Torch implementations, while integer references retain float64 numerical defaults.
+- FISTA-family warm starts now follow the preprocessed design, and smooth proximal-Newton weights are normalized to the active backend/device/dtype before loss evaluation.
 - Newton-family Armijo backtracking now suppresses only recognized numeric-domain trial failures and propagates CUDA OOM/device/runtime infrastructure errors.
 - Solver sample-weight validation now propagates backend RuntimeError failures such as CUDA OOM/device errors instead of masking them as invalid-input ValueError exceptions.
 - The executable solver matrix now treats Elastic Net as non-smooth and validates its precision through FISTA rather than a smooth-only solver.

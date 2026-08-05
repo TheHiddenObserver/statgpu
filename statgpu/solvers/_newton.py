@@ -48,9 +48,8 @@ def newton_solver(
 
     Supports numpy / cupy / torch backends via auto-detection of X.
 
-    For losses with constant Hessian (e.g. Gamma log link), the Hessian
-    doesn't change across iterations, so the Newton step is always valid
-    and line search is skipped.
+    For losses with constant Hessian, the Hessian is computed once and
+    reused across iterations; Armijo backtracking still verifies each step.
 
     Requires: loss has hessian() and penalty is smooth.
     """

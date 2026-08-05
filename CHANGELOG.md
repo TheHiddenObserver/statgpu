@@ -4,6 +4,8 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Made shared NumPy zero/conversion helpers honor a floating reference array dtype, matching the existing CuPy/Torch backend contract while retaining float64 defaults for integer references.
+- Normalized FISTA/FISTA-BB warm starts to the preprocessed design and converted smooth proximal-Newton sample weights to the active backend, device, and dtype before loss evaluation.
 - Narrowed Newton-family Armijo trial exception handling to expected numeric-domain failures so CUDA OOM, device, and infrastructure errors remain visible to callers.
 - Preserved backend RuntimeError failures (including CUDA OOM/device errors) during solver sample-weight validation instead of rewriting them as ordinary invalid-input ValueError exceptions.
 - Aligned the executable loss/penalty/solver matrix with the maintained compatibility contract: Elastic Net precision is tested through FISTA, while smooth solvers are tested to reject it explicitly.

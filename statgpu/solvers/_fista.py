@@ -108,9 +108,9 @@ def fista_solver(
 
     n_features = X_proc.shape[1]
     if init_coef is not None:
-        coef = _as_backend_vector(init_coef, backend, X)
+        coef = _as_backend_vector(init_coef, backend, X_proc)
     else:
-        coef = _zeros(n_features, backend, ref_tensor=X)
+        coef = _zeros(n_features, backend, ref_tensor=X_proc)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -133,7 +133,7 @@ def fista_solver(
         if getattr(loss, '_lipschitz_at_init', False):
             _lip_coef = _copy_arr(coef)
         else:
-            _lip_coef = _zeros(n_features, backend, ref_tensor=X)
+            _lip_coef = _zeros(n_features, backend, ref_tensor=X_proc)
         if sample_weight is not None:
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
