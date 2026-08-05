@@ -956,6 +956,14 @@ def test_torch_nonconvex_model_level_compile_matrix_py21(
 
     fista_lla_module._SQERR_PROXIMAL_TORCH = None
     fista_lla_module._FUSED_PROXIMAL_CLIP_TORCH = None
+    if penalty == "group_scad":
+        import statgpu.penalties._group_scad as group_scad_module
+
+        group_scad_module._GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None
+    elif penalty == "group_mcp":
+        import statgpu.penalties._group_mcp as group_mcp_module
+
+        group_mcp_module._GROUP_MCP_PROXIMAL_TORCH_COMPILED = None
     get_torch_compile_diagnostics(clear=True)
     torch._dynamo.reset()
 
