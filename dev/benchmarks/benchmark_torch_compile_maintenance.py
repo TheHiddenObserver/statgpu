@@ -26,7 +26,9 @@ _PRECISION_RTOL = 1e-6
 _PRECISION_ATOL = 1e-8
 
 
-def _validate_compile_evidence(mode, case, events, graph_delta):
+def _validate_compile_evidence(
+    mode, case, events, graph_delta, *, cached_callable_observed=False
+):
     """Validate graph execution while accounting for compiled-callable reuse.
 
     ``compile_torch`` diagnostics describe callable construction decisions. A
@@ -54,6 +56,9 @@ def _validate_compile_evidence(mode, case, events, graph_delta):
         raise RuntimeError(
             f"{case}:{mode} has diagnostics {statuses!r} but no compiled event"
         )
+
+    if not cached_callable_observed:
+        raise RuntimeError(f"{case}:{mode} has no compiled diagnostic")
 
     return "cached-callable-and-dynamo-graph"
 
@@ -154,6 +159,7 @@ def _run_child(mode: str, repeats: int) -> dict:
     }
 
     case_results = {}
+    compiled_callable_observed = False
     for name, factory in cases.items():
         get_torch_compile_diagnostics(clear=True)
         torch._dynamo.reset()
@@ -176,8 +182,14 @@ def _run_child(mode: str, repeats: int) -> dict:
         )
         graph_delta = after_graphs - before_graphs
         compile_evidence = _validate_compile_evidence(
-            mode, name, events, graph_delta
+            mode,
+            name,
+            events,
+            graph_delta,
+            cached_callable_observed=compiled_callable_observed,
         )
+        if any(event.get("status") == "compiled" for event in events):
+            compiled_callable_observed = True
         coefficients = np.asarray(_to_numpy(model.coef_))
         finite_prediction = bool(np.isfinite(prediction).all())
         finite_coefficients = bool(np.isfinite(coefficients).all())
