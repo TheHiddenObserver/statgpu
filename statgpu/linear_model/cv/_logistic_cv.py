@@ -835,6 +835,20 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.estimator_ = None
         self.cv_selected_device_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.C_ = None
+        self.Cs_ = None
+        self.cv_results_ = None
+        self.mean_loss_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
+
     def fit(self, X, y, sample_weight=None):
         """
         Fit Logistic regression with cross-validation to select C.
@@ -853,6 +867,7 @@ class LogisticRegressionCV(CVEstimatorBase):
         self : LogisticRegressionCV
             Fitted estimator.
         """
+        self._reset_cv_fit_state()
         # Preserve response residency; only a scalar validity decision syncs.
         _validate_binary_cv_response(y)
 
@@ -860,7 +875,6 @@ class LogisticRegressionCV(CVEstimatorBase):
         device_name = self._device
         _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
         refit_device = cv_refit_device(device_name, cv_backend_name)
-        self.cv_selected_device_ = refit_device
 
         # Run CV to select C
         details = _select_logistic_c_cv(
@@ -881,24 +895,20 @@ class LogisticRegressionCV(CVEstimatorBase):
             return_details=True,
         )
 
-        # Store CV results
-        self.C_ = float(details["C"])
-        self.Cs_ = np.asarray(details["Cs"], dtype=np.float64)
+        # Keep candidate results local until the final refit succeeds.
+        selected_C = float(details["C"])
+        selected_Cs = np.asarray(details["Cs"], dtype=np.float64)
         loss_path = np.asarray(details["loss_path"], dtype=np.float64)
         mean_loss = np.asarray(details["mean_loss"], dtype=np.float64)
-
-        self.cv_results_ = {"loss_path": loss_path}
-        self.mean_loss_ = mean_loss
-
-        if np.any(np.isfinite(mean_loss)):
-            # sklearn convention: best_score_ is negative loss (higher is better)
-            self.best_score_ = -float(np.nanmin(mean_loss))
-        else:
-            self.best_score_ = np.nan
+        best_score = (
+            -float(np.nanmin(mean_loss))
+            if np.any(np.isfinite(mean_loss))
+            else np.nan
+        )
 
         # Fit final model with selected C
         estimator = LogisticRegression(
-            C=self.C_,
+            C=selected_C,
             fit_intercept=self._fit_intercept,
             max_iter=self._max_iter,
             tol=self._tol,
@@ -911,11 +921,16 @@ class LogisticRegressionCV(CVEstimatorBase):
 
         estimator.fit(X, y, sample_weight=sample_weight)
 
+        self.C_ = selected_C
+        self.Cs_ = selected_Cs
+        self.cv_results_ = {"loss_path": loss_path}
+        self.mean_loss_ = mean_loss
+        self.best_score_ = best_score
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
-
+        self.cv_selected_device_ = refit_device
         self._fitted = True
         return self
 

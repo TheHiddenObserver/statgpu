@@ -1,5 +1,7 @@
 # Changelog
 
+- 使专用 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 的重拟合具备失败安全语义：每次 fit 均先清除旧拟合状态，仅在最终模型重拟合成功后发布 CV 选择结果。
+
 - 将 AUTO 模式的 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 最终重拟合固定到 CV 选参时使用的后端，避免选参后在 Torch 与 CuPy 之间静默漂移。
 
 - 在公开 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 调度中保留 `device='auto'`，使 GPU 常驻输入继续使用其原有后端；LogisticRegressionCV 现可在不完整复制到 CPU 的情况下验证 0/1 响应。

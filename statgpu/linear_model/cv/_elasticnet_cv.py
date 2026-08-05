@@ -665,6 +665,19 @@ class ElasticNetCV(CVEstimatorBase):
         self.estimator_ = None
         self.cv_selected_device_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.alpha_ = None
+        self.l1_ratio_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.cv_results_ = None
+        self.best_score_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
+
     def _fit_cv(self, X, y, sample_weight=None):
         """
         Fit Elastic Net with K-fold cross-validation.
@@ -682,10 +695,10 @@ class ElasticNetCV(CVEstimatorBase):
         -------
         self
         """
+        self._reset_cv_fit_state()
         device_request = self._device
         _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_request, X)
         refit_device = cv_refit_device(device_request, cv_backend_name)
-        self.cv_selected_device_ = refit_device
 
         # Normalize l1_ratio to list
         if isinstance(self.l1_ratio, (list, tuple, np.ndarray)):
@@ -711,25 +724,24 @@ class ElasticNetCV(CVEstimatorBase):
             return_details=True,
         )
 
-        # Store CV results
-        self.alpha_ = best_alpha
-        self.l1_ratio_ = best_l1_ratio
-        self.cv_results_ = {
+        # Keep candidate results local until the final refit succeeds.
+        selected_alpha = float(best_alpha)
+        selected_l1_ratio = float(best_l1_ratio)
+        cv_results = {
             "mse_path": details["mse_path"],
             "mean_mse": details["mean_mse"],
             "std_mse": details["std_mse"],
             "alphas": details["alphas"],
             "l1_ratios": details["l1_ratios"],
-            "best_alpha": self.alpha_,
-            "best_l1_ratio": self.l1_ratio_,
+            "best_alpha": selected_alpha,
+            "best_l1_ratio": selected_l1_ratio,
         }
-        # sklearn convention: best_score_ is negative MSE (higher is better)
-        self.best_score_ = -float(details["best_mse"])
+        best_score = -float(details["best_mse"])
 
         # Fit final model on full data with best parameters
         final_model = ElasticNet(
-            alpha=self.alpha_,
-            l1_ratio=self.l1_ratio_,
+            alpha=selected_alpha,
+            l1_ratio=selected_l1_ratio,
             max_iter=self._max_iter,
             tol=self._tol,
             fit_intercept=self._fit_intercept,
@@ -737,10 +749,15 @@ class ElasticNetCV(CVEstimatorBase):
         )
         final_model.fit(X, y, sample_weight=sample_weight)
 
+        self.alpha_ = selected_alpha
+        self.l1_ratio_ = selected_l1_ratio
+        self.cv_results_ = cv_results
+        self.best_score_ = best_score
         self.coef_ = final_model.coef_.copy()
         self.intercept_ = final_model.intercept_
         self.n_iter_ = final_model.n_iter_
         self.estimator_ = final_model
+        self.cv_selected_device_ = refit_device
         self._fitted = True
 
         return self

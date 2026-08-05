@@ -1034,6 +1034,20 @@ class RidgeCV(CVEstimatorBase):
         self.estimator_ = None
         self.cv_selected_device_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alphas_ = None
+        self.cv_results_ = None
+        self.mean_mse_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
+
     def fit(self, X, y, sample_weight=None):
         """
         Fit Ridge regression with cross-validation to select alpha.
@@ -1052,6 +1066,7 @@ class RidgeCV(CVEstimatorBase):
         self : RidgeCV
             Fitted estimator.
         """
+        self._reset_cv_fit_state()
         from statgpu.cross_validation._base import validate_cv_sample_weight
         n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
         sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
@@ -1059,7 +1074,6 @@ class RidgeCV(CVEstimatorBase):
         device_name = self._device
         _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
         refit_device = cv_refit_device(device_name, cv_backend_name)
-        self.cv_selected_device_ = refit_device
 
         # Run CV to select alpha
         details = _select_ridge_alpha_cv(
@@ -1078,27 +1092,23 @@ class RidgeCV(CVEstimatorBase):
             return_details=True,
         )
 
-        # Store CV results
-        self.alpha_ = float(details["alpha"])
-        self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
+        # Keep candidate results local until the final refit succeeds.
+        selected_alpha = float(details["alpha"])
+        selected_alphas = np.asarray(details["alphas"], dtype=np.float64)
         mse_path = np.asarray(details["mse_path"], dtype=np.float64)
         mean_mse = np.asarray(details["mean_mse"], dtype=np.float64)
-
-        self.cv_results_ = {"mse_path": mse_path}
-        self.mean_mse_ = mean_mse
-
-        if np.any(np.isfinite(mean_mse)):
-            # sklearn convention: best_score_ is negative MSE (higher is better)
-            self.best_score_ = -float(np.nanmin(mean_mse))
-        else:
-            self.best_score_ = np.nan
+        best_score = (
+            -float(np.nanmin(mean_mse))
+            if np.any(np.isfinite(mean_mse))
+            else np.nan
+        )
 
         # Fit final model with selected alpha.
         # Exact solve uses n*alpha on unnormalized X'X, matching the
         # per-sample convention (loss/n + alpha*||w||^2) used by all paths.
         # alpha_ stores the CV-selected value; pass it directly to Ridge.
         estimator = Ridge(
-            alpha=self.alpha_,
+            alpha=selected_alpha,
             fit_intercept=self._fit_intercept,
             device=refit_device,
             n_jobs=self.n_jobs,
@@ -1109,11 +1119,16 @@ class RidgeCV(CVEstimatorBase):
 
         estimator.fit(X, y, sample_weight=sample_weight)
 
+        self.alpha_ = selected_alpha
+        self.alphas_ = selected_alphas
+        self.cv_results_ = {"mse_path": mse_path}
+        self.mean_mse_ = mean_mse
+        self.best_score_ = best_score
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
-
+        self.cv_selected_device_ = refit_device
         self._fitted = True
         return self
 

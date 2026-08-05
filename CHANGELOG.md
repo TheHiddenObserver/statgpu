@@ -1,5 +1,7 @@
 # Changelog
 
+- Made dedicated RidgeCV, ElasticNetCV, and LogisticRegressionCV refits failure-safe: every fit attempt clears stale fitted state, and CV selections are published only after the final model refit succeeds.
+
 - Pinned AUTO-mode RidgeCV, ElasticNetCV, and LogisticRegressionCV final refits to the backend selected during CV, preventing silent Torch/CuPy backend drift after parameter selection.
 
 - Preserved `device='auto'` through public RidgeCV, ElasticNetCV, and LogisticRegressionCV dispatch so GPU-resident inputs retain their owning backend; LogisticRegressionCV now validates 0/1 responses without a full GPU-to-CPU copy.

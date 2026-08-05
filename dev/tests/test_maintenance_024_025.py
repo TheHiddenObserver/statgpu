@@ -4159,3 +4159,165 @@ def test_elasticnet_cv_auto_refit_uses_cv_selected_backend(monkeypatch):
 
     assert observed == [Device.CUDA]
     assert estimator.cv_selected_device_ == Device.CUDA
+
+
+
+@pytest.mark.parametrize(
+    "module_name,class_name,selector_name,y,selected_attrs",
+    [
+        (
+            "statgpu.linear_model.cv._ridge_cv",
+            "RidgeCV",
+            "_select_ridge_alpha_cv",
+            np.arange(6, dtype=np.float64),
+            ("alpha_", "alphas_", "mean_mse_"),
+        ),
+        (
+            "statgpu.linear_model.cv._elasticnet_cv",
+            "ElasticNetCV",
+            "_select_elasticnet_params_cv",
+            np.arange(6, dtype=np.float64),
+            ("alpha_", "l1_ratio_"),
+        ),
+        (
+            "statgpu.linear_model.cv._logistic_cv",
+            "LogisticRegressionCV",
+            "_select_logistic_c_cv",
+            np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
+            ("C_", "Cs_", "mean_loss_"),
+        ),
+    ],
+)
+def test_dedicated_cv_failed_refit_clears_previous_state(
+    monkeypatch, module_name, class_name, selector_name, y, selected_attrs
+):
+    import importlib
+    from statgpu._config import Device
+
+    module = importlib.import_module(module_name)
+    estimator = getattr(module, class_name)(device="cpu", cv=2)
+    estimator._fitted = True
+    estimator.estimator_ = object()
+    estimator.coef_ = np.array([9.0, 8.0])
+    estimator.intercept_ = 7.0
+    estimator.best_score_ = 6.0
+    estimator.cv_results_ = {"stale": True}
+    estimator.cv_selected_device_ = Device.TORCH
+    for name in selected_attrs:
+        setattr(estimator, name, np.array([5.0]) if name.endswith("s_") else 5.0)
+
+    monkeypatch.setattr(
+        module,
+        selector_name,
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("selection failed")
+        ),
+    )
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    with pytest.raises(RuntimeError, match="selection failed"):
+        estimator.fit(X, y)
+
+    assert estimator._fitted is False
+    assert estimator.estimator_ is None
+    assert estimator.coef_ is None
+    assert estimator.intercept_ is None
+    assert estimator.best_score_ is None
+    assert estimator.cv_results_ is None
+    assert estimator.cv_selected_device_ is None
+    for name in selected_attrs:
+        assert getattr(estimator, name) is None
+
+
+def test_ridge_cv_final_refit_failure_does_not_publish_partial_state(monkeypatch):
+    import statgpu.linear_model.cv._ridge_cv as module
+
+    details = {
+        "alpha": 0.5,
+        "alphas": np.array([0.5]),
+        "mse_path": np.array([[1.0]]),
+        "mean_mse": np.array([1.0]),
+    }
+    monkeypatch.setattr(module, "_select_ridge_alpha_cv", lambda *a, **k: details)
+
+    class FailingRidge:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit(self, *args, **kwargs):
+            raise RuntimeError("final refit failed")
+
+    monkeypatch.setattr(module, "Ridge", FailingRidge)
+    estimator = module.RidgeCV(device="cpu", cv=2)
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    with pytest.raises(RuntimeError, match="final refit failed"):
+        estimator.fit(X, np.arange(6, dtype=np.float64))
+    assert estimator._fitted is False
+    assert estimator.alpha_ is None
+    assert estimator.estimator_ is None
+    assert estimator.cv_selected_device_ is None
+
+
+def test_elasticnet_cv_final_refit_failure_does_not_publish_partial_state(monkeypatch):
+    import statgpu.linear_model.cv._elasticnet_cv as module
+
+    details = {
+        "mse_path": np.array([[[1.0]]]),
+        "mean_mse": np.array([[1.0]]),
+        "std_mse": np.array([[0.0]]),
+        "alphas": {0: np.array([0.5])},
+        "l1_ratios": np.array([0.5]),
+        "best_mse": 1.0,
+    }
+    monkeypatch.setattr(
+        module,
+        "_select_elasticnet_params_cv",
+        lambda *a, **k: (0.5, 0.5, details),
+    )
+
+    class FailingElasticNet:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit(self, *args, **kwargs):
+            raise RuntimeError("final refit failed")
+
+    monkeypatch.setattr(module, "ElasticNet", FailingElasticNet)
+    estimator = module.ElasticNetCV(device="cpu", cv=2)
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    with pytest.raises(RuntimeError, match="final refit failed"):
+        estimator.fit(X, np.arange(6, dtype=np.float64))
+    assert estimator._fitted is False
+    assert estimator.alpha_ is None
+    assert estimator.l1_ratio_ is None
+    assert estimator.estimator_ is None
+    assert estimator.cv_selected_device_ is None
+
+
+def test_logistic_cv_final_refit_failure_does_not_publish_partial_state(monkeypatch):
+    import statgpu.linear_model.cv._logistic_cv as module
+
+    details = {
+        "C": 1.0,
+        "Cs": np.array([1.0]),
+        "loss_path": np.array([[0.5]]),
+        "mean_loss": np.array([0.5]),
+    }
+    monkeypatch.setattr(module, "_select_logistic_c_cv", lambda *a, **k: details)
+
+    class FailingLogistic:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit(self, *args, **kwargs):
+            raise RuntimeError("final refit failed")
+
+    monkeypatch.setattr(module, "LogisticRegression", FailingLogistic)
+    estimator = module.LogisticRegressionCV(device="cpu", cv=2)
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    y = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0])
+    with pytest.raises(RuntimeError, match="final refit failed"):
+        estimator.fit(X, y)
+    assert estimator._fitted is False
+    assert estimator.C_ is None
+    assert estimator.estimator_ is None
+    assert estimator.cv_selected_device_ is None
