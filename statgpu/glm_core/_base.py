@@ -68,16 +68,22 @@ class GLMLoss(LossBase):
         from statgpu.backends._array_ops import _xp
 
         xp = _xp(y)
-        invalid = xp.any(~xp.isfinite(y))
+        if xp.__name__ == "torch":
+            import torch
+
+            values = y if torch.is_tensor(y) else torch.as_tensor(y)
+        else:
+            values = xp.asarray(y)
+        invalid = xp.any(~xp.isfinite(values))
         y_type = str(getattr(self, "y_type", "continuous")).lower()
         if y_type == "binary":
-            invalid = invalid | xp.any(y < 0) | xp.any(y > 1)
+            invalid = invalid | xp.any(values < 0) | xp.any(values > 1)
             requirement = "values in [0, 1]"
         elif y_type in ("count", "nonnegative"):
-            invalid = invalid | xp.any(y < 0)
+            invalid = invalid | xp.any(values < 0)
             requirement = "non-negative values"
         elif y_type == "positive":
-            invalid = invalid | xp.any(y <= 0)
+            invalid = invalid | xp.any(values <= 0)
             requirement = "strictly positive values"
         else:
             requirement = "finite values"

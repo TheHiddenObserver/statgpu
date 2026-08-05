@@ -18,7 +18,8 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Unified analytic-weight GLM semantics across IRLS ridge scaling, line search,
   pseudo-loglikelihood, AIC/BIC, dispersion, and sandwich inference; centralized
   active GLM Torch compilation; narrowed singular-system fallbacks; and added
-  backend-native response-domain validation for every supported GLM family.
+  backend-native response-domain validation for every supported GLM family,
+  including penalized estimators and cross-validation entrypoints.
 - Addressed Issue #82 by preserving exact raw constructor arguments for
   legacy scikit-learn clone identity while retaining normalized runtime
   attributes and `set_params` bookkeeping.

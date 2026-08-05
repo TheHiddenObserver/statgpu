@@ -2966,6 +2966,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 return fit_penalized_cox_cv(
                     self, X, y, sample_weight=sample_weight
                 )
+            from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+
+            resolved_loss = _resolve_loss_name(
+                self.loss,
+                loss_kwargs=getattr(self, "_loss_kwargs", None),
+            )
+            if hasattr(resolved_loss, "validate_response"):
+                resolved_loss.validate_response(y)
             return self._fit_standard(X, y, sample_weight=sample_weight)
         except Exception:
             self._reset_cv_fit_state()

@@ -29,8 +29,9 @@
   ridge scaling, line search, normalized pseudo-loglikelihood, AIC/BIC,
   dispersion, and sandwich inference. Globally rescaling weights leaves fitted
   parameters and reported diagnostics unchanged.
-- Every supported GLM family now enforces its response domain before any solver
-  dispatch, using NumPy, Torch, or CuPy reductions on the selected backend.
+- Every supported GLM family, including penalized and CV estimators, now
+  enforces its response domain before any solver or fold dispatch, using NumPy,
+  Torch, or CuPy reductions on the selected backend.
   Active IRLS/FISTA helper compilation uses the centralized compile policy, and
   unrelated linear-algebra/device failures are no longer masked as fallback.
 

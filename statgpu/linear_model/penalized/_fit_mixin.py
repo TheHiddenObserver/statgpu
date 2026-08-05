@@ -343,6 +343,8 @@ class _PenalizedFitMixin:
 
         self._penalty = self._resolve_penalty()
         self._loss = self._resolve_loss()
+        if hasattr(self._loss, "validate_response"):
+            self._loss.validate_response(y)
         self._validate_solver_penalty()
         self._validate_inference_request()
 
