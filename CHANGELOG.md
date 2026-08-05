@@ -1,5 +1,7 @@
 # Changelog
 
+- Pinned AUTO-mode RidgeCV, ElasticNetCV, and LogisticRegressionCV final refits to the backend selected during CV, preventing silent Torch/CuPy backend drift after parameter selection.
+
 - Preserved `device='auto'` through public RidgeCV, ElasticNetCV, and LogisticRegressionCV dispatch so GPU-resident inputs retain their owning backend; LogisticRegressionCV now validates 0/1 responses without a full GPU-to-CPU copy.
 
 - Logistic and ElasticNet CV default regularization grids now use analytic weights and satisfy integer-weight row-replication equivalence; CV GPU-array device inspection no longer masks runtime failures.

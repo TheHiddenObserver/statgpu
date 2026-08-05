@@ -4029,3 +4029,133 @@ def test_auto_cv_router_prefers_gpu_resident_input_backend(monkeypatch):
     assert resolved[1] == "torch"
     assert resolved[3] is True
     assert calls == [("torch", "cuda")]
+
+
+
+def test_cv_refit_device_pins_auto_to_selected_backend():
+    from statgpu._config import Device
+    from statgpu.linear_model.cv._device import cv_refit_device
+
+    assert cv_refit_device("auto", "numpy") == Device.CPU
+    assert cv_refit_device("auto", "cupy") == Device.CUDA
+    assert cv_refit_device("auto", "torch") == Device.TORCH
+    assert cv_refit_device("cpu", "torch") == Device.CPU
+    assert cv_refit_device("cuda", "torch") == Device.CUDA
+    with pytest.raises(ValueError, match="Unknown CV backend"):
+        cv_refit_device("auto", "mystery")
+
+
+@pytest.mark.parametrize(
+    "module_name,class_name,selector_name,model_name,y,details",
+    [
+        (
+            "statgpu.linear_model.cv._ridge_cv",
+            "RidgeCV",
+            "_select_ridge_alpha_cv",
+            "Ridge",
+            np.arange(6, dtype=np.float64),
+            {
+                "alpha": 0.5,
+                "alphas": np.array([0.5]),
+                "mse_path": np.array([[1.0]]),
+                "mean_mse": np.array([1.0]),
+            },
+        ),
+        (
+            "statgpu.linear_model.cv._logistic_cv",
+            "LogisticRegressionCV",
+            "_select_logistic_c_cv",
+            "LogisticRegression",
+            np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
+            {
+                "C": 1.0,
+                "Cs": np.array([1.0]),
+                "loss_path": np.array([[0.5]]),
+                "mean_loss": np.array([0.5]),
+            },
+        ),
+    ],
+)
+def test_public_cv_auto_refit_uses_cv_selected_backend(
+    monkeypatch,
+    module_name,
+    class_name,
+    selector_name,
+    model_name,
+    y,
+    details,
+):
+    import importlib
+    from statgpu._config import Device
+
+    module = importlib.import_module(module_name)
+    backend = object()
+    monkeypatch.setattr(
+        module,
+        "resolve_cv_backend",
+        lambda device, X: ("auto", "torch", backend, True, False, True),
+    )
+    monkeypatch.setattr(module, selector_name, lambda *args, **kwargs: details)
+    observed = []
+
+    class FakeModel:
+        def __init__(self, *args, device=None, **kwargs):
+            observed.append(device)
+            self.coef_ = np.zeros(2)
+            self.intercept_ = 0.0
+            self.n_iter_ = 1
+
+        def fit(self, X, y, sample_weight=None):
+            return self
+
+    monkeypatch.setattr(module, model_name, FakeModel)
+    estimator = getattr(module, class_name)(device="auto", cv=2)
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    estimator.fit(X, y)
+
+    assert observed == [Device.TORCH]
+    assert estimator.cv_selected_device_ == Device.TORCH
+
+
+def test_elasticnet_cv_auto_refit_uses_cv_selected_backend(monkeypatch):
+    import statgpu.linear_model.cv._elasticnet_cv as module
+    from statgpu._config import Device
+
+    backend = object()
+    monkeypatch.setattr(
+        module,
+        "resolve_cv_backend",
+        lambda device, X: ("auto", "cupy", backend, True, True, False),
+    )
+    details = {
+        "mse_path": np.array([[[1.0]]]),
+        "mean_mse": np.array([[1.0]]),
+        "std_mse": np.array([[0.0]]),
+        "alphas": {0: np.array([0.5])},
+        "l1_ratios": np.array([0.5]),
+        "best_mse": 1.0,
+    }
+    monkeypatch.setattr(
+        module,
+        "_select_elasticnet_params_cv",
+        lambda *args, **kwargs: (0.5, 0.5, details),
+    )
+    observed = []
+
+    class FakeElasticNet:
+        def __init__(self, *args, device=None, **kwargs):
+            observed.append(device)
+            self.coef_ = np.zeros(2)
+            self.intercept_ = 0.0
+            self.n_iter_ = 1
+
+        def fit(self, X, y, sample_weight=None):
+            return self
+
+    monkeypatch.setattr(module, "ElasticNet", FakeElasticNet)
+    estimator = module.ElasticNetCV(device="auto", cv=2)
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    estimator.fit(X, np.arange(6, dtype=np.float64))
+
+    assert observed == [Device.CUDA]
+    assert estimator.cv_selected_device_ == Device.CUDA

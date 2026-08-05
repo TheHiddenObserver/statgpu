@@ -13,7 +13,11 @@ from statgpu._config import Device, cuda_available
 from statgpu.cross_validation._base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.linear_model.wrappers._elasticnet import ElasticNet
-from ._device import resolve_cv_backend, validate_cv_sample_weight
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
 
 
 # =============================================================================
@@ -659,6 +663,7 @@ class ElasticNetCV(CVEstimatorBase):
         self.best_score_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def _fit_cv(self, X, y, sample_weight=None):
         """
@@ -678,6 +683,9 @@ class ElasticNetCV(CVEstimatorBase):
         self
         """
         device_request = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_request, X)
+        refit_device = cv_refit_device(device_request, cv_backend_name)
+        self.cv_selected_device_ = refit_device
 
         # Normalize l1_ratio to list
         if isinstance(self.l1_ratio, (list, tuple, np.ndarray)):
@@ -725,7 +733,7 @@ class ElasticNetCV(CVEstimatorBase):
             max_iter=self._max_iter,
             tol=self._tol,
             fit_intercept=self._fit_intercept,
-            device=self._device,
+            device=refit_device,
         )
         final_model.fit(X, y, sample_weight=sample_weight)
 

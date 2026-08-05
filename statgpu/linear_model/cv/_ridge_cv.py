@@ -17,7 +17,11 @@ from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev, xp_maximum
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model.wrappers._ridge import Ridge
-from ._device import resolve_cv_backend, validate_cv_sample_weight
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
 
 
 # =============================================================================
@@ -1028,6 +1032,7 @@ class RidgeCV(CVEstimatorBase):
         self.intercept_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def fit(self, X, y, sample_weight=None):
         """
@@ -1052,6 +1057,9 @@ class RidgeCV(CVEstimatorBase):
         sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
 
         device_name = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
+        refit_device = cv_refit_device(device_name, cv_backend_name)
+        self.cv_selected_device_ = refit_device
 
         # Run CV to select alpha
         details = _select_ridge_alpha_cv(
@@ -1092,7 +1100,7 @@ class RidgeCV(CVEstimatorBase):
         estimator = Ridge(
             alpha=self.alpha_,
             fit_intercept=self._fit_intercept,
-            device=self._device,
+            device=refit_device,
             n_jobs=self.n_jobs,
             compute_inference=self._compute_inference_enabled,
             cov_type=self._cov_type,

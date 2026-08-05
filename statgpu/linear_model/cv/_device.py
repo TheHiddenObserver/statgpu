@@ -92,6 +92,29 @@ def resolve_cv_backend(device, X):
     )
 
 
+def cv_refit_device(device, backend_name):
+    """Return the final-fit device matching the backend used for CV.
+
+    Explicit requests remain unchanged.  AUTO is pinned to the backend chosen
+    from the design matrix so parameter selection and the final refit cannot
+    silently use different GPU libraries.
+    """
+    device_name = normalize_cv_device(device)
+    if device_name != Device.AUTO.value:
+        return Device(device_name)
+    mapping = {
+        "numpy": Device.CPU,
+        "cupy": Device.CUDA,
+        "torch": Device.TORCH,
+    }
+    try:
+        return mapping[str(backend_name).lower()]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unknown CV backend {backend_name!r}; expected numpy, cupy, or torch"
+        ) from exc
+
+
 def validate_cv_sample_weight(sample_weight, n_samples):
     """Validate analytic CV weights before any grid or degenerate return."""
     if sample_weight is None:

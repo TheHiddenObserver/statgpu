@@ -14,7 +14,11 @@ from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model.wrappers._logistic import LogisticRegression
-from ._device import resolve_cv_backend, validate_cv_sample_weight
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
 
 
 def _validate_binary_cv_response(y):
@@ -829,6 +833,7 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.intercept_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def fit(self, X, y, sample_weight=None):
         """
@@ -853,6 +858,9 @@ class LogisticRegressionCV(CVEstimatorBase):
 
         # Keep AUTO unresolved until resolve_cv_backend can inspect X.
         device_name = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
+        refit_device = cv_refit_device(device_name, cv_backend_name)
+        self.cv_selected_device_ = refit_device
 
         # Run CV to select C
         details = _select_logistic_c_cv(
@@ -894,7 +902,7 @@ class LogisticRegressionCV(CVEstimatorBase):
             fit_intercept=self._fit_intercept,
             max_iter=self._max_iter,
             tol=self._tol,
-            device=self._device,
+            device=refit_device,
             n_jobs=self.n_jobs,
             compute_inference=self._compute_inference_enabled,
             cov_type=self._cov_type,
