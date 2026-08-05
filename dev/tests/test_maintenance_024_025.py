@@ -1062,3 +1062,26 @@ def test_data_argument_alone_does_not_disable_direct_pandas_finite_guard():
     unrelated_data = pd.DataFrame({"z": [1.0, 2.0, 3.0, 4.0]})
     with pytest.raises(ValueError, match=r"X.*finite"):
         LinearRegression(device="cpu").fit(X_bad, y, data=unrelated_data)
+
+
+# PR87_KNOCKOFF_SET_PARAMS_TRANSACTION_TESTS
+@pytest.mark.parametrize("selector_name", ["KnockoffSelector", "FixedXKnockoffSelector"])
+def test_knockoff_selector_set_params_is_transactional(selector_name):
+    import statgpu.feature_selection as feature_selection
+
+    selector = getattr(feature_selection, selector_name)(q=0.1)
+    sentinel_result = object()
+    sentinel_features = np.array([0], dtype=np.int64)
+    selector.result_ = sentinel_result
+    selector.selected_features_ = sentinel_features
+
+    with pytest.raises(ValueError, match="Invalid parameter"):
+        selector.set_params(q=0.2, unknown_parameter=1)
+    assert selector.q == 0.1
+    assert selector.result_ is sentinel_result
+    assert selector.selected_features_ is sentinel_features
+
+    selector.set_params(q=0.2)
+    assert selector.q == 0.2
+    assert selector.result_ is None
+    assert selector.selected_features_ is None

@@ -914,16 +914,21 @@ class KnockoffSelector(_KnockoffSelectorContract):
         }
 
     def set_params(self, **params):
+        if not params:
+            return self
         valid = self.get_params(deep=False)
-        for name, value in params.items():
-            if name not in valid:
-                raise ValueError(
-                    f"Invalid parameter {name!r} for KnockoffSelector. "
-                    f"Valid parameters are: {', '.join(sorted(valid))}."
-                )
-            setattr(self, name, value)
-        self.result_ = None
-        self.selected_features_ = None
+        unknown = [name for name in params if name not in valid]
+        if unknown:
+            name = unknown[0]
+            raise ValueError(
+                f"Invalid parameter {name!r} for KnockoffSelector. "
+                f"Valid parameters are: {', '.join(sorted(valid))}."
+            )
+        updated = dict(valid)
+        updated.update(params)
+        fresh = type(self)(**updated)
+        self.__dict__.clear()
+        self.__dict__.update(fresh.__dict__)
         return self
 
 
@@ -994,27 +999,21 @@ class FixedXKnockoffSelector(_KnockoffSelectorContract):
         }
 
     def set_params(self, **params):
+        if not params:
+            return self
         valid = self.get_params(deep=False)
-        for name, value in params.items():
-            if name not in valid:
-                raise ValueError(
-                    f"Invalid parameter {name!r} for FixedXKnockoffSelector. "
-                    f"Valid parameters are: {', '.join(sorted(valid))}."
-                )
-            setattr(self, name, value)
-        self._selector = KnockoffSelector(
-            knockoff_type="fixed_x",
-            q=self.q,
-            method=self.method,
-            fdr_control=self.fdr_control,
-            random_state=self.random_state,
-            backend=self.backend,
-            compat_mode=self.compat_mode,
-            lasso_cv_impl=self.lasso_cv_impl,
-            lasso_fast_profile=self.lasso_fast_profile,
-        )
-        self.result_ = None
-        self.selected_features_ = None
+        unknown = [name for name in params if name not in valid]
+        if unknown:
+            name = unknown[0]
+            raise ValueError(
+                f"Invalid parameter {name!r} for FixedXKnockoffSelector. "
+                f"Valid parameters are: {', '.join(sorted(valid))}."
+            )
+        updated = dict(valid)
+        updated.update(params)
+        fresh = type(self)(**updated)
+        self.__dict__.clear()
+        self.__dict__.update(fresh.__dict__)
         return self
 
 
