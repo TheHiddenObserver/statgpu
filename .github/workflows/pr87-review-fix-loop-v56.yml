@@ -59,10 +59,17 @@ jobs:
               index for index in range(degenerate_start + 1, len(lines))
               if lines[index].lstrip() == "# Generate CV folds"
           )
-          input_start = next(
-              index for index in range(function_start + 1, grid_start)
-              if lines[index].lstrip() == "if use_gpu:"
-          )
+
+          input_start = grid_start
+          while input_start > function_start + 1:
+              candidate = lines[input_start - 1]
+              if not candidate:
+                  input_start -= 1
+                  continue
+              indent = len(candidate) - len(candidate.lstrip(" "))
+              if indent < 8:
+                  break
+              input_start -= 1
 
           def normalize_region(start, end, target=4):
               nonblank = [line for line in lines[start:end] if line]
