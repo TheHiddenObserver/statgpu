@@ -124,11 +124,18 @@ def lbfgs_b_solver(
     if lb.shape != params.shape or ub.shape != params.shape:
         raise ValueError("lower_bounds and upper_bounds must match coefficient shape")
     if backend == "torch":
+        invalid_nan = bool((lb.isnan().any() | ub.isnan().any()).item())
         invalid_bounds = bool((lb > ub).any().item())
     elif backend == "cupy":
+        import cupy as cp
+
+        invalid_nan = bool((cp.isnan(lb).any() | cp.isnan(ub).any()).item())
         invalid_bounds = bool((lb > ub).any().item())
     else:
+        invalid_nan = bool(np.isnan(lb).any() or np.isnan(ub).any())
         invalid_bounds = bool(np.any(lb > ub))
+    if invalid_nan:
+        raise ValueError("lower_bounds and upper_bounds must not contain NaN")
     if invalid_bounds:
         raise ValueError("lower_bounds must not exceed upper_bounds")
 
@@ -172,7 +179,7 @@ def lbfgs_b_solver(
             beta = rho * _dot_dev(y_vec, r)
             r = r + s_vec * (alpha - beta)
 
-        direction = -r
+        direction = _project_direction(-r, params, lb, ub, backend)
         gdd_dev = _dot_dev(grad, direction)
 
         pg_norm, gdd = _sync_scalars(pg_norm_dev, gdd_dev, backend=backend)
@@ -266,3 +273,12 @@ def _projected_gradient(grad, params, lb, ub, backend):
     if backend == "torch":
         return grad * (~at_bound).to(grad.dtype)
     return grad * (~at_bound).astype(grad.dtype)
+
+def _project_direction(direction, params, lb, ub, backend):
+    """Remove direction components that would leave the feasible box."""
+    blocked = ((params <= lb) & (direction < 0)) | (
+        (params >= ub) & (direction > 0)
+    )
+    if backend == "torch":
+        return direction * (~blocked).to(direction.dtype)
+    return direction * (~blocked).astype(direction.dtype)

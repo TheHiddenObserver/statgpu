@@ -149,12 +149,19 @@ def admm_solver(
         if not _cholesky_ok:
             use_cholesky = False
 
-        # Precompute -grad_f(0) = Xty/n for squared_error (the constant part)
-        _zero_coef = _zeros_like(w)
-        _neg_grad_zero = -loss.gradient(X_proc, y_proc, _zero_coef, sample_weight=sample_weight)  # Xty/n
+        if use_cholesky:
+            # Precompute -grad_f(0) = Xty/n for squared_error.
+            _zero_coef = _zeros_like(w)
+            _neg_grad_zero = -loss.gradient(
+                X_proc,
+                y_proc,
+                _zero_coef,
+                sample_weight=sample_weight,
+            )
 
-    else:
-        # Gradient descent step: 1/(L_f + rho)
+    if not use_cholesky:
+        # Gradient descent step: 1/(L_f + rho). This must also be
+        # initialized when a requested Cholesky path legitimately falls back.
         L_f = loss.lipschitz(X_proc, w, y=y_proc)
         if L_f <= 0:
             L_f = 1.0

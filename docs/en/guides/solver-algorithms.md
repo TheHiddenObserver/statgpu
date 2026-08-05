@@ -12,14 +12,14 @@ statgpu provides 10 solvers for penalized loss minimization. This page documents
 | Solver | Best For | Backend Support |
 |--------|----------|:---:|
 | Proximal IRLS-CD | quantile + SCAD/MCP | numpy, cupy, torch |
-| Proximal Newton | Huber/Bisquare/Cox + SCAD/MCP | numpy, cupy, torch |
+| Proximal Newton | smooth loss + smooth penalty; non-smooth explicitly uses FISTA | numpy, cupy, torch |
 | FISTA | general non-smooth penalties | numpy, cupy, torch |
 | FISTA-BB | GLM + sparse penalties | numpy, cupy, torch |
 | FISTA-LLA | nonconvex penalties (continuation path) | numpy, cupy, torch |
 | IRLS | smooth losses + L2 | numpy, cupy, torch |
 | Newton | smooth losses + L2 | numpy, cupy, torch |
 | L-BFGS | smooth losses, moderate dims | numpy, cupy, torch |
-| L-BFGS-B | box-constrained problems | numpy |
+| L-BFGS-B | box-constrained problems | numpy, cupy, torch |
 | ADMM | sum of separable penalties | numpy, cupy, torch |
 | exact | squared_error + L2 (closed-form) | numpy, cupy, torch |
 
@@ -72,17 +72,20 @@ statgpu provides 10 solvers for penalized loss minimization. This page documents
 
 **File**: `statgpu/solvers/_proximal_newton.py`
 
-**Use case**: Smooth losses with Hessian (Huber, Bisquare, Cox PH) + non-smooth penalties (SCAD/MCP via LLA). Converges in 5-10 iterations.
+**Use case**: Smooth losses with a smooth L2/no penalty Newton system.
+
+A general non-smooth proximal-Newton update requires a Hessian-metric proximal
+subproblem. The previous Euclidean-prox shortcut optimized the wrong composite
+objective. Direct non-smooth requests now emit a warning and use FISTA; the
+FISTA-LLA path likewise stays on its backend-native FISTA implementation until
+a metric proximal subproblem is implemented and explicitly advertised.
 
 ### Algorithm
 
-1. Compute Hessian H = X'WX and gradient g = X'ψ / n
-2. Newton direction: d = -H⁻¹·g
-3. Armijo line search (max 25 retries):
-   a. Trial point: β_try = proximal(β − step·d, step)
-   b. Check composite Armijo: f(β_try) + g(β_try) ≤ f(β) + g(β) + c·step·g'd
-   c. Halve step if not satisfied
-4. If Hessian singular or g'd ≤ 0: fall back to gradient descent
+1. Compute the loss and smooth-penalty gradient/Hessian exactly once.
+2. Solve the Newton system, using least squares only for a genuine rank failure.
+3. Run Armijo backtracking on the declared full objective.
+4. If the Newton direction is not a descent direction, use steepest descent.
 
 ### Convergence
 
@@ -176,8 +179,9 @@ BB steps are disabled for SCAD/MCP/group MCP/group SCAD. The abrupt subgradient 
 2. **LLA outer** (2-5 iterations per step):
    a. Compute LLA weights from SCAD/MCP at current β
    b. **Inner solver**:
-      - Losses with Hessian → Proximal Newton (5-10 iter)
-      - Losses without Hessian → FISTA (300+ iter)
+      - backend-native FISTA for composite LLA subproblems
+      - a future proximal-Newton path is gated on an explicit, correct
+        Hessian-metric proximal capability
    c. LLA convergence: ||β − β_before_lla||₁ < lla_tol
 
 ### Fused Kernels (GPU)

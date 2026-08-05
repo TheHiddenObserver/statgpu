@@ -1,18 +1,12 @@
 """Proximal Newton solver for smooth loss + non-smooth penalty.
 
-Solves: min f(x) + g(x)
-where f is smooth (loss) and g is non-smooth (penalty).
+Solves smooth loss plus a smooth penalty with Newton updates.
 
-Algorithm:
-1. Compute Newton direction: d = -H^-1 @ (grad_f + prox_grad_g)
-2. Line search: find step that decreases f(x + step*d) + g(x + step*d)
-3. Update: x = x + step * d
-
-Much faster than FISTA for problems where:
-- f has a Hessian (Huber, Bisquare, Fair, CoxPH)
-- g is non-smooth but has a proximal operator (L1, SCAD/MCP via LLA)
-
-Typical convergence: 5-10 iterations vs 300+ for FISTA.
+A general non-smooth proximal-Newton step requires solving the Hessian-metric
+proximal subproblem. The historical Euclidean-prox approximation optimized a
+different objective (and double-counted L2/ElasticNet curvature). Until a
+metric proximal subproblem solver is implemented, non-smooth penalties are
+explicitly delegated to the backend-native FISTA solver with a warning.
 """
 
 __all__ = ["proximal_newton_solver"]
@@ -73,6 +67,29 @@ def proximal_newton_solver(
     n_iter : int
         Number of iterations.
     """
+    _pen_name = str(getattr(penalty, "name", "none")).lower()
+    _is_smooth_pen = _pen_name in ("l2", "none", "null", "")
+    if not _is_smooth_pen:
+        warnings.warn(
+            "proximal_newton_solver delegates non-smooth penalties to "
+            "fista_solver because the Hessian-metric proximal subproblem is "
+            "not implemented; this preserves the declared objective.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        from ._fista import fista_solver
+
+        return fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=max_iter,
+            tol=tol,
+            init_coef=init_coef,
+            sample_weight=sample_weight,
+        )
+
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     _validate_sample_weight(sample_weight, X_proc.shape[0])
@@ -112,6 +129,7 @@ def proximal_newton_solver(
 
     # Check if loss supports fused gradient+hessian
     _has_fused = hasattr(loss, 'fused_gradient_and_hessian')
+    iteration = -1  # max_iter=0 returns the initialized coefficient vector
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -125,16 +143,10 @@ def proximal_newton_solver(
             loss_grad = loss.gradient(X_proc, y_proc, params, sample_weight=sample_weight)
             loss_hess = loss.hessian(X_proc, y_proc, params, sample_weight=sample_weight)
 
-        # Add smooth penalty gradient/hessian only for smooth penalties.
-        # Non-smooth penalties (L1, AdaptiveL1) are handled by proximal operator.
-        _pen_name = getattr(penalty, 'name', '')
-        _is_smooth_pen = _pen_name in ('l2', 'none', 'null', '', 'elasticnet')
-        if _is_smooth_pen:
-            grad = loss_grad + _smooth_penalty_gradient(penalty, params)
-            hess = loss_hess + _smooth_penalty_hessian(penalty, params)
-        else:
-            grad = loss_grad
-            hess = loss_hess
+        # Only smooth penalties reach this path. Their gradient and
+        # curvature are included exactly once in the Newton system.
+        grad = loss_grad + _smooth_penalty_gradient(penalty, params)
+        hess = loss_hess + _smooth_penalty_hessian(penalty, params)
         hess = 0.5 * (hess + hess.T)
 
         # Check convergence via gradient norm
@@ -190,11 +202,9 @@ def proximal_newton_solver(
             # Trial point: params_old - step * direction
             params_try = params_old - step * direction
 
-            # Apply proximal operator (handles non-smooth penalty)
-            if hasattr(penalty, 'proximal'):
-                # For weighted L1 (AdaptiveL1 from LLA): proximal is soft-threshold
-                params_try = penalty.proximal(params_try, step, backend=backend)
-
+            # Smooth penalty terms are already represented in the Newton
+            # direction; applying their proximal operator here would count the
+            # same penalty a second time.
             try:
                 obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try, sample_weight=sample_weight)
                 pen_try = float(_to_numpy(penalty.value(params_try[:n_features]))) if _has_pen_value else 0.0

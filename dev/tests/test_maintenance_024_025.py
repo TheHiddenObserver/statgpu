@@ -2825,3 +2825,119 @@ def test_lbfgsb_cupy_bounds_and_projection_are_backend_native():
     grad = cp.asarray([1.0, -1.0, -1.0], dtype=cp.float32)
     projected = _projected_gradient(grad, clipped, lb, ub, "cupy")
     cp.testing.assert_allclose(projected, cp.asarray([0.0, -1.0, 0.0]))
+
+# PR87_REVIEW_FIX_V39
+def test_admm_legitimate_cholesky_failure_initializes_iterative_fallback(monkeypatch):
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import admm_solver
+
+    def not_positive_definite(*args, **kwargs):
+        raise np.linalg.LinAlgError("not positive definite")
+
+    monkeypatch.setattr(np.linalg, "cholesky", not_positive_definite)
+    coef, n_iter = admm_solver(
+        SquaredErrorLoss(),
+        get_penalty("l1", alpha=0.05),
+        np.column_stack([np.ones(6), np.arange(6.0)]),
+        np.arange(6.0),
+        max_iter=2,
+    )
+    assert n_iter >= 0
+    assert np.all(np.isfinite(coef))
+
+
+def test_proximal_newton_max_iter_zero_returns_initialized_coefficients():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import proximal_newton_solver
+
+    init = np.array([0.25, -0.5])
+    coef, n_iter = proximal_newton_solver(
+        SquaredErrorLoss(),
+        get_penalty("l2", alpha=0.1),
+        np.column_stack([np.ones(4), np.arange(4.0)]),
+        np.arange(4.0),
+        init_coef=init,
+        max_iter=0,
+    )
+    np.testing.assert_allclose(coef, init)
+    assert n_iter == 0
+
+
+def test_proximal_newton_l2_matches_declared_closed_form_objective():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import proximal_newton_solver
+
+    X = np.array(
+        [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 2.0], [1.0, 4.0]],
+        dtype=np.float64,
+    )
+    y = np.array([0.2, 1.0, 2.1, 2.7, 5.3], dtype=np.float64)
+    alpha = 0.35
+    expected = np.linalg.solve(
+        X.T @ X / X.shape[0] + alpha * np.eye(X.shape[1]),
+        X.T @ y / X.shape[0],
+    )
+    coef, _ = proximal_newton_solver(
+        SquaredErrorLoss(),
+        get_penalty("l2", alpha=alpha),
+        X,
+        y,
+        max_iter=20,
+        tol=1e-12,
+    )
+    np.testing.assert_allclose(coef, expected, rtol=1e-8, atol=1e-9)
+
+
+def test_proximal_newton_nonsmooth_fallback_is_explicit_and_objective_preserving():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import fista_solver, proximal_newton_solver
+
+    X = np.array([[1.0], [2.0], [3.0], [4.0]], dtype=np.float64)
+    y = np.array([1.0, 1.8, 3.2, 3.9], dtype=np.float64)
+    penalty = get_penalty("l1", alpha=0.05)
+    with pytest.warns(RuntimeWarning, match="delegates non-smooth penalties"):
+        delegated = proximal_newton_solver(
+            SquaredErrorLoss(), penalty, X, y, max_iter=40, tol=1e-10
+        )
+    direct = fista_solver(
+        SquaredErrorLoss(), penalty, X, y, max_iter=40, tol=1e-10
+    )
+    np.testing.assert_allclose(delegated[0], direct[0], rtol=0.0, atol=0.0)
+    assert delegated[1] == direct[1]
+
+
+def test_fista_lla_requires_explicit_metric_proximal_newton_capability():
+    from pathlib import Path
+
+    source = Path("statgpu/solvers/_fista_lla.py").read_text(encoding="utf-8")
+    assert "_supports_metric_proximal_newton" in source
+
+
+def test_lbfgsb_projects_quasi_newton_direction_and_rejects_nan_bounds():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import lbfgs_b_solver
+    from statgpu.solvers._lbfgs_b import _project_direction
+
+    params = np.array([-1.0, 0.5, 2.0])
+    lb = np.array([-1.0, 0.0, 0.0])
+    ub = np.array([1.0, 1.0, 2.0])
+    direction = np.array([-2.0, 0.25, 3.0])
+    np.testing.assert_allclose(
+        _project_direction(direction, params, lb, ub, "numpy"),
+        np.array([0.0, 0.25, 0.0]),
+    )
+
+    with pytest.raises(ValueError, match="must not contain NaN"):
+        lbfgs_b_solver(
+            SquaredErrorLoss(),
+            get_penalty("l2", alpha=0.1),
+            np.ones((3, 1)),
+            np.ones(3),
+            lower_bounds=np.array([np.nan]),
+            upper_bounds=np.array([1.0]),
+        )

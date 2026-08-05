@@ -4,6 +4,8 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Removed the incorrect Euclidean-prox Newton shortcut that duplicated smooth penalty terms and solved the wrong non-smooth objective. Smooth L2/no-penalty requests retain Newton updates; non-smooth requests now explicitly use FISTA, and FISTA-LLA requires a future metric-prox capability.
+- Completed ADMM's legitimate Cholesky-to-iterative fallback and kept L-BFGS-B directions/bounds feasible and backend-native.
 - Hardened adjacent Newton, proximal-Newton, ADMM, FISTA-BB, L-BFGS, and L-BFGS-B contracts: validate weights before curvature work, only downgrade true singular systems, preserve dtype/device for proximal Newton and CuPy bounds, and use the correct squared-gradient Armijo slope.
 - Kept direct solver and penalized-CV sample-weight checks backend-native, validated weights before weighted Lipschitz operations, rejected overflowing weight totals, and made HC1 analytic-weight inference invariant to global weight rescaling.
 - Fixed Issue #45 by routing statgpu-owned Torch compilation through a

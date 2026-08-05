@@ -484,19 +484,20 @@ def fista_lla_path(
                     break
             _record_path_alpha(cont_alpha)
     else:
-        # Generic path: fixed-step FISTA for quadratic/no-Hessian losses and
-        # proximal Newton for genuinely non-quadratic Hessian-equipped losses.
-        # For losses with Hessian: use Proximal Newton (5-10 iter per LLA step).
-        # For losses without Hessian: use FISTA (300+ iter per LLA step).
+        # Generic path: fixed-step FISTA is the correctness-preserving
+        # default for composite penalties. A proximal-Newton branch is used
+        # only when a loss explicitly advertises a correct Hessian-metric
+        # proximal subproblem implementation.
         # Cox partial likelihood has a Hessian, but the generic composite
         # proximal-Newton Armijo rule is not reliable for its risk-set
         # objective and frequently rejects every step.  Use the backend-native
         # FISTA-LLA path for Cox until a Cox-specific proximal Newton line
         # search is available.
         _has_hessian = (
-            getattr(loss, 'has_hessian', False)
+            getattr(loss, "has_hessian", False)
+            and getattr(loss, "_supports_metric_proximal_newton", False)
             and not _is_quadratic
-            and getattr(loss, 'name', '') != 'cox_ph'
+            and getattr(loss, "name", "") != "cox_ph"
         )
         _is_numpy = backend == "numpy"
 

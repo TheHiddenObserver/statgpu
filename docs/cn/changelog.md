@@ -9,6 +9,8 @@
 
 ### 运行时安全
 
+- 删除会重复计入光滑惩罚、从而优化错误目标的 Euclidean-prox Newton 快捷路径；光滑目标保留 Newton，非光滑目标在 Hessian-metric proximal 求解器完成前显式使用 FISTA。
+- 补全 ADMM 的 Cholesky 降级初始化，并强化 L-BFGS-B 的可行方向与 NaN bounds 校验。
 - 相邻的 Newton、proximal-Newton、ADMM、FISTA-BB、L-BFGS 与 L-BFGS-B 路径现在会在曲率计算前校验权重，仅对真正的奇异系统降级，保持 proximal Newton 与 CuPy bounds 的 dtype/device，并采用正确的梯度平方 Armijo 斜率。
 - direct solver 与 penalized-CV 的 sample-weight 检查现在保持在所选 backend，并在 weighted Lipschitz 运算前执行；权重总和溢出会被拒绝，HC1 analytic-weight inference 对全局权重缩放保持不变。
 - statgpu 内部迭代式 Torch kernel 统一通过集中式 compile policy。
