@@ -3610,3 +3610,50 @@ def test_penalized_cv_infrastructure_classifier_is_narrow():
     assert not _cv_exception_is_infrastructure_failure(
         ValueError("numeric domain error")
     )
+
+
+
+def test_penalized_cv_lipschitz_recovery_includes_cupy_linalg_only():
+    from statgpu.linear_model.penalized._penalized_cv import (
+        _cv_lipschitz_failure_is_recoverable,
+    )
+
+    CupyLinAlgError = type(
+        "LinAlgError", (Exception,), {"__module__": "cupy.linalg._solve"}
+    )
+    assert _cv_lipschitz_failure_is_recoverable(
+        CupyLinAlgError("singular matrix")
+    )
+    assert _cv_lipschitz_failure_is_recoverable(
+        np.linalg.LinAlgError("singular matrix")
+    )
+    assert not _cv_lipschitz_failure_is_recoverable(
+        RuntimeError("CUDA out of memory")
+    )
+
+
+def test_penalized_cv_alpha_grid_does_not_hide_memory_failure(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+    import statgpu.linear_model.penalized._base as base_mod
+
+    class FailingModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit(self, *args, **kwargs):
+            raise MemoryError("host allocation failed")
+
+    monkeypatch.setattr(base_mod, "PenalizedGeneralizedLinearModel", FailingModel)
+    owner = object.__new__(cv_mod.PenalizedGLM_CV)
+    owner.loss = "poisson"
+    owner.penalty = "l1"
+    owner.l1_ratio = 1.0
+    owner._n_alphas = 5
+    owner._loss_kwargs = None
+    owner._penalty_kwargs = None
+
+    with pytest.raises(MemoryError, match="host allocation failed"):
+        owner._generate_alpha_grid(
+            np.array([[1.0], [2.0], [3.0]]),
+            np.array([1.0, 2.0, 3.0]),
+        )

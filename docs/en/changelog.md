@@ -1,5 +1,7 @@
 # Changelog
 
+- Completed penalized-CV fallback hardening: optional Lipschitz recovery now recognizes NumPy/CuPy/Torch rank failures consistently, while alpha-grid estimation no longer hides memory or GPU infrastructure failures.
+
 - Preserved the declared validation objective in penalized CV: non-Gaussian losses no longer silently fall back to MSE, weighted squared-error fallback retains validation weights, and GPU infrastructure failures propagate through layered CV fallbacks.
 
 - Narrowed GPU linear-algebra fallbacks so only genuine rank/definiteness failures use least-squares, pseudo-inverse, ridge, or zero-block recovery; CUDA OOM, device, index, and programming errors now propagate.

@@ -27,7 +27,13 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
-from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
+from statgpu.backends._array_ops import (
+    _copy_arr,
+    _linalg_exception_is_rank_failure,
+    _soft_threshold,
+    _xp_zeros,
+    _zeros,
+)
 from statgpu.backends._utils import _to_float_scalar
 from statgpu.cross_validation._base import (
     CVEstimatorBase,
@@ -148,6 +154,14 @@ def _weighted_mse_fallback(y_true, y_pred, sample_weight=None) -> float:
 
 def _is_squared_error_loss_name(loss_name) -> bool:
     return str(loss_name).lower() in ("squared_error", "gaussian", "normal")
+
+
+def _cv_lipschitz_failure_is_recoverable(exc) -> bool:
+    """Return whether an optional Lipschitz hint may defer to the solver."""
+    return isinstance(
+        exc,
+        (NotImplementedError, ValueError, FloatingPointError, OverflowError),
+    ) or _linalg_exception_is_rank_failure(exc)
 
 
 def _is_uniform_weight(sample_weight) -> bool:
@@ -1648,10 +1662,13 @@ def _glm_sparse_cv_path(
             lipschitz_L = float(_to_numpy(loss_fn.lipschitz(X_work, zero_lip, y=yb)))
             if not np.isfinite(lipschitz_L) or lipschitz_L <= 0.0:
                 lipschitz_L = None
-        except (NotImplementedError, ValueError, FloatingPointError,
-                OverflowError, np.linalg.LinAlgError):
+        except Exception as exc:
+            if not _cv_lipschitz_failure_is_recoverable(exc):
+                raise
             # A solver may estimate L internally when the optional closed-form
-            # Lipschitz hint is unavailable or numerically invalid.
+            # Lipschitz hint is unavailable or numerically invalid.  The shared
+            # classifier includes NumPy, CuPy, and Torch rank failures without
+            # treating OOM/device errors as recoverable.
             lipschitz_L = None
 
     scores = []
@@ -2291,6 +2308,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     grad = X_np.T @ (sw_np * residual) / normalization
                 alpha_max = float(np.max(np.abs(grad)))
             except Exception as e:
+                _raise_cv_infrastructure_failure(e)
                 warnings.warn(
                     f"Alpha grid estimation failed ({e}), using alpha_max=1.0",
                     RuntimeWarning,
