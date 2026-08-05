@@ -81,22 +81,27 @@ For `kkt` mode, the optimality condition is:
 ## Parameters
 
 | Parameter | Default | Description |
-|-----------|--------:|-------------|
-| `alpha` | `1.0` | Regularization strength (α) |
-| `l1_ratio` | `0.5` | L1 mixing parameter (λ): 0=Ridge, 1=Lasso |
-| `device` | `"cpu"` | Device: `cpu` / `cuda` |
-| `backend` | `None` | Backend: `numpy` / `cupy` / `torch` (auto-detected if None) |
-| `max_iter` | `5000` | Maximum iterations |
-| `tol` | `1e-6` | Convergence tolerance |
-| `fit_intercept` | `True` | Whether to fit intercept |
-| `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt` |
-| `warm_start` | `False` | Reuse previous fit as initialization |
-| `random_state` | `None` | Random seed for reproducibility |
-| `gpu_memory_cleanup` | `False` | Clean GPU memory after fit (CuPy only) |
+|-----------|---------|-------------|
+| `alpha` | `1.0` | Overall regularization strength |
+| `l1_ratio` | `0.5` | L1 mixing proportion: 0=Ridge, 1=Lasso |
+| `fit_intercept` | `True` | Fit an unpenalized intercept |
+| `max_iter` | `1000` | Maximum solver iterations |
+| `tol` | `1e-4` | Convergence tolerance |
+| `stopping` | `"coef_delta"` | `"coef_delta"` or `"kkt"` stopping rule |
+| `device` | `"auto"` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` |
+| `n_jobs` | `None` | CPU parallelism where supported |
+| `solver` | `"fista"` | Backend-aware optimization method |
+| `cpu_solver` | `"fista"` | CPU solver override |
+| `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant |
+| `gpu_memory_cleanup` | `False` | Release backend memory pools after fit where supported |
 | `compute_inference` | `False` | Compute post-fit coefficient inference |
-| `inference_method` | `"debiased"` | Debiased, post-selection OLS, or bootstrap inference |
+| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
 | `cov_type` | `"nonrobust"` | Covariance convention where applicable |
 | `hac_maxlags` | `None` | HAC lag count where supported |
+
+The public wrapper does not accept separate `backend`, `warm_start`, or
+`random_state` constructor parameters. Backend selection is controlled by
+`device`; a one-fit warm start can be supplied through `fit(initial_coef=...)`.
 
 ## CPU/GPU Examples
 
@@ -157,11 +162,18 @@ For `ElasticNetCV`, `compute_inference=True` applies inference only to the final
 full-data refit after alpha and `l1_ratio` have been selected. Fold models remain
 estimation-only.
 
-## strict/approx difference
+## Solver and Inference Semantics
 
-ElasticNet uses the **approximate** (default) solver path:
-- **approx**: FISTA with fixed Lipschitz constant, convergence checked via coefficient delta. Fast but no inference guarantees.
-- **strict**: Not applicable for standalone ElasticNet. For debiased inference, use `PenalizedGeneralizedLinearModel` with `compute_inference=True`, which runs nodewise Lasso to construct the debiasing matrix M.
+The default estimator uses FISTA for the declared Elastic Net objective. The
+`stopping` option changes only the convergence diagnostic (`coef_delta` versus
+KKT violation); it does not define a separate statistical approximation mode.
+
+`compute_inference=False` returns the penalized estimate only. With
+`compute_inference=True`, the same fitted coefficients are retained and the
+selected post-fit inference method is run afterward. The standalone
+`ElasticNet` wrapper and the final full-data refit of `ElasticNetCV` both support
+this contract directly; users do not need to switch estimator classes merely
+to request debiased inference.
 
 ## Outputs
 

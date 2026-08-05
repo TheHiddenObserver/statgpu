@@ -1,5 +1,7 @@
 # Changelog
 
+- Reconciled the ElasticNet API documentation with the implementation by correcting constructor defaults, removing nonexistent parameters, and replacing stale strict/approx guidance with the actual FISTA and post-fit inference semantics.
+
 - Completed the public ElasticNet inference contract: the standalone wrapper now exposes and forwards inference options, and ElasticNetCV honors `compute_inference=True` on its final full-data refit with NumPy/CuPy/Torch matrix tests.
 
 - Integrated transactional CV reset with the shared public finite-input guard, so NaN/Inf refit attempts invalidate stale RidgeCV, ElasticNetCV, LogisticRegressionCV, and unified penalized-CV state before validation raises.

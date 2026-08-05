@@ -1,5 +1,7 @@
 # Changelog
 
+- 统一 ElasticNet API 文档与实现：修正构造参数默认值、删除不存在的参数，并用实际 FISTA 与拟合后推断语义替换过时的 strict/approx 说明。
+
 - 完成公开 ElasticNet 推断契约：独立 wrapper 现暴露并透传推断选项，ElasticNetCV 的最终全数据重拟合会真实执行 `compute_inference=True`，并补充 NumPy/CuPy/Torch 矩阵测试。
 
 - 将事务式 CV 重置接入共享的公开有限值校验，使 NaN/Inf 重拟合在抛错前先使旧的 RidgeCV、ElasticNetCV、LogisticRegressionCV 与统一 penalized-CV 状态失效。
