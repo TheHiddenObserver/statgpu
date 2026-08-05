@@ -1,5 +1,7 @@
 # Changelog
 
+- Logistic and ElasticNet CV default regularization grids now use analytic weights and satisfy integer-weight row-replication equivalence; CV GPU-array device inspection no longer masks runtime failures.
+
 - Dedicated Ridge, ElasticNet, and Logistic CV routines now preserve explicit Torch versus CuPy backend requests, normalize Device enum values consistently, and validate analytic weights before grid generation or degenerate returns.
 
 - Corrected analytic-weight LogisticRegression IRLS across NumPy, CuPy, and Torch: weights now enter WLS curvature rather than the working-response denominator, and weighted likelihood/inference use the same objective. Narrowed penalized-CV alpha-grid and exact CuPy Ridge fallbacks so programming, CUDA OOM, and device errors propagate.

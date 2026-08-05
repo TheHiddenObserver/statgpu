@@ -112,62 +112,33 @@ from statgpu.cross_validation._base import kfold_indices as _kfold_indices, fold
 # Alpha grid generation for ElasticNet
 # =============================================================================
 
+
 def _default_elasticnet_alpha_grid(
     X,
     y,
     l1_ratio: float = 0.5,
     n_alphas: int = 100,
     alpha_min_ratio: float = 1e-3,
+    sample_weight=None,
 ) -> np.ndarray:
-    """
-    Generate default alpha grid for ElasticNet.
-
-    Parameters
-    ----------
-    X : array-like
-        Design matrix (n_samples, n_features).
-    y : array-like
-        Response vector.
-    l1_ratio : float
-        L1 ratio (0.0 = Ridge, 1.0 = Lasso).
-    n_alphas : int
-        Number of alpha values.
-    alpha_min_ratio : float
-        Minimum alpha as a ratio of max alpha.
-
-    Returns
-    -------
-    alphas : ndarray
-        Log-spaced alpha values.
-    """
+    """Generate a grid for the declared weighted ElasticNet objective."""
     X_arr = np.asarray(X, dtype=np.float64)
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
-
-    n_samples, n_features = X_arr.shape
-
-    # Handle intercept by centering
-    X_mean = np.mean(X_arr, axis=0)
-    y_mean = np.mean(y_arr)
+    if sample_weight is None:
+        weight = np.ones(y_arr.shape[0], dtype=np.float64)
+    else:
+        weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+    weight_sum = float(np.sum(weight))
+    X_mean = np.sum(X_arr * weight[:, None], axis=0) / weight_sum
+    y_mean = float(np.sum(y_arr * weight) / weight_sum)
     X_centered = X_arr - X_mean
     y_centered = y_arr - y_mean
-
-    # Compute correlation for alpha_max
-    Xty = X_centered.T @ y_centered
-
-    # alpha_max = max(|X'c yc|) / (n * l1_ratio)
-    # For l1_ratio=1 (Lasso): max(|X'y|) / n
-    # For l1_ratio<1: larger because L2 penalty contributes less
-    _l1r = max(float(l1_ratio), 1e-6)
-    alpha_max = float(np.max(np.abs(Xty))) / (n_samples * _l1r)
+    Xty = X_centered.T @ (weight * y_centered)
+    l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(np.max(np.abs(Xty))) / (weight_sum * l1r)
     alpha_max = max(alpha_max, 1e-6)
-
-    if alpha_max <= 0:
-        alpha_max = 1.0
-
-    # Log-spaced grid
     if int(n_alphas) <= 1:
         return np.asarray([alpha_max], dtype=np.float64)
-
     alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
 
@@ -179,57 +150,28 @@ def _default_elasticnet_alpha_grid_backend(
     l1_ratio: float = 0.5,
     n_alphas: int = 100,
     alpha_min_ratio: float = 1e-3,
+    sample_weight=None,
 ) -> np.ndarray:
-    """
-    Generate default alpha grid for ElasticNet using backend abstraction.
-
-    Parameters
-    ----------
-    X : array-like
-        Design matrix.
-    y : array-like
-        Response vector.
-    backend : BackendBase
-        Backend instance.
-    l1_ratio : float
-        L1 ratio.
-    n_alphas : int
-        Number of alpha values.
-    alpha_min_ratio : float
-        Minimum alpha ratio.
-
-    Returns
-    -------
-    alphas : ndarray
-        Log-spaced alpha values.
-    """
+    """Backend-native weighted ElasticNet alpha grid."""
     X_arr = backend.asarray(X, dtype=backend.float64)
     y_arr = backend.asarray(y, dtype=backend.float64).reshape(-1)
-
-    n_samples = int(X_arr.shape[0])
-
-    # Center data
-    X_mean = backend.mean(X_arr, axis=0)
-    y_mean = backend.mean(y_arr)
+    if sample_weight is None:
+        weight = backend.ones(y_arr.shape[0], dtype=backend.float64)
+    else:
+        weight = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
+    weight_sum = float(backend.sum(weight))
+    X_mean = backend.sum(X_arr * weight[:, None], axis=0) / weight_sum
+    y_mean = backend.sum(y_arr * weight) / weight_sum
     X_centered = X_arr - X_mean
     y_centered = y_arr - y_mean
-
-    # Compute Xty
-    Xty = X_centered.T @ y_centered
-
-    # Alpha max: max(|X'y|) / (n * l1_ratio)
-    _l1r = max(float(l1_ratio), 1e-6)
-    alpha_max = float(backend.max(backend.abs(Xty))) / (n_samples * _l1r)
-
-    if alpha_max <= 0:
-        alpha_max = 1.0
-
+    Xty = X_centered.T @ (weight * y_centered)
+    l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(backend.max(backend.abs(Xty))) / (weight_sum * l1r)
+    alpha_max = max(alpha_max, 1e-6)
     if int(n_alphas) <= 1:
         return np.asarray([alpha_max], dtype=np.float64)
-
     alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
-
 
 # =============================================================================
 # CV main function
@@ -355,11 +297,13 @@ def _select_elasticnet_params_cv(
             if gpu_input_cupy or gpu_input_torch:
                 # backend was selected strictly by resolve_cv_backend above
                 alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
-                    X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                    X, y, backend, l1_ratio=l1r, n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio, sample_weight=validated_weight,
                 )
             else:
                 alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
-                    X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                    X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
                 )
         else:
             alpha_grid = np.asarray(alphas, dtype=np.float64)
@@ -369,11 +313,13 @@ def _select_elasticnet_params_cv(
                 if gpu_input_cupy or gpu_input_torch:
                     # backend was selected strictly by resolve_cv_backend above
                     alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
-                        X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                        X, y, backend, l1_ratio=l1r, n_alphas=n_alphas,
+                        alpha_min_ratio=alpha_min_ratio, sample_weight=validated_weight,
                     )
                 else:
                     alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
-                        X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                        X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas,
+                        alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
                     )
             else:
                 alpha_grids[l1_idx] = alpha_grid

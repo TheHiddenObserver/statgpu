@@ -29,7 +29,7 @@ def _array_gpu_backend(value):
     if module.startswith("torch"):
         try:
             device = str(value.device)
-        except Exception:
+        except AttributeError:
             return None
         return "torch" if device.startswith("cuda") else None
     return None

@@ -3901,3 +3901,48 @@ def test_dedicated_cv_validates_weights_before_degenerate_return(selector, kwarg
         )
     with pytest.raises(ValueError, match="finite positive sum"):
         fn(X, y, sample_weight=np.zeros(6), **kwargs)
+
+
+def test_logistic_default_grid_respects_integer_weight_replication():
+    from statgpu.linear_model.cv._logistic_cv import _default_logistic_c_grid
+
+    X = np.array([[0.0, 1.0], [1.0, -1.0], [2.0, 0.5], [-1.0, 2.0]])
+    y = np.array([0.0, 1.0, 1.0, 0.0])
+    weight = np.array([1, 3, 2, 1])
+    weighted = _default_logistic_c_grid(X, y, n_Cs=7, sample_weight=weight)
+    replicated = _default_logistic_c_grid(
+        np.repeat(X, weight, axis=0), np.repeat(y, weight), n_Cs=7
+    )
+    np.testing.assert_allclose(weighted, replicated, rtol=1e-12, atol=1e-12)
+
+
+def test_elasticnet_default_grid_respects_integer_weight_replication():
+    from statgpu.linear_model.cv._elasticnet_cv import _default_elasticnet_alpha_grid
+
+    X = np.array([[0.0, 1.0], [1.0, -1.0], [2.0, 0.5], [-1.0, 2.0]])
+    y = np.array([0.5, 2.0, -1.0, 1.5])
+    weight = np.array([1, 3, 2, 1])
+    weighted = _default_elasticnet_alpha_grid(
+        X, y, l1_ratio=0.6, n_alphas=7, sample_weight=weight
+    )
+    replicated = _default_elasticnet_alpha_grid(
+        np.repeat(X, weight, axis=0),
+        np.repeat(y, weight),
+        l1_ratio=0.6,
+        n_alphas=7,
+    )
+    np.testing.assert_allclose(weighted, replicated, rtol=1e-12, atol=1e-12)
+
+
+def test_cv_device_inspection_does_not_mask_runtime_failures():
+    from statgpu.linear_model.cv._device import _array_gpu_backend
+
+    class BrokenTorchArray:
+        __module__ = "torch"
+
+        @property
+        def device(self):
+            raise RuntimeError("CUDA device query failed")
+
+    with pytest.raises(RuntimeError, match="device query failed"):
+        _array_gpu_backend(BrokenTorchArray())

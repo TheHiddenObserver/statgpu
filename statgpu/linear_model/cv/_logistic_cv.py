@@ -92,55 +92,64 @@ from statgpu.cross_validation._base import kfold_indices as _kfold_indices, fold
 # C grid generation (C = 1/alpha, so we use similar approach)
 # =============================================================================
 
-def _default_logistic_c_grid(X, y, n_Cs: int = 100, C_min_ratio: float = 1e-3):
-    """
-    Generate default C grid for LogisticRegressionCV.
 
-    C values are log-spaced. Larger C = weaker regularization.
-
-    Parameters
-    ----------
-    X : ndarray
-        Design matrix (n_samples, n_features).
-    y : ndarray
-        Response vector.
-    n_Cs : int
-        Number of C values to generate.
-    C_min_ratio : float
-        Minimum C as a ratio of max C.
-
-    Returns
-    -------
-    Cs : ndarray
-        Log-spaced C values.
-    """
+def _default_logistic_c_grid(
+    X,
+    y,
+    n_Cs: int = 100,
+    C_min_ratio: float = 1e-3,
+    sample_weight=None,
+):
+    """Generate a default C grid for the declared weighted logistic loss."""
     X_arr = np.asarray(X, dtype=np.float64)
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
-
-    # Estimate C_max based on data
-    # For logistic regression, C_max is where coefficients become very large
-    # We use a heuristic based on the gradient at zero coefficients.
-    # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
-    grad = X_arr.T @ (y_arr - 0.5)
-    C_max = np.max(np.abs(grad)) * 2.0 / len(y_arr)
-
-    if C_max == 0:
+    if sample_weight is None:
+        residual = y_arr - 0.5
+        normalizer = float(y_arr.size)
+    else:
+        weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        residual = weight * (y_arr - 0.5)
+        normalizer = float(np.sum(weight))
+    grad = X_arr.T @ residual
+    C_max = float(np.max(np.abs(grad))) * 2.0 / normalizer
+    if not np.isfinite(C_max) or C_max <= 0.0:
         C_max = 1.0
-
-    C_min = C_max * C_min_ratio
-
-    # Log-spaced grid
-    if n_Cs <= 1:
-        return np.array([C_max])
-
-    Cs = np.logspace(
-        np.log10(C_min),
-        np.log10(C_max),
-        num=n_Cs,
-        dtype=np.float64,
+    if int(n_Cs) <= 1:
+        return np.asarray([C_max], dtype=np.float64)
+    C_min = max(float(C_min_ratio) * C_max, np.finfo(np.float64).tiny)
+    return np.logspace(
+        np.log10(C_min), np.log10(C_max), num=int(n_Cs), dtype=np.float64
     )
-    return Cs
 
+
+def _default_logistic_c_grid_backend(
+    X,
+    y,
+    backend,
+    n_Cs: int = 100,
+    C_min_ratio: float = 1e-3,
+    sample_weight=None,
+):
+    """Backend-native counterpart of :func:`_default_logistic_c_grid`."""
+    X_arr = backend.asarray(X, dtype=backend.float64)
+    y_arr = backend.asarray(y, dtype=backend.float64).reshape(-1)
+    if sample_weight is None:
+        residual = y_arr - 0.5
+        normalizer = float(y_arr.shape[0])
+    else:
+        weight = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
+        residual = weight * (y_arr - 0.5)
+        normalizer = float(backend.sum(weight))
+    grad = X_arr.T @ residual
+    C_max = float(backend.max(backend.abs(grad))) * 2.0 / normalizer
+    if not np.isfinite(C_max) or C_max <= 0.0:
+        C_max = 1.0
+    if int(n_Cs) <= 1:
+        return np.asarray([C_max], dtype=np.float64)
+    C_min = max(float(C_min_ratio) * C_max, np.finfo(np.float64).tiny)
+    return np.logspace(
+        np.log10(C_min), np.log10(C_max), num=int(n_Cs), dtype=np.float64
+    )
 
 # =============================================================================
 # Batch log-loss computation
@@ -420,6 +429,9 @@ def _select_logistic_c_cv(
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
+        y_check = backend.asarray(y).reshape(-1)
+        if int(y_check.shape[0]) != n_samples:
+            raise ValueError("y must have the same number of rows as X")
     else:
         X_np = np.asarray(X, dtype=np.float64)
         y_np = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -435,41 +447,48 @@ def _select_logistic_c_cv(
     if validated_weight is not None and not use_gpu:
         sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
 
-    # Generate C grid
+
+    # Generate a grid for the same weighted objective optimized in each fold.
     if Cs is None:
-        if gpu_input_cupy or gpu_input_torch:
-            # GPU path for C grid generation
-            # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
-            # Do NOT center X/y — centering is incorrect for logistic regression
-            # backend was selected strictly by resolve_cv_backend above
-            X_temp = backend.asarray(X)
-            y_temp = backend.asarray(y)
-            grad = X_temp.T @ (y_temp - 0.5)
-            C_max = float(backend.max(backend.abs(grad)) * 2.0 / len(y_temp))
-            if C_max == 0:
-                C_max = 1.0
-            C_min = C_max * C_min_ratio
-            C_grid = np.logspace(np.log10(C_min), np.log10(C_max), num=n_Cs)
+        if use_gpu:
+            C_grid = _default_logistic_c_grid_backend(
+                X,
+                y,
+                backend,
+                n_Cs=n_Cs,
+                C_min_ratio=C_min_ratio,
+                sample_weight=validated_weight,
+            )
         else:
-            C_grid = _default_logistic_c_grid(X_np, y_np, n_Cs=n_Cs, C_min_ratio=C_min_ratio)
+            C_grid = _default_logistic_c_grid(
+                X_np,
+                y_np,
+                n_Cs=n_Cs,
+                C_min_ratio=C_min_ratio,
+                sample_weight=sample_weight_np,
+            )
     else:
         C_grid = np.asarray(Cs, dtype=np.float64)
         C_grid = C_grid[np.isfinite(C_grid)]
         C_grid = C_grid[C_grid > 0.0]
         if C_grid.size == 0:
-            if gpu_input_cupy or gpu_input_torch:
-                # GPU path for C grid generation
-                # backend was selected strictly by resolve_cv_backend above
-                X_temp = backend.asarray(X)
-                y_temp = backend.asarray(y)
-                grad = X_temp.T @ (y_temp - 0.5)
-                C_max = float(backend.max(backend.abs(grad)) * 2.0 / len(y_temp))
-                if C_max == 0:
-                    C_max = 1.0
-                C_min = C_max * C_min_ratio
-                C_grid = np.logspace(np.log10(C_min), np.log10(C_max), num=n_Cs)
+            if use_gpu:
+                C_grid = _default_logistic_c_grid_backend(
+                    X,
+                    y,
+                    backend,
+                    n_Cs=n_Cs,
+                    C_min_ratio=C_min_ratio,
+                    sample_weight=validated_weight,
+                )
             else:
-                C_grid = _default_logistic_c_grid(X_np, y_np, n_Cs=n_Cs, C_min_ratio=C_min_ratio)
+                C_grid = _default_logistic_c_grid(
+                    X_np,
+                    y_np,
+                    n_Cs=n_Cs,
+                    C_min_ratio=C_min_ratio,
+                    sample_weight=sample_weight_np,
+                )
 
     # Handle degenerate cases
     if int(n_samples) < 4 or int(C_grid.size) == 1 or int(cv_folds) < 2:
