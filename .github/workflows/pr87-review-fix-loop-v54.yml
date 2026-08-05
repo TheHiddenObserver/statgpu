@@ -63,16 +63,25 @@ jobs:
               )
               torch_model._y = y.astype(float)
               torch_model._sample_weight = weight.astype(float)
+              torch_model._weight_sum = float(np.sum(weight))
               torch_model._fit_torch(
                   torch.as_tensor(X, dtype=torch.float64),
                   torch.as_tensor(y, dtype=torch.float64),
                   torch.as_tensor(weight, dtype=torch.float64),
               )
 
-              np.testing.assert_allclose(torch_model._intercept, cpu.intercept_, rtol=1e-8, atol=1e-9)
-              np.testing.assert_allclose(torch_model._coef, cpu.coef_, rtol=1e-8, atol=1e-9)
-              np.testing.assert_allclose(torch_model._bse, cpu._bse, rtol=1e-8, atol=1e-9)
-              np.testing.assert_allclose(torch_model._loglik, cpu._loglik, rtol=1e-9, atol=1e-9)
+              np.testing.assert_allclose(
+                  torch_model.intercept_, cpu.intercept_, rtol=1e-8, atol=1e-9
+              )
+              np.testing.assert_allclose(
+                  torch_model.coef_, cpu.coef_, rtol=1e-8, atol=1e-9
+              )
+              np.testing.assert_allclose(
+                  torch_model._bse, cpu._bse, rtol=1e-8, atol=1e-9
+              )
+              np.testing.assert_allclose(
+                  torch_model._loglik, cpu._loglik, rtol=1e-9, atol=1e-9
+              )
           '''
           replacement = "\n".join(
               line[10:] if line.startswith("          ") else line
