@@ -36,6 +36,32 @@ jobs:
           source = gzip.decompress(base64.b64decode(payload, validate=True))
           exec(compile(source, "pr87_patch_v56.py", "exec"))
           PY
+      - name: Normalize generated LogisticCV grid indentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("statgpu/linear_model/cv/_logistic_cv.py")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          function_start = next(
+              index for index, line in enumerate(lines)
+              if line.startswith("def _select_logistic_c_cv(")
+          )
+          start = next(
+              index for index in range(function_start, len(lines))
+              if lines[index] == "# Generate C grid"
+          )
+          end = next(
+              index for index in range(start + 1, len(lines))
+              if lines[index].lstrip() == "# Generate CV folds"
+          )
+          if any(lines[index] and lines[index].startswith(" ") for index in range(start, end)):
+              raise SystemExit("mixed indentation in generated LogisticCV grid block")
+          for index in range(start, end):
+              if lines[index]:
+                  lines[index] = "    " + lines[index]
+          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
