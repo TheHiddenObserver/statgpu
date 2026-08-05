@@ -1,0 +1,82 @@
+name: PR87 review fix batch v55
+
+on:
+  push:
+    branches:
+      - agent/maintenance-0.2.4-0.2.5
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr87-review-fix-v55
+  cancel-in-progress: false
+
+jobs:
+  apply-review-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Apply strict dedicated-CV device and weight fixes
+        run: |
+          python - <<'PY'
+          import base64
+          import gzip
+          from pathlib import Path
+          payload = "".join(
+              Path(f"pr87_patch_v55.part{i}").read_text(encoding="utf-8")
+              for i in range(2)
+          )
+          source = gzip.decompress(base64.b64decode(payload, validate=True))
+          exec(compile(source, "pr87_patch_v55.py", "exec"))
+          PY
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile changed modules
+        run: |
+          python -m py_compile \
+            statgpu/linear_model/cv/_device.py \
+            statgpu/linear_model/cv/_logistic_cv.py \
+            statgpu/linear_model/cv/_ridge_cv.py \
+            statgpu/linear_model/cv/_elasticnet_cv.py \
+            dev/tests/test_maintenance_024_025.py
+      - name: Run targeted CV contract tests
+        run: |
+          python -m pytest \
+            dev/tests/test_maintenance_024_025.py::test_dedicated_cv_device_resolution_preserves_explicit_backend \
+            dev/tests/test_maintenance_024_025.py::test_dedicated_cv_device_resolution_rejects_cross_library_switch \
+            dev/tests/test_maintenance_024_025.py::test_dedicated_cv_validates_weights_before_degenerate_return \
+            -q --tb=short
+      - name: Run full CPU and documentation validation
+        run: |
+          python -m pytest dev/tests -q --tb=short
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+      - name: Commit reviewed source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+TheHiddenObserver@users.noreply.github.com"
+          git rm -f \
+            pr87_patch_v55.part0 \
+            pr87_patch_v55.part1 \
+            .github/workflows/pr87-review-fix-loop-v55.yml
+          git add \
+            statgpu/linear_model/cv/_device.py \
+            statgpu/linear_model/cv/_logistic_cv.py \
+            statgpu/linear_model/cv/_ridge_cv.py \
+            statgpu/linear_model/cv/_elasticnet_cv.py \
+            dev/tests/test_maintenance_024_025.py \
+            CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: preserve dedicated CV backend contracts"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
