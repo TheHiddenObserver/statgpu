@@ -1022,3 +1022,31 @@ def test_formula_predict_dataframe_keeps_formula_missing_row_semantics():
     prediction = np.asarray(model.predict(new_data))
     assert prediction.shape == (3,)
     assert np.isfinite(prediction).all()
+
+
+# PR87_STEPWISE_LIFECYCLE_TESTS
+def test_stepwise_transform_and_set_params_lifecycle():
+    from statgpu.feature_selection import StepwiseSelector
+    from statgpu.linear_model import LinearRegression
+
+    X = np.column_stack([np.arange(8.0), np.arange(8.0) ** 2])
+    y = 1.0 + 2.0 * X[:, 0]
+    selector = StepwiseSelector(
+        LinearRegression, max_features=1, device="cpu"
+    ).fit(X, y)
+
+    transformed = selector.transform(X)
+    assert transformed.shape == (X.shape[0], 1)
+    assert selector.__sklearn_is_fitted__() is True
+
+    selector.set_params(criterion="BIC")
+    assert selector.criterion == "BIC"
+    assert selector._criterion == "bic"
+    assert selector.__sklearn_is_fitted__() is False
+    with pytest.raises(RuntimeError, match="not been fitted"):
+        selector.predict(X)
+
+    before = selector.get_params(deep=False)
+    with pytest.raises(ValueError, match="criterion"):
+        selector.set_params(criterion="invalid")
+    assert selector.get_params(deep=False) == before
