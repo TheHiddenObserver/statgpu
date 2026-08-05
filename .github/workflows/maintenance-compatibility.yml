@@ -32,6 +32,10 @@ jobs:
           python -m pip install "numpy<2" scipy pytest packaging pandas patsy "${{ matrix.sklearn_spec }}"
           python -m pip install -e . --no-deps
 
+      - name: Validate maintenance benchmark syntax
+        run: |
+          python -m py_compile dev/benchmarks/benchmark_torch_compile_maintenance.py
+
       - name: Run maintenance regressions
         run: |
           python -m pytest \
