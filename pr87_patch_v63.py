@@ -6,10 +6,14 @@ from pathlib import Path
 def replace_section(path: str, start: str, end: str, replacement: str) -> None:
     p = Path(path)
     text = p.read_text(encoding="utf-8")
-    if text.count(start) != 1 or text.count(end) != 1:
-        raise RuntimeError(f"{path}: section markers are not unique")
+    if text.count(start) != 1:
+        raise RuntimeError(f"{path}: start marker is not unique: {start!r}")
     lo = text.index(start)
-    hi = text.index(end, lo)
+    hi = text.find(end, lo + len(start))
+    if hi < 0:
+        raise RuntimeError(
+            f"{path}: end marker not found after start: {end!r}"
+        )
     p.write_text(text[:lo] + replacement + text[hi:], encoding="utf-8")
 
 
@@ -100,7 +104,7 @@ replace_section(
 replace_section(
     "docs/cn/models/elastic-net.md",
     "## strict/approx 区别\n",
-    "## 输出\n",
+    "## 输出属性\n",
     '''## 求解器与推断语义
 
 默认估计器使用 FISTA 优化声明的 Elastic Net 目标函数。`stopping` 仅改变
