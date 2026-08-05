@@ -52,8 +52,8 @@ def _validate_sample_weight_backend(sample_weight, n_samples, backend_name):
             raise ValueError("sample_weight must be non-negative")
         total = float(np.sum(weights))
 
-    if total <= 0.0:
-        raise ValueError("sample_weight must have a positive sum")
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("sample_weight must have a finite positive sum")
     return total
 
 # Losses with special LLA handling (not routed through generic GLM path).

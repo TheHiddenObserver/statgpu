@@ -9,6 +9,7 @@
 
 ### Runtime safety
 
+- Direct solver and penalized-CV sample-weight checks now remain on the selected backend, run before weighted Lipschitz operations, reject overflowing totals, and preserve HC1 analytic-weight scale invariance.
 - Internal iterative Torch kernels now use a centralized compile policy.
   The default avoids `reduce-overhead` CUDA Graph capture, while
   `STATGPU_TORCH_COMPILE_MODE` permits explicit `default`,

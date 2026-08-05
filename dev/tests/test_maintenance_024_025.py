@@ -2569,3 +2569,87 @@ def test_cupy_penalized_glm_complex_design_and_weight_rejected_on_device():
             solver="fista", device="cuda", compute_inference=False,
         ).fit(X, y, sample_weight=weight)
     assert isinstance(X_complex, cp.ndarray) and isinstance(weight, cp.ndarray)
+
+# PR87_REVIEW_FIX_V37
+def test_direct_fista_validates_weight_length_before_lipschitz():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import fista_solver
+
+    class GuardedSquaredError(SquaredErrorLoss):
+        def lipschitz(self, *args, **kwargs):
+            raise AssertionError("lipschitz must not run before weight validation")
+
+    X = np.ones((3, 1), dtype=np.float64)
+    y = np.arange(3.0)
+    with pytest.raises(ValueError, match="length n_samples"):
+        fista_solver(
+            GuardedSquaredError(),
+            get_penalty("l2", alpha=0.0),
+            X,
+            y,
+            sample_weight=np.ones(2),
+        )
+
+
+def test_solver_weight_validation_does_not_copy_torch_tensor(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._utils as solver_utils
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("sample_weight must not be copied through _to_numpy")
+
+    monkeypatch.setattr(solver_utils, "_to_numpy", forbidden)
+    weights = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64)
+    solver_utils._validate_sample_weight(weights, 3)
+    assert torch.equal(weights, torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64))
+
+
+def test_penalized_cv_uniform_weight_check_does_not_copy_torch_tensor(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.linear_model.penalized._penalized_cv as penalized_cv
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("uniform-weight check must stay backend-native")
+
+    monkeypatch.setattr(penalized_cv, "_to_numpy", forbidden)
+    assert penalized_cv._is_uniform_weight(torch.ones(4, dtype=torch.float64))
+    assert not penalized_cv._is_uniform_weight(
+        torch.tensor([1.0, 1.0, 2.0, 1.0], dtype=torch.float64)
+    )
+
+
+def test_glm_weight_validation_rejects_overflowing_total():
+    from statgpu.glm_core._validation import validate_glm_sample_weight
+    from statgpu.solvers._utils import _validate_sample_weight
+
+    weights = np.array([np.finfo(np.float64).max, np.finfo(np.float64).max])
+    with np.errstate(over="ignore"):
+        with pytest.raises(ValueError, match="finite positive sum"):
+            validate_glm_sample_weight(weights, 2)
+        with pytest.raises(ValueError, match="finite positive sum"):
+            _validate_sample_weight(weights, 2)
+
+
+def test_glm_hc1_analytic_weight_diagnostics_are_scale_invariant():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-1.0], [0.0], [2.0], [4.0], [5.0]], dtype=np.float64)
+    y = np.array([-0.4, 0.5, 2.2, 5.1, 5.8], dtype=np.float64)
+    weights = np.array([0.5, 1.5, 2.0, 4.0, 3.0], dtype=np.float64)
+
+    def fit(current_weights):
+        return GeneralizedLinearModel(
+            family="gaussian",
+            solver="irls",
+            C=0.0,
+            max_iter=100,
+            tol=1e-12,
+            device="cpu",
+            compute_inference=True,
+            cov_type="hc1",
+        ).fit(X, y, sample_weight=current_weights)
+
+    weighted = fit(weights)
+    scaled = fit(29.0 * weights)
+    np.testing.assert_allclose(weighted._bse, scaled._bse, rtol=1e-11, atol=1e-11)

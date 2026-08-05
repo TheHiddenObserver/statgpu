@@ -215,10 +215,14 @@ def assemble_cov_avg(
     n_eff,
     k,
     cov_type,
+    *,
+    hc1_n=None,
 ) -> np.ndarray:
     """Assemble covariance: cov = bread_avg @ meat_avg @ bread_avg / n_eff.
 
-    HC1: multiply by n_eff / (n_eff - k).
+    HC1: multiply by n / (n - k), where ``n`` is the observation count.
+    For analytic weights this keeps the correction invariant to a global
+    rescaling of the weights; ``n_eff`` remains the sandwich normalization.
 
     Parameters
     ----------
@@ -229,6 +233,9 @@ def assemble_cov_avg(
     k : int
         Number of parameters (including intercept if applicable).
     cov_type : str
+    hc1_n : int or float, optional
+        Observation count used by the HC1 finite-sample correction. Defaults
+        to ``n_eff`` for backward-compatible direct calls.
 
     Returns
     -------
@@ -238,8 +245,9 @@ def assemble_cov_avg(
 
     cov = bread_avg @ meat_avg @ bread_avg / n_eff
 
-    if cov_type == "hc1" and n_eff > k:
-        cov = cov * (n_eff / (n_eff - k))
+    correction_n = float(n_eff if hc1_n is None else hc1_n)
+    if cov_type == "hc1" and correction_n > k:
+        cov = cov * (correction_n / (correction_n - k))
 
     return cov
 
@@ -346,7 +354,14 @@ def m_estimation_inference(
             bread_avg=bread_avg,
             sample_weight=sample_weight,
         )
-        cov = assemble_cov_avg(bread_avg, meat_avg, n_eff, k, cov_type)
+        cov = assemble_cov_avg(
+            bread_avg,
+            meat_avg,
+            n_eff,
+            k,
+            cov_type,
+            hc1_n=X.shape[0],
+        )
 
     # ---- standard errors ----
     cov_diag = xp.diag(cov)

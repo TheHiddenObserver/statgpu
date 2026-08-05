@@ -90,11 +90,36 @@ class ApproximateCVWarning(UserWarning):
 
 
 def _is_uniform_weight(sample_weight) -> bool:
-    """Check if sample_weight is uniform (all elements equal) or None."""
+    """Check uniformity on the current backend and synchronize one boolean."""
     if sample_weight is None:
         return True
-    sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-    return not sw_np.size or np.allclose(sw_np, sw_np[0])
+    module = type(sample_weight).__module__
+    if module.startswith("torch"):
+        import torch
+
+        values = sample_weight.reshape(-1)
+        if int(values.numel()) == 0:
+            return True
+        uniform = (
+            torch.allclose(values, values[0])
+            if torch.is_floating_point(values)
+            else torch.all(values == values[0])
+        )
+        return bool(uniform.item() if hasattr(uniform, "item") else uniform)
+    if module.startswith("cupy"):
+        import cupy as cp
+
+        values = sample_weight.reshape(-1)
+        if int(values.size) == 0:
+            return True
+        uniform = (
+            cp.allclose(values, values[0])
+            if getattr(values.dtype, "kind", "") == "f"
+            else cp.all(values == values[0])
+        )
+        return bool(uniform.item())
+    values = np.asarray(sample_weight).reshape(-1)
+    return not values.size or bool(np.allclose(values, values[0]))
 
 
 def _device_to_name(device):

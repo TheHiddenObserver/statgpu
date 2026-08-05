@@ -87,6 +87,6 @@ def validate_glm_sample_weight(sample_weight, n_samples, *, name="sample_weight"
         if np.any(values < 0):
             raise ValueError(f"{name} must be non-negative")
         total = float(np.sum(values))
-    if total <= 0.0:
-        raise ValueError(f"{name} must have a positive sum")
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError(f"{name} must have a finite positive sum")
     return values

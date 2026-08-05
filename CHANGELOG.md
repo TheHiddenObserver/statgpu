@@ -4,6 +4,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Kept direct solver and penalized-CV sample-weight checks backend-native, validated weights before weighted Lipschitz operations, rejected overflowing weight totals, and made HC1 analytic-weight inference invariant to global weight rescaling.
 - Fixed Issue #45 by routing statgpu-owned Torch compilation through a
   centralized policy that avoids CUDA Graph lifecycle hazards for iterative
   solvers; compile decisions are observable, and only the known lifecycle

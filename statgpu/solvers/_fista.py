@@ -92,6 +92,10 @@ def fista_solver(
     """
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
+    # Validate before any weighted Lipschitz or matrix operation so direct
+    # solver callers receive the public contract error rather than a backend
+    # broadcast, NaN, or device-mismatch failure.
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
     _is_quadratic = getattr(loss, '_is_quadratic', False)
     # Momentum control via loss class attributes:
     #   _momentum_beta_cap: if set, cap Nesterov beta at this value
@@ -205,7 +209,6 @@ def fista_solver(
         _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
-    _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
     _sw_arr = None

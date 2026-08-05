@@ -9,6 +9,7 @@
 
 ### 运行时安全
 
+- direct solver 与 penalized-CV 的 sample-weight 检查现在保持在所选 backend，并在 weighted Lipschitz 运算前执行；权重总和溢出会被拒绝，HC1 analytic-weight inference 对全局权重缩放保持不变。
 - statgpu 内部迭代式 Torch kernel 统一通过集中式 compile policy。
   默认不再使用会启用 CUDA Graph 的 `reduce-overhead`；用户仍可通过
   `STATGPU_TORCH_COMPILE_MODE` 显式选择 `default`、
