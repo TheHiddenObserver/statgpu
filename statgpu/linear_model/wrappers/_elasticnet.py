@@ -1,10 +1,12 @@
-"""
-Elastic Net regression with GPU support.
+"""Elastic Net regression with GPU support.
 
-The V9 ElasticNet class is a thin wrapper over PenalizedLinearRegression
-with penalty="elasticnet" and solver="exact".
+``ElasticNet`` is a thin public wrapper over
+:class:`~statgpu.linear_model.penalized.PenalizedLinearRegression` with
+``penalty="elasticnet"``. It preserves the shared NumPy/CuPy/Torch solver and
+post-fit inference contracts; the public default solver is FISTA.
 
-The legacy standalone implementation has been moved to _elasticnet_legacy.py.
+The legacy standalone implementation has been moved to
+``_elasticnet_legacy.py``.
 """
 
 from __future__ import annotations
@@ -20,7 +22,32 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 
 
 class ElasticNet(_PenalizedLinearRegression):
-    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with Elastic Net penalty."""
+    """Elastic Net regression through the shared penalized-linear engine.
+
+    Parameters
+    ----------
+    alpha : float, default=1.0
+        Overall regularization strength.
+    l1_ratio : float, default=0.5
+        Mixing proportion between L1 and L2 penalties.
+    solver : str, default="fista"
+        Backend-aware optimization method.
+    compute_inference : bool, default=False
+        Whether to compute post-fit coefficient inference.
+    inference_method : str, default="debiased"
+        Post-fit inference method. Supported values are inherited from
+        ``PenalizedLinearRegression``.
+    cov_type : str, default="nonrobust"
+        Covariance convention where the selected inference method uses it.
+    hac_maxlags : int, optional
+        HAC lag count where supported by the selected inference method.
+
+    Notes
+    -----
+    ``compute_inference=True`` does not alter the penalized fit. Inference is
+    computed after estimation and is conditional on the chosen regularization
+    parameters.
+    """
 
     def __init__(
         self,
