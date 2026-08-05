@@ -1612,9 +1612,11 @@ def test_glm_weighted_loglikelihood_and_dispersion_match_manual_values():
 
     eta = model.intercept_ + X @ model.coef_
     resid_sq = (y - eta) ** 2
-    expected_ll = -0.5 * float(np.sum(weights * resid_sq))
+    expected_ll = -0.5 * X.shape[0] * float(
+        np.sum(weights * resid_sq) / np.sum(weights)
+    )
     k = 1 + X.shape[1]
-    expected_dispersion = float(np.sum(weights * resid_sq)) / (weights.sum() - k)
+    expected_dispersion = float(np.sum(weights * resid_sq)) / (X.shape[0] - k)
     np.testing.assert_allclose(model.loglikelihood, expected_ll, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(
         model._inference_result.metadata["dispersion"],
@@ -1628,7 +1630,9 @@ def test_glm_weighted_loglikelihood_and_dispersion_match_manual_values():
         compute_inference=False,
     ).fit(X, y, sample_weight=weights)
     eta_no_inf = no_inference.intercept_ + X @ no_inference.coef_
-    expected_no_inf = -0.5 * float(np.sum(weights * (y - eta_no_inf) ** 2))
+    expected_no_inf = -0.5 * X.shape[0] * float(
+        np.sum(weights * (y - eta_no_inf) ** 2) / np.sum(weights)
+    )
     np.testing.assert_allclose(
         no_inference.loglikelihood, expected_no_inf, rtol=1e-12, atol=1e-12
     )
@@ -1760,27 +1764,105 @@ def test_irls_source_has_no_broad_objective_fallback_and_cupy_norm_is_native():
     assert "cp.linalg.norm" in norm_body
 
 
-def test_glm_frequency_weights_match_expanded_data_diagnostics():
+def test_glm_analytic_weight_diagnostics_are_scale_invariant():
     from statgpu.linear_model import GeneralizedLinearModel
 
     X = np.array([[-1.0], [0.0], [2.0], [4.0]], dtype=np.float64)
     y = np.array([-0.4, 0.5, 2.2, 5.1], dtype=np.float64)
-    weights = np.array([1, 3, 2, 4], dtype=np.float64)
-    repeat_index = np.repeat(np.arange(X.shape[0]), weights.astype(int))
+    weights = np.array([0.5, 1.5, 2.0, 4.0], dtype=np.float64)
 
-    weighted = GeneralizedLinearModel(
+    def fit(current_weights, cov_type="nonrobust"):
+        return GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0,
+            max_iter=100, tol=1e-12, device="cpu",
+            compute_inference=True, cov_type=cov_type,
+        ).fit(X, y, sample_weight=current_weights)
+
+    weighted = fit(weights)
+    scaled = fit(23.0 * weights)
+    np.testing.assert_allclose(weighted.coef_, scaled.coef_, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.intercept_, scaled.intercept_, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.loglikelihood, scaled.loglikelihood, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.aic, scaled.aic, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.bic, scaled.bic, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted._bse, scaled._bse, rtol=1e-11, atol=1e-11)
+    assert weighted._df_resid == X.shape[0] - (X.shape[1] + 1)
+
+    robust = fit(weights, cov_type="hc0")
+    robust_scaled = fit(23.0 * weights, cov_type="hc0")
+    np.testing.assert_allclose(robust._bse, robust_scaled._bse, rtol=1e-11, atol=1e-11)
+
+
+def test_glm_weighted_loglikelihood_uses_normalized_analytic_weights():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-1.0], [0.0], [1.0], [3.0]], dtype=np.float64)
+    y = np.array([-0.2, 0.3, 1.4, 4.0], dtype=np.float64)
+    weights = np.array([0.5, 2.0, 1.0, 6.0], dtype=np.float64)
+    model = GeneralizedLinearModel(
         family="gaussian", solver="irls", C=0.0,
-        max_iter=100, tol=1e-12, device="cpu", compute_inference=False,
+        device="cpu", compute_inference=False,
     ).fit(X, y, sample_weight=weights)
-    expanded = GeneralizedLinearModel(
-        family="gaussian", solver="irls", C=0.0,
-        max_iter=100, tol=1e-12, device="cpu", compute_inference=False,
-    ).fit(X[repeat_index], y[repeat_index])
+    eta = model.intercept_ + X @ model.coef_
+    expected = -X.shape[0] * np.sum(weights * 0.5 * (y - eta) ** 2) / np.sum(weights)
+    np.testing.assert_allclose(model.loglikelihood, expected, rtol=1e-12, atol=1e-12)
 
-    np.testing.assert_allclose(weighted.coef_, expanded.coef_, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(weighted.intercept_, expanded.intercept_, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(weighted.loglikelihood, expanded.loglikelihood, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(weighted.aic, expanded.aic, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(weighted.bic, expanded.bic, rtol=1e-12, atol=1e-12)
-    assert weighted._effective_nobs == weights.sum()
-    assert weighted._df_resid == expanded._df_resid
+
+def test_inference_solve_errors_only_downgrade_true_singularity(monkeypatch):
+    import statgpu.inference._sandwich as sandwich
+    from statgpu.glm_core._squared import SquaredErrorLoss
+
+    X = np.column_stack([np.ones(5), np.arange(5.0)])
+    y = np.arange(5.0)
+    coef = np.array([0.0, 1.0])
+
+    def oom(*args, **kwargs):
+        raise RuntimeError("CUDA out of memory")
+
+    monkeypatch.setattr(np.linalg, "solve", oom)
+    with pytest.raises(RuntimeError, match="out of memory"):
+        sandwich.compute_bread_avg(SquaredErrorLoss(), X, y, coef)
+
+    assert sandwich._runtime_error_is_singular(
+        RuntimeError("matrix is singular")
+    )
+    assert not sandwich._runtime_error_is_singular(
+        RuntimeError("CUDA out of memory")
+    )
+
+
+def test_glm_parameter_count_does_not_use_numpy_array_conversion():
+    from pathlib import Path
+
+    source = Path("statgpu/linear_model/_glm_base.py").read_text(encoding="utf-8")
+    block = source.split("# Parameter counts are backend-neutral", 1)[1].split(
+        "# ---- Store design/loss", 1
+    )[0]
+    assert "self._params.shape[0]" in block
+    assert "np.asarray(self._params)" not in block
+
+
+# PR87_WEIGHTED_HELPER_SINGLE_SOURCE_TESTS
+def test_solver_utils_weighted_helper_delegates_without_silent_unweighting(monkeypatch):
+    from pathlib import Path
+    import statgpu.glm_core._fused as fused
+    import statgpu.glm_core._solver_utils as solver_utils
+
+    sentinel = RuntimeError("weighted implementation failed")
+
+    def fail(*args, **kwargs):
+        raise sentinel
+
+    monkeypatch.setattr(fused, "_weighted_loss_and_grad", fail)
+    with pytest.raises(RuntimeError, match="weighted implementation failed"):
+        solver_utils._weighted_loss_and_grad(
+            object(), np.ones((2, 1)), np.ones(2), np.zeros(1), np.ones(2)
+        )
+
+    source = Path("statgpu/glm_core/_solver_utils.py").read_text(encoding="utf-8")
+    block = source.split(
+        "def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):", 1
+    )[1]
+    assert "_to_numpy(sample_weight)" not in block
+    assert "except TypeError" not in block
+    assert "statgpu.glm_core._fused" in block

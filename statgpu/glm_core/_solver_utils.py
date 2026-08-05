@@ -392,34 +392,7 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
 
 
 def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
-    n = X.shape[0]
-    _backend = _resolve_backend("auto", X)
-    xp = _get_xp(_backend)
-    _sw_np = _to_numpy(sample_weight)
-    if hasattr(X, 'device'):
-        _sw = xp.asarray(_sw_np, dtype=X.dtype, device=X.device)
-    else:
-        _sw = xp.asarray(_sw_np, dtype=X.dtype)
-    sw_sum = _to_float_scalar(xp.sum(_sw))
+    """Delegate to the single backend-native weighted GLM implementation."""
+    from statgpu.glm_core._fused import _weighted_loss_and_grad as _weighted
 
-    loss_name = getattr(loss, 'name', '')
-    if loss_name == 'squared_error':
-        resid = X @ coef - y
-        grad = X.T @ (_sw * resid) / sw_sum
-        val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
-        return val, grad
-
-    if hasattr(loss, 'fused_value_and_gradient'):
-        try:
-            return loss.fused_value_and_gradient(X, y, coef, sample_weight=sample_weight)
-        except TypeError:
-            pass
-
-    try:
-        val = loss.value(X, y, coef, sample_weight=sample_weight)
-        grad = loss.gradient(X, y, coef, sample_weight=sample_weight)
-        return val, grad
-    except TypeError:
-        val = loss.value(X, y, coef)
-        grad = loss.gradient(X, y, coef)
-        return val, grad
+    return _weighted(loss, X, y, coef, sample_weight)
