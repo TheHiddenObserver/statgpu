@@ -20,6 +20,10 @@ from pathlib import Path
 import numpy as np
 
 
+_PRECISION_RTOL = 1e-6
+_PRECISION_ATOL = 1e-8
+
+
 def _json_value(value):
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -67,8 +71,29 @@ def _run_child(mode: str, repeats: int) -> dict:
             device="torch",
             compute_inference=False,
         ),
+        "mcp": lambda: PenalizedLinearRegression(
+            penalty="mcp",
+            alpha=0.03,
+            max_iter=60,
+            max_lla_iters=3,
+            tol=1e-6,
+            lla_tol=1e-6,
+            device="torch",
+            compute_inference=False,
+        ),
         "group_scad": lambda: PenalizedLinearRegression(
             penalty="group_scad",
+            penalty_kwargs={"groups": groups},
+            alpha=0.03,
+            max_iter=60,
+            max_lla_iters=3,
+            tol=1e-6,
+            lla_tol=1e-6,
+            device="torch",
+            compute_inference=False,
+        ),
+        "group_mcp": lambda: PenalizedLinearRegression(
+            penalty="group_mcp",
             penalty_kwargs={"groups": groups},
             alpha=0.03,
             max_iter=60,
@@ -163,6 +188,22 @@ def _parent_main(args) -> None:
         compiled_prediction = np.asarray(compiled["prediction"], dtype=float)
         eager_coef = np.asarray(eager["coefficients"], dtype=float)
         compiled_coef = np.asarray(compiled["coefficients"], dtype=float)
+
+        np.testing.assert_allclose(
+            compiled_prediction,
+            eager_prediction,
+            rtol=_PRECISION_RTOL,
+            atol=_PRECISION_ATOL,
+            err_msg=f"{case}: compiled predictions differ from eager reference",
+        )
+        np.testing.assert_allclose(
+            compiled_coef,
+            eager_coef,
+            rtol=_PRECISION_RTOL,
+            atol=_PRECISION_ATOL,
+            err_msg=f"{case}: compiled coefficients differ from eager reference",
+        )
+
         precision[case] = {
             "prediction_max_abs_diff": float(
                 np.max(np.abs(compiled_prediction - eager_prediction))
@@ -170,6 +211,9 @@ def _parent_main(args) -> None:
             "coefficient_max_abs_diff": float(
                 np.max(np.abs(compiled_coef - eager_coef))
             ),
+            "rtol": _PRECISION_RTOL,
+            "atol": _PRECISION_ATOL,
+            "status": "pass",
         }
 
     public_mode_results = json.loads(json.dumps(mode_results))
@@ -224,6 +268,8 @@ def _parent_main(args) -> None:
         "threshold_source": {
             "source": "Issue #45 maintenance workload matrix",
             "repeats": args.repeats,
+            "precision_rtol": _PRECISION_RTOL,
+            "precision_atol": _PRECISION_ATOL,
         },
         "objective_scaling": "unchanged across compile modes",
         "penalty_scale_mapping": None,
