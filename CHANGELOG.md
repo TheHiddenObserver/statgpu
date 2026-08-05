@@ -1,5 +1,7 @@
 # Changelog
 
+- Removed universal ElasticNet backend thresholds, coefficient tolerances, and fixed speedup claims that were not established for the current exact-head environment; the model guide now requires workload-specific benchmarking and dtype/solver-specific validation.
+
 - Corrected ElasticNet/Ridge scaling documentation and added a regression test confirming that `ElasticNet(alpha, l1_ratio=0)` matches `Ridge(alpha)` under the shared average-loss convention.
 
 - Reconciled the ElasticNet API documentation with the implementation by correcting constructor defaults, removing nonexistent parameters, and replacing stale strict/approx guidance with the actual FISTA and post-fit inference semantics.

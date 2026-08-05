@@ -1,5 +1,7 @@
 # Changelog
 
+- 删除当前 exact-head 环境未能支撑的 ElasticNet 通用后端阈值、统一系数容差与固定加速比；模型文档现要求针对具体工作负载进行 benchmark，并按 dtype/求解路径验证数值一致性。
+
 - 修正 ElasticNet/Ridge 的缩放说明，并补充回归测试确认在共享平均损失尺度下 `ElasticNet(alpha, l1_ratio=0)` 与 `Ridge(alpha)` 一致。
 
 - 统一 ElasticNet API 文档与实现：修正构造参数默认值、删除不存在的参数，并用实际 FISTA 与拟合后推断语义替换过时的 strict/approx 说明。
