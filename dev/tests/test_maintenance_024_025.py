@@ -2191,7 +2191,7 @@ def test_glm_rejects_nonnumeric_response_with_public_value_error():
     from statgpu.linear_model import GeneralizedLinearModel
 
     X = np.ones((3, 1), dtype=np.float64)
-    with pytest.raises(ValueError, match="numeric finite values"):
+    with pytest.raises(ValueError, match="real numeric values"):
         GeneralizedLinearModel(
             family="poisson", solver="irls", C=0.0,
             device="cpu", compute_inference=False,
@@ -2254,3 +2254,131 @@ def test_penalized_glm_cv_response_length_check_preserves_list_design_input(monk
     assert seen["X"] is X
     assert isinstance(seen["y"], np.ndarray)
     assert seen["y"].shape == (len(X),)
+
+
+# PR87_GLM_REAL_NONEMPTY_RESPONSE_TESTS
+@pytest.mark.parametrize("kind", ["glm", "penalized", "cv"])
+@pytest.mark.parametrize(
+    "bad_y",
+    [
+        np.array([0.0 + 0.0j, 1.0 + 0.0j, 2.0 + 1.0j]),
+        np.array(["2026-01-01", "2026-01-02", "2026-01-03"], dtype="datetime64[D]"),
+        np.array(["0", "1", "two"], dtype=object),
+    ],
+)
+def test_glm_entrypoints_reject_nonreal_response_with_value_error(kind, bad_y, monkeypatch):
+    from statgpu.linear_model import GeneralizedLinearModel
+    from statgpu.linear_model.penalized import (
+        PenalizedGeneralizedLinearModel,
+        PenalizedGLM_CV,
+    )
+
+    X = np.arange(6.0, dtype=np.float64).reshape(3, 2)
+    if kind == "glm":
+        model = GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0,
+            device="cpu", compute_inference=False,
+        )
+    elif kind == "penalized":
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error", penalty="l2", alpha=0.1,
+            solver="fista", device="cpu", compute_inference=False,
+        )
+    else:
+        model = PenalizedGLM_CV(
+            loss="squared_error", penalty="l2", alpha_grid=[0.1],
+            cv=2, device="cpu", max_iter=10,
+        )
+        monkeypatch.setattr(
+            model,
+            "_fit_standard",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("CV must not start for a nonreal response")
+            ),
+        )
+    with pytest.raises(ValueError, match="response must contain real numeric"):
+        model.fit(X, bad_y)
+
+
+@pytest.mark.parametrize("kind", ["glm", "penalized", "cv"])
+def test_glm_entrypoints_reject_empty_response_before_solver(kind, monkeypatch):
+    from statgpu.linear_model import GeneralizedLinearModel
+    from statgpu.linear_model.penalized import (
+        PenalizedGeneralizedLinearModel,
+        PenalizedGLM_CV,
+    )
+
+    X = np.empty((0, 2), dtype=np.float64)
+    y = np.empty(0, dtype=np.float64)
+    if kind == "glm":
+        model = GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0,
+            device="cpu", compute_inference=False,
+        )
+    elif kind == "penalized":
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error", penalty="l2", alpha=0.1,
+            solver="fista", device="cpu", compute_inference=False,
+        )
+    else:
+        model = PenalizedGLM_CV(
+            loss="squared_error", penalty="l2", alpha_grid=[0.1],
+            cv=2, device="cpu", max_iter=10,
+        )
+        monkeypatch.setattr(
+            model,
+            "_fit_standard",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("CV must not start for an empty response")
+            ),
+        )
+    with pytest.raises(ValueError, match="at least one observation"):
+        model.fit(X, y)
+
+
+def test_direct_irls_rejects_complex_and_empty_response():
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    with pytest.raises(ValueError, match="real numeric"):
+        IRLSSolver(Gaussian()).fit(
+            np.ones((2, 1)), np.array([1.0 + 0.0j, 2.0 + 1.0j]),
+            backend="numpy",
+        )
+    with pytest.raises(ValueError, match="at least one observation"):
+        IRLSSolver(Gaussian()).fit(
+            np.empty((0, 1)), np.empty(0), backend="numpy"
+        )
+
+
+def test_torch_glm_complex_response_rejected_on_device():
+    torch = _require_modern_torch_cuda()
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = torch.ones((3, 1), dtype=torch.float64, device="cuda")
+    y = torch.tensor([1.0 + 0.0j, 2.0 + 0.0j, 3.0 + 1.0j], device="cuda")
+    with pytest.raises(ValueError, match="real numeric"):
+        GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0,
+            device="torch", compute_inference=False,
+        ).fit(X, y)
+    assert X.is_cuda and y.is_cuda
+
+
+def test_cupy_penalized_glm_complex_response_rejected_on_device():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+
+    X = cp.ones((3, 1), dtype=cp.float64)
+    y = cp.asarray([1.0 + 0.0j, 2.0 + 0.0j, 3.0 + 1.0j])
+    with pytest.raises(ValueError, match="real numeric"):
+        PenalizedGeneralizedLinearModel(
+            loss="squared_error", penalty="l2", alpha=0.1,
+            solver="fista", device="cuda", compute_inference=False,
+        ).fit(X, y)
+    assert isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)

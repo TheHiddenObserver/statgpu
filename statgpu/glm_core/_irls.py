@@ -256,10 +256,10 @@ def irls_solver(
     else:
         params = init_coef
 
-    y_work = _to_backend(y, backend, X)
     family_name = getattr(family, "name", "")
     objective_loss = _objective_loss_for_family(family)
-    y_work = objective_loss.validate_response(y_work)
+    y_validated = objective_loss.validate_response(y)
+    y_work = _to_backend(y_validated, backend, X)
     if int(y_work.shape[0]) != int(X.shape[0]):
         raise ValueError("Response length must match X.shape[0].")
     sw_work = (

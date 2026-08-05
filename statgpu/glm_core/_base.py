@@ -88,12 +88,27 @@ class GLMLoss(LossBase):
                 f"{self.name} response must be one-dimensional; "
                 "a single-column (n_samples, 1) response is also accepted."
             )
+        if int(values.shape[0]) == 0:
+            raise ValueError(
+                f"{self.name} response must contain at least one observation."
+            )
+
+        if xp.__name__ == "torch":
+            import torch
+
+            nonreal = torch.is_complex(values)
+        else:
+            nonreal = getattr(values.dtype, "kind", "") not in "biuf"
+        if bool(nonreal.item() if hasattr(nonreal, "item") else nonreal):
+            raise ValueError(
+                f"{self.name} response must contain real numeric values."
+            )
 
         try:
             invalid = xp.any(~xp.isfinite(values))
-        except TypeError as exc:
+        except (TypeError, RuntimeError) as exc:
             raise ValueError(
-                f"{self.name} response must contain numeric finite values."
+                f"{self.name} response must contain real numeric finite values."
             ) from exc
         y_type = str(getattr(self, "y_type", "continuous")).lower()
         if y_type == "binary":
