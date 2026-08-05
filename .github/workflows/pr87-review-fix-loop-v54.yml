@@ -36,6 +36,50 @@ jobs:
           source = gzip.decompress(base64.b64decode(payload, validate=True))
           exec(compile(source, "pr87_patch_v54.py", "exec"))
           PY
+      - name: Adapt Torch parity test for CPU-only runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("dev/tests/test_maintenance_024_025.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index("def test_weighted_logistic_torch_matches_cpu():")
+          end = text.index("\n\n@pytest.mark.parametrize(", start)
+          replacement = '''def test_weighted_logistic_torch_matches_cpu(monkeypatch):
+              torch = pytest.importorskip("torch")
+              import statgpu.linear_model.wrappers._logistic as logistic_mod
+              from statgpu.linear_model.wrappers._logistic import LogisticRegression
+
+              X, y, weight = _weighted_logistic_fixture()
+              cpu = LogisticRegression(
+                  C=2.5, max_iter=300, tol=1e-11, device="cpu", compute_inference=True
+              ).fit(X, y, sample_weight=weight)
+
+              # Exercise the Torch implementation on a CPU-only hosted runner
+              # without weakening the public explicit-Torch CUDA contract.
+              monkeypatch.setattr(logistic_mod, "_get_torch_device_str", lambda: "cpu")
+              torch_model = LogisticRegression(
+                  C=2.5, max_iter=300, tol=1e-11, device="cpu", compute_inference=True
+              )
+              torch_model._y = y.astype(float)
+              torch_model._sample_weight = weight.astype(float)
+              torch_model._fit_torch(
+                  torch.as_tensor(X, dtype=torch.float64),
+                  torch.as_tensor(y, dtype=torch.float64),
+                  torch.as_tensor(weight, dtype=torch.float64),
+              )
+
+              np.testing.assert_allclose(torch_model._intercept, cpu.intercept_, rtol=1e-8, atol=1e-9)
+              np.testing.assert_allclose(torch_model._coef, cpu.coef_, rtol=1e-8, atol=1e-9)
+              np.testing.assert_allclose(torch_model._bse, cpu._bse, rtol=1e-8, atol=1e-9)
+              np.testing.assert_allclose(torch_model._loglik, cpu._loglik, rtol=1e-9, atol=1e-9)
+          '''
+          replacement = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in replacement.splitlines()
+          )
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          PY
       - name: Install validation environment
         run: |
           python -m pip install --upgrade pip
