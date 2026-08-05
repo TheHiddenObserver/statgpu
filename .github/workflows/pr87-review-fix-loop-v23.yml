@@ -1,0 +1,37 @@
+name: PR87 review fix batch v23
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths:
+      - .github/workflows/pr87-review-fix-loop-v23.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-doc-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Update maintained changelogs
+        run: python pr87_patch_v23.py
+      - name: Run documentation contracts
+        run: |
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+      - name: Commit documentation fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f pr87_patch_v23.py
+          git add CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "docs: record weighted formula and FISTA fixes"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
