@@ -128,6 +128,7 @@ class GeneralizedLinearModel(BaseEstimator):
         self.intercept_ = None
         self.n_iter_ = None
         self._nobs = None
+        self._effective_nobs = None
         self._df_resid = None
         self._params = None
         self._feature_names = None
@@ -372,7 +373,12 @@ class GeneralizedLinearModel(BaseEstimator):
         lines.append(f"  Family: {family_name}")
         lines.append(f"  Solver: {getattr(self, 'solver', 'unknown')}")
         lines.append(f"  No. Observations: {self._nobs}")
-        lines.append(f"  Df Residuals: {self._df_resid}")
+        if (
+            self._effective_nobs is not None
+            and not np.isclose(self._effective_nobs, float(self._nobs))
+        ):
+            lines.append(f"  Effective Observations: {self._effective_nobs:g}")
+        lines.append(f"  Df Residuals: {self._df_resid:g}")
         lines.append(f"  Covariance Type: {getattr(self, 'cov_type', 'nonrobust')}")
         lines.append("")
 
@@ -448,8 +454,8 @@ class GeneralizedLinearModel(BaseEstimator):
         """Bayesian Information Criterion: -2*loglik + k*log(n)."""
         ll = self.loglikelihood
         k = len(self._params) if self._params is not None else 0
-        n = self._nobs if self._nobs else 0
-        return -2.0 * ll + k * np.log(max(n, 1))
+        n = self._effective_nobs if self._effective_nobs is not None else self._nobs
+        return -2.0 * ll + k * np.log(max(float(n or 0), 1.0))
 
     def __del__(self):
         try:
@@ -556,6 +562,10 @@ class GeneralizedLinearModel(BaseEstimator):
             if weight_sum <= 0.0:
                 raise ValueError("sample_weight must have a positive sum")
 
+        self._effective_nobs = (
+            float(weight_sum) if sample_weight is not None else float(self._nobs)
+        )
+
         family = self._get_family()
         _solver_lower = self._solver.lower() if isinstance(self._solver, str) else self._solver
         if _solver_lower == "auto":
@@ -582,6 +592,11 @@ class GeneralizedLinearModel(BaseEstimator):
             raise ValueError(
                 "solver must be one of: 'auto', 'irls', 'fista', 'newton', 'lbfgs'"
             )
+
+        # Keep displayed/inference degrees of freedom consistent with the
+        # frequency-weight likelihood convention used by diagnostics.
+        parameter_count = int(np.asarray(self._params).shape[0])
+        self._df_resid = self._effective_nobs - parameter_count
 
         # ---- Store design/loss for loglikelihood/aic/bic (always) ----
         from statgpu.backends import _to_numpy, _resolve_backend

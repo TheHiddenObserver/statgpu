@@ -22,30 +22,40 @@ def _infer_backend(X):
 
 
 def _solve(A, b, backend="auto"):
-    """Solve linear system, fallback to lstsq if singular."""
+    """Solve a linear system, using least squares only for singular systems."""
     if backend == "auto":
         backend = _infer_backend(A)
 
-    try:
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
+    if backend == "torch":
+        import torch
+
+        b_col = b.unsqueeze(1) if b.ndim == 1 else b
+        try:
             sol = torch.linalg.solve(A, b_col)
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.solve(A, b)
-        else:
-            return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, ValueError, RuntimeError):
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            singular_markers = (
+                "singular",
+                "not invertible",
+                "zero pivot",
+                "rank deficient",
+            )
+            if not any(marker in message for marker in singular_markers):
+                raise
             sol = torch.linalg.lstsq(A, b_col).solution
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
+        return sol.squeeze(1) if b.ndim == 1 else sol
+
+    if backend == "cupy":
+        import cupy as cp
+
+        try:
+            return cp.linalg.solve(A, b)
+        except np.linalg.LinAlgError:
             return cp.linalg.lstsq(A, b)[0]
+
+    try:
+        return np.linalg.solve(A, b)
+    except np.linalg.LinAlgError:
         return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
@@ -66,6 +76,10 @@ def _norm(x, backend):
         import torch
 
         return float(torch.linalg.norm(x).item())
+    if backend == "cupy":
+        import cupy as cp
+
+        return float(cp.linalg.norm(x).item())
     return float(np.linalg.norm(x))
 
 
@@ -122,6 +136,37 @@ _IRLS_STEP_COMPILED = None
 
 
 from statgpu.backends._torch_compile import compile_torch
+
+
+def _objective_loss_for_family(family):
+    """Return the registered loss matching an IRLS family."""
+    from statgpu.glm_core._base import get_glm_loss
+
+    family_name = str(getattr(family, "name", "")).lower()
+    loss_names = {
+        "gaussian": "squared_error",
+        "squared_error": "squared_error",
+        "binomial": "logistic",
+        "logistic": "logistic",
+        "poisson": "poisson",
+        "gamma": "gamma",
+        "inverse_gaussian": "inverse_gaussian",
+        "negative_binomial": "negative_binomial",
+        "tweedie": "tweedie",
+    }
+    if family_name not in loss_names:
+        raise NotImplementedError(
+            "IRLS line search requires a registered objective for family "
+            f"{family_name!r}."
+        )
+    kwargs = {}
+    if family_name == "gamma":
+        kwargs["link"] = str(getattr(family.link, "name", "log")).lower()
+    elif family_name == "negative_binomial":
+        kwargs["alpha"] = float(getattr(family, "alpha", 1.0))
+    elif family_name == "tweedie":
+        kwargs["power"] = float(getattr(family, "power", 1.5))
+    return get_glm_loss(loss_names[family_name], **kwargs)
 
 
 def _get_irls_step_compiled():
@@ -213,6 +258,7 @@ def irls_solver(
 
     y_work = _to_backend(y, backend, X)
     family_name = getattr(family, "name", "")
+    objective_loss = _objective_loss_for_family(family)
     if backend == "torch":
         import torch
         invalid_y = torch.any(~torch.isfinite(y_work))
@@ -304,57 +350,22 @@ def irls_solver(
 
         params_new = _solve(XtWX, Xtz, backend)
 
-        # Armijo backtracking line search: find step in (0, 1] that
-        # gives sufficient decrease in the loss (deviance).
-        _fname = family_name
-        _tweedie_power = float(getattr(family, 'power', 1.5)) if _fname == "tweedie" else 0.0
-        _nb_alpha = float(getattr(family, 'alpha', 1.0)) if _fname == "negative_binomial" else 0.0
-
-        def _dev_val(mu_arr):
-            """Return weighted family deviance on the active backend."""
-            _y = y_work
-            if backend == "torch":
-                import torch as xp
-            elif backend == "cupy":
-                import cupy as xp
-            else:
-                xp = np
-
-            if _fname in ("gaussian", "squared_error"):
-                terms = 0.5 * (_y - mu_arr) ** 2
-            elif _fname in ("binomial", "logistic"):
-                _mu_c = _clip(mu_arr, 1e-10, 1.0 - 1e-10, backend)
-                terms = -_y * xp.log(_mu_c) - (1.0 - _y) * xp.log1p(-_mu_c)
-            elif _fname == "gamma":
-                terms = _y / mu_arr + xp.log(mu_arr)
-            elif _fname == "inverse_gaussian":
-                terms = _y / (2.0 * mu_arr ** 2) - 1.0 / mu_arr
-            elif _fname == "negative_binomial":
-                _mu_c = _clip(mu_arr, 1e-10, None, backend)
-                _y_c = _clip(_y, 1e-10, None, backend)
-                _a = _nb_alpha
-                terms = (
-                    _y_c * xp.log(_y_c / _mu_c)
-                    - (_y_c + 1.0 / _a)
-                    * xp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c))
-                )
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    terms = mu_arr - _y * xp.log(mu_arr)
-                elif abs(p - 2.0) < 0.01:
-                    terms = _y / mu_arr - xp.log(_y / mu_arr) - 1.0
-                else:
-                    terms = (
-                        -_y * xp.pow(mu_arr, 1.0 - p) / (1.0 - p)
-                        + xp.pow(mu_arr, 2.0 - p) / (2.0 - p)
-                    )
-            else:
-                terms = mu_arr - _y * xp.log(mu_arr)
-
+        # Backtracking line search on the same registered loss used by the
+        # public GLM objective.  Loss classes own link/domain clipping, so the
+        # identity-link Gaussian path is never spuriously clipped to [-30, 30].
+        def _loss_val(eta_arr):
+            terms = objective_loss.per_sample_value(eta_arr, y_work)
             if sw_work is not None:
                 terms = terms * sw_work
-            return xp.sum(terms)
+            if backend == "torch":
+                import torch
+
+                return torch.sum(terms)
+            if backend == "cupy":
+                import cupy as cp
+
+                return cp.sum(terms)
+            return np.sum(terms)
 
         def _penalty_val(params_arr):
             value = 0.0
@@ -364,9 +375,11 @@ def irls_solver(
                 )
                 if backend == "torch":
                     import torch
+
                     value = value + 0.5 * ridge_alpha * torch.sum(penalized ** 2)
                 elif backend == "cupy":
                     import cupy as cp
+
                     value = value + 0.5 * ridge_alpha * cp.sum(penalized ** 2)
                 else:
                     value = value + 0.5 * ridge_alpha * np.sum(penalized ** 2)
@@ -376,105 +389,82 @@ def irls_solver(
                 )
             return value
 
-        def _objective_val(mu_arr, params_arr):
-            return _dev_val(mu_arr) + _penalty_val(params_arr)
+        def _objective_val(eta_arr, params_arr):
+            return _loss_val(eta_arr) + _penalty_val(params_arr)
 
-        # Current loss — use only eta clipping (prevent exp overflow),
-        # NOT mu clipping (which distorts the deviance landscape).
-        eta_cur = _clip(X @ params_old, -30, 30, backend)
-        mu_cur = family.link.inverse(eta_cur)
-        try:
-            dev_old_dev = _objective_val(mu_cur, params_old)
-        except Exception:
-            dev_old_dev = float('inf')
+        def _scalar_float(value):
+            return float(value.item() if hasattr(value, "item") else value)
 
-        # Gaussian-identity and Gamma-log have constant Fisher weights.
-        # Try their full Fisher-scoring step before backtracking.
-        _direction = params_new - params_old
-        _is_constant_W = (
-            _fname in ("gaussian", "squared_error")
-            or (_fname == "gamma" and _link_name == "log")
-        )
-
-        # Convert dev_old to Python float for tolerance computation
-        # (single sync per iteration, not per line-search step)
-        if backend == "torch":
-            dev_old_f = float(dev_old_dev.item())
-        elif backend == "cupy":
-            dev_old_f = float(dev_old_dev)
-        else:
-            dev_old_f = float(dev_old_dev)
-        _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
-
-        def _dev_accept(dev_try_dev):
-            """Check if trial deviance is acceptable (device-side NaN + comparison)."""
+        def _scalar_is_finite(value):
             if backend == "torch":
                 import torch
-                if torch.isnan(dev_try_dev):
-                    return False
-                return bool((dev_try_dev <= dev_old_dev + _dev_tol).item())
-            elif backend == "cupy":
-                import cupy as cp
-                if cp.isnan(dev_try_dev):
-                    return False
-                return bool(dev_try_dev <= dev_old_dev + _dev_tol)
-            else:
-                if dev_try_dev != dev_try_dev:
-                    return False
-                return dev_try_dev <= dev_old_f + _dev_tol
 
-        if _is_constant_W:
-            # Constant weights: IRLS = Newton.  Try full step first;
-            # if deviance increases significantly, fall back to Armijo.
-            eta_new = _clip(X @ params_new, -30, 30, backend)
-            mu_new = family.link.inverse(eta_new)
-            try:
-                dev_new_dev = _objective_val(mu_new, params_new)
-            except Exception:
-                dev_new_dev = float('inf')
-            if _dev_accept(dev_new_dev):
+                return bool(torch.isfinite(value).item())
+            if backend == "cupy":
+                import cupy as cp
+
+                return bool(cp.isfinite(value).item())
+            return bool(np.isfinite(value))
+
+        eta_cur = X @ params_old
+        objective_old = _objective_val(eta_cur, params_old)
+        if not _scalar_is_finite(objective_old):
+            raise FloatingPointError(
+                "IRLS objective became non-finite at the current iterate."
+            )
+        objective_old_float = _scalar_float(objective_old)
+        objective_tolerance = max(
+            abs(objective_old_float) * 1e-10,
+            1e-6,
+        )
+
+        def _objective_accept(objective_try):
+            if not _scalar_is_finite(objective_try):
+                return False
+            return _scalar_float(objective_try) <= (
+                objective_old_float + objective_tolerance
+            )
+
+        direction = params_new - params_old
+        is_constant_weight = (
+            family_name in ("gaussian", "squared_error")
+            or (
+                family_name == "gamma"
+                and str(getattr(family.link, "name", "")).lower() == "log"
+            )
+        )
+
+        if is_constant_weight:
+            objective_new = _objective_val(X @ params_new, params_new)
+            if _objective_accept(objective_new):
                 params = params_new
             else:
                 step = 1.0
-                _accepted = False
-                for _bt in range(30):
-                    params_try = params_old + step * _direction
-                    eta_try = _clip(X @ params_try, -30, 30, backend)
-                    mu_try = family.link.inverse(eta_try)
-                    try:
-                        dev_try_dev = _objective_val(mu_try, params_try)
-                    except Exception:
-                        step *= 0.5
-                        continue
-                    if _dev_accept(dev_try_dev):
-                        _accepted = True
+                accepted = False
+                for _ in range(30):
+                    params_try = params_old + step * direction
+                    objective_try = _objective_val(X @ params_try, params_try)
+                    if _objective_accept(objective_try):
+                        accepted = True
                         break
                     step *= 0.5
-                if _accepted:
+                if accepted:
                     params = params_try
                 else:
                     params = params_old
                     line_search_failed = True
                     break
         else:
-            # Variable weights: Armijo backtracking on deviance
             step = 1.0
-            _accepted = False
-            for _bt in range(30):
-                params_try = params_old + step * _direction
-                eta_try = _clip(X @ params_try, -30, 30, backend)
-                mu_try = family.link.inverse(eta_try)
-                try:
-                    dev_try_dev = _objective_val(mu_try, params_try)
-                except Exception:
-                    step *= 0.5
-                    continue
-                if _dev_accept(dev_try_dev):
-                    _accepted = True
+            accepted = False
+            for _ in range(30):
+                params_try = params_old + step * direction
+                objective_try = _objective_val(X @ params_try, params_try)
+                if _objective_accept(objective_try):
+                    accepted = True
                     break
                 step *= 0.5
-
-            if _accepted:
+            if accepted:
                 params = params_try
             else:
                 params = params_old

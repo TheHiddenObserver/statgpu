@@ -1709,3 +1709,78 @@ def test_cupy_weighted_irls_matches_cpu_reference():
     np.testing.assert_allclose(gpu.intercept_, cpu.intercept_, rtol=1e-9, atol=1e-9)
     np.testing.assert_allclose(gpu.coef_, cpu.coef_, rtol=1e-9, atol=1e-9)
     assert isinstance(weights, cp.ndarray)
+
+
+# PR87_IRLS_OBJECTIVE_AND_EFFECTIVE_NOBS_TESTS
+def test_irls_line_search_reuses_registered_loss_and_propagates_errors(monkeypatch):
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+    from statgpu.glm_core._squared import SquaredErrorLoss
+
+    def fail(self, eta, y):
+        raise RuntimeError("objective evaluation failed")
+
+    monkeypatch.setattr(SquaredErrorLoss, "per_sample_value", fail)
+    with pytest.raises(RuntimeError, match="objective evaluation failed"):
+        IRLSSolver(Gaussian(), max_iter=2).fit(
+            np.ones((4, 1)), np.arange(4.0), backend="numpy"
+        )
+
+
+def test_irls_solve_only_falls_back_for_singular_systems(monkeypatch):
+    from statgpu.glm_core import _irls
+
+    singular = np.array([[1.0, 1.0], [2.0, 2.0]])
+    rhs = np.array([1.0, 2.0])
+    solution = _irls._solve(singular, rhs, backend="numpy")
+    np.testing.assert_allclose(singular @ solution, rhs, rtol=1e-12, atol=1e-12)
+
+    def invalid_solve(A, b):
+        raise ValueError("shape/device contract failure")
+
+    def forbidden_lstsq(*args, **kwargs):
+        raise AssertionError("lstsq must not mask non-singularity failures")
+
+    monkeypatch.setattr(np.linalg, "solve", invalid_solve)
+    monkeypatch.setattr(np.linalg, "lstsq", forbidden_lstsq)
+    with pytest.raises(ValueError, match="shape/device contract failure"):
+        _irls._solve(np.eye(2), np.ones(2), backend="numpy")
+
+
+def test_irls_source_has_no_broad_objective_fallback_and_cupy_norm_is_native():
+    from pathlib import Path
+
+    source = Path("statgpu/glm_core/_irls.py").read_text(encoding="utf-8")
+    line_search = source.split("# Backtracking line search", 1)[1].split(
+        "# Convergence: normalized penalized score norm.", 1
+    )[0]
+    assert "except Exception" not in line_search
+    assert "objective_loss.per_sample_value" in line_search
+    norm_body = source.split("def _norm", 1)[1].split("def _zeros", 1)[0]
+    assert "cp.linalg.norm" in norm_body
+
+
+def test_glm_frequency_weights_match_expanded_data_diagnostics():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-1.0], [0.0], [2.0], [4.0]], dtype=np.float64)
+    y = np.array([-0.4, 0.5, 2.2, 5.1], dtype=np.float64)
+    weights = np.array([1, 3, 2, 4], dtype=np.float64)
+    repeat_index = np.repeat(np.arange(X.shape[0]), weights.astype(int))
+
+    weighted = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0,
+        max_iter=100, tol=1e-12, device="cpu", compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    expanded = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0,
+        max_iter=100, tol=1e-12, device="cpu", compute_inference=False,
+    ).fit(X[repeat_index], y[repeat_index])
+
+    np.testing.assert_allclose(weighted.coef_, expanded.coef_, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.intercept_, expanded.intercept_, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.loglikelihood, expanded.loglikelihood, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.aic, expanded.aic, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(weighted.bic, expanded.bic, rtol=1e-12, atol=1e-12)
+    assert weighted._effective_nobs == weights.sum()
+    assert weighted._df_resid == expanded._df_resid
