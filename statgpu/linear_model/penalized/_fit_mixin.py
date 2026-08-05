@@ -6,7 +6,7 @@ from statgpu.backends._torch_compile import compile_torch
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import get_backend, _to_numpy, _LINALG_ERRORS
+from statgpu.backends import get_backend, _to_numpy
 from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 
@@ -1378,15 +1378,19 @@ class _PenalizedFitMixin:
         A = XtX + (float(normalization) * alpha) * cp.eye(p, dtype=XtX.dtype)
         try:
             # Cholesky + triangular solve is faster than general solve
-            # for positive-definite matrices (Ridge penalty guarantees PD)
+            # for positive-definite matrices (Ridge penalty guarantees PD).
             L = cp.linalg.cholesky(A)
             tmp = cp_solve_triangular(L, Xty, lower=True)
             return cp_solve_triangular(L.T, tmp, lower=False)
-        except _LINALG_ERRORS:
-            try:
-                return cp.linalg.solve(A, Xty)
-            except _LINALG_ERRORS:
-                return cp.linalg.pinv(A) @ Xty
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
+        try:
+            return cp.linalg.solve(A, Xty)
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
+            return cp.linalg.pinv(A) @ Xty
 
     def _solve_exact_torch(self, XtX, Xty, normalization):
         import torch

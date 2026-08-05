@@ -1,5 +1,7 @@
 # Changelog
 
+- 修正 NumPy、CuPy 与 Torch 下解析权重 LogisticRegression 的 IRLS：权重仅进入 WLS 曲率而不进入工作响应分母，且加权似然与推断保持同一目标；同时收窄 penalized-CV alpha 网格与 CuPy 精确 Ridge 的降级范围，使编程错误、CUDA OOM 与设备错误继续抛出。
+
 - 完成惩罚 CV 降级边界加固：可选 Lipschitz 提示统一识别 NumPy/CuPy/Torch 的秩失败，而 alpha 网格估计不再隐藏内存或 GPU 基础设施错误。
 
 - 保持惩罚 CV 的声明验证目标：非 Gaussian 损失不再静默退化为 MSE，平方损失应急路径保留验证权重，GPU 基础设施错误会穿透多层 CV 降级并原样抛出。

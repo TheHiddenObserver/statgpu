@@ -12,6 +12,7 @@ from scipy import stats
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+from statgpu.glm_core._validation import validate_glm_sample_weight
 from statgpu.backends import _get_torch_device_str
 from statgpu.metrics import (
     binary_average_precision_score,
@@ -133,6 +134,7 @@ class LogisticRegression(BaseEstimator):
         self._loglik_null = None
         self._train_pred_cache = None
         self._train_eval_cache = None
+        self._sample_weight = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -227,15 +229,27 @@ class LogisticRegression(BaseEstimator):
         else:
             y_arr = self._to_array(y, backend=backend_name).astype(float)
 
+        if sample_weight is None:
+            sample_weight_arr = None
+            self._sample_weight = None
+        else:
+            sample_weight_arr = self._to_array(sample_weight, backend=backend_name)
+            sample_weight_arr = validate_glm_sample_weight(
+                sample_weight_arr, X_arr.shape[0]
+            )
+            self._sample_weight = np.asarray(
+                self._to_numpy(sample_weight_arr), dtype=np.float64
+            ).reshape(-1)
+
         device = self._get_compute_device()
 
         # Route to appropriate backend
         if backend_name == "torch":
-            self._fit_torch(X_arr, y_arr, sample_weight)
+            self._fit_torch(X_arr, y_arr, sample_weight_arr)
         elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, sample_weight)
+            self._fit_gpu(X_arr, y_arr, sample_weight_arr)
         else:
-            self._fit_cpu(X_arr, y_arr, sample_weight)
+            self._fit_cpu(X_arr, y_arr, sample_weight_arr)
 
         if self._compute_inference_enabled and device == Device.CPU:
             self._compute_inference()
@@ -271,15 +285,16 @@ class LogisticRegression(BaseEstimator):
             eta = self._X_design @ params
             p = self._sigmoid(eta)
             
-            # Weights for WLS
-            W = p * (1 - p)
-            W = np.clip(W, 1e-8, 1 - 1e-8)  # Avoid numerical issues
-            
-            if sample_weight is not None:
-                W = W * np.asarray(sample_weight)
-            
-            # Working response
-            z = eta + (y - p) / W
+            # The IRLS working response uses only the Bernoulli variance.
+            # Analytic sample weights belong in the WLS weights, not in the
+            # working-response denominator.
+            W_base = np.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+            z = eta + (y - p) / W_base
+            W = (
+                W_base
+                if sample_weight is None
+                else W_base * np.asarray(sample_weight, dtype=np.float64)
+            )
             
             # Weighted least squares
             # (X'WX + alpha*I) * params = X'Wz
@@ -335,7 +350,12 @@ class LogisticRegression(BaseEstimator):
         
         # Regularization parameter
         alpha = 1.0 / self.C if self.C > 0 else 0.0
-        
+        sw_work = (
+            None
+            if sample_weight is None
+            else cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+        )
+
         # IRLS iteration
         iteration = 0
         for iteration in range(self._max_iter):
@@ -345,15 +365,9 @@ class LogisticRegression(BaseEstimator):
             eta = X_design @ params
             p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
             
-            # Weights for WLS
-            W = p * (1 - p)
-            W = cp.clip(W, 1e-8, 1 - 1e-8)
-            
-            if sample_weight is not None:
-                W = W * cp.asarray(sample_weight)
-            
-            # Working response
-            z = eta + (y - p) / W
+            W_base = cp.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+            z = eta + (y - p) / W_base
+            W = W_base if sw_work is None else W_base * sw_work
             
             # Weighted least squares
             XtWX = X_design.T @ (X_design * W[:, cp.newaxis])
@@ -383,11 +397,17 @@ class LogisticRegression(BaseEstimator):
         # Compute log-likelihood on GPU
         eta = X_design @ params
         p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
-        loglik = cp.sum(y * cp.log(p + 1e-10) + (1 - y) * cp.log(1 - p + 1e-10))
-        
-        # Compute accuracy on GPU
+        loglik_i = y * cp.log(p + 1e-10) + (1 - y) * cp.log(1 - p + 1e-10)
+        loglik = cp.sum(loglik_i if sw_work is None else sw_work * loglik_i)
+
+        # Compute accuracy on GPU using the same analytic weights.
         y_pred = (p > 0.5).astype(cp.int32)
-        accuracy = cp.mean(y_pred == y)
+        correct = (y_pred == y).astype(cp.float64)
+        accuracy = (
+            cp.mean(correct)
+            if sw_work is None
+            else cp.sum(sw_work * correct) / cp.sum(sw_work)
+        )
         
         # Store GPU results temporarily
         self._loglik_gpu = loglik
@@ -395,8 +415,9 @@ class LogisticRegression(BaseEstimator):
 
         if self._compute_inference_enabled:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
-            W_inf = p * (1 - p)
-            W_inf = cp.clip(W_inf, 1e-8, 1 - 1e-8)
+            W_inf = cp.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+            if sw_work is not None:
+                W_inf = W_inf * sw_work
             H = X_design.T @ (X_design * W_inf[:, cp.newaxis])
             if alpha > 0:
                 reg_diag_inf = cp.full(H.shape[0], alpha)
@@ -415,6 +436,8 @@ class LogisticRegression(BaseEstimator):
                 cov_params = bread
             else:
                 resid_score = y - p
+                if sw_work is not None:
+                    resid_score = resid_score * sw_work
                 scores = X_design * resid_score[:, cp.newaxis]
 
                 if self._cov_type == "hac":
@@ -466,10 +489,15 @@ class LogisticRegression(BaseEstimator):
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
         self._loglik = float(cp.asnumpy(self._loglik_gpu))
         self._accuracy = float(cp.asnumpy(self._accuracy_gpu))
-        y_mean = cp.mean(y)
+        y_mean = (
+            cp.mean(y)
+            if sw_work is None
+            else cp.sum(sw_work * y) / cp.sum(sw_work)
+        )
         y_mean = cp.clip(y_mean, 1e-15, 1 - 1e-15)
+        null_i = y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)
         self._loglik_null = float(
-            cp.asnumpy(cp.sum(y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)))
+            cp.asnumpy(cp.sum(null_i if sw_work is None else sw_work * null_i))
         )
 
         # Release large temporary GPU tensors early.
@@ -553,6 +581,13 @@ class LogisticRegression(BaseEstimator):
 
         # Regularization parameter (lambda = 1 / (2*C))
         alpha = 1.0 / self.C if self.C > 0 else 0.0
+        sw_work = (
+            None
+            if sample_weight is None
+            else torch.as_tensor(
+                sample_weight, dtype=torch.float64, device=torch_device
+            ).reshape(-1)
+        )
 
         # IRLS iteration
         iteration = 0
@@ -563,21 +598,9 @@ class LogisticRegression(BaseEstimator):
             eta = X_design @ params
             p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
 
-            # Weights for WLS
-            W = p * (1 - p)
-            W = torch.clamp(W, 1e-8, 1 - 1e-8)
-
-            if sample_weight is not None:
-                if not isinstance(sample_weight, torch.Tensor):
-                    sample_weight_torch = torch.from_numpy(sample_weight).to(torch_device)
-                else:
-                    sample_weight_torch = sample_weight.to(torch_device)
-                if sample_weight_torch.dtype != torch.float64:
-                    sample_weight_torch = sample_weight_torch.to(torch.float64)
-                W = W * sample_weight_torch
-
-            # Working response
-            z = eta + (y - p) / W
+            W_base = torch.clamp(p * (1 - p), 1e-8, 1 - 1e-8)
+            z = eta + (y - p) / W_base
+            W = W_base if sw_work is None else W_base * sw_work
 
             # Weighted least squares
             XtWX = X_design.T @ (X_design * W[:, None])
@@ -607,12 +630,18 @@ class LogisticRegression(BaseEstimator):
         # Compute log-likelihood on GPU
         eta = X_design @ params
         p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
-        loglik = torch.sum(y * torch.log(p + 1e-10) + (1 - y) * torch.log(1 - p + 1e-10))
+        loglik_i = y * torch.log(p + 1e-10) + (1 - y) * torch.log(1 - p + 1e-10)
+        loglik = torch.sum(loglik_i if sw_work is None else sw_work * loglik_i)
 
-        # Compute accuracy on GPU
+        # Compute accuracy using the same analytic weights.
         y_pred = (p > 0.5).to(torch.int32)
         y_true = y.to(torch.int32).reshape(y_pred.shape)
-        accuracy = torch.mean((y_pred == y_true).to(torch.float64))
+        correct = (y_pred == y_true).to(torch.float64)
+        accuracy = (
+            torch.mean(correct)
+            if sw_work is None
+            else torch.sum(sw_work * correct) / torch.sum(sw_work)
+        )
 
         # Store GPU results temporarily
         self._loglik_gpu = loglik
@@ -620,8 +649,9 @@ class LogisticRegression(BaseEstimator):
 
         if self._compute_inference_enabled:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
-            W_inf = p * (1 - p)
-            W_inf = torch.clamp(W_inf, 1e-8, 1 - 1e-8)
+            W_inf = torch.clamp(p * (1 - p), 1e-8, 1 - 1e-8)
+            if sw_work is not None:
+                W_inf = W_inf * sw_work
             H = X_design.T @ (X_design * W_inf[:, None])
             if alpha > 0:
                 reg_diag_inf = torch.full((H.shape[0],), alpha, dtype=torch.float64, device=torch_device)
@@ -640,6 +670,8 @@ class LogisticRegression(BaseEstimator):
                 cov_params = bread
             else:
                 resid_score = y - p
+                if sw_work is not None:
+                    resid_score = resid_score * sw_work
                 scores = X_design * resid_score[:, None]
 
                 if self._cov_type == "hac":
@@ -691,9 +723,18 @@ class LogisticRegression(BaseEstimator):
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
         self._loglik = float(self._loglik_gpu.cpu().numpy())
         self._accuracy = float(self._accuracy_gpu.cpu().numpy())
-        y_mean = torch.mean(y)
+        y_mean = (
+            torch.mean(y)
+            if sw_work is None
+            else torch.sum(sw_work * y) / torch.sum(sw_work)
+        )
         y_mean = torch.clamp(y_mean, 1e-15, 1 - 1e-15)
-        self._loglik_null = float(torch.sum(y * torch.log(y_mean) + (1 - y) * torch.log(1 - y_mean)).cpu().numpy())
+        null_i = y * torch.log(y_mean) + (1 - y) * torch.log(1 - y_mean)
+        self._loglik_null = float(
+            torch.sum(null_i if sw_work is None else sw_work * null_i)
+            .cpu()
+            .numpy()
+        )
 
         # Release large temporary GPU tensors early.
         try:
@@ -754,10 +795,11 @@ class LogisticRegression(BaseEstimator):
         eta = self._X_design @ self._params
         p = self._sigmoid(eta)
         
-        # Compute Hessian (information matrix)
-        W = p * (1 - p)
-        W = np.clip(W, 1e-8, 1 - 1e-8)
-        
+        # Compute Hessian (information matrix) with analytic weights.
+        W = np.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+        if self._sample_weight is not None:
+            W = W * self._sample_weight
+
         XtWX = self._X_design.T @ (self._X_design * W[:, np.newaxis])
         
         # Add regularization to Hessian
@@ -777,6 +819,8 @@ class LogisticRegression(BaseEstimator):
             cov_params = bread
         else:
             resid_score = self._y - p
+            if self._sample_weight is not None:
+                resid_score = resid_score * self._sample_weight
 
             scores = self._X_design * resid_score[:, np.newaxis]
             if self._cov_type == "hac":
@@ -818,12 +862,26 @@ class LogisticRegression(BaseEstimator):
         # Log-likelihood
         eps = 1e-15  # Avoid log(0)
         p_clipped = np.clip(p, eps, 1 - eps)
-        self._loglik = np.sum(self._y * np.log(p_clipped) + (1 - self._y) * np.log(1 - p_clipped))
-        
+        loglik_i = self._y * np.log(p_clipped) + (1 - self._y) * np.log(1 - p_clipped)
+        self._loglik = np.sum(
+            loglik_i
+            if self._sample_weight is None
+            else self._sample_weight * loglik_i
+        )
+
         # Null log-likelihood (intercept-only model)
-        y_mean = np.mean(self._y)
+        y_mean = (
+            np.mean(self._y)
+            if self._sample_weight is None
+            else np.average(self._y, weights=self._sample_weight)
+        )
         y_mean = np.clip(y_mean, eps, 1 - eps)
-        self._loglik_null = np.sum(self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean))
+        null_i = self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean)
+        self._loglik_null = np.sum(
+            null_i
+            if self._sample_weight is None
+            else self._sample_weight * null_i
+        )
 
     def _train_classification_table(self):
         """Training-set classification table on current device.

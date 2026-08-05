@@ -3657,3 +3657,159 @@ def test_penalized_cv_alpha_grid_does_not_hide_memory_failure(monkeypatch):
             np.array([[1.0], [2.0], [3.0]]),
             np.array([1.0, 2.0, 3.0]),
         )
+
+
+def _weighted_logistic_fixture():
+    X = np.array(
+        [
+            [-1.2, 0.3],
+            [-0.7, -0.4],
+            [-0.1, 0.8],
+            [0.4, -0.6],
+            [0.9, 0.2],
+            [1.5, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    y = np.array([0, 0, 0, 1, 1, 1], dtype=np.float64)
+    weight = np.array([1, 3, 2, 4, 1, 2], dtype=np.float64)
+    return X, y, weight
+
+
+def test_weighted_logistic_cpu_matches_integer_row_replication():
+    from statgpu.linear_model.wrappers._logistic import LogisticRegression
+
+    X, y, weight = _weighted_logistic_fixture()
+    weighted = LogisticRegression(
+        C=2.5,
+        max_iter=300,
+        tol=1e-11,
+        device="cpu",
+        compute_inference=True,
+    ).fit(X, y, sample_weight=weight)
+
+    repeats = weight.astype(np.int64)
+    replicated = LogisticRegression(
+        C=2.5,
+        max_iter=300,
+        tol=1e-11,
+        device="cpu",
+        compute_inference=True,
+    ).fit(np.repeat(X, repeats, axis=0), np.repeat(y, repeats, axis=0))
+
+    np.testing.assert_allclose(weighted.intercept_, replicated.intercept_, rtol=1e-8, atol=1e-9)
+    np.testing.assert_allclose(weighted.coef_, replicated.coef_, rtol=1e-8, atol=1e-9)
+    np.testing.assert_allclose(weighted._bse, replicated._bse, rtol=1e-8, atol=1e-9)
+    np.testing.assert_allclose(weighted._loglik, replicated._loglik, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(weighted._loglik_null, replicated._loglik_null, rtol=1e-9, atol=1e-9)
+
+
+def test_weighted_logistic_torch_matches_cpu(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.linear_model.wrappers._logistic as logistic_mod
+    from statgpu.linear_model.wrappers._logistic import LogisticRegression
+
+    X, y, weight = _weighted_logistic_fixture()
+    cpu = LogisticRegression(
+        C=2.5, max_iter=300, tol=1e-11, device="cpu", compute_inference=True
+    ).fit(X, y, sample_weight=weight)
+
+    # Exercise the Torch implementation on a CPU-only hosted runner
+    # without weakening the public explicit-Torch CUDA contract.
+    monkeypatch.setattr(logistic_mod, "_get_torch_device_str", lambda: "cpu")
+    torch_model = LogisticRegression(
+        C=2.5, max_iter=300, tol=1e-11, device="cpu", compute_inference=True
+    )
+    torch_model._y = y.astype(float)
+    torch_model._sample_weight = weight.astype(float)
+    torch_model._weight_sum = float(np.sum(weight))
+    torch_model._fit_torch(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        torch.as_tensor(weight, dtype=torch.float64),
+    )
+
+    np.testing.assert_allclose(
+        torch_model.intercept_, cpu.intercept_, rtol=1e-8, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        torch_model.coef_, cpu.coef_, rtol=1e-8, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        torch_model._bse, cpu._bse, rtol=1e-8, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        torch_model._loglik, cpu._loglik, rtol=1e-9, atol=1e-9
+    )
+
+@pytest.mark.parametrize(
+    "weight, message",
+    [
+        (np.array([1.0, -1.0, 1.0, 1.0, 1.0, 1.0]), "non-negative"),
+        (np.zeros(6), "positive sum"),
+        (np.array([1.0, np.inf, 1.0, 1.0, 1.0, 1.0]), "finite"),
+    ],
+)
+def test_weighted_logistic_validates_weights_before_irls(weight, message):
+    from statgpu.linear_model.wrappers._logistic import LogisticRegression
+
+    X, y, _ = _weighted_logistic_fixture()
+    with pytest.raises(ValueError, match=message):
+        LogisticRegression(device="cpu").fit(X, y, sample_weight=weight)
+
+
+def test_alpha_grid_fallback_classifier_is_narrow():
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    assert cv_mod._cv_alpha_grid_failure_is_recoverable(
+        FloatingPointError("overflow")
+    )
+    assert cv_mod._cv_alpha_grid_failure_is_recoverable(
+        np.linalg.LinAlgError("singular matrix")
+    )
+    assert not cv_mod._cv_alpha_grid_failure_is_recoverable(
+        AttributeError("missing gradient")
+    )
+    assert not cv_mod._cv_alpha_grid_failure_is_recoverable(
+        RuntimeError("unexpected implementation failure")
+    )
+
+
+def test_exact_cupy_ridge_does_not_mask_cuda_oom(monkeypatch):
+    import sys
+    import types
+    from types import SimpleNamespace
+    from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+
+    fake_cp = types.ModuleType("cupy")
+    fake_cp.eye = np.eye
+
+    class FakeLinalg:
+        @staticmethod
+        def cholesky(_):
+            raise RuntimeError("CUDA out of memory")
+
+        @staticmethod
+        def solve(*_):
+            raise AssertionError("solve must not run after CUDA OOM")
+
+        @staticmethod
+        def pinv(*_):
+            raise AssertionError("pinv must not run after CUDA OOM")
+
+    fake_cp.linalg = FakeLinalg()
+    fake_cupyx = types.ModuleType("cupyx")
+    fake_cupyx_scipy = types.ModuleType("cupyx.scipy")
+    fake_cupyx_linalg = types.ModuleType("cupyx.scipy.linalg")
+    fake_cupyx_linalg.solve_triangular = lambda *args, **kwargs: np.asarray(args[1])
+
+    monkeypatch.setitem(sys.modules, "cupy", fake_cp)
+    monkeypatch.setitem(sys.modules, "cupyx", fake_cupyx)
+    monkeypatch.setitem(sys.modules, "cupyx.scipy", fake_cupyx_scipy)
+    monkeypatch.setitem(sys.modules, "cupyx.scipy.linalg", fake_cupyx_linalg)
+
+    model = PenalizedGeneralizedLinearModel.__new__(PenalizedGeneralizedLinearModel)
+    model._penalty = SimpleNamespace(alpha=0.1)
+    model.alpha = 0.1
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        model._solve_exact_cupy(np.eye(2), np.ones(2), 4.0)

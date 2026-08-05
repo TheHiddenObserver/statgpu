@@ -164,6 +164,14 @@ def _cv_lipschitz_failure_is_recoverable(exc) -> bool:
     ) or _linalg_exception_is_rank_failure(exc)
 
 
+def _cv_alpha_grid_failure_is_recoverable(exc) -> bool:
+    """Allow default alpha fallback only for genuine numerical failures."""
+    return isinstance(
+        exc,
+        (FloatingPointError, OverflowError, np.linalg.LinAlgError),
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
 def _is_uniform_weight(sample_weight) -> bool:
     """Check uniformity on the current backend and synchronize one boolean."""
     if sample_weight is None:
@@ -2308,7 +2316,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     grad = X_np.T @ (sw_np * residual) / normalization
                 alpha_max = float(np.max(np.abs(grad)))
             except Exception as e:
-                _raise_cv_infrastructure_failure(e)
+                if not _cv_alpha_grid_failure_is_recoverable(e):
+                    raise
                 warnings.warn(
                     f"Alpha grid estimation failed ({e}), using alpha_max=1.0",
                     RuntimeWarning,
