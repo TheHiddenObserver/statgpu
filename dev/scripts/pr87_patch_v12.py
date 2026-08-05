@@ -1,0 +1,384 @@
+from pathlib import Path
+
+
+def replace_once(path, old, new):
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+    if old not in text:
+        raise RuntimeError(f"patch anchor missing in {path}: {old[:120]!r}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+replace_once(
+    "statgpu/linear_model/_glm_base.py",
+    '''def _parse_formula_if_provided(formula, data, X, y):
+    """Parse formula+data or fall back to raw arrays. Returns (y, X, info)."""
+    if formula is not None:
+        from statgpu.core.formula import parse_formula
+        return parse_formula(formula, data)
+    y = np.asarray(y)
+    if y.ndim == 2 and y.shape[1] == 1:
+        y = y.ravel()
+    return y, np.asarray(X), None
+''',
+    '''def _parse_formula_if_provided(formula, data, X, y):
+    """Parse formula data and return retained row positions for side arrays."""
+    if formula is not None:
+        from statgpu.core.formula import FormulaParser
+
+        parser = FormulaParser(formula)
+        y_arr, X_arr, design_info = parser.eval(data)
+        return y_arr, X_arr, design_info, parser.row_positions
+    y_arr = np.asarray(y)
+    if y_arr.ndim == 2 and y_arr.shape[1] == 1:
+        y_arr = y_arr.ravel()
+    return y_arr, np.asarray(X), None, None
+''',
+)
+replace_once(
+    "statgpu/linear_model/_glm_base.py",
+    '''            y_arr, X_arr, design_info = _parse_formula_if_provided(
+                formula, data, None, None
+            )
+            self._design_info = design_info
+''',
+    '''            y_arr, X_arr, design_info, retained_rows = _parse_formula_if_provided(
+                formula, data, None, None
+            )
+            if sample_weight is not None:
+                weights = np.asarray(_to_numpy(sample_weight)).reshape(-1)
+                if weights.shape[0] == len(data):
+                    weights = weights[retained_rows]
+                elif weights.shape[0] != X_arr.shape[0]:
+                    raise ValueError(
+                        "For formula fitting, sample_weight must have length "
+                        "len(data) or the number of rows retained by the formula."
+                    )
+                sample_weight = np.asarray(weights, dtype=np.float64)
+            self._design_info = design_info
+''',
+)
+
+tests = Path("dev/tests/test_maintenance_024_025.py")
+text = tests.read_text(encoding="utf-8")
+
+anchor = '''    if torch.cuda.get_device_capability()[0] < 7:
+        pytest.skip("requires CUDA capability >= 7")
+    return torch
+
+
+def test_physical_cuda_compile_path_is_observable(monkeypatch):
+'''
+replacement = '''    if torch.cuda.get_device_capability()[0] < 7:
+        pytest.skip("requires CUDA capability >= 7")
+    return torch
+
+
+def _dynamo_unique_graphs(torch):
+    return int(torch._dynamo.utils.counters["stats"].get("unique_graphs", 0))
+
+
+def test_physical_cuda_compile_path_is_observable(monkeypatch):
+'''
+if anchor not in text:
+    raise RuntimeError("CUDA helper anchor missing")
+text = text.replace(anchor, replacement, 1)
+
+old = '''    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    get_torch_compile_diagnostics(clear=True)
+    rng = np.random.default_rng(20260804)
+'''
+new = '''    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+    before_graphs = _dynamo_unique_graphs(torch)
+    rng = np.random.default_rng(20260804)
+'''
+if old not in text:
+    raise RuntimeError("Lasso graph precondition anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''    events = get_torch_compile_diagnostics(clear=True)
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+
+def test_compile_construction_fallback_is_visible'''
+new = '''    events = get_torch_compile_diagnostics(clear=True)
+    after_graphs = _dynamo_unique_graphs(torch)
+    assert after_graphs > before_graphs
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+
+def test_compile_construction_fallback_is_visible'''
+if old not in text:
+    raise RuntimeError("Lasso graph assertion anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''    w = torch.linspace(-2.0, 2.0, 8, device="cuda", dtype=torch.float64)
+    for penalty in penalties:
+        result = penalty.proximal(w, step=0.1, backend="torch")
+        assert result.is_cuda
+        assert torch.isfinite(result).all()
+    torch.cuda.synchronize()
+
+    after_graphs = int(counters["stats"].get("unique_graphs", 0))
+'''
+new = '''    w = torch.linspace(-2.0, 2.0, 8, device="cuda", dtype=torch.float64)
+    for penalty in penalties:
+        case_before_graphs = _dynamo_unique_graphs(torch)
+        result = penalty.proximal(w, step=0.1, backend="torch")
+        torch.cuda.synchronize()
+        case_after_graphs = _dynamo_unique_graphs(torch)
+        assert case_after_graphs > case_before_graphs, penalty.name
+        assert result.is_cuda
+        assert torch.isfinite(result).all()
+
+    after_graphs = int(counters["stats"].get("unique_graphs", 0))
+'''
+if old not in text:
+    raise RuntimeError("penalty graph matrix anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''    get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+
+    rng = np.random.default_rng(20260805)
+'''
+new = '''    get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+    before_graphs = _dynamo_unique_graphs(torch)
+
+    rng = np.random.default_rng(20260805)
+'''
+if old not in text:
+    raise RuntimeError("nonconvex graph precondition anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''    events = get_torch_compile_diagnostics(clear=True)
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+def test_torch_elasticnet_model_level_compile_path_py21'''
+new = '''    events = get_torch_compile_diagnostics(clear=True)
+    after_graphs = _dynamo_unique_graphs(torch)
+    assert after_graphs > before_graphs
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+def test_torch_elasticnet_model_level_compile_path_py21'''
+if old not in text:
+    raise RuntimeError("nonconvex graph assertion anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
+    _require_modern_torch_cuda()
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+'''
+new = '''def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
+    torch = _require_modern_torch_cuda()
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+'''
+if old not in text:
+    raise RuntimeError("ElasticNet torch binding anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''    get_torch_compile_diagnostics(clear=True)
+    rng = np.random.default_rng(20260806)
+'''
+new = '''    get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+    before_graphs = _dynamo_unique_graphs(torch)
+    rng = np.random.default_rng(20260806)
+'''
+if old not in text:
+    raise RuntimeError("ElasticNet graph precondition anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''    events = get_torch_compile_diagnostics(clear=True)
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+# PR87_FORMULA_PREDICT_OWNERSHIP_TEST'''
+new = '''    events = get_torch_compile_diagnostics(clear=True)
+    after_graphs = _dynamo_unique_graphs(torch)
+    assert after_graphs > before_graphs
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+# PR87_FORMULA_PREDICT_OWNERSHIP_TEST'''
+if old not in text:
+    raise RuntimeError("ElasticNet graph assertion anchor missing")
+text = text.replace(old, new, 1)
+
+marker = "# PR87_SECOND_REVIEW_FORMULA_WEIGHT_TESTS"
+if marker not in text:
+    text += '''
+
+# PR87_SECOND_REVIEW_FORMULA_WEIGHT_TESTS
+def test_glm_formula_sample_weight_aligns_patsy_retained_rows():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    data = pd.DataFrame(
+        {
+            "y": [1.0, 2.0, 3.0, 5.0, 8.0],
+            "x": [0.0, 1.0, np.nan, 3.0, 4.0],
+        }
+    )
+    original_weights = np.array([1.0, 2.0, 1000.0, 4.0, 5.0])
+    retained = np.array([0, 1, 3, 4])
+
+    formula_model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    ).fit(
+        formula="y ~ x", data=data, sample_weight=original_weights
+    )
+    direct_model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    ).fit(
+        data.loc[retained, ["x"]].to_numpy(),
+        data.loc[retained, "y"].to_numpy(),
+        sample_weight=original_weights[retained],
+    )
+    np.testing.assert_allclose(formula_model.coef_, direct_model.coef_)
+    np.testing.assert_allclose(formula_model.intercept_, direct_model.intercept_)
+
+    aligned_model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu"
+    ).fit(
+        formula="y ~ x", data=data, sample_weight=original_weights[retained]
+    )
+    np.testing.assert_allclose(aligned_model.coef_, direct_model.coef_)
+    np.testing.assert_allclose(aligned_model.intercept_, direct_model.intercept_)
+
+    with pytest.raises(ValueError, match="sample_weight must have length"):
+        GeneralizedLinearModel(
+            family="gaussian", solver="irls", C=0.0, device="cpu"
+        ).fit(
+            formula="y ~ x", data=data, sample_weight=np.ones(3)
+        )
+
+
+def test_compile_benchmark_has_hard_per_case_graph_gate():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path("dev/benchmarks/benchmark_torch_compile_maintenance.py")
+    spec = importlib.util.spec_from_file_location("compile_benchmark", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    module._validate_compile_evidence(
+        "default", "lasso", [{"status": "compiled"}], graph_delta=1
+    )
+    with pytest.raises(RuntimeError, match="Dynamo graph"):
+        module._validate_compile_evidence(
+            "default", "lasso", [{"status": "compiled"}], graph_delta=0
+        )
+    with pytest.raises(RuntimeError, match="compiled diagnostic"):
+        module._validate_compile_evidence(
+            "default", "lasso", [], graph_delta=1
+        )
+'''
+tests.write_text(text, encoding="utf-8")
+
+benchmark = Path("dev/benchmarks/benchmark_torch_compile_maintenance.py")
+text = benchmark.read_text(encoding="utf-8")
+marker = '''_PRECISION_RTOL = 1e-6
+_PRECISION_ATOL = 1e-8
+
+
+def _json_value(value):
+'''
+replacement = '''_PRECISION_RTOL = 1e-6
+_PRECISION_ATOL = 1e-8
+
+
+def _validate_compile_evidence(mode, case, events, graph_delta):
+    """Require actual graph execution for every default-mode benchmark case."""
+    if mode != "default":
+        return
+    if int(graph_delta) <= 0:
+        raise RuntimeError(f"{case}:{mode} did not create a Dynamo graph")
+    if not any(event.get("status") == "compiled" for event in events):
+        raise RuntimeError(f"{case}:{mode} has no compiled diagnostic")
+    if any("fallback" in str(event.get("status", "")) for event in events):
+        raise RuntimeError(f"{case}:{mode} entered fallback")
+
+
+def _json_value(value):
+'''
+if marker not in text:
+    raise RuntimeError("benchmark helper anchor missing")
+text = text.replace(marker, replacement, 1)
+
+old = '''    for name, factory in cases.items():
+        get_torch_compile_diagnostics(clear=True)
+        timings = []
+'''
+new = '''    for name, factory in cases.items():
+        get_torch_compile_diagnostics(clear=True)
+        torch._dynamo.reset()
+        before_graphs = int(
+            torch._dynamo.utils.counters["stats"].get("unique_graphs", 0)
+        )
+        timings = []
+'''
+if old not in text:
+    raise RuntimeError("benchmark per-case precondition anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''        events = get_torch_compile_diagnostics(clear=True)
+        coefficients = np.asarray(_to_numpy(model.coef_))
+        finite_prediction = bool(np.isfinite(prediction).all())
+        finite_coefficients = bool(np.isfinite(coefficients).all())
+        fallback_seen = any("fallback" in event["status"] for event in events)
+        if not finite_prediction or not finite_coefficients:
+            raise RuntimeError(f"{name}:{mode} produced non-finite output")
+        if mode == "default" and fallback_seen:
+            raise RuntimeError(f"{name}:{mode} entered fallback")
+
+        case_results[name] = {
+'''
+new = '''        events = get_torch_compile_diagnostics(clear=True)
+        after_graphs = int(
+            torch._dynamo.utils.counters["stats"].get("unique_graphs", 0)
+        )
+        graph_delta = after_graphs - before_graphs
+        _validate_compile_evidence(mode, name, events, graph_delta)
+        coefficients = np.asarray(_to_numpy(model.coef_))
+        finite_prediction = bool(np.isfinite(prediction).all())
+        finite_coefficients = bool(np.isfinite(coefficients).all())
+        fallback_seen = any("fallback" in event["status"] for event in events)
+        if not finite_prediction or not finite_coefficients:
+            raise RuntimeError(f"{name}:{mode} produced non-finite output")
+
+        case_results[name] = {
+'''
+if old not in text:
+    raise RuntimeError("benchmark evidence anchor missing")
+text = text.replace(old, new, 1)
+
+old = '''            "compile_events": events,
+            "fallback_seen": fallback_seen,
+'''
+new = '''            "compile_events": events,
+            "compiled_event_count": sum(
+                event["status"] == "compiled" for event in events
+            ),
+            "unique_graphs_before": before_graphs,
+            "unique_graphs_after": after_graphs,
+            "unique_graphs_delta": graph_delta,
+            "fallback_seen": fallback_seen,
+'''
+if old not in text:
+    raise RuntimeError("benchmark result anchor missing")
+benchmark.write_text(text.replace(old, new, 1), encoding="utf-8")
