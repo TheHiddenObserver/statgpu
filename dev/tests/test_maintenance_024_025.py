@@ -2653,3 +2653,175 @@ def test_glm_hc1_analytic_weight_diagnostics_are_scale_invariant():
     weighted = fit(weights)
     scaled = fit(29.0 * weights)
     np.testing.assert_allclose(weighted._bse, scaled._bse, rtol=1e-11, atol=1e-11)
+
+# PR87_REVIEW_FIX_V38
+def test_solver_weight_reduction_is_computed_once():
+    from pathlib import Path
+
+    source = Path("statgpu/solvers/_utils.py").read_text(encoding="utf-8")
+    block = source.split("def _validated_sample_weight", 1)[1].split(
+        "def _validate_uniform_sample_weight", 1
+    )[0]
+    assert block.count("xp.sum(values)") == 1
+
+
+def test_direct_fista_bb_validates_weight_length_before_lipschitz():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import fista_bb_solver
+
+    class GuardedSquaredError(SquaredErrorLoss):
+        def lipschitz(self, *args, **kwargs):
+            raise AssertionError("lipschitz must not run before weight validation")
+
+    X = np.ones((3, 1), dtype=np.float64)
+    y = np.arange(3.0)
+    with pytest.raises(ValueError, match="length n_samples"):
+        fista_bb_solver(
+            GuardedSquaredError(),
+            get_penalty("l1", alpha=0.1),
+            X,
+            y,
+            sample_weight=np.ones(2),
+        )
+
+
+def test_newton_does_not_mask_non_singular_solve_errors(monkeypatch):
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import newton_solver
+
+    X = np.column_stack([np.ones(4), np.arange(4.0)])
+    y = np.arange(4.0)
+
+    def oom(*args, **kwargs):
+        raise RuntimeError("CUDA out of memory")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("lstsq must not mask infrastructure failures")
+
+    monkeypatch.setattr(np.linalg, "solve", oom)
+    monkeypatch.setattr(np.linalg, "lstsq", forbidden)
+    with pytest.raises(RuntimeError, match="out of memory"):
+        newton_solver(
+            SquaredErrorLoss(), get_penalty("l2", alpha=0.1), X, y, max_iter=2
+        )
+
+
+def test_newton_validates_weights_before_constant_hessian():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import newton_solver
+
+    class GuardedSquaredError(SquaredErrorLoss):
+        def hessian(self, *args, **kwargs):
+            raise AssertionError("hessian must not run before weight validation")
+
+    with pytest.raises(ValueError, match="length n_samples"):
+        newton_solver(
+            GuardedSquaredError(),
+            get_penalty("l2", alpha=0.1),
+            np.ones((3, 1)),
+            np.ones(3),
+            sample_weight=np.ones(2),
+        )
+
+
+def test_admm_does_not_mask_non_singular_cholesky_errors(monkeypatch):
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import admm_solver
+
+    def oom(*args, **kwargs):
+        raise RuntimeError("CUDA out of memory")
+
+    monkeypatch.setattr(np.linalg, "cholesky", oom)
+    with pytest.raises(RuntimeError, match="out of memory"):
+        admm_solver(
+            SquaredErrorLoss(),
+            get_penalty("l1", alpha=0.1),
+            np.ones((4, 1)),
+            np.arange(4.0),
+            max_iter=2,
+        )
+
+
+def test_proximal_newton_validates_weight_length_before_curvature():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import proximal_newton_solver
+
+    class GuardedSquaredError(SquaredErrorLoss):
+        def fused_gradient_and_hessian(self, *args, **kwargs):
+            raise AssertionError("curvature must not run before weight validation")
+
+    with pytest.raises(ValueError, match="length n_samples"):
+        proximal_newton_solver(
+            GuardedSquaredError(),
+            get_penalty("l1", alpha=0.1),
+            np.ones((3, 1)),
+            np.ones(3),
+            sample_weight=np.ones(2),
+        )
+
+
+def test_proximal_newton_preserves_torch_float32_dtype():
+    torch = pytest.importorskip("torch")
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import proximal_newton_solver
+
+    X = torch.tensor([[1.0], [2.0], [3.0], [4.0]], dtype=torch.float32)
+    y = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float32)
+    coef, _ = proximal_newton_solver(
+        SquaredErrorLoss(),
+        get_penalty("l1", alpha=0.01),
+        X,
+        y,
+        max_iter=3,
+    )
+    assert coef.dtype == torch.float32
+    assert bool(torch.all(torch.isfinite(coef)).item())
+
+
+def test_lbfgs_steepest_descent_uses_squared_norm_slope():
+    from pathlib import Path
+
+    lbfgs = Path("statgpu/solvers/_lbfgs.py").read_text(encoding="utf-8")
+    lbfgsb = Path("statgpu/solvers/_lbfgs_b.py").read_text(encoding="utf-8")
+    assert "gdd = -gn * gn" in lbfgs
+    assert "direction = -proj_grad" in lbfgsb
+    assert "gdd = -pg_norm * pg_norm" in lbfgsb
+
+
+def test_lbfgsb_torch_bounds_and_projection_are_backend_native():
+    torch = pytest.importorskip("torch")
+    from statgpu.solvers._lbfgs_b import _clip_to_bounds, _projected_gradient
+
+    params = torch.tensor([-2.0, 0.5, 3.0], dtype=torch.float32)
+    lb = torch.tensor([-1.0, 0.0, 0.0], dtype=torch.float32)
+    ub = torch.tensor([1.0, 1.0, 2.0], dtype=torch.float32)
+    clipped = _clip_to_bounds(params, lb, ub, "torch")
+    torch.testing.assert_close(clipped, torch.tensor([-1.0, 0.5, 2.0]))
+    grad = torch.tensor([1.0, -1.0, -1.0], dtype=torch.float32)
+    projected = _projected_gradient(grad, clipped, lb, ub, "torch")
+    torch.testing.assert_close(projected, torch.tensor([0.0, -1.0, 0.0]))
+
+
+def test_lbfgsb_cupy_bounds_and_projection_are_backend_native():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.solvers._lbfgs_b import _clip_to_bounds, _projected_gradient
+
+    params = cp.asarray([-2.0, 0.5, 3.0], dtype=cp.float32)
+    lb = cp.asarray([-1.0, 0.0, 0.0], dtype=cp.float32)
+    ub = cp.asarray([1.0, 1.0, 2.0], dtype=cp.float32)
+    clipped = _clip_to_bounds(params, lb, ub, "cupy")
+    cp.testing.assert_allclose(clipped, cp.asarray([-1.0, 0.5, 2.0]))
+    grad = cp.asarray([1.0, -1.0, -1.0], dtype=cp.float32)
+    projected = _projected_gradient(grad, clipped, lb, ub, "cupy")
+    cp.testing.assert_allclose(projected, cp.asarray([0.0, -1.0, 0.0]))

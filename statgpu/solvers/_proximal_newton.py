@@ -30,7 +30,12 @@ from statgpu.backends._array_ops import (
     _zeros,
 )
 from statgpu.backends._utils import _to_float_scalar, _to_numpy
-from ._utils import _smooth_penalty_gradient, _smooth_penalty_hessian
+from ._utils import (
+    _runtime_error_is_singular,
+    _smooth_penalty_gradient,
+    _smooth_penalty_hessian,
+    _validate_sample_weight,
+)
 
 
 def proximal_newton_solver(
@@ -70,6 +75,7 @@ def proximal_newton_solver(
     """
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
@@ -88,17 +94,21 @@ def proximal_newton_solver(
             f"got '{getattr(loss, 'name', '?')}' which has has_hessian=False."
         )
 
-    # Pre-allocate ridge matrix (reused every iteration)
+    # Pre-allocate a dtype/device-compatible ridge matrix.
     _n = n_features
+    _dtype = getattr(params, "dtype", np.float64)
     if backend == "numpy":
-        _ridge = 1e-10 * np.eye(_n, dtype=np.float64)
+        _ridge = 1e-10 * np.eye(_n, dtype=_dtype)
     elif backend == "cupy":
         import cupy as cp
-        _ridge = 1e-10 * cp.eye(_n, dtype=cp.float64)
+        _ridge = 1e-10 * cp.eye(_n, dtype=_dtype)
     else:
         import torch
-        _ridge = 1e-10 * torch.eye(_n, dtype=torch.float64,
-                                    device=params.device if hasattr(params, 'device') else 'cpu')
+        _ridge = 1e-10 * torch.eye(
+            _n,
+            dtype=_dtype,
+            device=params.device if hasattr(params, "device") else "cpu",
+        )
 
     # Check if loss supports fused gradient+hessian
     _has_fused = hasattr(loss, 'fused_gradient_and_hessian')
@@ -145,16 +155,13 @@ def proximal_newton_solver(
             else:
                 import torch
                 direction = torch.linalg.solve(hess_reg, grad.unsqueeze(1)).squeeze(1)
-        except (np.linalg.LinAlgError, ValueError) as e:
-            # Fallback to gradient descent if Hessian is singular/ill-conditioned
+        except np.linalg.LinAlgError:
+            # Fall back only for a true singular/ill-conditioned Hessian.
             direction = grad
-        except RuntimeError as e:
-            # Only catch singular/ill-conditioned errors, re-raise others (OOM, device mismatch, etc.)
-            err_msg = str(e).lower()
-            if "singular" in err_msg or "ill-conditioned" in err_msg or "not invertible" in err_msg:
-                direction = grad
-            else:
+        except RuntimeError as exc:
+            if not _runtime_error_is_singular(exc):
                 raise
+            direction = grad
 
         # Armijo backtracking line search with proximal step
         obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old, sample_weight=sample_weight)
@@ -197,17 +204,17 @@ def proximal_newton_solver(
                     params = params_try
                     accepted = True
                     break
-            except (ValueError, FloatingPointError):
+            except FloatingPointError:
                 pass
-            except RuntimeError as e:
-                # Only swallow numerical errors, re-raise infrastructure bugs
-                err_msg = str(e).lower()
-                if any(kw in err_msg for kw in ("singular", "ill-conditioned",
-                        "not invertible", "overflow", "invalid value", "nan")):
-                    pass
-                else:
+            except RuntimeError as exc:
+                # Only swallow trial-point numerical failures; infrastructure
+                # and device errors remain visible to the caller.
+                err_msg = str(exc).lower()
+                if not any(
+                    marker in err_msg
+                    for marker in ("overflow", "invalid value", "nan")
+                ):
                     raise
-                pass
             step *= 0.5
 
         if not accepted:

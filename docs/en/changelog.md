@@ -9,6 +9,7 @@
 
 ### Runtime safety
 
+- Adjacent Newton, proximal-Newton, ADMM, FISTA-BB, L-BFGS, and L-BFGS-B paths now validate weights before curvature work, narrow singular-system fallbacks, preserve dtype/device for proximal Newton and CuPy bounds, and use the correct squared-gradient Armijo slope.
 - Direct solver and penalized-CV sample-weight checks now remain on the selected backend, run before weighted Lipschitz operations, reject overflowing totals, and preserve HC1 analytic-weight scale invariance.
 - Internal iterative Torch kernels now use a centralized compile policy.
   The default avoids `reduce-overhead` CUDA Graph capture, while

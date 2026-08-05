@@ -26,6 +26,7 @@ from statgpu.backends._array_ops import (
 from ._convergence import ConvergenceWarning
 from ._utils import (
     _nesterov_momentum,
+    _runtime_error_is_singular,
     _validate_uniform_sample_weight,
 )
 
@@ -89,6 +90,7 @@ def admm_solver(
     """
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "admm_solver")
     n_features = X_proc.shape[1]
 
     # Initialize
@@ -103,9 +105,6 @@ def admm_solver(
 
     z = _copy_arr(w)
     u = _zeros_like(w)
-
-    if sample_weight is not None:
-        _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "admm_solver")
 
     def _grad_w(w_vec, z_cur, u_cur):
         """Gradient of f(w) + (rho/2)||w - z_cur + u_cur||^2 w.r.t. w."""
@@ -139,9 +138,13 @@ def admm_solver(
                     _A_mat = _hess_const + rho * torch.eye(n_features, dtype=_hess_const.dtype, device=_hess_const.device)
                     _L = torch.linalg.cholesky(_A_mat)
                 _cholesky_ok = True
-            except (np.linalg.LinAlgError, ValueError, RuntimeError):
-                # Matrix not positive-definite (numerical issues, collinear features)
-                # Fall back to CG solver below
+            except np.linalg.LinAlgError:
+                # A genuinely non-positive-definite system may use the
+                # iterative fallback below.
+                _cholesky_ok = False
+            except RuntimeError as exc:
+                if not _runtime_error_is_singular(exc):
+                    raise
                 _cholesky_ok = False
         if not _cholesky_ok:
             use_cholesky = False

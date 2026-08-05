@@ -74,6 +74,7 @@ def fista_bb_solver(
     backend = _resolve_backend("auto", X)
     _is_gpu = backend in ("torch", "cupy")
     X_proc, y_proc = loss.preprocess(X, y)
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
     n_features = X_proc.shape[1]
     _pen_name = _penalty_name(penalty)
 
@@ -202,7 +203,6 @@ def fista_bb_solver(
     step_k = step_L
     step_max = step_L * step_max_factor
     step_min = step_L * step_min_factor
-    _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Gradient at initial point for first BB difference
     grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=_sw_arr)

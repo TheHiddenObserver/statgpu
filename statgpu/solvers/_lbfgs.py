@@ -142,7 +142,7 @@ def lbfgs_solver(
             break
         if gdd >= 0:
             direction = -grad
-            gdd = -gn  # -||grad||^2
+            gdd = -gn * gn  # grad'(-grad) = -||grad||^2
 
         # Line search -- stays on device
         old_val_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params)

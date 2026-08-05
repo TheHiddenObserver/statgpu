@@ -29,6 +29,23 @@ def _scalar_bool(value):
     return bool(value.item() if hasattr(value, "item") else value)
 
 
+def _runtime_error_is_singular(exc):
+    """Return whether a backend RuntimeError reports a solvable rank failure."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "singular",
+            "not invertible",
+            "zero pivot",
+            "rank deficient",
+            "ill-conditioned",
+            "not positive-definite",
+            "not positive definite",
+        )
+    )
+
+
 def _native_sample_weight(sample_weight):
     """Return sample weights on their current backend without a full D2H copy."""
     backend = _resolve_backend("auto", sample_weight)
@@ -63,7 +80,8 @@ def _validated_sample_weight(sample_weight, n_samples):
     try:
         finite = xp.all(xp.isfinite(values))
         negative = xp.any(values < 0)
-        total = float(xp.sum(values).item() if hasattr(xp.sum(values), "item") else xp.sum(values))
+        total_dev = xp.sum(values)
+        total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)
     except (TypeError, ValueError, RuntimeError) as exc:
         raise ValueError("sample_weight must contain real finite values") from exc
     if not _scalar_bool(finite):

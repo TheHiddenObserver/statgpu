@@ -27,6 +27,7 @@ from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_hessian,
     _smooth_penalty_value_dev,
+    _runtime_error_is_singular,
 )
 
 
@@ -52,6 +53,7 @@ def newton_solver(
     """
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
@@ -72,7 +74,6 @@ def newton_solver(
             penalty, params
         )
 
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     iteration = -1
     line_search_failed = False
 
@@ -135,7 +136,7 @@ def newton_solver(
 
                 direction = torch.linalg.solve(hess_reg, grad.unsqueeze(1))
                 direction = direction.squeeze(1)
-        except (np.linalg.LinAlgError, ValueError, RuntimeError):
+        except np.linalg.LinAlgError:
             if backend == "numpy":
                 direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
             elif backend == "cupy":
@@ -147,6 +148,20 @@ def newton_solver(
 
                 direction = torch.linalg.lstsq(hess_reg, grad.unsqueeze(1)).solution
                 direction = direction.squeeze(1)
+        except RuntimeError as exc:
+            if not _runtime_error_is_singular(exc):
+                raise
+            if backend == "torch":
+                import torch
+
+                direction = torch.linalg.lstsq(hess_reg, grad.unsqueeze(1)).solution
+                direction = direction.squeeze(1)
+            elif backend == "cupy":
+                import cupy as cp
+
+                direction = cp.linalg.lstsq(hess_reg, grad)[0]
+            else:
+                direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
 
         # Armijo backtracking line search
         obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
