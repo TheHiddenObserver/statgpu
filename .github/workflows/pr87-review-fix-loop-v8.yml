@@ -1,0 +1,66 @@
+name: PR87 review fix batch v8
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths:
+      - .github/workflows/pr87-review-fix-loop-v8.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Patch formula activation and add regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          base = Path('statgpu/_base.py')
+          text = base.read_text(encoding='utf-8')
+          old = '''                formula_active = (\n                    bound.arguments.get("formula") is not None\n                    or bound.arguments.get("data") is not None\n                )\n'''
+          new = '''                formula_active = bound.arguments.get("formula") is not None\n'''
+          if old not in text:
+              raise RuntimeError('formula activation anchor missing')
+          base.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          tests = Path('dev/tests/test_maintenance_024_025.py')
+          test_text = tests.read_text(encoding='utf-8')
+          marker = '# PR87_DATA_ONLY_FORMULA_GUARD_TEST'
+          if marker not in test_text:
+              test_text += '''\n\n# PR87_DATA_ONLY_FORMULA_GUARD_TEST\ndef test_data_argument_alone_does_not_disable_direct_pandas_finite_guard():\n    pd = pytest.importorskip("pandas")\n    from statgpu.linear_model import LinearRegression\n\n    X_bad = pd.DataFrame({"x": [0.0, np.nan, 2.0, 3.0]})\n    y = pd.Series([1.0, 2.0, 3.0, 4.0])\n    unrelated_data = pd.DataFrame({"z": [1.0, 2.0, 3.0, 4.0]})\n    with pytest.raises(ValueError, match=r"X.*finite"):\n        LinearRegression(device="cpu").fit(X_bad, y, data=unrelated_data)\n'''
+              tests.write_text(test_text, encoding='utf-8')
+          PY
+
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" scipy pytest packaging "scikit-learn==1.3.2" pandas patsy joblib
+          python -m pip install -e . --no-deps
+
+      - name: Run targeted maintenance tests
+        run: |
+          python -m pytest \
+            dev/tests/test_maintenance_024_025.py \
+            dev/tests/test_core_contracts.py::test_set_params_rejects_unknown_and_supports_nested_estimators \
+            -q --tb=short
+
+      - name: Commit source-only fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu/_base.py dev/tests/test_maintenance_024_025.py
+          git commit -m "fix: require formula for formula-owned validation"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
