@@ -1,0 +1,73 @@
+name: PR87 review fix batch v39
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths:
+      - .github/workflows/pr87-review-fix-loop-v39.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Apply review fixes
+        run: |
+          python pr87_patch_v39.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("statgpu/solvers/_admm.py")
+          text = path.read_text(encoding="utf-8")
+          old = "L_f = loss.lipschitz(X_proc, w, y=y_proc, sample_weight=sample_weight)"
+          if text.count(old) != 1:
+              raise RuntimeError("expected one ADMM Lipschitz hotfix location")
+          path.write_text(
+              text.replace(old, "L_f = loss.lipschitz(X_proc, w, y=y_proc)", 1),
+              encoding="utf-8",
+          )
+          PY
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run targeted objective and fallback tests
+        run: |
+          python -m py_compile \
+            statgpu/solvers/_admm.py \
+            statgpu/solvers/_proximal_newton.py \
+            statgpu/solvers/_fista_lla.py \
+            statgpu/solvers/_lbfgs_b.py \
+            dev/tests/test_maintenance_024_025.py
+          python -m pytest dev/tests/test_maintenance_024_025.py -q --tb=short
+      - name: Run full CPU and documentation validation
+        run: |
+          python -m pytest dev/tests -q --tb=short
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+      - name: Commit reviewed source fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f pr87_patch_v39.py .github/workflows/pr87-review-fix-loop-v39.yml
+          git add \
+            statgpu/solvers/_admm.py \
+            statgpu/solvers/_proximal_newton.py \
+            statgpu/solvers/_fista_lla.py \
+            statgpu/solvers/_lbfgs_b.py \
+            dev/tests/test_maintenance_024_025.py \
+            docs/en/guides/solver-algorithms.md \
+            docs/cn/guides/solver-algorithms.md \
+            CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "fix: preserve solver objectives and fallbacks"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
