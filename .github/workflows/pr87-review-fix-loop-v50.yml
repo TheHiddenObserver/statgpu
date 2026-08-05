@@ -80,7 +80,42 @@ jobs:
           '''
           if old_test not in text:
               raise SystemExit("temporary kernel test block not found")
-          p.write_text(text.replace(old_test, new_test, 1), encoding="utf-8")
+          text = text.replace(old_test, new_test, 1)
+          old_cv_patch = '''replace(
+              "statgpu/linear_model/cv/_logistic_cv.py",
+              ''' + "'''" + '''                try:
+                  params = backend.solve(XtWX, Xtz)
+              except Exception:
+                  params = backend.lstsq(XtWX, Xtz)[0]
+          ''' + "'''" + ''',
+              ''' + "'''" + '''                try:
+                  params = backend.solve(XtWX, Xtz)
+              except Exception as exc:
+                  if not _linalg_exception_is_rank_failure(exc):
+                      raise
+                  params = backend.lstsq(XtWX, Xtz)[0]
+          ''' + "'''" + ''',
+          )'''
+          new_cv_patch = '''replace(
+              "statgpu/linear_model/cv/_logistic_cv.py",
+              ''' + "'''" + '''                try:
+                  params = backend.solve(XtWX, Xtz)
+              except Exception:
+                  lstsq_result = backend.lstsq(XtWX, Xtz)
+                  params = lstsq_result[0]
+          ''' + "'''" + ''',
+              ''' + "'''" + '''                try:
+                  params = backend.solve(XtWX, Xtz)
+              except Exception as exc:
+                  if not _linalg_exception_is_rank_failure(exc):
+                      raise
+                  lstsq_result = backend.lstsq(XtWX, Xtz)
+                  params = lstsq_result[0]
+          ''' + "'''" + ''',
+          )'''
+          if old_cv_patch not in text:
+              raise SystemExit("temporary Logistic CV patch block not found")
+          p.write_text(text.replace(old_cv_patch, new_cv_patch, 1), encoding="utf-8")
           PY
       - name: Apply reviewed fixes
         run: python pr87_patch_v50.py
