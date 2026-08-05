@@ -801,3 +801,209 @@ def test_supervised_generic_estimators_have_sklearn_types():
     assert is_regressor(PenalizedGeneralizedLinearModel())
     assert is_regressor(PenalizedGLM_CV())
     assert is_regressor(KernelRegression())
+
+
+# PR87_REVIEW_FIX_BATCH_TESTS
+def test_formula_history_does_not_bypass_direct_pandas_finite_guard():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import LinearRegression
+
+    data = pd.DataFrame(
+        {"y": [1.0, 2.0, 3.0, 4.0], "x": [0.0, 1.0, 2.0, 3.0]}
+    )
+    model = LinearRegression(device="cpu").fit(formula="y ~ x", data=data)
+    X_bad = pd.DataFrame({"x": [0.0, np.nan, 2.0, 3.0]})
+    y = pd.Series([1.0, 2.0, 3.0, 4.0])
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        model.fit(X_bad, y)
+
+
+def test_stepwise_selector_finite_and_supervised_tag_contract():
+    from statgpu.feature_selection import StepwiseSelector
+    from statgpu.linear_model import LinearRegression
+
+    selector = StepwiseSelector(LinearRegression)
+    X = np.array([[1.0, np.nan], [2.0, 3.0]])
+    y = np.array([0.0, 1.0])
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        selector.fit(X, y)
+    assert selector._more_tags()["requires_y"] is True
+
+    try:
+        from sklearn.utils import get_tags
+    except ImportError:
+        from sklearn.utils._tags import _safe_tags
+
+        assert _safe_tags(selector)["requires_y"] is True
+    else:
+        assert get_tags(selector).target_tags.required is True
+        assert get_tags(selector).transformer_tags is not None
+
+
+@pytest.mark.parametrize(
+    "entrypoint",
+    [
+        "fixed_x_knockoff_filter",
+        "model_x_knockoff_filter",
+        "knockoff_filter",
+    ],
+)
+def test_function_style_knockoff_entrypoints_reject_nonfinite(entrypoint):
+    import statgpu.feature_selection as feature_selection
+
+    fn = getattr(feature_selection, entrypoint)
+    X = np.array([[1.0, np.nan], [2.0, 3.0]])
+    y = np.array([0.0, 1.0])
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        fn(X, y, backend="numpy")
+
+
+def test_nested_set_params_is_atomic_and_does_not_mutate_shared_children():
+    from statgpu._base import BaseEstimator
+
+    class Child(BaseEstimator):
+        def __init__(self, value=1, device="cpu"):
+            super().__init__(device=device)
+            self.value = value
+
+        def fit(self, X, y=None):
+            self._fitted = True
+            return self
+
+        def predict(self, X):
+            return np.zeros(len(X))
+
+    class Parent(BaseEstimator):
+        def __init__(self, left=None, right=None, device="cpu"):
+            super().__init__(device=device)
+            self.left = left
+            self.right = right
+
+        def fit(self, X, y=None):
+            self._fitted = True
+            return self
+
+        def predict(self, X):
+            return np.zeros(len(X))
+
+    left = Child(value=1)
+    right = Child(value=2)
+    parent = Parent(left=left, right=right)
+
+    with pytest.raises(ValueError, match="Invalid parameter"):
+        parent.set_params(left__value=7, right__unknown=3)
+    assert parent.left is left
+    assert parent.right is right
+    assert left.value == 1
+    assert right.value == 2
+
+    parent.set_params(left__value=7)
+    assert left.value == 1
+    assert parent.left is not left
+    assert parent.left.value == 7
+
+
+def test_torch_public_finite_validation_stays_on_cuda():
+    torch = _require_modern_torch_cuda()
+    from statgpu.linear_model import LinearRegression
+
+    X = torch.tensor(
+        [[1.0, 2.0], [3.0, float("nan")]],
+        dtype=torch.float64,
+        device="cuda",
+    )
+    y = torch.tensor([1.0, 2.0], dtype=torch.float64, device="cuda")
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        LinearRegression(device="torch").fit(X, y)
+    assert X.is_cuda and y.is_cuda
+
+
+def test_cupy_public_finite_validation_stays_on_cuda():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.linear_model import LinearRegression
+
+    X = cp.asarray([[1.0, 2.0], [3.0, cp.nan]], dtype=cp.float64)
+    y = cp.asarray([1.0, 2.0], dtype=cp.float64)
+    with pytest.raises(ValueError, match=r"X.*finite"):
+        LinearRegression(device="cuda").fit(X, y)
+    assert isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
+
+
+@pytest.mark.parametrize(
+    "penalty,penalty_kwargs",
+    [
+        ("scad", {}),
+        ("mcp", {}),
+        ("group_scad", {"groups": [[0, 1], [2, 3], [4, 5]]}),
+        ("group_mcp", {"groups": [[0, 1], [2, 3], [4, 5]]}),
+    ],
+)
+def test_torch_nonconvex_model_level_compile_matrix_py21(
+    monkeypatch, penalty, penalty_kwargs
+):
+    torch = _require_modern_torch_cuda()
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+
+    from statgpu.backends import _to_numpy
+    from statgpu.backends._torch_compile import get_torch_compile_diagnostics
+    from statgpu.linear_model import PenalizedLinearRegression
+    import statgpu.solvers._fista_lla as fista_lla_module
+
+    fista_lla_module._SQERR_PROXIMAL_TORCH = None
+    fista_lla_module._FUSED_PROXIMAL_CLIP_TORCH = None
+    get_torch_compile_diagnostics(clear=True)
+    torch._dynamo.reset()
+
+    rng = np.random.default_rng(20260805)
+    X = rng.normal(size=(192, 6)).astype(np.float64)
+    beta = np.array([1.2, -0.8, 0.6, 0.0, 0.0, 0.0])
+    y = X @ beta + 0.05 * rng.normal(size=X.shape[0])
+    model = PenalizedLinearRegression(
+        penalty=penalty,
+        penalty_kwargs=penalty_kwargs,
+        alpha=0.03,
+        max_iter=40,
+        max_lla_iters=3,
+        tol=1e-6,
+        lla_tol=1e-6,
+        device="torch",
+        compute_inference=False,
+    ).fit(X, y)
+    prediction = np.asarray(_to_numpy(model.predict(X)))
+
+    assert prediction.shape == y.shape
+    assert np.isfinite(prediction).all()
+    assert np.isfinite(np.asarray(_to_numpy(model.coef_))).all()
+    events = get_torch_compile_diagnostics(clear=True)
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+
+
+def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
+    _require_modern_torch_cuda()
+    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    from statgpu.backends import _to_numpy
+    from statgpu.backends._torch_compile import get_torch_compile_diagnostics
+    from statgpu.linear_model import ElasticNet
+
+    get_torch_compile_diagnostics(clear=True)
+    rng = np.random.default_rng(20260806)
+    X = rng.normal(size=(192, 10)).astype(np.float64)
+    y = X[:, 0] - 0.5 * X[:, 1] + 0.05 * rng.normal(size=X.shape[0])
+    model = ElasticNet(
+        alpha=0.02,
+        l1_ratio=0.6,
+        max_iter=60,
+        tol=1e-6,
+        device="torch",
+    ).fit(X, y)
+    prediction = np.asarray(_to_numpy(model.predict(X)))
+    assert np.isfinite(prediction).all()
+    events = get_torch_compile_diagnostics(clear=True)
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)

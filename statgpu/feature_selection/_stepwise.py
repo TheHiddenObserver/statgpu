@@ -14,6 +14,7 @@ import numpy as np
 from joblib import Parallel, delayed
 
 from statgpu.backends import _to_float_scalar
+from statgpu.backends._validation import check_finite
 from statgpu.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
 
 __all__ = ["StepwiseSelector", "stepwise_selection"]
@@ -53,6 +54,24 @@ class StepwiseSelector:
 
     _VALID_CRITERIA = {"aic", "bic"}
     _VALID_DIRECTIONS = {"forward", "backward", "both"}
+
+    def _more_tags(self):
+        return {"requires_y": True}
+
+    def __sklearn_tags__(self):
+        try:
+            from sklearn.utils import Tags, TargetTags, TransformerTags
+        except ImportError:
+            return self._more_tags()
+        return Tags(
+            estimator_type=None,
+            target_tags=TargetTags(required=True),
+            transformer_tags=TransformerTags(),
+            requires_fit=True,
+        )
+
+    def __sklearn_is_fitted__(self):
+        return bool(self._fitted and self.best_model_ is not None)
 
     def __init__(
         self,
@@ -111,6 +130,7 @@ class StepwiseSelector:
 
     @staticmethod
     def _prepare_X(X):
+        check_finite(X, name="X")
         if not hasattr(X, "shape") or not hasattr(X, "ndim"):
             X = np.asarray(X)
         if int(X.ndim) != 2:
@@ -119,6 +139,7 @@ class StepwiseSelector:
 
     @staticmethod
     def _prepare_y(y):
+        check_finite(y, name="y")
         if not hasattr(y, "shape") or not hasattr(y, "ndim"):
             y = np.asarray(y)
         if int(y.ndim) == 2 and int(y.shape[1]) == 1:

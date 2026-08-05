@@ -296,6 +296,10 @@ def fixed_x_knockoff_filter(
     KnockoffResult
         Selected feature indices and full knockoff diagnostics.
     """
+    check_finite(X, name="X")
+    check_finite(y, name="y")
+    if Xk is not None:
+        check_finite(Xk, name="Xk")
     q_f = _validate_q(q)
     compat = _normalize_compat_mode(compat_mode)
     lasso_impl = str(lasso_cv_impl).strip().lower()
@@ -396,6 +400,10 @@ def model_x_knockoff_filter(
     This implementation estimates a Gaussian feature model and builds
     equi-correlated knockoffs from the estimated covariance.
     """
+    check_finite(X, name="X")
+    check_finite(y, name="y")
+    if Xk is not None:
+        check_finite(Xk, name="Xk")
     q_f = _validate_q(q)
     compat = _normalize_compat_mode(compat_mode)
     lasso_impl = str(lasso_cv_impl).strip().lower()

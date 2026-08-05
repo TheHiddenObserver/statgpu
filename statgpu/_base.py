@@ -344,7 +344,6 @@ class BaseEstimator(ABC):
                 formula_active = (
                     bound.arguments.get("formula") is not None
                     or bound.arguments.get("data") is not None
-                    or getattr(self, "_design_info", None) is not None
                 )
                 for name, value in bound.arguments.items():
                     if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
@@ -1008,6 +1007,18 @@ class BaseEstimator(ABC):
                 if snapshot is None:
                     snapshot = list(value)
                 direct[key] = copy.deepcopy(snapshot)
+
+        if nested:
+            try:
+                from sklearn.base import clone as sklearn_clone
+            except ImportError:
+                sklearn_clone = None
+            for root in nested:
+                nested_value = direct[root]
+                if sklearn_clone is not None and hasattr(nested_value, "get_params"):
+                    direct[root] = sklearn_clone(nested_value)
+                else:
+                    direct[root] = copy.deepcopy(nested_value)
 
         try:
             fresh = type(self)(**direct)

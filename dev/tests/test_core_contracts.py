@@ -57,7 +57,8 @@ def test_set_params_rejects_unknown_and_supports_nested_estimators():
     child = DummyEstimator(value=1)
     parent = DummyEstimator(child=child)
     assert parent.set_params(child__value=7) is parent
-    assert child.value == 7
+    assert child.value == 1
+    assert parent.child is not child
     assert parent.get_params(deep=True)["child__value"] == 7
     with pytest.raises(ValueError, match="Invalid parameter"):
         parent.set_params(unknown=3)
