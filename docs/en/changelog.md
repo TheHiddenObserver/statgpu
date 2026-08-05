@@ -9,6 +9,7 @@
 
 ### Runtime safety
 
+- Armijo backtracking no longer treats generic `out of range` errors as recoverable numerical trials, preserving index/device programming errors.
 - Proximal-Newton now backtracks on recognized numeric-domain ValueError trials while preserving unrelated contract and runtime failures.
 - Shared backend linear solves now use least-squares fallback only for recognized rank failures and preserve CUDA OOM/device RuntimeErrors.
 - Shared NumPy constructors now follow floating reference dtypes like the CuPy/Torch implementations, while integer references retain float64 numerical defaults.

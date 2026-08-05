@@ -4,6 +4,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Removed the over-broad Armijo `out of range` numerical marker so index and device programming errors propagate instead of being mistaken for recoverable trial-point domain failures.
 - Made proximal-Newton Armijo backtracking treat recognized numeric-domain ValueError trials consistently with Newton while still propagating input-contract and infrastructure failures.
 - Narrowed the shared backend linear-system fallback to genuine rank failures; CUDA OOM, device, and unrelated RuntimeError failures now propagate instead of being silently retried with least squares.
 - Made shared NumPy zero/conversion helpers honor a floating reference array dtype, matching the existing CuPy/Torch backend contract while retaining float64 defaults for integer references.

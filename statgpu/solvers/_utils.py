@@ -58,7 +58,6 @@ def _trial_error_is_numerical(exc):
             "non-finite",
             "nonfinite",
             "domain error",
-            "out of range",
         )
     )
 
