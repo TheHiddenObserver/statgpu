@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > Language: Chinese (中文)  
-> Last updated: 2026-07-24<br>
+> Last updated: 2026-08-05<br>
 > This page: 模型文档  
 > Language switch: [English](../../en/models/elastic-net.md)
 
@@ -120,21 +120,14 @@ model_gpu_cupy = ElasticNet(
 )
 model_gpu_cupy.fit(X, y)
 
-# GPU (PyTorch，推荐用于 n >= 10,000)
+# GPU (PyTorch)
 model_gpu_torch = ElasticNet(
     alpha=0.1, l1_ratio=0.5, device="torch"
 )
 model_gpu_torch.fit(X, y)
 ```
 
-### 按数据规模选择后端
-
-| 数据规模 | 推荐后端 | 相对 sklearn 加速比 |
-|----------|----------|---------------------|
-| n < 1,000 | CPU (NumPy) | 0.7x - 1.0x |
-| 1,000 ≤ n < 10,000 | CPU (NumPy) | 1.5x - 4x |
-| 10,000 ≤ n < 50,000 | GPU (Torch) | 2x - 3x |
-| n ≥ 50,000 | GPU (Torch) | 3x - 4.4x |
+后端性能取决于样本量、特征维数、dtype、硬件、数据驻留位置和传输成本。不要仅依据固定阈值选择后端；应对实际目标工作负载进行 benchmark。
 
 ## 协方差/推断
 
@@ -174,98 +167,19 @@ Post-selection OLS 只是启发式方法，不保证有效的选择后覆盖率�
 
 | 属性 | 说明 |
 |------|------|
-| `coef_` | 估计的系数 (形状：n_features) |
+| `coef_` | 估计的系数（形状：n_features） |
 | `intercept_` | 拟合的截距 |
 | `n_iter_` | 收敛所需迭代次数 |
-| `aic` | Akaike 信息准则（如可用） |
-| `bic` | Bayesian 信息准则（如可用） |
+| `aic` | 推断结果提供时的 Akaike 信息准则 |
+| `bic` | 推断结果提供时的 Bayesian 信息准则 |
 
 方法：`fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
-## 数值一致性
+## 数值验证
 
-所有 statgpu 后端（CPU、CuPy、Torch）产生数值一致的结果：
-
-| 后端对比 | 最大系数差异 |
-|----------|--------------|
-| CPU vs CuPy | < 3e-8 |
-| CPU vs Torch | < 3e-8 |
-| 全部 vs sklearn | < 3e-8 |
-
-## 性能基准测试
-
-### vs sklearn (Python)
-
-| 数据集 | n | p | sklearn (ms) | statgpu CPU (ms) | 加速比 |
-|--------|---|---|--------------|------------------|--------|
-| small | 200 | 20 | 0.77 | 1.10 | 0.70x |
-| medium | 1,000 | 50 | 10.42 | 2.37 | **4.40x** |
-| large | 5,000 | 100 | 6.01 | 4.13 | **1.45x** |
-
-### vs glmnet (R)
-
-| 数据集 | n | p | R glmnet (ms) | statgpu CPU (ms) | 胜者 |
-|--------|---|---|---------------|------------------|------|
-| small | 200 | 20 | 8.51 | **1.10** | statgpu |
-| medium | 1,000 | 50 | 6.27 | **2.06** | statgpu |
-| large | 5,000 | 100 | 10.70 | **6.14** | statgpu |
-
-statgpu CPU 在与 R glmnet 的 6 项对比中赢得 4 项。
-
-### 大规模性能 (n ≥ 10,000)
-
-| 数据集 | n | p | sklearn | statgpu CPU | statgpu Torch | Torch 加速比 |
-|--------|---|---|---------|-------------|---------------|--------------|
-| n_10k_p100 | 10,000 | 100 | 11.39 | 11.24 | 12.02 | 0.95x |
-| n_10k_p500 | 10,000 | 500 | 82.03 | 100.51 | **30.52** | **2.69x** |
-| n_50k_p100 | 50,000 | 100 | 69.74 | 52.01 | **21.74** | **3.21x** |
-| n_50k_p500 | 50,000 | 500 | 310.34 | 145.31 | **79.77** | **3.89x** |
-| n_100k_p100 | 100,000 | 100 | 118.94 | 60.85 | **33.23** | **3.58x** |
-| n_100k_p500 | 100,000 | 500 | 615.59 | 269.45 | **141.05** | **4.36x** |
-
-**关键发现**：
-- statgpu Torch 在 6 项大规模测试中 5 项最快 (83%)
-- 最大加速比：**4.36x** (n=100k, p=500 对比 sklearn)
-- GPU 加速在 n ≥ 10,000 时开始显现优势
-
-## 常见问题
-
-**Q: 如何选择 l1_ratio？**
-- `l1_ratio=1.0`: 纯 Lasso（稀疏解）
-- `l1_ratio=0.0`: 纯 Ridge（密集收缩）
-- `l1_ratio=0.5`: 平衡（默认值）
-- 可通过交叉验证选择最优预测性能
-
-**Q: 为什么 CPU 和 GPU 的迭代次数不同？**
-不同的数值路径和浮点运算可能导致略微不同的收敛轨迹。应比较最终系数和 R²而非迭代次数。
-
-**Q: 何时使用 GPU vs CPU？**
-- n < 10,000: CPU 更快（无数据传输开销）
-- n ≥ 10,000: GPU (Torch 后端) 显示 2-4 倍加速
-- n ≥ 50,000: CuPy 和 Torch 都显示显著优势
-
-**Q: 为什么系数与 sklearn 有 ~1e-8 的差异？**
-这在浮点运算的数值精度范围内。所有后端都以 1e-6 的容忍度求解相同的优化问题。
-
-**Q: alpha 与 Ridge/Lasso 的关系？**
-- `ElasticNet(l1_ratio=1.0, alpha=X)` ≈ `Lasso(alpha=X)`
-- `ElasticNet(l1_ratio=0.0, alpha=X)` ≈ `Ridge(alpha=n_samples * X)`
-
-## 外部验证
-
-基准测试脚本：
-- `dev/benchmarks/benchmark_elasticnet_sklearn.py` - sklearn 对比
-- `dev/benchmarks/benchmark_glmnet_full.R` - R glmnet 对比
-- `dev/benchmarks/benchmark_large_scale.py` - 大规模性能测试
-- `dev/benchmarks/run_full_benchmark.py` - 统一基准运行器
-
-测试脚本：
-- `dev/scripts/remote_elasticnet_smoke.py` - 基础验证
-- `dev/scripts/remote_stability_en.py` - 数值稳定性测试
+维护中的回归测试会按 dtype 和求解路径选择相应容差，检查支持后端之间以及与参考实现的数值一致性。物理 CUDA 验证仍属于 exact-head handoff；不存在适用于所有工作负载的统一系数误差阈值或加速比。
 
 ## 参考文献
 
-- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the elastic net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320. [https://doi.org/10.1111/j.1467-9868.2005.00503.x](https://doi.org/10.1111/j.1467-9868.2005.00503.x)
-- Nesterov, Y. (2005). Smooth minimization of non-smooth functions. *Mathematical Programming*, 103(1), 127-152. [https://doi.org/10.1007/s10107-004-0552-5](https://doi.org/10.1007/s10107-004-0552-5)
-- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202. [https://doi.org/10.1137/080716542](https://doi.org/10.1137/080716542)
-- Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. *Journal of Statistical Software*, 33(1), 1-22. [https://www.jstatsoft.org/v33/i01/](https://www.jstatsoft.org/v33/i01/)
+- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
+- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.
