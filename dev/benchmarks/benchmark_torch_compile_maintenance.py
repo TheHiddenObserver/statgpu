@@ -57,7 +57,12 @@ def _run_child(mode: str, repeats: int) -> dict:
 
     from statgpu.backends import _to_numpy
     from statgpu.backends._torch_compile import get_torch_compile_diagnostics
-    from statgpu.linear_model import ElasticNet, Lasso, PenalizedLinearRegression
+    from statgpu.linear_model import (
+        ElasticNet,
+        GeneralizedLinearModel,
+        Lasso,
+        PenalizedLinearRegression,
+    )
 
     rng = np.random.default_rng(20260805)
     X = rng.normal(size=(1024, 64)).astype(np.float64)
@@ -67,6 +72,15 @@ def _run_child(mode: str, repeats: int) -> dict:
 
     groups = [list(range(start, start + 8)) for start in range(0, 64, 8)]
     cases = {
+        "glm_irls": lambda: GeneralizedLinearModel(
+            family="gaussian",
+            solver="irls",
+            C=0.0,
+            max_iter=50,
+            tol=1e-7,
+            device="torch",
+            compute_inference=False,
+        ),
         "lasso": lambda: Lasso(
             alpha=0.01, max_iter=100, tol=1e-6, device="torch"
         ),

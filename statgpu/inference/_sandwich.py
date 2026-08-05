@@ -328,7 +328,9 @@ def m_estimation_inference(
 
     # ---- dispersion (for nonrobust) ----
     if dispersion is None and cov_type == "nonrobust":
-        dispersion = _default_dispersion(loss, X, y, coef, n_eff, k)
+        dispersion = _default_dispersion(
+            loss, X, y, coef, n_eff, k, sample_weight=sample_weight
+        )
 
     # ---- covariance ----
     if cov_type == "nonrobust":
@@ -393,7 +395,9 @@ def m_estimation_inference(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _default_dispersion(loss, X, y, coef, n_eff, k):
+def _default_dispersion(
+    loss, X, y, coef, n_eff, k, *, sample_weight=None
+):
     """Default dispersion for nonrobust covariance.  Backend-agnostic.
 
     Canonical-link GLMs (Poisson, logistic, NegBinom): = 1.0.
@@ -405,7 +409,10 @@ def _default_dispersion(loss, X, y, coef, n_eff, k):
     if name in ("squared_error",):
         _, xp = _resolve_backend_and_xp(X)
         eta = X @ coef; mu = eta
-        resid = y - mu; rss = float(xp.sum(resid ** 2))
+        resid_sq = (y - mu) ** 2
+        if sample_weight is not None:
+            resid_sq = resid_sq * sample_weight
+        rss = float(xp.sum(resid_sq))
         return rss / max(n_eff - k, 1)
 
     # Pearson dispersion for non-canonical GLMs (backend-agnostic)
@@ -428,7 +435,10 @@ def _default_dispersion(loss, X, y, coef, n_eff, k):
             return 1.0
         resid_sq = (y - mu) ** 2
         from statgpu.backends._utils import xp_maximum
-        pearson = float(xp.sum(resid_sq / xp_maximum(V, 1e-10, xp)))
+        pearson_terms = resid_sq / xp_maximum(V, 1e-10, xp)
+        if sample_weight is not None:
+            pearson_terms = pearson_terms * sample_weight
+        pearson = float(xp.sum(pearson_terms))
         return pearson / df
 
     return 1.0

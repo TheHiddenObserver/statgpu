@@ -1542,3 +1542,170 @@ def test_cupy_glm_formula_fista_weighted_intercept_matches_wls():
     np.testing.assert_allclose(model.intercept_, expected[0], rtol=3e-5, atol=3e-5)
     np.testing.assert_allclose(model.coef_, expected[1:], rtol=3e-5, atol=3e-5)
     assert isinstance(weights, cp.ndarray)
+
+
+# PR87_WEIGHTED_IRLS_AND_GLM_COMPILE_POLICY_TESTS
+def test_weighted_irls_line_search_uses_weighted_objective_cpu():
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    X = np.ones((4, 1), dtype=np.float64)
+    y = np.array([0.0, 0.0, 0.0, 10.0], dtype=np.float64)
+    weights = np.array([1.0, 1.0, 1.0, 100.0], dtype=np.float64)
+    params, _ = IRLSSolver(Gaussian(), max_iter=20, tol=1e-12).fit(
+        X, y, sample_weight=weights, backend="numpy"
+    )
+    np.testing.assert_allclose(
+        params[0], np.average(y, weights=weights), rtol=1e-10, atol=1e-10
+    )
+
+
+def test_glm_irls_weighted_ridge_matches_closed_form_and_weight_rescaling():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-2.0], [-1.0], [0.0], [1.0], [2.0]], dtype=np.float64)
+    y = np.array([-2.0, -0.5, 0.5, 2.0, 6.0], dtype=np.float64)
+    weights = np.array([1.0, 2.0, 3.0, 7.0, 20.0], dtype=np.float64)
+    C = 2.0
+    lam = 1.0 / (2.0 * C)
+    design = np.column_stack([np.ones(X.shape[0]), X])
+    expected = np.linalg.solve(
+        design.T @ (design * weights[:, None])
+        + np.diag([0.0, weights.sum() * lam]),
+        design.T @ (weights * y),
+    )
+
+    def fit(current_weights):
+        return GeneralizedLinearModel(
+            family="gaussian",
+            solver="irls",
+            C=C,
+            max_iter=100,
+            tol=1e-12,
+            device="cpu",
+            compute_inference=False,
+        ).fit(X, y, sample_weight=current_weights)
+
+    model = fit(weights)
+    scaled = fit(17.0 * weights)
+    np.testing.assert_allclose(model.intercept_, expected[0], rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(model.coef_, expected[1:], rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(scaled.intercept_, model.intercept_, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(scaled.coef_, model.coef_, rtol=1e-9, atol=1e-9)
+
+
+def test_glm_weighted_loglikelihood_and_dispersion_match_manual_values():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-1.0], [0.0], [1.0], [2.0], [3.0]], dtype=np.float64)
+    y = np.array([-0.5, 0.2, 1.8, 2.1, 5.5], dtype=np.float64)
+    weights = np.array([1.0, 2.0, 4.0, 3.0, 8.0], dtype=np.float64)
+    model = GeneralizedLinearModel(
+        family="gaussian",
+        solver="irls",
+        C=0.0,
+        max_iter=100,
+        tol=1e-12,
+        device="cpu",
+        compute_inference=True,
+    ).fit(X, y, sample_weight=weights)
+
+    eta = model.intercept_ + X @ model.coef_
+    resid_sq = (y - eta) ** 2
+    expected_ll = -0.5 * float(np.sum(weights * resid_sq))
+    k = 1 + X.shape[1]
+    expected_dispersion = float(np.sum(weights * resid_sq)) / (weights.sum() - k)
+    np.testing.assert_allclose(model.loglikelihood, expected_ll, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        model._inference_result.metadata["dispersion"],
+        expected_dispersion,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    no_inference = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    eta_no_inf = no_inference.intercept_ + X @ no_inference.coef_
+    expected_no_inf = -0.5 * float(np.sum(weights * (y - eta_no_inf) ** 2))
+    np.testing.assert_allclose(
+        no_inference.loglikelihood, expected_no_inf, rtol=1e-12, atol=1e-12
+    )
+
+
+def test_active_glm_compile_helpers_use_central_policy_and_reraise():
+    from pathlib import Path
+    from statgpu.glm_core import _irls, _solver_utils
+
+    for filename in (
+        "statgpu/glm_core/_irls.py",
+        "statgpu/glm_core/_solver_utils.py",
+    ):
+        source = Path(filename).read_text(encoding="utf-8")
+        assert "torch.compile(" not in source
+        assert "compile_torch(" in source
+
+    def fail(*args):
+        raise RuntimeError("unrelated runtime failure")
+
+    with pytest.raises(RuntimeError, match="unrelated runtime failure"):
+        _irls._irls_step_call(fail)
+    with pytest.raises(RuntimeError, match="unrelated runtime failure"):
+        _solver_utils._fista_step_call(fail)
+    with pytest.raises(RuntimeError, match="unrelated runtime failure"):
+        _solver_utils._newton_step_call(fail)
+
+
+def test_torch_weighted_irls_compile_path_is_observable():
+    torch = _require_modern_torch_cuda()
+    from statgpu.backends._torch_compile import get_torch_compile_diagnostics
+    from statgpu.glm_core import _irls
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    _irls._IRLS_STEP_COMPILED = None
+    torch._dynamo.reset()
+    get_torch_compile_diagnostics(clear=True)
+    before_graphs = _dynamo_unique_graphs(torch)
+
+    X = np.arange(24.0, dtype=np.float64).reshape(12, 2)
+    y = 1.5 + X @ np.array([0.2, -0.1])
+    weights = torch.linspace(1.0, 3.0, X.shape[0], dtype=torch.float64, device="cuda")
+    model = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=0.0,
+        max_iter=20, tol=1e-10, device="torch", compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    torch.cuda.synchronize()
+
+    events = get_torch_compile_diagnostics(clear=True)
+    assert _dynamo_unique_graphs(torch) > before_graphs
+    assert any(event["status"] == "compiled" for event in events)
+    assert not any("fallback" in event["status"] for event in events)
+    assert np.isfinite(model.coef_).all()
+    assert weights.is_cuda
+
+
+def test_cupy_weighted_irls_matches_cpu_reference():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-2.0], [-1.0], [0.0], [1.0], [2.0]], dtype=np.float64)
+    y = np.array([-2.0, -0.5, 0.5, 2.0, 6.0], dtype=np.float64)
+    weights_np = np.array([1.0, 2.0, 3.0, 7.0, 20.0], dtype=np.float64)
+    weights = cp.asarray(weights_np)
+    cpu = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=2.0,
+        max_iter=100, tol=1e-12, device="cpu", compute_inference=False,
+    ).fit(X, y, sample_weight=weights_np)
+    gpu = GeneralizedLinearModel(
+        family="gaussian", solver="irls", C=2.0,
+        max_iter=100, tol=1e-12, device="cuda", compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    np.testing.assert_allclose(gpu.intercept_, cpu.intercept_, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(gpu.coef_, cpu.coef_, rtol=1e-9, atol=1e-9)
+    assert isinstance(weights, cp.ndarray)

@@ -428,7 +428,13 @@ class GeneralizedLinearModel(BaseEstimator):
         xp = _get_xp(backend)
         params = xp_asarray(self._params, xp=xp, ref_arr=self._X_design)
         eta = self._X_design @ params
-        return -float(xp.sum(self._loss.per_sample_value(eta, self._y_inf)))
+        values = self._loss.per_sample_value(eta, self._y_inf)
+        if self._sample_weight_inf is not None:
+            weights = xp_asarray(
+                self._sample_weight_inf, xp=xp, ref_arr=self._X_design
+            )
+            values = values * weights
+        return -float(xp.sum(values))
 
     @property
     def aic(self):
@@ -595,23 +601,23 @@ class GeneralizedLinearModel(BaseEstimator):
                 self._aligned_inference_design_glm(X_arr)
         self._loss = self._resolve_loss_for_inference()
 
+        # Preserve fit weights even when inference is disabled because
+        # loglikelihood/AIC/BIC are public fitted-model diagnostics.  GPU
+        # weights stay on their selected backend.
+        if sample_weight is not None:
+            if is_gpu:
+                self._sample_weight_inf = self._to_array(
+                    sample_weight, backend=inf_backend
+                )
+            else:
+                self._sample_weight_inf = np.asarray(
+                    sample_weight, dtype=float
+                ).ravel()
+        else:
+            self._sample_weight_inf = None
+
         # ---- Compute inference if requested ----
         if self._compute_inference_enabled:
-            if sample_weight is not None:
-                if is_gpu:
-                    # sample_weight is already validated on the selected backend;
-                    # preserve device residency instead of copying the full vector
-                    # to NumPy and immediately transferring it back to the GPU.
-                    self._sample_weight_inf = self._to_array(
-                        sample_weight, backend=inf_backend
-                    )
-                else:
-                    self._sample_weight_inf = np.asarray(
-                        sample_weight, dtype=float
-                    ).ravel()
-            else:
-                self._sample_weight_inf = None
-
             self._fit_metadata = {
                 "solver_used": solver_name,
                 "objective_scale": "mean_loss_plus_penalty",
@@ -642,10 +648,17 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _fit_irls(self, X, y, sample_weight, family, backend_name="numpy"):
         """Fit using IRLS (per-iteration weighted least squares)."""
-        # IRLSSolver solves the unnormalized WLS normal equations
-        # X'WX + lambda I, while _get_penalty_alpha() is the normalized
-        # objective penalty.  Scale by n to keep C semantics consistent.
-        ridge_alpha = X.shape[0] * self._get_penalty_alpha()
+        # IRLSSolver solves unnormalized WLS normal equations.  The public
+        # objective is normalized by n without weights and by sum(w) with
+        # weights, so the normal-equation ridge term must use the same scale.
+        if sample_weight is None:
+            objective_scale = float(X.shape[0])
+        else:
+            scale_value = sample_weight.sum()
+            objective_scale = float(
+                scale_value.item() if hasattr(scale_value, "item") else scale_value
+            )
+        ridge_alpha = objective_scale * self._get_penalty_alpha()
 
         if self._effective_intercept:
             X_design = _add_intercept_column(X, backend_name)
