@@ -30,9 +30,20 @@ def test_compile_evidence_accepts_new_and_cached_compiled_callables():
         == "compiled-diagnostic-and-dynamo-graph"
     )
     assert (
-        _BENCHMARK._validate_compile_evidence("default", "mcp", (), 2)
+        _BENCHMARK._validate_compile_evidence(
+            "default",
+            "mcp",
+            (),
+            2,
+            cached_callable_observed=True,
+        )
         == "cached-callable-and-dynamo-graph"
     )
+
+
+def test_compile_evidence_requires_prior_diagnostic_for_cache_reuse():
+    with pytest.raises(RuntimeError, match="compiled diagnostic"):
+        _BENCHMARK._validate_compile_evidence("default", "mcp", (), 2)
 
 
 def test_compile_evidence_is_not_required_when_compilation_is_disabled():
