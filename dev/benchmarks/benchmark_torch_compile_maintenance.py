@@ -94,16 +94,25 @@ def _run_child(mode: str, repeats: int) -> dict:
             timings.append(time.perf_counter() - start)
             prediction = np.asarray(_to_numpy(model.predict(X)))
         events = get_torch_compile_diagnostics(clear=True)
+        coefficients = np.asarray(_to_numpy(model.coef_))
+        finite_prediction = bool(np.isfinite(prediction).all())
+        finite_coefficients = bool(np.isfinite(coefficients).all())
+        fallback_seen = any("fallback" in event["status"] for event in events)
+        if not finite_prediction or not finite_coefficients:
+            raise RuntimeError(f"{name}:{mode} produced non-finite output")
+        if mode == "default" and fallback_seen:
+            raise RuntimeError(f"{name}:{mode} entered fallback")
+
         case_results[name] = {
             "fit_seconds": timings,
-            "finite_prediction": bool(np.isfinite(prediction).all()),
-            "finite_coefficients": bool(
-                np.isfinite(np.asarray(_to_numpy(model.coef_))).all()
-            ),
+            "finite_prediction": finite_prediction,
+            "finite_coefficients": finite_coefficients,
+            "prediction": prediction.tolist(),
+            "coefficients": coefficients.tolist(),
             "n_iter": _json_value(getattr(model, "n_iter_", None)),
             "converged": _json_value(getattr(model, "converged_", None)),
             "compile_events": events,
-            "fallback_seen": any("fallback" in event["status"] for event in events),
+            "fallback_seen": fallback_seen,
         }
 
     return {
@@ -146,6 +155,29 @@ def _parent_main(args) -> None:
             subprocess.run(command, check=True)
             mode_results[mode] = json.loads(child_output.read_text(encoding="utf-8"))
 
+    precision = {}
+    for case in mode_results["default"]["cases"]:
+        eager = mode_results["disable"]["cases"][case]
+        compiled = mode_results["default"]["cases"][case]
+        eager_prediction = np.asarray(eager["prediction"], dtype=float)
+        compiled_prediction = np.asarray(compiled["prediction"], dtype=float)
+        eager_coef = np.asarray(eager["coefficients"], dtype=float)
+        compiled_coef = np.asarray(compiled["coefficients"], dtype=float)
+        precision[case] = {
+            "prediction_max_abs_diff": float(
+                np.max(np.abs(compiled_prediction - eager_prediction))
+            ),
+            "coefficient_max_abs_diff": float(
+                np.max(np.abs(compiled_coef - eager_coef))
+            ),
+        }
+
+    public_mode_results = json.loads(json.dumps(mode_results))
+    for result in public_mode_results.values():
+        for details in result["cases"].values():
+            details.pop("prediction", None)
+            details.pop("coefficients", None)
+
     output = {
         "method": "torch_compile_maintenance",
         "backend_times": {
@@ -160,7 +192,10 @@ def _parent_main(args) -> None:
             },
         },
         "external_baseline": {"name": None, "time": None, "version": None},
-        "precision_vs_external": {},
+        "precision_vs_external": {
+            "reference": "STATGPU_TORCH_COMPILE_MODE=disable",
+            "default_vs_disable": precision,
+        },
         "convergence_status": {
             mode: {
                 case: {
@@ -181,7 +216,7 @@ def _parent_main(args) -> None:
             }
             for mode, result in mode_results.items()
         },
-        "compatibility_matrix": mode_results,
+        "compatibility_matrix": public_mode_results,
         "cv_matrix": {},
         "inference_matrix": {
             "status": "not applicable: benchmark uses estimation-only fits"
