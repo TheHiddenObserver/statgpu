@@ -1,5 +1,7 @@
 # Changelog
 
+- Integrated transactional CV reset with the shared public finite-input guard, so NaN/Inf refit attempts invalidate stale RidgeCV, ElasticNetCV, LogisticRegressionCV, and unified penalized-CV state before validation raises.
+
 - Made dedicated RidgeCV, ElasticNetCV, and LogisticRegressionCV refits failure-safe: every fit attempt clears stale fitted state, and CV selections are published only after the final model refit succeeds.
 
 - Pinned AUTO-mode RidgeCV, ElasticNetCV, and LogisticRegressionCV final refits to the backend selected during CV, preventing silent Torch/CuPy backend drift after parameter selection.

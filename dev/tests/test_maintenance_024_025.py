@@ -4321,3 +4321,82 @@ def test_logistic_cv_final_refit_failure_does_not_publish_partial_state(monkeypa
     assert estimator.C_ is None
     assert estimator.estimator_ is None
     assert estimator.cv_selected_device_ is None
+
+
+
+@pytest.mark.parametrize(
+    "module_name,class_name,y,selected_name",
+    [
+        (
+            "statgpu.linear_model.cv._ridge_cv",
+            "RidgeCV",
+            np.arange(6, dtype=np.float64),
+            "alpha_",
+        ),
+        (
+            "statgpu.linear_model.cv._elasticnet_cv",
+            "ElasticNetCV",
+            np.arange(6, dtype=np.float64),
+            "alpha_",
+        ),
+        (
+            "statgpu.linear_model.cv._logistic_cv",
+            "LogisticRegressionCV",
+            np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
+            "C_",
+        ),
+    ],
+)
+def test_cv_finite_guard_resets_stale_state_before_rejecting_input(
+    module_name, class_name, y, selected_name
+):
+    import importlib
+    from statgpu._config import Device
+
+    module = importlib.import_module(module_name)
+    estimator = getattr(module, class_name)(device="cpu", cv=2)
+    estimator._fitted = True
+    estimator.estimator_ = object()
+    estimator.coef_ = np.array([3.0, 4.0])
+    estimator.intercept_ = 2.0
+    estimator.best_score_ = 1.0
+    estimator.cv_results_ = {"stale": True}
+    estimator.cv_selected_device_ = Device.TORCH
+    setattr(estimator, selected_name, 0.5)
+
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    X[0, 0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        estimator.fit(X, y)
+
+    assert estimator._fitted is False
+    assert estimator.estimator_ is None
+    assert estimator.coef_ is None
+    assert estimator.intercept_ is None
+    assert estimator.best_score_ is None
+    assert estimator.cv_results_ is None
+    assert estimator.cv_selected_device_ is None
+    assert getattr(estimator, selected_name) is None
+
+
+def test_finite_guard_does_not_reset_cv_state_on_prediction_failure():
+    from statgpu.linear_model.cv._ridge_cv import RidgeCV
+
+    estimator = RidgeCV(device="cpu", cv=2)
+    estimator._fitted = True
+
+    class FittedModel:
+        def predict(self, X):
+            return np.zeros(int(X.shape[0]), dtype=np.float64)
+
+    estimator.estimator_ = FittedModel()
+    estimator.alpha_ = 0.5
+    estimator.coef_ = np.array([1.0])
+    estimator.intercept_ = 0.0
+
+    with pytest.raises(ValueError, match="finite"):
+        estimator.predict(np.array([[np.nan]], dtype=np.float64))
+
+    assert estimator._fitted is True
+    assert estimator.alpha_ == pytest.approx(0.5)
+    assert estimator.estimator_ is not None

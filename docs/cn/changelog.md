@@ -1,5 +1,7 @@
 # Changelog
 
+- 将事务式 CV 重置接入共享的公开有限值校验，使 NaN/Inf 重拟合在抛错前先使旧的 RidgeCV、ElasticNetCV、LogisticRegressionCV 与统一 penalized-CV 状态失效。
+
 - 使专用 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 的重拟合具备失败安全语义：每次 fit 均先清除旧拟合状态，仅在最终模型重拟合成功后发布 CV 选择结果。
 
 - 将 AUTO 模式的 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 最终重拟合固定到 CV 选参时使用的后端，避免选参后在 Torch 与 CuPy 之间静默漂移。
