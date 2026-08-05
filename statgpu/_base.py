@@ -327,7 +327,7 @@ class BaseEstimator(ABC):
     def _install_public_finite_validation(cls):
         from statgpu.backends._validation import check_finite
 
-        def wrap_method(original):
+        def wrap_method(original, method_name):
             try:
                 signature = inspect.signature(original)
             except (TypeError, ValueError):
@@ -351,9 +351,16 @@ class BaseEstimator(ABC):
                         # contracts. Preserve model-specific errors and validate
                         # them before device selection inside the Cox estimator.
                         continue
-                    if formula_active and type(value).__module__.startswith("pandas"):
-                        # Formula/model-matrix code owns row dropping, categorical
-                        # encoding, and aligned side-array error semantics.
+                    formula_owned_pandas = formula_active or (
+                        method_name != "fit"
+                        and name == "X"
+                        and getattr(self, "_design_info", None) is not None
+                    )
+                    if formula_owned_pandas and type(value).__module__.startswith("pandas"):
+                        # Current formula calls own all pandas row-alignment semantics.
+                        # After a formula fit, only X passed to a prediction-like
+                        # method is transformed by stored design_info; direct refits
+                        # and side arrays such as y still use the shared finite guard.
                         continue
                     if name in self._FINITE_PARAMETER_NAMES and value is not None:
                         check_finite(value, name=name)
@@ -381,7 +388,7 @@ class BaseEstimator(ABC):
             numerical_parameters = set(signature.parameters) & cls._FINITE_PARAMETER_NAMES
             if method_name not in cls._FINITE_PUBLIC_METHODS and not numerical_parameters:
                 continue
-            setattr(cls, method_name, wrap_method(original))
+            setattr(cls, method_name, wrap_method(original, method_name))
 
     def __init__(
         self,

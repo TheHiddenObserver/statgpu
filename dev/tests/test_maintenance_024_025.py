@@ -1007,3 +1007,18 @@ def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
     events = get_torch_compile_diagnostics(clear=True)
     assert any(event["status"] == "compiled" for event in events)
     assert not any("fallback" in event["status"] for event in events)
+
+
+# PR87_FORMULA_PREDICT_OWNERSHIP_TEST
+def test_formula_predict_dataframe_keeps_formula_missing_row_semantics():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import LinearRegression
+
+    data = pd.DataFrame(
+        {"y": [1.0, 2.0, 3.0, 4.0], "x": [0.0, 1.0, 2.0, 3.0]}
+    )
+    model = LinearRegression(device="cpu").fit(formula="y ~ x", data=data)
+    new_data = pd.DataFrame({"x": [0.0, np.nan, 2.0, 3.0]})
+    prediction = np.asarray(model.predict(new_data))
+    assert prediction.shape == (3,)
+    assert np.isfinite(prediction).all()
