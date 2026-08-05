@@ -598,12 +598,17 @@ class GeneralizedLinearModel(BaseEstimator):
         # ---- Compute inference if requested ----
         if self._compute_inference_enabled:
             if sample_weight is not None:
-                sw = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
                 if is_gpu:
+                    # sample_weight is already validated on the selected backend;
+                    # preserve device residency instead of copying the full vector
+                    # to NumPy and immediately transferring it back to the GPU.
                     self._sample_weight_inf = self._to_array(
-                        sw, backend=inf_backend)
+                        sample_weight, backend=inf_backend
+                    )
                 else:
-                    self._sample_weight_inf = sw
+                    self._sample_weight_inf = np.asarray(
+                        sample_weight, dtype=float
+                    ).ravel()
             else:
                 self._sample_weight_inf = None
 
