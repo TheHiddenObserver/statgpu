@@ -47,17 +47,18 @@ jobs:
               index for index, line in enumerate(lines)
               if line.startswith("def _select_logistic_c_cv(")
           )
-          start = next(
-              index for index in range(function_start, len(lines))
-              if lines[index] == "# Generate C grid"
-          )
-          end = next(
-              index for index in range(start + 1, len(lines))
+          fold_marker = next(
+              index for index in range(function_start + 1, len(lines))
               if lines[index].lstrip() == "# Generate CV folds"
           )
-          if any(lines[index] and lines[index].startswith(" ") for index in range(start, end)):
-              raise SystemExit("mixed indentation in generated LogisticCV grid block")
-          for index in range(start, end):
+          dedented = [
+              index for index in range(function_start + 1, fold_marker)
+              if lines[index] and not lines[index].startswith((" ", "\t"))
+          ]
+          if not dedented:
+              raise SystemExit("expected generated LogisticCV dedent was not found")
+          start = dedented[0]
+          for index in range(start, fold_marker):
               if lines[index]:
                   lines[index] = "    " + lines[index]
           path.write_text("\n".join(lines) + "\n", encoding="utf-8")
