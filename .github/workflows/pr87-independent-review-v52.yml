@@ -1,0 +1,99 @@
+name: PR87 independent review v52
+
+on:
+  push:
+    branches:
+      - agent/maintenance-0.2.4-0.2.5
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit broad fallbacks in changed production code
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import subprocess
+          from pathlib import Path
+
+          subprocess.run(["git", "fetch", "origin", "master", "--depth=1"], check=True)
+          names = subprocess.check_output(
+              ["git", "diff", "--name-only", "origin/master...HEAD"], text=True
+          ).splitlines()
+          paths = [
+              Path(name) for name in names
+              if name.startswith("statgpu/") and name.endswith(".py") and Path(name).is_file()
+          ]
+
+          suppress_markers = (
+              "pass", "continue", "warning", "warn", "zeros", "nan", "pinv",
+              "lstsq", "fallback", "fall back", "return none", "= none",
+              "except", "mean squared", "mse", "ridge", "default",
+          )
+          sensitive_markers = (
+              "linalg", "torch", "cupy", "cuda", "device", "fit(", "predict(",
+              "loss", "score", "inference", "sample_weight", "compile",
+          )
+          findings = []
+          for path in paths:
+              source = path.read_text(encoding="utf-8")
+              try:
+                  tree = ast.parse(source, filename=str(path))
+              except SyntaxError as exc:
+                  findings.append(("SYNTAX", str(path), exc.lineno or 0, str(exc)))
+                  continue
+              for node in ast.walk(tree):
+                  if not isinstance(node, ast.Try):
+                      continue
+                  try_src = ast.get_source_segment(source, node) or ""
+                  try_low = try_src.lower()
+                  for handler in node.handlers:
+                      if handler.type is None:
+                          caught = "bare"
+                      else:
+                          caught = ast.unparse(handler.type)
+                      if not any(name in caught for name in ("Exception", "RuntimeError")) and caught != "bare":
+                          continue
+                      handler_src = "\n".join(ast.unparse(stmt) for stmt in handler.body)
+                      handler_low = handler_src.lower()
+                      suppresses = any(marker in handler_low for marker in suppress_markers)
+                      sensitive = any(marker in try_low for marker in sensitive_markers)
+                      if suppresses and sensitive:
+                          findings.append((
+                              "RISKY", str(path), handler.lineno,
+                              f"catches {caught}; handler={handler_src[:320].replace(chr(10), ' ')}",
+                          ))
+
+          print(f"CHANGED_PRODUCTION_PY={len(paths)}")
+          print(f"RISKY_BROAD_FALLBACKS={len(findings)}")
+          for level, path, line, detail in findings:
+              print(f"{level} {path}:{line}: {detail}")
+
+          forbidden = {
+              "falling back to MSE": [],
+              "except RuntimeError:": [],
+              "except Exception:": [],
+          }
+          for path in paths:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              for lineno, line in enumerate(lines, 1):
+                  for phrase in forbidden:
+                      if phrase in line:
+                          forbidden[phrase].append(f"{path}:{lineno}")
+          for phrase, locations in forbidden.items():
+              print(f"PHRASE {phrase!r}: {len(locations)}")
+              for location in locations:
+                  print(f"  {location}")
+          PY
