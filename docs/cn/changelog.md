@@ -1,5 +1,7 @@
 # Changelog
 
+- 在公开 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 调度中保留 `device='auto'`，使 GPU 常驻输入继续使用其原有后端；LogisticRegressionCV 现可在不完整复制到 CPU 的情况下验证 0/1 响应。
+
 - Logistic 与 ElasticNet CV 的默认正则化网格现在纳入解析权重并满足整数权重的行复制等价性；CV 的 GPU 数组设备检查不再掩盖运行时错误。
 
 - 专用 Ridge、ElasticNet 与 Logistic CV 现在严格保留显式 Torch/CuPy 后端选择，统一规范化 Device 枚举，并在生成网格或提前返回前验证解析权重。

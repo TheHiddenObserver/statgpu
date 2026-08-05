@@ -1051,7 +1051,7 @@ class RidgeCV(CVEstimatorBase):
         n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
         sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
 
-        device_name = self._get_compute_device().value
+        device_name = self._device
 
         # Run CV to select alpha
         details = _select_ridge_alpha_cv(

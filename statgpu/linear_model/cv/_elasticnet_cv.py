@@ -677,7 +677,7 @@ class ElasticNetCV(CVEstimatorBase):
         -------
         self
         """
-        compute_device = self._get_compute_device()
+        device_request = self._device
 
         # Normalize l1_ratio to list
         if isinstance(self.l1_ratio, (list, tuple, np.ndarray)):
@@ -697,7 +697,7 @@ class ElasticNetCV(CVEstimatorBase):
             random_state=self.random_state,
             sample_weight=sample_weight,
             fit_intercept=self._fit_intercept,
-            device=compute_device,
+            device=device_request,
             max_iter=self._max_iter,
             tol=self._tol,
             return_details=True,

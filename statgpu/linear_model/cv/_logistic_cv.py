@@ -17,6 +17,27 @@ from statgpu.linear_model.wrappers._logistic import LogisticRegression
 from ._device import resolve_cv_backend, validate_cv_sample_weight
 
 
+def _validate_binary_cv_response(y):
+    """Validate a strict 0/1 response without copying GPU arrays to NumPy."""
+    from statgpu.glm_core._logistic import LogisticLoss
+
+    values = LogisticLoss().validate_response(y)
+    module = type(values).__module__
+    if module.startswith("torch"):
+        import torch
+
+        valid = torch.all((values == 0) | (values == 1))
+    elif module.startswith("cupy"):
+        import cupy as cp
+
+        valid = cp.all((values == 0) | (values == 1))
+    else:
+        valid = np.all((values == 0) | (values == 1))
+    if not bool(valid.item() if hasattr(valid, "item") else valid):
+        raise ValueError("LogisticRegressionCV requires binary y (0 or 1)")
+    return values
+
+
 # =============================================================================
 # CV Cache for LogisticRegression
 # =============================================================================
@@ -827,16 +848,11 @@ class LogisticRegressionCV(CVEstimatorBase):
         self : LogisticRegressionCV
             Fitted estimator.
         """
-        # Validate y is binary
-        y_arr = np.asarray(y, dtype=np.float64).ravel()
-        unique_y = np.unique(y_arr)
-        if not np.all(np.isin(unique_y, [0.0, 1.0])):
-            raise ValueError(
-                f"LogisticRegressionCV requires binary y (0 or 1), "
-                f"got unique values: {unique_y[:10]}"
-            )
+        # Preserve response residency; only a scalar validity decision syncs.
+        _validate_binary_cv_response(y)
 
-        device_name = self._get_compute_device().value
+        # Keep AUTO unresolved until resolve_cv_backend can inspect X.
+        device_name = self._device
 
         # Run CV to select C
         details = _select_logistic_c_cv(

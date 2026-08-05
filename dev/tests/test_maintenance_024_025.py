@@ -3946,3 +3946,86 @@ def test_cv_device_inspection_does_not_mask_runtime_failures():
 
     with pytest.raises(RuntimeError, match="device query failed"):
         _array_gpu_backend(BrokenTorchArray())
+
+
+
+@pytest.mark.parametrize(
+    "module_name,class_name,selector_name,y",
+    [
+        (
+            "statgpu.linear_model.cv._ridge_cv",
+            "RidgeCV",
+            "_select_ridge_alpha_cv",
+            np.arange(6, dtype=np.float64),
+        ),
+        (
+            "statgpu.linear_model.cv._elasticnet_cv",
+            "ElasticNetCV",
+            "_select_elasticnet_params_cv",
+            np.arange(6, dtype=np.float64),
+        ),
+        (
+            "statgpu.linear_model.cv._logistic_cv",
+            "LogisticRegressionCV",
+            "_select_logistic_c_cv",
+            np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
+        ),
+    ],
+)
+def test_public_dedicated_cv_preserves_auto_device_request(
+    monkeypatch, module_name, class_name, selector_name, y
+):
+    import importlib
+    from statgpu.linear_model.cv._device import normalize_cv_device
+
+    module = importlib.import_module(module_name)
+    observed = []
+
+    def probe(*args, **kwargs):
+        observed.append(kwargs["device"])
+        raise RuntimeError("device request probe")
+
+    monkeypatch.setattr(module, selector_name, probe)
+    estimator = getattr(module, class_name)(device="auto", cv=2)
+    X = np.arange(12, dtype=np.float64).reshape(6, 2)
+    with pytest.raises(RuntimeError, match="device request probe"):
+        estimator.fit(X, y)
+
+    assert len(observed) == 1
+    assert normalize_cv_device(observed[0]) == "auto"
+
+
+def test_logistic_cv_binary_validation_preserves_torch_response():
+    torch = pytest.importorskip("torch")
+    from statgpu.linear_model.cv._logistic_cv import _validate_binary_cv_response
+
+    y = torch.tensor([0.0, 1.0, 1.0, 0.0], dtype=torch.float64)
+    assert _validate_binary_cv_response(y) is y
+    with pytest.raises(ValueError, match="binary y"):
+        _validate_binary_cv_response(
+            torch.tensor([0.0, 0.5, 1.0], dtype=torch.float64)
+        )
+
+
+def test_auto_cv_router_prefers_gpu_resident_input_backend(monkeypatch):
+    import statgpu.linear_model.cv._device as device_mod
+
+    class FakeTorchCudaArray:
+        __module__ = "torch"
+        device = "cuda:0"
+
+    calls = []
+
+    class FakeBackend:
+        pass
+
+    def backend_probe(*, backend, device):
+        calls.append((backend, device))
+        return FakeBackend()
+
+    monkeypatch.setattr(device_mod, "get_backend", backend_probe)
+    resolved = device_mod.resolve_cv_backend("auto", FakeTorchCudaArray())
+    assert resolved[0] == "auto"
+    assert resolved[1] == "torch"
+    assert resolved[3] is True
+    assert calls == [("torch", "cuda")]
