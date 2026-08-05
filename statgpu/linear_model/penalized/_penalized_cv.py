@@ -2967,15 +2967,24 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     self, X, y, sample_weight=sample_weight
                 )
             from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+            from statgpu.glm_core._validation import (
+                validate_glm_design_matrix,
+                validate_glm_sample_weight,
+            )
 
+            validated_X = validate_glm_design_matrix(X)
             resolved_loss = _resolve_loss_name(
                 self.loss,
                 loss_kwargs=getattr(self, "_loss_kwargs", None),
             )
             if hasattr(resolved_loss, "validate_response"):
                 y = resolved_loss.validate_response(y)
-                if int(y.shape[0]) != int(len(X)):
+                if int(y.shape[0]) != int(validated_X.shape[0]):
                     raise ValueError("Response length must match the number of X rows.")
+            if sample_weight is not None:
+                sample_weight = validate_glm_sample_weight(
+                    sample_weight, validated_X.shape[0]
+                )
             return self._fit_standard(X, y, sample_weight=sample_weight)
         except Exception:
             self._reset_cv_fit_state()

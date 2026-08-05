@@ -336,10 +336,12 @@ class _PenalizedFitMixin:
             self._formula_has_intercept = None
             self._use_intercept = None
 
-        # Record number of features for sklearn compatibility
-        if X is not None:
-            X_arr = np.asarray(X) if not hasattr(X, 'shape') else X
-            self.n_features_in_ = X_arr.shape[1] if X_arr.ndim >= 2 else 1
+        from statgpu.glm_core._validation import (
+            validate_glm_design_matrix,
+            validate_glm_sample_weight,
+        )
+        X = validate_glm_design_matrix(X)
+        self.n_features_in_ = int(X.shape[1])
 
         self._penalty = self._resolve_penalty()
         self._loss = self._resolve_loss()
@@ -380,8 +382,10 @@ class _PenalizedFitMixin:
         # Convert sample_weight to target backend once (avoids CPU/CUDA mismatch)
         _sw_arr = None
         if sample_weight is not None:
-            _sw_arr = self._to_array(sample_weight, backend=backend_name).reshape(-1)
-            _validate_sample_weight_backend(_sw_arr, X.shape[0], backend_name)
+            sample_weight = validate_glm_sample_weight(
+                sample_weight, X.shape[0]
+            )
+            _sw_arr = self._to_array(sample_weight, backend=backend_name)
 
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
         if self._penalty.requires_init:

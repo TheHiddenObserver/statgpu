@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends._validation import check_finite
+from statgpu.glm_core._validation import validate_glm_sample_weight
 
 
 def align_formula_sample_weight(
@@ -61,25 +61,6 @@ def align_formula_sample_weight(
             "of formula rows retained after missing-value filtering"
         )
 
-    check_finite(aligned, name="sample_weight")
-    aligned_module = type(aligned).__module__
-    if aligned_module.startswith("torch"):
-        import torch
-
-        if bool(torch.any(aligned < 0).item()):
-            raise ValueError("sample_weight must be non-negative")
-        total = float(torch.sum(aligned).item())
-    elif aligned_module.startswith("cupy"):
-        import cupy as cp
-
-        if bool(cp.any(aligned < 0).item()):
-            raise ValueError("sample_weight must be non-negative")
-        total = float(cp.sum(aligned).item())
-    else:
-        aligned_np = np.asarray(aligned)
-        if np.any(aligned_np < 0):
-            raise ValueError("sample_weight must be non-negative")
-        total = float(np.sum(aligned_np))
-    if total <= 0.0:
-        raise ValueError("sample_weight must have a positive sum")
-    return aligned
+    return validate_glm_sample_weight(
+        aligned, retained_length, name="sample_weight"
+    )

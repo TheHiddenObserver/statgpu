@@ -247,8 +247,15 @@ def irls_solver(
     n_iter : int
         Number of iterations.
     """
+    from statgpu.glm_core._validation import (
+        validate_glm_design_matrix,
+        validate_glm_sample_weight,
+    )
+
+    X_validated = validate_glm_design_matrix(X)
     if backend == "auto":
-        backend = _infer_backend(X)
+        backend = _infer_backend(X_validated)
+    X = _to_backend(X_validated, backend, X_validated)
 
     if init_coef is None:
         n_features = X.shape[1]
@@ -262,9 +269,13 @@ def irls_solver(
     y_work = _to_backend(y_validated, backend, X)
     if int(y_work.shape[0]) != int(X.shape[0]):
         raise ValueError("Response length must match X.shape[0].")
-    sw_work = (
-        _to_backend(sample_weight, backend, X)
+    sw_validated = (
+        validate_glm_sample_weight(sample_weight, X.shape[0])
         if sample_weight is not None else None
+    )
+    sw_work = (
+        _to_backend(sw_validated, backend, X)
+        if sw_validated is not None else None
     )
     penalty_matrix_work = (
         _to_backend(penalty_matrix, backend, X)

@@ -34,6 +34,8 @@
   Torch, or CuPy reductions on the selected backend. Scalar GLM responses
   accept non-empty real one-dimensional or single-column input and reject
   non-real, multicolumn, or length-mismatched data before solver/fold dispatch.
+  Design matrices and analytic sample weights now use the same backend-native
+  real/finite/shape/length contract in model, formula, CV, and direct IRLS paths.
   Active IRLS/FISTA helper compilation uses the centralized compile policy, and
   unrelated linear-algebra/device failures are no longer masked as fallback.
 

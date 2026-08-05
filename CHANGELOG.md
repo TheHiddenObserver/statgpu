@@ -21,7 +21,10 @@ All notable changes to statgpu are documented here, organized by release and dat
   backend-native response-domain validation for every supported GLM family,
   including penalized estimators and cross-validation entrypoints; scalar
   GLMs now normalize single-column responses and reject empty, non-real,
-  multicolumn, or length-mismatched responses before solver/fold dispatch.
+  multicolumn, or length-mismatched responses before solver/fold dispatch;
+  GLM design matrices and analytic weights now share backend-native real,
+  finite, shape, length, and non-empty validation across model, CV, formula,
+  and direct IRLS entrypoints.
 - Addressed Issue #82 by preserving exact raw constructor arguments for
   legacy scikit-learn clone identity while retaining normalized runtime
   attributes and `set_params` bookkeeping.

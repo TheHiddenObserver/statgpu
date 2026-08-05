@@ -482,6 +482,11 @@ class GeneralizedLinearModel(BaseEstimator):
         # Resolve backend once for both formula and direct paths
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
+        from statgpu.glm_core._validation import (
+            validate_glm_design_matrix,
+            validate_glm_sample_weight,
+        )
+        fit_loss = self._resolve_loss_for_inference()
 
         # Handle formula interface
         if formula is not None:
@@ -512,7 +517,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 self._use_intercept = True
             else:
                 self._use_intercept = False
-            # Formula produces numpy; convert to backend
+            X_arr = validate_glm_design_matrix(X_arr)
+            y_arr = fit_loss.validate_response(y_arr)
+            # Formula produces NumPy; convert validated arrays to backend.
             y_arr = self._to_array(y_arr, backend=backend_name)
             X_arr = self._to_array(X_arr, backend=backend_name)
         else:
@@ -524,9 +531,10 @@ class GeneralizedLinearModel(BaseEstimator):
             self._design_info = None
             self._formula_has_intercept = None
             self._use_intercept = None
-            # _to_array safely handles numpy/cupy/torch inputs
-            y_arr = self._to_array(y, backend=backend_name)
-            X_arr = self._to_array(X, backend=backend_name)
+            X_validated = validate_glm_design_matrix(X)
+            y_validated = fit_loss.validate_response(y)
+            y_arr = self._to_array(y_validated, backend=backend_name)
+            X_arr = self._to_array(X_validated, backend=backend_name)
 
         # Ensure y is 1D after backend conversion
         if hasattr(y_arr, 'ndim') and y_arr.ndim == 2 and y_arr.shape[1] == 1:
@@ -534,35 +542,12 @@ class GeneralizedLinearModel(BaseEstimator):
         self._nobs = X_arr.shape[0]
 
         if sample_weight is not None:
+            sample_weight = validate_glm_sample_weight(
+                sample_weight, self._nobs
+            )
             sample_weight = self._to_array(sample_weight, backend=backend_name)
-            if int(sample_weight.ndim) != 1:
-                raise ValueError("sample_weight must be one-dimensional")
-            if int(sample_weight.shape[0]) != int(self._nobs):
-                raise ValueError("sample_weight must have length n_samples")
-            from statgpu.backends._validation import check_finite
-
-            check_finite(sample_weight, name="sample_weight")
-            if backend_name == "torch":
-                import torch
-
-                if bool(torch.any(sample_weight < 0).item()):
-                    raise ValueError("sample_weight must be non-negative")
-                weight_sum = float(torch.sum(sample_weight).item())
-            elif backend_name == "cupy":
-                import cupy as cp
-
-                if bool(cp.any(sample_weight < 0).item()):
-                    raise ValueError("sample_weight must be non-negative")
-                weight_sum = float(cp.sum(sample_weight).item())
-            else:
-                if np.any(np.asarray(sample_weight) < 0):
-                    raise ValueError("sample_weight must be non-negative")
-                weight_sum = float(np.sum(np.asarray(sample_weight)))
-            if weight_sum <= 0.0:
-                raise ValueError("sample_weight must have a positive sum")
 
         family = self._get_family()
-        fit_loss = self._resolve_loss_for_inference()
         y_arr = fit_loss.validate_response(y_arr)
         if int(y_arr.shape[0]) != int(X_arr.shape[0]):
             raise ValueError("Response length must match X.shape[0].")
