@@ -46,7 +46,9 @@ replace_once(
                 formula, data, None, None
             )
             if sample_weight is not None:
-                weights = np.asarray(_to_numpy(sample_weight)).reshape(-1)
+                from statgpu.backends import _to_numpy as _formula_to_numpy
+
+                weights = np.asarray(_formula_to_numpy(sample_weight)).reshape(-1)
                 if weights.shape[0] == len(data):
                     weights = weights[retained_rows]
                 elif weights.shape[0] != X_arr.shape[0]:
