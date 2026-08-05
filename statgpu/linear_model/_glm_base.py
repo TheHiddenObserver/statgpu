@@ -412,11 +412,12 @@ class GeneralizedLinearModel(BaseEstimator):
     def loglikelihood(self):
         """Pseudo-loglikelihood at the fitted coefficients.
 
-        Computed as -sum(loss.per_sample_value(eta, y)).  Additive constants
-        that do not depend on the parameters (e.g. -log(y!) for Poisson,
-        -n log(2πσ²)/2 for Gaussian) are omitted.  ΔAIC / ΔBIC comparisons
-        between nested models on the same data remain valid; absolute values
-        should not be compared with statsmodels or R.
+        Without sample weights this is ``-sum(per_sample_loss)``.  With
+        analytic sample weights it is the negative weighted-average loss
+        multiplied by the original row count, so globally rescaling all
+        weights leaves loglikelihood, AIC, and BIC unchanged.  Additive
+        constants independent of the parameters are omitted; absolute values
+        should therefore not be compared directly with statsmodels or R.
         """
         self._check_is_fitted()
         if self._loss is None or self._X_design is None or self._y_inf is None:
@@ -561,6 +562,8 @@ class GeneralizedLinearModel(BaseEstimator):
                 raise ValueError("sample_weight must have a positive sum")
 
         family = self._get_family()
+        fit_loss = self._resolve_loss_for_inference()
+        fit_loss.validate_response(y_arr)
         _solver_lower = self._solver.lower() if isinstance(self._solver, str) else self._solver
         if _solver_lower == "auto":
             # Heuristic: IRLS for smooth/no penalties, FISTA for non-smooth
@@ -608,7 +611,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self._y_inf = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
             self._X_design, self._params, self._intercept_idx = \
                 self._aligned_inference_design_glm(X_arr)
-        self._loss = self._resolve_loss_for_inference()
+        self._loss = fit_loss
 
         # Preserve fit weights even when inference is disabled because
         # loglikelihood/AIC/BIC are public fitted-model diagnostics.  GPU

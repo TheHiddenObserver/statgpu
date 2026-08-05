@@ -22,6 +22,12 @@
   finite、非负性与正权重和；Torch/CuPy 的对齐及 inference 权重保持在设备端。
 - Gaussian GLM 的 FISTA 路径改用加权的特征均值与响应均值 profile intercept；
   在零惩罚时与闭式 weighted least squares 一致，不再优化错误的未加权中心化目标。
+- GLM 的 sample weight 统一采用 analytic-weight 语义，覆盖 IRLS ridge scaling、
+  line search、归一化 pseudo-loglikelihood、AIC/BIC、dispersion 与 sandwich inference；
+  对全部权重作统一倍数缩放不会改变估计量或报告的诊断量。
+- 所有支持的 GLM family 都在 solver dispatch 之前执行 backend-native response-domain
+  validation；active IRLS/FISTA 编译统一走 centralized compile policy，且不再把无关的
+  线性代数、显存或 device 错误伪装成 fallback。
 
 ### Estimator 与测试契约
 

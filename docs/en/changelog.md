@@ -25,6 +25,14 @@
 - Gaussian GLM FISTA now profiles the intercept with weighted feature and
   response means, matching the declared weighted squared-loss objective and
   closed-form weighted least squares when the penalty is zero.
+- GLM sample weights now follow one analytic-weight convention across IRLS
+  ridge scaling, line search, normalized pseudo-loglikelihood, AIC/BIC,
+  dispersion, and sandwich inference. Globally rescaling weights leaves fitted
+  parameters and reported diagnostics unchanged.
+- Every supported GLM family now enforces its response domain before any solver
+  dispatch, using NumPy, Torch, or CuPy reductions on the selected backend.
+  Active IRLS/FISTA helper compilation uses the centralized compile policy, and
+  unrelated linear-algebra/device failures are no longer masked as fallback.
 
 ### Estimator and test contracts
 

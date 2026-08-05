@@ -15,6 +15,10 @@ All notable changes to statgpu are documented here, organized by release and dat
   GLM, and penalized estimators; retained Torch/CuPy weights on device; and
   corrected Gaussian GLM FISTA to use weighted centering and the intended
   weighted squared-loss intercept.
+- Unified analytic-weight GLM semantics across IRLS ridge scaling, line search,
+  pseudo-loglikelihood, AIC/BIC, dispersion, and sandwich inference; centralized
+  active GLM Torch compilation; narrowed singular-system fallbacks; and added
+  backend-native response-domain validation for every supported GLM family.
 - Addressed Issue #82 by preserving exact raw constructor arguments for
   legacy scikit-learn clone identity while retaining normalized runtime
   attributes and `set_params` bookkeeping.

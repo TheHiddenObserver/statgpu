@@ -1866,3 +1866,109 @@ def test_solver_utils_weighted_helper_delegates_without_silent_unweighting(monke
     assert "_to_numpy(sample_weight)" not in block
     assert "except TypeError" not in block
     assert "statgpu.glm_core._fused" in block
+
+
+# PR87_GLM_RESPONSE_DOMAIN_MATRIX_TESTS
+@pytest.mark.parametrize("solver", ["irls", "fista", "newton", "lbfgs"])
+@pytest.mark.parametrize(
+    "family,bad_y,message",
+    [
+        ("binomial", np.array([0.0, 1.0, -0.1, 0.5]), r"logistic response.*\[0, 1\]"),
+        ("binomial", np.array([0.0, 1.0, 1.1, 0.5]), r"logistic response.*\[0, 1\]"),
+        ("poisson", np.array([0.0, 1.0, -1.0, 2.0]), "poisson response.*non-negative"),
+        ("gamma", np.array([1.0, 2.0, 0.0, 3.0]), "gamma response.*strictly positive"),
+        ("inverse_gaussian", np.array([1.0, 2.0, -0.1, 3.0]), "inverse_gaussian response.*strictly positive"),
+        ("negative_binomial", np.array([0.0, 1.0, -1.0, 2.0]), "negative_binomial response.*non-negative"),
+        ("tweedie", np.array([0.0, 1.0, -0.1, 2.0]), "tweedie response.*non-negative"),
+    ],
+)
+def test_glm_response_domain_is_validated_before_every_solver(family, bad_y, message, solver):
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.arange(8.0, dtype=np.float64).reshape(4, 2)
+    with pytest.raises(ValueError, match=message):
+        GeneralizedLinearModel(
+            family=family,
+            solver=solver,
+            C=0.0,
+            device="cpu",
+            compute_inference=False,
+        ).fit(X, bad_y)
+
+
+def test_binomial_glm_accepts_fractional_responses_in_unit_interval():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array([[-1.0], [0.0], [1.0], [2.0], [3.0]], dtype=np.float64)
+    y = np.array([0.0, 0.2, 0.5, 0.8, 1.0], dtype=np.float64)
+    model = GeneralizedLinearModel(
+        family="binomial", solver="irls", C=0.0,
+        max_iter=100, device="cpu", compute_inference=False,
+    ).fit(X, y)
+    assert np.isfinite(model.coef_).all()
+
+
+def test_formula_response_domain_validation_occurs_after_patsy_row_selection():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    data = pd.DataFrame(
+        {"y": [0.0, 1.0, -2.0, 3.0], "x": [0.0, 1.0, np.nan, 3.0]}
+    )
+    # The negative response belongs to the row Patsy removes.  Retained rows
+    # are valid Poisson responses and must fit successfully.
+    model = GeneralizedLinearModel(
+        family="poisson", solver="irls", C=0.0,
+        device="cpu", compute_inference=False,
+    ).fit(formula="y ~ x", data=data)
+    assert np.isfinite(model.coef_).all()
+
+    data.loc[1, "y"] = -1.0
+    with pytest.raises(ValueError, match="poisson response.*non-negative"):
+        GeneralizedLinearModel(
+            family="poisson", solver="irls", C=0.0,
+            device="cpu", compute_inference=False,
+        ).fit(formula="y ~ x", data=data)
+
+
+def test_direct_irls_solver_uses_loss_owned_response_validation():
+    from statgpu.glm_core._family import Poisson
+    from statgpu.glm_core._irls import IRLSSolver
+
+    with pytest.raises(ValueError, match="poisson response.*non-negative"):
+        IRLSSolver(Poisson()).fit(
+            np.ones((3, 1)), np.array([0.0, -1.0, 2.0]), backend="numpy"
+        )
+
+
+def test_torch_glm_response_domain_validation_stays_on_device():
+    torch = _require_modern_torch_cuda()
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = torch.arange(8.0, dtype=torch.float64, device="cuda").reshape(4, 2)
+    y = torch.tensor([0.0, 1.0, -1.0, 2.0], dtype=torch.float64, device="cuda")
+    with pytest.raises(ValueError, match="poisson response.*non-negative"):
+        GeneralizedLinearModel(
+            family="poisson", solver="irls", C=0.0,
+            device="torch", compute_inference=False,
+        ).fit(X, y)
+    assert X.is_cuda and y.is_cuda
+
+
+def test_cupy_glm_response_domain_validation_stays_on_device():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = cp.arange(8.0, dtype=cp.float64).reshape(4, 2)
+    y = cp.asarray([1.0, 2.0, 0.0, 3.0], dtype=cp.float64)
+    with pytest.raises(ValueError, match="gamma response.*strictly positive"):
+        GeneralizedLinearModel(
+            family="gamma", solver="irls", C=0.0,
+            device="cuda", compute_inference=False,
+        ).fit(X, y)
+    assert isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)

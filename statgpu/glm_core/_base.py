@@ -58,6 +58,36 @@ class GLMLoss(LossBase):
         """Link inverse: μ = g⁻¹(η). Override for clipping."""
         return eta  # default: identity link
 
+    def validate_response(self, y):
+        """Validate the response domain on its current array backend.
+
+        ``y_type`` is the shared public contract for every solver.  Only the
+        final scalar boolean is synchronized; Torch/CuPy response arrays are
+        never copied to NumPy for validation.
+        """
+        from statgpu.backends._array_ops import _xp
+
+        xp = _xp(y)
+        invalid = xp.any(~xp.isfinite(y))
+        y_type = str(getattr(self, "y_type", "continuous")).lower()
+        if y_type == "binary":
+            invalid = invalid | xp.any(y < 0) | xp.any(y > 1)
+            requirement = "values in [0, 1]"
+        elif y_type in ("count", "nonnegative"):
+            invalid = invalid | xp.any(y < 0)
+            requirement = "non-negative values"
+        elif y_type == "positive":
+            invalid = invalid | xp.any(y <= 0)
+            requirement = "strictly positive values"
+        else:
+            requirement = "finite values"
+
+        if bool(invalid.item() if hasattr(invalid, "item") else invalid):
+            raise ValueError(
+                f"{self.name} response requires finite {requirement}."
+            )
+        return y
+
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         """Fused value+gradient using GLM-specific optimized kernels.
 

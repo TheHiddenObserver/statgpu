@@ -259,31 +259,7 @@ def irls_solver(
     y_work = _to_backend(y, backend, X)
     family_name = getattr(family, "name", "")
     objective_loss = _objective_loss_for_family(family)
-    if backend == "torch":
-        import torch
-        invalid_y = torch.any(~torch.isfinite(y_work))
-        if family_name == "gamma":
-            invalid_y = invalid_y | torch.any(y_work <= 0)
-        elif family_name == "tweedie":
-            invalid_y = invalid_y | torch.any(y_work < 0)
-    elif backend == "cupy":
-        import cupy as cp
-        invalid_y = cp.any(~cp.isfinite(y_work))
-        if family_name == "gamma":
-            invalid_y = invalid_y | cp.any(y_work <= 0)
-        elif family_name == "tweedie":
-            invalid_y = invalid_y | cp.any(y_work < 0)
-    else:
-        invalid_y = np.any(~np.isfinite(y_work))
-        if family_name == "gamma":
-            invalid_y = invalid_y or np.any(y_work <= 0)
-        elif family_name == "tweedie":
-            invalid_y = invalid_y or np.any(y_work < 0)
-    if bool(invalid_y.item() if hasattr(invalid_y, "item") else invalid_y):
-        requirement = "strictly positive" if family_name == "gamma" else "non-negative"
-        raise ValueError(
-            f"{family_name} IRLS requires finite, {requirement} y values."
-        )
+    objective_loss.validate_response(y_work)
     sw_work = (
         _to_backend(sample_weight, backend, X)
         if sample_weight is not None else None
