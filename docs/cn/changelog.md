@@ -26,7 +26,8 @@
   line search、归一化 pseudo-loglikelihood、AIC/BIC、dispersion 与 sandwich inference；
   对全部权重作统一倍数缩放不会改变估计量或报告的诊断量。
 - 所有支持的 GLM family（包括 penalized 与 CV estimator）都在 solver 或 fold
-  dispatch 之前执行 backend-native response-domain validation；active IRLS/FISTA 编译
+  dispatch 之前执行 backend-native response-domain validation；scalar GLM response
+  支持一维或单列输入，并在 solver/fold dispatch 前拒绝多列或长度不匹配；active IRLS/FISTA 编译
   统一走 centralized compile policy，且不再把无关的
   线性代数、显存或 device 错误伪装成 fallback。
 

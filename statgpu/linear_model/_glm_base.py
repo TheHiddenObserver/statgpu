@@ -563,7 +563,9 @@ class GeneralizedLinearModel(BaseEstimator):
 
         family = self._get_family()
         fit_loss = self._resolve_loss_for_inference()
-        fit_loss.validate_response(y_arr)
+        y_arr = fit_loss.validate_response(y_arr)
+        if int(y_arr.shape[0]) != int(X_arr.shape[0]):
+            raise ValueError("Response length must match X.shape[0].")
         _solver_lower = self._solver.lower() if isinstance(self._solver, str) else self._solver
         if _solver_lower == "auto":
             # Heuristic: IRLS for smooth/no penalties, FISTA for non-smooth

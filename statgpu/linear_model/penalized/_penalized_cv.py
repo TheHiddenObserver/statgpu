@@ -2973,7 +2973,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 loss_kwargs=getattr(self, "_loss_kwargs", None),
             )
             if hasattr(resolved_loss, "validate_response"):
-                resolved_loss.validate_response(y)
+                y = resolved_loss.validate_response(y)
+                if int(y.shape[0]) != int(len(X)):
+                    raise ValueError("Response length must match the number of X rows.")
             return self._fit_standard(X, y, sample_weight=sample_weight)
         except Exception:
             self._reset_cv_fit_state()

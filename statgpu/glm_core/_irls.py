@@ -259,7 +259,9 @@ def irls_solver(
     y_work = _to_backend(y, backend, X)
     family_name = getattr(family, "name", "")
     objective_loss = _objective_loss_for_family(family)
-    objective_loss.validate_response(y_work)
+    y_work = objective_loss.validate_response(y_work)
+    if int(y_work.shape[0]) != int(X.shape[0]):
+        raise ValueError("Response length must match X.shape[0].")
     sw_work = (
         _to_backend(sample_weight, backend, X)
         if sample_weight is not None else None

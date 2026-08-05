@@ -2082,3 +2082,175 @@ def test_cupy_penalized_glm_response_validation_stays_on_device():
             solver="fista", device="cuda", compute_inference=False,
         ).fit(X, y)
     assert isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
+
+
+# PR87_GLM_RESPONSE_SHAPE_CONTRACT_TESTS
+@pytest.mark.parametrize("kind", ["glm", "penalized", "cv"])
+def test_scalar_glm_rejects_multicolumn_response_before_solver(kind, monkeypatch):
+    from statgpu.linear_model import GeneralizedLinearModel
+    from statgpu.linear_model.penalized import (
+        PenalizedGeneralizedLinearModel,
+        PenalizedGLM_CV,
+    )
+
+    X = np.arange(12.0, dtype=np.float64).reshape(6, 2)
+    y = np.ones((6, 2), dtype=np.float64)
+    if kind == "glm":
+        model = GeneralizedLinearModel(
+            family="poisson", solver="irls", C=0.0,
+            device="cpu", compute_inference=False,
+        )
+    elif kind == "penalized":
+        model = PenalizedGeneralizedLinearModel(
+            loss="poisson", penalty="l2", alpha=0.1,
+            solver="fista", device="cpu", compute_inference=False,
+        )
+    else:
+        model = PenalizedGLM_CV(
+            loss="poisson", penalty="l2", alpha_grid=[0.1, 1.0],
+            cv=2, device="cpu", max_iter=20,
+        )
+        monkeypatch.setattr(
+            model,
+            "_fit_standard",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("CV must not start for multicolumn y")
+            ),
+        )
+    with pytest.raises(ValueError, match="response must be one-dimensional"):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize("kind", ["glm", "penalized", "cv"])
+def test_scalar_glm_rejects_response_length_mismatch_before_solver(kind, monkeypatch):
+    from statgpu.linear_model import GeneralizedLinearModel
+    from statgpu.linear_model.penalized import (
+        PenalizedGeneralizedLinearModel,
+        PenalizedGLM_CV,
+    )
+
+    X = np.arange(12.0, dtype=np.float64).reshape(6, 2)
+    y = np.ones(5, dtype=np.float64)
+    if kind == "glm":
+        model = GeneralizedLinearModel(
+            family="poisson", solver="irls", C=0.0,
+            device="cpu", compute_inference=False,
+        )
+    elif kind == "penalized":
+        model = PenalizedGeneralizedLinearModel(
+            loss="poisson", penalty="l2", alpha=0.1,
+            solver="fista", device="cpu", compute_inference=False,
+        )
+    else:
+        model = PenalizedGLM_CV(
+            loss="poisson", penalty="l2", alpha_grid=[0.1, 1.0],
+            cv=2, device="cpu", max_iter=20,
+        )
+        monkeypatch.setattr(
+            model,
+            "_fit_standard",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("CV must not start for length mismatch")
+            ),
+        )
+    with pytest.raises(ValueError, match=r"Response length must match (?:X\.shape\[0\]|the number of X rows)"):
+        model.fit(X, y)
+
+
+def test_scalar_glm_accepts_single_column_response_consistently():
+    from statgpu.linear_model import GeneralizedLinearModel
+    from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+
+    X = np.array([[-1.0], [0.0], [1.0], [2.0], [3.0]], dtype=np.float64)
+    y = np.array([[0.0], [1.0], [1.0], [2.0], [3.0]], dtype=np.float64)
+    glm = GeneralizedLinearModel(
+        family="poisson", solver="irls", C=0.0,
+        device="cpu", compute_inference=False,
+    ).fit(X, y)
+    penalized = PenalizedGeneralizedLinearModel(
+        loss="poisson", penalty="l2", alpha=0.1,
+        solver="fista", max_iter=100, device="cpu",
+        compute_inference=False,
+    ).fit(X, y)
+    assert np.isfinite(glm.coef_).all()
+    assert np.isfinite(penalized.coef_).all()
+
+
+def test_direct_irls_rejects_multicolumn_and_length_mismatch():
+    from statgpu.glm_core._family import Poisson
+    from statgpu.glm_core._irls import IRLSSolver
+
+    X = np.ones((4, 1), dtype=np.float64)
+    with pytest.raises(ValueError, match="response must be one-dimensional"):
+        IRLSSolver(Poisson()).fit(X, np.ones((4, 2)), backend="numpy")
+    with pytest.raises(ValueError, match=r"Response length must match (?:X\.shape\[0\]|the number of X rows)"):
+        IRLSSolver(Poisson()).fit(X, np.ones(3), backend="numpy")
+
+
+def test_glm_rejects_nonnumeric_response_with_public_value_error():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.ones((3, 1), dtype=np.float64)
+    with pytest.raises(ValueError, match="numeric finite values"):
+        GeneralizedLinearModel(
+            family="poisson", solver="irls", C=0.0,
+            device="cpu", compute_inference=False,
+        ).fit(X, np.array(["0", "one", "2"], dtype=object))
+
+
+def test_torch_glm_multicolumn_response_rejected_on_device():
+    torch = _require_modern_torch_cuda()
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = torch.ones((4, 2), dtype=torch.float64, device="cuda")
+    y = torch.ones((4, 2), dtype=torch.float64, device="cuda")
+    with pytest.raises(ValueError, match="response must be one-dimensional"):
+        GeneralizedLinearModel(
+            family="poisson", solver="irls", C=0.0,
+            device="torch", compute_inference=False,
+        ).fit(X, y)
+    assert X.is_cuda and y.is_cuda
+
+
+def test_cupy_penalized_glm_multicolumn_response_rejected_on_device():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+
+    X = cp.ones((4, 2), dtype=cp.float64)
+    y = cp.ones((4, 2), dtype=cp.float64)
+    with pytest.raises(ValueError, match="response must be one-dimensional"):
+        PenalizedGeneralizedLinearModel(
+            loss="poisson", penalty="l2", alpha=0.1,
+            solver="fista", device="cuda", compute_inference=False,
+        ).fit(X, y)
+    assert isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
+
+
+# PR87_GLM_LIST_DESIGN_LENGTH_TEST
+def test_penalized_glm_cv_response_length_check_preserves_list_design_input(monkeypatch):
+    from statgpu.linear_model.penalized import PenalizedGLM_CV
+
+    X = [[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0]]
+    y = [0.0, 1.0, 2.0, 3.0]
+    model = PenalizedGLM_CV(
+        loss="poisson", penalty="l2", alpha_grid=[0.1],
+        cv=2, device="cpu", max_iter=10,
+    )
+    seen = {}
+
+    def capture(X_arg, y_arg, sample_weight=None):
+        seen["X"] = X_arg
+        seen["y"] = y_arg
+        return model
+
+    monkeypatch.setattr(model, "_fit_standard", capture)
+    result = model.fit(X, y)
+    assert result is model
+    assert seen["X"] is X
+    assert isinstance(seen["y"], np.ndarray)
+    assert seen["y"].shape == (len(X),)

@@ -344,7 +344,9 @@ class _PenalizedFitMixin:
         self._penalty = self._resolve_penalty()
         self._loss = self._resolve_loss()
         if hasattr(self._loss, "validate_response"):
-            self._loss.validate_response(y)
+            y = self._loss.validate_response(y)
+            if int(y.shape[0]) != int(len(X)):
+                raise ValueError("Response length must match the number of X rows.")
         self._validate_solver_penalty()
         self._validate_inference_request()
 

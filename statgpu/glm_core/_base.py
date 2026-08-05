@@ -73,8 +73,28 @@ class GLMLoss(LossBase):
 
             values = y if torch.is_tensor(y) else torch.as_tensor(y)
         else:
-            values = xp.asarray(y)
-        invalid = xp.any(~xp.isfinite(values))
+            try:
+                values = xp.asarray(y)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{self.name} response must be a numeric array-like."
+                ) from exc
+
+        ndim = int(values.ndim)
+        if ndim == 2 and int(values.shape[1]) == 1:
+            values = values.reshape(-1)
+        elif ndim != 1:
+            raise ValueError(
+                f"{self.name} response must be one-dimensional; "
+                "a single-column (n_samples, 1) response is also accepted."
+            )
+
+        try:
+            invalid = xp.any(~xp.isfinite(values))
+        except TypeError as exc:
+            raise ValueError(
+                f"{self.name} response must contain numeric finite values."
+            ) from exc
         y_type = str(getattr(self, "y_type", "continuous")).lower()
         if y_type == "binary":
             invalid = invalid | xp.any(values < 0) | xp.any(values > 1)
@@ -92,7 +112,7 @@ class GLMLoss(LossBase):
             raise ValueError(
                 f"{self.name} response requires finite {requirement}."
             )
-        return y
+        return values
 
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         """Fused value+gradient using GLM-specific optimized kernels.

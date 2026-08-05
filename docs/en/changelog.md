@@ -31,7 +31,9 @@
   parameters and reported diagnostics unchanged.
 - Every supported GLM family, including penalized and CV estimators, now
   enforces its response domain before any solver or fold dispatch, using NumPy,
-  Torch, or CuPy reductions on the selected backend.
+  Torch, or CuPy reductions on the selected backend. Scalar GLM responses
+  accept one-dimensional or single-column input and reject multicolumn or
+  length-mismatched data before solver/fold dispatch.
   Active IRLS/FISTA helper compilation uses the centralized compile policy, and
   unrelated linear-algebra/device failures are no longer masked as fallback.
 
