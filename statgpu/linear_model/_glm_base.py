@@ -26,6 +26,7 @@ def _parse_formula_if_provided(formula, data, X, y):
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_numpy, _resolve_backend, _is_torch_array
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.solvers import fista_solver
 from statgpu.glm_core._family import (
@@ -753,7 +754,9 @@ class GeneralizedLinearModel(BaseEstimator):
                     eta_target = eta_raw - torch.mean(eta_raw)
                     try:
                         init_t = torch.linalg.lstsq(X_t, eta_target).solution
-                    except RuntimeError:
+                    except RuntimeError as exc:
+                        if not _linalg_exception_is_rank_failure(exc):
+                            raise
                         init_t = torch.zeros(X.shape[1], dtype=torch.float64, device=X.device)
                     eta_init = X_t @ init_t
                     eta_abs_max = torch.max(torch.abs(eta_init))
@@ -1300,12 +1303,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                 # errors re-raise.  CuPy uses generic Exception for linalg.
                 try:
                     delta = xp.linalg.solve(H_reg, -grad)
-                except (np.linalg.LinAlgError, RuntimeError):
-                    ridge *= 10; continue
-                except Exception:
-                    if is_cupy:
-                        ridge *= 10; continue
-                    raise
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
+                    ridge *= 10
+                    continue
 
                 theta_try = theta + delta
                 thresh_t = _enforce_thresh_gaps(theta_try[p:])
@@ -1457,20 +1459,14 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         eye = xp_eye(d, xp.float64, xp, ref_arr=H)
         try:
             H_inv = xp.linalg.solve(H, eye)
-        except (np.linalg.LinAlgError, RuntimeError) as e:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             raise np.linalg.LinAlgError(
                 "Ordered model Hessian is singular — cannot compute standard errors. "
                 "This may indicate quasi-complete separation or redundant thresholds. "
                 "Consider using inference_method='bootstrap' or reducing n_categories."
-            ) from e
-        except Exception as e:
-            if is_cupy:
-                raise np.linalg.LinAlgError(
-                    "Ordered model Hessian is singular — cannot compute standard errors. "
-                    "This may indicate quasi-complete separation or redundant thresholds. "
-                    "Consider using inference_method='bootstrap' or reducing n_categories."
-                ) from e
-            raise
+            ) from exc
         cov = H_inv
 
         # Backend-aware distribution functions

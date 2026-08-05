@@ -6,6 +6,7 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 from statgpu.backends import _to_numpy
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model._gaussian_inference import (
     GaussianFitState,
     build_gaussian_fit_state,
@@ -236,7 +237,9 @@ class _PenalizedInferenceMixin:
             X_full = xp.concatenate([_ones, X], axis=1)
             try:
                 XtX_inv = xp.linalg.inv(X_full.T @ X_full)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 XtX_inv = xp.linalg.pinv(X_full.T @ X_full)
             se_intercept = float(xp.sqrt(sigma2 * XtX_inv[0, 0]))
             z_intercept = float(intercept) / (se_intercept + 1e-30)
@@ -1314,7 +1317,9 @@ class _PenalizedInferenceMixin:
         try:
             chol = cp.linalg.cholesky(bread)
             bread_inv = cp.linalg.solve(chol.T, cp.linalg.solve(chol, cp.eye(bread.shape[0], dtype=bread.dtype)))
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             bread_inv = cp.linalg.pinv(bread)
 
         y_pred = X @ coef_full if X_mean is None else coef_full[0] + X @ coef_full[1:]
@@ -1410,7 +1415,9 @@ class _PenalizedInferenceMixin:
         try:
             chol = torch.linalg.cholesky(bread)
             bread_inv = torch.cholesky_inverse(chol)
-        except RuntimeError:
+        except RuntimeError as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             bread_inv = torch.linalg.pinv(bread)
 
         y_pred = X @ coef_full if X_mean is None else coef_full[0] + X @ coef_full[1:]

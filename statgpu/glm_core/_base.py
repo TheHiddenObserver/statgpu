@@ -106,7 +106,7 @@ class GLMLoss(LossBase):
 
         try:
             invalid = xp.any(~xp.isfinite(values))
-        except (TypeError, RuntimeError) as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"{self.name} response must contain real numeric finite values."
             ) from exc

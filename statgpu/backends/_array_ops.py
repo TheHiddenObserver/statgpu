@@ -218,6 +218,22 @@ def _linear_solve_runtime_is_rank_failure(exc):
     )
 
 
+def _linalg_exception_is_rank_failure(exc):
+    """Return whether a backend linalg exception permits a numeric fallback.
+
+    NumPy/CuPy expose dedicated ``LinAlgError`` classes, whereas Torch reports
+    rank and definiteness failures as ``RuntimeError``.  Runtime failures are
+    therefore message-classified so CUDA OOM, device, index, and programming
+    errors remain visible to callers.
+    """
+    if isinstance(exc, np.linalg.LinAlgError):
+        return True
+    exc_type = type(exc)
+    if exc_type.__name__ == "LinAlgError" and "linalg" in exc_type.__module__.lower():
+        return True
+    return isinstance(exc, RuntimeError) and _linear_solve_runtime_is_rank_failure(exc)
+
+
 def _solve_linear_system(A, b, backend="auto"):
     """Solve a linear system, falling back to least squares if singular."""
     backend = _resolve_backend(backend, A)
@@ -231,10 +247,8 @@ def _solve_linear_system(A, b, backend="auto"):
             import cupy as cp
             return cp.linalg.solve(A, b)
         return np.linalg.solve(A, b)
-    except np.linalg.LinAlgError:
-        pass
-    except RuntimeError as exc:
-        if not _linear_solve_runtime_is_rank_failure(exc):
+    except Exception as exc:
+        if not _linalg_exception_is_rank_failure(exc):
             raise
 
     if backend == "torch":

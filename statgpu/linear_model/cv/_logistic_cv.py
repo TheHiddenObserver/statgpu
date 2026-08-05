@@ -12,6 +12,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model.wrappers._logistic import LogisticRegression
 
 
@@ -305,7 +306,9 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
 
                 try:
                     params = backend.solve(XtWX, Xtz)
-                except Exception:
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
                     lstsq_result = backend.lstsq(XtWX, Xtz)
                     params = lstsq_result[0]
 

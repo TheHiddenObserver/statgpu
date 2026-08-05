@@ -8,6 +8,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import get_backend, _to_numpy, _LINALG_ERRORS
 from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 
 # ---------------------------------------------------------------------------
 # Solver dispatch table for solver='auto'
@@ -1399,7 +1400,9 @@ class _PenalizedFitMixin:
             # torch.linalg.solve is faster than Cholesky + solve_triangular
             # on PyTorch due to kernel launch overhead for small matrices
             return torch.linalg.solve(A, Xty)
-        except RuntimeError:
+        except RuntimeError as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             return torch.linalg.pinv(A) @ Xty
 
     def _block_cd_group_lasso(self, pen, X_work, y_arr, init):
@@ -1583,7 +1586,9 @@ class _PenalizedFitMixin:
                 # Batched solve: w_g = XtX_blocks[g]^{-1} @ rho_g
                 try:
                     w_mat = xp.linalg.solve(_XtX_batched, rho_mat)  # (G, gs)
-                except Exception:
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
                     w_mat = xp.zeros_like(rho_mat)
                 bad = xp.isnan(w_mat) | xp.isinf(w_mat)
                 if xp.any(bad):
@@ -1609,7 +1614,9 @@ class _PenalizedFitMixin:
                         w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
                         if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
                             w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
-                    except Exception:
+                    except Exception as exc:
+                        if not _linalg_exception_is_rank_failure(exc):
+                            raise
                         w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
                     norm_w = float(xp.linalg.norm(w_g))
                     thresh_g = alpha * _sqrt_pg[g]

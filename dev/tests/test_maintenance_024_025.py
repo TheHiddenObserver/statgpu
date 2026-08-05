@@ -3423,3 +3423,69 @@ def test_proximal_newton_propagates_index_out_of_range_trial_error():
             np.ones(4, dtype=np.float64),
             max_iter=1,
         )
+
+
+
+def test_backend_linalg_failure_classifier_is_narrow():
+    from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+
+    assert _linalg_exception_is_rank_failure(np.linalg.LinAlgError("singular matrix"))
+    assert _linalg_exception_is_rank_failure(RuntimeError("matrix is singular"))
+    assert _linalg_exception_is_rank_failure(RuntimeError("not positive definite"))
+    assert not _linalg_exception_is_rank_failure(RuntimeError("CUDA out of memory"))
+    assert not _linalg_exception_is_rank_failure(RuntimeError("index out of range"))
+    assert not _linalg_exception_is_rank_failure(ValueError("incompatible dimensions"))
+
+
+def test_glm_response_validation_preserves_backend_runtime_failure(monkeypatch):
+    from types import SimpleNamespace
+    from statgpu.glm_core import get_glm_loss
+    import statgpu.backends._array_ops as array_ops
+
+    fake_xp = SimpleNamespace(
+        __name__="fake_gpu",
+        asarray=lambda value: np.asarray(value),
+        isfinite=np.isfinite,
+        any=lambda value: (_ for _ in ()).throw(RuntimeError("CUDA out of memory")),
+    )
+    monkeypatch.setattr(array_ops, "_xp", lambda value: fake_xp)
+
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        get_glm_loss("squared_error").validate_response(np.array([1.0, 2.0]))
+
+
+def test_penalized_exact_torch_preserves_nonrank_runtime_failure(monkeypatch):
+    torch = pytest.importorskip("torch")
+    from statgpu.linear_model.penalized._fit_mixin import _PenalizedFitMixin
+
+    owner = object.__new__(_PenalizedFitMixin)
+    owner._ridge_alpha_for_exact = lambda: 0.1
+    monkeypatch.setattr(
+        torch.linalg,
+        "solve",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("CUDA out of memory")),
+    )
+    monkeypatch.setattr(
+        torch.linalg,
+        "pinv",
+        lambda *args, **kwargs: pytest.fail("pinv must not run after CUDA OOM"),
+    )
+
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        owner._solve_exact_torch(torch.eye(2), torch.ones(2), normalization=3.0)
+
+
+def test_kernel_ridge_retry_preserves_nonrank_runtime_failure(monkeypatch):
+    from statgpu.nonparametric.kernel_smoothing._kernel_regression import (
+        _solve_linear_system_with_ridge,
+    )
+
+    monkeypatch.setattr(
+        np.linalg,
+        "solve",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("CUDA out of memory")
+        ),
+    )
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        _solve_linear_system_with_ridge(np.eye(2), np.ones(2), np)

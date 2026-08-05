@@ -11,6 +11,7 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.backends import _get_torch_device_str
 from statgpu.metrics import (
     binary_average_precision_score,
@@ -368,7 +369,9 @@ class LogisticRegression(BaseEstimator):
             
             try:
                 params = cp.linalg.solve(XtWX, Xtz)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 params = cp.linalg.lstsq(XtWX, Xtz)[0]
             
             # Check convergence
@@ -403,7 +406,9 @@ class LogisticRegression(BaseEstimator):
             try:
                 eye = cp.eye(H.shape[0], dtype=H.dtype)
                 bread = cp.linalg.solve(H, eye)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 bread = cp.linalg.pinv(H)
 
             if self._cov_type == "nonrobust":
@@ -588,7 +593,9 @@ class LogisticRegression(BaseEstimator):
 
             try:
                 params = torch.linalg.solve(XtWX, Xtz)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 params = torch.linalg.lstsq(XtWX, Xtz)[0]
 
             # Check convergence
@@ -624,7 +631,9 @@ class LogisticRegression(BaseEstimator):
             try:
                 eye = torch.eye(H.shape[0], dtype=H.dtype, device=torch_device)
                 bread = torch.linalg.solve(H, eye)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 bread = torch.linalg.pinv(H)
 
             if self._cov_type == "nonrobust":

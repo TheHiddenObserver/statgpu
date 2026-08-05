@@ -11,6 +11,7 @@ from time import perf_counter
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.backends import _get_torch_device_str
 from statgpu.inference._results import GaussianInferenceResult
 from statgpu.linear_model._gaussian_inference import (
@@ -546,7 +547,9 @@ class LinearRegression(BaseEstimator):
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
             self.rank_ = n_design_cols
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             lstsq_result = cp.linalg.lstsq(X_design, y, rcond=None)
             coef = lstsq_result[0]
             self.rank_ = int(lstsq_result[2]) if len(lstsq_result) > 2 else n_design_cols
@@ -587,7 +590,9 @@ class LinearRegression(BaseEstimator):
                 XtX_cov = X_design.T @ X_design
                 try:
                     XtX_inv = cp.linalg.inv(XtX_cov)
-                except Exception:
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
                     XtX_inv = cp.linalg.pinv(XtX_cov)
                 cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv, df_resid=df_resid)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
@@ -811,7 +816,9 @@ class LinearRegression(BaseEstimator):
             tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
             coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
             self.rank_ = n_design_cols
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             coef = torch.linalg.lstsq(X_design, y).solution
             self.rank_ = int(torch.linalg.matrix_rank(X_design).item())
         self._effective_rank = self.rank_
@@ -850,7 +857,9 @@ class LinearRegression(BaseEstimator):
                 XtX_cov = X_design.T @ X_design
                 try:
                     XtX_inv = torch.linalg.inv(XtX_cov)
-                except Exception:
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
                     XtX_inv = torch.linalg.pinv(XtX_cov)
                 cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv, device=torch_device, df_resid=df_resid)
                 self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))

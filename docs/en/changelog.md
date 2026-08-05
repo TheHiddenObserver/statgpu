@@ -1,5 +1,7 @@
 # Changelog
 
+- Narrowed GPU linear-algebra fallbacks so only genuine rank/definiteness failures use least-squares, pseudo-inverse, ridge, or zero-block recovery; CUDA OOM, device, index, and programming errors now propagate.
+
 > Language: English<br>
 > Last updated: 2026-08-05<br>
 > This page: Changelog<br>

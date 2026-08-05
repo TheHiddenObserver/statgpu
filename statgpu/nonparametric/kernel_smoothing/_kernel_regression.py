@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional, Union
 
 import numpy as np
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 
 from statgpu._base import BaseEstimator
 from statgpu.backends import (
@@ -483,7 +484,9 @@ class KernelRegression(BaseEstimator):
                         beta0 = beta[:, 0, :]
                         solved = True
                         break
-                    except Exception:
+                    except Exception as exc:
+                        if not _linalg_exception_is_rank_failure(exc):
+                            raise
                         A_work = A_work + ridge_work[:, None, None] * eye_p1[None, :, :]
                         ridge_work = ridge_work * 10.0
 
@@ -734,7 +737,9 @@ def _solve_linear_system_with_ridge(A, B, xp):
     for _ in range(6):
         try:
             return xp.linalg.solve(A_work, B)
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             A_work = A_work + ridge * eye
             ridge *= 10.0
     return None
