@@ -3342,3 +3342,40 @@ def test_shared_linear_solve_runtime_classifier_is_narrow():
     assert _linear_solve_runtime_is_rank_failure(RuntimeError("rank deficient"))
     assert not _linear_solve_runtime_is_rank_failure(RuntimeError("CUDA out of memory"))
     assert not _linear_solve_runtime_is_rank_failure(RuntimeError("device-side assert"))
+
+# PR87_REVIEW_FIX_V48
+def test_proximal_newton_backtracks_on_numeric_domain_value_error():
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import proximal_newton_solver
+
+    class DomainTrialLoss:
+        name = "domain_trial"
+        has_hessian = True
+
+        def __init__(self):
+            self.value_calls = 0
+
+        def preprocess(self, X, y):
+            return np.asarray(X, dtype=np.float64), np.asarray(y, dtype=np.float64)
+
+        def fused_gradient_and_hessian(self, X, y, coef, sample_weight=None):
+            return np.ones_like(coef), np.eye(coef.shape[0], dtype=coef.dtype)
+
+        def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
+            self.value_calls += 1
+            if self.value_calls == 1:
+                return np.asarray(1.0), np.ones_like(coef)
+            if self.value_calls == 2:
+                raise ValueError("domain error at trial point")
+            return np.asarray(0.25), np.ones_like(coef)
+
+    coef, n_iter = proximal_newton_solver(
+        DomainTrialLoss(),
+        get_penalty("l2", alpha=0.0),
+        np.ones((4, 1), dtype=np.float64),
+        np.ones(4, dtype=np.float64),
+        max_iter=1,
+    )
+    assert n_iter == 1
+    assert np.all(np.isfinite(coef))
+    assert not np.allclose(coef, 0.0)

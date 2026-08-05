@@ -9,6 +9,7 @@
 
 ### Runtime safety
 
+- Proximal-Newton now backtracks on recognized numeric-domain ValueError trials while preserving unrelated contract and runtime failures.
 - Shared backend linear solves now use least-squares fallback only for recognized rank failures and preserve CUDA OOM/device RuntimeErrors.
 - Shared NumPy constructors now follow floating reference dtypes like the CuPy/Torch implementations, while integer references retain float64 numerical defaults.
 - FISTA-family warm starts now follow the preprocessed design, and smooth proximal-Newton weights are normalized to the active backend/device/dtype before loss evaluation.

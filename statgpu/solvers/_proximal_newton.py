@@ -223,9 +223,10 @@ def proximal_newton_solver(
                     break
             except FloatingPointError:
                 pass
-            except RuntimeError as exc:
-                # Only swallow trial-point numerical failures; infrastructure
-                # and device errors remain visible to the caller.
+            except (ValueError, RuntimeError) as exc:
+                # Only swallow recognized trial-point numerical-domain
+                # failures; input-contract, infrastructure, and device errors
+                # remain visible to the caller.
                 if not _trial_error_is_numerical(exc):
                     raise
             step *= 0.5
