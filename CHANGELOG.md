@@ -4,6 +4,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — maintenance hardening
 
+- Aligned the executable loss/penalty/solver matrix with the maintained compatibility contract: Elastic Net precision is tested through FISTA, while smooth solvers are tested to reject it explicitly.
+- Smooth Newton/L-BFGS solvers now reject Elastic Net and other non-smooth penalties before preprocessing instead of silently omitting their non-smooth objective component.
+- Normalized Newton, proximal-Newton, L-BFGS, L-BFGS-B, and ADMM warm starts onto the preprocessed design backend, device, and dtype; added physical Torch/CuPy regression entry points.
 - Removed the incorrect Euclidean-prox Newton shortcut that duplicated smooth penalty terms and solved the wrong non-smooth objective. Smooth L2/no-penalty requests retain Newton updates; non-smooth requests now explicitly use FISTA, and FISTA-LLA requires a future metric-prox capability.
 - Completed ADMM's legitimate Cholesky-to-iterative fallback and kept L-BFGS-B directions/bounds feasible and backend-native.
 - Hardened adjacent Newton, proximal-Newton, ADMM, FISTA-BB, L-BFGS, and L-BFGS-B contracts: validate weights before curvature work, only downgrade true singular systems, preserve dtype/device for proximal Newton and CuPy bounds, and use the correct squared-gradient Armijo slope.

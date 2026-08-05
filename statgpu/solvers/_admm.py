@@ -28,6 +28,7 @@ from ._utils import (
     _nesterov_momentum,
     _runtime_error_is_singular,
     _validate_uniform_sample_weight,
+    _as_backend_vector,
 )
 
 __all__ = ["admm_solver"]
@@ -93,15 +94,11 @@ def admm_solver(
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "admm_solver")
     n_features = X_proc.shape[1]
 
-    # Initialize
+    # Initialize on the preprocessed design backend/device/dtype.
     if init_coef is not None:
-        w = (
-            _copy_arr(init_coef)
-            if hasattr(init_coef, "copy") or hasattr(init_coef, "clone")
-            else np.array(init_coef).copy()
-        )
+        w = _as_backend_vector(init_coef, backend, X_proc)
     else:
-        w = _zeros(n_features, backend, ref_tensor=X)
+        w = _zeros(n_features, backend, ref_tensor=X_proc)
 
     z = _copy_arr(w)
     u = _zeros_like(w)

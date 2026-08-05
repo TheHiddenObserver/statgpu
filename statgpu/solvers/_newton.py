@@ -28,6 +28,8 @@ from ._utils import (
     _smooth_penalty_hessian,
     _smooth_penalty_value_dev,
     _runtime_error_is_singular,
+    _as_backend_vector,
+    _validate_smooth_penalty,
 )
 
 
@@ -51,17 +53,14 @@ def newton_solver(
 
     Requires: loss has hessian() and penalty is smooth.
     """
+    _validate_smooth_penalty(penalty, "newton_solver")
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
-        params = (
-            _copy_arr(init_coef)
-            if hasattr(init_coef, "copy") or hasattr(init_coef, "clone")
-            else np.array(init_coef).copy()
-        )
+        params = _as_backend_vector(init_coef, backend, X_proc)
     else:
         params = _zeros(n_features, backend, ref_tensor=X_proc)
 

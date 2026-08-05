@@ -2941,3 +2941,143 @@ def test_lbfgsb_projects_quasi_newton_direction_and_rejects_nan_bounds():
             lower_bounds=np.array([np.nan]),
             upper_bounds=np.array([1.0]),
         )
+
+# PR87_REVIEW_FIX_V40
+import warnings
+
+
+def _run_warm_start_solver_matrix(X, y, init):
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import (
+        admm_solver,
+        lbfgs_b_solver,
+        lbfgs_solver,
+        newton_solver,
+        proximal_newton_solver,
+    )
+
+    loss = SquaredErrorLoss()
+    l2 = get_penalty("l2", alpha=0.05)
+    l1 = get_penalty("l1", alpha=0.05)
+    return {
+        "newton": newton_solver(
+            loss, l2, X, y, init_coef=init, max_iter=2, tol=1e-8
+        )[0],
+        "proximal_newton": proximal_newton_solver(
+            loss, l2, X, y, init_coef=init, max_iter=2, tol=1e-8
+        )[0],
+        "lbfgs": lbfgs_solver(
+            loss, l2, X, y, init_coef=init, max_iter=2, tol=1e-8
+        )[0],
+        "lbfgs_b": lbfgs_b_solver(
+            loss,
+            l2,
+            X,
+            y,
+            init_coef=init,
+            lower_bounds=np.full(X.shape[1], -10.0),
+            upper_bounds=np.full(X.shape[1], 10.0),
+            max_iter=2,
+            tol=1e-8,
+        )[0],
+        "admm": admm_solver(
+            loss, l1, X, y, init_coef=init, max_iter=2, tol=1e-8
+        )[0],
+    }
+
+
+def test_solver_numpy_warm_starts_follow_torch_cpu_backend_dtype():
+    torch = pytest.importorskip("torch")
+
+    X = torch.tensor(
+        [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 2.0]],
+        dtype=torch.float32,
+    )
+    y = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float32)
+    init = np.array([0.2, -0.1], dtype=np.float64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        outputs = _run_warm_start_solver_matrix(X, y, init)
+    for name, coef in outputs.items():
+        assert isinstance(coef, torch.Tensor), name
+        assert coef.device == X.device, name
+        assert coef.dtype == X.dtype, name
+        assert bool(torch.all(torch.isfinite(coef)).item()), name
+
+
+def test_torch_cuda_solver_numpy_warm_starts_stay_on_device():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("requires physical CUDA")
+
+    X = torch.tensor(
+        [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 2.0]],
+        dtype=torch.float64,
+        device="cuda",
+    )
+    y = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float64, device="cuda")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        outputs = _run_warm_start_solver_matrix(
+            X, y, np.array([0.2, -0.1], dtype=np.float64)
+        )
+    for name, coef in outputs.items():
+        assert coef.device.type == "cuda", name
+        assert coef.dtype == X.dtype, name
+        assert bool(torch.all(torch.isfinite(coef)).item()), name
+
+
+def test_cupy_solver_numpy_warm_starts_stay_on_device():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires physical CUDA")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+
+    X = cp.asarray(
+        [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 2.0]],
+        dtype=cp.float64,
+    )
+    y = cp.asarray([0.0, 1.0, 2.0, 3.0], dtype=cp.float64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        outputs = _run_warm_start_solver_matrix(
+            X, y, np.array([0.2, -0.1], dtype=np.float64)
+        )
+    for name, coef in outputs.items():
+        assert isinstance(coef, cp.ndarray), name
+        assert coef.dtype == X.dtype, name
+        assert bool(cp.all(cp.isfinite(coef)).item()), name
+
+
+def test_proximal_newton_none_penalty_has_no_spurious_warning():
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.solvers import proximal_newton_solver
+
+    X = np.column_stack([np.ones(4), np.arange(4.0)])
+    y = np.arange(4.0)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        coef, _ = proximal_newton_solver(
+            SquaredErrorLoss(), None, X, y, max_iter=2
+        )
+    assert np.all(np.isfinite(coef))
+    assert not any("has no value" in str(item.message) for item in caught)
+
+# PR87_REVIEW_FIX_V41
+def test_smooth_solvers_reject_elasticnet_before_numerical_work():
+    from statgpu.penalties import get_penalty
+    from statgpu.solvers import lbfgs_b_solver, lbfgs_solver, newton_solver
+
+    class GuardedLoss:
+        def preprocess(self, *args, **kwargs):
+            raise AssertionError("penalty validation must precede preprocessing")
+
+    penalty = get_penalty("elasticnet", alpha=0.2, l1_ratio=0.5)
+    X = np.ones((3, 1), dtype=np.float64)
+    y = np.ones(3, dtype=np.float64)
+    for solver in (newton_solver, lbfgs_solver, lbfgs_b_solver):
+        with pytest.raises(ValueError, match="supports only l2/none"):
+            solver(GuardedLoss(), penalty, X, y)

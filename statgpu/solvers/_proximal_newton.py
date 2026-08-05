@@ -29,6 +29,7 @@ from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_hessian,
     _validate_sample_weight,
+    _as_backend_vector,
 )
 
 
@@ -42,14 +43,18 @@ def proximal_newton_solver(
     init_coef=None,
     sample_weight=None,
 ):
-    """Proximal Newton solver for smooth loss + non-smooth penalty.
+    """Newton solver for smooth penalties with explicit FISTA delegation.
+
+    L2/no-penalty objectives use Newton updates. A non-smooth penalty emits a
+    ``RuntimeWarning`` and is delegated to ``fista_solver`` because the
+    Hessian-metric proximal subproblem is not implemented.
 
     Parameters
     ----------
     loss : LossBase
-        Must have gradient(), hessian(), fused_value_and_gradient().
-    penalty : Penalty
-        Non-smooth penalty with proximal() method.
+        Must expose the operations required by the selected solver path.
+    penalty : Penalty or None
+        L2/None for Newton; non-smooth penalties are delegated to FISTA.
     X, y : array
         Data (preprocessed).
     max_iter : int
@@ -96,11 +101,7 @@ def proximal_newton_solver(
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
-        params = (
-            _copy_arr(init_coef)
-            if hasattr(init_coef, "copy") or hasattr(init_coef, "clone")
-            else np.array(init_coef).copy()
-        )
+        params = _as_backend_vector(init_coef, backend, X_proc)
     else:
         params = _zeros(n_features, backend, ref_tensor=X_proc)
 
@@ -182,7 +183,7 @@ def proximal_newton_solver(
             pen_old = float(_to_numpy(penalty.value(params_old[:n_features])))
         else:
             pen_old = 0.0
-            if iteration == 0:
+            if iteration == 0 and _pen_name not in ("none", "null", ""):
                 warnings.warn(
                     f"proximal_newton: penalty '{getattr(penalty, 'name', '?')}' "
                     f"has no value() method. Armijo condition ignores penalty value.",

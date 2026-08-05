@@ -5,7 +5,7 @@
 
 ## Overview
 
-statgpu provides 10 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and hyperparameters for each solver.
+statgpu provides 11 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and hyperparameters for each solver.
 
 ## Solver Summary
 

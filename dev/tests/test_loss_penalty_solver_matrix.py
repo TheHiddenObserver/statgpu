@@ -54,9 +54,18 @@ def _make_penalties(p):
         "group_scad":  GroupSCADPenalty(alpha=0.01, groups=groups),
     }
 
-# Penalties that are non-smooth (L-BFGS/Newton can't handle)
-# ElasticNet has a smooth L2 component, so L-BFGS/Newton handle it via the smooth part
-NON_SMOOTH_PENALTIES = {"l1", "scad", "mcp", "adaptive_l1", "group_lasso", "group_mcp", "group_scad"}
+# Penalties with a non-smooth component. Smooth solvers must not silently
+# optimize only the L2 part of Elastic Net.
+NON_SMOOTH_PENALTIES = {
+    "l1",
+    "elasticnet",
+    "scad",
+    "mcp",
+    "adaptive_l1",
+    "group_lasso",
+    "group_mcp",
+    "group_scad",
+}
 
 
 # ── Solvers ──────────────────────────────────────────────────────────
@@ -214,17 +223,13 @@ class TestLossPenaltySolverMatrix:
 class TestSolverPenaltyCompatibility:
     """Test that solver × penalty compatibility is correctly enforced."""
 
-    def test_newton_with_l1_raises_or_skips(self, continuous_data):
-        """Newton + L1 should either raise or be handled gracefully."""
+    def test_newton_with_l1_raises_explicitly(self, continuous_data):
+        """Newton must reject L1 before silently changing the objective."""
         X, y, _ = continuous_data
         loss = HuberLoss(delta=1.0)
         penalty = L1Penalty(0.01)
-        try:
-            coef, _ = newton_solver(loss, penalty, X, y, max_iter=10)
-            # If it doesn't raise, it should still produce finite results
-            assert np.all(np.isfinite(coef.cpu().numpy() if hasattr(coef, 'cpu') else coef))
-        except (NotImplementedError, ValueError, TypeError):
-            pass  # Expected
+        with pytest.raises(ValueError, match="supports only l2/none"):
+            newton_solver(loss, penalty, X, y, max_iter=10)
 
     def test_fista_with_scad(self, continuous_data):
         """FISTA + SCAD should work (FISTA handles non-smooth via proximal)."""
@@ -265,11 +270,11 @@ class TestLossPrecisionWithPenalties:
         assert n_zeros > 0, f"L1 should produce sparsity, got {coef_np}"
 
     def test_huber_elasticnet(self, continuous_data):
-        """HuberLoss + ElasticNet should work."""
+        """HuberLoss + ElasticNet is optimized by a proximal solver."""
         X, y, _ = continuous_data
         loss = HuberLoss(delta=1.0)
         penalty = ElasticNetPenalty(alpha=0.01, l1_ratio=0.5)
-        coef, _ = lbfgs_solver(loss, penalty, X, y, max_iter=200, tol=1e-6)
+        coef, _ = fista_solver(loss, penalty, X, y, max_iter=500, tol=1e-6)
         coef_np = coef.cpu().numpy() if hasattr(coef, 'cpu') else np.asarray(coef)
         assert np.all(np.isfinite(coef_np))
 

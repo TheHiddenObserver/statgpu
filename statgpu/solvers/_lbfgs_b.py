@@ -31,6 +31,8 @@ from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_value_dev,
     _validate_uniform_sample_weight,
+    _as_backend_vector,
+    _validate_smooth_penalty,
 )
 
 
@@ -55,7 +57,7 @@ def lbfgs_b_solver(
         Loss with ``fused_value_and_gradient(X, y, coef)`` and
         ``preprocess(X, y)`` methods.
     penalty : object or None
-        Smooth penalty (l2, elasticnet, none).
+        Smooth penalty (l2 or none).
     X, y : array-like
         Design matrix and response vector.
     max_iter : int
@@ -80,20 +82,17 @@ def lbfgs_b_solver(
     n_iter : int
         Number of iterations performed.
     """
+    _validate_smooth_penalty(penalty, "lbfgs_b_solver")
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "lbfgs_b_solver")
 
-    # Initialize params
+    # Initialize params on the preprocessed design backend/device/dtype.
     if init_coef is not None:
-        params = (
-            _copy_arr(init_coef)
-            if hasattr(init_coef, "copy") or hasattr(init_coef, "clone")
-            else np.array(init_coef).copy()
-        )
+        params = _as_backend_vector(init_coef, backend, X_proc)
     else:
-        params = _zeros(n_features, backend, ref_tensor=X)
+        params = _zeros(n_features, backend, ref_tensor=X_proc)
 
     # Initialize bounds on the same backend/device/dtype as params.
     if backend == "torch":

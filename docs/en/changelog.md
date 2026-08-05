@@ -9,6 +9,9 @@
 
 ### Runtime safety
 
+- The executable solver matrix now treats Elastic Net as non-smooth and validates its precision through FISTA rather than a smooth-only solver.
+- Newton, L-BFGS, and L-BFGS-B now fail explicitly for Elastic Net and other non-smooth penalties rather than optimizing only their smooth part.
+- Newton-family, L-BFGS-family, and ADMM warm starts now follow the preprocessed design backend, device, and dtype rather than retaining the caller's original array placement.
 - Removed the wrong Euclidean-prox Newton shortcut that duplicated smooth penalties. Smooth objectives retain Newton; non-smooth objectives explicitly use FISTA until a Hessian-metric proximal solver exists.
 - Completed ADMM's Cholesky fallback initialization and hardened L-BFGS-B feasible directions and NaN-bound validation.
 - Adjacent Newton, proximal-Newton, ADMM, FISTA-BB, L-BFGS, and L-BFGS-B paths now validate weights before curvature work, narrow singular-system fallbacks, preserve dtype/device for proximal Newton and CuPy bounds, and use the correct squared-gradient Armijo slope.

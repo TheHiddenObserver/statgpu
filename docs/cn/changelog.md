@@ -9,6 +9,9 @@
 
 ### 运行时安全
 
+- 可执行 solver matrix 现在将 Elastic Net 视为非光滑惩罚，并通过 FISTA 而不是仅支持光滑目标的 solver 验证其精度。
+- Newton、L-BFGS 与 L-BFGS-B 现在会对 Elastic Net 和其他非光滑惩罚显式失败，不再只优化其中的光滑部分。
+- Newton 系列、L-BFGS 系列与 ADMM 的 warm start 现在统一跟随预处理设计矩阵的 backend、device 与 dtype，不再保留调用方原始数组的位置。
 - 删除会重复计入光滑惩罚、从而优化错误目标的 Euclidean-prox Newton 快捷路径；光滑目标保留 Newton，非光滑目标在 Hessian-metric proximal 求解器完成前显式使用 FISTA。
 - 补全 ADMM 的 Cholesky 降级初始化，并强化 L-BFGS-B 的可行方向与 NaN bounds 校验。
 - 相邻的 Newton、proximal-Newton、ADMM、FISTA-BB、L-BFGS 与 L-BFGS-B 路径现在会在曲率计算前校验权重，仅对真正的奇异系统降级，保持 proximal Newton 与 CuPy bounds 的 dtype/device，并采用正确的梯度平方 Armijo 斜率。

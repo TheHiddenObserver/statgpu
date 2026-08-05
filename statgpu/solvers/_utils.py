@@ -201,6 +201,16 @@ def _penalty_name(penalty):
     return str(getattr(penalty, "name", "none")).lower()
 
 
+def _validate_smooth_penalty(penalty, solver_name):
+    """Reject penalties whose non-smooth terms a smooth solver cannot optimize."""
+    name = _penalty_name(penalty)
+    if name not in ("l2", "none", "null", ""):
+        raise ValueError(
+            f"{solver_name} supports only l2/none penalties; got penalty='{name}'. "
+            "Use fista or another proximal solver for non-smooth penalties."
+        )
+
+
 def _smooth_penalty_value(penalty, coef):
     if penalty is None:
         return 0.0
