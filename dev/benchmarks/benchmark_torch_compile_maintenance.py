@@ -1,8 +1,10 @@
 """Physical-GPU benchmark for the maintenance torch.compile policy.
 
 Each compile mode runs in a fresh subprocess so module-level compiled-callable
-caches cannot leak across modes. The script writes one machine-readable JSON
-artifact and makes no performance-equivalence claim before it is executed.
+caches cannot leak across modes. Cases within one mode intentionally share a
+process, so later cases may reuse an already-created compiled callable. The
+script writes one machine-readable JSON artifact and makes no
+performance-equivalence claim before it is executed.
 """
 
 from __future__ import annotations
@@ -25,15 +27,35 @@ _PRECISION_ATOL = 1e-8
 
 
 def _validate_compile_evidence(mode, case, events, graph_delta):
-    """Require actual graph execution for every default-mode benchmark case."""
+    """Validate graph execution while accounting for compiled-callable reuse.
+
+    ``compile_torch`` diagnostics describe callable construction decisions. A
+    later model can reuse the same module-level compiled callable, in which case
+    no new ``compiled`` event is emitted even though ``torch._dynamo.reset()``
+    forces a fresh graph during that case. Therefore an empty event sequence plus
+    a positive case-local graph delta is valid cached-callable evidence. Nonempty
+    diagnostics without a ``compiled`` event remain an error so disabled or
+    unavailable compilation cannot be mistaken for success.
+    """
     if mode != "default":
-        return
+        return "not-applicable"
+
     if int(graph_delta) <= 0:
         raise RuntimeError(f"{case}:{mode} did not create a Dynamo graph")
-    if not any(event.get("status") == "compiled" for event in events):
-        raise RuntimeError(f"{case}:{mode} has no compiled diagnostic")
-    if any("fallback" in str(event.get("status", "")) for event in events):
+
+    statuses = tuple(str(event.get("status", "")) for event in events)
+    if any("fallback" in status for status in statuses):
         raise RuntimeError(f"{case}:{mode} entered fallback")
+
+    if any(status == "compiled" for status in statuses):
+        return "compiled-diagnostic-and-dynamo-graph"
+
+    if events:
+        raise RuntimeError(
+            f"{case}:{mode} has diagnostics {statuses!r} but no compiled event"
+        )
+
+    return "cached-callable-and-dynamo-graph"
 
 
 def _json_value(value):
@@ -153,11 +175,15 @@ def _run_child(mode: str, repeats: int) -> dict:
             torch._dynamo.utils.counters["stats"].get("unique_graphs", 0)
         )
         graph_delta = after_graphs - before_graphs
-        _validate_compile_evidence(mode, name, events, graph_delta)
+        compile_evidence = _validate_compile_evidence(
+            mode, name, events, graph_delta
+        )
         coefficients = np.asarray(_to_numpy(model.coef_))
         finite_prediction = bool(np.isfinite(prediction).all())
         finite_coefficients = bool(np.isfinite(coefficients).all())
-        fallback_seen = any("fallback" in event["status"] for event in events)
+        fallback_seen = any(
+            "fallback" in str(event.get("status", "")) for event in events
+        )
         if not finite_prediction or not finite_coefficients:
             raise RuntimeError(f"{name}:{mode} produced non-finite output")
 
@@ -170,6 +196,7 @@ def _run_child(mode: str, repeats: int) -> dict:
             "n_iter": _json_value(getattr(model, "n_iter_", None)),
             "converged": _json_value(getattr(model, "converged_", None)),
             "compile_events": events,
+            "compile_evidence": compile_evidence,
             "compiled_event_count": sum(
                 event["status"] == "compiled" for event in events
             ),
@@ -317,7 +344,9 @@ def _parent_main(args) -> None:
         "crossover_n": None,
         "target_scale_source": "maintenance benchmark n=1024, p=64",
         "optimization_notes": [
-            "Compile modes run in fresh subprocesses to isolate callable caches.",
+            "Compile modes run in fresh subprocesses to isolate callable caches across modes.",
+            "Cases within a mode share a process and may reuse module-level compiled callables.",
+            "A positive case-local Dynamo graph delta proves execution; diagnostics prove callable construction when newly emitted.",
             "Correctness and visible fallback are release gates; timing parity is not assumed.",
         ],
         "validation_tier": "remote-full",
