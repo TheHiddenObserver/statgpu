@@ -1,5 +1,7 @@
 # Changelog
 
+- Corrected ElasticNet/Ridge scaling documentation and added a regression test confirming that `ElasticNet(alpha, l1_ratio=0)` matches `Ridge(alpha)` under the shared average-loss convention.
+
 - Reconciled the ElasticNet API documentation with the implementation by correcting constructor defaults, removing nonexistent parameters, and replacing stale strict/approx guidance with the actual FISTA and post-fit inference semantics.
 
 - Completed the public ElasticNet inference contract: the standalone wrapper now exposes and forwards inference options, and ElasticNetCV honors `compute_inference=True` on its final full-data refit with NumPy/CuPy/Torch matrix tests.

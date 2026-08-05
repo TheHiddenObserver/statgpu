@@ -26,7 +26,7 @@ $$
 - `l1_ratio` (λ) 混合 L1 和 L2：λ=1 为 Lasso，λ=0 为 Ridge
 - 损失函数缩放因子 `1/(2n)` 使 `alpha` 的解释与样本量无关
 
-**正则化缩放说明**：当 `l1_ratio=0` 时，`ElasticNet(alpha)` 等价于 `Ridge(n_samples * alpha)`，这是由于损失函数的缩放约定。
+**正则化缩放说明**：`ElasticNet` 与 `Ridge` 均采用相同的平均损失尺度。因此当 `l1_ratio=0` 时，`ElasticNet(alpha)` 等价于 `Ridge(alpha)`；公开参数 `alpha` 不需要再乘以样本量。
 
 ## 估计方程
 

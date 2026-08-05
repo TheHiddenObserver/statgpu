@@ -26,7 +26,7 @@ where:
 - `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives Lasso, λ=0 gives Ridge
 - Loss scaling by `1/(2n)` makes `alpha` interpretation scale-invariant to sample size
 
-**Note on regularization scaling**: With `l1_ratio=0`, `ElasticNet(alpha)` is equivalent to `Ridge(n_samples * alpha)` due to the loss scaling convention.
+**Note on regularization scaling**: `ElasticNet` and `Ridge` both use the same average-loss convention. Therefore, with `l1_ratio=0`, `ElasticNet(alpha)` is equivalent to `Ridge(alpha)`; no sample-size rescaling of the public `alpha` is required.
 
 ## Estimating Equation
 

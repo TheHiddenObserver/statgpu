@@ -4589,3 +4589,39 @@ def test_cupy_elasticnet_inference_contract():
         random_state=23,
     ).fit(X, y)
     _assert_elasticnet_inference_contract(cv_model.estimator_)
+
+
+
+def test_elasticnet_zero_l1_ratio_matches_same_alpha_ridge():
+    from statgpu.linear_model import ElasticNet, Ridge
+
+    rng = np.random.default_rng(20260810)
+    X = rng.normal(size=(80, 4))
+    y = 0.45 + X @ np.array([1.2, -0.8, 0.0, 0.55])
+    y = y + rng.normal(scale=0.2, size=X.shape[0])
+    alpha = 0.17
+
+    elastic = ElasticNet(
+        alpha=alpha,
+        l1_ratio=0.0,
+        fit_intercept=True,
+        solver="fista",
+        max_iter=5000,
+        tol=1e-10,
+        device="cpu",
+        compute_inference=False,
+    ).fit(X, y)
+    ridge = Ridge(
+        alpha=alpha,
+        fit_intercept=True,
+        solver="exact",
+        device="cpu",
+        compute_inference=False,
+    ).fit(X, y)
+
+    np.testing.assert_allclose(
+        elastic.coef_, ridge.coef_, rtol=2e-7, atol=2e-8
+    )
+    np.testing.assert_allclose(
+        elastic.intercept_, ridge.intercept_, rtol=2e-7, atol=2e-8
+    )
