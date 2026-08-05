@@ -850,22 +850,69 @@ class GeneralizedLinearModel(BaseEstimator):
             self.n_iter_ = n_iter
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
-            # Squared error: centering X and y preserves the objective.
+            # Squared error with an intercept can be profiled by centering.  For
+            # weighted loss the centering constants must be weighted means;
+            # ordinary means optimize a different objective whenever weights
+            # are unequal.  Keep all reductions on the selected backend.
             from statgpu.backends._utils import _get_xp
+
             xp = _get_xp(backend_name)
             if backend_name == "cupy":
-                X_centered = X - xp.mean(X, axis=0)
-                y_centered = y - xp.mean(y)
+                x_dtype = X.dtype if xp.issubdtype(X.dtype, xp.floating) else xp.float64
+                X_float = X.astype(x_dtype, copy=False)
+                y_float = xp.asarray(y, dtype=x_dtype)
+                if sample_weight is None:
+                    X_mean_native = xp.mean(X_float, axis=0)
+                    y_mean_native = xp.mean(y_float)
+                else:
+                    weights = xp.asarray(sample_weight, dtype=x_dtype)
+                    weight_sum = xp.sum(weights)
+                    X_mean_native = xp.sum(
+                        X_float * weights[:, None], axis=0
+                    ) / weight_sum
+                    y_mean_native = xp.sum(y_float * weights) / weight_sum
+                X_centered = X_float - X_mean_native
+                y_centered = y_float - y_mean_native
             elif backend_name == "torch":
                 import torch
+
                 x_dtype = _torch_promoted_float_dtype(X, y)
+                if sample_weight is not None:
+                    weight_dtype = (
+                        sample_weight.dtype
+                        if sample_weight.is_floating_point()
+                        else torch.float64
+                    )
+                    x_dtype = torch.promote_types(x_dtype, weight_dtype)
                 X_float = X.to(dtype=x_dtype)
                 y_float = y.to(X.device).to(x_dtype)
-                X_centered = X_float - torch.mean(X_float, dim=0)
-                y_centered = y_float - torch.mean(y_float)
+                if sample_weight is None:
+                    X_mean_native = torch.mean(X_float, dim=0)
+                    y_mean_native = torch.mean(y_float)
+                else:
+                    weights = sample_weight.to(X.device).to(x_dtype)
+                    weight_sum = torch.sum(weights)
+                    X_mean_native = torch.sum(
+                        X_float * weights[:, None], dim=0
+                    ) / weight_sum
+                    y_mean_native = torch.sum(y_float * weights) / weight_sum
+                X_centered = X_float - X_mean_native
+                y_centered = y_float - y_mean_native
             else:
-                X_centered = X - X.mean(axis=0)
-                y_centered = y - y.mean()
+                X_float = np.asarray(X, dtype=np.float64)
+                y_float = np.asarray(y, dtype=np.float64)
+                if sample_weight is None:
+                    X_mean_native = np.mean(X_float, axis=0)
+                    y_mean_native = np.mean(y_float)
+                else:
+                    weights = np.asarray(sample_weight, dtype=np.float64)
+                    weight_sum = np.sum(weights)
+                    X_mean_native = np.sum(
+                        X_float * weights[:, None], axis=0
+                    ) / weight_sum
+                    y_mean_native = np.sum(y_float * weights) / weight_sum
+                X_centered = X_float - X_mean_native
+                y_centered = y_float - y_mean_native
 
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y_centered,
@@ -873,9 +920,13 @@ class GeneralizedLinearModel(BaseEstimator):
                 init_coef=None, sample_weight=sample_weight,
             )
 
-            _xp_mod = _get_xp(backend_name) if backend_name != "numpy" else np
-            X_mean = _to_numpy(_xp_mod.mean(X, axis=0))
-            y_mean = float(_xp_mod.mean(y))
+            X_mean = _to_numpy(X_mean_native)
+            if backend_name == "torch":
+                y_mean = float(y_mean_native.item())
+            elif backend_name == "cupy":
+                y_mean = float(y_mean_native.item())
+            else:
+                y_mean = float(y_mean_native)
             self.coef_ = _to_numpy(coef)
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self.n_iter_ = n_iter

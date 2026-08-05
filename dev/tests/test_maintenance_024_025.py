@@ -1403,3 +1403,142 @@ def test_cupy_glm_formula_weight_inference_avoids_cpu_roundtrip(monkeypatch):
     assert isinstance(model._sample_weight_inf, cp.ndarray)
     assert int(model._sample_weight_inf.device.id) == int(weights.device.id)
     assert isinstance(weights, cp.ndarray)
+
+
+# PR87_GLM_FISTA_WEIGHTED_INTERCEPT_TESTS
+def _weighted_linear_reference(X, y, weights):
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64)
+    design = np.column_stack([np.ones(X.shape[0]), X])
+    root_w = np.sqrt(weights)
+    return np.linalg.lstsq(
+        design * root_w[:, None], y * root_w, rcond=None
+    )[0]
+
+
+def test_glm_fista_weighted_intercept_matches_closed_form_wls():
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    X = np.array(
+        [[-2.0], [-1.0], [0.0], [1.0], [2.0], [3.0]], dtype=np.float64
+    )
+    y = np.array([-1.0, 0.2, 1.1, 2.0, 8.0, 9.5], dtype=np.float64)
+    weights = np.array([8.0, 7.0, 6.0, 2.0, 1.0, 0.5], dtype=np.float64)
+    expected = _weighted_linear_reference(X, y, weights)
+
+    model = GeneralizedLinearModel(
+        family="gaussian",
+        solver="fista",
+        C=0.0,
+        max_iter=4000,
+        tol=1e-11,
+        device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    np.testing.assert_allclose(model.intercept_, expected[0], rtol=2e-5, atol=2e-5)
+    np.testing.assert_allclose(model.coef_, expected[1:], rtol=2e-5, atol=2e-5)
+
+
+def test_glm_formula_fista_weighted_intercept_matches_retained_wls():
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    data = pd.DataFrame(
+        {
+            "y": [-1.0, 0.2, 99.0, 2.0, 8.0, 9.5],
+            "x": [-2.0, -1.0, np.nan, 1.0, 2.0, 3.0],
+        }
+    )
+    weights = np.array([8.0, 7.0, 1000.0, 2.0, 1.0, 0.5])
+    retained = np.array([0, 1, 3, 4, 5])
+    expected = _weighted_linear_reference(
+        data.loc[retained, ["x"]].to_numpy(),
+        data.loc[retained, "y"].to_numpy(),
+        weights[retained],
+    )
+
+    model = GeneralizedLinearModel(
+        family="gaussian",
+        solver="fista",
+        C=0.0,
+        max_iter=4000,
+        tol=1e-11,
+        device="cpu",
+        compute_inference=False,
+    ).fit(formula="y ~ x", data=data, sample_weight=weights)
+    np.testing.assert_allclose(model.intercept_, expected[0], rtol=2e-5, atol=2e-5)
+    np.testing.assert_allclose(model.coef_, expected[1:], rtol=2e-5, atol=2e-5)
+
+
+def test_torch_glm_formula_fista_weighted_intercept_matches_wls():
+    torch = _require_modern_torch_cuda()
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    data = pd.DataFrame(
+        {
+            "y": [-1.0, 0.2, 99.0, 2.0, 8.0, 9.5],
+            "x": [-2.0, -1.0, np.nan, 1.0, 2.0, 3.0],
+        }
+    )
+    weights_np = np.array([8.0, 7.0, 1000.0, 2.0, 1.0, 0.5])
+    weights = torch.as_tensor(weights_np, dtype=torch.float64, device="cuda")
+    retained = np.array([0, 1, 3, 4, 5])
+    expected = _weighted_linear_reference(
+        data.loc[retained, ["x"]].to_numpy(),
+        data.loc[retained, "y"].to_numpy(),
+        weights_np[retained],
+    )
+
+    model = GeneralizedLinearModel(
+        family="gaussian",
+        solver="fista",
+        C=0.0,
+        max_iter=4000,
+        tol=1e-11,
+        device="torch",
+        compute_inference=False,
+    ).fit(formula="y ~ x", data=data, sample_weight=weights)
+    np.testing.assert_allclose(model.intercept_, expected[0], rtol=3e-5, atol=3e-5)
+    np.testing.assert_allclose(model.coef_, expected[1:], rtol=3e-5, atol=3e-5)
+    assert weights.is_cuda
+
+
+def test_cupy_glm_formula_fista_weighted_intercept_matches_wls():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("requires a working CuPy CUDA backend")
+    except Exception:
+        pytest.skip("requires a working CuPy CUDA backend")
+    pd = pytest.importorskip("pandas")
+    from statgpu.linear_model import GeneralizedLinearModel
+
+    data = pd.DataFrame(
+        {
+            "y": [-1.0, 0.2, 99.0, 2.0, 8.0, 9.5],
+            "x": [-2.0, -1.0, np.nan, 1.0, 2.0, 3.0],
+        }
+    )
+    weights_np = np.array([8.0, 7.0, 1000.0, 2.0, 1.0, 0.5])
+    weights = cp.asarray(weights_np, dtype=cp.float64)
+    retained = np.array([0, 1, 3, 4, 5])
+    expected = _weighted_linear_reference(
+        data.loc[retained, ["x"]].to_numpy(),
+        data.loc[retained, "y"].to_numpy(),
+        weights_np[retained],
+    )
+
+    model = GeneralizedLinearModel(
+        family="gaussian",
+        solver="fista",
+        C=0.0,
+        max_iter=4000,
+        tol=1e-11,
+        device="cuda",
+        compute_inference=False,
+    ).fit(formula="y ~ x", data=data, sample_weight=weights)
+    np.testing.assert_allclose(model.intercept_, expected[0], rtol=3e-5, atol=3e-5)
+    np.testing.assert_allclose(model.coef_, expected[1:], rtol=3e-5, atol=3e-5)
+    assert isinstance(weights, cp.ndarray)
