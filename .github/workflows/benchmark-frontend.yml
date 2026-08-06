@@ -8,6 +8,7 @@ on:
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_benchmark_catalog.py'
+      - 'dev/tests/test_benchmark_inventory_v2.py'
       - 'dev/tests/test_frontend_contracts.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
@@ -21,6 +22,7 @@ on:
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_benchmark_catalog.py'
+      - 'dev/tests/test_benchmark_inventory_v2.py'
       - 'dev/tests/test_frontend_contracts.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
@@ -51,6 +53,7 @@ jobs:
           pytest \
             dev/tests/test_benchmark_frontend_data.py \
             dev/tests/test_benchmark_catalog.py \
+            dev/tests/test_benchmark_inventory_v2.py \
             dev/tests/test_frontend_contracts.py \
             dev/tests/test_frontend_domain_coverage.py -v
       - name: Validate generator output
