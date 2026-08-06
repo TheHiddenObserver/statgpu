@@ -1,7 +1,8 @@
 # StatGPU Plan Delta (2026-04-05)
 
-> Canonical merged planning entry: `PLAN_UNIFIED.md` in workspace root.
-> This file is retained for history and quick delta tracking.
+> **Historical document.** This delta is preserved for context and is superseded by [`ROADMAP.md`](ROADMAP.md). Do not use the queue below as a current capability or priority inventory.
+>
+> Original status: canonical merged planning entry was `PLAN_UNIFIED.md` in the workspace root; this file was retained for history and quick delta tracking.
 
 ## Priority Queue (after bootstrap phase)
 
