@@ -53,6 +53,7 @@
 
 ### 运行时安全
 
+- 通过将 `CoxPartialLikelihoodLoss` 改为惰性导出，移除了 `statgpu.glm_core` 与 Cox loss 之间的包初始化循环；在全新解释器中，GLM 内部模块与 `LogisticRegression` 不再依赖特定导入顺序。
 - Armijo 回溯不再把通用 `out of range` 错误当作可恢复数值 trial，因此 index/device 编程错误会原样抛出。
 - proximal-Newton 现在会对明确的数值域 ValueError trial 执行回溯，同时保留无关的契约与 runtime failure。
 - shared backend 线性方程求解现在仅对明确的秩失败使用 least-squares 降级，并保留 CUDA OOM/device RuntimeError。
