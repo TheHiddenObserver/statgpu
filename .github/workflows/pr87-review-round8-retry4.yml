@@ -1,0 +1,95 @@
+name: PR87 review round 8 final retry
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths: [.github/workflows/pr87-review-round8-retry4.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  local-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply exact closure and normalize changed date lines
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          source = Path('.github/workflows/pr87-review-round8-retry3.yml')
+          lines = source.read_text(encoding='utf-8').splitlines()
+          start = lines.index("          python - <<'PY'") + 1
+          end = lines.index("          PY", start)
+          exec(
+              compile(dedent('\n'.join(lines[start:end])) + '\n', str(source), 'exec'),
+              {'__name__': '__main__'},
+          )
+          for path, old, new in (
+              ('docs/en/models/logistic-regression.md', '> Last updated: 2026-08-06  ', '> Last updated: 2026-08-06'),
+              ('docs/cn/models/logistic-regression.md', '> 最后更新: 2026-08-06  ', '> 最后更新: 2026-08-06'),
+          ):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise RuntimeError(f'{path}: changed date line not found')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Install full validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+      - name: Re-run previously failing contracts
+        run: |
+          python -m pytest -q \
+            dev/tests/test_maintenance_024_025.py::test_solver_weight_reduction_is_computed_once \
+            dev/tests/test_maintenance_024_025.py::test_penalized_cv_does_not_substitute_mse_for_non_gaussian_loss \
+            dev/tests/test_maintenance_024_025.py::test_penalized_cv_squared_error_emergency_fallback_preserves_weights \
+            dev/tests/test_pr80_target_transfer_overflow_cache.py::test_successful_public_fit_resets_state_once \
+            dev/tests/test_pr87_code_review_fix_cycle.py
+      - name: Run complete CPU test tree
+        run: python -m pytest dev/tests -q --tb=short
+      - name: Run documentation contracts
+        shell: bash
+        run: |
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+      - name: Run compile and high-signal static gates
+        shell: bash
+        run: |
+          python -m compileall -q statgpu dev/validation dev/benchmarks
+          ruff check \
+            statgpu/_base.py \
+            statgpu/glm_core/_irls.py \
+            statgpu/glm_core/_family.py \
+            statgpu/glm_core/_validation.py \
+            statgpu/solvers/_utils.py \
+            statgpu/linear_model/wrappers/_logistic.py \
+            statgpu/linear_model/penalized/_penalized_cv.py \
+            --select F821,E9,F63,F7,F82
+          git diff --check
+          python -m pytest --collect-only -q >/dev/null
+      - name: Commit local-full closure and remove temporary workflows
+        shell: bash
+        run: |
+          rm .github/workflows/pr87-review-round8-local-full.yml
+          rm .github/workflows/pr87-review-round8-retry.yml
+          rm .github/workflows/pr87-review-round8-retry2.yml
+          rm .github/workflows/pr87-review-round8-retry3.yml
+          rm .github/workflows/pr87-review-round8-retry4.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add statgpu dev/tests docs .github/workflows/pr87-review-round8-local-full.yml .github/workflows/pr87-review-round8-retry.yml .github/workflows/pr87-review-round8-retry2.yml .github/workflows/pr87-review-round8-retry3.yml .github/workflows/pr87-review-round8-retry4.yml
+          git commit -m "fix: close PR87 local review gates"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
