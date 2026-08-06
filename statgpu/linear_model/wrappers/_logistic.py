@@ -1013,29 +1013,9 @@ class LogisticRegression(BaseEstimator):
             self._params + z_crit * self._bse
         ])
         
-        # Log-likelihood
-        eps = 1e-15  # Avoid log(0)
-        p_clipped = np.clip(p, eps, 1 - eps)
-        loglik_i = self._y * np.log(p_clipped) + (1 - self._y) * np.log(1 - p_clipped)
-        self._loglik = np.sum(
-            loglik_i
-            if self._sample_weight is None
-            else self._sample_weight * loglik_i
-        )
-
-        # Null log-likelihood (intercept-only model)
-        y_mean = (
-            np.mean(self._y)
-            if self._sample_weight is None
-            else np.average(self._y, weights=self._sample_weight)
-        )
-        y_mean = np.clip(y_mean, eps, 1 - eps)
-        null_i = self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean)
-        self._loglik_null = np.sum(
-            null_i
-            if self._sample_weight is None
-            else self._sample_weight * null_i
-        )
+        # Likelihood diagnostics are computed once during fitting from the
+        # registered stable LogisticLoss objective. Inference must not overwrite
+        # those public fit outputs with a different numerical approximation.
 
     def _train_classification_table(self):
         """Training-set classification table on current device.

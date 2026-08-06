@@ -1,5 +1,7 @@
 # Changelog
 
+- Kept fitted likelihood diagnostics independent of covariance inference, so enabling inference cannot change AIC, BIC, or pseudo-R².
+
 - Unified CPU, CuPy, and Torch fitted log-likelihood diagnostics with the registered numerically stable LogisticLoss objective.
 
 - Completed the code-review fix cycle for scalar GLM runtime contracts: strict binary labels and controls, transactional refits, visible convergence, and backend-consistent analytic-weight diagnostics.

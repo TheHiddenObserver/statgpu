@@ -788,3 +788,37 @@ def test_logistic_private_torch_path_matches_registered_objective(monkeypatch):
         weights * LogisticLoss().per_sample_value(eta, y)
     ).item()
     assert model._loglik == pytest.approx(expected, rel=1e-13, abs=1e-13)
+
+
+def test_logistic_inference_does_not_overwrite_stable_likelihood():
+    from statgpu.linear_model import LogisticRegression
+
+    X = np.array([[-30.0], [-10.0], [10.0], [30.0]], dtype=float)
+    y = np.array([0.0, 0.0, 1.0, 1.0])
+    weights = np.array([1.0, 2.0, 3.0, 4.0])
+    no_inference = LogisticRegression(
+        C=0.5, max_iter=200, tol=1e-10, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    with_inference = LogisticRegression(
+        C=0.5, max_iter=200, tol=1e-10, device="cpu",
+        compute_inference=True,
+    ).fit(X, y, sample_weight=weights)
+
+    np.testing.assert_allclose(
+        with_inference.coef_, no_inference.coef_, rtol=0.0, atol=0.0
+    )
+    assert with_inference.intercept_ == no_inference.intercept_
+    assert with_inference.loglikelihood == no_inference.loglikelihood
+    assert with_inference.loglikelihood_null == no_inference.loglikelihood_null
+    assert with_inference._bse is not None
+
+
+def test_logistic_inference_source_does_not_recompute_likelihood():
+    import inspect
+    import statgpu.linear_model.wrappers._logistic as module
+
+    source = inspect.getsource(module.LogisticRegression._compute_inference)
+    assert "self._loglik =" not in source
+    assert "self._loglik_null =" not in source
+    assert "Inference must not overwrite" in source
