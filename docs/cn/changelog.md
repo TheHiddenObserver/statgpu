@@ -51,11 +51,11 @@
 - 补全 ADMM 的 Cholesky 降级初始化，并强化 L-BFGS-B 的可行方向与 NaN bounds 校验。
 - 相邻的 Newton、proximal-Newton、ADMM、FISTA-BB、L-BFGS 与 L-BFGS-B 路径现在会在曲率计算前校验权重，仅对真正的奇异系统降级，保持 proximal Newton 与 CuPy bounds 的 dtype/device，并采用正确的梯度平方 Armijo 斜率。
 - direct solver 与 penalized-CV 的 sample-weight 检查现在保持在所选 backend，并在 weighted Lipschitz 运算前执行；权重总和溢出会被拒绝，HC1 analytic-weight inference 对全局权重缩放保持不变。
-- statgpu 内部迭代式 Torch kernel 统一通过集中式 compile policy。
-  默认不再使用会启用 CUDA Graph 的 `reduce-overhead`；用户仍可通过
-  `STATGPU_TORCH_COMPILE_MODE` 显式选择 `default`、
-  `reduce-overhead` 或完全 eager。遇到已知 CUDA Graph 输出生命周期错误时，
-  对应 callable 会永久回退 eager；其他运行时错误不会被吞掉。
+- statgpu 内部迭代式 Torch kernel 统一通过显式 opt-in 的集中式 compile policy。
+  当 `STATGPU_TORCH_COMPILE_MODE` 未设置、设为 `auto` 或 `disable` 时，
+  默认保持 eager；用户可显式选择 `default` 或 `reduce-overhead`。
+  遇到已知 CUDA Graph 输出生命周期错误时，对应 callable 会永久回退
+  eager；其他运行时错误不会被吞掉。
 - 维护矩阵覆盖的公共 estimator 数值入口采用 NumPy、CuPy 或 Torch 原生
   reduction 检查 NaN/Inf，不把完整 GPU 数组搬回 CPU；矩阵覆盖
   fit/predict/transform、inverse-transform、scoring、初始化数组和 panel ID，

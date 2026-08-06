@@ -51,12 +51,11 @@
 - Completed ADMM's Cholesky fallback initialization and hardened L-BFGS-B feasible directions and NaN-bound validation.
 - Adjacent Newton, proximal-Newton, ADMM, FISTA-BB, L-BFGS, and L-BFGS-B paths now validate weights before curvature work, narrow singular-system fallbacks, preserve dtype/device for proximal Newton and CuPy bounds, and use the correct squared-gradient Armijo slope.
 - Direct solver and penalized-CV sample-weight checks now remain on the selected backend, run before weighted Lipschitz operations, reject overflowing totals, and preserve HC1 analytic-weight scale invariance.
-- Internal iterative Torch kernels now use a centralized compile policy.
-  The default avoids `reduce-overhead` CUDA Graph capture, while
-  `STATGPU_TORCH_COMPILE_MODE` permits explicit `default`,
-  `reduce-overhead`, or eager-only operation.  Known CUDA Graph output
-  lifecycle failures fall back to eager execution once; unrelated runtime
-  errors remain visible.
+- Internal iterative Torch kernels now use a centralized, opt-in compile policy.
+  Compilation remains eager when `STATGPU_TORCH_COMPILE_MODE` is unset,
+  `auto`, or `disable`. Users can explicitly select `default` or
+  `reduce-overhead`; known CUDA Graph output lifecycle failures then fall
+  back to eager execution once, while unrelated runtime errors remain visible.
 - Maintained public numerical entry points are checked for NaN/Inf using
   NumPy, CuPy, or Torch reductions on the selected device. The matrix includes
   fit/predict/transform, inverse-transform, scoring, initialization arrays,

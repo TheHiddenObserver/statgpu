@@ -965,7 +965,7 @@ def test_torch_nonconvex_model_level_compile_matrix_py21(
     monkeypatch, penalty, penalty_kwargs
 ):
     torch = _require_modern_torch_cuda()
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
 
     from statgpu.backends import _to_numpy
     from statgpu.backends._torch_compile import get_torch_compile_diagnostics
@@ -1015,7 +1015,7 @@ def test_torch_nonconvex_model_level_compile_matrix_py21(
 
 def test_torch_elasticnet_model_level_compile_path_py21(monkeypatch):
     torch = _require_modern_torch_cuda()
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
     from statgpu.backends import _to_numpy
     from statgpu.backends._torch_compile import get_torch_compile_diagnostics
     from statgpu.linear_model import ElasticNet
