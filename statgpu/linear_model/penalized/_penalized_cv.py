@@ -153,7 +153,6 @@ def _cv_loss_evaluation_failure_is_recoverable(exc) -> bool:
         exc,
         (
             NotImplementedError,
-            ValueError,
             FloatingPointError,
             OverflowError,
             np.linalg.LinAlgError,

@@ -3507,7 +3507,7 @@ def test_penalized_cv_does_not_substitute_mse_for_non_gaussian_loss(monkeypatch)
 
     class Loss:
         def value(self, *args, **kwargs):
-            raise ValueError("generic poisson evaluation failed")
+            raise FloatingPointError("generic poisson evaluation failed")
 
     class Model:
         coef_ = np.array([0.2])
@@ -3521,7 +3521,7 @@ def test_penalized_cv_does_not_substitute_mse_for_non_gaussian_loss(monkeypatch)
         cv_mod,
         "_evaluate_loss_numpy",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            ValueError("registered poisson evaluation failed")
+            FloatingPointError("registered poisson evaluation failed")
         ),
     )
 
@@ -3542,7 +3542,7 @@ def test_penalized_cv_squared_error_emergency_fallback_preserves_weights(monkeyp
 
     class Loss:
         def value(self, *args, **kwargs):
-            raise ValueError("generic squared evaluation failed")
+            raise FloatingPointError("generic squared evaluation failed")
 
     class Model:
         coef_ = np.array([0.0])
@@ -3556,7 +3556,7 @@ def test_penalized_cv_squared_error_emergency_fallback_preserves_weights(monkeyp
         cv_mod,
         "_evaluate_loss_numpy",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            ValueError("registered squared evaluation failed")
+            FloatingPointError("registered squared evaluation failed")
         ),
     )
     weights = np.array([1.0, 3.0])

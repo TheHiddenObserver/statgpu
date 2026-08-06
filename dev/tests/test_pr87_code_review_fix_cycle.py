@@ -706,35 +706,36 @@ def test_logistic_cpu_likelihood_diagnostics_do_not_require_inference():
     assert model._bse is None
 
 
-def test_cv_valueerror_retry_is_visible_but_typeerror_stays_fatal(monkeypatch):
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ValueError("programming shape bug"),
+        TypeError("programming signature bug"),
+    ],
+)
+def test_cv_scoring_programming_errors_stay_fatal(monkeypatch, exc):
     import statgpu.linear_model.penalized._penalized_cv as cv_mod
 
     class Model:
         coef_ = np.array([0.0])
         intercept_ = 0.0
         fit_intercept = True
+
         def predict(self, X):
             return np.zeros(len(X))
 
     class Loss:
         def value(self, *args, **kwargs):
-            return 1.25
+            pytest.fail("programming errors must not retry generic scoring")
 
     owner = object.__new__(cv_mod.PenalizedGLM_CV)
     owner.loss = "poisson"
     monkeypatch.setattr(
-        cv_mod, '_evaluate_loss_numpy',
-        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError('registered evaluator unavailable')),
+        cv_mod,
+        "_evaluate_loss_numpy",
+        lambda *args, **kwargs: (_ for _ in ()).throw(exc),
     )
-    with pytest.warns(RuntimeWarning, match='generic loss interface'):
-        assert owner._evaluate_single(
-            Model(), np.ones((2, 1)), np.ones(2), loss_fn=Loss()
-        ) == pytest.approx(1.25)
-    monkeypatch.setattr(
-        cv_mod, '_evaluate_loss_numpy',
-        lambda *args, **kwargs: (_ for _ in ()).throw(TypeError('programming bug')),
-    )
-    with pytest.raises(TypeError, match='programming bug'):
+    with pytest.raises(type(exc), match="programming"):
         owner._evaluate_single(
             Model(), np.ones((2, 1)), np.ones(2), loss_fn=Loss()
         )
