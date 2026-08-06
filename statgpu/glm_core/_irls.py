@@ -114,7 +114,11 @@ def _to_backend(arr, backend, ref_tensor):
         return cp.asarray(arr, dtype=cp.float64)
     if backend == "torch":
         import torch
-        return torch.tensor(arr, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
+
+        device = ref_tensor.device if ref_tensor is not None else "cpu"
+        if torch.is_tensor(arr):
+            return arr.to(dtype=torch.float64, device=device)
+        return torch.as_tensor(arr, dtype=torch.float64, device=device)
     return np.asarray(arr, dtype=float)
 
 

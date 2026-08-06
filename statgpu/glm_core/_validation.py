@@ -107,7 +107,7 @@ def validate_binary_response(y, n_samples=None, *, context="LogisticRegression")
 
 
 def validate_glm_sample_weight(sample_weight, n_samples, *, name="sample_weight"):
-    """Validate analytic sample weights without copying GPU arrays to NumPy."""
+    """Validate analytic weights and normalize integral inputs to float64."""
     values = _as_native_array(sample_weight, name=name)
     if int(values.ndim) != 1:
         raise ValueError(f"{name} must be one-dimensional")
@@ -132,4 +132,21 @@ def validate_glm_sample_weight(sample_weight, n_samples, *, name="sample_weight"
     total = _safe_weight_sum(values)
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError(f"{name} must have a finite positive sum")
+
+    # Returning integer weights would reintroduce wraparound in downstream
+    # objective normalizers that call ``sum()`` directly. Preserve device
+    # residency while promoting integral/bool weights once at validation.
+    kind = getattr(values.dtype, "kind", "")
+    if module.startswith("torch"):
+        import torch
+
+        if not torch.is_floating_point(values):
+            values = values.to(dtype=torch.float64)
+    elif kind in "biu":
+        if module.startswith("cupy"):
+            import cupy as cp
+
+            values = values.astype(cp.float64, copy=False)
+        else:
+            values = values.astype(np.float64, copy=False)
     return values

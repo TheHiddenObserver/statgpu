@@ -52,7 +52,7 @@ def test_irls_numpy_warm_start_is_normalized_to_torch_backend():
         [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0]], dtype=torch.float64
     )
     y = torch.tensor([-1.0, 0.0, 1.0], dtype=torch.float64)
-    params, _ = IRLSSolver(Gaussian(), max_iter=4, tol=1e-12).fit(
+    params, _ = IRLSSolver(Gaussian(), max_iter=5, tol=1e-12).fit(
         X, y, init_coef=np.zeros(2), backend="torch"
     )
     assert torch.is_tensor(params)
@@ -134,3 +134,61 @@ def test_reduce_overhead_repeated_cuda_calls_are_correct_or_visible_fallback(mon
     assert guarded.__statgpu_compile_status__ in {
         "compiled", "runtime-fallback"
     }
+
+
+def test_integral_glm_weights_are_promoted_before_downstream_normalization():
+    from statgpu.glm_core._validation import validate_glm_sample_weight
+
+    raw = np.full(5, 2**62, dtype=np.int64)
+    validated = validate_glm_sample_weight(raw, raw.size)
+    assert validated.dtype == np.float64
+    assert np.isfinite(validated.sum())
+    assert validated.sum() == pytest.approx(float(5 * 2**62), rel=1e-15)
+
+
+def test_integral_solver_weights_are_promoted_before_uniform_checks():
+    from statgpu.solvers._utils import _validated_sample_weight
+
+    raw = np.full(5, 2**62, dtype=np.int64)
+    backend, _, validated = _validated_sample_weight(raw, raw.size)
+    assert backend == "numpy"
+    assert validated.dtype == np.float64
+    assert np.isfinite(validated.sum())
+
+
+def test_weighted_glm_objective_with_integral_weights_stays_finite():
+    from statgpu.glm_core._logistic import LogisticLoss
+    from statgpu.glm_core._validation import validate_glm_sample_weight
+
+    X = np.column_stack([np.ones(4), np.arange(4.0)])
+    y = np.array([0.0, 0.0, 1.0, 1.0])
+    coef = np.array([-1.0, 0.5])
+    weights = validate_glm_sample_weight(
+        np.full(4, 2**62, dtype=np.int64), 4
+    )
+    value, gradient = LogisticLoss().fused_value_and_gradient(
+        X, y, coef, sample_weight=weights
+    )
+    assert np.isfinite(float(value))
+    assert np.isfinite(np.asarray(gradient)).all()
+
+
+def test_torch_tensor_warm_start_does_not_use_copy_constructor_warning():
+    import warnings
+
+    torch = pytest.importorskip("torch")
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    X = torch.tensor(
+        [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0]], dtype=torch.float64
+    )
+    y = torch.tensor([-1.0, 0.0, 1.0], dtype=torch.float64)
+    init = torch.zeros(2, dtype=torch.float32)
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        params, _ = IRLSSolver(Gaussian(), max_iter=5, tol=1e-12).fit(
+            X, y, init_coef=init, backend="torch"
+        )
+    assert not any("copy construct from a tensor" in str(w.message) for w in captured)
+    assert params.dtype == torch.float64

@@ -115,6 +115,13 @@ def _validated_sample_weight(sample_weight, n_samples):
         raise ValueError("sample_weight must be non-negative")
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError("sample_weight must have a finite positive sum")
+    if backend == "torch":
+        import torch
+
+        if not torch.is_floating_point(values):
+            values = values.to(dtype=torch.float64)
+    elif getattr(values.dtype, "kind", "") in "biu":
+        values = values.astype(xp.float64, copy=False)
     return backend, xp, values
 
 
