@@ -12,7 +12,10 @@ from scipy import stats
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
-from statgpu.glm_core._validation import validate_glm_sample_weight
+from statgpu.glm_core._validation import (
+    validate_binary_response,
+    validate_glm_sample_weight,
+)
 from statgpu.backends import _get_torch_device_str
 from statgpu.metrics import (
     binary_average_precision_score,
@@ -208,7 +211,6 @@ class LogisticRegression(BaseEstimator):
         -------
         self : object
         """
-        self._y = self._to_numpy(y).astype(float)
         self._train_pred_cache = None
         self._train_eval_cache = None
 
@@ -217,17 +219,21 @@ class LogisticRegression(BaseEstimator):
         backend_name = backend.name
 
         X_arr = self._to_array(X, backend=backend_name)
+        y_validated = validate_binary_response(
+            y, X_arr.shape[0], context="LogisticRegression"
+        )
+        self._y = self._to_numpy(y_validated).astype(float)
         # Handle dtype conversion based on backend
         if backend_name == "torch":
             import torch
-            y_arr = self._to_array(y, backend=backend_name)
+            y_arr = self._to_array(y_validated, backend=backend_name)
             if y_arr.dtype != torch.float64:
                 y_arr = y_arr.to(torch.float64)
         elif backend_name == "cupy":
             import cupy as cp
-            y_arr = self._to_array(y, backend=backend_name).astype(cp.float64)
+            y_arr = self._to_array(y_validated, backend=backend_name).astype(cp.float64)
         else:
-            y_arr = self._to_array(y, backend=backend_name).astype(float)
+            y_arr = self._to_array(y_validated, backend=backend_name).astype(float)
 
         if sample_weight is None:
             sample_weight_arr = None

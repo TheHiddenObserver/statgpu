@@ -130,8 +130,30 @@ def _cv_exception_is_infrastructure_failure(exc) -> bool:
 
 
 def _raise_cv_infrastructure_failure(exc) -> None:
-    """Re-raise failures that make a CV fallback unsafe or misleading."""
+    """Re-raise explicit hardware/runtime failures."""
     if _cv_exception_is_infrastructure_failure(exc):
+        raise exc
+
+
+def _cv_candidate_failure_is_recoverable(exc) -> bool:
+    """Return whether one alpha may be marked failed without hiding a bug."""
+    return isinstance(
+        exc, (FloatingPointError, OverflowError, np.linalg.LinAlgError)
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
+def _cv_path_failure_is_recoverable(exc) -> bool:
+    """Return whether an optimized path may fall back to a slower path."""
+    return isinstance(exc, NotImplementedError) or _cv_candidate_failure_is_recoverable(exc)
+
+
+def _raise_unless_recoverable_cv_candidate_failure(exc) -> None:
+    if not _cv_candidate_failure_is_recoverable(exc):
+        raise exc
+
+
+def _raise_unless_recoverable_cv_path_failure(exc) -> None:
+    if not _cv_path_failure_is_recoverable(exc):
         raise exc
 
 
@@ -2598,7 +2620,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     )
                     all_scores[fold_idx, :] = mse
                 except Exception as e:
-                    _raise_cv_infrastructure_failure(e)
+                    _raise_unless_recoverable_cv_path_failure(e)
                     warnings.warn(
                         f"Ridge eig batch failed for fold {fold_idx}: {e}",
                         RuntimeWarning,
@@ -2631,7 +2653,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[:, sort_idx] = path["scores"]
                     return all_scores
             except Exception as e:
-                _raise_cv_infrastructure_failure(e)
+                _raise_unless_recoverable_cv_path_failure(e)
                 warnings.warn(
                     f"Fold-batched {loss_name} sparse CV failed on {device_name}; "
                     f"falling back to per-fold path: {e}",
@@ -2728,7 +2750,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         fold_handled = True
                         break
                 except Exception as e:
-                    _raise_cv_infrastructure_failure(e)
+                    _raise_unless_recoverable_cv_path_failure(e)
                     warnings.warn(
                         f"{path_fn.__name__} failed for {loss_name}+{penalty_name} "
                         f"fold {fold_idx}: {e}",
@@ -2841,7 +2863,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     for attr in ("_cv_alpha_path", "_cv_path_results"):
                         if hasattr(model, attr): delattr(model, attr)
             except Exception as exc:
-                _raise_cv_infrastructure_failure(exc)
+                _raise_unless_recoverable_cv_path_failure(exc)
                 # Same as path-is-None: keep _cv_cache for warm-start fallback.
                 for attr in ("_cv_alpha_path", "_cv_path_results"):
                     if hasattr(model, attr): delattr(model, attr)
@@ -2871,7 +2893,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
             except Exception as exc:
-                _raise_cv_infrastructure_failure(exc)
+                _raise_unless_recoverable_cv_candidate_failure(exc)
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
                 logger.warning(

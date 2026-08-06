@@ -96,7 +96,16 @@ def _validated_sample_weight(sample_weight, n_samples):
     try:
         finite = xp.all(xp.isfinite(values))
         negative = xp.any(values < 0)
-        total_dev = xp.sum(values)
+        if backend == "torch":
+            import torch
+
+            total_dev = torch.sum(values.to(dtype=torch.float64))
+        elif backend == "cupy":
+            import cupy as cp
+
+            total_dev = cp.sum(values, dtype=cp.float64)
+        else:
+            total_dev = np.sum(np.asarray(values), dtype=np.float64)
         total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)
     except (TypeError, ValueError) as exc:
         raise ValueError("sample_weight must contain real finite values") from exc

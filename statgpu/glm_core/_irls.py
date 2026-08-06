@@ -138,16 +138,35 @@ _IRLS_STEP_COMPILED = None
 from statgpu.backends._torch_compile import compile_torch
 
 
+class _BinomialFamilyObjective:
+    """Bernoulli negative log-likelihood for an arbitrary Binomial link."""
+
+    def __init__(self, family):
+        from statgpu.glm_core._logistic import LogisticLoss
+
+        self.family = family
+        self._validator = LogisticLoss()
+
+    def validate_response(self, y):
+        return self._validator.validate_response(y)
+
+    def per_sample_value(self, eta, y):
+        from statgpu.backends._array_ops import _clip as _array_clip, _log
+
+        mu = _array_clip(self.family.link.inverse(eta), 1e-10, 1 - 1e-10)
+        return -y * _log(mu) - (1 - y) * _log(1 - mu)
+
+
 def _objective_loss_for_family(family):
-    """Return the registered loss matching an IRLS family."""
+    """Return the objective matching the exact IRLS family and link."""
     from statgpu.glm_core._base import get_glm_loss
 
     family_name = str(getattr(family, "name", "")).lower()
+    if family_name in {"binomial", "logistic"}:
+        return _BinomialFamilyObjective(family)
     loss_names = {
         "gaussian": "squared_error",
         "squared_error": "squared_error",
-        "binomial": "logistic",
-        "logistic": "logistic",
         "poisson": "poisson",
         "gamma": "gamma",
         "inverse_gaussian": "inverse_gaussian",
@@ -257,11 +276,14 @@ def irls_solver(
         backend = _infer_backend(X_validated)
     X = _to_backend(X_validated, backend, X_validated)
 
+    n_features = int(X.shape[1])
     if init_coef is None:
-        n_features = X.shape[1]
         params = _zeros(n_features, backend, ref_tensor=X)
     else:
-        params = init_coef
+        params = _to_backend(init_coef, backend, X).reshape(-1)
+        if int(params.shape[0]) != n_features:
+            raise ValueError("init_coef must have length X.shape[1].")
+        params = _copy_arr(params)
 
     family_name = getattr(family, "name", "")
     objective_loss = _objective_loss_for_family(family)

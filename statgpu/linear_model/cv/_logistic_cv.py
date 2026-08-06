@@ -23,23 +23,9 @@ from ._device import (
 
 def _validate_binary_cv_response(y):
     """Validate a strict 0/1 response without copying GPU arrays to NumPy."""
-    from statgpu.glm_core._logistic import LogisticLoss
+    from statgpu.glm_core._validation import validate_binary_response
 
-    values = LogisticLoss().validate_response(y)
-    module = type(values).__module__
-    if module.startswith("torch"):
-        import torch
-
-        valid = torch.all((values == 0) | (values == 1))
-    elif module.startswith("cupy"):
-        import cupy as cp
-
-        valid = cp.all((values == 0) | (values == 1))
-    else:
-        valid = np.all((values == 0) | (values == 1))
-    if not bool(valid.item() if hasattr(valid, "item") else valid):
-        raise ValueError("LogisticRegressionCV requires binary y (0 or 1)")
-    return values
+    return validate_binary_response(y, context="LogisticRegressionCV")
 
 
 # =============================================================================

@@ -50,6 +50,22 @@ def _require_real_finite(values, *, name):
         raise ValueError(f"{name} must contain finite values.")
 
 
+def _safe_weight_sum(values) -> float:
+    """Accumulate analytic weights in float64 to avoid integer wraparound."""
+    module = type(values).__module__
+    if module.startswith("torch"):
+        import torch
+
+        total = torch.sum(values.to(dtype=torch.float64))
+        return float(total.item())
+    if module.startswith("cupy"):
+        import cupy as cp
+
+        total = cp.sum(values, dtype=cp.float64)
+        return float(total.item())
+    return float(np.sum(np.asarray(values), dtype=np.float64))
+
+
 def validate_glm_design_matrix(X, *, name="X"):
     """Validate a dense scalar-GLM design matrix and return its native array."""
     values = _as_native_array(X, name=name)
@@ -58,6 +74,35 @@ def validate_glm_design_matrix(X, *, name="X"):
     if int(values.shape[0]) == 0:
         raise ValueError(f"{name} must contain at least one observation.")
     _require_real_finite(values, name=name)
+    return values
+
+
+def validate_binary_response(y, n_samples=None, *, context="LogisticRegression"):
+    """Validate a strict 0/1 response while preserving GPU residency."""
+    values = _as_native_array(y, name="binary y")
+    if int(values.ndim) == 2 and int(values.shape[1]) == 1:
+        values = values.reshape(-1)
+    elif int(values.ndim) != 1:
+        raise ValueError(f"{context} requires one-dimensional binary y")
+    if int(values.shape[0]) == 0:
+        raise ValueError(f"{context} requires at least one binary response")
+    if n_samples is not None and int(values.shape[0]) != int(n_samples):
+        raise ValueError("Response length must match the number of X rows.")
+    _require_real_finite(values, name="binary y")
+
+    module = type(values).__module__
+    if module.startswith("torch"):
+        import torch
+
+        valid = torch.all((values == 0) | (values == 1))
+    elif module.startswith("cupy"):
+        import cupy as cp
+
+        valid = cp.all((values == 0) | (values == 1))
+    else:
+        valid = np.all((values == 0) | (values == 1))
+    if not bool(valid.item() if hasattr(valid, "item") else valid):
+        raise ValueError(f"{context} requires binary y with values 0 or 1")
     return values
 
 
@@ -76,17 +121,15 @@ def validate_glm_sample_weight(sample_weight, n_samples, *, name="sample_weight"
 
         if bool(torch.any(values < 0).item()):
             raise ValueError(f"{name} must be non-negative")
-        total = float(torch.sum(values).item())
     elif module.startswith("cupy"):
         import cupy as cp
 
         if bool(cp.any(values < 0).item()):
             raise ValueError(f"{name} must be non-negative")
-        total = float(cp.sum(values).item())
     else:
         if np.any(values < 0):
             raise ValueError(f"{name} must be non-negative")
-        total = float(np.sum(values))
+    total = _safe_weight_sum(values)
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError(f"{name} must have a finite positive sum")
     return values

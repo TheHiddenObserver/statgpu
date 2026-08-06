@@ -245,12 +245,16 @@ class Binomial(GLMFamily):
 
     def irls_weights(self, mu, y):
         mu_c = _clip(mu, 1e-10, 1 - 1e-10)
-        return mu_c * (1 - mu_c)
+        if str(getattr(self.link, "name", "")).lower() == "logit":
+            return mu_c * (1 - mu_c)
+        return super().irls_weights(mu_c, y)
 
     def irls_working_response(self, mu, y, eta):
         mu_c = _clip(mu, 1e-10, 1 - 1e-10)
-        var = mu_c * (1 - mu_c)
-        return eta + (y - mu_c) / var
+        if str(getattr(self.link, "name", "")).lower() == "logit":
+            var = mu_c * (1 - mu_c)
+            return eta + (y - mu_c) / var
+        return super().irls_working_response(mu_c, y, eta)
 
 
 class Poisson(GLMFamily):
