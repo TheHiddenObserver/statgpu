@@ -1,5 +1,7 @@
 # Changelog
 
+- 直接 LogisticRegression 的解析权重在 CuPy/Torch 拟合中保持设备原生，不再仅为 CPU 推断缓存将整条权重向量复制到 NumPy。
+
 - 闭合直接 LogisticRegression 与惩罚 CV 的后续审查缺口：失败拟合会清除半发布状态，单一类别仍可计算混淆矩阵/分类表，自定义验证损失保留解析权重。
 
 - 统一直接 LogisticRegression 在 NumPy、CuPy 与 Torch 下的预测契约：硬标签使用整数 dtype，单列响应评分不再发生广播，非有限决策阈值会被拒绝。

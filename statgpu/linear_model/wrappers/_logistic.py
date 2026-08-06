@@ -363,9 +363,15 @@ class LogisticRegression(BaseEstimator):
                 sample_weight_arr = validate_glm_sample_weight(
                     sample_weight_arr, X_arr.shape[0]
                 )
-                self._sample_weight = np.asarray(
-                    self._to_numpy(sample_weight_arr), dtype=np.float64
-                ).reshape(-1)
+                # CPU covariance inference consumes a NumPy weight cache.
+                # CuPy/Torch inference already uses the device-native
+                # ``sample_weight_arr`` inside the backend fit and must not pay
+                # for an otherwise unused full device-to-host copy.
+                self._sample_weight = (
+                    np.asarray(sample_weight_arr, dtype=np.float64).reshape(-1)
+                    if backend_name == "numpy"
+                    else None
+                )
 
             device = self._get_compute_device()
 

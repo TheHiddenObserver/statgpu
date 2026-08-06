@@ -1,5 +1,7 @@
 # Changelog
 
+- Kept direct LogisticRegression analytic weights device-native on CuPy/Torch fits instead of copying the full vector to NumPy solely for the CPU inference cache.
+
 - Closed follow-up review gaps in direct LogisticRegression and penalized CV: failed fits clear partial state, single-class confusion/table metrics remain available, and custom validation losses retain analytic weights.
 
 - Aligned direct LogisticRegression prediction contracts across NumPy, CuPy, and Torch: hard labels are integer-valued, single-column responses score without broadcasting, and non-finite decision thresholds are rejected.
