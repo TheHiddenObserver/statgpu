@@ -187,6 +187,7 @@ jobs:
           python -m compileall -q statgpu/backends/_torch_compile.py \
             dev/tests/test_maintenance_024_025.py \
             dev/tests/test_torch_compile_default_policy.py
+          python -m pip install -q pytest
           python -m pip install -q -e .
           python -m pytest -q \
             dev/tests/test_maintenance_024_025.py::test_iterative_compile_policy_defaults_to_eager_and_allows_opt_in \
