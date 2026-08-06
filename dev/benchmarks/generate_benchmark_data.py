@@ -59,6 +59,21 @@ from dev.benchmarks.frontend_data.catalog import (
 )
 
 
+class _InventoryV2(dict):
+    """Inventory mapping with non-serialized read aliases for old Python callers."""
+
+    _READ_ALIASES = {
+        "available_sources": "available_registered_sources",
+        "parsed_sources": "parsed_registered_sources",
+    }
+
+    def __missing__(self, key):
+        target = self._READ_ALIASES.get(key)
+        if target is None:
+            raise KeyError(key)
+        return self[target]
+
+
 def _strip_generation_id(value: dict) -> dict:
     result = deepcopy(value)
     if "meta" in result:
@@ -158,14 +173,14 @@ def generate(
         for run in output.get("runs", [])
         if run.get("source", {}).get("source_id") in registered_ids
     })
-    inventory = build_inventory_v2(
+    inventory = _InventoryV2(build_inventory_v2(
         entries,
         manifest,
         available_registered_sources=available,
         parsed_registered_sources=parsed,
         catalog=catalog,
         coverage_matrix=coverage_matrix,
-    )
+    ))
     inventory["generation_id"] = ""
     _assign_bundle_generation_id(output, parse_report, inventory)
     return output, parse_report, inventory
