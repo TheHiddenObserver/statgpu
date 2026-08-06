@@ -172,12 +172,12 @@ def generate(
         1 for source in manifest.get("sources", [])
         if (_repo_root / source["path"]).exists()
     )
-    registered_ids = {source["source_id"] for source in manifest.get("sources", [])}
-    parsed = len({
-        run.get("source", {}).get("source_id")
-        for run in output.get("runs", [])
-        if run.get("source", {}).get("source_id") in registered_ids
-    })
+    parsed = int(parse_report.get("files_parsed", 0))
+    if parsed < 0 or parsed > len(manifest.get("sources", [])):
+        raise ValueError(
+            "parsed registered source count must be within the manifest source range"
+        )
+
     catalog_snapshot = {
         "catalog_version": catalog_policy["catalog_version"],
         "minimum_source_date": catalog_policy["minimum_source_date"],
