@@ -1,105 +1,58 @@
 # Changelog
 
-- 将直接 LogisticRegression 的训练集混淆指标与 ROC/PR 评估解耦，使单一类别目标仍可获得 accuracy、precision、recall 与 F1，同时排序指标保留其显式类别支持要求；summary 会将不可用的排序指标显示为 NaN。
-
-- 直接 LogisticRegression 的解析权重在 CuPy/Torch 拟合中保持设备原生，不再仅为 CPU 推断缓存将整条权重向量复制到 NumPy。
-
-- 闭合直接 LogisticRegression 与惩罚 CV 的后续审查缺口：失败拟合会清除半发布状态，单一类别仍可计算混淆矩阵/分类表，自定义验证损失保留解析权重。
-
-- 统一直接 LogisticRegression 在 NumPy、CuPy 与 Torch 下的预测契约：硬标签使用整数 dtype，单列响应评分不再发生广播，非有限决策阈值会被拒绝。
-
-- 将拟合似然诊断与协方差推断解耦，开启推断不会改变 AIC、BIC 或伪 R²。
-
-- 统一 CPU、CuPy 与 Torch 的拟合对数似然诊断，全部复用数值稳定的 LogisticLoss 注册目标。
-
-- 完成标量 GLM 运行时契约的 code-review 修复循环：严格二分类标签与控制参数、事务性重拟合、显式收敛状态，以及跨后端一致的解析权重诊断。
-
-- 修正任意 link 的 Binomial IRLS、后端原生 warm start、二次惩罚校验与惩罚 CV 的显式降级语义。
-
-- 删除当前 exact-head 环境未能支撑的 ElasticNet 通用后端阈值、统一系数容差与固定加速比；模型文档现要求针对具体工作负载进行 benchmark，并按 dtype/求解路径验证数值一致性。
-
-- 修正 ElasticNet/Ridge 的缩放说明，并补充回归测试确认在共享平均损失尺度下 `ElasticNet(alpha, l1_ratio=0)` 与 `Ridge(alpha)` 一致。
-
-- 统一 ElasticNet API 文档与实现：修正构造参数默认值、删除不存在的参数，并用实际 FISTA 与拟合后推断语义替换过时的 strict/approx 说明。
-
-- 完成公开 ElasticNet 推断契约：独立 wrapper 现暴露并透传推断选项，ElasticNetCV 的最终全数据重拟合会真实执行 `compute_inference=True`，并补充 NumPy/CuPy/Torch 矩阵测试。
-
-- 将事务式 CV 重置接入共享的公开有限值校验，使 NaN/Inf 重拟合在抛错前先使旧的 RidgeCV、ElasticNetCV、LogisticRegressionCV 与统一 penalized-CV 状态失效。
-
-- 使专用 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 的重拟合具备失败安全语义：每次 fit 均先清除旧拟合状态，仅在最终模型重拟合成功后发布 CV 选择结果。
-
-- 将 AUTO 模式的 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 最终重拟合固定到 CV 选参时使用的后端，避免选参后在 Torch 与 CuPy 之间静默漂移。
-
-- 在公开 RidgeCV、ElasticNetCV 与 LogisticRegressionCV 调度中保留 `device='auto'`，使 GPU 常驻输入继续使用其原有后端；LogisticRegressionCV 现可在不完整复制到 CPU 的情况下验证 0/1 响应。
-
-- Logistic 与 ElasticNet CV 的默认正则化网格现在纳入解析权重并满足整数权重的行复制等价性；CV 的 GPU 数组设备检查不再掩盖运行时错误。
-
-- 专用 Ridge、ElasticNet 与 Logistic CV 现在严格保留显式 Torch/CuPy 后端选择，统一规范化 Device 枚举，并在生成网格或提前返回前验证解析权重。
-
-- 修正 NumPy、CuPy 与 Torch 下解析权重 LogisticRegression 的 IRLS：权重仅进入 WLS 曲率而不进入工作响应分母，且加权似然与推断保持同一目标；同时收窄 penalized-CV alpha 网格与 CuPy 精确 Ridge 的降级范围，使编程错误、CUDA OOM 与设备错误继续抛出。
-
-- 完成惩罚 CV 降级边界加固：可选 Lipschitz 提示统一识别 NumPy/CuPy/Torch 的秩失败，而 alpha 网格估计不再隐藏内存或 GPU 基础设施错误。
-
-- 保持惩罚 CV 的声明验证目标：非 Gaussian 损失不再静默退化为 MSE，平方损失应急路径保留验证权重，GPU 基础设施错误会穿透多层 CV 降级并原样抛出。
-
-- 收窄 GPU 线性代数降级条件：仅真实的秩亏/非正定失败可转用最小二乘、伪逆、ridge 或零块恢复；CUDA OOM、设备、索引与实现错误将原样抛出。
-
 > 语言：中文<br>
 > 最后更新：2026-08-06<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
-## 未发布 — PyTorch、输入校验与 sklearn 兼容性维护
+## 0.2.4 — 2026-08-06
 
-### 运行时安全
+### Logistic 回归与 GLM 正确性
 
-- 通过将 `CoxPartialLikelihoodLoss` 改为惰性导出，移除了 `statgpu.glm_core` 与 Cox loss 之间的包初始化循环；在全新解释器中，GLM 内部模块与 `LogisticRegression` 不再依赖特定导入顺序。
-- Armijo 回溯不再把通用 `out of range` 错误当作可恢复数值 trial，因此 index/device 编程错误会原样抛出。
-- proximal-Newton 现在会对明确的数值域 ValueError trial 执行回溯，同时保留无关的契约与 runtime failure。
-- shared backend 线性方程求解现在仅对明确的秩失败使用 least-squares 降级，并保留 CUDA OOM/device RuntimeError。
-- shared NumPy constructor 现在与 CuPy/Torch 一样跟随浮点 reference dtype；整数 reference 仍采用 float64 数值默认值。
-- FISTA 系列 warm start 现在跟随预处理设计矩阵；smooth proximal-Newton 权重会在 loss 计算前转换到当前 backend/device/dtype。
-- Newton 系列 Armijo 回溯现在仅忽略明确的数值域 trial failure，并保留 CUDA OOM/device/runtime 基础设施错误。
-- solver sample-weight 校验现在会保留 CUDA OOM/device 等 backend RuntimeError，不再将其掩盖为普通输入 ValueError。
-- 可执行 solver matrix 现在将 Elastic Net 视为非光滑惩罚，并通过 FISTA 而不是仅支持光滑目标的 solver 验证其精度。
-- Newton、L-BFGS 与 L-BFGS-B 现在会对 Elastic Net 和其他非光滑惩罚显式失败，不再只优化其中的光滑部分。
-- Newton 系列、L-BFGS 系列与 ADMM 的 warm start 现在统一跟随预处理设计矩阵的 backend、device 与 dtype，不再保留调用方原始数组的位置。
-- 删除会重复计入光滑惩罚、从而优化错误目标的 Euclidean-prox Newton 快捷路径；光滑目标保留 Newton，非光滑目标在 Hessian-metric proximal 求解器完成前显式使用 FISTA。
-- 补全 ADMM 的 Cholesky 降级初始化，并强化 L-BFGS-B 的可行方向与 NaN bounds 校验。
-- 相邻的 Newton、proximal-Newton、ADMM、FISTA-BB、L-BFGS 与 L-BFGS-B 路径现在会在曲率计算前校验权重，仅对真正的奇异系统降级，保持 proximal Newton 与 CuPy bounds 的 dtype/device，并采用正确的梯度平方 Armijo 斜率。
-- direct solver 与 penalized-CV 的 sample-weight 检查现在保持在所选 backend，并在 weighted Lipschitz 运算前执行；权重总和溢出会被拒绝，HC1 analytic-weight inference 对全局权重缩放保持不变。
-- statgpu 内部迭代式 Torch kernel 统一通过显式 opt-in 的集中式 compile policy。
-  当 `STATGPU_TORCH_COMPILE_MODE` 未设置、设为 `auto` 或 `disable` 时，
-  默认保持 eager；用户可显式选择 `default` 或 `reduce-overhead`。
-  遇到已知 CUDA Graph 输出生命周期错误时，对应 callable 会永久回退
-  eager；其他运行时错误不会被吞掉。
-- 维护矩阵覆盖的公共 estimator 数值入口采用 NumPy、CuPy 或 Torch 原生
-  reduction 检查 NaN/Inf，不把完整 GPU 数组搬回 CPU；矩阵覆盖
-  fit/predict/transform、inverse-transform、scoring、初始化数组和 panel ID，
-  同时保留 formula 路径对缺失行的专属语义。
-- formula sample weight 在 Patsy 确定保留行之后才进行对齐，并检查一维形状、
-  finite、非负性与正权重和；Torch/CuPy 的对齐及 inference 权重保持在设备端。
-- Gaussian GLM 的 FISTA 路径改用加权的特征均值与响应均值 profile intercept；
-  在零惩罚时与闭式 weighted least squares 一致，不再优化错误的未加权中心化目标。
-- GLM 的 sample weight 统一采用 analytic-weight 语义，覆盖 IRLS ridge scaling、
-  line search、归一化 pseudo-loglikelihood、AIC/BIC、dispersion 与 sandwich inference；
-  对全部权重作统一倍数缩放不会改变估计量或报告的诊断量。
-- 所有支持的 GLM family（包括 penalized 与 CV estimator）都在 solver 或 fold
-  dispatch 之前执行 backend-native response-domain validation；scalar GLM response
-  支持非空实数的一维或单列输入，并在 solver/fold dispatch 前拒绝非实数、多列或长度不匹配；
-  design matrix 与 analytic sample weight 也在 model、formula、CV 和 direct IRLS
-  路径中共享 backend-native 的实数、finite、shape 与 length 契约；active IRLS/FISTA 编译
-  统一走 centralized compile policy，且不再把无关的
-  线性代数、显存或 device 错误伪装成 fallback。
+- 修正任意受支持 link 下 Binomial IRLS 的 Fisher 权重、工作响应、线搜索目标、后端原生 warm start 与二次惩罚校验。
+- 强化直接 `LogisticRegression` 的响应与控制参数校验、事务式重拟合、收敛状态、整数硬预测、单列响应处理和有限阈值契约。
+- NumPy、CuPy 与 Torch 的拟合后 logistic likelihood 统一使用数值稳定的 `LogisticLoss`；likelihood、AIC、BIC、伪 R² 与收敛状态不再依赖协方差推断是否开启。
+- 单一类别目标仍可计算 confusion-matrix 与硬分类指标；ROC-AUC 和 average precision 继续保留明确的类别支持要求。
+- CuPy/Torch 的解析权重保持设备原生，并修正加权 IRLS 曲率、likelihood、dispersion 与 sandwich inference 语义。
+- 统一 GLM 在拟合、线搜索、诊断量和协方差中的 analytic-weight 语义；对权重整体缩放不会改变估计量或报告结果。
+- 为 scalar GLM 增加后端原生的响应域、实数性、有限值、形状和长度校验，覆盖 penalized 与 CV 入口。
+- formula sample weight 仅在 Patsy 完成缺失行筛选后对齐，并修正 Gaussian GLM FISTA 的加权中心化。
 
-### Estimator 与测试契约
+### 交叉验证、推断与 estimator 契约
 
-- 构造函数原始参数与运行时标准化属性分开保存，使旧版 scikit-learn 的
-  constructor identity clone 检查也能通过。
-- `.gitignore` 不再隐藏应维护的 `test_*.py`；手工 GPU 诊断脚本使用独立目录
-  和明确的 ownership policy。
+- 使 `RidgeCV`、`ElasticNetCV` 与 `LogisticRegressionCV` 具备失败安全语义：每次拟合前清除旧状态，只有最终全数据重拟合成功后才发布所选参数。
+- 保留显式 Torch/CuPy 请求，并将 `device="auto"` 的最终重拟合固定到 CV 阶段选定的后端。
+- Logistic 与 Elastic Net 默认正则化网格现在纳入解析权重，并满足整数权重的行复制等价性。
+- Penalized CV 保留声明的验证损失与解析权重；编程、shape、CUDA OOM 和 device 错误不再被转换为 candidate `NaN` 或无关的 MSE fallback。
+- 完成独立 `ElasticNet` 与 `ElasticNetCV` 最终重拟合的 NumPy、CuPy、Torch 推断契约；各 fold 模型仍只用于估计。
+- 修正 ElasticNet/Ridge 缩放说明：在共享平均损失约定下，`ElasticNet(alpha, l1_ratio=0)` 与 `Ridge(alpha)` 一致。
+- 使公共有限值 guard、clone、sklearn tags、嵌套 `set_params` 与 fitted-state 失效处理具有事务性，并兼容旧版 scikit-learn clone identity 检查。
 
-关联：Issue #45、Issue #81、Issue #82、Issue #83。
+### Solver 与后端安全性
+
+- 修正 solver matrix：Newton、L-BFGS 与 L-BFGS-B 会拒绝不支持的非光滑惩罚，不再只优化目标函数中的光滑部分。
+- 删除错误的 Euclidean-prox Newton 快捷路径。光滑 L2/无惩罚目标继续使用 Newton；非光滑 proximal-Newton 请求会显式转到 backend-native FISTA，直到实现 Hessian-metric proximal solver。
+- 将 Armijo、线性方程、CV grid 与 inference fallback 收窄到明确的数值域或秩失败；CUDA OOM、device、index、契约和其他 runtime failure 原样抛出。
+- FISTA、Newton 系列、L-BFGS 系列与 ADMM 的 warm start 统一跟随预处理设计矩阵的 backend、device 和 dtype。
+- 补全 ADMM 的合法 Cholesky fallback，并强化 L-BFGS-B 的可行方向、后端原生 bounds 与 NaN-bound 校验。
+- 增加集中且可观测的 Torch compile policy：未设置、`auto` 与 `disable` 默认 eager；`default` 和 `reduce-overhead` 仅作为显式 opt-in。只有已知 CUDA Graph 输出生命周期错误会触发永久 eager fallback。
+- 通过惰性导出 `CoxPartialLikelihoodLoss` 移除 `statgpu.glm_core` 与 Cox loss 的包初始化循环；全新解释器不再依赖特定导入顺序。
+
+### 文档与发布准备
+
+- 使中英文 LogisticRegression、ElasticNet、cross-validation、solver algorithm 与 solver/penalty 文档与当前实现保持一致。
+- 删除无法由当前 exact-head 环境支持的通用 GPU 加速比、后端阈值与统一系数误差声明；性能建议改为针对实际 workload 做 benchmark。
+- 明确 maintained pytest coverage 与手工物理 GPU diagnostics 的 ownership 边界。
+- 将包版本更新为 `0.2.4`，并新增 `.github/releases/v0.2.4.md` 作为 GitHub Release 的权威正文。
+
+### 验证
+
+- PR #87 最终 implementation head 通过完整 CPU suite：2239 passed、719 skipped；同时通过 static/documentation contracts、Python 3.9–3.12 regression、scikit-learn 1.2.2/1.3.2/latest compatibility 与 release-package validation。
+- 未改变的数值实现已通过物理 NVIDIA GPU 验证：RTX 4090 + PyTorch 2.8.0+cu128 的选定 compile/CUDA Graph matrix 为 9/9，并通过 runtime assertions；Tesla P100 + CuPy 13.6.0 也通过对应 runtime assertions。
+- 当前 focused release PR 只修改版本元数据与发布文档；创建 `v0.2.4` tag 前，必须确保 exact release-head 的 hosted gates 全部通过。
+
+关联：Issue #45、Issue #81、Issue #82、Issue #83，以及 pull request #87。
+
 ## 0.2.3 — 2026-08-04
 
 ### 生存分析
