@@ -1072,6 +1072,27 @@ class LogisticRegression(BaseEstimator):
         return self._train_eval_cache["classification_table"]
 
     @staticmethod
+    def _validate_threshold(threshold):
+        """Return a finite binary decision threshold as a Python float."""
+        if (
+            isinstance(threshold, (bool, np.bool_))
+            or not isinstance(threshold, Real)
+        ):
+            raise ValueError(
+                "threshold must be a finite real number in [0, 1]"
+            )
+        threshold = float(threshold)
+        if (
+            not np.isfinite(threshold)
+            or threshold < 0.0
+            or threshold > 1.0
+        ):
+            raise ValueError(
+                "threshold must be a finite real number in [0, 1]"
+            )
+        return threshold
+
+    @staticmethod
     def _to_python_float(value):
         """Convert scalar-like values (including CuPy scalars) to float."""
         if value is None:
@@ -1149,9 +1170,11 @@ class LogisticRegression(BaseEstimator):
             Predicted class labels.
         """
         proba = self.predict_proba(X)
-        if hasattr(proba, 'is_floating_point'):  # torch tensor
-            return (proba[:, 1] >= 0.5).to(dtype=proba.dtype)
-        return (proba[:, 1] >= 0.5).astype(int)
+        if type(proba).__module__.startswith("torch"):
+            import torch
+
+            return (proba[:, 1] >= 0.5).to(dtype=torch.int64)
+        return (proba[:, 1] >= 0.5).astype(np.int64)
 
     def predict_with_threshold(self, X, threshold: float = 0.5):
         """
@@ -1169,12 +1192,13 @@ class LogisticRegression(BaseEstimator):
         ndarray of shape (n_samples,)
             Predicted class labels.
         """
-        if threshold < 0.0 or threshold > 1.0:
-            raise ValueError("threshold must be in [0, 1]")
+        threshold = self._validate_threshold(threshold)
         proba = self.predict_proba(X)
-        if hasattr(proba, "to") and hasattr(proba, "dtype"):
-            return (proba[:, 1] >= threshold).to(dtype=proba.dtype)
-        return (proba[:, 1] >= threshold).astype(int)
+        if type(proba).__module__.startswith("torch"):
+            import torch
+
+            return (proba[:, 1] >= threshold).to(dtype=torch.int64)
+        return (proba[:, 1] >= threshold).astype(np.int64)
     
     def score(self, X, y):
         """
@@ -1192,21 +1216,32 @@ class LogisticRegression(BaseEstimator):
         float
             Mean accuracy.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(X).reshape(-1)
+        y_validated = validate_binary_response(
+            y,
+            int(y_pred.shape[0]),
+            context="LogisticRegression.score",
+        )
         device = self._get_compute_device()
         if device == Device.CUDA:
             import cupy as cp
 
-            yb = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
-            return float(cp.mean(y_pred.reshape(-1) == yb).item())
+            yb = cp.asarray(
+                self._to_array(y_validated, Device.CUDA)
+            ).reshape(-1)
+            return float(cp.mean(y_pred == yb).item())
         if device == Device.TORCH:
             import torch
 
-            yb = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
-            return float(torch.mean((y_pred.reshape(-1) == yb).to(torch.float64)).item())
-        y_pred = self._to_numpy(y_pred)
-        y = self._to_numpy(y)
-        return np.mean(y_pred == y)
+            yb = self._to_array(
+                y_validated, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            return float(
+                torch.mean((y_pred == yb).to(torch.float64)).item()
+            )
+        y_pred_np = np.asarray(self._to_numpy(y_pred)).reshape(-1)
+        y_np = np.asarray(self._to_numpy(y_validated)).reshape(-1)
+        return float(np.mean(y_pred_np == y_np))
 
     def confusion_matrix(self, X, y, threshold: float = 0.5) -> np.ndarray:
         """Compute binary confusion matrix on a dataset."""

@@ -1,5 +1,7 @@
 # Changelog
 
+- 统一直接 LogisticRegression 在 NumPy、CuPy 与 Torch 下的预测契约：硬标签使用整数 dtype，单列响应评分不再发生广播，非有限决策阈值会被拒绝。
+
 - 将拟合似然诊断与协方差推断解耦，开启推断不会改变 AIC、BIC 或伪 R²。
 
 - 统一 CPU、CuPy 与 Torch 的拟合对数似然诊断，全部复用数值稳定的 LogisticLoss 注册目标。
