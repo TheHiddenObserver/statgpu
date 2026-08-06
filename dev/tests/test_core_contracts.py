@@ -1,5 +1,6 @@
 """Regression tests for core contracts found during iterative review."""
 
+import subprocess
 import sys
 import types
 
@@ -161,3 +162,25 @@ def test_umap_fuzzy_graph_uses_reverse_edge_memberships(monkeypatch):
         [[0.0, 0.68, 0.58], [0.68, 0.0, 0.90], [0.58, 0.90, 0.0]]
     )
     np.testing.assert_allclose(graph, expected, rtol=0.0, atol=1e-12)
+
+
+def test_glm_core_import_order_is_clean_in_fresh_interpreter():
+    """Internal GLM imports must not depend on importing linear_model first."""
+    code = """
+from statgpu.glm_core._family import Gaussian
+from statgpu.glm_core._irls import IRLSSolver
+from statgpu.glm_core._logistic import LogisticLoss
+from statgpu.linear_model import LogisticRegression
+
+assert Gaussian().name == 'gaussian'
+assert IRLSSolver is not None
+assert LogisticLoss().name == 'logistic'
+assert LogisticRegression is not None
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
