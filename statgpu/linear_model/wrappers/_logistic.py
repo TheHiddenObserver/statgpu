@@ -1637,13 +1637,17 @@ class LogisticRegression(BaseEstimator):
         print(f"F1 Score:                   {self._to_python_float(self.f1):>15.4f}")
         try:
             auc = self.auc
-        except ValueError:
+        except ValueError as exc:
+            if "only one class" not in str(exc).lower():
+                raise
             auc = None
         auc_display = self._to_python_float(auc)
         print(f"ROC-AUC:                    {auc_display:>15.4f}")
         try:
             ap = self.average_precision
-        except ValueError:
+        except ValueError as exc:
+            if "no positive class" not in str(exc).lower():
+                raise
             ap = None
         ap_display = self._to_python_float(ap)
         print(f"Avg Precision:              {ap_display:>15.4f}")
