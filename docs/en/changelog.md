@@ -53,6 +53,7 @@
 
 ### Runtime safety
 
+- Removed the package-initialization cycle between `statgpu.glm_core` and the Cox loss export by lazily exposing `CoxPartialLikelihoodLoss`; GLM internals and `LogisticRegression` no longer require a particular import order in a fresh interpreter.
 - Armijo backtracking no longer treats generic `out of range` errors as recoverable numerical trials, preserving index/device programming errors.
 - Proximal-Newton now backtracks on recognized numeric-domain ValueError trials while preserving unrelated contract and runtime failures.
 - Shared backend linear solves now use least-squares fallback only for recognized rank failures and preserve CUDA OOM/device RuntimeErrors.
