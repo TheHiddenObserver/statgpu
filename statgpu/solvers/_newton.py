@@ -27,6 +27,10 @@ from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_hessian,
     _smooth_penalty_value_dev,
+    _runtime_error_is_singular,
+    _as_backend_vector,
+    _validate_smooth_penalty,
+    _trial_error_is_numerical,
 )
 
 
@@ -44,22 +48,19 @@ def newton_solver(
 
     Supports numpy / cupy / torch backends via auto-detection of X.
 
-    For losses with constant Hessian (e.g. Gamma log link), the Hessian
-    doesn't change across iterations, so the Newton step is always valid
-    and line search is skipped.
+    For losses with constant Hessian, the Hessian is computed once and
+    reused across iterations; Armijo backtracking still verifies each step.
 
     Requires: loss has hessian() and penalty is smooth.
     """
+    _validate_smooth_penalty(penalty, "newton_solver")
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
-        params = (
-            _copy_arr(init_coef)
-            if hasattr(init_coef, "copy") or hasattr(init_coef, "clone")
-            else np.array(init_coef).copy()
-        )
+        params = _as_backend_vector(init_coef, backend, X_proc)
     else:
         params = _zeros(n_features, backend, ref_tensor=X_proc)
 
@@ -72,7 +73,6 @@ def newton_solver(
             penalty, params
         )
 
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     iteration = -1
     line_search_failed = False
 
@@ -135,7 +135,7 @@ def newton_solver(
 
                 direction = torch.linalg.solve(hess_reg, grad.unsqueeze(1))
                 direction = direction.squeeze(1)
-        except (np.linalg.LinAlgError, ValueError, RuntimeError):
+        except np.linalg.LinAlgError:
             if backend == "numpy":
                 direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
             elif backend == "cupy":
@@ -147,6 +147,20 @@ def newton_solver(
 
                 direction = torch.linalg.lstsq(hess_reg, grad.unsqueeze(1)).solution
                 direction = direction.squeeze(1)
+        except RuntimeError as exc:
+            if not _runtime_error_is_singular(exc):
+                raise
+            if backend == "torch":
+                import torch
+
+                direction = torch.linalg.lstsq(hess_reg, grad.unsqueeze(1)).solution
+                direction = direction.squeeze(1)
+            elif backend == "cupy":
+                import cupy as cp
+
+                direction = cp.linalg.lstsq(hess_reg, grad)[0]
+            else:
+                direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
 
         # Armijo backtracking line search
         obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
@@ -172,8 +186,11 @@ def newton_solver(
                     params = params_try
                     accepted = True
                     break
-            except (ValueError, RuntimeError, FloatingPointError):
+            except FloatingPointError:
                 pass
+            except (ValueError, RuntimeError) as exc:
+                if not _trial_error_is_numerical(exc):
+                    raise
             step *= 0.5
         if not accepted:
             # Never accept an unverified trial step.  A tiny rejected step

@@ -1,0 +1,218 @@
+{
+  "backends": {
+    "cupy": {
+      "cases": {
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "cupy",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.5493721067905426,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "cupy",
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "effective_device": "cuda",
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.09370505809783936,
+          "passed": true
+        },
+        "public_boundary": {
+          "backend": "cupy",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "device_normalized": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 1.1425760686397552,
+          "packed_target_stayed_native": true,
+          "passed": true
+        },
+        "single_group_workspace": {
+          "backend": "cupy",
+          "max_abs_differences": {
+            "information": 1.3322676295501878e-14,
+            "log_likelihood": 0.0,
+            "score": 6.661338147750939e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.4403754472732544,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "cupy",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 4.440892098500626e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.015913397073745728,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "13.6.0"
+    },
+    "torch": {
+      "cases": {
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "torch",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.034435003995895386,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "torch",
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "effective_device": "torch",
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.044280827045440674,
+          "passed": true
+        },
+        "public_boundary": {
+          "backend": "torch",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "device_normalized": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 0.17851296067237854,
+          "packed_target_stayed_native": true,
+          "passed": true
+        },
+        "single_group_workspace": {
+          "backend": "torch",
+          "max_abs_differences": {
+            "information": 1.199040866595169e-14,
+            "log_likelihood": 0.0,
+            "score": 4.440892098500626e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.21849337220191956,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "torch",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 4.440892098500626e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.007500648498535156,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "2.0.0+cu117"
+    }
+  },
+  "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path> --run-targeted-tests",
+  "gate_failures": [],
+  "numpy": "1.24.2",
+  "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
+  "schema_version": 3,
+  "source_clean": true,
+  "source_commit": "d551039b43ab4f95026e61bf2ccb3e7a112a1450",
+  "source_sha256": {
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "e3011e4720281148ec69a5d47b27f5875ccbc165dd7f973eac2d60ed0480d0a3",
+    "dev/tests/test_pr80_complete_review_cycle.py": "8dd9075dfe43c2fb1a8caf529bf99cb5c870972e605b2a1b7a1dcb5764e67c82",
+    "dev/tests/test_pr80_constructor_boundaries.py": "0f1942065e0ffa3050982ce0a30a9111ad5d289024c9121b3e5506fcdd1cbc33",
+    "dev/tests/test_pr80_cox_stability_review.py": "7b21320a2bae2c8cc087314efc5095e7a897eabde2706f55359fc14aaf215043",
+    "dev/tests/test_pr80_cv_fit_boundary.py": "f910f4d2d3a633c403bbb122fc8a2f8f824fd260fcbedae34a22edc6a56efa84",
+    "dev/tests/test_pr80_fit_boundary.py": "81997784fc2754ad3d087b93b7ed459538143a60f003ba5781a8c7c7e99e8440",
+    "dev/tests/test_pr80_workspace_estimator.py": "30ef8f5d9f3db9f8a66d33d0e97af0a1dcac36be3617de523d71de303698247a",
+    "statgpu/linear_model/penalized/_penalized_cox.py": "660f721dcedcc2ba4ee3a671a232f8c6edbb9b319bcb80612daa59e9f984f2da",
+    "statgpu/survival/_concordance.py": "e07c113d7d362bb3098a7f91fe67d218fd190d03529134d1806f9aeccecf15fa",
+    "statgpu/survival/_cox.py": "2a8fcfbb84b7d54f49232b5764a9fc13002932efc25a5d5c5318397250e8f05a",
+    "statgpu/survival/_cox_cv.py": "06e520b235bde157fd3e6a97b01c94cbce25dfdbc4d0a2a54d3d57ba1f848be0",
+    "statgpu/survival/_cox_fit_adapter.py": "8d34ab12ae5f136249cc597463868ae6af35968c7fad5896afe49dfccf1b3134",
+    "statgpu/survival/_cox_score.py": "9e456db78758911b9fba6a1acd28d3490baff6f7c061c4b61918d7eac270eef8",
+    "statgpu/survival/_risk_sets.py": "62ef90de57337cf2461ec15668a8efa073e68f401aecab2377c611f238b15c04"
+  },
+  "targeted_tests": {
+    "command": "STATGPU_REQUIRE_PHYSICAL_GPU=1 /root/miniconda3/envs/myconda/bin/python -m pytest -q dev/tests/test_pr80_complete_review_cycle.py dev/tests/test_pr80_constructor_boundaries.py dev/tests/test_pr80_workspace_estimator.py dev/tests/test_pr80_fit_boundary.py dev/tests/test_pr80_cv_fit_boundary.py dev/tests/test_pr80_cox_stability_review.py",
+    "output_tail": "........................................................................ [ 59%]\n.................................................                        [100%]\n121 passed in 8.89s",
+    "passed": true,
+    "passed_count": 121,
+    "returncode": 0,
+    "summary": "121 passed in 8.89s"
+  },
+  "validation_tier": "remote-full"
+}

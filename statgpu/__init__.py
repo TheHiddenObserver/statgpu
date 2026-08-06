@@ -4,7 +4,7 @@ statgpu: GPU-accelerated statistical methods
 A sklearn-compatible library for statistical computing with GPU support.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.4"
 
 from ._config import get_device, set_device, Device
 from ._base import BaseEstimator
@@ -38,7 +38,7 @@ from .linear_model import (
     ElasticNet,
     ElasticNetCV,
 )
-from .survival import CoxPH, CoxPHCV
+from .survival import CoxFitNumericalError, CoxPH, CoxPHCV
 from .losses import (
     LossBase,
     QuantileLoss,
@@ -61,10 +61,13 @@ from .metrics import evaluate_binary_classification
 from .feature_selection import (
     FixedXKnockoffSelector,
     KnockoffSelector,
+    StepwiseSelector,
     fixed_x_knockoff_filter,
     knockoff_filter,
     model_x_knockoff_filter,
+    stepwise_selection,
 )
+from .diagnostics import RegressionDiagnostics, diagnose_model
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
 from .anova import (
@@ -162,6 +165,7 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    "CoxFitNumericalError",
     # Losses (LossBase subclasses)
     "LossBase",
     "QuantileLoss",
@@ -189,6 +193,11 @@ __all__ = [
     "fixed_x_knockoff_filter",
     "knockoff_filter",
     "model_x_knockoff_filter",
+    "StepwiseSelector",
+    "stepwise_selection",
+    # Diagnostics
+    "RegressionDiagnostics",
+    "diagnose_model",
     # Inference
     "adjust_pvalues",
     "combine_pvalues",
@@ -252,3 +261,11 @@ __all__ = [
     "UMAP",
     "TSNE",
 ]
+
+
+# Some maintained methods are supplied by mixins or attached after class
+# creation. Refresh finite-value guards after the complete public API is bound.
+from ._base import refresh_public_finite_validation_contracts as _refresh_finite_contracts
+
+_refresh_finite_contracts()
+del _refresh_finite_contracts

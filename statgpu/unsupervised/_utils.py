@@ -5,13 +5,26 @@ from __future__ import annotations
 import numpy as np
 from scipy import sparse
 
+from statgpu.backends import _is_cupy_array, _is_torch_array
+
 
 def check_2d_array(X, name: str = "X") -> None:
-    """Validate that *X* is a non-empty 2D array-like object."""
+    """Validate that *X* is a non-empty finite 2D array-like object."""
     if getattr(X, "ndim", None) != 2:
         raise ValueError(f"{name} must be a 2D array")
     if X.shape[0] < 1 or X.shape[1] < 1:
         raise ValueError(f"{name} must contain at least one sample and one feature")
+
+    if _is_torch_array(X):
+        import torch
+        finite = bool(torch.isfinite(X).all().detach().cpu().item())
+    elif _is_cupy_array(X):
+        import cupy as cp
+        finite = bool(cp.isfinite(X).all().item())
+    else:
+        finite = bool(np.isfinite(np.asarray(X)).all())
+    if not finite:
+        raise ValueError(f"{name} must contain only finite values")
 
 
 def reject_sparse(X, estimator_name: str) -> None:
@@ -43,14 +56,23 @@ def scalar_to_int(x) -> int:
 
 
 def draw_random_seed(random_state) -> int:
-    """Draw an integer seed from int/None/RandomState/Generator inputs."""
+    """Return a portable seed for NumPy, CuPy, and Torch generators.
+
+    ``RandomState``-style generators accept unsigned 32-bit seeds. Drawing
+    from that shared domain preserves fresh entropy for ``None`` while keeping
+    the same seed usable by all supported backends.
+    """
+    max_seed = int(np.iinfo(np.uint32).max)
     if random_state is None:
-        return int(np.random.SeedSequence().generate_state(1, dtype=np.uint64)[0])
+        return int(np.random.SeedSequence().generate_state(1, dtype=np.uint32)[0])
     if isinstance(random_state, np.random.Generator):
-        return int(random_state.integers(0, np.iinfo(np.int32).max))
+        return int(random_state.integers(0, max_seed, endpoint=True, dtype=np.uint32))
     if isinstance(random_state, np.random.RandomState):
-        return int(random_state.randint(0, np.iinfo(np.int32).max))
-    return int(random_state)
+        return int(random_state.randint(0, max_seed, dtype=np.uint32))
+    seed = int(random_state)
+    if seed < 0 or seed > max_seed:
+        raise ValueError(f"random_state must be in [0, {max_seed}]")
+    return seed
 
 
 def backend_random_normal(backend, random_state, size, scale: float = 1.0):

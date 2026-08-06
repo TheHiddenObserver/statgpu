@@ -1,11 +1,11 @@
 # LogisticRegression
 
 > 语言: 中文  
-> 最后更新: 2026-05-20  
+> 最后更新: 2026-08-06
 > 页面定位: 模型文档  
-> 切换: [English](../en/models/logistic-regression.md)
+> 切换: [English](../../en/models/logistic-regression.md)
 
-语言切换：[English](../en/models/logistic-regression.md)
+语言切换：[English](../../en/models/logistic-regression.md)
 
 ## 概览（Overview）
 
@@ -34,6 +34,8 @@
 - `cov_type="hc3"`：更保守的 jackknife 风格修正
 - `cov_type="hac"`：Newey-West（Bartlett kernel）自相关稳健协方差
 - `hac_maxlags`：仅 `cov_type="hac"` 生效
+
+似然、AIC、BIC、伪 R² 与 `converged_` 在 `compute_inference=False` 时仍可用；协方差相关字段不可用。
 
 ## 参数（Parameters）
 

@@ -11,18 +11,22 @@ import numpy as np
 
 
 def _parse_formula_if_provided(formula, data, X, y):
-    """Parse formula+data or fall back to raw arrays. Returns (y, X, info)."""
+    """Parse formula data and return retained row positions for side arrays."""
     if formula is not None:
-        from statgpu.core.formula import parse_formula
-        return parse_formula(formula, data)
-    y = np.asarray(y)
-    if y.ndim == 2 and y.shape[1] == 1:
-        y = y.ravel()
-    return y, np.asarray(X), None
+        from statgpu.core.formula import FormulaParser
+
+        parser = FormulaParser(formula)
+        y_arr, X_arr, design_info = parser.eval(data)
+        return y_arr, X_arr, design_info, parser.row_positions
+    y_arr = np.asarray(y)
+    if y_arr.ndim == 2 and y_arr.shape[1] == 1:
+        y_arr = y_arr.ravel()
+    return y_arr, np.asarray(X), None, None
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_numpy, _resolve_backend, _is_torch_array
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.solvers import fista_solver
 from statgpu.glm_core._family import (
@@ -155,7 +159,7 @@ class GeneralizedLinearModel(BaseEstimator):
         """
         if self._use_intercept is not None:
             return self._use_intercept
-        return self.fit_intercept
+        return self._fit_intercept
 
     def _get_family(self):
         """Return the GLM Family instance. Override in subclass."""
@@ -182,7 +186,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not bool(self.gpu_memory_cleanup):
+        if not bool(self._gpu_memory_cleanup):
             return
         try:
             import cupy as cp
@@ -193,7 +197,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch CUDA memory cleanup."""
-        if not bool(self.gpu_memory_cleanup):
+        if not bool(self._gpu_memory_cleanup):
             return
         try:
             import torch
@@ -310,7 +314,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
         result = m_estimation_inference(
             self._loss, self._X_design, self._y_inf, self._params,
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             penalty_curvature_diag=curv,
             sample_weight=self._sample_weight_inf,
         )
@@ -336,9 +340,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 "dispersion": result["dispersion"],
                 "wald_stat": result["wald_stat"],
                 "wald_pval": result["wald_pval"],
-                "meat_type": self.cov_type,
+                "meat_type": self._cov_type,
                 "covariance_convention": _infer_covariance_convention(
-                    self.cov_type, curv is not None
+                    self._cov_type, curv is not None
                 ),
                 "solver_used": self._fit_metadata.get("solver_used"),
                 "inference_backend": backend,
@@ -369,7 +373,7 @@ class GeneralizedLinearModel(BaseEstimator):
         lines.append(f"  Family: {family_name}")
         lines.append(f"  Solver: {getattr(self, 'solver', 'unknown')}")
         lines.append(f"  No. Observations: {self._nobs}")
-        lines.append(f"  Df Residuals: {self._df_resid}")
+        lines.append(f"  Df Residuals: {self._df_resid:g}")
         lines.append(f"  Covariance Type: {getattr(self, 'cov_type', 'nonrobust')}")
         lines.append("")
 
@@ -409,11 +413,12 @@ class GeneralizedLinearModel(BaseEstimator):
     def loglikelihood(self):
         """Pseudo-loglikelihood at the fitted coefficients.
 
-        Computed as -sum(loss.per_sample_value(eta, y)).  Additive constants
-        that do not depend on the parameters (e.g. -log(y!) for Poisson,
-        -n log(2πσ²)/2 for Gaussian) are omitted.  ΔAIC / ΔBIC comparisons
-        between nested models on the same data remain valid; absolute values
-        should not be compared with statsmodels or R.
+        Without sample weights this is ``-sum(per_sample_loss)``.  With
+        analytic sample weights it is the negative weighted-average loss
+        multiplied by the original row count, so globally rescaling all
+        weights leaves loglikelihood, AIC, and BIC unchanged.  Additive
+        constants independent of the parameters are omitted; absolute values
+        should therefore not be compared directly with statsmodels or R.
         """
         self._check_is_fitted()
         if self._loss is None or self._X_design is None or self._y_inf is None:
@@ -425,7 +430,17 @@ class GeneralizedLinearModel(BaseEstimator):
         xp = _get_xp(backend)
         params = xp_asarray(self._params, xp=xp, ref_arr=self._X_design)
         eta = self._X_design @ params
-        return -float(xp.sum(self._loss.per_sample_value(eta, self._y_inf)))
+        values = self._loss.per_sample_value(eta, self._y_inf)
+        if self._sample_weight_inf is not None:
+            weights = xp_asarray(
+                self._sample_weight_inf, xp=xp, ref_arr=self._X_design
+            )
+            weight_sum = xp.sum(weights)
+            # Analytic weights define a weighted average objective.  Report
+            # its n-observation pseudo-loglikelihood so multiplying every
+            # weight by a constant does not change diagnostics.
+            return -float(self._nobs * xp.sum(values * weights) / weight_sum)
+        return -float(xp.sum(values))
 
     @property
     def aic(self):
@@ -440,7 +455,7 @@ class GeneralizedLinearModel(BaseEstimator):
         ll = self.loglikelihood
         k = len(self._params) if self._params is not None else 0
         n = self._nobs if self._nobs else 0
-        return -2.0 * ll + k * np.log(max(n, 1))
+        return -2.0 * ll + k * np.log(max(float(n), 1.0))
 
     def __del__(self):
         try:
@@ -468,6 +483,11 @@ class GeneralizedLinearModel(BaseEstimator):
         # Resolve backend once for both formula and direct paths
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
+        from statgpu.glm_core._validation import (
+            validate_glm_design_matrix,
+            validate_glm_sample_weight,
+        )
+        fit_loss = self._resolve_loss_for_inference()
 
         # Handle formula interface
         if formula is not None:
@@ -476,9 +496,18 @@ class GeneralizedLinearModel(BaseEstimator):
                     "formula was provided but data is None. "
                     "Pass data=your_dataframe when using formula."
                 )
-            y_arr, X_arr, design_info = _parse_formula_if_provided(
+            y_arr, X_arr, design_info, retained_rows = _parse_formula_if_provided(
                 formula, data, None, None
             )
+            if sample_weight is not None:
+                from statgpu.core.formula import align_formula_sample_weight
+
+                sample_weight = align_formula_sample_weight(
+                    sample_weight,
+                    data_length=len(data),
+                    retained_rows=retained_rows,
+                    retained_length=X_arr.shape[0],
+                )
             self._design_info = design_info
             formula_column_names = list(design_info.column_names)
             self._formula_has_intercept = "Intercept" in formula_column_names
@@ -489,7 +518,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 self._use_intercept = True
             else:
                 self._use_intercept = False
-            # Formula produces numpy; convert to backend
+            X_arr = validate_glm_design_matrix(X_arr)
+            y_arr = fit_loss.validate_response(y_arr)
+            # Formula produces NumPy; convert validated arrays to backend.
             y_arr = self._to_array(y_arr, backend=backend_name)
             X_arr = self._to_array(X_arr, backend=backend_name)
         else:
@@ -501,17 +532,27 @@ class GeneralizedLinearModel(BaseEstimator):
             self._design_info = None
             self._formula_has_intercept = None
             self._use_intercept = None
-            # _to_array safely handles numpy/cupy/torch inputs
-            y_arr = self._to_array(y, backend=backend_name)
-            X_arr = self._to_array(X, backend=backend_name)
+            X_validated = validate_glm_design_matrix(X)
+            y_validated = fit_loss.validate_response(y)
+            y_arr = self._to_array(y_validated, backend=backend_name)
+            X_arr = self._to_array(X_validated, backend=backend_name)
 
         # Ensure y is 1D after backend conversion
         if hasattr(y_arr, 'ndim') and y_arr.ndim == 2 and y_arr.shape[1] == 1:
             y_arr = y_arr.ravel()
         self._nobs = X_arr.shape[0]
 
+        if sample_weight is not None:
+            sample_weight = validate_glm_sample_weight(
+                sample_weight, self._nobs
+            )
+            sample_weight = self._to_array(sample_weight, backend=backend_name)
+
         family = self._get_family()
-        _solver_lower = self.solver.lower() if isinstance(self.solver, str) else self.solver
+        y_arr = fit_loss.validate_response(y_arr)
+        if int(y_arr.shape[0]) != int(X_arr.shape[0]):
+            raise ValueError("Response length must match X.shape[0].")
+        _solver_lower = self._solver.lower() if isinstance(self._solver, str) else self._solver
         if _solver_lower == "auto":
             # Heuristic: IRLS for smooth/no penalties, FISTA for non-smooth
             _pen = getattr(self, "_penalty", None)
@@ -537,6 +578,11 @@ class GeneralizedLinearModel(BaseEstimator):
                 "solver must be one of: 'auto', 'irls', 'fista', 'newton', 'lbfgs'"
             )
 
+        # Parameter counts are backend-neutral; reading ``shape`` must not
+        # trigger an implicit CuPy/Torch-to-NumPy transfer.
+        parameter_count = int(self._params.shape[0])
+        self._df_resid = float(self._nobs - parameter_count)
+
         # ---- Store design/loss for loglikelihood/aic/bic (always) ----
         from statgpu.backends import _to_numpy, _resolve_backend
         from statgpu.backends._utils import _get_xp
@@ -553,20 +599,25 @@ class GeneralizedLinearModel(BaseEstimator):
             self._y_inf = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
             self._X_design, self._params, self._intercept_idx = \
                 self._aligned_inference_design_glm(X_arr)
-        self._loss = self._resolve_loss_for_inference()
+        self._loss = fit_loss
+
+        # Preserve fit weights even when inference is disabled because
+        # loglikelihood/AIC/BIC are public fitted-model diagnostics.  GPU
+        # weights stay on their selected backend.
+        if sample_weight is not None:
+            if is_gpu:
+                self._sample_weight_inf = self._to_array(
+                    sample_weight, backend=inf_backend
+                )
+            else:
+                self._sample_weight_inf = np.asarray(
+                    sample_weight, dtype=float
+                ).ravel()
+        else:
+            self._sample_weight_inf = None
 
         # ---- Compute inference if requested ----
-        if self.compute_inference:
-            if sample_weight is not None:
-                sw = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
-                if is_gpu:
-                    self._sample_weight_inf = self._to_array(
-                        sw, backend=inf_backend)
-                else:
-                    self._sample_weight_inf = sw
-            else:
-                self._sample_weight_inf = None
-
+        if self._compute_inference_enabled:
             self._fit_metadata = {
                 "solver_used": solver_name,
                 "objective_scale": "mean_loss_plus_penalty",
@@ -597,17 +648,24 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _fit_irls(self, X, y, sample_weight, family, backend_name="numpy"):
         """Fit using IRLS (per-iteration weighted least squares)."""
-        # IRLSSolver solves the unnormalized WLS normal equations
-        # X'WX + lambda I, while _get_penalty_alpha() is the normalized
-        # objective penalty.  Scale by n to keep C semantics consistent.
-        ridge_alpha = X.shape[0] * self._get_penalty_alpha()
+        # IRLSSolver solves unnormalized WLS normal equations.  The public
+        # objective is normalized by n without weights and by sum(w) with
+        # weights, so the normal-equation ridge term must use the same scale.
+        if sample_weight is None:
+            objective_scale = float(X.shape[0])
+        else:
+            scale_value = sample_weight.sum()
+            objective_scale = float(
+                scale_value.item() if hasattr(scale_value, "item") else scale_value
+            )
+        ridge_alpha = objective_scale * self._get_penalty_alpha()
 
         if self._effective_intercept:
             X_design = _add_intercept_column(X, backend_name)
         else:
             X_design = X
 
-        solver = IRLSSolver(family, max_iter=self.max_iter, tol=self.tol)
+        solver = IRLSSolver(family, max_iter=self._max_iter, tol=self._tol)
         params, n_iter = solver.fit(
             X_design, y,
             sample_weight=sample_weight,
@@ -696,7 +754,9 @@ class GeneralizedLinearModel(BaseEstimator):
                     eta_target = eta_raw - torch.mean(eta_raw)
                     try:
                         init_t = torch.linalg.lstsq(X_t, eta_target).solution
-                    except RuntimeError:
+                    except RuntimeError as exc:
+                        if not _linalg_exception_is_rank_failure(exc):
+                            raise
                         init_t = torch.zeros(X.shape[1], dtype=torch.float64, device=X.device)
                     eta_init = X_t @ init_t
                     eta_abs_max = torch.max(torch.abs(eta_init))
@@ -745,7 +805,7 @@ class GeneralizedLinearModel(BaseEstimator):
                             init = init * (target / (med_abs + 1e-12))
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
             self.coef_ = _to_numpy(coef)
@@ -795,7 +855,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
             full_coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_aug, y,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
 
@@ -805,32 +865,83 @@ class GeneralizedLinearModel(BaseEstimator):
             self.n_iter_ = n_iter
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
-            # Squared error: centering X and y preserves the objective.
+            # Squared error with an intercept can be profiled by centering.  For
+            # weighted loss the centering constants must be weighted means;
+            # ordinary means optimize a different objective whenever weights
+            # are unequal.  Keep all reductions on the selected backend.
             from statgpu.backends._utils import _get_xp
+
             xp = _get_xp(backend_name)
             if backend_name == "cupy":
-                X_centered = X - xp.mean(X, axis=0)
-                y_centered = y - xp.mean(y)
+                x_dtype = X.dtype if xp.issubdtype(X.dtype, xp.floating) else xp.float64
+                X_float = X.astype(x_dtype, copy=False)
+                y_float = xp.asarray(y, dtype=x_dtype)
+                if sample_weight is None:
+                    X_mean_native = xp.mean(X_float, axis=0)
+                    y_mean_native = xp.mean(y_float)
+                else:
+                    weights = xp.asarray(sample_weight, dtype=x_dtype)
+                    weight_sum = xp.sum(weights)
+                    X_mean_native = xp.sum(
+                        X_float * weights[:, None], axis=0
+                    ) / weight_sum
+                    y_mean_native = xp.sum(y_float * weights) / weight_sum
+                X_centered = X_float - X_mean_native
+                y_centered = y_float - y_mean_native
             elif backend_name == "torch":
                 import torch
+
                 x_dtype = _torch_promoted_float_dtype(X, y)
+                if sample_weight is not None:
+                    weight_dtype = (
+                        sample_weight.dtype
+                        if sample_weight.is_floating_point()
+                        else torch.float64
+                    )
+                    x_dtype = torch.promote_types(x_dtype, weight_dtype)
                 X_float = X.to(dtype=x_dtype)
                 y_float = y.to(X.device).to(x_dtype)
-                X_centered = X_float - torch.mean(X_float, dim=0)
-                y_centered = y_float - torch.mean(y_float)
+                if sample_weight is None:
+                    X_mean_native = torch.mean(X_float, dim=0)
+                    y_mean_native = torch.mean(y_float)
+                else:
+                    weights = sample_weight.to(X.device).to(x_dtype)
+                    weight_sum = torch.sum(weights)
+                    X_mean_native = torch.sum(
+                        X_float * weights[:, None], dim=0
+                    ) / weight_sum
+                    y_mean_native = torch.sum(y_float * weights) / weight_sum
+                X_centered = X_float - X_mean_native
+                y_centered = y_float - y_mean_native
             else:
-                X_centered = X - X.mean(axis=0)
-                y_centered = y - y.mean()
+                X_float = np.asarray(X, dtype=np.float64)
+                y_float = np.asarray(y, dtype=np.float64)
+                if sample_weight is None:
+                    X_mean_native = np.mean(X_float, axis=0)
+                    y_mean_native = np.mean(y_float)
+                else:
+                    weights = np.asarray(sample_weight, dtype=np.float64)
+                    weight_sum = np.sum(weights)
+                    X_mean_native = np.sum(
+                        X_float * weights[:, None], axis=0
+                    ) / weight_sum
+                    y_mean_native = np.sum(y_float * weights) / weight_sum
+                X_centered = X_float - X_mean_native
+                y_centered = y_float - y_mean_native
 
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y_centered,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=None, sample_weight=sample_weight,
             )
 
-            _xp_mod = _get_xp(backend_name) if backend_name != "numpy" else np
-            X_mean = _to_numpy(_xp_mod.mean(X, axis=0))
-            y_mean = float(_xp_mod.mean(y))
+            X_mean = _to_numpy(X_mean_native)
+            if backend_name == "torch":
+                y_mean = float(y_mean_native.item())
+            elif backend_name == "cupy":
+                y_mean = float(y_mean_native.item())
+            else:
+                y_mean = float(y_mean_native)
             self.coef_ = _to_numpy(coef)
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self.n_iter_ = n_iter
@@ -886,11 +997,11 @@ class GeneralizedLinearModel(BaseEstimator):
 
         if solver_name == "newton":
             params, n_iter = newton_solver(
-                loss, None, X_work, y, max_iter=self.max_iter, tol=self.tol
+                loss, None, X_work, y, max_iter=self._max_iter, tol=self._tol
             )
         else:
             params, n_iter = lbfgs_solver(
-                loss, None, X_work, y, max_iter=self.max_iter, tol=self.tol
+                loss, None, X_work, y, max_iter=self._max_iter, tol=self._tol
             )
 
         params_np = _to_numpy(params)
@@ -1069,7 +1180,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             self._df_resid = self._nobs - (p + K - 1)
             self._params = np.concatenate([self.coef_, self._thresh_est])
 
-            if self.compute_inference:
+            if self._compute_inference_enabled:
                 self._compute_ordered_inference(X, y)
             self._fitted = True
         finally:
@@ -1121,9 +1232,9 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         d = len(theta); nll_old = xp.inf; ridge = 1e-4
 
-        if self.max_iter <= 0:
+        if self._max_iter <= 0:
             raise ValueError(
-                f"max_iter must be > 0, got {self.max_iter}. "
+                f"max_iter must be > 0, got {self._max_iter}. "
                 "Newton-Raphson requires at least 1 iteration."
             )
 
@@ -1147,7 +1258,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             return t
 
         # ---- Newton loop ----
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             thresh = _enforce_thresh_gaps(theta[p:])
             theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
@@ -1174,10 +1285,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                     f"NLL became non-finite ({float(nll):.4g}) at iteration "
                     f"{iteration}. Coefficients may have diverged."
                 )
-            if iteration > 0 and abs(float(nll_old - nll)) < self.tol:
+            if iteration > 0 and abs(float(nll_old - nll)) < self._tol:
                 break
             grad_inf = float(xp.max(xp.abs(grad)))
-            if grad_inf < self.tol:
+            if grad_inf < self._tol:
                 break
             nll_old = nll
 
@@ -1192,12 +1303,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                 # errors re-raise.  CuPy uses generic Exception for linalg.
                 try:
                     delta = xp.linalg.solve(H_reg, -grad)
-                except (np.linalg.LinAlgError, RuntimeError):
-                    ridge *= 10; continue
-                except Exception:
-                    if is_cupy:
-                        ridge *= 10; continue
-                    raise
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
+                    ridge *= 10
+                    continue
 
                 theta_try = theta + delta
                 thresh_t = _enforce_thresh_gaps(theta_try[p:])
@@ -1303,11 +1413,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         ``_ordered_hessian_analytical`` and backend-native linalg + distributions.
         """
         # Only nonrobust covariance is supported for ordered models
-        cov_type = self.cov_type.lower()
+        cov_type = self._cov_type.lower()
         if cov_type not in ("nonrobust",):
             raise NotImplementedError(
                 f"Ordered model inference only supports cov_type='nonrobust', "
-                f"got '{self.cov_type}'. HC0/HC1 sandwich and penalized "
+                f"got '{self._cov_type}'. HC0/HC1 sandwich and penalized "
                 f"inference are not yet available for ordered models."
             )
 
@@ -1349,20 +1459,14 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         eye = xp_eye(d, xp.float64, xp, ref_arr=H)
         try:
             H_inv = xp.linalg.solve(H, eye)
-        except (np.linalg.LinAlgError, RuntimeError) as e:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             raise np.linalg.LinAlgError(
                 "Ordered model Hessian is singular — cannot compute standard errors. "
                 "This may indicate quasi-complete separation or redundant thresholds. "
                 "Consider using inference_method='bootstrap' or reducing n_categories."
-            ) from e
-        except Exception as e:
-            if is_cupy:
-                raise np.linalg.LinAlgError(
-                    "Ordered model Hessian is singular — cannot compute standard errors. "
-                    "This may indicate quasi-complete separation or redundant thresholds. "
-                    "Consider using inference_method='bootstrap' or reducing n_categories."
-                ) from e
-            raise
+            ) from exc
         cov = H_inv
 
         # Backend-aware distribution functions

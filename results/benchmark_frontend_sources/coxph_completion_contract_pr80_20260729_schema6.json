@@ -1,0 +1,493 @@
+{
+  "backends": {
+    "cupy": {
+      "cases": {
+        "completion_contract": {
+          "backend": "cupy",
+          "cleanup_calls_after_error": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "cleanup_calls_after_success": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "complex_prediction_rejected": true,
+          "concordance": 0.6152512998266898,
+          "direct_backend_imports_absent": true,
+          "fractional_subject_id_rejected": true,
+          "import_time_adapter_absent": true,
+          "inference_result_contract": true,
+          "legacy_mixin_isolated": true,
+          "ordinary_concordance_sync_calls": [
+            {
+              "backend": "cupy",
+              "values": 3
+            }
+          ],
+          "passed": true,
+          "summary_truthful": true
+        },
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "cupy",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.05200469493865967,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "cupy",
+          "candidate_cluster_used": false,
+          "candidate_label_preparation": true,
+          "candidate_strata_preencoded": true,
+          "candidate_subject_id_used": false,
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cv_full_host_transfer_performed": true,
+          "effective_device": "cuda",
+          "final_refit_full_host_transfer_performed": true,
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.4999501705169678,
+          "fold_backend_preparation_count": 2,
+          "full_host_transfer_performed": true,
+          "input_backends": [
+            "cupy"
+          ],
+          "orchestration_device": "cpu",
+          "passed": true,
+          "single_cleanup_owner": true,
+          "transfer_provenance": true
+        },
+        "hazard_ratio_boundary": {
+          "backend": "cupy",
+          "canonical_log_risk": [
+            800.0,
+            800.0
+          ],
+          "canonical_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          },
+          "passed": true,
+          "penalized_complex_log_risk_rejected": true,
+          "penalized_log_risk": [
+            800.0,
+            800.0
+          ],
+          "penalized_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          }
+        },
+        "ordinary_cv_preparation": {
+          "backend": "cupy",
+          "candidate_right_censored_preparation_count": 2,
+          "candidate_target_host_transfer_count": 2,
+          "candidate_target_host_vector_transfer_count": 4,
+          "cv_full_host_transfer_performed": true,
+          "expected_loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "final_refit_full_host_transfer_performed": true,
+          "fold_backend_preparation_count_this_call": 2,
+          "full_host_transfer_performed": true,
+          "loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "passed": true,
+          "selection_cache_hit": false,
+          "ties": "efron"
+        },
+        "public_boundary": {
+          "backend": "cupy",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cpu_input_transfer_disclosed": true,
+          "device_normalized": true,
+          "extreme_survival_log_domain": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 2.530137777328491,
+          "loss_target_host_copy_shapes": [
+            [
+              72
+            ],
+            [
+              72
+            ]
+          ],
+          "passed": true,
+          "target_transfer_disclosed": true
+        },
+        "single_group_workspace": {
+          "backend": "cupy",
+          "max_abs_differences": {
+            "information": 1.3322676295501878e-14,
+            "log_likelihood": 0.0,
+            "score": 4.440892098500626e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.45464888215065,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "cupy",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 5.329070518200751e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.01685410737991333,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "13.6.0"
+    },
+    "torch": {
+      "cases": {
+        "completion_contract": {
+          "backend": "torch",
+          "cleanup_calls_after_error": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "cleanup_calls_after_success": {
+            "cuda": 1,
+            "torch": 1
+          },
+          "complex_prediction_rejected": true,
+          "concordance": 0.6152512998266898,
+          "direct_backend_imports_absent": true,
+          "fractional_subject_id_rejected": true,
+          "import_time_adapter_absent": true,
+          "inference_result_contract": true,
+          "legacy_mixin_isolated": true,
+          "ordinary_concordance_sync_calls": [
+            {
+              "backend": "torch",
+              "values": 3
+            }
+          ],
+          "passed": true,
+          "summary_truthful": true
+        },
+        "concordance_boundaries": {
+          "all_censored_counting_coxph": 0.5,
+          "all_censored_penalized_cox": 0.5,
+          "all_censored_public_coxph": 0.5,
+          "backend": "torch",
+          "large_pair_case": {
+            "comparison_tiles": 2,
+            "concordance": 0.0,
+            "event_tile": 1,
+            "limit_entries": 2000000,
+            "n_events": 1,
+            "n_samples": 2000001,
+            "sample_tile": 2000000,
+            "seconds": 0.03587964177131653,
+            "tile_entries": 2000000
+          },
+          "passed": true,
+          "penalized_truthy_string_rejected": true
+        },
+        "cv_device_normalization": {
+          "backend": "torch",
+          "candidate_cluster_used": false,
+          "candidate_label_preparation": true,
+          "candidate_strata_preencoded": true,
+          "candidate_subject_id_used": false,
+          "cleanup_operations_after_predict": {
+            "inner_cuda": 0,
+            "inner_torch": 0,
+            "outer_cuda": 1,
+            "outer_torch": 1
+          },
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cv_full_host_transfer_performed": true,
+          "effective_device": "torch",
+          "final_refit_full_host_transfer_performed": true,
+          "final_refit_skips_training_cindex": true,
+          "finite": true,
+          "fit_seconds": 0.19470223784446716,
+          "fold_backend_preparation_count": 2,
+          "full_host_transfer_performed": true,
+          "input_backends": [
+            "torch-device"
+          ],
+          "orchestration_device": "cpu",
+          "passed": true,
+          "single_cleanup_owner": true,
+          "transfer_provenance": true
+        },
+        "hazard_ratio_boundary": {
+          "backend": "torch",
+          "canonical_log_risk": [
+            800.0,
+            800.0
+          ],
+          "canonical_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          },
+          "passed": true,
+          "penalized_complex_log_risk_rejected": true,
+          "penalized_log_risk": [
+            800.0,
+            800.0
+          ],
+          "penalized_range_rejections": {
+            "-800.0": true,
+            "800.0": true
+          }
+        },
+        "ordinary_cv_preparation": {
+          "backend": "torch",
+          "candidate_right_censored_preparation_count": 2,
+          "candidate_target_host_transfer_count": 2,
+          "candidate_target_host_vector_transfer_count": 4,
+          "cv_full_host_transfer_performed": true,
+          "expected_loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "final_refit_full_host_transfer_performed": true,
+          "fold_backend_preparation_count_this_call": 2,
+          "full_host_transfer_performed": true,
+          "loss_target_host_copy_shapes": [
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              18
+            ],
+            [
+              36
+            ],
+            [
+              36
+            ]
+          ],
+          "passed": true,
+          "selection_cache_hit": false,
+          "ties": "efron"
+        },
+        "public_boundary": {
+          "backend": "torch",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "cpu_input_transfer_disclosed": true,
+          "device_normalized": true,
+          "extreme_survival_log_domain": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 0.18724295496940613,
+          "loss_target_host_copy_shapes": [
+            [
+              72
+            ],
+            [
+              72
+            ]
+          ],
+          "passed": true,
+          "target_transfer_disclosed": true
+        },
+        "single_group_workspace": {
+          "backend": "torch",
+          "max_abs_differences": {
+            "information": 1.199040866595169e-14,
+            "log_likelihood": 0.0,
+            "score": 1.1102230246251565e-15,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.23194485902786255,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "torch",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 4.440892098500626e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.007931143045425415,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "2.0.0+cu117"
+    }
+  },
+  "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path> --run-targeted-tests",
+  "gate_failures": [],
+  "numpy": "1.24.2",
+  "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
+  "schema_version": 6,
+  "source_clean": true,
+  "source_commit": "e26c21e2d1ed373fb0fd2d40169c99a31abdc82d",
+  "source_sha256": {
+    ".github/workflows/test.yml": "d2392afaf6869ae48dd50f0cbf98a44a23a9c711254729d323d09b62193baf70",
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "b18e30670aeeb81794e4cc3173a7185c5f7867596e52528041aa15c874b81472",
+    "dev/tests/test_cox_cv.py": "7e959b2df252fc2670938d3431a797829a2ab0689e7b0fd9ab6352277cb4167e",
+    "dev/tests/test_pr79_complete_review_fixes.py": "2e5221ab5283a31d41524b8af4d204e6c5e7cc49495612a288f49e280350c838",
+    "dev/tests/test_pr80_complete_review_cycle.py": "8dd9075dfe43c2fb1a8caf529bf99cb5c870972e605b2a1b7a1dcb5764e67c82",
+    "dev/tests/test_pr80_completion_contract_followup.py": "280cf942507525ba0e676c0b8320e22888880102cb718224d6322d56fb465bed",
+    "dev/tests/test_pr80_constructor_boundaries.py": "0f1942065e0ffa3050982ce0a30a9111ad5d289024c9121b3e5506fcdd1cbc33",
+    "dev/tests/test_pr80_cox_stability_review.py": "f9e2d407a1bf2ad5493a07150354297220857b90dc6334b009274a4c0de56ac4",
+    "dev/tests/test_pr80_cv_fit_boundary.py": "f910f4d2d3a633c403bbb122fc8a2f8f824fd260fcbedae34a22edc6a56efa84",
+    "dev/tests/test_pr80_fit_boundary.py": "81997784fc2754ad3d087b93b7ed459538143a60f003ba5781a8c7c7e99e8440",
+    "dev/tests/test_pr80_target_transfer_overflow_cache.py": "2ebcee0b5193e343be0a117e37be987aa762b763b59531e5ccbcd141b25e3295",
+    "dev/tests/test_pr80_workspace_estimator.py": "30ef8f5d9f3db9f8a66d33d0e97af0a1dcac36be3617de523d71de303698247a",
+    "statgpu/__init__.py": "f385dd53e235f6afc81d80c1d4538bbcefe4f84f9e7830bd67d2e927a8c72a2d",
+    "statgpu/backends/_array_ops.py": "7cf8794477fa60857c9e8e77479894260099fb1d9936d2b0c6ad0c94c301c0be",
+    "statgpu/backends/_utils.py": "ca2b486b0a01e508846f76dee216828e09b530a6ed7d8c5ccb50b37c10f1ec4f",
+    "statgpu/linear_model/penalized/_penalized_cox.py": "6ad82088de0d10cfb59bb24c87ff165bca40499fbb8101fb6cd3fe5592d46a98",
+    "statgpu/losses/_cox_ph.py": "7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea",
+    "statgpu/survival/__init__.py": "97592d8c53b8dd64eccf428980bc949ac2069b1db555dfdd4ec26981b7e46024",
+    "statgpu/survival/_concordance.py": "e07c113d7d362bb3098a7f91fe67d218fd190d03529134d1806f9aeccecf15fa",
+    "statgpu/survival/_cox.py": "30ebf08b65c039f8f235a4fe32065c14bbcdaf0ff7a1b4864796b8e56efe3ca3",
+    "statgpu/survival/_cox_counting.py": "2e1fb9be09313ad83785a509c9d16f806293278fc78ce14340e907ddfde1cd72",
+    "statgpu/survival/_cox_cv.py": "0c6f613a10265c54267ee5eca6a9b7cd994dc755725bbd4c46635d8fb1fe7b7a",
+    "statgpu/survival/_cox_errors.py": "be41af4f1c5df64f2c5fc9e254f8602e36b4fd1b3a57939999ee1ecf8d806f4f",
+    "statgpu/survival/_cox_fit_adapter.py": "4555ec638a6fd509c7ac9a89068a660f33fabef8d9822d0ac1732eb6df7ebba5",
+    "statgpu/survival/_cox_inference.py": "2ca2a12e99da49670ffa5597bda73b6ef05b63ec684cc0db3da2a0d785d02488",
+    "statgpu/survival/_cox_legacy.py": "e7198c4fe223e99a465263422000b425bad764916e828fb9141c96af4cd44d77",
+    "statgpu/survival/_cox_score.py": "54f3d6a2a4a160a8a70e94456d9312b0b7f58eed150d452e5969ffa9b4977654",
+    "statgpu/survival/_numeric.py": "ffc5eeb59cc355d4ce40c8788f7e37e60c51f28ac394720a7955e6b0b2b40b3d",
+    "statgpu/survival/_risk_sets.py": "294c15eb62632bca638a850b6be3273b8d34d333d8e9dc0dec940c178c9cf65a"
+  },
+  "targeted_tests": {
+    "command": "STATGPU_REQUIRE_PHYSICAL_GPU=1 /root/miniconda3/envs/myconda/bin/python -m pytest -q dev/tests/test_pr79_complete_review_fixes.py dev/tests/test_pr80_complete_review_cycle.py dev/tests/test_pr80_completion_contract_followup.py dev/tests/test_pr80_constructor_boundaries.py dev/tests/test_pr80_workspace_estimator.py dev/tests/test_pr80_fit_boundary.py dev/tests/test_pr80_cv_fit_boundary.py dev/tests/test_pr80_cox_stability_review.py dev/tests/test_cox_cv.py dev/tests/test_pr80_target_transfer_overflow_cache.py",
+    "output_tail": "........................................................................ [ 53%]\n........................................................................ [ 80%]\n......................................................                   [100%]\n=============================== warnings summary ===============================\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_line_search_failure_does_not_update_beta\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_line_search_failure_is_not_converged\n  /root/statgpu-pr80-e26c21e-20260729T0129Z/statgpu/survival/_cox.py:649: RuntimeWarning: CoxPH did not converge after 1 iterations (stop_reason=line_search_failed)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_small_step_large_kkt_is_stalled\ndev/tests/test_pr79_complete_review_fixes.py::test_cpu_cox_final_kkt_overrides_false_success\n  /root/statgpu-pr80-e26c21e-20260729T0129Z/statgpu/survival/_cox.py:649: RuntimeWarning: CoxPH did not converge after 3 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\ndev/tests/test_pr80_completion_contract_followup.py::test_summary_preserves_exact_formula_call\n  /root/statgpu-pr80-e26c21e-20260729T0129Z/statgpu/survival/_cox.py:649: RuntimeWarning: CoxPH did not converge after 100 iterations (stop_reason=max_iter)\n    return self._fit_counting_process_dispatch(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n270 passed, 5 warnings in 16.28s",
+    "passed": true,
+    "passed_count": 270,
+    "returncode": 0,
+    "summary": "270 passed, 5 warnings in 16.28s"
+  },
+  "validation_tier": "remote-full"
+}

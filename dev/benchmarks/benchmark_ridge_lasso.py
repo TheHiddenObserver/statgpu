@@ -1,6 +1,6 @@
 """
 Benchmark script for Ridge and Lasso regression.
-Shows GPU speedup vs CPU.
+Shows GPU speedup vs CPU and uses explicit objective mappings for sklearn.
 """
 
 import numpy as np
@@ -40,13 +40,11 @@ def benchmark_ridge():
     for n_samples, n_features in sizes:
         X, y, _ = generate_data(n_samples, n_features)
 
-        # CPU benchmark
         ridge_cpu = Ridge(alpha=1.0, device='cpu')
         t0 = time.perf_counter()
         ridge_cpu.fit(X, y)
         cpu_time = (time.perf_counter() - t0) * 1000
 
-        # GPU benchmark (if available)
         try:
             ridge_gpu = Ridge(alpha=1.0, device='cuda')
             t0 = time.perf_counter()
@@ -54,7 +52,7 @@ def benchmark_ridge():
             gpu_time = (time.perf_counter() - t0) * 1000
             speedup = cpu_time / gpu_time if gpu_time > 0 else float('inf')
             print(f"{n_samples}x{n_features:<8} {cpu_time:<15.2f} {gpu_time:<15.2f} {speedup:<10.2f}x")
-        except Exception as e:
+        except Exception:
             print(f"{n_samples}x{n_features:<8} {cpu_time:<15.2f} {'N/A':<15} {'N/A':<10}")
 
 
@@ -76,14 +74,12 @@ def benchmark_lasso():
     for n_samples, n_features in sizes:
         X, y, _ = generate_data(n_samples, n_features)
 
-        # CPU benchmark
         lasso_cpu = Lasso(alpha=0.1, max_iter=500, device='cpu')
         t0 = time.perf_counter()
         lasso_cpu.fit(X, y)
         cpu_time = (time.perf_counter() - t0) * 1000
         iters = lasso_cpu.n_iter_
 
-        # GPU benchmark (if available)
         try:
             lasso_gpu = Lasso(alpha=0.1, max_iter=500, device='cuda')
             t0 = time.perf_counter()
@@ -91,12 +87,12 @@ def benchmark_lasso():
             gpu_time = (time.perf_counter() - t0) * 1000
             speedup = cpu_time / gpu_time if gpu_time > 0 else float('inf')
             print(f"{n_samples}x{n_features:<8} {cpu_time:<15.2f} {gpu_time:<15.2f} {speedup:<10.2f}x {iters:<8}")
-        except Exception as e:
+        except Exception:
             print(f"{n_samples}x{n_features:<8} {cpu_time:<15.2f} {'N/A':<15} {'N/A':<10} {iters:<8}")
 
 
 def benchmark_vs_sklearn():
-    """Benchmark against sklearn."""
+    """Benchmark against sklearn under equivalent objective scales."""
     print("\n" + "="*80)
     print("BENCHMARK VS SKLEARN")
     print("="*80)
@@ -115,29 +111,29 @@ def benchmark_vs_sklearn():
     print(f"\n{'Model':<20} {'Library':<15} {'Time (ms)':<15} {'Relative':<10}")
     print("-" * 65)
 
-    # statgpu Ridge
-    ridge_sg = Ridge(alpha=1.0, device='cpu')
+    statgpu_alpha = 1.0
+    ridge_sg = Ridge(alpha=statgpu_alpha, device='cpu')
     t0 = time.perf_counter()
     ridge_sg.fit(X, y)
     sg_time = (time.perf_counter() - t0) * 1000
     print(f"{'Ridge':<20} {'statgpu':<15} {sg_time:<15.2f} {'1.00x':<10}")
 
-    # sklearn Ridge
-    ridge_sk = SklearnRidge(alpha=1.0, fit_intercept=True)
+    # sklearn uses an unnormalized residual sum of squares.
+    sklearn_alpha = n_samples * statgpu_alpha
+    ridge_sk = SklearnRidge(alpha=sklearn_alpha, fit_intercept=True)
     t0 = time.perf_counter()
     ridge_sk.fit(X, y)
     sk_time = (time.perf_counter() - t0) * 1000
     relative = sk_time / sg_time
     print(f"{'Ridge':<20} {'sklearn':<15} {sk_time:<15.2f} {relative:<10.2f}x")
+    print(f"Ridge alpha mapping: sklearn={sklearn_alpha:g}, statgpu={statgpu_alpha:g}")
 
-    # statgpu Lasso
     lasso_sg = Lasso(alpha=0.1, max_iter=1000, device='cpu')
     t0 = time.perf_counter()
     lasso_sg.fit(X, y)
     sg_time = (time.perf_counter() - t0) * 1000
     print(f"{'Lasso':<20} {'statgpu':<15} {sg_time:<15.2f} {'1.00x':<10}")
 
-    # sklearn Lasso
     lasso_sk = SklearnLasso(alpha=0.1, fit_intercept=True, max_iter=1000)
     t0 = time.perf_counter()
     lasso_sk.fit(X, y)

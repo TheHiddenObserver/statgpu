@@ -13,6 +13,11 @@ from statgpu._config import Device, cuda_available
 from statgpu.cross_validation._base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.linear_model.wrappers._elasticnet import ElasticNet
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
 
 
 # =============================================================================
@@ -111,62 +116,33 @@ from statgpu.cross_validation._base import kfold_indices as _kfold_indices, fold
 # Alpha grid generation for ElasticNet
 # =============================================================================
 
+
 def _default_elasticnet_alpha_grid(
     X,
     y,
     l1_ratio: float = 0.5,
     n_alphas: int = 100,
     alpha_min_ratio: float = 1e-3,
+    sample_weight=None,
 ) -> np.ndarray:
-    """
-    Generate default alpha grid for ElasticNet.
-
-    Parameters
-    ----------
-    X : array-like
-        Design matrix (n_samples, n_features).
-    y : array-like
-        Response vector.
-    l1_ratio : float
-        L1 ratio (0.0 = Ridge, 1.0 = Lasso).
-    n_alphas : int
-        Number of alpha values.
-    alpha_min_ratio : float
-        Minimum alpha as a ratio of max alpha.
-
-    Returns
-    -------
-    alphas : ndarray
-        Log-spaced alpha values.
-    """
+    """Generate a grid for the declared weighted ElasticNet objective."""
     X_arr = np.asarray(X, dtype=np.float64)
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
-
-    n_samples, n_features = X_arr.shape
-
-    # Handle intercept by centering
-    X_mean = np.mean(X_arr, axis=0)
-    y_mean = np.mean(y_arr)
+    if sample_weight is None:
+        weight = np.ones(y_arr.shape[0], dtype=np.float64)
+    else:
+        weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+    weight_sum = float(np.sum(weight))
+    X_mean = np.sum(X_arr * weight[:, None], axis=0) / weight_sum
+    y_mean = float(np.sum(y_arr * weight) / weight_sum)
     X_centered = X_arr - X_mean
     y_centered = y_arr - y_mean
-
-    # Compute correlation for alpha_max
-    Xty = X_centered.T @ y_centered
-
-    # alpha_max = max(|X'c yc|) / (n * l1_ratio)
-    # For l1_ratio=1 (Lasso): max(|X'y|) / n
-    # For l1_ratio<1: larger because L2 penalty contributes less
-    _l1r = max(float(l1_ratio), 1e-6)
-    alpha_max = float(np.max(np.abs(Xty))) / (n_samples * _l1r)
+    Xty = X_centered.T @ (weight * y_centered)
+    l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(np.max(np.abs(Xty))) / (weight_sum * l1r)
     alpha_max = max(alpha_max, 1e-6)
-
-    if alpha_max <= 0:
-        alpha_max = 1.0
-
-    # Log-spaced grid
     if int(n_alphas) <= 1:
         return np.asarray([alpha_max], dtype=np.float64)
-
     alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
 
@@ -178,57 +154,28 @@ def _default_elasticnet_alpha_grid_backend(
     l1_ratio: float = 0.5,
     n_alphas: int = 100,
     alpha_min_ratio: float = 1e-3,
+    sample_weight=None,
 ) -> np.ndarray:
-    """
-    Generate default alpha grid for ElasticNet using backend abstraction.
-
-    Parameters
-    ----------
-    X : array-like
-        Design matrix.
-    y : array-like
-        Response vector.
-    backend : BackendBase
-        Backend instance.
-    l1_ratio : float
-        L1 ratio.
-    n_alphas : int
-        Number of alpha values.
-    alpha_min_ratio : float
-        Minimum alpha ratio.
-
-    Returns
-    -------
-    alphas : ndarray
-        Log-spaced alpha values.
-    """
+    """Backend-native weighted ElasticNet alpha grid."""
     X_arr = backend.asarray(X, dtype=backend.float64)
     y_arr = backend.asarray(y, dtype=backend.float64).reshape(-1)
-
-    n_samples = int(X_arr.shape[0])
-
-    # Center data
-    X_mean = backend.mean(X_arr, axis=0)
-    y_mean = backend.mean(y_arr)
+    if sample_weight is None:
+        weight = backend.ones(y_arr.shape[0], dtype=backend.float64)
+    else:
+        weight = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
+    weight_sum = float(backend.sum(weight))
+    X_mean = backend.sum(X_arr * weight[:, None], axis=0) / weight_sum
+    y_mean = backend.sum(y_arr * weight) / weight_sum
     X_centered = X_arr - X_mean
     y_centered = y_arr - y_mean
-
-    # Compute Xty
-    Xty = X_centered.T @ y_centered
-
-    # Alpha max: max(|X'y|) / (n * l1_ratio)
-    _l1r = max(float(l1_ratio), 1e-6)
-    alpha_max = float(backend.max(backend.abs(Xty))) / (n_samples * _l1r)
-
-    if alpha_max <= 0:
-        alpha_max = 1.0
-
+    Xty = X_centered.T @ (weight * y_centered)
+    l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(backend.max(backend.abs(Xty))) / (weight_sum * l1r)
+    alpha_max = max(alpha_max, 1e-6)
     if int(n_alphas) <= 1:
         return np.asarray([alpha_max], dtype=np.float64)
-
     alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
-
 
 # =============================================================================
 # CV main function
@@ -297,43 +244,15 @@ def _select_elasticnet_params_cv(
     best_l1_ratio : float
     details : dict (if return_details=True)
     """
-    if isinstance(device, Device):
-        device_name = device.value
-    else:
-        device_name = str(device).lower()
-        if device_name.startswith("device."):
-            enum_name = device_name.split(".", 1)[1].upper()
-            if enum_name not in Device.__members__:
-                valid = ", ".join(sorted(d.value for d in Device))
-                raise ValueError(f"Invalid device '{device}'. Expected one of: {valid}")
-            device_name = Device[enum_name].value
-    if device_name == Device.AUTO.value:
-        use_gpu = bool(cuda_available())
-    elif device_name in (Device.CUDA.value, Device.TORCH.value):
-        use_gpu = True
-    else:
-        use_gpu = False
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    # Detect GPU input
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     # Validate inputs
     X_np = None
@@ -344,7 +263,7 @@ def _select_elasticnet_params_cv(
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
-        backend = get_backend(backend='auto', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         y_check = backend.asarray(y).reshape(-1)
         if int(y_check.shape[0]) != n_samples:
             raise ValueError("y must have the same number of rows as X")
@@ -358,6 +277,10 @@ def _select_elasticnet_params_cv(
         if y_np.shape[0] != X_np.shape[0]:
             raise ValueError("y must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
+
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
 
     # Default l1_ratios
     if l1_ratios is None:
@@ -376,13 +299,15 @@ def _select_elasticnet_params_cv(
     for l1_idx, l1r in enumerate(l1_ratios_arr):
         if alphas is None:
             if gpu_input_cupy or gpu_input_torch:
-                backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
+                # backend was selected strictly by resolve_cv_backend above
                 alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
-                    X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                    X, y, backend, l1_ratio=l1r, n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio, sample_weight=validated_weight,
                 )
             else:
                 alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
-                    X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                    X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
                 )
         else:
             alpha_grid = np.asarray(alphas, dtype=np.float64)
@@ -390,13 +315,15 @@ def _select_elasticnet_params_cv(
             alpha_grid = alpha_grid[alpha_grid > 0.0]
             if alpha_grid.size == 0:
                 if gpu_input_cupy or gpu_input_torch:
-                    backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
+                    # backend was selected strictly by resolve_cv_backend above
                     alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
-                        X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                        X, y, backend, l1_ratio=l1r, n_alphas=n_alphas,
+                        alpha_min_ratio=alpha_min_ratio, sample_weight=validated_weight,
                     )
                 else:
                     alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
-                        X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
+                        X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas,
+                        alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
                     )
             else:
                 alpha_grids[l1_idx] = alpha_grid
@@ -441,13 +368,7 @@ def _select_elasticnet_params_cv(
     max_n_alphas = max(len(ag) for ag in alpha_grids.values())
     mse_path = np.full((n_l1_ratios, max_n_alphas, n_folds), np.nan, dtype=np.float64)
 
-    # Get backend
-    if gpu_input_torch:
-        backend = get_backend(backend='torch', device='cuda')
-    elif gpu_input_cupy:
-        backend = get_backend(backend='cupy', device='cuda')
-    else:
-        backend = get_backend(backend='auto', device='cuda' if use_gpu else 'cpu')
+    # backend was selected strictly by resolve_cv_backend above
 
     xp = backend.xp
 
@@ -742,6 +663,20 @@ class ElasticNetCV(CVEstimatorBase):
         self.best_score_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
+
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.alpha_ = None
+        self.l1_ratio_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.cv_results_ = None
+        self.best_score_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def _fit_cv(self, X, y, sample_weight=None):
         """
@@ -760,7 +695,10 @@ class ElasticNetCV(CVEstimatorBase):
         -------
         self
         """
-        compute_device = self._get_compute_device()
+        self._reset_cv_fit_state()
+        device_request = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_request, X)
+        refit_device = cv_refit_device(device_request, cv_backend_name)
 
         # Normalize l1_ratio to list
         if isinstance(self.l1_ratio, (list, tuple, np.ndarray)):
@@ -773,49 +711,56 @@ class ElasticNetCV(CVEstimatorBase):
             X, y,
             l1_ratios=l1_ratios,
             alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            cv_folds=self.cv,
+            n_alphas=self._n_alphas,
+            alpha_min_ratio=self._alpha_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
-            device=compute_device,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            fit_intercept=self._fit_intercept,
+            device=device_request,
+            max_iter=self._max_iter,
+            tol=self._tol,
             return_details=True,
         )
 
-        # Store CV results
-        self.alpha_ = best_alpha
-        self.l1_ratio_ = best_l1_ratio
-        self.cv_results_ = {
+        # Keep candidate results local until the final refit succeeds.
+        selected_alpha = float(best_alpha)
+        selected_l1_ratio = float(best_l1_ratio)
+        cv_results = {
             "mse_path": details["mse_path"],
             "mean_mse": details["mean_mse"],
             "std_mse": details["std_mse"],
             "alphas": details["alphas"],
             "l1_ratios": details["l1_ratios"],
-            "best_alpha": self.alpha_,
-            "best_l1_ratio": self.l1_ratio_,
+            "best_alpha": selected_alpha,
+            "best_l1_ratio": selected_l1_ratio,
         }
-        # sklearn convention: best_score_ is negative MSE (higher is better)
-        self.best_score_ = -float(details["best_mse"])
+        best_score = -float(details["best_mse"])
 
         # Fit final model on full data with best parameters
         final_model = ElasticNet(
-            alpha=self.alpha_,
-            l1_ratio=self.l1_ratio_,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            fit_intercept=self.fit_intercept,
-            device=self.device,
+            alpha=selected_alpha,
+            l1_ratio=selected_l1_ratio,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            fit_intercept=self._fit_intercept,
+            device=refit_device,
+            n_jobs=self.n_jobs,
+            compute_inference=self._compute_inference_enabled,
+            inference_method="debiased",
         )
         final_model.fit(X, y, sample_weight=sample_weight)
 
+        self.alpha_ = selected_alpha
+        self.l1_ratio_ = selected_l1_ratio
+        self.cv_results_ = cv_results
+        self.best_score_ = best_score
         self.coef_ = final_model.coef_.copy()
         self.intercept_ = final_model.intercept_
         self.n_iter_ = final_model.n_iter_
         self.estimator_ = final_model
+        self.cv_selected_device_ = refit_device
         self._fitted = True
 
         return self

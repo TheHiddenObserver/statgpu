@@ -1,9 +1,9 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-04-18  
+> Last updated: 2026-08-05<br>
 > This page: Model documentation  
-> Language switch: [Chinese](../../models/elastic-net.md)
+> Language switch: [Chinese](../../cn/models/elastic-net.md)
 
 ## Overview
 
@@ -26,7 +26,7 @@ where:
 - `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives Lasso, λ=0 gives Ridge
 - Loss scaling by `1/(2n)` makes `alpha` interpretation scale-invariant to sample size
 
-**Note on regularization scaling**: With `l1_ratio=0`, `ElasticNet(alpha)` is equivalent to `Ridge(n_samples * alpha)` due to the loss scaling convention.
+**Note on regularization scaling**: `ElasticNet` and `Ridge` both use the same average-loss convention. Therefore, with `l1_ratio=0`, `ElasticNet(alpha)` is equivalent to `Ridge(alpha)`; no sample-size rescaling of the public `alpha` is required.
 
 ## Estimating Equation
 
@@ -81,18 +81,27 @@ For `kkt` mode, the optimality condition is:
 ## Parameters
 
 | Parameter | Default | Description |
-|-----------|--------:|-------------|
-| `alpha` | `1.0` | Regularization strength (α) |
-| `l1_ratio` | `0.5` | L1 mixing parameter (λ): 0=Ridge, 1=Lasso |
-| `device` | `"cpu"` | Device: `cpu` / `cuda` |
-| `backend` | `None` | Backend: `numpy` / `cupy` / `torch` (auto-detected if None) |
-| `max_iter` | `5000` | Maximum iterations |
-| `tol` | `1e-6` | Convergence tolerance |
-| `fit_intercept` | `True` | Whether to fit intercept |
-| `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt` |
-| `warm_start` | `False` | Reuse previous fit as initialization |
-| `random_state` | `None` | Random seed for reproducibility |
-| `gpu_memory_cleanup` | `False` | Clean GPU memory after fit (CuPy only) |
+|-----------|---------|-------------|
+| `alpha` | `1.0` | Overall regularization strength |
+| `l1_ratio` | `0.5` | L1 mixing proportion: 0=Ridge, 1=Lasso |
+| `fit_intercept` | `True` | Fit an unpenalized intercept |
+| `max_iter` | `1000` | Maximum solver iterations |
+| `tol` | `1e-4` | Convergence tolerance |
+| `stopping` | `"coef_delta"` | `"coef_delta"` or `"kkt"` stopping rule |
+| `device` | `"auto"` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` |
+| `n_jobs` | `None` | CPU parallelism where supported |
+| `solver` | `"fista"` | Backend-aware optimization method |
+| `cpu_solver` | `"fista"` | CPU solver override |
+| `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant |
+| `gpu_memory_cleanup` | `False` | Release backend memory pools after fit where supported |
+| `compute_inference` | `False` | Compute post-fit coefficient inference |
+| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
+| `cov_type` | `"nonrobust"` | Covariance convention where applicable |
+| `hac_maxlags` | `None` | HAC lag count where supported |
+
+The public wrapper does not accept separate `backend`, `warm_start`, or
+`random_state` constructor parameters. Backend selection is controlled by
+`device`; a one-fit warm start can be supplied through `fit(initial_coef=...)`.
 
 ## CPU/GPU Examples
 
@@ -106,46 +115,60 @@ print(f"R²: {model_cpu.score(X, y):.4f}")
 
 # GPU with CuPy
 model_gpu_cupy = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="cuda", backend="cupy",
+    alpha=0.1, l1_ratio=0.5, device="cuda",
     gpu_memory_cleanup=True
 )
 model_gpu_cupy.fit(X, y)
 
-# GPU with PyTorch (recommended for n >= 10,000)
+# GPU with PyTorch
 model_gpu_torch = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="cuda", backend="torch"
+    alpha=0.1, l1_ratio=0.5, device="torch"
 )
 model_gpu_torch.fit(X, y)
 ```
 
-### Solver Selection by Data Scale
-
-| Data Scale | Recommended Backend | Expected Speedup vs sklearn |
-|------------|---------------------|----------------------------|
-| n < 1,000 | CPU (NumPy) | 0.7x - 1.0x |
-| 1,000 ≤ n < 10,000 | CPU (NumPy) | 1.5x - 4x |
-| 10,000 ≤ n < 50,000 | GPU (Torch) | 2x - 3x |
-| n ≥ 50,000 | GPU (Torch) | 3x - 4.4x |
+Backend performance depends on sample size, feature dimension, dtype, hardware,
+data residency, and transfer costs. Benchmark the actual target workload before
+selecting a backend solely for speed.
 
 ## Covariance/Inference
 
-ElasticNet does not provide built-in inference (standard errors, p-values, confidence intervals) because the L1 penalty introduces bias in the coefficient estimates, making standard OLS-based inference invalid.
+`ElasticNet` is estimation-only by default. Set `compute_inference=True` to run
+post-fit inference through the shared penalized-linear inference engine. The
+default `inference_method="debiased"` uses nodewise Lasso to construct a
+bias-corrected estimator, standard errors, z statistics, p-values, and 95%
+confidence intervals. `summary()` is available after inference succeeds.
 
-**Planned inference support**:
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `compute_inference` | `False` | Enable post-fit coefficient inference |
+| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
+| `cov_type` | `"nonrobust"` | Covariance convention where applicable |
+| `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC |
 
-| Method | Description | Status |
-|--------|-------------|--------|
-| Debiased Lasso | Bias-corrected inference via nodewise regression | 待实现 — `PenalizedGeneralizedLinearModel` with `compute_inference=True` |
-| Bootstrap | Empirical confidence intervals via resampling | 待实现 |
-| Selection inference | Post-selection conditional inference | 待实现 |
+Debiased inference is implemented for NumPy, CuPy, and Torch fitting paths. CPU
+validation is part of the hosted test suite; physical CUDA validation for CuPy
+and Torch remains a required remote gate for each exact release candidate.
+Post-selection OLS is a heuristic and does not provide valid selective-inference
+coverage. Inference is conditional on the selected regularization parameters
+and does not alter the fitted penalized coefficients.
 
-For debiased inference with ElasticNet penalties, use `PenalizedGeneralizedLinearModel(loss='squared_error', penalty='elasticnet')` which will support the debiased Lasso path once implemented.
+For `ElasticNetCV`, `compute_inference=True` applies inference only to the final
+full-data refit after alpha and `l1_ratio` have been selected. Fold models remain
+estimation-only.
 
-## strict/approx difference
+## Solver and Inference Semantics
 
-ElasticNet uses the **approximate** (default) solver path:
-- **approx**: FISTA with fixed Lipschitz constant, convergence checked via coefficient delta. Fast but no inference guarantees.
-- **strict**: Not applicable for standalone ElasticNet. For debiased inference, use `PenalizedGeneralizedLinearModel` with `compute_inference=True`, which runs nodewise Lasso to construct the debiasing matrix M.
+The default estimator uses FISTA for the declared Elastic Net objective. The
+`stopping` option changes only the convergence diagnostic (`coef_delta` versus
+KKT violation); it does not define a separate statistical approximation mode.
+
+`compute_inference=False` returns the penalized estimate only. With
+`compute_inference=True`, the same fitted coefficients are retained and the
+selected post-fit inference method is run afterward. The standalone
+`ElasticNet` wrapper and the final full-data refit of `ElasticNetCV` both support
+this contract directly; users do not need to switch estimator classes merely
+to request debiased inference.
 
 ## Outputs
 
@@ -156,95 +179,19 @@ After fitting, the following attributes are available:
 | `coef_` | Estimated coefficients (shape: n_features) |
 | `intercept_` | Fitted intercept |
 | `n_iter_` | Number of iterations until convergence |
-| `aic` | Akaike Information Criterion (if available) |
-| `bic` | Bayesian Information Criterion (if available) |
+| `aic` | Akaike Information Criterion (when inference provides it) |
+| `bic` | Bayesian Information Criterion (when inference provides it) |
 
 Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
-## Numerical Consistency
+## Numerical Validation
 
-All statgpu backends (CPU, CuPy, Torch) produce numerically consistent results:
-
-| Backend Pair | Max Coefficient Difference |
-|--------------|----------------------------|
-| CPU vs CuPy | < 3e-8 |
-| CPU vs Torch | < 3e-8 |
-| All vs sklearn | < 3e-8 |
-
-## Performance Benchmarks
-
-### vs sklearn (Python)
-
-| Dataset | n | p | sklearn (ms) | statgpu CPU (ms) | Speedup |
-|---------|---|---|--------------|------------------|---------|
-| small | 200 | 20 | 0.77 | 1.10 | 0.70x |
-| medium | 1,000 | 50 | 10.42 | 2.37 | **4.40x** |
-| large | 5,000 | 100 | 6.01 | 4.13 | **1.45x** |
-
-### vs glmnet (R)
-
-| Dataset | n | p | R glmnet (ms) | statgpu CPU (ms) | Winner |
-|---------|---|---|---------------|------------------|--------|
-| small | 200 | 20 | 8.51 | **1.10** | statgpu |
-| medium | 1,000 | 50 | 6.27 | **2.06** | statgpu |
-| large | 5,000 | 100 | 10.70 | **6.14** | statgpu |
-
-statgpu CPU wins 4/6 comparisons against R glmnet.
-
-### Large-Scale Performance (n ≥ 10,000)
-
-| Dataset | n | p | sklearn | statgpu CPU | statgpu Torch | Torch Speedup |
-|---------|---|---|---------|-------------|---------------|---------------|
-| n_10k_p100 | 10,000 | 100 | 11.39 | 11.24 | 12.02 | 0.95x |
-| n_10k_p500 | 10,000 | 500 | 82.03 | 100.51 | **30.52** | **2.69x** |
-| n_50k_p100 | 50,000 | 100 | 69.74 | 52.01 | **21.74** | **3.21x** |
-| n_50k_p500 | 50,000 | 500 | 310.34 | 145.31 | **79.77** | **3.89x** |
-| n_100k_p100 | 100,000 | 100 | 118.94 | 60.85 | **33.23** | **3.58x** |
-| n_100k_p500 | 100,000 | 500 | 615.59 | 269.45 | **141.05** | **4.36x** |
-
-**Key findings**:
-- statgpu Torch is fastest in 5/6 large-scale tests (83%)
-- Maximum speedup: **4.36x** vs sklearn on n=100k, p=500
-- GPU acceleration becomes advantageous at n ≥ 10,000
-
-## FAQ
-
-**Q: How do I choose l1_ratio?**
-- `l1_ratio=1.0`: Pure Lasso (sparse solutions)
-- `l1_ratio=0.0`: Pure Ridge (dense shrinkage)
-- `l1_ratio=0.5`: Balanced (default)
-- Tune via cross-validation for best predictive performance
-
-**Q: Why are CPU and GPU iteration counts different?**
-Different numerical paths and floating-point arithmetic can lead to slightly different convergence trajectories. Compare final coefficients and R² rather than iteration counts.
-
-**Q: When should I use GPU vs CPU?**
-- n < 10,000: CPU is faster (no data transfer overhead)
-- n ≥ 10,000: GPU (Torch backend) shows 2-4x speedup
-- n ≥ 50,000: Both CuPy and Torch show significant advantages
-
-**Q: Why do coefficients differ from sklearn by ~1e-8?**
-This is within numerical precision for floating-point arithmetic. All backends solve the same optimization problem to tolerance 1e-6.
-
-**Q: How does alpha relate to Ridge/Lasso?**
-- `ElasticNet(l1_ratio=1.0, alpha=X)` ≈ `Lasso(alpha=X)`
-- `ElasticNet(l1_ratio=0.0, alpha=X)` ≈ `Ridge(alpha=n_samples * X)`
-
-## External Validation
-
-Benchmark scripts:
-- `dev/benchmarks/benchmark_elasticnet_sklearn.py` - sklearn comparison
-- `dev/benchmarks/benchmark_glmnet_full.R` - R glmnet comparison
-- `dev/benchmarks/benchmark_large_scale.py` - large-scale performance
-- `dev/benchmarks/run_full_benchmark.py` - unified benchmark runner
-
-Test scripts:
-- `dev/scripts/remote_elasticnet_smoke.py` - basic validation
-- `dev/scripts/remote_stability_en.py` - numerical stability tests
+The maintained regression suite checks agreement across supported backends and
+against reference implementations at tolerances chosen for each dtype and
+solver path. Physical CUDA validation remains part of the exact-head handoff;
+no universal coefficient tolerance or speedup applies to every workload.
 
 ## References
 
-- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the elastic net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320. [https://doi.org/10.1111/j.1467-9868.2005.00503.x](https://doi.org/10.1111/j.1467-9868.2005.00503.x)
-- Nesterov, Y. (2005). Smooth minimization of non-smooth functions. *Mathematical Programming*, 103(1), 127-152. [https://doi.org/10.1007/s10107-004-0552-5](https://doi.org/10.1007/s10107-004-0552-5)
-- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202. [https://doi.org/10.1137/080716542](https://doi.org/10.1137/080716542)
-- Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. *Journal of Statistical Software*, 33(1), 1-22. [https://www.jstatsoft.org/v33/i01/](https://www.jstatsoft.org/v33/i01/)
+- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
+- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.

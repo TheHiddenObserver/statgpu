@@ -6,7 +6,9 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 from statgpu.backends import _to_numpy
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model._gaussian_inference import (
+    GaussianFitState,
     build_gaussian_fit_state,
     compute_gaussian_inference,
 )
@@ -17,22 +19,48 @@ if TYPE_CHECKING:
 
 class _PenalizedInferenceMixin:
 
-    def _weighted_gaussian_fit_inputs(self, X, y, sample_weight=None):
+    def _gaussian_fit_state(self, X, y, sample_weight=None):
+        """Build Gaussian inference state under the fitted average-loss weights."""
         X_np = np.asarray(_to_numpy(X), dtype=float)
         y_np = np.asarray(_to_numpy(y), dtype=float)
         if y_np.ndim == 2 and y_np.shape[1] == 1:
             y_np = y_np.ravel()
         if sample_weight is None:
-            return X_np, y_np
-        sw = np.asarray(_to_numpy(sample_weight), dtype=float)
-        if sw.ndim != 1 or sw.shape[0] != X_np.shape[0]:
+            return build_gaussian_fit_state(
+                X_np, y_np, self.coef_, self.intercept_, self._effective_intercept
+            )
+
+        sw = np.asarray(_to_numpy(sample_weight), dtype=float).reshape(-1)
+        if sw.shape[0] != X_np.shape[0]:
             raise ValueError("sample_weight must be one-dimensional with length n_samples.")
         sqrt_sw = np.sqrt(sw)
-        return X_np * sqrt_sw[:, np.newaxis], y_np * sqrt_sw
+        coef = np.asarray(self.coef_, dtype=float)
+        if self._effective_intercept:
+            params = np.concatenate([[float(self.intercept_)], coef])
+            X_design = np.column_stack([sqrt_sw, X_np * sqrt_sw[:, None]])
+            y_pred = float(self.intercept_) + X_np @ coef
+        else:
+            params = coef.copy()
+            X_design = X_np * sqrt_sw[:, None]
+            y_pred = X_np @ coef
+        y_weighted = y_np * sqrt_sw
+        resid = (y_np - y_pred) * sqrt_sw
+        nobs = int(X_np.shape[0])
+        df_resid = nobs - int(X_design.shape[1])
+        scale = float(np.sum(resid ** 2) / df_resid) if df_resid > 0 else np.nan
+        return GaussianFitState(
+            X_design=X_design,
+            y=y_weighted,
+            resid=resid,
+            scale=scale,
+            nobs=nobs,
+            df_resid=df_resid,
+            params=params,
+        )
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
         """Populate inference state after fit. Routes to sandwich/debiased/oracle."""
-        if not self.compute_inference:
+        if not self._compute_inference_enabled:
             return
 
         # Non-squared_error Hessian losses + smooth/L2 penalties: penalized sandwich
@@ -112,14 +140,7 @@ class _PenalizedInferenceMixin:
             self._inference_precomputed = False
             self._precomputed_gaussian_state = None
             return
-        X_fit, y_fit = self._weighted_gaussian_fit_inputs(X, y, sample_weight=sample_weight)
-        state = build_gaussian_fit_state(
-            X_fit,
-            y_fit,
-            self.coef_,
-            self.intercept_,
-            self._effective_intercept,
-        )
+        state = self._gaussian_fit_state(X, y, sample_weight=sample_weight)
         self._X_design = state.X_design
         self._y = state.y
         self._resid = state.resid
@@ -127,15 +148,20 @@ class _PenalizedInferenceMixin:
         self._nobs = state.nobs
         self._df_resid = state.df_resid
         self._params = state.params
-        ridge_alpha = float(state.nobs) * self._ridge_alpha_for_exact()
+        ridge_normalization = (
+            float(state.nobs)
+            if sample_weight is None
+            else float(np.sum(np.asarray(_to_numpy(sample_weight), dtype=float)))
+        )
+        ridge_alpha = ridge_normalization * self._ridge_alpha_for_exact()
         result = compute_gaussian_inference(
             self._X_design,
             self._params,
             self._resid,
             self._scale,
             self._df_resid,
-            self.cov_type,
-            hac_maxlags=self.hac_maxlags,
+            self._cov_type,
+            hac_maxlags=self._hac_maxlags,
             ridge_alpha=ridge_alpha,
             ridge_penalize_intercept=False if self._effective_intercept else True,
         )
@@ -211,7 +237,9 @@ class _PenalizedInferenceMixin:
             X_full = xp.concatenate([_ones, X], axis=1)
             try:
                 XtX_inv = xp.linalg.inv(X_full.T @ X_full)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 XtX_inv = xp.linalg.pinv(X_full.T @ X_full)
             se_intercept = float(xp.sqrt(sigma2 * XtX_inv[0, 0]))
             z_intercept = float(intercept) / (se_intercept + 1e-30)
@@ -270,7 +298,7 @@ class _PenalizedInferenceMixin:
         sigma_hat = np.sqrt(sigma2)
         lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat
         m_cache_key = _debiased_m_key_from_numpy_design(
-            X_np, n=n, p=p, lam_nw=lam_nw, tol=float(self.tol),
+            X_np, n=n, p=p, lam_nw=lam_nw, tol=float(self._tol),
         )
         M_cached = _debiased_m_cache_get(m_cache_key)
         if M_cached is not None:
@@ -347,10 +375,9 @@ class _PenalizedInferenceMixin:
         if getattr(self, 'enable_simultaneous_inference', False):
             self._compute_simultaneous_ci_maxz_bootstrap()
 
-        # Cleanup: free large intermediates that were only needed for bootstrap
-        self._resid = None
-        self._X_design = None
-        self._y = None
+        # Keep public post-fit Gaussian state. These arrays are required by
+        # rsquared, information criteria, diagnostics, and downstream
+        # simultaneous-inference inspection.
 
         # Populate _inference_result for API consumers
         from statgpu.inference._results import DebiasedInferenceResult
@@ -527,7 +554,7 @@ class _PenalizedInferenceMixin:
             refit = PenalizedLinearRegression(
                 penalty="l1", alpha=float(self.alpha),
                 fit_intercept=self._effective_intercept,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 device="cpu", cpu_solver="fista",
                 compute_inference=False, inference_method="none",
             )
@@ -616,7 +643,7 @@ class _PenalizedInferenceMixin:
         x_hasher = hashlib.blake2b(digest_size=32)
         x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
         x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
-        x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
+        x_hasher.update(np.asarray([float(lam_nw), float(self._tol)], dtype=np.float64).tobytes())
         row_chunk = max(1, min(int(n), _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK))
         for start in range(0, int(n), row_chunk):
             stop = min(int(n), start + row_chunk)
@@ -733,10 +760,7 @@ class _PenalizedInferenceMixin:
         if getattr(self, 'enable_simultaneous_inference', False):
             self._compute_simultaneous_ci_maxz_bootstrap()
 
-        # Cleanup: free large intermediates that were only needed for bootstrap
-        self._resid = None
-        self._X_design = None
-        self._y = None
+        # Keep public post-fit Gaussian state for rsquared/AIC/BIC/diagnostics.
 
         # Populate _inference_result for API consumers
         from statgpu.inference._results import DebiasedInferenceResult
@@ -802,7 +826,7 @@ class _PenalizedInferenceMixin:
         X_sample = X_torch[: min(24, n), : min(24, p)].cpu().numpy()
         m_cache_key = _debiased_m_key_from_sample(
             n=n, p=p, dtype_name=str(dtype),
-            sample_block=X_sample, lam_nw=lam_nw, tol=float(self.tol),
+            sample_block=X_sample, lam_nw=lam_nw, tol=float(self._tol),
         )
         M_cached = _debiased_m_cache_get(m_cache_key)
 
@@ -923,10 +947,7 @@ class _PenalizedInferenceMixin:
         if getattr(self, 'enable_simultaneous_inference', False):
             self._compute_simultaneous_ci_maxz_bootstrap()
 
-        # Cleanup: free large intermediates that were only needed for bootstrap
-        self._resid = None
-        self._X_design = None
-        self._y = None
+        # Keep public post-fit Gaussian state for rsquared/AIC/BIC/diagnostics.
 
         # Populate _inference_result for API consumers
         from statgpu.inference._results import DebiasedInferenceResult
@@ -1015,7 +1036,7 @@ class _PenalizedInferenceMixin:
 
         result = m_estimation_inference(
             self._loss, X_design, y_arr, params,
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             penalty_curvature_diag=curv if has_curv else None,
             sample_weight=sw_arr,
         )
@@ -1039,9 +1060,9 @@ class _PenalizedInferenceMixin:
                 "dispersion": result["dispersion"],
                 "wald_stat": result["wald_stat"],
                 "wald_pval": result["wald_pval"],
-                "meat_type": self.cov_type,
+                "meat_type": self._cov_type,
                 "covariance_convention": _infer_covariance_convention(
-                    self.cov_type, has_curv
+                    self._cov_type, has_curv
                 ),
                 "backend": backend,
             },
@@ -1151,7 +1172,7 @@ class _PenalizedInferenceMixin:
         loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
         result = m_estimation_inference(
             loss_obj, X_design, y_cpu, params_active,
-            cov_type=self.cov_type, sample_weight=sw_cpu)
+            cov_type=self._cov_type, sample_weight=sw_cpu)
 
         # Map back to full parameter space.
         # Inactive features keep their original penalized coefficient values
@@ -1189,7 +1210,7 @@ class _PenalizedInferenceMixin:
             metadata={
                 "n_active": n_active,
                 "active_set": active.tolist() if hasattr(active, 'tolist') else list(active),
-                "covariance_convention": _infer_covariance_convention(self.cov_type, False),
+                "covariance_convention": _infer_covariance_convention(self._cov_type, False),
             },
         )
         self._inference_result.apply_to(self)
@@ -1266,21 +1287,28 @@ class _PenalizedInferenceMixin:
         self._simultaneous_critical_value = critical
         self._simultaneous_enabled = True
 
-    def _precompute_exact_l2_inference_cupy(self, X, y, XtX_centered, X_mean, coef_full, n_samples):
-        """Compute nonrobust exact L2 inference on CuPy without a CPU Gram rebuild."""
+    def _precompute_exact_l2_inference_cupy(
+        self, X, y, XtX_centered, X_mean, coef_full, n_samples,
+        sample_weight=None, normalization=None,
+    ):
+        """Compute exact L2 inference on CuPy using the fitted weighted objective."""
         import cupy as cp
         from statgpu.inference._distributions_backend import t
 
         p = XtX_centered.shape[0]
-        ridge_alpha = float(n_samples) * self._ridge_alpha_for_exact()
+        normalization = float(n_samples if normalization is None else normalization)
+        ridge_alpha = normalization * self._ridge_alpha_for_exact()
+        sw = None if sample_weight is None else cp.asarray(sample_weight, dtype=X.dtype).reshape(-1)
+        sqrt_sw = None if sw is None else cp.sqrt(sw)
+
         if X_mean is None:
             xtx_full = XtX_centered
             bread = xtx_full + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
         else:
-            sum_x = float(n_samples) * X_mean
-            xtx_orig = XtX_centered + float(n_samples) * cp.outer(X_mean, X_mean)
+            sum_x = normalization * X_mean
+            xtx_orig = XtX_centered + normalization * cp.outer(X_mean, X_mean)
             xtx_full = cp.empty((p + 1, p + 1), dtype=XtX_centered.dtype)
-            xtx_full[0, 0] = float(n_samples)
+            xtx_full[0, 0] = normalization
             xtx_full[0, 1:] = sum_x
             xtx_full[1:, 0] = sum_x
             xtx_full[1:, 1:] = xtx_orig
@@ -1289,110 +1317,96 @@ class _PenalizedInferenceMixin:
         try:
             chol = cp.linalg.cholesky(bread)
             bread_inv = cp.linalg.solve(chol.T, cp.linalg.solve(chol, cp.eye(bread.shape[0], dtype=bread.dtype)))
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             bread_inv = cp.linalg.pinv(bread)
 
-        if X_mean is None:
-            y_pred = X @ coef_full
-        else:
-            y_pred = coef_full[0] + X @ coef_full[1:]
-        resid = y - y_pred
+        y_pred = X @ coef_full if X_mean is None else coef_full[0] + X @ coef_full[1:]
+        resid_raw = y - y_pred
+        resid = resid_raw if sqrt_sw is None else resid_raw * sqrt_sw
         df_resid = int(n_samples - coef_full.shape[0])
-        if df_resid <= 0:
-            if X_mean is None:
-                X_design = X.get()
-            else:
-                X_np = X.get()
-                X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
-            self._inference_precomputed = True
-            self._precomputed_gaussian_state = {
-                "params": coef_full.get(),
-                "X_design": X_design,
-                "y": y.get(),
-                "resid": resid.get(),
-                "scale": np.nan,
-                "nobs": int(n_samples),
-                "df_resid": int(df_resid),
-            }
-            return
         scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
 
-        # Compute covariance matrix
-        if self.cov_type == "nonrobust":
-            cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
-            distribution = "t"
-            method = "classical"
+        if X_mean is None:
+            X_design_gpu = X if sqrt_sw is None else X * sqrt_sw[:, None]
         else:
-            # GPU-native robust/HAC covariance
+            intercept_col = cp.ones(int(n_samples), dtype=X.dtype) if sqrt_sw is None else sqrt_sw
+            feature_block = X if sqrt_sw is None else X * sqrt_sw[:, None]
+            X_design_gpu = cp.column_stack([intercept_col, feature_block])
+        y_state = y if sqrt_sw is None else y * sqrt_sw
+
+        if df_resid <= 0:
+            self._inference_precomputed = True
+            self._precomputed_gaussian_state = {
+                "params": coef_full.get(), "X_design": X_design_gpu.get(),
+                "y": y_state.get(), "resid": resid.get(), "scale": np.nan,
+                "nobs": int(n_samples), "df_resid": int(df_resid),
+            }
+            return
+
+        if self._cov_type == "nonrobust":
+            cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+            distribution, method = "t", "classical"
+        else:
             from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
-            if X_mean is None:
-                X_design_gpu = X
-            else:
-                X_design_gpu = cp.column_stack([cp.ones(int(n_samples), dtype=X.dtype), X])
             cov_params = robust_covariance_gpu(
-                X_design_gpu, resid, bread_inv, self.cov_type, cp,
-                hac_maxlags=self.hac_maxlags,
+                X_design_gpu, resid, bread_inv, self._cov_type, cp,
+                hac_maxlags=self._hac_maxlags,
             )
-            distribution = "normal"
-            method = "sandwich"
+            distribution, method = "normal", "sandwich"
 
         bse = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
         tvalues = coef_full / (bse + 1e-30)
         if distribution == "t":
             pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
-            t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
+            critical = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
         else:
             from statgpu.inference._distributions_backend import norm
             pvalues = 2.0 * norm.sf(cp.abs(tvalues))
-            z_crit = cp.asarray(norm.ppf(0.975), dtype=bse.dtype)
-            t_crit = z_crit
-        conf_int = cp.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], axis=1)
+            critical = cp.asarray(norm.ppf(0.975), dtype=bse.dtype)
+        conf_int = cp.stack([coef_full - critical * bse, coef_full + critical * bse], axis=1)
+
         from statgpu.inference._results import GaussianInferenceResult
         result = GaussianInferenceResult(
-            params=coef_full.get(),
-            bse=bse.get(),
-            statistic=tvalues.get(),
-            pvalues=pvalues.get(),
-            conf_int=conf_int.get(),
-            cov_type=self.cov_type,
-            distribution=distribution,
-            df=df_resid,
-            method=method,
+            params=coef_full.get(), bse=bse.get(), statistic=tvalues.get(),
+            pvalues=pvalues.get(), conf_int=conf_int.get(), cov_type=self._cov_type,
+            distribution=distribution, df=df_resid, method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)
         self._inference_precomputed = True
-        if X_mean is None:
-            X_design = X.get()
-        else:
-            X_np = X.get()
-            X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
         self._precomputed_gaussian_state = {
-            "params": coef_full.get(),
-            "X_design": X_design,
-            "y": y.get(),
-            "resid": resid.get(),
-            "scale": float(scale.get()) if df_resid > 0 else np.nan,
-            "nobs": int(n_samples),
-            "df_resid": int(df_resid),
+            "params": coef_full.get(), "X_design": X_design_gpu.get(),
+            "y": y_state.get(), "resid": resid.get(), "scale": float(scale.get()),
+            "nobs": int(n_samples), "df_resid": int(df_resid),
         }
 
-    def _precompute_exact_l2_inference_torch(self, X, y, XtX_centered, X_mean, coef_full, n_samples):
-        """Compute nonrobust exact L2 inference on Torch without a CPU Gram rebuild."""
+    def _precompute_exact_l2_inference_torch(
+        self, X, y, XtX_centered, X_mean, coef_full, n_samples,
+        sample_weight=None, normalization=None,
+    ):
+        """Compute exact L2 inference on Torch using the fitted weighted objective."""
         import torch
         from statgpu.inference._distributions_backend import get_distribution
 
         p = XtX_centered.shape[0]
-        ridge_alpha = float(n_samples) * self._ridge_alpha_for_exact()
+        normalization = float(n_samples if normalization is None else normalization)
+        ridge_alpha = normalization * self._ridge_alpha_for_exact()
         eye_p = torch.eye(p, dtype=XtX_centered.dtype, device=XtX_centered.device)
+        sw = None if sample_weight is None else torch.as_tensor(
+            sample_weight, dtype=X.dtype, device=X.device
+        ).reshape(-1)
+        sqrt_sw = None if sw is None else torch.sqrt(sw)
+
         if X_mean is None:
             xtx_full = XtX_centered
             bread = xtx_full + ridge_alpha * eye_p
         else:
-            sum_x = float(n_samples) * X_mean
-            xtx_orig = XtX_centered + float(n_samples) * torch.outer(X_mean, X_mean)
+            sum_x = normalization * X_mean
+            xtx_orig = XtX_centered + normalization * torch.outer(X_mean, X_mean)
             xtx_full = torch.empty((p + 1, p + 1), dtype=XtX_centered.dtype, device=XtX_centered.device)
-            xtx_full[0, 0] = float(n_samples)
+            xtx_full[0, 0] = normalization
             xtx_full[0, 1:] = sum_x
             xtx_full[1:, 0] = sum_x
             xtx_full[1:, 1:] = xtx_orig
@@ -1401,91 +1415,75 @@ class _PenalizedInferenceMixin:
         try:
             chol = torch.linalg.cholesky(bread)
             bread_inv = torch.cholesky_inverse(chol)
-        except RuntimeError:
+        except RuntimeError as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             bread_inv = torch.linalg.pinv(bread)
 
-        if X_mean is None:
-            y_pred = X @ coef_full
-        else:
-            y_pred = coef_full[0] + X @ coef_full[1:]
-        resid = y - y_pred
+        y_pred = X @ coef_full if X_mean is None else coef_full[0] + X @ coef_full[1:]
+        resid_raw = y - y_pred
+        resid = resid_raw if sqrt_sw is None else resid_raw * sqrt_sw
         df_resid = int(n_samples - coef_full.shape[0])
+        scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
+
+        if X_mean is None:
+            X_design_gpu = X if sqrt_sw is None else X * sqrt_sw[:, None]
+        else:
+            intercept_col = torch.ones(int(n_samples), dtype=X.dtype, device=X.device) if sqrt_sw is None else sqrt_sw
+            feature_block = X if sqrt_sw is None else X * sqrt_sw[:, None]
+            X_design_gpu = torch.cat([intercept_col.reshape(-1, 1), feature_block], dim=1)
+        y_state = y if sqrt_sw is None else y * sqrt_sw
+
         if df_resid <= 0:
-            if X_mean is None:
-                X_design = X.detach().cpu().numpy()
-            else:
-                X_np = X.detach().cpu().numpy()
-                X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
             self._inference_precomputed = True
             self._precomputed_gaussian_state = {
                 "params": coef_full.detach().cpu().numpy(),
-                "X_design": X_design,
-                "y": y.detach().cpu().numpy(),
-                "resid": resid.detach().cpu().numpy(),
-                "scale": np.nan,
-                "nobs": int(n_samples),
-                "df_resid": int(df_resid),
+                "X_design": X_design_gpu.detach().cpu().numpy(),
+                "y": y_state.detach().cpu().numpy(),
+                "resid": resid.detach().cpu().numpy(), "scale": np.nan,
+                "nobs": int(n_samples), "df_resid": int(df_resid),
             }
             return
-        scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
 
-        # Compute covariance matrix
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
-            distribution = "t"
-            method = "classical"
+            distribution, method = "t", "classical"
         else:
-            # GPU-native robust/HAC covariance
             from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
-            if X_mean is None:
-                X_design_gpu = X
-            else:
-                X_design_gpu = torch.cat([torch.ones(int(n_samples), 1, dtype=X.dtype, device=X.device), X], dim=1)
             cov_params = robust_covariance_gpu(
-                X_design_gpu, resid, bread_inv, self.cov_type, torch,
-                hac_maxlags=self.hac_maxlags,
+                X_design_gpu, resid, bread_inv, self._cov_type, torch,
+                hac_maxlags=self._hac_maxlags,
             )
-            distribution = "normal"
-            method = "sandwich"
+            distribution, method = "normal", "sandwich"
 
         bse = torch.sqrt(torch.clamp(torch.diag(cov_params), min=0.0))
         tvalues = coef_full / (bse + 1e-30)
         if distribution == "t":
-            t_dist = get_distribution("t", backend="torch", device=X.device)
-            pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)
-            t_crit = t_dist.two_sided_critical_value(0.05, df=df_resid)
+            dist = get_distribution("t", backend="torch", device=X.device)
+            pvalues = dist.two_sided_pvalue(tvalues, df=df_resid)
+            critical = dist.two_sided_critical_value(0.05, df=df_resid)
         else:
-            norm_dist = get_distribution("norm", backend="torch", device=X.device)
-            pvalues = 2.0 * norm_dist.sf(torch.abs(tvalues))
-            z_crit = norm_dist.ppf(0.975)
-            t_crit = z_crit
-        conf_int = torch.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], dim=1)
+            dist = get_distribution("norm", backend="torch", device=X.device)
+            pvalues = 2.0 * dist.sf(torch.abs(tvalues))
+            critical = dist.ppf(0.975)
+        conf_int = torch.stack([coef_full - critical * bse, coef_full + critical * bse], dim=1)
+
         from statgpu.inference._results import GaussianInferenceResult
         result = GaussianInferenceResult(
             params=coef_full.detach().cpu().numpy(),
-            bse=bse.detach().cpu().numpy(),
-            statistic=tvalues.detach().cpu().numpy(),
-            pvalues=pvalues.detach().cpu().numpy(),
-            conf_int=conf_int.detach().cpu().numpy(),
-            cov_type=self.cov_type,
-            distribution=distribution,
-            df=df_resid,
-            method=method,
+            bse=bse.detach().cpu().numpy(), statistic=tvalues.detach().cpu().numpy(),
+            pvalues=pvalues.detach().cpu().numpy(), conf_int=conf_int.detach().cpu().numpy(),
+            cov_type=self._cov_type, distribution=distribution, df=df_resid, method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)
         self._inference_precomputed = True
-        if X_mean is None:
-            X_design = X.detach().cpu().numpy()
-        else:
-            X_np = X.detach().cpu().numpy()
-            X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
         self._precomputed_gaussian_state = {
             "params": coef_full.detach().cpu().numpy(),
-            "X_design": X_design,
-            "y": y.detach().cpu().numpy(),
+            "X_design": X_design_gpu.detach().cpu().numpy(),
+            "y": y_state.detach().cpu().numpy(),
             "resid": resid.detach().cpu().numpy(),
-            "scale": float(scale.detach().cpu().numpy()) if df_resid > 0 else np.nan,
-            "nobs": int(n_samples),
-            "df_resid": int(df_resid),
+            "scale": float(scale.detach().cpu().numpy()),
+            "nobs": int(n_samples), "df_resid": int(df_resid),
         }
+

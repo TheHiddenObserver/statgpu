@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-05-02
 > 页面定位: 基准脚本索引  
-> 切换: [English](en/benchmarks.md)
+> 切换: [English](../en/benchmarks.md)
 
-语言切换：[English](en/benchmarks.md)
+语言切换：[English](../en/benchmarks.md)
 
 ## 推断相关
 

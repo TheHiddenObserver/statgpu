@@ -23,7 +23,28 @@ from ._quantile import QuantileLoss
 from ._huber import HuberLoss
 from ._bisquare import BisquareLoss
 from ._fair import FairLoss
-from ._cox_ph import CoxPartialLikelihoodLoss
+
+
+def __getattr__(name):
+    """Load survival losses only when their public symbol is requested.
+
+    ``glm_core._base`` inherits from ``losses._base``. Eagerly importing the
+    Cox loss while that base module is still initializing enters the
+    ``survival`` package, which imports model code that depends on GLM losses.
+    Keeping the Cox export lazy removes that package-initialization cycle while
+    preserving ``from statgpu.losses import CoxPartialLikelihoodLoss``.
+    """
+    if name == "CoxPartialLikelihoodLoss":
+        from ._cox_ph import CoxPartialLikelihoodLoss
+
+        globals()[name] = CoxPartialLikelihoodLoss
+        return CoxPartialLikelihoodLoss
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))
+
 
 __all__ = [
     "LossBase",

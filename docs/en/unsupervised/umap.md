@@ -1,12 +1,16 @@
 # UMAP
 
 > Language: English
-> Last updated: 2026-05-09
+> Last updated: 2026-07-23
 > Path: `statgpu.unsupervised.UMAP`
 
 ## Overview
 
-`UMAP` builds a fuzzy neighbor graph in the input space and optimizes a low-dimensional embedding. Phase 3A implements a dense exact Euclidean path.
+`UMAP` builds a fuzzy neighbor graph in the input space and optimizes a low-dimensional embedding. It supports dense exact Euclidean neighbors and an internal NNDescent neighbor-search option.
+
+## Backend and Host Boundary
+
+Distance evaluation, neighbor search, membership weights, embedding optimization, and negative sampling use the selected NumPy, CuPy, or Torch backend. The current fuzzy-union graph assembly is intentionally a documented host boundary: its O(n*k) edge indices and weights are copied to host memory, assembled with SciPy sparse COO/CSR operations, and copied back to the selected backend. This is not a silent CPU fallback for optimization, but it is not yet a device-native sparse-graph path. Exact neighbors also require O(n^2) dense distance memory; use `nn_method='nndescent'` to avoid that distance matrix when its approximate-neighbor trade-off is acceptable.
 
 ## Path
 
@@ -27,7 +31,7 @@ $$
 
 ## Estimating Equation
 
-The implementation computes exact pairwise distances, selects the `n_neighbors` nearest neighbors, symmetrizes fuzzy memberships, then performs gradient steps on the embedding.
+The implementation selects `n_neighbors` with dense exact search by default (`nn_method='auto'` resolves to `exact`) or internal NNDescent when requested, symmetrizes fuzzy memberships, then performs gradient steps on the embedding.
 
 ## Parameters
 
@@ -44,7 +48,7 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 
 ## Strict/Approx Difference
 
-This v1 path is exact for dense Euclidean neighbor search but simplified relative to `umap-learn`: it does not implement NNDescent or the full sparse graph pipeline.
+`nn_method='exact'` is exact for dense Euclidean neighbor search. `nn_method='nndescent'` is approximate and backend-aware. Both modes use the SciPy host-side fuzzy-union boundary described above; a fully device-native sparse graph pipeline is planned but not yet implemented.
 
 ## Outputs
 
@@ -52,7 +56,7 @@ This v1 path is exact for dense Euclidean neighbor search but simplified relativ
 
 ## FAQ
 
-Sparse input, non-Euclidean metrics, approximate neighbors, and new-data `transform` are not supported in Phase 3A.
+Sparse input, non-Euclidean metrics, and new-data `transform` are not supported. Approximate neighbors are available through `nn_method='nndescent'`; graph assembly still requires SciPy and host memory.
 
 ## External Validation
 

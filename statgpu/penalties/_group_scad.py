@@ -12,6 +12,7 @@ where SCAD(t; lambda, a) is the element-wise SCAD penalty.
 
 __all__ = ["GroupSCADPenalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional, List, Union
 import numpy as np
 from statgpu.penalties._base import Penalty
@@ -25,34 +26,26 @@ def _get_group_scad_torch_compiled():
     global _GROUP_SCAD_PROXIMAL_TORCH_COMPILED
     if _GROUP_SCAD_PROXIMAL_TORCH_COMPILED is not None:
         return _GROUP_SCAD_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w_mat, sqrt_pg, alpha, step, a):
-            alpha_g = alpha * sqrt_pg
-            t_g = alpha_g * step
-            a_alpha_g = a * alpha_g
-            norms = torch.linalg.norm(w_mat, dim=1)
-            mask_r1 = norms <= alpha_g + t_g
-            safe_norms = torch.where(norms > 0.0, norms, torch.ones_like(norms))
-            scale_r1 = torch.clamp((norms - t_g) / safe_norms, min=0.0)
-            mask_r2 = (norms > alpha_g + t_g) & (norms <= a_alpha_g)
-            denom = norms * (a - 1.0 - step)
-            denom = torch.where(mask_r2, denom, torch.ones_like(denom))
-            scale_r2 = ((a - 1.0) * norms - a * t_g) / denom
-            scale = torch.where(mask_r1, scale_r1, 1.0)
-            scale = torch.where(mask_r2, scale_r2, scale)
-            return (w_mat * scale[:, None]).reshape(-1)
-        _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = torch.compile(
-            _prox, dynamic=True, mode='reduce-overhead'
-        )
-    except Exception:
-        _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w_mat, sqrt_pg, alpha, step, a):
+        alpha_g = alpha * sqrt_pg
+        t_g = alpha_g * step
+        a_alpha_g = a * alpha_g
+        norms = torch.linalg.norm(w_mat, dim=1)
+        mask_r1 = norms <= alpha_g + t_g
+        safe_norms = torch.where(norms > 0.0, norms, torch.ones_like(norms))
+        scale_r1 = torch.clamp((norms - t_g) / safe_norms, min=0.0)
+        mask_r2 = (norms > alpha_g + t_g) & (norms <= a_alpha_g)
+        denom = norms * (a - 1.0 - step)
+        denom = torch.where(mask_r2, denom, torch.ones_like(denom))
+        scale_r2 = ((a - 1.0) * norms - a * t_g) / denom
+        scale = torch.where(mask_r1, scale_r1, 1.0)
+        scale = torch.where(mask_r2, scale_r2, scale)
+        return (w_mat * scale[:, None]).reshape(-1)
+    _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = compile_torch(
+        _prox, dynamic=True, workload="iterative"
+    )
     return _GROUP_SCAD_PROXIMAL_TORCH_COMPILED
-
 
 class GroupSCADPenalty(Penalty):
     """Group SCAD penalty.

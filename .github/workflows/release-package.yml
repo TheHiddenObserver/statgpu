@@ -1,0 +1,276 @@
+name: Release package validation
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "pyproject.toml"
+      - "statgpu/__init__.py"
+      - "setup.py"
+      - "MANIFEST.in"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/en/changelog.md"
+      - "docs/cn/changelog.md"
+      - "RELEASING.md"
+      - ".github/releases/**"
+      - ".github/workflows/publish.yml"
+      - ".github/workflows/release-package.yml"
+      - ".github/workflows/release-notes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-distributions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install release tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Verify version declarations
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import tomllib
+
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          init_text = pathlib.Path("statgpu/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_text, re.M)
+          if match is None:
+              raise SystemExit("statgpu/__init__.py does not declare __version__")
+
+          project_version = pyproject["project"]["version"]
+          package_version = match.group(1)
+          if project_version != package_version:
+              raise SystemExit(
+                  f"version mismatch: pyproject.toml={project_version}, "
+                  f"statgpu/__init__.py={package_version}"
+              )
+          print(project_version)
+          PY
+
+      - name: Build wheel and source distribution
+        env:
+          STATGPU_NO_EXT: "1"
+        run: |
+          rm -rf build dist *.egg-info statgpu.egg-info
+          python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Validate artifact names and contents
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import tarfile
+          import tomllib
+          import zipfile
+
+          root = pathlib.Path.cwd()
+          dist = root / "dist"
+          version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          wheel = dist / f"statgpu-{version}-py3-none-any.whl"
+          sdist = dist / f"statgpu-{version}.tar.gz"
+
+          if not wheel.is_file():
+              raise SystemExit(f"missing expected universal wheel: {wheel.name}")
+          if not sdist.is_file():
+              raise SystemExit(f"missing expected source distribution: {sdist.name}")
+
+          artifacts = sorted(path.name for path in dist.iterdir() if path.is_file())
+          expected = sorted([wheel.name, sdist.name])
+          if artifacts != expected:
+              raise SystemExit(f"unexpected dist contents: {artifacts}; expected {expected}")
+
+          def validate_paths(names, archive):
+              for raw_name in names:
+                  path = pathlib.PurePosixPath(raw_name)
+                  if path.is_absolute() or ".." in path.parts:
+                      raise SystemExit(f"unsafe path in {archive}: {raw_name}")
+                  if any(part in {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"} for part in path.parts):
+                      raise SystemExit(f"cache or repository metadata in {archive}: {raw_name}")
+                  if path.name in {".env", "credentials.json"} or path.suffix in {".pem", ".key"}:
+                      raise SystemExit(f"credential-like file in {archive}: {raw_name}")
+
+          with zipfile.ZipFile(wheel) as archive:
+              wheel_names = archive.namelist()
+          validate_paths(wheel_names, wheel.name)
+          if "statgpu/__init__.py" not in wheel_names:
+              raise SystemExit("wheel does not contain statgpu/__init__.py")
+          if any(name.endswith((".so", ".pyd", ".dll", ".dylib")) for name in wheel_names):
+              raise SystemExit("universal wheel unexpectedly contains compiled binaries")
+
+          with tarfile.open(sdist, "r:gz") as archive:
+              sdist_names = set(archive.getnames())
+          validate_paths(sdist_names, sdist.name)
+
+          cython_sources = sorted(
+              path.relative_to(root).as_posix()
+              for path in (root / "statgpu").rglob("*")
+              if path.is_file() and path.suffix in {".pyx", ".pxd"}
+          )
+          if not cython_sources:
+              raise SystemExit("repository contains no optional Cython sources to validate")
+
+          sdist_prefix = f"statgpu-{version}/"
+          missing_cython_sources = [
+              path
+              for path in cython_sources
+              if f"{sdist_prefix}{path}" not in sdist_names
+          ]
+          if missing_cython_sources:
+              raise SystemExit(
+                  "sdist is missing repository Cython sources: "
+                  + ", ".join(missing_cython_sources)
+              )
+
+          metadata = next(name for name in wheel_names if name.endswith(".dist-info/METADATA"))
+          with zipfile.ZipFile(wheel) as archive:
+              metadata_text = archive.read(metadata).decode("utf-8")
+          if not re.search(rf"^Version: {re.escape(version)}$", metadata_text, re.M):
+              raise SystemExit("wheel metadata version does not match pyproject.toml")
+
+          print(
+              f"validated {wheel.name}, {sdist.name}, and "
+              f"{len(cython_sources)} repository Cython sources"
+          )
+          PY
+
+      - name: Smoke-install sdist in a clean environment
+        env:
+          STATGPU_NO_EXT: "1"
+        run: |
+          SDIST="$(realpath dist/*.tar.gz)"
+          python -m venv "$RUNNER_TEMP/statgpu-sdist-test"
+          "$RUNNER_TEMP/statgpu-sdist-test/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/statgpu-sdist-test/bin/python" -m pip install "$SDIST"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/statgpu-sdist-test/bin/python" - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+          import statgpu
+
+          pyproject = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "pyproject.toml"
+          expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+          assert statgpu.__version__ == expected
+          print(statgpu.__version__)
+          PY
+
+      - name: Upload validated distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: statgpu-release-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke-install-wheel:
+    name: wheel smoke (${{ matrix.os }})
+    needs: validate-distributions
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download validated distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: statgpu-release-distributions
+          path: dist
+
+      - name: Smoke-install universal wheel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import subprocess
+          import tempfile
+          import tomllib
+          import venv
+
+          root = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          wheel = root / "dist" / f"statgpu-{version}-py3-none-any.whl"
+          if not wheel.is_file():
+              raise SystemExit(f"missing downloaded wheel: {wheel}")
+
+          temp_root = pathlib.Path(tempfile.mkdtemp(prefix="statgpu-wheel-smoke-"))
+          env_dir = temp_root / "venv"
+          venv.EnvBuilder(with_pip=True, clear=True).create(env_dir)
+          if os.name == "nt":
+              env_python = env_dir / "Scripts" / "python.exe"
+          else:
+              env_python = env_dir / "bin" / "python"
+
+          subprocess.run(
+              [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
+              check=True,
+          )
+          subprocess.run(
+              [str(env_python), "-m", "pip", "install", str(wheel)],
+              check=True,
+          )
+
+          smoke_code = r'''
+          import os
+          import numpy as np
+          import statgpu
+          from statgpu.linear_model import LinearRegression
+          from statgpu.survival import CoxPH, CoxPHCV
+
+          expected = os.environ["EXPECTED_STATGPU_VERSION"]
+          assert statgpu.__version__ == expected
+
+          X = np.array(
+              [
+                  [0.0, 0.0],
+                  [1.0, 0.0],
+                  [0.0, 1.0],
+                  [1.0, 1.0],
+                  [2.0, 1.0],
+                  [1.0, 2.0],
+              ],
+              dtype=float,
+          )
+          y = 1.0 + 2.0 * X[:, 0] - 0.5 * X[:, 1]
+          model = LinearRegression(device="cpu")
+          model.fit(X, y)
+          prediction = np.asarray(model.predict(X))
+          assert prediction.shape == y.shape
+          assert np.isfinite(prediction).all()
+          assert CoxPH is not None
+          assert CoxPHCV is not None
+          print(statgpu.__version__)
+          '''
+
+          smoke_env = os.environ.copy()
+          smoke_env["EXPECTED_STATGPU_VERSION"] = version
+          subprocess.run(
+              [str(env_python), "-c", smoke_code],
+              cwd=temp_root,
+              env=smoke_env,
+              check=True,
+          )

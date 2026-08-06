@@ -1,0 +1,230 @@
+[
+  {
+    "method": "CoxPH",
+    "framework": "statgpu-cpu(nonrobust)",
+    "fit_ms": 1420.5553233623505,
+    "coef_ref_diff": 0.0,
+    "bse_ref_diff": 0.0,
+    "p_ref_diff": 0.0,
+    "supported": true,
+    "independent_units": null,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "model-based observed-information inverse",
+    "notes": "reference for this covariance mode",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statgpu-gpu(nonrobust)",
+    "fit_ms": 980.7015657424927,
+    "coef_ref_diff": 6.13398221105399e-15,
+    "bse_ref_diff": 2.42861286636753e-16,
+    "p_ref_diff": 1.475486399726833e-13,
+    "supported": true,
+    "independent_units": null,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "model-based observed-information inverse",
+    "notes": "ref=statgpu-cpu",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statsmodels.PHReg(nonrobust)",
+    "fit_ms": 441.87575578689575,
+    "coef_ref_diff": 5.337952302397753e-13,
+    "bse_ref_diff": 1.7832957333041577e-15,
+    "p_ref_diff": 8.184564137536654e-13,
+    "supported": true,
+    "independent_units": null,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "model-based observed-information inverse",
+    "notes": "ref=statgpu-cpu",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "R survival::coxph(nonrobust)",
+    "fit_ms": 34.99999999999992,
+    "coef_ref_diff": 6.099287741534454e-15,
+    "bse_ref_diff": 2.5326962749261384e-16,
+    "p_ref_diff": 1.4699352846037073e-13,
+    "supported": true,
+    "independent_units": 3000,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "model-based observed-information inverse",
+    "notes": "ref=statgpu-cpu; native R covariance mode",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statgpu-cpu(hc1)",
+    "fit_ms": 1949.9398171901703,
+    "coef_ref_diff": 0.0,
+    "bse_ref_diff": 0.0,
+    "p_ref_diff": 0.0,
+    "supported": true,
+    "independent_units": 3000,
+    "finite_sample_correction": 1.0033444816053512,
+    "covariance_contract": "row-score sandwich times n_units/(n_units-p)",
+    "notes": "reference for this covariance mode",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statgpu-gpu(hc1)",
+    "fit_ms": 105.55136203765869,
+    "coef_ref_diff": 1.1102230246251565e-16,
+    "bse_ref_diff": 6.938893903907228e-17,
+    "p_ref_diff": 2.3314683517128287e-15,
+    "supported": true,
+    "independent_units": 3000,
+    "finite_sample_correction": 1.0033444816053512,
+    "covariance_contract": "row-score sandwich times n_units/(n_units-p)",
+    "notes": "ref=statgpu-cpu",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statsmodels.PHReg(hc1)",
+    "fit_ms": null,
+    "coef_ref_diff": null,
+    "bse_ref_diff": null,
+    "p_ref_diff": null,
+    "supported": false,
+    "independent_units": 3000,
+    "finite_sample_correction": 1.0033444816053512,
+    "covariance_contract": "unsupported",
+    "notes": "unsupported: PHReg.fit() does not expose the HC1 n_units/(n_units-p) score-sandwich contract",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "R survival::coxph(robust-score + explicit HC1 correction)",
+    "fit_ms": 44.99999999999993,
+    "coef_ref_diff": 5.551115123125783e-16,
+    "bse_ref_diff": 1.3877787807814457e-16,
+    "p_ref_diff": 7.995991022080595e-19,
+    "supported": true,
+    "independent_units": 3000,
+    "finite_sample_correction": 1.0033444816053512,
+    "covariance_contract": "row-score sandwich times n_units/(n_units-p)",
+    "notes": "ref=statgpu-cpu; R robust score sandwich with explicit n_units/(n_units-p) correction",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statgpu-cpu(cluster)",
+    "fit_ms": 1970.3172445297241,
+    "coef_ref_diff": 0.0,
+    "bse_ref_diff": 0.0,
+    "p_ref_diff": 0.0,
+    "supported": true,
+    "independent_units": 120,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "cluster-aggregated score sandwich without HC1 correction",
+    "notes": "reference for this covariance mode",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statgpu-gpu(cluster)",
+    "fit_ms": 83.95874500274658,
+    "coef_ref_diff": 5.724587470723463e-17,
+    "bse_ref_diff": 5.204170427930421e-17,
+    "p_ref_diff": 2.3314683517128287e-15,
+    "supported": true,
+    "independent_units": 120,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "cluster-aggregated score sandwich without HC1 correction",
+    "notes": "ref=statgpu-cpu",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "statsmodels.PHReg(cluster)",
+    "fit_ms": 1324.3906497955322,
+    "coef_ref_diff": null,
+    "bse_ref_diff": null,
+    "p_ref_diff": null,
+    "supported": false,
+    "independent_units": 120,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "unsupported",
+    "notes": "unsupported: PHReg returned non-finite coefficient inference",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  },
+  {
+    "method": "CoxPH",
+    "framework": "R survival::coxph(cluster-robust)",
+    "fit_ms": 46.00000000000004,
+    "coef_ref_diff": 5.551115123125783e-16,
+    "bse_ref_diff": 1.3183898417423734e-16,
+    "p_ref_diff": 2.220446049250313e-16,
+    "supported": true,
+    "independent_units": 120,
+    "finite_sample_correction": 1.0,
+    "covariance_contract": "cluster-aggregated score sandwich without HC1 correction",
+    "notes": "ref=statgpu-cpu; native R covariance mode",
+    "solver_controls": {
+      "ties": "breslow",
+      "solver": "newton",
+      "max_iter": 80,
+      "tol": 1e-08
+    }
+  }
+]

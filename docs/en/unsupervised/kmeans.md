@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-05-02
-> Switch: [Chinese](../../unsupervised/kmeans.md)
+> Switch: [Chinese](../../cn/unsupervised/kmeans.md)
 
 ## Overview
 

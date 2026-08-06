@@ -9,6 +9,7 @@ a single code path for all backends.
 import numpy as np
 
 from statgpu.backends._base import _resolve_backend
+from statgpu.backends._utils import _is_complex_array
 
 
 def _xp(arr):
@@ -99,7 +100,15 @@ def _zeros(n, backend, ref_tensor=None, dtype=None):
     """Create a 1-D zeros vector on the requested backend."""
     backend = _resolve_backend(backend, ref_tensor)
     if backend == "numpy":
-        return np.zeros(n, dtype=dtype)
+        ref_dtype = getattr(ref_tensor, "dtype", None)
+        out_dtype = dtype
+        if out_dtype is None:
+            out_dtype = (
+                ref_dtype
+                if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating)
+                else np.float64
+            )
+        return np.zeros(n, dtype=out_dtype)
     if backend == "cupy":
         import cupy as cp
         out_dtype = (
@@ -181,7 +190,48 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
             else torch.float64
         )
         return torch.as_tensor(arr, dtype=out_dtype, device=device)
-    return np.asarray(arr, dtype=dtype or float)
+    out_dtype = dtype
+    if out_dtype is None:
+        ref_dtype = getattr(ref_tensor, "dtype", None)
+        out_dtype = (
+            ref_dtype
+            if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating)
+            else float
+        )
+    return np.asarray(arr, dtype=out_dtype)
+
+
+def _linear_solve_runtime_is_rank_failure(exc):
+    """Classify backend solve errors that may safely use least squares."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "singular",
+            "not invertible",
+            "zero pivot",
+            "rank deficient",
+            "ill-conditioned",
+            "not positive-definite",
+            "not positive definite",
+        )
+    )
+
+
+def _linalg_exception_is_rank_failure(exc):
+    """Return whether a backend linalg exception permits a numeric fallback.
+
+    NumPy/CuPy expose dedicated ``LinAlgError`` classes, whereas Torch reports
+    rank and definiteness failures as ``RuntimeError``.  Runtime failures are
+    therefore message-classified so CUDA OOM, device, index, and programming
+    errors remain visible to callers.
+    """
+    if isinstance(exc, np.linalg.LinAlgError):
+        return True
+    exc_type = type(exc)
+    if exc_type.__name__ == "LinAlgError" and "linalg" in exc_type.__module__.lower():
+        return True
+    return isinstance(exc, RuntimeError) and _linear_solve_runtime_is_rank_failure(exc)
 
 
 def _solve_linear_system(A, b, backend="auto"):
@@ -197,18 +247,19 @@ def _solve_linear_system(A, b, backend="auto"):
             import cupy as cp
             return cp.linalg.solve(A, b)
         return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, RuntimeError):
-        # LinAlgError for numpy/cupy singular matrices
-        # RuntimeError for torch singular matrices
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.lstsq(A, b_col).solution
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        if backend == "cupy":
-            import cupy as cp
-            return cp.linalg.lstsq(A, b)[0]
-        return np.linalg.lstsq(A, b, rcond=None)[0]
+    except Exception as exc:
+        if not _linalg_exception_is_rank_failure(exc):
+            raise
+
+    if backend == "torch":
+        import torch
+        b_col = b.unsqueeze(1) if b.ndim == 1 else b
+        sol = torch.linalg.lstsq(A, b_col).solution
+        return sol.squeeze(1) if b.ndim == 1 else sol
+    if backend == "cupy":
+        import cupy as cp
+        return cp.linalg.lstsq(A, b)[0]
+    return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
 def _eye_like(n, ref):
@@ -243,10 +294,12 @@ def _sync_scalars(*dev_vals, backend):
         stacked = torch.stack(
             [torch.as_tensor(v, device=device, dtype=dtype) for v in dev_vals]
         )
-        return tuple(stacked[i].item() for i in range(len(dev_vals)))
+        host = stacked.detach().cpu().numpy()
+        return tuple(float(value) for value in host)
     import cupy as cp
     stacked = cp.stack([cp.asarray(v) for v in dev_vals])
-    return tuple(float(stacked[i]) for i in range(len(dev_vals)))
+    host = cp.asnumpy(stacked)
+    return tuple(float(value) for value in host)
 
 
 def _abs_sum(x):
@@ -502,6 +555,8 @@ def _xp_asarray(arr, dtype, ref_arr):
 
     Handles numpy→cupy, numpy→torch, and same-backend dtype casts.
     """
+    if _is_complex_array(arr):
+        raise ValueError("complex input cannot be converted to a real dtype")
     xp = _xp(ref_arr)
     if xp.__name__ == "torch":
         import torch

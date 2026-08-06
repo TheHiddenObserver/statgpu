@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional, Union
 
 import numpy as np
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 
 from statgpu._base import BaseEstimator
 from statgpu.backends import (
@@ -186,7 +187,7 @@ class KernelRegression(BaseEstimator):
             raise RuntimeError("Model not fitted. Call fit() first.")
 
     def _cleanup_cuda_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -196,7 +197,7 @@ class KernelRegression(BaseEstimator):
             pass
 
     def _cleanup_torch_memory(self):
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -483,7 +484,9 @@ class KernelRegression(BaseEstimator):
                         beta0 = beta[:, 0, :]
                         solved = True
                         break
-                    except Exception:
+                    except Exception as exc:
+                        if not _linalg_exception_is_rank_failure(exc):
+                            raise
                         A_work = A_work + ridge_work[:, None, None] * eye_p1[None, :, :]
                         ridge_work = ridge_work * 10.0
 
@@ -528,9 +531,9 @@ class KernelRegression(BaseEstimator):
     ):
         self._require_fitted()
         if batch_size is None:
-            batch_size = int(self.batch_size)
+            batch_size = int(self._batch_size)
         if min_effective_weight is None:
-            min_effective_weight = float(self.min_effective_weight)
+            min_effective_weight = float(self._min_effective_weight)
 
         xp = _get_xp(self.backend_)
         points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
@@ -734,7 +737,9 @@ def _solve_linear_system_with_ridge(A, B, xp):
     for _ in range(6):
         try:
             return xp.linalg.solve(A_work, B)
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             A_work = A_work + ridge * eye
             ridge *= 10.0
     return None

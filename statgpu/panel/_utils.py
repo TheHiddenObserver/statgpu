@@ -20,6 +20,9 @@ __all__ = [
     "group_sizes",
     "make_group_dummies",
     "compute_panel_inference",
+    "factorize_panel_labels",
+    "validate_panel_numeric_data",
+    "validate_panel_alpha",
 ]
 
 from dataclasses import dataclass, field
@@ -27,7 +30,15 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from statgpu.backends import xp_asarray, xp_copy, xp_ones, xp_zeros, _to_float_scalar, _to_numpy
+from statgpu.backends import (
+    xp_asarray,
+    xp_copy,
+    xp_maximum,
+    xp_ones,
+    xp_zeros,
+    _to_float_scalar,
+    _to_numpy,
+)
 
 
 @dataclass
@@ -194,6 +205,45 @@ def _remap_to_contiguous(groups, xp):
     return indices, n_groups, unique_labels
 
 
+def validate_panel_alpha(alpha):
+    """Validate the confidence-interval significance level."""
+    if not np.isfinite(float(alpha)) or not 0.0 < float(alpha) < 1.0:
+        raise ValueError("alpha must be finite and strictly between 0 and 1")
+
+
+def validate_panel_numeric_data(X, y, xp):
+    """Validate panel design/response shape and finiteness on the backend."""
+    if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
+        raise ValueError("X must be a non-empty two-dimensional array")
+    if y.ndim != 1 or y.shape[0] != X.shape[0]:
+        raise ValueError("y must be one-dimensional with one value per row of X")
+    finite_X = bool(_to_float_scalar(xp.all(xp.isfinite(X))))
+    finite_y = bool(_to_float_scalar(xp.all(xp.isfinite(y))))
+    if not finite_X or not finite_y:
+        raise ValueError("X and y must contain only finite values")
+
+
+def factorize_panel_labels(values, xp, ref_arr=None, name="labels", expected_n=None):
+    """Factorize observation-level labels on CPU and return device integer codes.
+
+    Labels are metadata, so categorical/string values are factorized once on the
+    host.  Only compact int64 codes are copied to the numerical backend.
+    """
+    if values is None:
+        return None, None
+    values_np = np.asarray(_to_numpy(values))
+    if values_np.ndim != 1 or values_np.size == 0:
+        raise ValueError(f"{name} must be a non-empty one-dimensional array")
+    if expected_n is not None and values_np.shape[0] != int(expected_n):
+        raise ValueError(f"{name} must have {int(expected_n)} observations")
+    try:
+        unique_labels, codes = np.unique(values_np, return_inverse=True)
+    except TypeError as exc:
+        raise ValueError(f"{name} must contain mutually comparable labels") from exc
+    codes_dev = xp_asarray(codes, dtype=xp.int64, xp=xp, ref_arr=ref_arr)
+    return codes_dev, unique_labels
+
+
 def within_transform(y, groups, xp=None):
     """Remove group means (fixed-effect projection).
 
@@ -229,7 +279,7 @@ def within_transform(y, groups, xp=None):
     group_counts = _scatter_add(xp, idx, xp.ones_like(y), n_groups)
 
     # Group means (element-wise, no loop)
-    group_means = group_sums / xp.maximum(group_counts, 1.0)
+    group_means = group_sums / xp_maximum(group_counts, 1.0, xp)
 
     # Broadcast back: y_within = y - group_means[idx]
     return y - group_means[idx]
@@ -259,8 +309,11 @@ def make_group_dummies(groups, xp=None):
 
     # Build dummy matrix using advanced indexing (no per-group loop)
     D = xp_zeros((n, n_groups), xp.float64, xp, groups)
-    row_idx = xp.arange(n, device=getattr(groups, 'device', None)
-                        if hasattr(groups, 'device') else None)
+    if getattr(xp, '__name__', '') == 'torch':
+        row_idx = xp.arange(n, device=getattr(groups, 'device', None)
+                            if hasattr(groups, 'device') else None)
+    else:
+        row_idx = xp.arange(n)
     D[row_idx, idx] = 1.0
 
     return D
@@ -292,7 +345,7 @@ def _within_transform_matrix(M, groups, xp):
     # Compute group counts once (n_groups,) — reuse across all columns
     ones_col = xp_ones(n, M.dtype, xp, M)
     group_counts = _scatter_add(xp, idx, ones_col, n_groups)
-    inv_counts = 1.0 / xp.maximum(group_counts, 1.0)
+    inv_counts = 1.0 / xp_maximum(group_counts, 1.0, xp)
 
     # For each column, compute group sums and subtract
     # This is still O(k) scatter-adds, but each operates on a full column
@@ -413,7 +466,7 @@ def group_means(y, groups, xp=None):
     group_sums = _scatter_add(xp, idx, y, n_groups)
     group_counts = _scatter_add(xp, idx, xp.ones_like(y), n_groups)
 
-    means = group_sums / xp.maximum(group_counts, 1.0)
+    means = group_sums / xp_maximum(group_counts, 1.0, xp)
     return means[idx]
 
 
@@ -554,7 +607,7 @@ def compute_panel_inference(model, X, resid, params, scale, n, k, xp, backend_na
 
     diag_cov = xp.diag(cov_params)
     # Guard against zero/negative diagonal (ill-conditioned matrices)
-    diag_cov = xp.maximum(diag_cov, 1e-30)
+    diag_cov = xp_maximum(diag_cov, 1e-30, xp)
     bse_dev = xp.sqrt(diag_cov)
     tvalues_dev = params / bse_dev
 
@@ -568,6 +621,9 @@ def compute_panel_inference(model, X, resid, params, scale, n, k, xp, backend_na
     else:
         pvalues_dev = 2 * t_dist.sf(xp.abs(tvalues_dev))
         t_crit = t_dist.isf(alpha / 2)
+
+    # Ensure t_crit is on the same device as params (distribution may return CPU scalar).
+    t_crit = xp_asarray(t_crit, dtype=params.dtype, xp=xp, ref_arr=params)
 
     conf_low = params - t_crit * bse_dev
     conf_high = params + t_crit * bse_dev

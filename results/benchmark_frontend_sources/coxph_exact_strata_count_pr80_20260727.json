@@ -1,0 +1,246 @@
+{
+  "status": "complete",
+  "generated_at": "2026-07-27T06:09:57.357265+00:00",
+  "statgpu_version": "0.2.2",
+  "python": "3.9.16",
+  "numpy": "1.24.2",
+  "command_argv": [
+    "/root/miniconda3/envs/myconda/bin/python",
+    "dev/benchmarks/benchmark_exact_strata_count_scaling.py",
+    "--strata-counts",
+    "3",
+    "32",
+    "256",
+    "1000",
+    "--rows-per-stratum",
+    "8",
+    "--features",
+    "4",
+    "--repeats",
+    "5",
+    "--devices",
+    "cpu",
+    "cuda",
+    "torch",
+    "--output",
+    "results/benchmark_frontend_sources/coxph_exact_strata_count_pr80_20260727.json"
+  ],
+  "benchmark_sha256": "7e3c374d51e13b8ce741df342ff5445ec966530efe552158a7d5be7da0caa8c6",
+  "risk_sets_sha256": "da8bb597ddfaf2006ac662324da41591711676009b772b84a54f1c10d7486bd7",
+  "timing_scope": "cox_counting_process_objective(log-likelihood only), with GPU synchronization immediately before and after each call",
+  "rows_per_stratum": 8,
+  "features": 4,
+  "seed": 20260727,
+  "repeats": 5,
+  "devices": [
+    "cpu",
+    "cuda",
+    "torch"
+  ],
+  "device_metadata": {
+    "cupy_gpu": "Tesla P100-SXM2-16GB",
+    "cupy_version": "13.6.0",
+    "torch_gpu": "Tesla P100-SXM2-16GB",
+    "torch_version": "2.0.0+cu117"
+  },
+  "precision_threshold": 1e-09,
+  "gate_failures": [],
+  "cases": [
+    {
+      "strata_count": 3,
+      "n": 24,
+      "failure_groups": 3,
+      "backends": {
+        "cpu": {
+          "seconds": [
+            0.000933527946472168,
+            0.0008746981620788574,
+            0.0009381473064422607,
+            0.0009179413318634033,
+            0.0009054839611053467
+          ],
+          "median_seconds": 0.0009179413318634033,
+          "log_likelihood": -9.991983645422287,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 0.0,
+          "speedup_vs_cpu": 1.0
+        },
+        "cuda": {
+          "seconds": [
+            0.007557302713394165,
+            0.007357984781265259,
+            0.007658153772354126,
+            0.007344603538513184,
+            0.007318288087844849
+          ],
+          "median_seconds": 0.007357984781265259,
+          "log_likelihood": -9.991983645422287,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 0.0,
+          "speedup_vs_cpu": 0.12475444828326442
+        },
+        "torch": {
+          "seconds": [
+            0.0037291646003723145,
+            0.003663569688796997,
+            0.0036226511001586914,
+            0.0036205947399139404,
+            0.0036237239837646484
+          ],
+          "median_seconds": 0.0036237239837646484,
+          "log_likelihood": -9.991983645422287,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 0.0,
+          "speedup_vs_cpu": 0.25331436278702546
+        }
+      }
+    },
+    {
+      "strata_count": 32,
+      "n": 256,
+      "failure_groups": 32,
+      "backends": {
+        "cpu": {
+          "seconds": [
+            0.0006936490535736084,
+            0.0006760060787200928,
+            0.0006580948829650879,
+            0.0006662905216217041,
+            0.0006646811962127686
+          ],
+          "median_seconds": 0.0006662905216217041,
+          "log_likelihood": -105.82636324930715,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 0.0,
+          "speedup_vs_cpu": 1.0
+        },
+        "cuda": {
+          "seconds": [
+            0.007455885410308838,
+            0.007385432720184326,
+            0.0073757171630859375,
+            0.007371068000793457,
+            0.007232934236526489
+          ],
+          "median_seconds": 0.0073757171630859375,
+          "log_likelihood": -105.82636324930718,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 2.842170943040401e-14,
+          "speedup_vs_cpu": 0.09033569304370313
+        },
+        "torch": {
+          "seconds": [
+            0.00370064377784729,
+            0.0036827027797698975,
+            0.003689676523208618,
+            0.0037068426609039307,
+            0.0037042200565338135
+          ],
+          "median_seconds": 0.00370064377784729,
+          "log_likelihood": -105.82636324930718,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 2.842170943040401e-14,
+          "speedup_vs_cpu": 0.18004719222375234
+        }
+      }
+    },
+    {
+      "strata_count": 256,
+      "n": 2048,
+      "failure_groups": 256,
+      "backends": {
+        "cpu": {
+          "seconds": [
+            0.0019924044609069824,
+            0.001987457275390625,
+            0.001974731683731079,
+            0.0019857585430145264,
+            0.001906275749206543
+          ],
+          "median_seconds": 0.0019857585430145264,
+          "log_likelihood": -853.4885121716967,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 0.0,
+          "speedup_vs_cpu": 1.0
+        },
+        "cuda": {
+          "seconds": [
+            0.007864177227020264,
+            0.007814228534698486,
+            0.007809311151504517,
+            0.007812321186065674,
+            0.007814168930053711
+          ],
+          "median_seconds": 0.007814168930053711,
+          "log_likelihood": -853.4885121716965,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 2.2737367544323206e-13,
+          "speedup_vs_cpu": 0.25412280701754386
+        },
+        "torch": {
+          "seconds": [
+            0.0037413835525512695,
+            0.003748267889022827,
+            0.0037217438220977783,
+            0.003754943609237671,
+            0.0037303566932678223
+          ],
+          "median_seconds": 0.0037413835525512695,
+          "log_likelihood": -853.4885121716961,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 5.684341886080801e-13,
+          "speedup_vs_cpu": 0.5307551378046838
+        }
+      }
+    },
+    {
+      "strata_count": 1000,
+      "n": 8000,
+      "failure_groups": 1000,
+      "backends": {
+        "cpu": {
+          "seconds": [
+            0.006635785102844238,
+            0.006529361009597778,
+            0.006522536277770996,
+            0.006522029638290405,
+            0.006586134433746338
+          ],
+          "median_seconds": 0.006529361009597778,
+          "log_likelihood": -3364.3707171144442,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 0.0,
+          "speedup_vs_cpu": 1.0
+        },
+        "cuda": {
+          "seconds": [
+            0.008202075958251953,
+            0.008250832557678223,
+            0.008254140615463257,
+            0.008165121078491211,
+            0.008313685655593872
+          ],
+          "median_seconds": 0.008250832557678223,
+          "log_likelihood": -3364.37071711444,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 4.092726157978177e-12,
+          "speedup_vs_cpu": 0.7913578374004884
+        },
+        "torch": {
+          "seconds": [
+            0.004498183727264404,
+            0.004198402166366577,
+            0.004173249006271362,
+            0.0041162073612213135,
+            0.004138827323913574
+          ],
+          "median_seconds": 0.004173249006271362,
+          "log_likelihood": -3364.370717114443,
+          "all_finite": true,
+          "log_likelihood_abs_vs_cpu": 1.3642420526593924e-12,
+          "speedup_vs_cpu": 1.5645749869671715
+        }
+      }
+    }
+  ]
+}

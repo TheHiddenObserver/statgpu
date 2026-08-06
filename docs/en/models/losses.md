@@ -1,8 +1,11 @@
 # Loss Functions (LossBase)
 
-> Language: English  
-> Last updated: 2026-07-01  
-> This page: Model documentation  
+> Language: English
+>
+> Last updated: 2026-07-27
+>
+> This page: Model documentation
+>
 > Switch: [Chinese](../../cn/models/losses.md)
 
 ## Overview
@@ -14,7 +17,7 @@
 > For detailed per-loss documentation, see:
 > - [Quantile Regression](quantile.md) — pinball loss, PenalizedQuantileRegression, Proximal IRLS-CD
 > - [Robust Regression](robust.md) — Huber, Bisquare, Fair losses, PenalizedRobustRegression
-> - [CoxPH](coxph.md) — Cox partial likelihood, Efron ties
+> - [CoxPH](coxph.md) — Cox partial likelihood, three tie methods, counting-process data, and inference
 
 Five new loss types extend `LossBase` beyond the existing GLM family:
 
@@ -26,8 +29,11 @@ Five new loss types extend `LossBase` beyond the existing GLM family:
 | Fair | `FairLoss` | `MASS::rlm(psi="fair")` | Fair's M-estimator |
 | Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | Survival analysis |
 
-All losses automatically inherit support for 10 penalty types and 8 solver types.
-Penalized wrappers: `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `PenalizedCoxRegression`.
+The framework exposes common penalty and solver interfaces, but supported
+combinations remain estimator-specific. Penalized wrappers are
+`PenalizedQuantileRegression`, `PenalizedRobustRegression`, and
+`PenalizedCoxPHModel`. The Cox wrapper supports L1, L2, ElasticNet, SCAD, and
+MCP; it is estimation-only and never fits an intercept.
 
 ## Path
 
@@ -36,6 +42,7 @@ statgpu.losses.LossBase
 statgpu.losses.QuantileLoss
 statgpu.losses.HuberLoss
 statgpu.losses.CoxPartialLikelihoodLoss
+statgpu.linear_model.PenalizedCoxPHModel
 ```
 
 ## Architecture
@@ -79,18 +86,21 @@ $$
 \ell(\beta) = -\frac{1}{n} \log L(\beta)
 $$
 
-where $L(\beta)$ is the Breslow or Efron partial likelihood.
+where $L(\beta)$ is the Breslow or Efron partial likelihood. This low-level
+loss class accepts a two-column response with `[time, event]`. The high-level
+`statgpu.survival.CoxPH` estimator additionally implements Exact ties,
+delayed-entry/start-stop data, and strata.
 
 ## Solver Compatibility
 
 | Solver | Quantile | Huber | Bisquare | Fair | Cox PH |
 |--------|----------|-------|----------|------|--------|
-| FISTA | ✅ | ✅ | ✅ | ✅ | ✅ |
-| FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
-| FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ |
+| FISTA | ✅ | ✅ | ✅ | ✅ | ✅ (L1/ElasticNet path) |
+| FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ (sparse convex path) |
+| FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ (SCAD/MCP) |
 | Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
-| Proximal Newton | ❌ (no Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ✅ (5-10 iter) |
-| Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ✅ |
+| Proximal Newton | ❌ (no Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ❌ |
+| Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ✅ (unpenalized/L2) |
 | L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅ (L2 only) | ❌ | ❌ | ❌ | ❌ |
@@ -113,7 +123,7 @@ where $L(\beta)$ is the Breslow or Efron partial likelihood.
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `ties` | `"breslow"` | Tie handling: `"breslow"` or `"efron"` |
+| `ties` | `"breslow"` | Tie handling: `"breslow"` or `"efron"`; use `CoxPH` for Exact ties |
 
 ## Examples
 
@@ -161,42 +171,70 @@ model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X_t, y_t)
 ```
 
-### Cox PH with Newton Solver
+### Cox Partial Likelihood
 
 ```python
+import numpy as np
 from statgpu.losses import CoxPartialLikelihoodLoss
-from statgpu.solvers import newton_solver
-from statgpu.penalties import L2Penalty
 
-loss = CoxPartialLikelihoodLoss(ties='breslow')
-y = {'time': time, 'event': event}
-coef, n_iter = newton_solver(loss, L2Penalty(0.0), X, y)
+y_surv = np.column_stack([time, event])
+loss = CoxPartialLikelihoodLoss(ties="efron")
+coef = np.zeros(X.shape[1])
+value = loss.value(X, y_surv, coef)
+gradient = loss.gradient(X, y_surv, coef)
+hessian = loss.hessian(X, y_surv, coef)
 ```
 
-### With Penalties (Regularized Survival)
+The iterative numerical arrays in these calls remain on the selected NumPy,
+CuPy, or Torch backend. Cox loss preprocessing makes a one-time host copy of
+the sorted `time` and `event` vectors to construct deterministic failure-group
+metadata; the resulting indices are cached on the selected device and the
+design matrix, predictor, objective, gradient, and Hessian are not moved to CPU
+during solver iterations.
+
+The SCAD/MCP trusted-gradient path skips duplicate finite-state checks but keeps
+adaptive predictor-range segmentation on every evaluation. Stable risk-set
+scaling is therefore never disabled by the solver fast path.
+
+### Regularized Survival
 
 ```python
-from statgpu.losses import CoxPartialLikelihoodLoss
-from statgpu.solvers import lbfgs_solver
-from statgpu.penalties import L1Penalty
+from statgpu.linear_model import PenalizedCoxPHModel
 
-loss = CoxPartialLikelihoodLoss(ties='efron')
-coef, _ = lbfgs_solver(loss, L1Penalty(0.1), X, y)  # Lasso-Cox
+model = PenalizedCoxPHModel(
+    penalty="scad",
+    alpha=0.1,
+    ties="efron",
+    device="cuda",
+    fit_intercept=False,
+    compute_inference=False,
+)
+model.fit(X, y_surv)
 ```
+
+The supported penalties are `l1`, `l2`, `elasticnet`, `scad`, and `mcp`.
+SCAD and MCP use FISTA-LLA continuation. `compute_inference=True` raises
+`NotImplementedError`; use `statgpu.survival.CoxPH` for unpenalized inference.
 
 ## External Validation
 
 - **QuantileLoss**: validated against R `quantreg::rq()` (Frisch-Newton IRLS) and sklearn `QuantileRegressor` (HiGHS LP solver). Coefficient parity to 1e-6.
 - **HuberLoss**: validated against R `MASS::rlm()` with Huber psi function.
 - **BisquareLoss**: validated against R `MASS::rlm(psi="bisquare")`. Supports SCAD/MCP via proximal Newton (5-10 iter convergence).
-- **CoxPartialLikelihoodLoss**: Efron tied-event gradient/Hessian validated against `statsmodels PHReg(ties='efron')`. CI reference parity test included.
+- **CoxPartialLikelihoodLoss**: Breslow/Efron value, gradient, and Hessian are
+  checked across NumPy, CuPy, and Torch and against aligned
+  `statsmodels.duration.PHReg` references. Exact ties are validated through the
+  high-level `CoxPH` risk-set engine against brute-force references.
 
 ## Notes
 
-- `CoxPartialLikelihoodLoss` supports CuPy CUDA / PyTorch-CUDA kernels (both Breslow and Efron). Explicit GPU inputs raise `RuntimeError` if GPU path fails; CPU inputs use numpy implementation.
+- `CoxPartialLikelihoodLoss` uses native NumPy, CuPy, and PyTorch operations for
+  Breslow and Efron. Explicit GPU inputs do not route through another backend
+  or silently fall back to NumPy.
 - `QuantileLoss` has `smooth_gradient=False` and `has_hessian=False`; use FISTA or proximal IRLS-CD (for SCAD/MCP).
 - `HuberLoss` and `BisquareLoss` have `has_hessian=True`; proximal Newton converges in 5-10 iterations for SCAD/MCP.
-- All losses accept `sample_weight` (except `CoxPartialLikelihoodLoss` which raises `NotImplementedError`).
+- All losses accept `sample_weight` except `CoxPartialLikelihoodLoss`, which
+  raises `NotImplementedError`.
 - See [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) for complete dispatch logic and coverage matrix.
 
 ## References

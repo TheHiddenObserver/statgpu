@@ -1,0 +1,93 @@
+{
+  "backends": {
+    "cupy": {
+      "cases": {
+        "cv_device_normalization": {
+          "backend": "cupy",
+          "effective_device": "cuda",
+          "finite": true,
+          "fit_seconds": 0.10872188210487366,
+          "passed": true
+        },
+        "public_boundary": {
+          "backend": "cupy",
+          "complex_prediction_rejected": true,
+          "device_normalized": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 1.4042670130729675,
+          "packed_target_stayed_native": true,
+          "passed": true
+        },
+        "single_group_workspace": {
+          "backend": "cupy",
+          "max_abs_differences": {
+            "information": 1.3322676295501878e-14,
+            "log_likelihood": 0.0,
+            "score": 6.661338147750939e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.4410840570926666,
+          "workspace_limit_bytes": 4096
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "13.6.0"
+    },
+    "torch": {
+      "cases": {
+        "cv_device_normalization": {
+          "backend": "torch",
+          "effective_device": "torch",
+          "finite": true,
+          "fit_seconds": 0.04632404446601868,
+          "passed": true
+        },
+        "public_boundary": {
+          "backend": "torch",
+          "complex_prediction_rejected": true,
+          "device_normalized": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 0.19240397214889526,
+          "packed_target_stayed_native": true,
+          "passed": true
+        },
+        "single_group_workspace": {
+          "backend": "torch",
+          "max_abs_differences": {
+            "information": 1.199040866595169e-14,
+            "log_likelihood": 0.0,
+            "score": 1.1102230246251565e-15,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.2268182635307312,
+          "workspace_limit_bytes": 4096
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "2.0.0+cu117"
+    }
+  },
+  "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path>",
+  "gate_failures": [],
+  "numpy": "1.24.2",
+  "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
+  "schema_version": 1,
+  "source_clean": true,
+  "source_commit": "16695feec8d4187b591d8a24d8977de543fd33c3",
+  "source_sha256": {
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "644034d2dcd687c568df3a4344f2c93607a8ac5d5ae73702d20418d9875bf19f",
+    "statgpu/survival/_cox.py": "2a8fcfbb84b7d54f49232b5764a9fc13002932efc25a5d5c5318397250e8f05a",
+    "statgpu/survival/_cox_cv.py": "0132264a62b1505a39bd70aa9e43167f8d80324547c59f69d00cf29ce384b061",
+    "statgpu/survival/_cox_fit_adapter.py": "c6742e20dd57c8dc5a36dbe594e7ce040effae4217939538ab39df0fb338f9d3",
+    "statgpu/survival/_risk_sets.py": "eee6900332526d5e68815e46d6d43a0f52e981760b724c10f98740fc56eeb3da"
+  },
+  "validation_tier": "remote-full"
+}

@@ -5,15 +5,28 @@ Uses IRLS (Iteratively Reweighted Least Squares) algorithm.
 
 __all__ = ["LogisticRegression"]
 
+from numbers import Integral, Real
 from typing import Any, Dict, Optional, Union, Tuple
+import warnings
+
 import numpy as np
 from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+from statgpu.glm_core._logistic import LogisticLoss
+from statgpu.glm_core._validation import (
+    validate_binary_response,
+    validate_glm_design_matrix,
+    validate_glm_sample_weight,
+)
 from statgpu.backends import _get_torch_device_str
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.metrics import (
     binary_average_precision_score,
+    binary_classification_table,
+    binary_confusion_matrix,
     binary_precision_recall_curve,
     binary_roc_auc_score,
     binary_roc_curve,
@@ -65,8 +78,8 @@ class LogisticRegression(BaseEstimator):
     fit_intercept : bool, default=True
         Whether to calculate the intercept.
     C : float, default=1.0
-        Inverse of regularization strength; must be a positive float.
-        Smaller values specify stronger regularization.
+        Inverse of regularization strength. Positive values use L2
+        regularization; ``C=0`` preserves the legacy unregularized path.
     max_iter : int, default=100
         Maximum number of iterations for IRLS.
     tol : float, default=1e-4
@@ -102,16 +115,29 @@ class LogisticRegression(BaseEstimator):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
         self.C = C
+        self._C = (
+            float(C)
+            if isinstance(C, Real) and not isinstance(C, (bool, np.bool_))
+            else C
+        )
         self.max_iter = max_iter
         self.tol = tol
         self.compute_inference = compute_inference
+        if not isinstance(cov_type, str):
+            raise ValueError("cov_type must be a string")
         self.cov_type = cov_type.lower()
         if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
             raise ValueError(
                 "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
             )
-        if hac_maxlags is not None and int(hac_maxlags) < 0:
+        if hac_maxlags is not None and (
+            isinstance(hac_maxlags, bool)
+            or not isinstance(hac_maxlags, Integral)
+            or int(hac_maxlags) < 0
+        ):
             raise ValueError("hac_maxlags must be a non-negative integer or None")
+        if not isinstance(gpu_memory_cleanup, (bool, np.bool_)):
+            raise ValueError("gpu_memory_cleanup must be boolean")
         self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
@@ -132,12 +158,106 @@ class LogisticRegression(BaseEstimator):
         self._loglik_null = None
         self._train_pred_cache = None
         self._train_eval_cache = None
+        self._sample_weight = None
+
+    def _reset_fit_state(self):
+        """Clear every published and cached result before a new fit attempt."""
+        self._fitted = False
+        for name in (
+            "coef_",
+            "intercept_",
+            "n_iter_",
+            "_X_design",
+            "_y",
+            "_nobs",
+            "_df_resid",
+            "_params",
+            "_bse",
+            "_zvalues",
+            "_pvalues",
+            "_conf_int",
+            "_loglik",
+            "_loglik_null",
+            "_train_pred_cache",
+            "_train_eval_cache",
+            "_sample_weight",
+            "_bse_gpu",
+            "_zvalues_gpu",
+            "_pvalues_gpu",
+            "_conf_int_gpu",
+            "_loglik_gpu",
+            "_accuracy_gpu",
+            "_accuracy",
+            "converged_",
+        ):
+            setattr(self, name, None)
+
+    def _validate_fit_controls(self):
+        """Validate and snapshot public controls for the current fit."""
+        if not isinstance(self.fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        if isinstance(self.C, bool) or not isinstance(self.C, Real):
+            raise ValueError("C must be a finite non-negative real number")
+        C = float(self.C)
+        if not np.isfinite(C) or C < 0.0:
+            raise ValueError("C must be a finite non-negative real number")
+        if (
+            isinstance(self.max_iter, bool)
+            or not isinstance(self.max_iter, Integral)
+            or int(self.max_iter) < 1
+        ):
+            raise ValueError("max_iter must be a positive integer")
+        if isinstance(self.tol, bool) or not isinstance(self.tol, Real):
+            raise ValueError("tol must be a finite positive real number")
+        tol = float(self.tol)
+        if not np.isfinite(tol) or tol <= 0.0:
+            raise ValueError("tol must be a finite positive real number")
+        if not isinstance(self.compute_inference, (bool, np.bool_)):
+            raise ValueError("compute_inference must be boolean")
+        if not isinstance(self.gpu_memory_cleanup, (bool, np.bool_)):
+            raise ValueError("gpu_memory_cleanup must be boolean")
+        if not isinstance(self.cov_type, str):
+            raise ValueError("cov_type must be a string")
+        cov_type = self.cov_type.lower()
+        valid_cov = {"nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"}
+        if cov_type not in valid_cov:
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', "
+                "'hc2', 'hc3', 'hac'"
+            )
+        if self.hac_maxlags is not None and (
+            isinstance(self.hac_maxlags, bool)
+            or not isinstance(self.hac_maxlags, Integral)
+            or int(self.hac_maxlags) < 0
+        ):
+            raise ValueError("hac_maxlags must be a non-negative integer or None")
+
+        self._fit_intercept = bool(self.fit_intercept)
+        self._C = C
+        self._max_iter = int(self.max_iter)
+        self._tol = tol
+        self._compute_inference_enabled = bool(self.compute_inference)
+        self._gpu_memory_cleanup = bool(self.gpu_memory_cleanup)
+        self._cov_type = cov_type
+        self._hac_maxlags = (
+            None if self.hac_maxlags is None else int(self.hac_maxlags)
+        )
+
+    def _publish_convergence(self, converged):
+        self.converged_ = bool(converged)
+        if not self.converged_:
+            warnings.warn(
+                f"LogisticRegression IRLS did not converge within "
+                f"{self._max_iter} iterations.",
+                ConvergenceWarning,
+                stacklevel=3,
+            )
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
         self._train_pred_cache = None
         self._train_eval_cache = None
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -150,10 +270,10 @@ class LogisticRegression(BaseEstimator):
         """Resolve HAC lag count with a Newey-West style default rule."""
         if n_obs <= 1:
             return 0
-        if self.hac_maxlags is None:
+        if self._hac_maxlags is None:
             maxlags = int(np.floor(4.0 * (n_obs / 100.0) ** (2.0 / 9.0)))
         else:
-            maxlags = int(self.hac_maxlags)
+            maxlags = int(self._hac_maxlags)
         return max(0, min(maxlags, n_obs - 1))
 
     def _hac_meat_numpy(self, scores: np.ndarray) -> np.ndarray:
@@ -205,42 +325,73 @@ class LogisticRegression(BaseEstimator):
         -------
         self : object
         """
-        self._y = self._to_numpy(y).astype(float)
-        self._train_pred_cache = None
-        self._train_eval_cache = None
+        self._reset_fit_state()
+        try:
+            self._validate_fit_controls()
+            self._train_pred_cache = None
+            self._train_eval_cache = None
 
-        # Get backend - support explicit torch backend selection
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
+            # Validate shape/domain before backend-specific unpacking.
+            X_validated = validate_glm_design_matrix(X)
 
-        X_arr = self._to_array(X, backend=backend_name)
-        # Handle dtype conversion based on backend
-        if backend_name == "torch":
-            import torch
-            y_arr = self._to_array(y, backend=backend_name)
-            if y_arr.dtype != torch.float64:
-                y_arr = y_arr.to(torch.float64)
-        elif backend_name == "cupy":
-            import cupy as cp
-            y_arr = self._to_array(y, backend=backend_name).astype(cp.float64)
-        else:
-            y_arr = self._to_array(y, backend=backend_name).astype(float)
+            # Get backend - support explicit torch backend selection.
+            backend = self._get_backend(backend="auto")
+            backend_name = backend.name
 
-        device = self._get_compute_device()
+            X_arr = self._to_array(X_validated, backend=backend_name)
+            y_validated = validate_binary_response(
+                y, X_validated.shape[0], context="LogisticRegression"
+            )
+            self._y = self._to_numpy(y_validated).astype(float)
+            # Handle dtype conversion based on backend
+            if backend_name == "torch":
+                import torch
+                y_arr = self._to_array(y_validated, backend=backend_name)
+                if y_arr.dtype != torch.float64:
+                    y_arr = y_arr.to(torch.float64)
+            elif backend_name == "cupy":
+                import cupy as cp
+                y_arr = self._to_array(y_validated, backend=backend_name).astype(cp.float64)
+            else:
+                y_arr = self._to_array(y_validated, backend=backend_name).astype(float)
 
-        # Route to appropriate backend
-        if backend_name == "torch":
-            self._fit_torch(X_arr, y_arr, sample_weight)
-        elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, sample_weight)
-        else:
-            self._fit_cpu(X_arr, y_arr, sample_weight)
+            if sample_weight is None:
+                sample_weight_arr = None
+                self._sample_weight = None
+            else:
+                sample_weight_arr = self._to_array(sample_weight, backend=backend_name)
+                sample_weight_arr = validate_glm_sample_weight(
+                    sample_weight_arr, X_arr.shape[0]
+                )
+                # CPU covariance inference consumes a NumPy weight cache.
+                # CuPy/Torch inference already uses the device-native
+                # ``sample_weight_arr`` inside the backend fit and must not pay
+                # for an otherwise unused full device-to-host copy.
+                self._sample_weight = (
+                    np.asarray(sample_weight_arr, dtype=np.float64).reshape(-1)
+                    if backend_name == "numpy"
+                    else None
+                )
 
-        if self.compute_inference and device == Device.CPU:
-            self._compute_inference()
-        self._fitted = True
-        return self
+            device = self._get_compute_device()
+
+            # Route to appropriate backend
+            if backend_name == "torch":
+                self._fit_torch(X_arr, y_arr, sample_weight_arr)
+            elif backend_name == "cupy":
+                self._fit_gpu(X_arr, y_arr, sample_weight_arr)
+            else:
+                self._fit_cpu(X_arr, y_arr, sample_weight_arr)
+
+            if self._compute_inference_enabled and device == Device.CPU:
+                self._compute_inference()
+            self._fitted = True
+            return self
     
+        except Exception:
+            self._reset_fit_state()
+            raise
+
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU with IRLS."""
         X = np.asarray(X)
@@ -250,7 +401,7 @@ class LogisticRegression(BaseEstimator):
         self._nobs = n_samples
         
         # Add intercept if needed
-        if self.fit_intercept:
+        if self._fit_intercept:
             self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
         else:
             self._X_design = X.copy()
@@ -259,26 +410,28 @@ class LogisticRegression(BaseEstimator):
         params = np.zeros(self._X_design.shape[1])
         
         # Regularization parameter (lambda = 1 / (2*C))
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
         
         # IRLS iteration
         iteration = 0
-        for iteration in range(self.max_iter):
+        converged = False
+        for iteration in range(self._max_iter):
             params_old = params.copy()
             
             # Predicted probabilities
             eta = self._X_design @ params
             p = self._sigmoid(eta)
             
-            # Weights for WLS
-            W = p * (1 - p)
-            W = np.clip(W, 1e-8, 1 - 1e-8)  # Avoid numerical issues
-            
-            if sample_weight is not None:
-                W = W * np.asarray(sample_weight)
-            
-            # Working response
-            z = eta + (y - p) / W
+            # The IRLS working response uses only the Bernoulli variance.
+            # Analytic sample weights belong in the WLS weights, not in the
+            # working-response denominator.
+            W_base = np.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+            z = eta + (y - p) / W_base
+            W = (
+                W_base
+                if sample_weight is None
+                else W_base * np.asarray(sample_weight, dtype=np.float64)
+            )
             
             # Weighted least squares
             # (X'WX + alpha*I) * params = X'Wz
@@ -287,7 +440,7 @@ class LogisticRegression(BaseEstimator):
             # Add L2 regularization (don't regularize intercept)
             if alpha > 0:
                 reg_diag = np.full(XtWX.shape[0], alpha)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag[0] = 0.0  # Don't regularize intercept
                 XtWX += np.diag(reg_diag)
             
@@ -299,13 +452,15 @@ class LogisticRegression(BaseEstimator):
                 params = np.linalg.lstsq(XtWX, Xtz, rcond=None)[0]
             
             # Check convergence
-            if np.linalg.norm(params - params_old) < self.tol:
+            if np.linalg.norm(params - params_old) < self._tol:
+                converged = True
                 break
         
         self.n_iter_ = iteration + 1
+        self._publish_convergence(converged)
         self._params = params
         
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(params[0])
             self.coef_ = params[1:]
         else:
@@ -313,7 +468,29 @@ class LogisticRegression(BaseEstimator):
             self.coef_ = params.copy()
         
         # Degrees of freedom
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
+
+        # Likelihood diagnostics are fit outputs, not inference-only state.
+        eta_diag = self._X_design @ params
+        loglik_i = -LogisticLoss().per_sample_value(eta_diag, y)
+        weights_diag = (
+            None
+            if sample_weight is None
+            else np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        )
+        self._loglik = float(np.sum(
+            loglik_i if weights_diag is None else weights_diag * loglik_i
+        ))
+        y_mean = (
+            float(np.mean(y))
+            if weights_diag is None
+            else float(np.average(y, weights=weights_diag))
+        )
+        y_mean = float(np.clip(y_mean, 1e-15, 1.0 - 1e-15))
+        null_i = y * np.log(y_mean) + (1.0 - y) * np.log(1.0 - y_mean)
+        self._loglik_null = float(np.sum(
+            null_i if weights_diag is None else weights_diag * null_i
+        ))
     
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with IRLS."""
@@ -324,7 +501,7 @@ class LogisticRegression(BaseEstimator):
         self._nobs = n_samples
         
         # Add intercept if needed
-        if self.fit_intercept:
+        if self._fit_intercept:
             X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
         else:
             X_design = X
@@ -333,26 +510,26 @@ class LogisticRegression(BaseEstimator):
         params = cp.zeros(X_design.shape[1])
         
         # Regularization parameter
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
-        
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
+        sw_work = (
+            None
+            if sample_weight is None
+            else cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+        )
+
         # IRLS iteration
         iteration = 0
-        for iteration in range(self.max_iter):
+        converged = False
+        for iteration in range(self._max_iter):
             params_old = params.copy()
             
             # Predicted probabilities
             eta = X_design @ params
             p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
             
-            # Weights for WLS
-            W = p * (1 - p)
-            W = cp.clip(W, 1e-8, 1 - 1e-8)
-            
-            if sample_weight is not None:
-                W = W * cp.asarray(sample_weight)
-            
-            # Working response
-            z = eta + (y - p) / W
+            W_base = cp.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+            z = eta + (y - p) / W_base
+            W = W_base if sw_work is None else W_base * sw_work
             
             # Weighted least squares
             XtWX = X_design.T @ (X_design * W[:, cp.newaxis])
@@ -360,7 +537,7 @@ class LogisticRegression(BaseEstimator):
             # Add L2 regularization
             if alpha > 0:
                 reg_diag = cp.full(XtWX.shape[0], alpha)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag[0] = 0.0
                 XtWX += cp.diag(reg_diag)
             
@@ -368,64 +545,79 @@ class LogisticRegression(BaseEstimator):
             
             try:
                 params = cp.linalg.solve(XtWX, Xtz)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 params = cp.linalg.lstsq(XtWX, Xtz)[0]
             
             # Check convergence
-            if cp.linalg.norm(params - params_old) < self.tol:
+            if bool((cp.linalg.norm(params - params_old) < self._tol).item()):
+                converged = True
                 break
         
         self.n_iter_ = iteration + 1
+        self._publish_convergence(converged)
         
-        # Compute log-likelihood on GPU
+        # Reuse the registered stable Bernoulli objective on CuPy.
         eta = X_design @ params
         p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
-        loglik = cp.sum(y * cp.log(p + 1e-10) + (1 - y) * cp.log(1 - p + 1e-10))
-        
-        # Compute accuracy on GPU
+        loglik_i = -LogisticLoss().per_sample_value(eta, y)
+        loglik = cp.sum(loglik_i if sw_work is None else sw_work * loglik_i)
+
+        # Compute accuracy on GPU using the same analytic weights.
         y_pred = (p > 0.5).astype(cp.int32)
-        accuracy = cp.mean(y_pred == y)
+        correct = (y_pred == y).astype(cp.float64)
+        accuracy = (
+            cp.mean(correct)
+            if sw_work is None
+            else cp.sum(sw_work * correct) / cp.sum(sw_work)
+        )
         
         # Store GPU results temporarily
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
 
-        if self.compute_inference:
+        if self._compute_inference_enabled:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
-            W_inf = p * (1 - p)
-            W_inf = cp.clip(W_inf, 1e-8, 1 - 1e-8)
+            W_inf = cp.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+            if sw_work is not None:
+                W_inf = W_inf * sw_work
             H = X_design.T @ (X_design * W_inf[:, cp.newaxis])
             if alpha > 0:
                 reg_diag_inf = cp.full(H.shape[0], alpha)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag_inf[0] = 0.0
                 H += cp.diag(reg_diag_inf)
             try:
                 eye = cp.eye(H.shape[0], dtype=H.dtype)
                 bread = cp.linalg.solve(H, eye)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 bread = cp.linalg.pinv(H)
 
-            if self.cov_type == "nonrobust":
+            if self._cov_type == "nonrobust":
                 cov_params = bread
             else:
                 resid_score = y - p
+                if sw_work is not None:
+                    resid_score = resid_score * sw_work
                 scores = X_design * resid_score[:, cp.newaxis]
 
-                if self.cov_type == "hac":
+                if self._cov_type == "hac":
                     meat = self._hac_meat_cupy(scores)
                 else:
-                    if self.cov_type in ("hc2", "hc3"):
+                    if self._cov_type in ("hc2", "hc3"):
                         leverage = W_inf * cp.einsum("ij,jk,ik->i", X_design, bread, X_design)
                         leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
-                        if self.cov_type == "hc2":
+                        if self._cov_type == "hc2":
                             scores = scores / cp.sqrt(1.0 - leverage)[:, cp.newaxis]
                         else:
                             scores = scores / (1.0 - leverage)[:, cp.newaxis]
                     meat = scores.T @ scores
 
                 cov_params = bread @ meat @ bread
-                if self.cov_type == "hc1":
+                if self._cov_type == "hc1":
                     n = X_design.shape[0]
                     k = X_design.shape[1]
                     if n > k:
@@ -451,20 +643,25 @@ class LogisticRegression(BaseEstimator):
         self._X_design = X_design_np
         self._params = params_np
         
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
         else:
             self.intercept_ = 0.0
             self.coef_ = params_np.copy()
         
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
         self._loglik = float(cp.asnumpy(self._loglik_gpu))
         self._accuracy = float(cp.asnumpy(self._accuracy_gpu))
-        y_mean = cp.mean(y)
+        y_mean = (
+            cp.mean(y)
+            if sw_work is None
+            else cp.sum(sw_work * y) / cp.sum(sw_work)
+        )
         y_mean = cp.clip(y_mean, 1e-15, 1 - 1e-15)
+        null_i = y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)
         self._loglik_null = float(
-            cp.asnumpy(cp.sum(y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)))
+            cp.asnumpy(cp.sum(null_i if sw_work is None else sw_work * null_i))
         )
 
         # Release large temporary GPU tensors early.
@@ -506,7 +703,7 @@ class LogisticRegression(BaseEstimator):
         """Best-effort Torch CUDA memory cleanup."""
         self._train_pred_cache = None
         self._train_eval_cache = None
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -538,7 +735,7 @@ class LogisticRegression(BaseEstimator):
             X = X.to(torch.float64)
 
         # Add intercept if needed
-        if self.fit_intercept:
+        if self._fit_intercept:
             X_design = torch.cat([torch.ones(n_samples, 1, dtype=torch.float64, device=torch_device), X], dim=1)
         else:
             X_design = X
@@ -547,32 +744,28 @@ class LogisticRegression(BaseEstimator):
         params = torch.zeros(X_design.shape[1], dtype=torch.float64, device=torch_device)
 
         # Regularization parameter (lambda = 1 / (2*C))
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
+        sw_work = (
+            None
+            if sample_weight is None
+            else torch.as_tensor(
+                sample_weight, dtype=torch.float64, device=torch_device
+            ).reshape(-1)
+        )
 
         # IRLS iteration
         iteration = 0
-        for iteration in range(self.max_iter):
+        converged = False
+        for iteration in range(self._max_iter):
             params_old = params.clone()
 
             # Predicted probabilities
             eta = X_design @ params
             p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
 
-            # Weights for WLS
-            W = p * (1 - p)
-            W = torch.clamp(W, 1e-8, 1 - 1e-8)
-
-            if sample_weight is not None:
-                if not isinstance(sample_weight, torch.Tensor):
-                    sample_weight_torch = torch.from_numpy(sample_weight).to(torch_device)
-                else:
-                    sample_weight_torch = sample_weight.to(torch_device)
-                if sample_weight_torch.dtype != torch.float64:
-                    sample_weight_torch = sample_weight_torch.to(torch.float64)
-                W = W * sample_weight_torch
-
-            # Working response
-            z = eta + (y - p) / W
+            W_base = torch.clamp(p * (1 - p), 1e-8, 1 - 1e-8)
+            z = eta + (y - p) / W_base
+            W = W_base if sw_work is None else W_base * sw_work
 
             # Weighted least squares
             XtWX = X_design.T @ (X_design * W[:, None])
@@ -580,7 +773,7 @@ class LogisticRegression(BaseEstimator):
             # Add L2 regularization
             if alpha > 0:
                 reg_diag = torch.full((XtWX.shape[0],), alpha, dtype=torch.float64, device=torch_device)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag[0] = 0.0
                 XtWX += torch.diag(reg_diag)
 
@@ -588,65 +781,80 @@ class LogisticRegression(BaseEstimator):
 
             try:
                 params = torch.linalg.solve(XtWX, Xtz)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 params = torch.linalg.lstsq(XtWX, Xtz)[0]
 
             # Check convergence
-            if torch.linalg.norm(params - params_old) < self.tol:
+            if bool((torch.linalg.norm(params - params_old) < self._tol).item()):
+                converged = True
                 break
 
         self.n_iter_ = iteration + 1
+        self._publish_convergence(converged)
 
-        # Compute log-likelihood on GPU
+        # Reuse the registered stable Bernoulli objective on Torch.
         eta = X_design @ params
         p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
-        loglik = torch.sum(y * torch.log(p + 1e-10) + (1 - y) * torch.log(1 - p + 1e-10))
+        loglik_i = -LogisticLoss().per_sample_value(eta, y)
+        loglik = torch.sum(loglik_i if sw_work is None else sw_work * loglik_i)
 
-        # Compute accuracy on GPU
+        # Compute accuracy using the same analytic weights.
         y_pred = (p > 0.5).to(torch.int32)
         y_true = y.to(torch.int32).reshape(y_pred.shape)
-        accuracy = torch.mean((y_pred == y_true).to(torch.float64))
+        correct = (y_pred == y_true).to(torch.float64)
+        accuracy = (
+            torch.mean(correct)
+            if sw_work is None
+            else torch.sum(sw_work * correct) / torch.sum(sw_work)
+        )
 
         # Store GPU results temporarily
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
 
-        if self.compute_inference:
+        if self._compute_inference_enabled:
             # Bread: inverse Hessian, H = X'WX (+ ridge)
-            W_inf = p * (1 - p)
-            W_inf = torch.clamp(W_inf, 1e-8, 1 - 1e-8)
+            W_inf = torch.clamp(p * (1 - p), 1e-8, 1 - 1e-8)
+            if sw_work is not None:
+                W_inf = W_inf * sw_work
             H = X_design.T @ (X_design * W_inf[:, None])
             if alpha > 0:
                 reg_diag_inf = torch.full((H.shape[0],), alpha, dtype=torch.float64, device=torch_device)
-                if self.fit_intercept:
+                if self._fit_intercept:
                     reg_diag_inf[0] = 0.0
                 H += torch.diag(reg_diag_inf)
             try:
                 eye = torch.eye(H.shape[0], dtype=H.dtype, device=torch_device)
                 bread = torch.linalg.solve(H, eye)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 bread = torch.linalg.pinv(H)
 
-            if self.cov_type == "nonrobust":
+            if self._cov_type == "nonrobust":
                 cov_params = bread
             else:
                 resid_score = y - p
+                if sw_work is not None:
+                    resid_score = resid_score * sw_work
                 scores = X_design * resid_score[:, None]
 
-                if self.cov_type == "hac":
+                if self._cov_type == "hac":
                     meat = self._hac_meat_torch(scores)
                 else:
-                    if self.cov_type in ("hc2", "hc3"):
+                    if self._cov_type in ("hc2", "hc3"):
                         leverage = W_inf * torch.einsum("ij,jk,ik->i", X_design, bread, X_design)
                         leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
-                        if self.cov_type == "hc2":
+                        if self._cov_type == "hc2":
                             scores = scores / torch.sqrt(1.0 - leverage)[:, None]
                         else:
                             scores = scores / (1.0 - leverage)[:, None]
                     meat = scores.T @ scores
 
                 cov_params = bread @ meat @ bread
-                if self.cov_type == "hc1":
+                if self._cov_type == "hc1":
                     n = X_design.shape[0]
                     k = X_design.shape[1]
                     if n > k:
@@ -672,19 +880,28 @@ class LogisticRegression(BaseEstimator):
         self._X_design = X_design_np
         self._params = params_np
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
         else:
             self.intercept_ = 0.0
             self.coef_ = params_np.copy()
 
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
         self._loglik = float(self._loglik_gpu.cpu().numpy())
         self._accuracy = float(self._accuracy_gpu.cpu().numpy())
-        y_mean = torch.mean(y)
+        y_mean = (
+            torch.mean(y)
+            if sw_work is None
+            else torch.sum(sw_work * y) / torch.sum(sw_work)
+        )
         y_mean = torch.clamp(y_mean, 1e-15, 1 - 1e-15)
-        self._loglik_null = float(torch.sum(y * torch.log(y_mean) + (1 - y) * torch.log(1 - y_mean)).cpu().numpy())
+        null_i = y * torch.log(y_mean) + (1 - y) * torch.log(1 - y_mean)
+        self._loglik_null = float(
+            torch.sum(null_i if sw_work is None else sw_work * null_i)
+            .cpu()
+            .numpy()
+        )
 
         # Release large temporary GPU tensors early.
         try:
@@ -745,17 +962,18 @@ class LogisticRegression(BaseEstimator):
         eta = self._X_design @ self._params
         p = self._sigmoid(eta)
         
-        # Compute Hessian (information matrix)
-        W = p * (1 - p)
-        W = np.clip(W, 1e-8, 1 - 1e-8)
-        
+        # Compute Hessian (information matrix) with analytic weights.
+        W = np.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+        if self._sample_weight is not None:
+            W = W * self._sample_weight
+
         XtWX = self._X_design.T @ (self._X_design * W[:, np.newaxis])
         
         # Add regularization to Hessian
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
         if alpha > 0:
             reg_diag = np.full(XtWX.shape[0], alpha)
-            if self.fit_intercept:
+            if self._fit_intercept:
                 reg_diag[0] = 0.0
             XtWX += np.diag(reg_diag)
         
@@ -764,26 +982,28 @@ class LogisticRegression(BaseEstimator):
         except np.linalg.LinAlgError:
             bread = np.linalg.pinv(XtWX)
 
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             cov_params = bread
         else:
             resid_score = self._y - p
+            if self._sample_weight is not None:
+                resid_score = resid_score * self._sample_weight
 
             scores = self._X_design * resid_score[:, np.newaxis]
-            if self.cov_type == "hac":
+            if self._cov_type == "hac":
                 meat = self._hac_meat_numpy(scores)
             else:
-                if self.cov_type in ("hc2", "hc3"):
+                if self._cov_type in ("hc2", "hc3"):
                     leverage = W * np.einsum("ij,jk,ik->i", self._X_design, bread, self._X_design)
                     leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
-                    if self.cov_type == "hc2":
+                    if self._cov_type == "hc2":
                         scores = scores / np.sqrt(1.0 - leverage)[:, np.newaxis]
                     else:
                         scores = scores / (1.0 - leverage)[:, np.newaxis]
                 meat = scores.T @ scores
 
             cov_params = bread @ meat @ bread
-            if self.cov_type == "hc1":
+            if self._cov_type == "hc1":
                 n = self._X_design.shape[0]
                 k = self._X_design.shape[1]
                 if n > k:
@@ -806,69 +1026,74 @@ class LogisticRegression(BaseEstimator):
             self._params + z_crit * self._bse
         ])
         
-        # Log-likelihood
-        eps = 1e-15  # Avoid log(0)
-        p_clipped = np.clip(p, eps, 1 - eps)
-        self._loglik = np.sum(self._y * np.log(p_clipped) + (1 - self._y) * np.log(1 - p_clipped))
-        
-        # Null log-likelihood (intercept-only model)
-        y_mean = np.mean(self._y)
-        y_mean = np.clip(y_mean, eps, 1 - eps)
-        self._loglik_null = np.sum(self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean))
+        # Likelihood diagnostics are computed once during fitting from the
+        # registered stable LogisticLoss objective. Inference must not overwrite
+        # those public fit outputs with a different numerical approximation.
 
     def _train_classification_table(self):
-        """Training-set classification table on current device.
+        """Return and cache hard-label training metrics on the active backend.
 
-        Results are cached in ``_train_eval_cache`` so that multiple
-        properties (accuracy, precision, recall, f1, auc, average_precision)
-        sharing the same training data only trigger a single forward pass.
+        Confusion-based metrics are intentionally independent of ROC and
+        precision-recall curves so they remain available for one-class targets.
+        Ranking metrics are computed lazily by ``auc`` and
+        ``average_precision`` because their class-support requirements differ.
         """
         if self._y is None or not self._fitted:
             return None
 
         if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("classification_table")
+            cached = self._train_eval_cache.get("classification_table")
+            if cached is not None:
+                return cached
 
-        X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
+        X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
+        y_pred = self.predict(X_train)
         device = self._get_compute_device()
         if device == Device.CUDA:
             cp = _require_cupy("_train_classification_table")
-
-            y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X_train))[:, 1]
-            self._train_eval_cache = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=0.5,
-                include_curves=False,
-                backend="cupy",
+            y_true = cp.asarray(
+                self._to_array(self._y, Device.CUDA)
+            ).reshape(-1)
+            table = binary_classification_table(
+                y_true, y_pred, backend="cupy"
             )
-            return self._train_eval_cache["classification_table"]
-        if device == Device.TORCH:
-            import torch
-
-            y_true = self._to_array(self._y, Device.TORCH, backend="torch").reshape(-1)
-            y_score = self.predict_proba(X_train)[:, 1]
-            if not isinstance(y_score, torch.Tensor):
-                y_score = torch.as_tensor(y_score, dtype=torch.float64, device=y_true.device)
-            self._train_eval_cache = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=0.5,
-                include_curves=False,
-                backend="torch",
+        elif device == Device.TORCH:
+            y_true = self._to_array(
+                self._y, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            table = binary_classification_table(
+                y_true, y_pred, backend="torch"
             )
-            return self._train_eval_cache["classification_table"]
+        else:
+            table = binary_classification_table(
+                self._y, self._to_numpy(y_pred), backend="numpy"
+            )
 
-        y_score = self._to_numpy(self.predict_proba(X_train))[:, 1]
-        self._train_eval_cache = evaluate_binary_classification(
-            self._y,
-            y_score,
-            threshold=0.5,
-            include_curves=False,
-            backend="numpy",
-        )
-        return self._train_eval_cache["classification_table"]
+        if self._train_eval_cache is None:
+            self._train_eval_cache = {}
+        self._train_eval_cache["classification_table"] = table
+        return table
+
+    @staticmethod
+    def _validate_threshold(threshold):
+        """Return a finite binary decision threshold as a Python float."""
+        if (
+            isinstance(threshold, (bool, np.bool_))
+            or not isinstance(threshold, Real)
+        ):
+            raise ValueError(
+                "threshold must be a finite real number in [0, 1]"
+            )
+        threshold = float(threshold)
+        if (
+            not np.isfinite(threshold)
+            or threshold < 0.0
+            or threshold > 1.0
+        ):
+            raise ValueError(
+                "threshold must be a finite real number in [0, 1]"
+            )
+        return threshold
 
     @staticmethod
     def _to_python_float(value):
@@ -948,9 +1173,11 @@ class LogisticRegression(BaseEstimator):
             Predicted class labels.
         """
         proba = self.predict_proba(X)
-        if hasattr(proba, 'is_floating_point'):  # torch tensor
-            return (proba[:, 1] >= 0.5).to(dtype=proba.dtype)
-        return (proba[:, 1] >= 0.5).astype(int)
+        if type(proba).__module__.startswith("torch"):
+            import torch
+
+            return (proba[:, 1] >= 0.5).to(dtype=torch.int64)
+        return (proba[:, 1] >= 0.5).astype(np.int64)
 
     def predict_with_threshold(self, X, threshold: float = 0.5):
         """
@@ -968,12 +1195,13 @@ class LogisticRegression(BaseEstimator):
         ndarray of shape (n_samples,)
             Predicted class labels.
         """
-        if threshold < 0.0 or threshold > 1.0:
-            raise ValueError("threshold must be in [0, 1]")
+        threshold = self._validate_threshold(threshold)
         proba = self.predict_proba(X)
-        if hasattr(proba, "to") and hasattr(proba, "dtype"):
-            return (proba[:, 1] >= threshold).to(dtype=proba.dtype)
-        return (proba[:, 1] >= threshold).astype(int)
+        if type(proba).__module__.startswith("torch"):
+            import torch
+
+            return (proba[:, 1] >= threshold).to(dtype=torch.int64)
+        return (proba[:, 1] >= threshold).astype(np.int64)
     
     def score(self, X, y):
         """
@@ -991,97 +1219,80 @@ class LogisticRegression(BaseEstimator):
         float
             Mean accuracy.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(X).reshape(-1)
+        y_validated = validate_binary_response(
+            y,
+            int(y_pred.shape[0]),
+            context="LogisticRegression.score",
+        )
         device = self._get_compute_device()
         if device == Device.CUDA:
             import cupy as cp
 
-            yb = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
-            return float(cp.mean(y_pred.reshape(-1) == yb).item())
+            yb = cp.asarray(
+                self._to_array(y_validated, Device.CUDA)
+            ).reshape(-1)
+            return float(cp.mean(y_pred == yb).item())
         if device == Device.TORCH:
             import torch
 
-            yb = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
-            return float(torch.mean((y_pred.reshape(-1) == yb).to(torch.float64)).item())
-        y_pred = self._to_numpy(y_pred)
-        y = self._to_numpy(y)
-        return np.mean(y_pred == y)
+            yb = self._to_array(
+                y_validated, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            return float(
+                torch.mean((y_pred == yb).to(torch.float64)).item()
+            )
+        y_pred_np = np.asarray(self._to_numpy(y_pred)).reshape(-1)
+        y_np = np.asarray(self._to_numpy(y_validated)).reshape(-1)
+        return float(np.mean(y_pred_np == y_np))
 
     def confusion_matrix(self, X, y, threshold: float = 0.5) -> np.ndarray:
         """Compute binary confusion matrix on a dataset."""
+        threshold = self._validate_threshold(threshold)
+        y_pred = self.predict_with_threshold(X, threshold=threshold)
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("confusion_matrix")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X))[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="cupy",
+            return binary_confusion_matrix(
+                y_true, y_pred, backend="cupy"
             )
-            return out["confusion_matrix"]
         if self._get_compute_device() == Device.TORCH:
-            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
-            y_score = self.predict_proba(X)[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="torch",
+            y_true = self._to_array(
+                y, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            return binary_confusion_matrix(
+                y_true, y_pred, backend="torch"
             )
-            return out["confusion_matrix"]
 
         y_true = self._to_numpy(y)
-        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
-        out = evaluate_binary_classification(
-            y_true,
-            y_score,
-            threshold=threshold,
-            include_curves=False,
-            backend="numpy",
+        return binary_confusion_matrix(
+            y_true, y_pred, backend="numpy"
         )
-        return out["confusion_matrix"]
 
     def classification_table(self, X, y, threshold: float = 0.5) -> Dict[str, float]:
         """Return a compact classification table on a dataset."""
+        threshold = self._validate_threshold(threshold)
+        y_pred = self.predict_with_threshold(X, threshold=threshold)
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("classification_table")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X))[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="cupy",
+            return binary_classification_table(
+                y_true, y_pred, backend="cupy"
             )
-            return out["classification_table"]
         if self._get_compute_device() == Device.TORCH:
-            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
-            y_score = self.predict_proba(X)[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="torch",
+            y_true = self._to_array(
+                y, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            return binary_classification_table(
+                y_true, y_pred, backend="torch"
             )
-            return out["classification_table"]
 
         y_true = self._to_numpy(y)
-        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
-        out = evaluate_binary_classification(
-            y_true,
-            y_score,
-            threshold=threshold,
-            include_curves=False,
-            backend="numpy",
+        return binary_classification_table(
+            y_true, y_pred, backend="numpy"
         )
-        return out["classification_table"]
 
     def roc_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute ROC curve arrays (fpr, tpr, thresholds)."""
@@ -1178,8 +1389,7 @@ class LogisticRegression(BaseEstimator):
             A dictionary with batched metrics. On CUDA device, arrays/scalars
             are GPU-backed (CuPy) except ``threshold``.
         """
-        if threshold < 0.0 or threshold > 1.0:
-            raise ValueError("threshold must be in [0, 1]")
+        threshold = self._validate_threshold(threshold)
 
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("evaluate_classification")
@@ -1361,28 +1571,36 @@ class LogisticRegression(BaseEstimator):
         """ROC-AUC on training data."""
         if self._y is None or not self._fitted:
             return None
-        # Use cached eval result if available (populated by _train_classification_table)
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("roc_auc")
-        # Trigger cache population via _train_classification_table
-        self._train_classification_table()
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("roc_auc")
-        return None
+        if (
+            self._train_eval_cache is not None
+            and "roc_auc" in self._train_eval_cache
+        ):
+            return self._train_eval_cache["roc_auc"]
+
+        X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
+        value = self.roc_auc_score(X_train, self._y)
+        if self._train_eval_cache is None:
+            self._train_eval_cache = {}
+        self._train_eval_cache["roc_auc"] = value
+        return value
 
     @property
     def average_precision(self):
         """Average precision on training data."""
         if self._y is None or not self._fitted:
             return None
-        # Use cached eval result if available (populated by _train_classification_table)
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("average_precision")
-        # Trigger cache population via _train_classification_table
-        self._train_classification_table()
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("average_precision")
-        return None
+        if (
+            self._train_eval_cache is not None
+            and "average_precision" in self._train_eval_cache
+        ):
+            return self._train_eval_cache["average_precision"]
+
+        X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
+        value = self.average_precision_score(X_train, self._y)
+        if self._train_eval_cache is None:
+            self._train_eval_cache = {}
+        self._train_eval_cache["average_precision"] = value
+        return value
     
     def summary(self):
         """Print summary table similar to statsmodels/R."""
@@ -1396,7 +1614,7 @@ class LogisticRegression(BaseEstimator):
             )
         
         # Build feature names
-        if self.fit_intercept:
+        if self._fit_intercept:
             feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
         else:
             feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
@@ -1407,7 +1625,7 @@ class LogisticRegression(BaseEstimator):
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"Iterations:                 {self.n_iter_:>15}")
-        print(f"Covariance Type:            {self.cov_type:>15}")
+        print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"Log-Likelihood:             {self.loglikelihood:>15.4f}")
         print(f"Log-Likelihood (Null):      {self.loglikelihood_null:>15.4f}")
         print(f"Pseudo R-squared:           {self.pseudo_rsquared:>15.4f}")
@@ -1417,10 +1635,20 @@ class LogisticRegression(BaseEstimator):
         print(f"Precision:                  {self._to_python_float(self.precision):>15.4f}")
         print(f"Recall:                     {self._to_python_float(self.recall):>15.4f}")
         print(f"F1 Score:                   {self._to_python_float(self.f1):>15.4f}")
-        auc = self.auc
+        try:
+            auc = self.auc
+        except ValueError as exc:
+            if "only one class" not in str(exc).lower():
+                raise
+            auc = None
         auc_display = self._to_python_float(auc)
         print(f"ROC-AUC:                    {auc_display:>15.4f}")
-        ap = self.average_precision
+        try:
+            ap = self.average_precision
+        except ValueError as exc:
+            if "no positive class" not in str(exc).lower():
+                raise
+            ap = None
         ap_display = self._to_python_float(ap)
         print(f"Avg Precision:              {ap_display:>15.4f}")
         print("-" * 80)

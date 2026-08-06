@@ -22,12 +22,14 @@ parse_formula
 
 from ._parser import FormulaParser
 from ._design import parse_formula, parse_formula_safe
+from ._alignment import align_formula_sample_weight
 from ._terms import make_surv_env, _surv
 
 __all__ = [
     "FormulaParser",
     "parse_formula",
     "parse_formula_safe",
+    "align_formula_sample_weight",
     "make_surv_env",
     "_surv",
 ]

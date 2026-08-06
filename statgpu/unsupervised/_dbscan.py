@@ -69,8 +69,8 @@ class DBSCAN(BaseEstimator):
             raise NotImplementedError("DBSCAN only supports metric='euclidean'")
         if self.algorithm not in ("auto", "brute", "ball_tree", "kd_tree"):
             raise ValueError("algorithm must be one of: 'auto', 'brute', 'ball_tree', 'kd_tree'")
-        if self.batch_size is not None:
-            if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
+        if self._batch_size is not None:
+            if not isinstance(self._batch_size, (int, np.integer)) or int(self._batch_size) < 1:
                 raise ValueError("batch_size must be None or a positive integer")
         if n_samples < 1:
             raise ValueError("DBSCAN requires at least one sample")
@@ -251,8 +251,8 @@ class DBSCAN(BaseEstimator):
         n_samples = X.shape[0]
         eps = float(self.eps)
 
-        if self.batch_size is not None:
-            batch_size = min(int(self.batch_size), n_samples)
+        if self._batch_size is not None:
+            batch_size = min(int(self._batch_size), n_samples)
         else:
             batch_size = min(n_samples, max(1000, 400_000_000 // (n_samples * 4)))
 
@@ -313,8 +313,8 @@ class DBSCAN(BaseEstimator):
         x_norm = (X_f32 * X_f32).sum(dim=1, keepdim=True)
         eps_sq = eps ** 2
 
-        if self.batch_size is not None:
-            batch_size = min(int(self.batch_size), n_samples)
+        if self._batch_size is not None:
+            batch_size = min(int(self._batch_size), n_samples)
         else:
             batch_size = min(n_samples, max(2000, 2_000_000_000 // (n_samples * 4)))
 

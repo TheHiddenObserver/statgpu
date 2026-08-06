@@ -67,20 +67,35 @@ class Ridge(_PenalizedLinearRegression):
         """
         if (formula is not None
                 or self._get_compute_device() != Device.CPU
-                or self.solver != "exact"):
+                or self._solver != "exact"):
             # Fall back to parent for formula, GPU, or non-exact solver
             return super().fit(X=X, y=y, sample_weight=sample_weight, formula=formula, data=data)
 
         X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
         y_np = np.asarray(self._to_array(y, Device.CPU), dtype=np.float64)
+        if X_np.ndim != 2:
+            raise ValueError("X must be a 2D array")
+        if y_np.ndim != 1:
+            raise ValueError("y must be one-dimensional")
+        if y_np.shape[0] != X_np.shape[0]:
+            raise ValueError("X and y must contain the same number of samples")
 
         n_samples, n_features = X_np.shape
         self._nobs = n_samples
         self._fitted = False
 
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
+        if sw is not None:
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw)):
+                raise ValueError("sample_weight must be finite")
+            if np.any(sw < 0):
+                raise ValueError("sample_weight must be non-negative")
+            if float(np.sum(sw)) <= 0.0:
+                raise ValueError("sample_weight must have a positive sum")
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             if sw is not None:
                 w_sum = float(sw.sum())
                 X_wmean = np.average(X_np, axis=0, weights=sw)
@@ -93,18 +108,19 @@ class Ridge(_PenalizedLinearRegression):
         # Weighted: X'WX, X'Wy.  Unweighted: X'X, X'y.
         # Centering for intercept: subtract weighted/unweighted outer product.
         if sw is not None:
-            # Weighted normal equations: (X'WX + alpha*I) coef = X'Wy
+            # Weighted average-loss normal equations:
+            # (X'WX + sum(w)*alpha*I) coef = X'Wy.
             sw_col = sw[:, None]
             XtX = (X_np * sw_col).T @ X_np
             Xty = (X_np * sw_col).T @ y_np
-            if self.fit_intercept:
+            if self._fit_intercept:
                 XtX -= w_sum * np.outer(X_wmean, X_wmean)
                 Xty -= w_sum * X_wmean * y_wmean
                 n_eff = w_sum
             else:
                 n_eff = float(sw.sum())
         else:
-            if self.fit_intercept:
+            if self._fit_intercept:
                 X_mean = np.mean(X_np, axis=0)
                 y_mean = np.mean(y_np)
                 XtX = X_np.T @ X_np
@@ -121,16 +137,16 @@ class Ridge(_PenalizedLinearRegression):
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # Solve (XtX + n_eff*alpha*I) @ coef = Xty
-        # n_eff scaling matches PenalizedGeneralizedLinearModel exact ridge
-        # and sklearn Ridge convention.
+        # LossBase uses an average data-fit term and L2Penalty uses
+        # (alpha/2)||coef||^2, hence the normal equation contains
+        # n_eff*alpha. This preserves loss/penalty/solver consistency.
         A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
         except np.linalg.LinAlgError:
             coef = np.linalg.lstsq(A, Xty, rcond=None)[0].flatten()
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(y_wmean - X_wmean @ coef)
             self.coef_ = coef
             self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -143,11 +159,11 @@ class Ridge(_PenalizedLinearRegression):
         self._resid = None
         self._scale = np.nan
         self.n_iter_ = 1
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
 
         # Build design matrix and compute residuals only when inference is needed
-        if self.compute_inference:
-            if self.fit_intercept:
+        if self._compute_inference_enabled:
+            if self._fit_intercept:
                 self._X_design = np.column_stack([np.ones(n_samples, dtype=X_np.dtype), X_np])
             else:
                 self._X_design = X_np.copy()

@@ -176,29 +176,29 @@ class LassoCV(CVEstimatorBase):
 
         device_name = self._get_compute_device().value
         effective_cpu_solver = (
-            "coordinate_descent" if str(self.method).lower() == "glmnet" else str(self.cpu_solver)
+            "coordinate_descent" if str(self._method).lower() == "glmnet" else str(self._cpu_solver)
         )
-        effective_cd_kkt = self.cd_kkt_check_every
+        effective_cd_kkt = self._cd_kkt_check_every
         if effective_cd_kkt is None:
-            effective_cd_kkt = 4 if str(self.method).lower() == "glmnet" else 1
+            effective_cd_kkt = 4 if str(self._method).lower() == "glmnet" else 1
 
         details = _select_lasso_alpha_cv(
             X, y,
             alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            cv_folds=self.cv,
+            n_alphas=self._n_alphas,
+            alpha_min_ratio=self._alpha_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
+            fit_intercept=self._fit_intercept,
             device=device_name,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            max_iter=self._max_iter,
+            tol=self._tol,
             cpu_solver=effective_cpu_solver,
-            method=self.method,
+            method=self._method,
             cd_kkt_check_every=effective_cd_kkt,
-            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
@@ -217,19 +217,19 @@ class LassoCV(CVEstimatorBase):
         # Fit final model with selected alpha
         estimator = Lasso(
             alpha=self.alpha_,
-            fit_intercept=self.fit_intercept,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            stopping=self.stopping,
-            inference_method=self.inference_method,
-            device=self.device,
+            fit_intercept=self._fit_intercept,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            stopping=self._stopping,
+            inference_method=self._inference_method,
+            device=self._device,
             n_jobs=self.n_jobs,
-            compute_inference=self.compute_inference,
-            solver=self.solver,
+            compute_inference=self._compute_inference_enabled,
+            solver=self._solver,
             cpu_solver=effective_cpu_solver,
             lipschitz_L=self.lipschitz_L,
-            admm_rho=self.admm_rho,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
+            admm_rho=self._admm_rho,
+            gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
         estimator.fit(X, y, sample_weight=sample_weight)
 

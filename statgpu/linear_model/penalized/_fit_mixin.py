@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
+from statgpu.backends._torch_compile import compile_torch
 import numpy as np
-from typing import TYPE_CHECKING
 
 from statgpu._config import Device
-from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
+from statgpu.backends import get_backend, _to_numpy
 from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
-
-if TYPE_CHECKING:
-    from ._base import PenalizedGeneralizedLinearModel as _Self
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 
 # ---------------------------------------------------------------------------
 # Solver dispatch table for solver='auto'
@@ -24,6 +22,40 @@ from statgpu.penalties._categories import (
     SPARSE as _SPARSE_PENALTIES,
 )
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
+
+
+def _validate_sample_weight_backend(sample_weight, n_samples, backend_name):
+    """Validate sample weights in place and synchronize only scalar reductions."""
+    if getattr(sample_weight, "ndim", None) != 1:
+        raise ValueError("sample_weight must be one-dimensional")
+    if int(sample_weight.shape[0]) != int(n_samples):
+        raise ValueError("sample_weight must have length n_samples")
+
+    if backend_name == "torch":
+        import torch
+        if not bool(torch.all(torch.isfinite(sample_weight)).item()):
+            raise ValueError("sample_weight must be finite")
+        if bool(torch.any(sample_weight < 0).item()):
+            raise ValueError("sample_weight must be non-negative")
+        total = float(torch.sum(sample_weight).item())
+    elif backend_name == "cupy":
+        import cupy as cp
+        if not bool(cp.all(cp.isfinite(sample_weight)).item()):
+            raise ValueError("sample_weight must be finite")
+        if bool(cp.any(sample_weight < 0).item()):
+            raise ValueError("sample_weight must be non-negative")
+        total = float(cp.sum(sample_weight).item())
+    else:
+        weights = np.asarray(sample_weight)
+        if not np.all(np.isfinite(weights)):
+            raise ValueError("sample_weight must be finite")
+        if np.any(weights < 0):
+            raise ValueError("sample_weight must be non-negative")
+        total = float(np.sum(weights))
+
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("sample_weight must have a finite positive sum")
+    return total
 
 # Losses with special LLA handling (not routed through generic GLM path).
 # squared_error: quadratic, uses fused FISTA-LLA fast path.
@@ -262,6 +294,12 @@ class _PenalizedFitMixin:
         self : PenalizedLinearRegression
             Fitted estimator.
         """
+        # Direct public parameter replacement is part of the refit API.
+        self._penalty_kwargs = (
+            self.penalty_kwargs if self.penalty_kwargs is not None else {}
+        )
+        self._loss_kwargs = self.loss_kwargs if self.loss_kwargs is not None else {}
+
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -272,6 +310,15 @@ class _PenalizedFitMixin:
 
             parser = FormulaParser(formula)
             y, X, design_info = parser.eval(data)
+            if sample_weight is not None:
+                from statgpu.core.formula import align_formula_sample_weight
+
+                sample_weight = align_formula_sample_weight(
+                    sample_weight,
+                    data_length=len(data),
+                    retained_rows=parser.row_positions,
+                    retained_length=X.shape[0],
+                )
             formula_column_names = list(design_info.column_names)
             self._design_info = design_info
             self._formula_has_intercept = "Intercept" in formula_column_names
@@ -290,13 +337,19 @@ class _PenalizedFitMixin:
             self._formula_has_intercept = None
             self._use_intercept = None
 
-        # Record number of features for sklearn compatibility
-        if X is not None:
-            X_arr = np.asarray(X) if not hasattr(X, 'shape') else X
-            self.n_features_in_ = X_arr.shape[1] if X_arr.ndim >= 2 else 1
+        from statgpu.glm_core._validation import (
+            validate_glm_design_matrix,
+            validate_glm_sample_weight,
+        )
+        X = validate_glm_design_matrix(X)
+        self.n_features_in_ = int(X.shape[1])
 
         self._penalty = self._resolve_penalty()
         self._loss = self._resolve_loss()
+        if hasattr(self._loss, "validate_response"):
+            y = self._loss.validate_response(y)
+            if int(y.shape[0]) != int(len(X)):
+                raise ValueError("Response length must match the number of X rows.")
         self._validate_solver_penalty()
         self._validate_inference_request()
 
@@ -315,7 +368,7 @@ class _PenalizedFitMixin:
 
         # Auto-dispatch small problems to CPU only when device="auto".
         # Explicit CUDA/TORCH device selection must never silently fall back.
-        if self.device == Device.AUTO and backend_name in ("cupy", "torch") and X is not None:
+        if self._device == Device.AUTO and backend_name in ("cupy", "torch") and X is not None:
             _n, _p = X.shape
             if _n * _p < 200_000:
                 backend_name = "numpy"
@@ -330,6 +383,9 @@ class _PenalizedFitMixin:
         # Convert sample_weight to target backend once (avoids CPU/CUDA mismatch)
         _sw_arr = None
         if sample_weight is not None:
+            sample_weight = validate_glm_sample_weight(
+                sample_weight, X.shape[0]
+            )
             _sw_arr = self._to_array(sample_weight, backend=backend_name)
 
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
@@ -369,7 +425,7 @@ class _PenalizedFitMixin:
                     max_lla_per_step=_max_lla_per_step,
                     lla_tol=getattr(self, '_lla_tol', 1e-6),
                     max_iter=_mi_path,
-                    tol=self.tol,
+                    tol=self._tol,
                     fit_intercept=self._effective_intercept,
                     sample_weight=_sw_arr,
                 )
@@ -383,7 +439,7 @@ class _PenalizedFitMixin:
                     max_lla_per_step=_max_lla_per_step,
                     lla_tol=getattr(self, '_lla_tol', 1e-6),
                     max_iter=_mi_path,
-                    tol=self.tol,
+                    tol=self._tol,
                     fit_intercept=self._effective_intercept,
                     sample_weight=_sw_arr,
                 )
@@ -423,8 +479,8 @@ class _PenalizedFitMixin:
 
     def _select_solver(self, loss, backend_name=None, X=None):
         """Auto-select solver based on loss, penalty, and backend."""
-        if self.solver != "auto":
-            return self.solver
+        if self._solver != "auto":
+            return self._solver
         return _preferred_penalized_glm_solver(
             getattr(loss, "name", self.loss),
             getattr(self._penalty, "name", self.penalty),
@@ -471,7 +527,7 @@ class _PenalizedFitMixin:
     def _auto_backend_override(self, backend_name, X):
         """Benchmark-backed backend routing for device='auto' only."""
         self._auto_backend_reason = None
-        if self.device != Device.AUTO or self.solver != "auto" or X is None:
+        if self._device != Device.AUTO or self._solver != "auto" or X is None:
             return backend_name
 
         n_samples, n_features = X.shape
@@ -600,7 +656,7 @@ class _PenalizedFitMixin:
         init_model = Ridge(
             alpha=0.1,
             fit_intercept=self._effective_intercept,
-            device=self.device,
+            device=self._device,
         )
         init_model.fit(X, y)
         return init_model.coef_
@@ -646,7 +702,7 @@ class _PenalizedFitMixin:
             _alpha_path = _np.geomspace(_alpha_start, _target_alpha, n_cont)
 
         _max_lla = max(_MAX_LLA_PER_STEP_DEFAULT, getattr(self, '_max_lla_iters', 50) // n_cont)
-        _saved_mi = self.max_iter
+        _saved_mi = self._max_iter
         _mi_path = [_saved_mi if i == n_cont - 1 else max(100, _saved_mi // 10)
                     for i in range(n_cont)]
 
@@ -694,25 +750,36 @@ class _PenalizedFitMixin:
         # Original squared-error path (backward compatible)
 
         if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)
-            sqrt_sw = np.sqrt(sample_weight)
-            X = X * sqrt_sw[:, np.newaxis]
-            y = y * sqrt_sw
-
-        pen = self._penalty
+            sample_weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            n_eff = float(np.sum(sample_weight))
+        else:
+            n_eff = float(n_samples)
 
         if self._effective_intercept:
-            X_mean = np.mean(X, axis=0)
-            y_mean = np.mean(y)
+            if sample_weight is None:
+                X_mean = np.mean(X, axis=0)
+                y_mean = float(np.mean(y))
+            else:
+                X_mean = np.average(X, axis=0, weights=sample_weight)
+                y_mean = float(np.average(y, weights=sample_weight))
             X_centered = X - X_mean
             y_centered = y - y_mean
         else:
-            X_centered = X
+            X_mean = np.zeros(n_features, dtype=X.dtype)
             y_mean = 0.0
+            X_centered = X
             y_centered = y
 
-        if y_centered.ndim == 1:
-            y_centered = y_centered.reshape(-1, 1)
+        if sample_weight is not None:
+            sqrt_sw = np.sqrt(sample_weight)
+            X_work = X_centered * sqrt_sw[:, np.newaxis]
+            y_work = y_centered * sqrt_sw
+        else:
+            X_work = X_centered
+            y_work = y_centered
+
+        if y_work.ndim == 1:
+            y_work = y_work.reshape(-1, 1)
 
         # Precompute for gradient (use CV cache if available)
         _cv = getattr(self, '_cv_cache', None)
@@ -720,14 +787,14 @@ class _PenalizedFitMixin:
             XtX = _cv['XtX']
             Xty = _cv['Xty']
         else:
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered.flatten()
+            XtX = X_work.T @ X_work
+            Xty = X_work.T @ y_work.flatten()
 
         pen = self._penalty
         if solver_name == "exact":
             if pen.name != "l2":
                 raise ValueError("solver='exact' is only supported for L2/Ridge penalty.")
-            self.coef_ = self._solve_exact_numpy(XtX, Xty, n_samples)
+            self.coef_ = self._solve_exact_numpy(XtX, Xty, n_eff)
             self.n_iter_ = 1
             if self._effective_intercept:
                 self.intercept_ = float(y_mean - X_mean @ self.coef_)
@@ -743,7 +810,7 @@ class _PenalizedFitMixin:
             L = float(self.lipschitz_L)
         else:
             from statgpu.backends._array_ops import _max_eigval_power
-            L = _max_eigval_power(XtX) / n_samples
+            L = _max_eigval_power(XtX) / n_eff
 
         if L <= 0:
             self.coef_ = np.zeros(n_features)
@@ -763,10 +830,10 @@ class _PenalizedFitMixin:
                 y_k = coef.copy()
                 t_k = 1.0
 
-                for iteration in range(self.max_iter):
+                for iteration in range(self._max_iter):
                     coef_old = coef.copy()
 
-                    grad_at_y = (XtX @ y_k - Xty) / n_samples
+                    grad_at_y = (XtX @ y_k - Xty) / n_eff
                     w_tilde = y_k - step * grad_at_y
                     coef = pen.proximal(w_tilde, step, backend="numpy")
 
@@ -779,7 +846,7 @@ class _PenalizedFitMixin:
 
                     self.n_iter_ = iteration + 1
 
-                    if np.sum(np.abs(coef - coef_old)) < self.tol:
+                    if np.sum(np.abs(coef - coef_old)) < self._tol:
                         break
 
             else:
@@ -798,7 +865,7 @@ class _PenalizedFitMixin:
                 _adaptive_thresh = None
                 if pen.name in ("adaptive_l1", "adaptive_lasso"):
                     _w = np.asarray(getattr(pen, '_weights', np.ones(n_features)), dtype=float)
-                    _adaptive_thresh = self.alpha * _w * n_samples
+                    _adaptive_thresh = self.alpha * _w * n_eff
 
                 # Precompute SCAD/MCP constants (hoisted out of inner loop)
                 _a_scad = float(getattr(pen, 'a', 3.7)) if pen.name == "scad" else 0.0
@@ -820,7 +887,7 @@ class _PenalizedFitMixin:
                     for g_idx in _g_indices:
                         _XtX_blocks.append(XtX[np.ix_(g_idx, g_idx)])
 
-                for iteration in range(self.max_iter):
+                for iteration in range(self._max_iter):
                     coef_old = coef.copy()
 
                     if _is_group:
@@ -855,7 +922,7 @@ class _PenalizedFitMixin:
                                     coef[j] = 0.0
                             elif pen.name == "l1":
                                 # Soft thresholding
-                                thresh = self.alpha * n_samples
+                                thresh = self.alpha * n_eff
                                 if X_sq_norms[j] > 1e-10:
                                     coef[j] = np.sign(rho_j) * np.maximum(np.abs(rho_j) - thresh, 0) / X_sq_norms[j]
                                 else:
@@ -863,10 +930,10 @@ class _PenalizedFitMixin:
                             elif pen.name == "elasticnet":
                                 # Elastic net CD matching both sklearn and R glmnet:
                                 # beta_j = S(rho_j, alpha*l1_ratio*n) / (X_j'X_j + alpha*(1-l1_ratio)*n)
-                                thresh = self.alpha * self.l1_ratio * n_samples
+                                thresh = self.alpha * self.l1_ratio * n_eff
                                 if X_sq_norms[j] > 1e-10:
                                     st = np.sign(rho_j) * np.maximum(np.abs(rho_j) - thresh, 0)
-                                    coef[j] = st / (X_sq_norms[j] + self.alpha * (1 - self.l1_ratio) * n_samples)
+                                    coef[j] = st / (X_sq_norms[j] + self.alpha * (1 - self.l1_ratio) * n_eff)
                                 else:
                                     coef[j] = 0.0
                             elif pen.name == "scad":
@@ -878,7 +945,7 @@ class _PenalizedFitMixin:
                                 if X_sq_norms[j] > 1e-10:
                                     w_j = rho_j / X_sq_norms[j]
                                     aw = np.abs(w_j)
-                                    lam = self.alpha * n_samples
+                                    lam = self.alpha * n_eff
                                     if aw > a_scad * lam:
                                         coef[j] = w_j
                                     elif aw > lam:
@@ -894,7 +961,7 @@ class _PenalizedFitMixin:
                                 if X_sq_norms[j] > 1e-10:
                                     w_j = rho_j / X_sq_norms[j]
                                     aw = np.abs(w_j)
-                                    lam = self.alpha * n_samples
+                                    lam = self.alpha * n_eff
                                     if aw > gamma_mcp * lam:
                                         coef[j] = w_j
                                     elif aw > lam:
@@ -911,7 +978,7 @@ class _PenalizedFitMixin:
 
                     self.n_iter_ = iteration + 1
 
-                    if np.sum(np.abs(coef - coef_old)) < self.tol:
+                    if np.sum(np.abs(coef - coef_old)) < self._tol:
                         break
 
         # Compute intercept and store results
@@ -983,42 +1050,62 @@ class _PenalizedFitMixin:
                 import torch
                 if X.dtype != torch.float64:
                     X = X.to(torch.float64)
+
+            sw = None
+            n_eff = float(n_samples)
             if sample_weight is not None:
-                sw = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X)
-                sqrt_sw = xp.sqrt(sw)
-                X = X * sqrt_sw[:, None]
-                y = y * sqrt_sw
+                sw = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X).reshape(-1)
+                n_eff = _validate_sample_weight_backend(sw, n_samples, backend_name)
+
             if self._effective_intercept:
-                X_mean = xp.mean(X, axis=0)
-                y_mean = xp.mean(y)
+                if sw is None:
+                    X_mean = xp.mean(X, axis=0)
+                    y_mean = xp.mean(y)
+                else:
+                    X_mean = xp.sum(X * sw[:, None], axis=0) / n_eff
+                    y_mean = xp.sum(y * sw) / n_eff
                 X_centered = X - X_mean
                 y_centered = y - y_mean
             else:
-                X_centered = X
+                X_mean = None
                 y_mean = xp_zeros((), X.dtype, xp, ref_arr=X) if is_torch else xp.array(0.0, dtype=X.dtype)
+                X_centered = X
                 y_centered = y
-            if y_centered.ndim == 1:
-                y_centered = y_centered.reshape(-1)
+
+            if sw is not None:
+                sqrt_sw = xp.sqrt(sw)
+                X_work = X_centered * sqrt_sw[:, None]
+                y_work = y_centered * sqrt_sw
+            else:
+                X_work = X_centered
+                y_work = y_centered
+
+            if y_work.ndim == 1:
+                y_work = y_work.reshape(-1)
             _cv = getattr(self, '_cv_cache', None)
-            if _cv is not None and 'XtX' in _cv:
+            if sw is None and _cv is not None and 'XtX' in _cv:
                 XtX = _cv['XtX']
                 Xty = _cv['Xty']
             else:
-                XtX = X_centered.T @ X_centered
-                Xty = X_centered.T @ y_centered
+                XtX = X_work.T @ X_work
+                Xty = X_work.T @ y_work
 
-            # Dispatch to backend-specific exact solver
             solve_fn = getattr(self, f'_solve_exact_{"torch" if is_torch else "cupy"}')
-            coef = solve_fn(XtX, Xty, n_samples)
+            coef = solve_fn(XtX, Xty, n_eff)
             self.n_iter_ = 1
-            if self.compute_inference:
+            if self._effective_intercept:
+                intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
+                coef_full_gpu = xp.concatenate([intercept_gpu, coef.reshape(-1)])
+            else:
+                coef_full_gpu = coef.reshape(-1)
+
+            if self._compute_inference_enabled:
                 infer_fn = getattr(self, f'_precompute_exact_l2_inference_{"torch" if is_torch else "cupy"}')
-                if self._effective_intercept:
-                    intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
-                    coef_full_gpu = xp.concatenate([intercept_gpu, coef.reshape(-1)])
-                    infer_fn(X, y, XtX, X_mean, coef_full_gpu.reshape(-1), n_samples)
-                else:
-                    infer_fn(X, y, XtX, None, coef.reshape(-1), n_samples)
+                infer_fn(
+                    X, y, XtX, X_mean, coef_full_gpu, n_samples,
+                    sample_weight=sw, normalization=n_eff,
+                )
+
             coef_np = _to_numpy(coef)
             if self._effective_intercept:
                 self.intercept_ = float(_to_numpy(y_mean) - _to_numpy(X_mean) @ coef_np)
@@ -1131,36 +1218,29 @@ class _PenalizedFitMixin:
             if is_torch:
                 import torch
                 if _use_l2:
-                    # torch.compile requires Triton (CUDA capability >= 7.0).
-                    # On older GPUs (e.g. Tesla P100, CUDA 6.0), skip compilation
-                    # and use the plain eager-mode function directly.
-                    _can_compile = (torch.cuda.is_available()
-                                    and torch.cuda.get_device_capability()[0] >= 7)
-                    if _can_compile:
-                        try:
-                            def _fista_elementwise_l2(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                                                      _thresh, _l2_scale, _coef_old, _beta):
-                                w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
-                                c = _st_fn(w, _thresh, xp) / _l2_scale
-                                y = c + _beta * (c - _coef_old)
-                                return c, y
-                            _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
-                        except Exception:
-                            _fused_step_l2 = None
+                    def _fista_elementwise_l2(
+                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                        _thresh, _l2_scale, _coef_old, _beta,
+                    ):
+                        w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                        c = _st_fn(w, _thresh, xp) / _l2_scale
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step_l2 = compile_torch(
+                        _fista_elementwise_l2, workload="iterative"
+                    )
                 else:
-                    _can_compile = (torch.cuda.is_available()
-                                    and torch.cuda.get_device_capability()[0] >= 7)
-                    if _can_compile:
-                        try:
-                            def _fista_elementwise(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                                                   _thresh, _coef_old, _beta):
-                                w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
-                                c = _st_fn(w, _thresh, xp)
-                                y = c + _beta * (c - _coef_old)
-                                return c, y
-                            _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
-                        except Exception:
-                            _fused_step = None
+                    def _fista_elementwise(
+                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                        _thresh, _coef_old, _beta,
+                    ):
+                        w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                        c = _st_fn(w, _thresh, xp)
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step = compile_torch(
+                        _fista_elementwise, workload="iterative"
+                    )
             else:
                 import cupy as cp
                 if _use_l2:
@@ -1192,7 +1272,7 @@ class _PenalizedFitMixin:
                     except Exception:
                         _fused_step = None
 
-            for iteration in range(self.max_iter):
+            for iteration in range(self._max_iter):
                 coef_old = xp_copy(coef)
                 xtx_y = XtX @ y_k
 
@@ -1223,7 +1303,7 @@ class _PenalizedFitMixin:
                 beta, t_k = _nesterov_momentum(t_k)
 
                 self.n_iter_ = iteration + 1
-                if iteration % 5 == 4 and float(_to_numpy(_abs_sum_dev(coef - coef_old))) < self.tol:
+                if iteration % 5 == 4 and float(_to_numpy(_abs_sum_dev(coef - coef_old))) < self._tol:
                     break
         else:
             step = 1.0 / L
@@ -1234,7 +1314,7 @@ class _PenalizedFitMixin:
             y_k = xp_copy(coef)
             t_k = 1.0
 
-            for iteration in range(self.max_iter):
+            for iteration in range(self._max_iter):
                 coef_old = xp_copy(coef)
                 grad = (XtX @ y_k - Xty) / n_samples
                 w_tilde = y_k - step * grad
@@ -1246,7 +1326,7 @@ class _PenalizedFitMixin:
                 y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
                 self.n_iter_ = iteration + 1
-                if iteration % 5 == 4 and float(_to_numpy(_abs_sum_dev(coef - coef_old))) < self.tol:
+                if iteration % 5 == 4 and float(_to_numpy(_abs_sum_dev(coef - coef_old))) < self._tol:
                     break
 
         # Transfer to CPU
@@ -1263,7 +1343,7 @@ class _PenalizedFitMixin:
         self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
 
         # Debiased inference on GPU (before cleanup)
-        if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+        if self._compute_inference_enabled and "debiased" in str(getattr(self, "inference_method", "")).lower():
             penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
             if penalty_name in ("l1", "elasticnet", "en"):
                 infer_fn = getattr(self, f'_compute_inference_debiased_{"torch" if is_torch else "gpu"}')
@@ -1278,49 +1358,55 @@ class _PenalizedFitMixin:
         """Return L2 alpha for the exact Ridge normal equations."""
         return float(getattr(self._penalty, "alpha", self.alpha))
 
-    def _solve_exact_numpy(self, XtX, Xty, n_samples):
+    def _solve_exact_numpy(self, XtX, Xty, normalization):
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
         # Per-sample convention: XtX is unnormalized (X'X), so we need
         # n*alpha to match loss/n + alpha*||w||^2 used by all other paths.
-        A = XtX + (float(n_samples) * alpha) * np.eye(p, dtype=XtX.dtype)
+        A = XtX + (float(normalization) * alpha) * np.eye(p, dtype=XtX.dtype)
         try:
             return np.linalg.solve(A, Xty)
         except np.linalg.LinAlgError:
             return np.linalg.pinv(A) @ Xty
 
-    def _solve_exact_cupy(self, XtX, Xty, n_samples):
+    def _solve_exact_cupy(self, XtX, Xty, normalization):
         import cupy as cp
         from cupyx.scipy.linalg import solve_triangular as cp_solve_triangular
 
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
-        A = XtX + (float(n_samples) * alpha) * cp.eye(p, dtype=XtX.dtype)
+        A = XtX + (float(normalization) * alpha) * cp.eye(p, dtype=XtX.dtype)
         try:
             # Cholesky + triangular solve is faster than general solve
-            # for positive-definite matrices (Ridge penalty guarantees PD)
+            # for positive-definite matrices (Ridge penalty guarantees PD).
             L = cp.linalg.cholesky(A)
             tmp = cp_solve_triangular(L, Xty, lower=True)
             return cp_solve_triangular(L.T, tmp, lower=False)
-        except _LINALG_ERRORS:
-            try:
-                return cp.linalg.solve(A, Xty)
-            except _LINALG_ERRORS:
-                return cp.linalg.pinv(A) @ Xty
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
+        try:
+            return cp.linalg.solve(A, Xty)
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
+            return cp.linalg.pinv(A) @ Xty
 
-    def _solve_exact_torch(self, XtX, Xty, n_samples):
+    def _solve_exact_torch(self, XtX, Xty, normalization):
         import torch
 
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
-        A = XtX + (float(n_samples) * alpha) * torch.eye(
+        A = XtX + (float(normalization) * alpha) * torch.eye(
             p, dtype=XtX.dtype, device=XtX.device
         )
         try:
             # torch.linalg.solve is faster than Cholesky + solve_triangular
             # on PyTorch due to kernel launch overhead for small matrices
             return torch.linalg.solve(A, Xty)
-        except RuntimeError:
+        except RuntimeError as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             return torch.linalg.pinv(A) @ Xty
 
     def _block_cd_group_lasso(self, pen, X_work, y_arr, init):
@@ -1359,7 +1445,7 @@ class _PenalizedFitMixin:
             coef = np.zeros(pp, dtype=np.float64)
 
         iteration = -1  # ensure defined when max_iter=0
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             coef_old = coef.copy()
 
             for g in range(_n_groups):
@@ -1379,7 +1465,7 @@ class _PenalizedFitMixin:
             if self._effective_intercept:
                 coef[pp - 1] = np.mean(y_arr - X_work[:, :p] @ coef[:p])
 
-            if np.max(np.abs(coef - coef_old)) < self.tol:
+            if np.max(np.abs(coef - coef_old)) < self._tol:
                 break
 
         n_iter = iteration + 1
@@ -1422,6 +1508,23 @@ class _PenalizedFitMixin:
         _n_groups = len(_g_indices)
         _sqrt_pg = [float(s) for s in _sqrt_pg_np]
 
+        # Group metadata originates from the public host-side penalty
+        # specification. Normalize it against the design-matrix reference
+        # once so Torch never creates CPU tensors inside a CUDA solve.
+        _g_indices_backend = [
+            _xp_asarray(
+                np.asarray(g_idx, dtype=np.int64),
+                xp.int64,
+                X_work,
+            )
+            for g_idx in _g_indices
+        ]
+        _sqrt_pg_arr = _xp_asarray(
+            np.asarray(_sqrt_pg, dtype=np.float64),
+            X_work.dtype,
+            X_work,
+        )
+
         XtX = X_work.T @ X_work / n
         Xty = (X_work.T @ y_arr.flatten()) / n
 
@@ -1429,7 +1532,7 @@ class _PenalizedFitMixin:
         from statgpu.backends._array_ops import _scalar_tensor
         _XtX_blocks = []
         _ridge = _scalar_tensor(1e-10, X_work)
-        for g_idx in _g_indices:
+        for g_idx in _g_indices_backend:
             block = XtX[g_idx][:, g_idx]
             block = block + _ridge * _xp_eye(block.shape[0], block.dtype, block)
             _XtX_blocks.append(block)
@@ -1448,12 +1551,21 @@ class _PenalizedFitMixin:
         _contiguous = _equal_size and all(
             _g_indices[g][0] == g * _gs for g in range(_n_groups)
         )
+        _flat_idx_backend = None
+        if _equal_size and not _contiguous:
+            _flat_idx_backend = _xp_asarray(
+                np.asarray(
+                    [i for group in _g_indices for i in group],
+                    dtype=np.int64,
+                ),
+                xp.int64,
+                X_work,
+            )
         if _equal_size and _n_groups > 1:
             _XtX_batched = xp.stack(_XtX_blocks)  # (G, gs, gs)
-            _sqrt_pg_arr = xp.asarray(_sqrt_pg, dtype=X_work.dtype)
 
         iteration = -1  # ensure defined when max_iter=0
-        for iteration in range(self.max_iter):
+        for iteration in range(self._max_iter):
             coef_old = _xp_copy(coef)
 
             if _equal_size and _n_groups > 1:
@@ -1466,10 +1578,9 @@ class _PenalizedFitMixin:
                     XtX_coef_mat = XtX_coef[:p].reshape(_n_groups, _gs)
                     Xty_mat = Xty[:p].reshape(_n_groups, _gs)
                 else:
-                    flat_idx = xp.asarray([i for g in _g_indices for i in g], dtype=xp.int64)
-                    coef_mat = coef[flat_idx].reshape(_n_groups, _gs)
-                    XtX_coef_mat = XtX_coef[flat_idx].reshape(_n_groups, _gs)
-                    Xty_mat = Xty[flat_idx].reshape(_n_groups, _gs)
+                    coef_mat = coef[_flat_idx_backend].reshape(_n_groups, _gs)
+                    XtX_coef_mat = XtX_coef[_flat_idx_backend].reshape(_n_groups, _gs)
+                    Xty_mat = Xty[_flat_idx_backend].reshape(_n_groups, _gs)
 
                 # rho_g = Xty[g] - XtX[g,:] @ coef + XtX_blocks[g] @ coef[g]
                 #       = Xty[g] - XtX_coef[g] + diag_blocks @ coef_g
@@ -1479,7 +1590,9 @@ class _PenalizedFitMixin:
                 # Batched solve: w_g = XtX_blocks[g]^{-1} @ rho_g
                 try:
                     w_mat = xp.linalg.solve(_XtX_batched, rho_mat)  # (G, gs)
-                except Exception:
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
                     w_mat = xp.zeros_like(rho_mat)
                 bad = xp.isnan(w_mat) | xp.isinf(w_mat)
                 if xp.any(bad):
@@ -1495,17 +1608,19 @@ class _PenalizedFitMixin:
                 if _contiguous:
                     coef[:p] = scaled_mat.reshape(-1)
                 else:
-                    coef[flat_idx] = scaled_mat.reshape(-1)
+                    coef[_flat_idx_backend] = scaled_mat.reshape(-1)
             else:
                 # ── Serial path: unequal groups ──
                 for g in range(_n_groups):
-                    g_idx = _g_indices[g]
+                    g_idx = _g_indices_backend[g]
                     rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
                     try:
                         w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
                         if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
                             w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
-                    except Exception:
+                    except Exception as exc:
+                        if not _linalg_exception_is_rank_failure(exc):
+                            raise
                         w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
                     norm_w = float(xp.linalg.norm(w_g))
                     thresh_g = alpha * _sqrt_pg[g]
@@ -1518,7 +1633,7 @@ class _PenalizedFitMixin:
                 coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p]))
 
             _max_change = float(xp.max(xp.abs(coef - coef_old)))
-            if _max_change < self.tol:
+            if _max_change < self._tol:
                 break
 
         n_iter = iteration + 1
@@ -1630,10 +1745,9 @@ class _PenalizedFitMixin:
 
         if _use_fista:
             # FISTA for GLM+adaptive_l1 -- works on any backend.
-            from statgpu.solvers import fista_solver
             params, n_iter = fista_solver(
                 self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
         elif _use_quantile_cd:
@@ -1652,7 +1766,7 @@ class _PenalizedFitMixin:
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
-                tol=self.tol,
+                tol=self._tol,
                 fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
             )
@@ -1679,7 +1793,7 @@ class _PenalizedFitMixin:
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
-                tol=self.tol,
+                tol=self._tol,
                 fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
             )
@@ -1695,18 +1809,37 @@ class _PenalizedFitMixin:
 
             xp = get_backend(backend_name).xp
 
-            # lambda_max with backend-native arrays (no CPU-GPU transfer)
+            # lambda_max with backend-native arrays (no CPU-GPU transfer).
+            # Cox has a two-column (time, event) response, so the GLM-style
+            # X.T @ centered(y) expression is both dimensionally wrong for a
+            # coefficient path and unrelated to the Cox score.  At beta=0 the
+            # maximum absolute partial-likelihood gradient is the correct
+            # zero-solution threshold for the weighted-L1 LLA subproblem.
             X_feat = X_work[:, :p] if self._effective_intercept else X_work
             _n = X_feat.shape[0]
-            _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
-            if backend_name == "torch":
-                import torch
-                _col_norms = torch.clamp(_col_norms, min=1e-20)
+            if _loss_name == "cox_ph":
+                X_feat, y_lla = self._loss.preprocess(X_feat, y_arr)
+                if backend_name == "torch":
+                    import torch
+                    _zero_coef = torch.zeros(
+                        p, dtype=X_feat.dtype, device=X_feat.device
+                    )
+                else:
+                    _zero_coef = xp.zeros(p, dtype=X_feat.dtype)
+                _score_at_zero = self._loss.gradient(
+                    X_feat, y_lla, _zero_coef, sample_weight=sample_weight
+                )
+                _lam_max = float(xp.max(xp.abs(_score_at_zero)))
             else:
-                _col_norms = xp.maximum(_col_norms, 1e-20)
-            X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
-            y_c = y_arr - xp.mean(y_arr)
-            _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
+                _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
+                if backend_name == "torch":
+                    import torch
+                    _col_norms = torch.clamp(_col_norms, min=1e-20)
+                else:
+                    _col_norms = xp.maximum(_col_norms, 1e-20)
+                X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
+                y_c = y_arr - xp.mean(y_arr)
+                _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
             _cv_alpha_path = getattr(self, '_cv_alpha_path', None)
             _cv_return_path = _cv_alpha_path is not None
             if _cv_return_path:
@@ -1730,14 +1863,21 @@ class _PenalizedFitMixin:
                 )
 
             _max_lla_per_step = max(_MAX_LLA_PER_STEP_DEFAULT, getattr(self, '_max_lla_iters', 50) // max(_n_cont, 1))
-            _saved_mi = self.max_iter
+            _saved_mi = self._max_iter
             if _cv_return_path:
                 _mi_path = [max(200, _saved_mi // 2)] * max(_n_cont - 1, 0) + [_saved_mi]
             else:
                 _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
                             for i in range(_n_cont)]
 
-            X_orig = X_work[:, :p] if self._effective_intercept else X_work
+            X_orig = (
+                X_feat
+                if _loss_name == "cox_ph"
+                else X_work[:, :p]
+                if self._effective_intercept
+                else X_work
+            )
+            y_lla = y_lla if _loss_name == "cox_ph" else y_arr
 
             _warm_coef = None
             _warm_intercept = None
@@ -1754,23 +1894,33 @@ class _PenalizedFitMixin:
                             getattr(self, '_init_intercept', 0.0) or 0.0
                         )
 
-            # For losses with Hessian (Bisquare, Huber, etc.): use OLS as
+            # For one-dimensional losses with Hessian (Bisquare, Huber,
+            # etc.): use OLS as
             # warm-start if no explicit init_coef is provided. This prevents
             # the continuation path from shrinking everything to zero at the
-            # first (large-alpha) step.
-            if _warm_coef is None and getattr(self._loss, 'has_hessian', False):
+            # first (large-alpha) step.  Cox's response is (time, event): OLS
+            # would return a (p, 2) matrix which cannot warm-start a p-vector.
+            # Cox therefore follows the continuation path from zero unless an
+            # explicit p-vector warm start is supplied by the caller/CV layer.
+            _y_ndim = getattr(y_arr, "ndim", None)
+            if _y_ndim is None:
+                _y_ndim = np.asarray(y_arr).ndim
+            _y_ndim = int(_y_ndim)
+            if (_warm_coef is None
+                    and getattr(self._loss, 'has_hessian', False)
+                    and _y_ndim == 1):
                 _X_np = np.asarray(_to_numpy(X_orig), dtype=np.float64)
                 _y_np = np.asarray(_to_numpy(y_arr), dtype=np.float64)
                 _warm_coef = np.linalg.lstsq(_X_np, _y_np, rcond=None)[0]
 
             _lla_result = fista_lla_path(
                 self._loss, self._penalty,
-                X_orig, y_arr,
+                X_orig, y_lla,
                 alpha_path=_alpha_path,
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
-                tol=self.tol,
+                tol=self._tol,
                 fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
                 init_coef=_warm_coef,
@@ -1816,7 +1966,7 @@ class _PenalizedFitMixin:
                 max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
             )
             _max_lla_per_step = max(_MAX_LLA_PER_STEP_DEFAULT, getattr(self, '_max_lla_iters', 50) // _n_cont)
-            _saved_mi = self.max_iter
+            _saved_mi = self._max_iter
             _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
                         for i in range(_n_cont)]
 
@@ -1848,7 +1998,7 @@ class _PenalizedFitMixin:
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
-                tol=self.tol,
+                tol=self._tol,
                 fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
                 lla_penalty_factory=_group_lla_factory,
@@ -1868,7 +2018,7 @@ class _PenalizedFitMixin:
                 from statgpu.solvers import fista_solver
                 params, n_iter = fista_solver(
                     self._loss, pen, X_work, y_arr,
-                    max_iter=self.max_iter, tol=self.tol,
+                    max_iter=self._max_iter, tol=self._tol,
                     init_coef=init, sample_weight=sample_weight,
                 )
             elif backend_name != "numpy":
@@ -1901,11 +2051,11 @@ class _PenalizedFitMixin:
             _is_smooth_pen = _pen_name in ("l2", "none", "null", "")
             if _loss_name == "quantile" and _has_irls and _is_smooth_pen:
                 _inner_pen = getattr(self._penalty, '_pen', self._penalty)
-                _irls_tol = min(self.tol, 1e-8)
+                _irls_tol = min(self._tol, 1e-8)
                 params_irls, n_iter = self._loss.irls(
                     X_work, y_arr,
                     penalty=_inner_pen,
-                    max_iter=self.max_iter, tol=_irls_tol,
+                    max_iter=self._max_iter, tol=_irls_tol,
                     init_coef=None,
                     sample_weight=sample_weight,
                     fit_intercept=self._effective_intercept,
@@ -1914,32 +2064,32 @@ class _PenalizedFitMixin:
             else:
                 params, n_iter = fista_solver(
                     self._loss, pen, X_work, y_arr,
-                    max_iter=self.max_iter, tol=self.tol,
+                    max_iter=self._max_iter, tol=self._tol,
                     init_coef=init, sample_weight=sample_weight,
                 )
         elif solver_name == "fista_bb":
             params, n_iter = fista_bb_solver(
                 self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
         elif solver_name == "admm":
             params, n_iter = admm_solver(
                 self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter,
-                tol=self.tol, rho=1.0, adaptive_rho=True,
+                max_iter=self._max_iter,
+                tol=self._tol, rho=1.0, adaptive_rho=True,
                 init_coef=init, sample_weight=sample_weight,
             )
         elif solver_name == "newton":
             params, n_iter = newton_solver(
                 self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
         elif solver_name == "lbfgs":
             params, n_iter = lbfgs_solver(
                 self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
         elif solver_name == "irls":
@@ -1951,12 +2101,12 @@ class _PenalizedFitMixin:
             _inner_pen = getattr(self._penalty, '_pen', self._penalty)
             # Use tighter tolerance for quantile (1e-4 is too loose)
             _loss_name = getattr(self._loss, 'name', '')
-            _irls_tol = min(self.tol, 1e-8) if _loss_name == "quantile" else self.tol
+            _irls_tol = min(self._tol, 1e-8) if _loss_name == "quantile" else self._tol
             # Pass arrays directly — IRLS uses _get_xp(X) for backend dispatch
             params_irls, n_iter = self._loss.irls(
                 X_work, y_arr,
                 penalty=_inner_pen,
-                max_iter=self.max_iter, tol=_irls_tol,
+                max_iter=self._max_iter, tol=_irls_tol,
                 init_coef=None,
                 sample_weight=sample_weight,
                 fit_intercept=self._effective_intercept,
@@ -1966,7 +2116,7 @@ class _PenalizedFitMixin:
             # Fallback: resolve auto to fista (default for non-smooth losses)
             params, n_iter = fista_solver(
                 self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
             )
         else:
@@ -2061,12 +2211,19 @@ class _PenalizedFitMixin:
                 init_coef = init_coef_np
 
         solver = IRLSSolver(
-            self._family_for_loss(), max_iter=self.max_iter, tol=self.tol
+            self._family_for_loss(), max_iter=self._max_iter, tol=self._tol
+        )
+        ridge_normalization = (
+            float(n_samples)
+            if sample_weight is None
+            else _validate_sample_weight_backend(
+                sample_weight, n_samples, backend_name
+            )
         )
         params, n_iter = solver.fit(
             X_work, y_arr,
             sample_weight=sample_weight,
-            ridge_alpha=float(n_samples * self.alpha),
+            ridge_alpha=float(ridge_normalization * self.alpha),
             ridge_penalize_intercept=False if self._effective_intercept else True,
             backend=backend_name,
             init_coef=init_coef,
@@ -2092,7 +2249,7 @@ class _PenalizedFitMixin:
 
     def _cleanup_cuda_memory(self):
         """Free CuPy memory pool."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -2103,7 +2260,7 @@ class _PenalizedFitMixin:
 
     def _cleanup_torch_memory(self):
         """Free Torch memory pool."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch

@@ -1,67 +1,109 @@
-"""
-Cox partial likelihood loss for survival analysis.
+"""Cox partial-likelihood loss for survival analysis.
 
-Negative log partial likelihood with Breslow/Efron tie handling.
-Dispatches to GPU-optimized kernels (CuPy CUDA / PyTorch) when available;
-explicit GPU inputs raise RuntimeError if GPU path is unavailable.
-CPU inputs use numpy implementation.
-
-Matches R's survival::coxph() interface.
+The public loss API uses failure-time-local normalization so Breslow and Efron
+likelihoods remain stable after the observation attaining the global maximum
+linear predictor has left a later risk set. First-order and Hessian evaluations
+use the specialized right-censored kernels in this module; the shared
+counting-process engine remains the independent compatibility baseline.
 """
+
+from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends._array_ops import _xp as _get_xp, _xp_zeros, _xp_asarray
-from statgpu.backends._utils import _to_float_scalar, _to_numpy
+from statgpu.backends._array_ops import (
+    _max_eigval_power,
+    _xp as _get_xp,
+    _xp_asarray,
+    _xp_zeros,
+)
+from statgpu.backends._utils import (
+    _is_complex_array,
+    _to_float_scalar,
+    _to_numpy,
+)
+from statgpu.survival._risk_sets import cox_counting_process_objective
+
 from ._base import LossBase
 from ._registry import register_loss
 
 
-# ── Build efron_pre from sorted time/event (numpy) ──────────────────
-
 def _build_efron_pre_numpy(time_np, event_np):
-    """Build efron_pre structure as numpy arrays (for kernel dispatch)."""
+    """Build deterministic Efron failure groups for compatibility helpers."""
     event_mask = event_np == 1
     event_idx = np.where(event_mask)[0]
     event_times = time_np[event_idx]
     uft, inv = np.unique(event_times, return_inverse=True)
     nuft = len(uft)
-    uft_ix = [event_idx[inv == g].astype(np.int32) for g in range(nuft)]
-    first_idx_uft = np.searchsorted(time_np, uft, side="left").astype(np.int64)
-    risk_enter = [[np.int64(np.searchsorted(time_np, t, side="left"))] for t in uft]
-    risk_exit = [[np.int64(np.searchsorted(time_np, t, side="right"))] for t in uft]
-    return uft, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft
+    uft_ix = [event_idx[inv == group].astype(np.int64) for group in range(nuft)]
+    first_idx = np.searchsorted(time_np, uft, side="left").astype(np.int64)
+    risk_enter = [[np.int64(index)] for index in first_idx]
+    risk_exit = [
+        [np.int64(np.searchsorted(time_np, value, side="right"))] for value in uft
+    ]
+    return uft, uft_ix, risk_enter, risk_exit, nuft, first_idx
 
 
 def _build_breslow_pre_numpy(time_np, event_np):
-    """Build Breslow tie groups as numpy arrays."""
-    event_mask = event_np == 1
-    event_times = time_np[event_mask]
-    uft, _, counts = np.unique(event_times, return_inverse=True, return_counts=True)
-    first_idx = np.searchsorted(time_np, uft, side="left").astype(np.int32)
+    """Build the historical two-array Breslow preprocessing tuple."""
+    event_times = time_np[event_np == 1]
+    uft, counts = np.unique(event_times, return_counts=True)
+    first_idx = np.searchsorted(time_np, uft, side="left").astype(np.int64)
     return first_idx, counts.astype(np.float64)
 
 
-@register_loss('cox_ph')
+def _build_breslow_event_indices_numpy(time_np, event_np):
+    """Return event-row indices grouped in Breslow failure-time order."""
+    event_idx = np.flatnonzero(event_np == 1)
+    if event_idx.size == 0:
+        return []
+    event_times = time_np[event_idx]
+    _, inverse = np.unique(event_times, return_inverse=True)
+    return [
+        event_idx[inverse == group].astype(np.int64)
+        for group in range(int(inverse.max()) + 1)
+    ]
+
+
+def _backend_index(values, xp, reference):
+    """Create integer indices on the backend/device of ``reference``."""
+    if xp.__name__ == "torch":
+        return xp.as_tensor(values, dtype=xp.long, device=reference.device)
+    return xp.asarray(values, dtype=xp.int64)
+
+
+def _backend_zeros(shape, xp, reference):
+    if xp.__name__ == "torch":
+        return xp.zeros(shape, dtype=reference.dtype, device=reference.device)
+    return xp.zeros(shape, dtype=reference.dtype)
+
+
+def _sum(value, xp, axis=None):
+    if xp.__name__ == "torch":
+        return xp.sum(value) if axis is None else xp.sum(value, dim=axis)
+    return xp.sum(value, axis=axis)
+
+
+class _CoxPreprocessedTarget:
+    """Opaque proof that ``X`` belongs to the active Cox fit cache."""
+
+    __slots__ = ("generation", "n_samples")
+
+    def __init__(self, generation: int, n_samples: int):
+        self.generation = int(generation)
+        self.n_samples = int(n_samples)
+
+
+@register_loss("cox_ph")
 class CoxPartialLikelihoodLoss(LossBase):
-    """Cox proportional hazards negative log partial likelihood.
+    """Negative Cox partial likelihood with Breslow or Efron ties.
 
-    Dispatches to GPU-optimized kernels when input is CuPy/Torch-CUDA.
-    CPU inputs use numpy implementation; explicit GPU inputs raise
-    RuntimeError if GPU path is unavailable.
-
-    Note: This loss does NOT support ``sample_weight``. All methods raise
-    ``NotImplementedError`` if ``sample_weight is not None``.
-
-    Note: ``preprocess()`` returns ``(X_sorted, zeros)`` — the second element
-    is a placeholder (not ``y``). The loss sorts data by time and precomputes
-    risk-set structures; ``value()``/``gradient()`` use ``_ensure_sorted()``
-    internally.
-
-    Parameters
-    ----------
-    ties : str, default='breslow'
-        Method for handling ties: 'breslow' or 'efron'.
+    The response is either a ``{"time": ..., "event": ...}`` dictionary or an
+    ``(n, 2)`` array.  ``sample_weight`` is intentionally unsupported because
+    case weights require a separate, explicitly documented survival contract.
+    An all-censored response is a valid loss boundary with zero value and zero
+    derivatives, even though estimators reject it because no coefficient can be
+    identified from such data.
     """
 
     name = "cox_ph"
@@ -70,14 +112,14 @@ class CoxPartialLikelihoodLoss(LossBase):
     has_hessian = True
 
     _lipschitz_safety = 1.0
+    _lipschitz_uses_y = True
     _has_constant_hessian = False
 
-    def __init__(self, ties: str = 'breslow'):
-        ties = ties.lower()
-        if ties not in ('breslow', 'efron'):
+    def __init__(self, ties: str = "breslow"):
+        ties = str(ties).lower()
+        if ties not in {"breslow", "efron"}:
             raise ValueError("ties must be 'breslow' or 'efron'")
         self.ties = ties
-
         self._sorted = False
         self._X_sorted = None
         self._time_sorted = None
@@ -87,874 +129,924 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._event_np = None
         self._efron_pre_np = None
         self._breslow_pre_np = None
+        self._breslow_event_indices_np = None
         self._efron_csr = None
+        self._efron_backend_index_cache = {}
         self._n_events = 0
+        self._x_reference = None
+        self._group_first_indices_np = None
+        self._group_counts_np = None
+        self._group_event_indices_np = None
+        self._event_group_codes_np = None
+        self._efron_fractions_np = None
+        self._group_first_indices_backend = None
+        self._group_counts_backend = None
+        self._group_event_indices_backend = None
+        self._event_group_codes_backend = None
+        self._efron_fractions_backend = None
+        self._cache_generation = 0
+        self._preprocessed_target = None
+
+    def is_preprocessed(self, X, y) -> bool:
+        """Return whether ``(X, y)`` is the active sorted fit-cache pair."""
+        return bool(
+            self._sorted
+            and X is self._X_sorted
+            and y is self._preprocessed_target
+            and getattr(y, "generation", None) == self._cache_generation
+        )
 
     def _ensure_sorted(self, X, y):
-        """Ensure data is preprocessed. Call at start of every public method."""
-        if self._sorted and X is self._X_sorted:
+        if self.is_preprocessed(X, y):
             return
-        self._sorted = False
         self.preprocess(X, y)
 
     def preprocess(self, X, y):
-        """Sort data by time and precompute risk-set structures."""
+        """Validate, center, and stably sort right-censored survival data."""
+        self.release_fit_cache()
+        self._reject_complex(X, "X")
         xp = _get_xp(X)
-
         if isinstance(y, dict):
-            time = _xp_asarray(y['time'], dtype=xp.float64, ref_arr=X)
-            event = _xp_asarray(y['event'], dtype=xp.float64, ref_arr=X)
+            if "time" not in y or "event" not in y:
+                raise ValueError("survival y dict must contain time and event")
+            self._reject_complex(y["time"], "time")
+            self._reject_complex(y["event"], "event")
+            time = _xp_asarray(y["time"], dtype=xp.float64, ref_arr=X)
+            event = _xp_asarray(y["event"], dtype=xp.float64, ref_arr=X)
         else:
+            self._reject_complex(y, "y")
             y_arr = _xp_asarray(y, dtype=xp.float64, ref_arr=X)
-            if y_arr.ndim == 2 and y_arr.shape[1] >= 2:
-                time, event = y_arr[:, 0], y_arr[:, 1]
-            else:
+            if y_arr.ndim != 2 or int(y_arr.shape[1]) != 2:
                 raise ValueError("y must be dict or (n, 2) array")
+            time, event = y_arr[:, 0], y_arr[:, 1]
 
         X_arr = _xp_asarray(X, dtype=xp.float64, ref_arr=X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        if time.ndim != 1 or event.ndim != 1:
+            raise ValueError("time and event must have shape (n_samples,)")
+        if int(time.shape[0]) != int(X_arr.shape[0]) or int(event.shape[0]) != int(
+            X_arr.shape[0]
+        ):
+            raise ValueError("X, time, and event must contain the same number of rows")
+        if _to_float_scalar(xp.sum(~xp.isfinite(X_arr))) > 0 or _to_float_scalar(
+            xp.sum(~xp.isfinite(time))
+        ) > 0:
+            raise ValueError("X and time must contain only finite values")
+        if _to_float_scalar(xp.sum(~xp.isfinite(event))) > 0 or _to_float_scalar(
+            xp.sum((event != 0) & (event != 1))
+        ) > 0:
+            raise ValueError("event must contain only 0/1 finite values")
+        if _to_float_scalar(xp.sum(time <= 0)) > 0:
+            raise ValueError("time must contain only positive values")
 
-        order = xp.argsort(time, stable=True) if xp.__name__ == "torch" else xp.argsort(time)
+        self._x_reference = (
+            xp.mean(X_arr, dim=0)
+            if xp.__name__ == "torch"
+            else xp.mean(X_arr, axis=0)
+        )
+        X_arr = X_arr - self._x_reference.reshape(1, -1)
+        order = (
+            xp.argsort(time, stable=True)
+            if xp.__name__ == "torch"
+            else xp.argsort(time, kind="stable")
+            if xp.__name__ == "numpy"
+            else xp.argsort(time)
+        )
         self._X_sorted = X_arr[order]
         self._time_sorted = time[order]
         self._event_sorted = event[order]
         self._order = order
         self._sorted = True
         self._n_events = int(_to_float_scalar(xp.sum(self._event_sorted)))
+        self._efron_backend_index_cache = {}
 
-        # Numpy copies for kernel dispatch
-        time_np = _to_numpy(self._time_sorted).astype(np.float64)
-        event_np = _to_numpy(self._event_sorted).astype(np.float64)
-        self._time_np = time_np
-        self._event_np = event_np
-
-        if self.ties == 'efron':
-            self._efron_pre_np = _build_efron_pre_numpy(time_np, event_np)
+        self._time_np = np.asarray(_to_numpy(self._time_sorted), dtype=np.float64)
+        self._event_np = np.asarray(_to_numpy(self._event_sorted), dtype=np.float64)
+        if self.ties == "efron":
+            self._efron_pre_np = _build_efron_pre_numpy(
+                self._time_np, self._event_np
+            )
             self._breslow_pre_np = None
-            try:
-                from statgpu.survival._cox_efron_cuda import efron_indices_to_csr
-                _, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft = self._efron_pre_np
-                csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
-                # Pack as 8-tuple for compute_efron_grad_hess_raw
-                self._efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
-            except ImportError:
-                self._efron_csr = None
+            self._breslow_event_indices_np = None
         else:
-            self._breslow_pre_np = _build_breslow_pre_numpy(time_np, event_np)
+            self._breslow_pre_np = _build_breslow_pre_numpy(
+                self._time_np, self._event_np
+            )
+            self._breslow_event_indices_np = _build_breslow_event_indices_numpy(
+                self._time_np, self._event_np
+            )
             self._efron_pre_np = None
-            self._efron_csr = None
+        self._efron_csr = None
 
-        return self._X_sorted, _xp_zeros(X_arr.shape[0], dtype=xp.float64, ref_arr=X_arr)
+        if self.ties == "efron":
+            _, grouped, _, _, _, first_indices = self._efron_pre_np
+            counts = np.asarray(
+                [len(indices) for indices in grouped], dtype=np.int64
+            )
+        else:
+            first_indices, counts = self._breslow_pre_np
+            grouped = self._breslow_event_indices_np
+            counts = np.asarray(counts, dtype=np.int64)
+        self._group_first_indices_np = np.asarray(
+            first_indices, dtype=np.int64
+        )
+        self._group_counts_np = counts
+        self._group_event_indices_np = (
+            np.concatenate(grouped).astype(np.int64, copy=False)
+            if grouped
+            else np.empty(0, dtype=np.int64)
+        )
+        self._event_group_codes_np = np.repeat(
+            np.arange(len(grouped), dtype=np.int64), counts
+        )
+        self._efron_fractions_np = (
+            np.concatenate(
+                [np.arange(count, dtype=np.float64) / count for count in counts]
+            )
+            if counts.size
+            else np.empty(0, dtype=np.float64)
+        )
+        self._backend_group_metadata(xp, self._X_sorted)
+        self._preprocessed_target = _CoxPreprocessedTarget(
+            self._cache_generation, int(X_arr.shape[0])
+        )
+        return self._X_sorted, self._preprocessed_target
 
-    # ── Public API ───────────────────────────────────────────────────
+    def release_fit_cache(self):
+        """Release all training-data and backend metadata references."""
+        self._cache_generation += 1
+        self._sorted = False
+        self._X_sorted = None
+        self._time_sorted = None
+        self._event_sorted = None
+        self._order = None
+        self._time_np = None
+        self._event_np = None
+        self._efron_pre_np = None
+        self._breslow_pre_np = None
+        self._breslow_event_indices_np = None
+        self._efron_csr = None
+        self._efron_backend_index_cache = {}
+        self._n_events = 0
+        self._x_reference = None
+        self._group_first_indices_np = None
+        self._group_counts_np = None
+        self._group_event_indices_np = None
+        self._event_group_codes_np = None
+        self._efron_fractions_np = None
+        self._group_first_indices_backend = None
+        self._group_counts_backend = None
+        self._group_event_indices_backend = None
+        self._event_group_codes_backend = None
+        self._efron_fractions_backend = None
+        self._preprocessed_target = None
 
-    def value(self, X, y, coef, sample_weight=None) -> float:
+    def _backend_group_metadata(self, xp, reference):
+        """Return failure-group metadata cached by backend and device."""
+        device = str(getattr(reference, "device", "cpu"))
+        key = (xp.__name__, device, str(getattr(reference, "dtype", "")))
+        cached = self._efron_backend_index_cache.get(key)
+        if cached is None:
+            cached = (
+                _backend_index(self._group_first_indices_np, xp, reference),
+                _xp_asarray(
+                    self._group_counts_np, dtype=xp.float64, ref_arr=reference
+                ),
+                _backend_index(self._group_event_indices_np, xp, reference),
+                _backend_index(self._event_group_codes_np, xp, reference),
+                _xp_asarray(
+                    self._efron_fractions_np,
+                    dtype=xp.float64,
+                    ref_arr=reference,
+                ),
+            )
+            self._efron_backend_index_cache[key] = cached
+        if reference is self._X_sorted:
+            (
+                self._group_first_indices_backend,
+                self._group_counts_backend,
+                self._group_event_indices_backend,
+                self._event_group_codes_backend,
+                self._efron_fractions_backend,
+            ) = cached
+        return cached
+
+    @staticmethod
+    def _reject_sample_weight(sample_weight):
         if sample_weight is not None:
-            raise NotImplementedError("CoxPartialLikelihoodLoss does not support sample_weight")
-        self._ensure_sorted(X, y)
-
-        X_s = self._X_sorted
-        xp = _get_xp(X_s)
-        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
-        n = X_s.shape[0]
-
-        # GPU path: both Efron and Breslow
-        is_gpu = xp.__name__ in ("cupy",) or (xp.__name__ == "torch" and X_s.is_cuda)
-        if is_gpu:
-            loglik = self._gpu_loglik(coef_dev, X_s)
-            if loglik is not None:
-                return -_to_float_scalar(loglik) / n
-            raise RuntimeError(
-                "CoxPH GPU loglik path failed. "
-                "Explicit GPU devices do not fall back to CPU. "
-                "Use device='cpu' to run the CPU implementation."
+            raise NotImplementedError(
+                "CoxPartialLikelihoodLoss does not support sample_weight"
             )
 
-        # CPU path (numpy)
-        eta = X_s @ coef_dev
-        loglik = self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
-        return -loglik / n
+    @staticmethod
+    def _reject_complex(value, name):
+        if _is_complex_array(value):
+            raise ValueError(f"{name} must be real-valued")
+
+    def _coerce_coef(self, coef, xp):
+        self._reject_complex(coef, "coef")
+        return _xp_asarray(
+            coef, dtype=xp.float64, ref_arr=self._X_sorted
+        ).reshape(-1)
+
+    def _zero_objective(self, *, compute_derivatives: bool):
+        xp = _get_xp(self._X_sorted)
+        result = {
+            "log_likelihood": _backend_zeros((), xp, self._X_sorted),
+        }
+        if compute_derivatives:
+            n_features = int(self._X_sorted.shape[1])
+            result["score"] = _backend_zeros(
+                (n_features,), xp, self._X_sorted
+            )
+            result["information"] = _backend_zeros(
+                (n_features, n_features), xp, self._X_sorted
+            )
+        return result
+
+    def _validate_coef(self, coef_dev, *, finite=True):
+        self._reject_complex(coef_dev, "coef")
+        xp = _get_xp(self._X_sorted)
+        n_features = int(self._X_sorted.shape[1])
+        if int(coef_dev.ndim) != 1 or int(coef_dev.shape[0]) != n_features:
+            raise ValueError("coef must have shape (n_features,)")
+        if finite and _to_float_scalar(xp.sum(~xp.isfinite(coef_dev))) > 0:
+            raise ValueError("coef must contain only finite values")
+
+    def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
+        """Use the audited three-backend risk-set implementation."""
+        self._validate_coef(coef_dev)
+        if self._n_events == 0:
+            return self._zero_objective(compute_derivatives=compute_derivatives)
+        return cox_counting_process_objective(
+            coef_dev,
+            self._X_sorted,
+            self._time_sorted,
+            self._event_sorted,
+            ties=self.ties,
+            compute_derivatives=compute_derivatives,
+        )
+
+    def value(self, X, y, coef, sample_weight=None) -> float:
+        self._reject_sample_weight(sample_weight)
+        self._ensure_sorted(X, y)
+        xp = _get_xp(self._X_sorted)
+        coef_dev = self._coerce_coef(coef, xp)
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        loglik, _, _ = self._objective_from_eta_backend(
+            eta, self._X_sorted, xp, self.ties, compute_information=False
+        )
+        return -_to_float_scalar(loglik) / self._X_sorted.shape[0]
 
     def gradient(self, X, y, coef, sample_weight=None):
-        if sample_weight is not None:
-            raise NotImplementedError("CoxPartialLikelihoodLoss does not support sample_weight")
+        self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
+        xp = _get_xp(self._X_sorted)
+        coef_dev = self._coerce_coef(coef, xp)
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        _, score, _ = self._objective_from_eta_backend(
+            eta, self._X_sorted, xp, self.ties, compute_information=False
+        )
+        return -score / self._X_sorted.shape[0]
 
-        X_s = self._X_sorted
-        xp = _get_xp(X_s)
-        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
-        n = X_s.shape[0]
-        grad, _ = self._compute_grad_hess(coef_dev, X_s)
-        return -grad / n
+    def gradient_preprocessed(self, coef):
+        """Return a stable gradient from the active solver-owned fit cache.
+
+        The trusted solver path skips duplicate scalar validity checks, but it
+        retains the scaled direct-moment risk-set calculation used by the
+        public gradient. Predictor-range checks may synchronize a device
+        scalar; this is required until an associative signed-moment scan is
+        available.
+        """
+        if not self._sorted or self._preprocessed_target is None:
+            raise RuntimeError("Cox fit cache is not active")
+        xp = _get_xp(self._X_sorted)
+        coef_dev = self._coerce_coef(coef, xp)
+        self._validate_coef(coef_dev, finite=False)
+        eta = self._X_sorted @ coef_dev
+        _, score, _ = self._objective_from_eta_backend(
+            eta,
+            self._X_sorted,
+            xp,
+            self.ties,
+            compute_information=False,
+            validate_finite_state=False,
+        )
+        return -score / self._X_sorted.shape[0]
 
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
-        if sample_weight is not None:
-            raise NotImplementedError("CoxPartialLikelihoodLoss does not support sample_weight")
+        self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
+        xp = _get_xp(self._X_sorted)
+        coef_dev = self._coerce_coef(coef, xp)
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        loglik, score, _ = self._objective_from_eta_backend(
+            eta, self._X_sorted, xp, self.ties, compute_information=False
+        )
+        n = self._X_sorted.shape[0]
+        return -loglik / n, -score / n
 
-        X_s = self._X_sorted
-        xp = _get_xp(X_s)
-        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
-        n = X_s.shape[0]
-
-        xp = _get_xp(X_s)
-        is_gpu = xp.__name__ == "cupy" or (xp.__name__ == "torch" and X_s.is_cuda)
-
-        if is_gpu:
-            # GPU path: _loglik_from_eta raises if GPU path unavailable
-            grad, _ = self._compute_grad_hess(coef_dev, X_s)
-            eta = X_s @ coef_dev
-            loglik = self._loglik_from_eta(eta, X_s)
-            return -_to_float_scalar(loglik) / n, -grad / n
-
-        # CPU path: fused loglik + gradient + hessian in one pass
-        X_np = _to_numpy(X_s)
-        eta_np = _to_numpy(X_s @ coef_dev)
-        if self.ties == 'efron' and self._efron_pre_np is not None:
-            loglik, grad_np, hess_np = self._cpu_fused_loglik_grad_hess(eta_np, X_np, self._time_np, self._event_np)
-            # Cache hessian for Newton solver
-            if hess_np is not None:
-                self._cached_hess = hess_np
-            return -loglik / n, _xp_asarray(-grad_np / n, dtype=xp.float64, ref_arr=X_s)
-        else:
-            loglik = self._cpu_loglik(eta_np, self._time_np, self._event_np)
-            grad_np, _ = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
-            return -loglik / n, _xp_asarray(-grad_np / n, dtype=xp.float64, ref_arr=X_s)
+    def fused_gradient_and_hessian(self, X, y, coef, sample_weight=None):
+        self._reject_sample_weight(sample_weight)
+        self._ensure_sorted(X, y)
+        xp = _get_xp(self._X_sorted)
+        coef_dev = self._coerce_coef(coef, xp)
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        _, score, loglik_hessian = self._objective_from_eta_backend(
+            eta,
+            self._X_sorted,
+            xp,
+            self.ties,
+            compute_information=True,
+        )
+        n = self._X_sorted.shape[0]
+        return -score / n, -loglik_hessian / n
 
     def hessian(self, X, y, coef, sample_weight=None):
-        if sample_weight is not None:
-            raise NotImplementedError("CoxPartialLikelihoodLoss does not support sample_weight")
-        self._ensure_sorted(X, y)
-
-        X_s = self._X_sorted
-        xp = _get_xp(X_s)
-        n = X_s.shape[0]
-
-        # Use cached Hessian from fused_value_and_gradient if available
-        if hasattr(self, '_cached_hess') and self._cached_hess is not None:
-            hess = self._cached_hess
-            self._cached_hess = None  # Clear cache
-            return _xp_asarray(-hess / n, dtype=xp.float64, ref_arr=X_s)
-
-        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
-        _, hess = self._compute_grad_hess(coef_dev, X_s)
-        return -hess / n
+        return self.fused_gradient_and_hessian(
+            X, y, coef, sample_weight=sample_weight
+        )[1]
 
     def lipschitz(self, X, coef, y=None, sample_weight=None):
-        from statgpu.backends._array_ops import _max_eigval_power
+        self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
-        X_s = self._X_sorted
-        xp = _get_xp(X_s)
-        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s) if coef is not None else _xp_zeros(X_s.shape[1], dtype=xp.float64, ref_arr=X_s)
-        _, hess = self._compute_grad_hess(coef_dev, X_s)
-        return _max_eigval_power(-hess / X_s.shape[0])
+        xp = _get_xp(self._X_sorted)
+        coef_dev = (
+            self._coerce_coef(coef, xp)
+            if coef is not None
+            else _xp_zeros(
+                self._X_sorted.shape[1],
+                dtype=xp.float64,
+                ref_arr=self._X_sorted,
+            )
+        )
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        _, _, loglik_hessian = self._objective_from_eta_backend(
+            eta,
+            self._X_sorted,
+            xp,
+            self.ties,
+            compute_information=True,
+        )
+        information = -loglik_hessian / self._X_sorted.shape[0]
+        return _max_eigval_power(information)
 
-    # ── GPU dispatch ─────────────────────────────────────────────────
+    @staticmethod
+    def _reverse_cumsum(values, xp):
+        """Return an axis-zero reverse cumulative sum on every backend."""
+        if xp.__name__ == "torch":
+            return xp.cumsum(values.flip(0), dim=0).flip(0)
+        return xp.cumsum(values[::-1], axis=0)[::-1]
+
+    @staticmethod
+    def _stable_segment_boundaries(eta, xp, max_block_rows):
+        """Split predictor blocks until every block spans at most 500 logs.
+
+        CuPy does not implement ``maximum.accumulate``. A bounded recursive
+        range check provides the same numerical guarantee using only scalar
+        device reductions, without copying the predictor to the host.
+        """
+        n = int(eta.shape[0])
+        pending = [
+            (lo, min(lo + max_block_rows, n))
+            for lo in range(0, n, max_block_rows)
+        ]
+        boundaries = {0, n}
+        while pending:
+            lo, hi = pending.pop()
+            if hi - lo > 1:
+                block = eta[lo:hi]
+                block_range = _to_float_scalar(
+                    xp.max(block) - xp.min(block)
+                )
+                if block_range > 500.0:
+                    midpoint = lo + (hi - lo) // 2
+                    pending.append((lo, midpoint))
+                    pending.append((midpoint, hi))
+                    continue
+            boundaries.add(lo)
+            boundaries.add(hi)
+        return np.asarray(sorted(boundaries), dtype=np.int64)
+
+    def _suffix_group_moments(
+        self, eta, X, xp, first_indices, *, validate_finite_state=True
+    ):
+        """Compute stable suffix log-sums and means at failure-group starts.
+
+        A single global shift is fast but can underflow after the observation
+        attaining that shift leaves a later risk set. Re-scanning every risk
+        set avoids the underflow at quadratic cost. This routine instead
+        uses reverse cumulative sums in adaptively bounded segments. Trusted
+        solver calls use the same signed direct-moment calculation so large
+        positive and negative first moments are never reconstructed by
+        subtracting exponentiated log-sums. ``validate_finite_state`` controls
+        redundant scalar error checks, never the stable risk-set calculation.
+        """
+        n, p = int(X.shape[0]), int(X.shape[1])
+        n_groups = int(len(first_indices))
+        risk_log_sum = _backend_zeros((n_groups,), xp, X)
+        risk_mean = _backend_zeros((n_groups, p), xp, X)
+        if n_groups == 0:
+            return risk_log_sum, risk_mean
+        if validate_finite_state and not bool(
+            _to_float_scalar(xp.all(xp.isfinite(eta)))
+        ):
+            raise FloatingPointError("Cox linear predictor contains non-finite values")
+
+        # Keep temporary moment buffers bounded for high-dimensional inputs.
+        max_block_rows = max(
+            1,
+            min(n, 65_536, 2_000_000 // max(p, 1)),
+        )
+        boundaries = self._stable_segment_boundaries(eta, xp, max_block_rows)
+        first_indices_backend = self._backend_group_metadata(xp, X)[0]
+
+        tail_shift = None
+        tail_sum = None
+        tail_first = None
+        first_indices = np.asarray(first_indices, dtype=np.int64)
+        for boundary_index in range(len(boundaries) - 2, -1, -1):
+            lo = int(boundaries[boundary_index])
+            hi = int(boundaries[boundary_index + 1])
+            block_shift = xp.max(eta[lo:hi])
+            shift = (
+                block_shift
+                if tail_shift is None
+                else xp.maximum(block_shift, tail_shift)
+            )
+            weights = xp.exp(eta[lo:hi] - shift)
+            block_sum = self._reverse_cumsum(weights, xp)
+            block_first = self._reverse_cumsum(
+                X[lo:hi] * weights.reshape(-1, 1), xp
+            )
+            if tail_shift is not None:
+                tail_scale = xp.exp(tail_shift - shift)
+                block_sum = block_sum + tail_sum * tail_scale
+                block_first = block_first + tail_first * tail_scale
+
+            group_lo = int(np.searchsorted(first_indices, lo, side="left"))
+            group_hi = int(np.searchsorted(first_indices, hi, side="left"))
+            if group_hi > group_lo:
+                local_indices = (
+                    first_indices_backend[group_lo:group_hi] - lo
+                )
+                selected_sum = block_sum[local_indices]
+                if validate_finite_state and bool(
+                    _to_float_scalar(xp.any(selected_sum <= 0))
+                ):
+                    raise FloatingPointError(
+                        "non-positive Cox risk-set denominator"
+                    )
+                risk_log_sum[group_lo:group_hi] = (
+                    xp.log(selected_sum) + shift
+                )
+                risk_mean[group_lo:group_hi] = (
+                    block_first[local_indices]
+                    / selected_sum.reshape(-1, 1)
+                )
+
+            tail_shift = shift
+            tail_sum = block_sum[0]
+            tail_first = block_first[0]
+
+        return risk_log_sum, risk_mean
+
+    def _first_order_objective_from_eta_backend(
+        self, eta, X, xp, ties, *, validate_finite_state=True
+    ):
+        """Evaluate log likelihood and score in near-linear time."""
+        p = int(X.shape[1])
+        first_indices = self._group_first_indices_np
+        (
+            _,
+            counts_backend,
+            event_indices,
+            event_groups,
+            fractions,
+        ) = self._backend_group_metadata(xp, X)
+        if len(first_indices) == 0:
+            return (
+                _backend_zeros((), xp, X),
+                _backend_zeros((p,), xp, X),
+                None,
+            )
+
+        risk_log_sum, risk_mean = self._suffix_group_moments(
+            eta,
+            X,
+            xp,
+            first_indices,
+            validate_finite_state=validate_finite_state,
+        )
+        event_X = X[event_indices]
+        event_eta = eta[event_indices]
+
+        if ties == "breslow":
+            loglik = _sum(event_eta, xp) - _sum(
+                counts_backend * risk_log_sum, xp
+            )
+            score = _sum(event_X, xp, axis=0) - _sum(
+                risk_mean * counts_backend.reshape(-1, 1),
+                xp,
+                axis=0,
+            )
+            return loglik, score, None
+
+        # Efron correction in denominator-ratio space. Scaling each event
+        # weight by its complete risk denominator avoids both overflow and the
+        # global-shift underflow that motivated this implementation.
+        event_weight_ratio = xp.exp(
+            event_eta - risk_log_sum[event_groups]
+        )
+        event_ratio_sum = _backend_zeros(
+            (len(first_indices),), xp, X
+        )
+        event_first_ratio = _backend_zeros(
+            (len(first_indices), p), xp, X
+        )
+        if xp.__name__ == "torch":
+            event_ratio_sum.index_add_(
+                0, event_groups, event_weight_ratio
+            )
+            event_first_ratio.index_add_(
+                0,
+                event_groups,
+                event_X * event_weight_ratio.reshape(-1, 1),
+            )
+        else:
+            xp.add.at(event_ratio_sum, event_groups, event_weight_ratio)
+            xp.add.at(
+                event_first_ratio,
+                event_groups,
+                event_X * event_weight_ratio.reshape(-1, 1),
+            )
+
+        denominator_ratio = (
+            1.0 - fractions * event_ratio_sum[event_groups]
+        )
+        if validate_finite_state and bool(
+            _to_float_scalar(xp.any(denominator_ratio <= 0))
+        ):
+            raise FloatingPointError("non-positive Cox risk-set denominator")
+        adjusted_mean = (
+            risk_mean[event_groups]
+            - fractions.reshape(-1, 1)
+            * event_first_ratio[event_groups]
+        ) / denominator_ratio.reshape(-1, 1)
+        loglik = _sum(event_eta, xp) - _sum(
+            risk_log_sum[event_groups] + xp.log(denominator_ratio), xp
+        )
+        score = _sum(event_X, xp, axis=0) - _sum(
+            adjusted_mean, xp, axis=0
+        )
+        return loglik, score, None
+
+    def _full_objective_from_eta_backend(self, eta, X, xp, ties):
+        """Evaluate likelihood, score, and information in stable blocks."""
+        n, p = int(X.shape[0]), int(X.shape[1])
+        first_indices = self._group_first_indices_np
+        counts = self._group_counts_np
+        loglik = _backend_zeros((), xp, X)
+        score = _backend_zeros((p,), xp, X)
+        information = _backend_zeros((p, p), xp, X)
+        if len(first_indices) == 0:
+            return loglik, score, -information
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(eta)))):
+            raise FloatingPointError("Cox linear predictor contains non-finite values")
+
+        # Bound the n-by-p-by-p temporary used for suffix second moments.
+        moment_width = max(p * p, 1)
+        max_block_rows = max(
+            1,
+            min(n, 16_384, 2_000_000 // moment_width),
+        )
+        boundaries = self._stable_segment_boundaries(
+            eta, xp, max_block_rows
+        )
+        event_offsets = np.concatenate(
+            [np.array([0], dtype=np.int64), np.cumsum(counts)]
+        )
+        (
+            first_indices_backend,
+            counts_backend_all,
+            event_indices_backend,
+            event_groups_backend,
+            fractions_backend,
+        ) = self._backend_group_metadata(xp, X)
+
+        tail_shift = None
+        tail_sum = None
+        tail_first = None
+        tail_second = None
+        tail_feature_shift = None
+        for boundary_index in range(len(boundaries) - 2, -1, -1):
+            lo = int(boundaries[boundary_index])
+            hi = int(boundaries[boundary_index + 1])
+            block_shift = xp.max(eta[lo:hi])
+            shift = (
+                block_shift
+                if tail_shift is None
+                else xp.maximum(block_shift, tail_shift)
+            )
+            feature_shift = X[hi - 1]
+            centered_X = X[lo:hi] - feature_shift
+            weights = xp.exp(eta[lo:hi] - shift)
+            weighted_first = centered_X * weights.reshape(-1, 1)
+            weighted_second = (
+                weighted_first[:, :, None] * centered_X[:, None, :]
+            )
+            block_sum = self._reverse_cumsum(weights, xp)
+            block_first = self._reverse_cumsum(weighted_first, xp)
+            block_second = self._reverse_cumsum(weighted_second, xp)
+            if tail_shift is not None:
+                feature_delta = tail_feature_shift - feature_shift
+                transformed_tail_first = (
+                    tail_first + tail_sum * feature_delta
+                )
+                transformed_tail_second = (
+                    tail_second
+                    + feature_delta[:, None] * tail_first[None, :]
+                    + tail_first[:, None] * feature_delta[None, :]
+                    + tail_sum
+                    * feature_delta[:, None]
+                    * feature_delta[None, :]
+                )
+                tail_scale = xp.exp(tail_shift - shift)
+                block_sum = block_sum + tail_sum * tail_scale
+                block_first = block_first + transformed_tail_first * tail_scale
+                block_second = block_second + transformed_tail_second * tail_scale
+
+            group_lo = int(np.searchsorted(first_indices, lo, side="left"))
+            group_hi = int(np.searchsorted(first_indices, hi, side="left"))
+            if group_hi > group_lo:
+                local_indices = (
+                    first_indices_backend[group_lo:group_hi] - lo
+                )
+                selected_sum = block_sum[local_indices]
+                if bool(_to_float_scalar(xp.any(selected_sum <= 0))):
+                    raise FloatingPointError(
+                        "non-positive Cox risk-set denominator"
+                    )
+                risk_log_sum = xp.log(selected_sum) + shift
+                selected_first = block_first[local_indices]
+                selected_second = block_second[local_indices]
+                risk_mean = (
+                    selected_first
+                    / selected_sum.reshape(-1, 1)
+                )
+                risk_second = (
+                    selected_second
+                    / selected_sum.reshape(-1, 1, 1)
+                )
+
+                event_lo = int(event_offsets[group_lo])
+                event_hi = int(event_offsets[group_hi])
+                event_indices = event_indices_backend[
+                    event_lo:event_hi
+                ]
+                event_groups = (
+                    event_groups_backend[event_lo:event_hi] - group_lo
+                )
+                event_X = X[event_indices]
+                centered_event_X = event_X - feature_shift
+                event_eta = eta[event_indices]
+
+                if ties == "breslow":
+                    counts_backend = counts_backend_all[
+                        group_lo:group_hi
+                    ]
+                    loglik = loglik + _sum(event_eta, xp) - _sum(
+                        counts_backend * risk_log_sum, xp
+                    )
+                    score = score + _sum(centered_event_X, xp, axis=0) - _sum(
+                        risk_mean * counts_backend.reshape(-1, 1),
+                        xp,
+                        axis=0,
+                    )
+                    covariance = (
+                        risk_second
+                        - risk_mean[:, :, None] * risk_mean[:, None, :]
+                    )
+                    information = information + _sum(
+                        covariance
+                        * counts_backend.reshape(-1, 1, 1),
+                        xp,
+                        axis=0,
+                    )
+                else:
+                    n_groups = group_hi - group_lo
+                    event_weight_ratio = xp.exp(event_eta - shift)
+                    event_ratio_sum = _backend_zeros(
+                        (n_groups,), xp, X
+                    )
+                    event_first_ratio = _backend_zeros(
+                        (n_groups, p), xp, X
+                    )
+                    event_second_ratio = _backend_zeros(
+                        (n_groups, p, p), xp, X
+                    )
+                    weighted_event_first = (
+                        centered_event_X * event_weight_ratio.reshape(-1, 1)
+                    )
+                    weighted_event_second = (
+                        weighted_event_first[:, :, None]
+                        * centered_event_X[:, None, :]
+                    )
+                    if xp.__name__ == "torch":
+                        event_ratio_sum.index_add_(
+                            0, event_groups, event_weight_ratio
+                        )
+                        event_first_ratio.index_add_(
+                            0, event_groups, weighted_event_first
+                        )
+                        event_second_ratio.index_add_(
+                            0, event_groups, weighted_event_second
+                        )
+                    else:
+                        xp.add.at(
+                            event_ratio_sum, event_groups, event_weight_ratio
+                        )
+                        xp.add.at(
+                            event_first_ratio,
+                            event_groups,
+                            weighted_event_first,
+                        )
+                        xp.add.at(
+                            event_second_ratio,
+                            event_groups,
+                            weighted_event_second,
+                        )
+
+                    fractions = fractions_backend[
+                        event_lo:event_hi
+                    ]
+                    denominator_ratio = (
+                        selected_sum[event_groups]
+                        - fractions * event_ratio_sum[event_groups]
+                    )
+                    if bool(
+                        _to_float_scalar(xp.any(denominator_ratio <= 0))
+                    ):
+                        raise FloatingPointError(
+                            "non-positive Cox risk-set denominator"
+                        )
+                    fractions_first = fractions.reshape(-1, 1)
+                    fractions_second = fractions.reshape(-1, 1, 1)
+                    adjusted_mean = (
+                        selected_first[event_groups]
+                        - fractions_first
+                        * event_first_ratio[event_groups]
+                    ) / denominator_ratio.reshape(-1, 1)
+                    adjusted_second = (
+                        selected_second[event_groups]
+                        - fractions_second
+                        * event_second_ratio[event_groups]
+                    ) / denominator_ratio.reshape(-1, 1, 1)
+                    loglik = loglik + _sum(event_eta, xp) - _sum(
+                        xp.log(denominator_ratio) + shift,
+                        xp,
+                    )
+                    score = score + _sum(centered_event_X, xp, axis=0) - _sum(
+                        adjusted_mean, xp, axis=0
+                    )
+                    information = information + _sum(
+                        adjusted_second
+                        - adjusted_mean[:, :, None]
+                        * adjusted_mean[:, None, :],
+                        xp,
+                        axis=0,
+                    )
+
+            tail_shift = shift
+            tail_sum = block_sum[0]
+            tail_first = block_first[0]
+            tail_second = block_second[0]
+            tail_feature_shift = feature_shift
+
+        return loglik, score, -information
+
+    def _objective_from_eta_backend(
+        self,
+        eta,
+        X,
+        xp,
+        ties,
+        *,
+        compute_information=True,
+        validate_finite_state=True,
+    ):
+        """Evaluate log likelihood and score from a precomputed predictor."""
+        if not compute_information:
+            return self._first_order_objective_from_eta_backend(
+                eta,
+                X,
+                xp,
+                ties,
+                validate_finite_state=validate_finite_state,
+            )
+        return self._full_objective_from_eta_backend(eta, X, xp, ties)
 
     def _is_gpu(self, arr):
         xp = _get_xp(arr)
-        return xp.__name__ == "cupy" or (xp.__name__ == "torch" and arr.is_cuda)
-
-    def _compute_grad_hess(self, coef_dev, X_s):
-        """Compute gradient and Hessian, dispatching to GPU kernel if available."""
-        xp = _get_xp(X_s)
-        is_cupy = xp.__name__ == "cupy"
-        is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
-
-        # Efron: try CuPy kernel (works for both cupy and torch-CUDA via DLPack)
-        if (is_cupy or is_torch_cuda) and self.ties == 'efron':
-            if is_torch_cuda:
-                import cupy as cp
-                import torch
-                X_cp = cp.from_dlpack(X_s.__dlpack__())
-                coef_cp = cp.from_dlpack(coef_dev.__dlpack__())
-                result = self._cupy_grad_hess(coef_cp, X_cp)
-                if result is not None:
-                    return (
-                        torch.from_dlpack(result[0].__dlpack__()),
-                        torch.from_dlpack(result[1].__dlpack__()),
-                    )
-                # Fallback: Triton kernel
-                result = self._triton_grad_hess(coef_dev, X_s)
-                if result is not None:
-                    return result
-            else:
-                result = self._cupy_grad_hess(coef_dev, X_s)
-                if result is not None:
-                    return result
-
-        if is_torch_cuda and self.ties == 'breslow':
-            result = self._torch_breslow_grad_hess(coef_dev, X_s)
-            if result is not None:
-                return result
-
-        # Backend-aware Efron fallback (stays on device, no GPU→CPU transfer)
-        if self.ties == 'efron' and self._efron_pre_np is not None:
-            eta = X_s @ coef_dev
-            eta_shifted = eta - (xp.max(eta) if xp.__name__ != "torch" else xp.max(eta))
-            try:
-                grad, hess = self._efron_grad_hess_backend(eta_shifted, X_s, xp)
-                return grad, hess
-            except Exception:
-                pass
-
-        # CPU-only (numpy). CuPy/Torch CUDA must NOT silently fall back.
-        if is_cupy or is_torch_cuda:
-            raise RuntimeError(
-                "CoxPH GPU gradient/Hessian path failed. "
-                "Explicit GPU devices do not fall back to CPU. "
-                "Use device='cpu' to run the CPU implementation."
-            )
-        eta_np = _to_numpy(X_s @ coef_dev)
-        grad_np, hess_np = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
-        return (
-            _xp_asarray(grad_np, dtype=xp.float64, ref_arr=X_s),
-            _xp_asarray(hess_np, dtype=xp.float64, ref_arr=X_s),
+        return xp.__name__ == "cupy" or (
+            xp.__name__ == "torch" and bool(arr.is_cuda)
         )
 
-    def _loglik_from_eta(self, eta, X_s):
-        """Compute log-likelihood from eta, dispatching to GPU if available."""
+    def _compute_grad_hess(self, coef_dev, X_s):
         xp = _get_xp(X_s)
-        is_cupy = xp.__name__ == "cupy"
-        is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
-
-        if (is_cupy or is_torch_cuda):
-            result = self._gpu_loglik_from_eta(eta, X_s)
-            if result is not None:
-                return result
-            # Explicit GPU must not silently fall back to CPU
-            raise RuntimeError(
-                "CoxPH GPU loglik path failed. "
-                "Explicit GPU devices do not fall back to CPU. "
-                "Use device='cpu' to run the CPU implementation."
-            )
-        return self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
-
-    def _grad_from_eta(self, eta, X_s):
-        """Compute gradient from eta via CPU (eta is already computed)."""
-        xp = _get_xp(X_s)
-        grad_np, _ = self._cpu_grad_hess(_to_numpy(eta), self._time_np, self._event_np)
-        return _xp_asarray(grad_np, dtype=xp.float64, ref_arr=X_s)
-
-    # ── CuPy CUDA kernel path ────────────────────────────────────────
-
-    def _cupy_grad_hess(self, coef_dev, X_s):
-        """Efron gradient/Hessian on CuPy.
-
-        Tries existing CUDA kernel (nuft<=512), falls back to prefix-sum
-        loop for larger nuft.
-        """
-        try:
-            import cupy as cp
-        except ImportError:
-            return None
-
-        if self._efron_pre_np is None:
-            return None
-
-        _, _, _, _, nuft, _ = self._efron_pre_np
-
-        # Try multi-block CUDA kernel (works for any nuft)
-        try:
-            from statgpu.survival._cox_efron_cuda import efron_indices_to_csr
-            from statgpu.survival._cox_efron_grad_hess_kernel import compute_efron_grad_hess_multiblock
-
-            _, uft_ix, risk_enter, risk_exit, _, first_idx_uft = self._efron_pre_np
-            if self._efron_csr is None:
-                csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
-                self._efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
-            _, _, _, _, fail_ptr, fail_ind, _, _ = self._efron_csr
-
-            # Prepare arrays (must be contiguous for CUDA kernels)
-            n, p = int(X_s.shape[0]), int(X_s.shape[1])
-            eta = X_s @ coef_dev
-            eta = eta - cp.max(eta)
-            exp_eta = cp.exp(eta)
-            X_exp = X_s * exp_eta[:, None]
-
-            risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
-            risk_X_sum = cp.cumsum(X_exp[::-1], axis=0)[::-1]
-            outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
-            prefix_flat = cp.concatenate([
-                cp.zeros((1, p * p), dtype=cp.float64),
-                cp.cumsum(outer_flat[:-1], axis=0)
-            ], axis=0)
-            total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
-
-            result = compute_efron_grad_hess_multiblock(
-                X_s, exp_eta, risk_sum, risk_X_sum, prefix_flat, total_X2,
-                cp.asarray(fail_ptr, dtype=cp.int32),
-                cp.asarray(fail_ind, dtype=cp.int32),
-                cp.asarray(first_idx_uft.astype(np.int32), dtype=cp.int32),
-                nuft, p, cupy_module=cp,
-            )
-            if result is not None:
-                return result
-        except Exception:
-            pass
-
-        # Fallback: Python loop (CuPy backend-aware, no CPU round-trip)
-        _, uft_ix, risk_enter, _, _, _ = self._efron_pre_np
-        n, p = int(X_s.shape[0]), int(X_s.shape[1])
-
+        self._validate_coef(coef_dev)
         eta = X_s @ coef_dev
-        eta = eta - cp.max(eta)
-        exp_eta = cp.exp(eta)
-        X_exp = X_s * exp_eta[:, None]
-
-        risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = cp.cumsum(X_exp[::-1], axis=0)[::-1]
-
-        outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
-        prefix_flat = cp.concatenate([
-            cp.zeros((1, p * p), dtype=cp.float64),
-            cp.cumsum(outer_flat[:-1], axis=0)
-        ], axis=0)
-        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
-
-        grad = cp.zeros(p, dtype=cp.float64)
-        hess = cp.zeros((p, p), dtype=cp.float64)
-
-        for g in range(nuft):
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            s0 = float(risk_sum[re])
-            s1 = risk_X_sum[re]  # (p,)
-
-            # Tied failure quantities — ALL failures in group
-            v = X_s[ix_ev]  # (d, p)
-            elx = exp_eta[ix_ev]  # (d,)
-            xp0f = float(cp.sum(elx))
-            xp1f = v.T @ elx  # (p,)
-            xp2f = (v * elx[:, None]).T @ v  # (p, p)
-
-            # Efron correction: for k=0..d-1, denominator = s0 - (k/d)*xp0f
-            k_vals = cp.arange(d, dtype=cp.float64)
-            J = k_vals / d  # (d,)
-            c0 = s0 - J * xp0f  # (d,)
-            safe_denom = cp.maximum(c0, 1e-300)
-            inv = 1.0 / safe_denom  # (d,)
-            J_inv = J * inv  # (d,)
-            sum_inv = float(cp.sum(inv))
-            sum_J = float(cp.sum(J_inv))
-            sum_aa = float(cp.dot(inv, inv))
-            sum_bb = float(cp.dot(J_inv, J_inv))
-            sum_ab = float(cp.dot(inv, J_inv))
-
-            # Gradient: sum of ALL failure X's minus Efron-corrected risk term
-            grad += cp.sum(v, axis=0)  # sum_{i in D_g} X_i
-            grad -= s1 * sum_inv - xp1f * sum_J
-
-            # Hessian: Efron-corrected second moment
-            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
-            hess -= risk_X2 * sum_inv
-            hess += xp2f * sum_J
-            hess += sum_aa * cp.outer(s1, s1)
-            hess += sum_bb * cp.outer(xp1f, xp1f)
-            hess -= sum_ab * (cp.outer(s1, xp1f) + cp.outer(xp1f, s1))
-
-        return grad, -hess
+        _, score, hessian = self._objective_from_eta_backend(
+            eta, X_s, xp, self.ties, compute_information=True
+        )
+        return score, hessian
 
     def _gpu_loglik(self, coef_dev, X_s):
-        """Compute log-likelihood via GPU kernel."""
         xp = _get_xp(X_s)
+        self._validate_coef(coef_dev)
         eta = X_s @ coef_dev
-        return self._gpu_loglik_from_eta(eta, X_s)
+        return self._objective_from_eta_backend(
+            eta, X_s, xp, self.ties, compute_information=False
+        )[0]
+
+    def _loglik_from_eta(self, eta, X_s):
+        xp = _get_xp(X_s)
+        return self._objective_from_eta_backend(eta, X_s, xp, self.ties)[0]
 
     def _gpu_loglik_from_eta(self, eta, X_s):
-        """Compute log-likelihood from precomputed eta on GPU.
+        return self._loglik_from_eta(eta, X_s)
 
-        Supports cupy and torch-CUDA (via DLPack conversion).
-        """
+    def _grad_from_eta(self, eta, X_s):
         xp = _get_xp(X_s)
-        is_cupy = xp.__name__ == "cupy"
-        is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
+        return self._objective_from_eta_backend(eta, X_s, xp, self.ties)[1]
 
-        if self.ties == 'efron' and self._efron_pre_np is not None:
-            try:
-                if is_cupy or is_torch_cuda:
-                    import cupy as cp
-                    from statgpu.survival._cox_efron_cuda import compute_efron_loglik_raw_csr
-
-                    if is_torch_cuda:
-                        eta_cp = cp.from_dlpack(eta.__dlpack__())
-                    else:
-                        eta_cp = eta
-
-                    exp_eta = cp.exp(eta_cp)
-                    risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
-                    _, _, _, _, nuft, first_idx_uft = self._efron_pre_np
-                    first_idx_uft_dev = cp.asarray(first_idx_uft, dtype=cp.int32)
-                    if self._efron_csr is not None:
-                        result = compute_efron_loglik_raw_csr(
-                            eta_cp, exp_eta, risk_sum,
-                            self._efron_csr[4], self._efron_csr[5],
-                            first_idx_uft_dev, nuft, cupy_module=cp
-                        )
-                        return result
-            except (ImportError, RuntimeError):
-                pass
-
-        # Breslow: can compute directly on any backend
-        if self.ties == 'breslow' and self._breslow_pre_np is not None:
-            exp_eta = xp.exp(eta)
-            if xp.__name__ == "torch":
-                risk_sum = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
-            else:
-                risk_sum = xp.cumsum(exp_eta[::-1])[::-1]
-            first_idx, counts_np = self._breslow_pre_np
-            if xp.__name__ == "torch":
-                import torch
-                first_idx_dev = torch.from_numpy(first_idx).long().to(eta.device)
-                counts = torch.from_numpy(counts_np).to(eta.device)
-            elif xp.__name__ == "cupy":
-                import cupy
-                first_idx_dev = cupy.asarray(first_idx)
-                counts = cupy.asarray(counts_np)
-            else:
-                first_idx_dev = first_idx
-                counts = counts_np
-            risk_at = risk_sum[first_idx_dev]
-            event_mask = (self._event_sorted == 1) if hasattr(self, '_event_sorted') else (self._event_np == 1)
-            if xp.__name__ == "torch":
-                event_mask_dev = torch.from_numpy(self._event_np).bool().to(eta.device) if hasattr(self, '_event_np') else event_mask
-            else:
-                event_mask_dev = event_mask
-            event_eta = eta[event_mask_dev]
-            if xp.__name__ == "torch":
-                return xp.sum(event_eta) - xp.sum(counts * xp.log(risk_at))
-            return float(xp.sum(event_eta) - xp.sum(counts * xp.log(risk_at)))
-
-        return None
-
-    # ── Triton/Torch kernel paths ────────────────────────────────────
+    def _cupy_grad_hess(self, coef_dev, X_s):
+        return self._compute_grad_hess(coef_dev, X_s)
 
     def _triton_grad_hess(self, coef_dev, X_s):
-        try:
-            from statgpu.survival._cox_efron_triton import compute_efron_grad_hess_triton
-            if self._efron_pre_np is None:
-                return None
-            return compute_efron_grad_hess_triton(X_s, coef_dev, self._efron_pre_np)
-        except (ImportError, RuntimeError):
-            return None
+        return None
 
     def _torch_breslow_grad_hess(self, coef_dev, X_s):
-        try:
-            from statgpu.survival._cox_breslow_triton_kernel import compute_breslow_grad_hess_triton
-            return compute_breslow_grad_hess_triton(X_s, coef_dev, self._time_sorted, self._event_sorted)
-        except (ImportError, RuntimeError):
-            return None
+        return None
 
-    # ── CPU fallback (numpy) ─────────────────────────────────────────
-
-    def _cpu_loglik_cached(self, eta_np, X_np):
-        """Compute loglik using cached suffix sums from fused_value_and_gradient.
-
-        Reuses risk_sum, risk_X_sum, suffix_outer from the previous
-        fused computation. Much faster than recomputing from scratch.
-        """
-        if not hasattr(self, '_cached_suffix') or self._cached_suffix is None:
-            return None
-
-        # Note: cached suffix sums are from the PREVIOUS eta, not current.
-        # For line search, eta changes slightly (beta + step*direction).
-        # The suffix sums depend on exp(eta) which changes with eta.
-        # So we CANNOT reuse them for a different eta.
-        # Instead, compute loglik from scratch but share the uft_ix structure.
-        efron_pre = self._efron_pre_np
-        _, uft_ix, risk_enter, _, nuft, _ = efron_pre
-
-        exp_eta = np.exp(eta_np)
-        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-
-        ll = 0.0
-        for g in range(nuft):
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            s0 = risk_sum[re]
-            se = float(np.sum(exp_eta[ix_ev]))
-            k = np.arange(d, dtype=np.float64)
-            denom = s0 - (k / d) * se
-            safe = np.maximum(denom, 1e-300)
-            ll += float(np.sum(eta_np[ix_ev])) - float(np.sum(np.log(safe)))
-        return ll
-
-    def _cpu_loglik(self, eta_np, time_np, event_np):
-        """Compute log partial likelihood in numpy."""
-        exp_eta = np.exp(eta_np)
-        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        event_mask = event_np == 1
-        if not np.any(event_mask):
-            return 0.0
-
-        if self.ties == 'breslow':
-            pre = self._breslow_pre_np
-            if pre is not None and pre[0].size > 0:
-                first_idx, counts = pre
-            else:
-                event_times = time_np[event_mask]
-                uft, _, counts = np.unique(event_times, return_inverse=True, return_counts=True)
-                first_idx = np.searchsorted(time_np, uft, side="left").astype(np.int64)
-            return float(np.sum(eta_np[event_mask]) - np.sum(counts * np.log(risk_sum[first_idx])))
-
-        # Efron
-        efron_pre = self._efron_pre_np
-        if efron_pre is not None:
-            _, uft_ix, _, _, nuft, first_idx_uft = efron_pre
-            all_eta_sum = 0.0
-            all_log_denom_sum = 0.0
-            for g in range(nuft):
-                ix_ev = uft_ix[g]
-                d = len(ix_ev)
-                if d == 0:
-                    continue
-                idx = int(first_idx_uft[g])
-                risk_at_t = risk_sum[idx]
-                sum_events = float(np.sum(exp_eta[ix_ev]))
-                all_eta_sum += float(np.sum(eta_np[ix_ev]))
-                k_vals = np.arange(d, dtype=np.float64)
-                denom = risk_at_t - (k_vals / d) * sum_events
-                all_log_denom_sum += float(np.sum(np.log(np.maximum(denom, 1e-300))))
-            return float(all_eta_sum - all_log_denom_sum)
-
-        return 0.0
+    def _efron_loglik_backend(self, eta, X, xp):
+        return self._objective_from_eta_backend(eta, X, xp, "efron")[0]
 
     def _efron_grad_hess_backend(self, eta, X, xp):
-        """Efron gradient/Hessian — backend-aware (works with cupy/torch/numpy).
+        _, score, hessian = self._objective_from_eta_backend(eta, X, xp, "efron")
+        return score, hessian
 
-        Uses incremental accumulator backward scan (O(p²) memory) for all backends.
-        For numpy: delegates to _efron_grad_hess_np.
-        For cupy/torch: incremental accumulators, no GPU→CPU transfer.
-        """
-        n, p = int(X.shape[0]), int(X.shape[1])
+    def _cpu_loglik_cached(self, eta_np, X_np):
+        return self._cpu_loglik(eta_np, self._time_np, self._event_np)
 
-        # Numpy: delegate to optimized _efron_grad_hess_np
-        if xp.__name__ == "numpy":
-            eta_np = _to_numpy(eta) if not isinstance(eta, np.ndarray) else eta
-            X_np = _to_numpy(X) if not isinstance(X, np.ndarray) else X
-            return self._efron_grad_hess_np(eta_np, X_np, self._efron_pre_np)
-
-        exp_eta = xp.exp(eta)
-        X_exp = X * exp_eta[:, None]
-
-        _, uft_ix, _, _, nuft, first_idx_uft = self._efron_pre_np
-
-        if nuft == 0:
-            return _xp_zeros(p, dtype=xp.float64, ref_arr=X), _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
-
-        # Suffix sums with sentinel zero at end
-        if xp.__name__ == "torch":
-            risk_sum = xp.zeros(n + 1, dtype=xp.float64, device=X.device)
-            risk_sum[:n] = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
-            risk_X_sum = xp.zeros((n + 1, p), dtype=xp.float64, device=X.device)
-            risk_X_sum[:n] = xp.cumsum(X_exp.flip(0), dim=0).flip(0)
-        else:
-            risk_sum = xp.zeros(n + 1, dtype=xp.float64)
-            risk_sum[:n] = xp.cumsum(exp_eta[::-1])[::-1]
-            risk_X_sum = xp.zeros((n + 1, p), dtype=xp.float64)
-            risk_X_sum[:n] = xp.cumsum(X_exp[::-1], axis=0)[::-1]
-
-        # Running accumulators (backward scan)
-        xp0 = 0.0
-        xp1 = _xp_zeros(p, dtype=xp.float64, ref_arr=X)
-        xp2 = _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
-
-        grad = _xp_zeros(p, dtype=xp.float64, ref_arr=X)
-        hess = _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
-
-        for g in range(nuft - 1, -1, -1):
-            # ── Enter phase: add samples with time in [uft[g], uft[g+1]) ──
-            enter_start = int(first_idx_uft[g])
-            enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
-            if enter_end > enter_start:
-                xp0 += float(risk_sum[enter_start] - risk_sum[enter_end])
-                xp1 = xp1 + (risk_X_sum[enter_start] - risk_X_sum[enter_end])
-                blk = X_exp[enter_start:enter_end]
-                xp2 = xp2 + (blk.T @ X[enter_start:enter_end])
-
-            # ── Fail phase: Efron correction ──
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-
-            v = X[ix_ev]
-            elx = exp_eta[ix_ev]
-            xp0f = float(xp.sum(elx))
-            xp1f = v.T @ elx
-            xp2f = (v * elx[:, None]).T @ v
-
-            # Vectorized Efron correction over tie size d
-            if xp.__name__ == "torch":
-                J = xp.arange(d, dtype=xp.float64, device=X.device) / d
-            else:
-                J = xp.arange(d, dtype=xp.float64) / d
-            c0 = xp0 - J * xp0f
-            c0 = xp.maximum(c0, xp.float64(1e-300)) if xp.__name__ == "torch" else xp.maximum(c0, 1e-300)
-            inv = 1.0 / c0
-            sum_inv = float(xp.sum(inv))
-            sum_J = float(xp.sum(J * inv))
-            sum_aa = float(xp.sum(inv * inv))
-            sum_bb = float(xp.sum((J * inv) * (J * inv)))
-            sum_ab = float(xp.sum(inv * (J * inv)))
-
-            grad = grad + xp.sum(v, axis=0) - (xp1 * sum_inv - xp1f * sum_J)
-
-            hess = hess - xp2 * sum_inv + xp2f * sum_J
-            hess = hess + (
-                sum_aa * xp.outer(xp1, xp1)
-                + sum_bb * xp.outer(xp1f, xp1f)
-                - sum_ab * (xp.outer(xp1, xp1f) + xp.outer(xp1f, xp1))
-            )
-
-        return grad, -hess
+    def _cpu_loglik(self, eta_np, time_np, event_np):
+        X_np = np.asarray(_to_numpy(self._X_sorted), dtype=np.float64)
+        eta_np = np.asarray(eta_np, dtype=np.float64)
+        return float(
+            self._objective_from_eta_backend(
+                eta_np, X_np, np, self.ties
+            )[0]
+        )
 
     def _cpu_grad_hess(self, eta_np, time_np, event_np):
-        """Compute gradient and Hessian in numpy."""
-        X_np = _to_numpy(self._X_sorted)
-        p = X_np.shape[1]
-        exp_eta = np.exp(eta_np)
-        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        X_exp_eta = X_np * exp_eta[:, None]
-        risk_X_sum = np.cumsum(X_exp_eta[::-1], axis=0)[::-1]
-        event_mask = event_np == 1
-
-        if self.ties == 'breslow':
-            grad = np.zeros(p, dtype=np.float64)
-            pre = self._breslow_pre_np
-            has_events = bool(np.any(event_mask))
-            if has_events and pre is not None and pre[0].size > 0:
-                first_idx, counts = pre
-                sum_X_events = np.sum(X_np[event_mask], axis=0)
-                E_X = risk_X_sum[first_idx] / risk_sum[first_idx][:, None]
-                grad = sum_X_events - np.sum(E_X * counts[:, None], axis=0)
-
-            if not has_events:
-                hess = np.zeros((p, p), dtype=np.float64)
-            elif pre is not None and pre[0].size > 0:
-                first_idx, counts = pre
-                x2_weighted = np.einsum("ni,nj,n->nij", X_np, X_np, exp_eta)
-                risk_X2_sum = np.cumsum(x2_weighted[::-1], axis=0)[::-1]
-                risk_sum_at = risk_sum[first_idx]
-                E_X = risk_X_sum[first_idx] / risk_sum_at[:, None]
-                E_XX = risk_X2_sum[first_idx] / risk_sum_at[:, None, None]
-                centered = E_XX - np.einsum("ni,nj->nij", E_X, E_X)
-                hess = -np.sum(centered * counts[:, None, None], axis=0)
-            else:
-                hess = np.zeros((p, p), dtype=np.float64)
-        else:
-            eta_shift = eta_np - np.max(eta_np)
-            efron_pre = self._efron_pre_np
-            if efron_pre is not None:
-                grad, hess = self._efron_grad_hess_np(eta_shift, X_np, efron_pre)
-            else:
-                grad, hess = np.zeros(p), np.zeros((p, p))
-
-        return grad, hess
+        X_np = np.asarray(_to_numpy(self._X_sorted), dtype=np.float64)
+        eta_np = np.asarray(eta_np, dtype=np.float64)
+        _, score, hessian = self._objective_from_eta_backend(
+            eta_np, X_np, np, self.ties
+        )
+        return np.asarray(score, dtype=np.float64), np.asarray(
+            hessian, dtype=np.float64
+        )
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        """Efron gradient/Hessian — incremental accumulator backward scan.
-
-        Uses the same algorithm as statsmodels PHReg: maintain running
-        xp0/xp1/xp2 accumulators, update incrementally at each failure time.
-        O(nuft·p²) time, O(p²) memory — no O(n·p²) suffix outer product.
-        """
-        n, p = X.shape
-        exp_eta = np.exp(eta)
-        X_exp = X * exp_eta[:, None]
-
-        _, uft_ix, _, _, nuft, first_idx_uft = efron_pre
-
-        if nuft == 0:
-            return np.zeros(p, dtype=np.float64), np.zeros((p, p), dtype=np.float64)
-
-        # Suffix sums with sentinel zero at end so that
-        # risk_sum[i] - risk_sum[j] = sum(exp_eta[i:j]) for any i < j.
-        risk_sum = np.zeros(n + 1, dtype=np.float64)
-        risk_sum[:n] = np.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = np.zeros((n + 1, p), dtype=np.float64)
-        risk_X_sum[:n] = np.cumsum(X_exp[::-1], axis=0)[::-1]
-
-        # Running accumulators (backward scan)
-        xp0 = 0.0
-        xp1 = np.zeros(p, dtype=np.float64)
-        xp2 = np.zeros((p, p), dtype=np.float64)
-
-        grad = np.zeros(p, dtype=np.float64)
-        hess = np.zeros((p, p), dtype=np.float64)
-
-        for g in range(nuft - 1, -1, -1):
-            # ── Enter phase: add samples with time in [uft[g], uft[g+1]) ──
-            enter_start = int(first_idx_uft[g])
-            enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
-            if enter_end > enter_start:
-                xp0 += risk_sum[enter_start] - risk_sum[enter_end]
-                xp1 += risk_X_sum[enter_start] - risk_X_sum[enter_end]
-                xp2 += X_exp[enter_start:enter_end].T @ X[enter_start:enter_end]
-
-            # ── Fail phase: Efron correction ──
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-
-            v = X[ix_ev]
-            elx = exp_eta[ix_ev]
-            xp0f = float(elx.sum())
-            xp1f = v.T @ elx
-            xp2f = (v * elx[:, None]).T @ v
-
-            # Vectorized Efron correction over tie size d
-            J = np.arange(d, dtype=np.float64) / d
-            c0 = xp0 - J * xp0f
-            np.maximum(c0, 1e-300, out=c0)
-            inv = 1.0 / c0
-            J_inv = J * inv
-            sum_inv = inv.sum()
-            sum_J = J_inv.sum()
-            sum_aa = np.dot(inv, inv)
-            sum_bb = np.dot(J_inv, J_inv)
-            sum_ab = np.dot(inv, J_inv)
-
-            grad += v.sum(axis=0)
-            grad -= xp1 * sum_inv - xp1f * sum_J
-
-            hess -= xp2 * sum_inv
-            hess += xp2f * sum_J
-            hess += sum_aa * np.outer(xp1, xp1)
-            hess += sum_bb * np.outer(xp1f, xp1f)
-            hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
-
-        return grad, -hess
+        temp = CoxPartialLikelihoodLoss(ties="efron")
+        temp._X_sorted = np.asarray(X, dtype=np.float64)
+        temp._time_np = np.asarray(efron_pre[0], dtype=np.float64)
+        temp._event_np = np.zeros(X.shape[0], dtype=np.float64)
+        temp._efron_pre_np = efron_pre
+        _, score, hessian = temp._objective_from_eta_backend(
+            np.asarray(eta, dtype=np.float64), temp._X_sorted, np, "efron"
+        )
+        return np.asarray(score), np.asarray(hessian)
 
     def _cpu_fused_loglik_grad(self, eta_np, X_np, time_np, event_np):
-        """Fused loglik + gradient for Efron — single pass.
+        loglik = self._cpu_loglik(eta_np, time_np, event_np)
+        score, _ = self._cpu_grad_hess(eta_np, time_np, event_np)
+        return loglik, score, None
 
-        Shares suffix sums across loglik and gradient computation.
-        """
-        n, p = X_np.shape
-        exp_eta = np.exp(eta_np)
-        X_exp = X_np * exp_eta[:, None]
-
-        efron_pre = self._efron_pre_np
-        _, uft_ix, risk_enter, _, nuft, _ = efron_pre
-
-        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
-
-        ll = 0.0
-        grad = np.zeros(p, dtype=np.float64)
-
-        for g in range(nuft):
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            s0 = risk_sum[re]
-            s1 = risk_X_sum[re]
-            se = float(np.sum(exp_eta[ix_ev]))
-            sx = np.sum(X_np[ix_ev], axis=0)
-            k = np.arange(d, dtype=np.float64)
-            denom = s0 - (k / d) * se
-            safe = np.maximum(denom, 1e-300)
-            si = np.sum(1.0 / safe)
-
-            ll += float(np.sum(eta_np[ix_ev])) - float(np.sum(np.log(safe)))
-            grad += sx - s1 * si * d
-
-        return ll, grad, None
+    def _cpu_loglik_grad(self, eta_np, X_np):
+        loglik = self._cpu_loglik(eta_np, self._time_np, self._event_np)
+        score, _ = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
+        return loglik, score
 
     def _cpu_fused_loglik_grad_hess(self, eta_np, X_np, time_np, event_np):
-        """Fused loglik + gradient + Hessian for Efron — incremental accumulator.
-
-        Uses the same backward-scan algorithm as statsmodels PHReg:
-        maintain running xp0/xp1/xp2 accumulators, update incrementally
-        at each failure time.  O(nuft·p²) time, O(p²) memory.
-        """
-        n, p = X_np.shape
-        # Numerical stability: shift eta to prevent exp overflow
-        eta_shift = eta_np - np.max(eta_np)
-        exp_eta = np.exp(eta_shift)
-        X_exp = X_np * exp_eta[:, None]
-
-        efron_pre = self._efron_pre_np
-        _, uft_ix, _, _, nuft, first_idx_uft = efron_pre
-
-        if nuft == 0:
-            return 0.0, np.zeros(p, dtype=np.float64), np.zeros((p, p), dtype=np.float64)
-
-        # Suffix sums with sentinel zero at end so that
-        # risk_sum[i] - risk_sum[j] = sum(exp_eta[i:j]) for any i < j.
-        risk_sum = np.zeros(n + 1, dtype=np.float64)
-        risk_sum[:n] = np.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = np.zeros((n + 1, p), dtype=np.float64)
-        risk_X_sum[:n] = np.cumsum(X_exp[::-1], axis=0)[::-1]
-
-        # Running accumulators (backward scan)
-        xp0 = 0.0
-        xp1 = np.zeros(p, dtype=np.float64)
-        xp2 = np.zeros((p, p), dtype=np.float64)
-
-        ll = 0.0
-        grad = np.zeros(p, dtype=np.float64)
-        hess = np.zeros((p, p), dtype=np.float64)
-
-        for g in range(nuft - 1, -1, -1):
-            # ── Enter phase: add samples with time in [uft[g], uft[g+1]) ──
-            enter_start = int(first_idx_uft[g])
-            enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
-            if enter_end > enter_start:
-                xp0 += risk_sum[enter_start] - risk_sum[enter_end]
-                xp1 += risk_X_sum[enter_start] - risk_X_sum[enter_end]
-                xp2 += X_exp[enter_start:enter_end].T @ X_np[enter_start:enter_end]
-
-            # ── Fail phase: Efron correction ──
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-
-            v = X_np[ix_ev]
-            elx = exp_eta[ix_ev]
-            xp0f = float(elx.sum())
-            xp1f = v.T @ elx
-            xp2f = (v * elx[:, None]).T @ v
-
-            # Vectorized Efron correction over tie size d
-            J = np.arange(d, dtype=np.float64) / d
-            c0 = xp0 - J * xp0f
-            np.maximum(c0, 1e-300, out=c0)
-            inv = 1.0 / c0
-            J_inv = J * inv
-            sum_inv = inv.sum()
-            sum_J = J_inv.sum()
-            sum_aa = np.dot(inv, inv)
-            sum_bb = np.dot(J_inv, J_inv)
-            sum_ab = np.dot(inv, J_inv)
-
-            # Loglik (use shifted eta for numerical stability)
-            ll += float(np.sum(eta_shift[ix_ev])) - float(np.sum(np.log(c0)))
-
-            grad += v.sum(axis=0)
-            grad -= xp1 * sum_inv - xp1f * sum_J
-
-            hess -= xp2 * sum_inv
-            hess += xp2f * sum_J
-            hess += sum_aa * np.outer(xp1, xp1)
-            hess += sum_bb * np.outer(xp1f, xp1f)
-            hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
-
-        return ll, grad, -hess
-
+        loglik = self._cpu_loglik(eta_np, time_np, event_np)
+        score, hessian = self._cpu_grad_hess(eta_np, time_np, event_np)
+        return loglik, score, hessian

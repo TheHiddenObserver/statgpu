@@ -25,19 +25,116 @@ from statgpu.backends._array_ops import (
 )
 
 
+def _scalar_bool(value):
+    return bool(value.item() if hasattr(value, "item") else value)
+
+
+def _runtime_error_is_singular(exc):
+    """Return whether a backend RuntimeError reports a solvable rank failure."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "singular",
+            "not invertible",
+            "zero pivot",
+            "rank deficient",
+            "ill-conditioned",
+            "not positive-definite",
+            "not positive definite",
+        )
+    )
+
+
+def _trial_error_is_numerical(exc):
+    """Return whether a trial-point exception is an expected numeric-domain failure."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "overflow",
+            "invalid value",
+            "nan",
+            "non-finite",
+            "nonfinite",
+            "domain error",
+        )
+    )
+
+
+def _native_sample_weight(sample_weight):
+    """Return sample weights on their current backend without a full D2H copy."""
+    backend = _resolve_backend("auto", sample_weight)
+    xp = _get_xp(backend)
+    if backend == "torch":
+        import torch
+
+        try:
+            values = (
+                sample_weight
+                if torch.is_tensor(sample_weight)
+                else torch.as_tensor(sample_weight)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("sample_weight must be a real numeric array-like") from exc
+        if torch.is_complex(values):
+            raise ValueError("sample_weight must contain real numeric values")
+    else:
+        try:
+            values = xp.asarray(sample_weight)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("sample_weight must be a real numeric array-like") from exc
+        if getattr(values.dtype, "kind", "") not in "biuf":
+            raise ValueError("sample_weight must contain real numeric values")
+    return backend, xp, values
+
+
+def _validated_sample_weight(sample_weight, n_samples):
+    backend, xp, values = _native_sample_weight(sample_weight)
+    if int(values.ndim) != 1 or int(values.shape[0]) != int(n_samples):
+        raise ValueError("sample_weight must be 1D with length n_samples")
+    try:
+        finite = xp.all(xp.isfinite(values))
+        negative = xp.any(values < 0)
+        if backend == "torch":
+            import torch
+
+            if not torch.is_floating_point(values):
+                values = values.to(dtype=torch.float64)
+        elif getattr(values.dtype, "kind", "") in "biu":
+            values = values.astype(xp.float64, copy=False)
+        total_dev = xp.sum(values)
+        total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("sample_weight must contain real finite values") from exc
+    if not _scalar_bool(finite):
+        raise ValueError("sample_weight must contain only finite values")
+    if _scalar_bool(negative):
+        raise ValueError("sample_weight must be non-negative")
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("sample_weight must have a finite positive sum")
+    return backend, xp, values
+
+
 def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
     if sample_weight is None:
         return
-    _sw = _to_numpy(sample_weight)
-    if _sw.ndim != 1 or _sw.shape[0] != n_samples:
-        raise ValueError("sample_weight must be a 1D array with length n_samples")
-    if not np.all(np.isfinite(_sw)):
-        raise ValueError("sample_weight must contain only finite values")
-    if np.any(_sw < 0):
-        raise ValueError("sample_weight must be non-negative")
-    if np.sum(_sw) <= 0.0:
-        raise ValueError("sample_weight must contain at least one positive value")
-    if not np.allclose(_sw, _sw[0]):
+    backend, xp, values = _validated_sample_weight(sample_weight, n_samples)
+    if backend == "torch":
+        import torch
+
+        uniform = (
+            torch.allclose(values, values[0])
+            if torch.is_floating_point(values)
+            else torch.all(values == values[0])
+        )
+    else:
+        uniform = (
+            xp.allclose(values, values[0])
+            if getattr(values.dtype, "kind", "") == "f"
+            else xp.all(values == values[0])
+        )
+    if not _scalar_bool(uniform):
         raise ValueError(
             f"{solver_name} does not support non-uniform sample_weight yet; "
             "use solver='irls' for weighted GLM fits."
@@ -45,17 +142,8 @@ def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
 
 
 def _validate_sample_weight(sample_weight, n_samples):
-    if sample_weight is None:
-        return
-    _sw = _to_numpy(sample_weight)
-    if _sw.ndim != 1 or _sw.shape[0] != n_samples:
-        raise ValueError("sample_weight must be 1D with length n_samples")
-    if not np.all(np.isfinite(_sw)):
-        raise ValueError("sample_weight must contain only finite values")
-    if np.any(_sw < 0):
-        raise ValueError("sample_weight must be non-negative")
-    if np.sum(_sw) <= 0:
-        raise ValueError("sample_weight must contain at least one positive value")
+    if sample_weight is not None:
+        _validated_sample_weight(sample_weight, n_samples)
 
 
 def _as_backend_vector(arr, backend, ref):
@@ -134,6 +222,16 @@ def _nesterov_update(coef, coef_old, t_k, beta_cap=None):
 
 def _penalty_name(penalty):
     return str(getattr(penalty, "name", "none")).lower()
+
+
+def _validate_smooth_penalty(penalty, solver_name):
+    """Reject penalties whose non-smooth terms a smooth solver cannot optimize."""
+    name = _penalty_name(penalty)
+    if name not in ("l2", "none", "null", ""):
+        raise ValueError(
+            f"{solver_name} supports only l2/none penalties; got penalty='{name}'. "
+            "Use fista or another proximal solver for non-smooth penalties."
+        )
 
 
 def _smooth_penalty_value(penalty, coef):

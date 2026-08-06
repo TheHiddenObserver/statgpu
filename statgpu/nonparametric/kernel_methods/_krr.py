@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_numpy, _torch_dev, xp_eye, xp_astype
+from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, _torch_dev, xp_eye, xp_astype
 
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
@@ -98,61 +98,56 @@ class KernelRidge(BaseEstimator):
         return params
 
     def fit(self, X, y, sample_weight=None):
-        """Fit Kernel Ridge Regression model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data.
-        y : array-like of shape (n_samples,) or (n_samples, n_targets)
-            Target values.
-        sample_weight : ignored
-            Not used; kept for API compatibility.
-
-        Returns
-        -------
-        self
-        """
-        # Resolve backend and convert arrays
+        """Fit Kernel Ridge Regression model."""
         self._backend = self._get_backend()
         xp = self._backend.xp
         self._xp = xp
 
-        X_arr = self._to_array(X)
+        X_arr = xp_astype(self._to_array(X), xp.float64, xp)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+        if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[1] == 0:
+            raise ValueError("X must be a non-empty two-dimensional array")
+
         y_arr = xp_astype(self._to_array(y), xp.float64, xp)
         if y_arr.ndim == 1:
             y_arr = y_arr.reshape(-1, 1)
+        if y_arr.ndim != 2 or y_arr.shape[0] != X_arr.shape[0]:
+            raise ValueError("y must be one- or two-dimensional with one row per X row")
+
+        alpha = float(self.alpha)
+        if not np.isfinite(alpha) or alpha < 0:
+            raise ValueError("alpha must be finite and non-negative")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X contains NaN or infinite values")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(y_arr)))):
+            raise ValueError("y contains NaN or infinite values")
 
         n_samples = X_arr.shape[0]
-        alpha = float(self.alpha)
-
-        # Compute kernel matrix
         kernel_params = self._get_kernel_params()
         K = pairwise_kernels(X_arr, X_arr, metric=self.kernel, xp=xp, **kernel_params)
+        eye = xp_eye(n_samples, K.dtype, xp, K)
+        K_reg = K + alpha * eye
 
-        # Regularize: K + alpha * I
-        K_reg = K + alpha * xp_eye(n_samples, K.dtype, xp, K)
-
-        # Solve (K + alpha I) * dual_coef = y with jitter fallback
         try:
             self.dual_coef_ = xp.linalg.solve(K_reg, y_arr)
         except _LINALG_ERRORS:
-            # Matrix may be ill-conditioned; add jitter and retry
-            jitter = float(xp.max(xp.abs(xp.diag(K)))) * 1e-10
+            diagonal_scale = _to_float_scalar(xp.max(xp.abs(xp.diag(K))))
+            jitter = max(diagonal_scale, 1.0) * 1e-10
             for _ in range(6):
-                K_reg = K_reg + jitter * xp_eye(n_samples, K.dtype, xp, K)
                 try:
-                    self.dual_coef_ = xp.linalg.solve(K_reg, y_arr)
+                    self.dual_coef_ = xp.linalg.solve(K_reg + jitter * eye, y_arr)
                     break
                 except _LINALG_ERRORS:
-                    jitter *= 10
+                    jitter *= 10.0
             else:
                 raise ValueError(
-                    "KernelRidge: regularized kernel matrix is singular "
-                    "even after jitter escalation. Try increasing alpha."
+                    "KernelRidge: regularized kernel matrix is singular even "
+                    "after jitter escalation. Try increasing alpha."
                 )
 
         self.X_fit_ = X_arr
+        self.n_features_in_ = int(X_arr.shape[1])
         self._fitted = True
         return self
 
@@ -170,7 +165,14 @@ class KernelRidge(BaseEstimator):
         self._check_is_fitted()
         xp = self._xp
 
-        X_arr = self._to_array(X)
+        X_arr = xp_astype(self._to_array(X), xp.float64, xp)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+        if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X must have {self.n_features_in_} features; got "
+                f"{X_arr.shape[1] if X_arr.ndim == 2 else 'invalid shape'}"
+            )
         kernel_params = self._get_kernel_params()
         K_test = pairwise_kernels(X_arr, self.X_fit_, metric=self.kernel, xp=xp, **kernel_params)
 
@@ -181,36 +183,31 @@ class KernelRidge(BaseEstimator):
         return y_pred
 
     def score(self, X, y):
-        """Return the coefficient of determination R^2.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-        y : array-like of shape (n_samples,) or (n_samples, n_targets)
-
-        Returns
-        -------
-        score : float
-            R^2 score.
-        """
+        """Return uniform-average multi-output R-squared."""
         self._check_is_fitted()
         xp = self._xp
 
         y_pred = self.predict(X)
         y_arr = xp_astype(self._to_array(y), xp.float64, xp)
-        # Ensure 1D to avoid broadcasting issues
-        y_arr = y_arr.ravel()
-        y_pred = y_pred.ravel()
+        if y_arr.ndim == 1:
+            y_arr = y_arr.reshape(-1, 1)
+        if y_pred.ndim == 1:
+            y_pred = y_pred.reshape(-1, 1)
+        if y_arr.shape != y_pred.shape:
+            raise ValueError(
+                f"y has shape {tuple(y_arr.shape)} but predictions have shape "
+                f"{tuple(y_pred.shape)}"
+            )
 
-        ss_res = xp.sum((y_arr - y_pred) ** 2)
-        ss_tot = xp.sum((y_arr - xp.mean(y_arr)) ** 2)
-
-        ss_res_val = float(ss_res.item()) if hasattr(ss_res, "item") else float(ss_res)
-        ss_tot_val = float(ss_tot.item()) if hasattr(ss_tot, "item") else float(ss_tot)
-
-        if ss_tot_val == 0.0:
-            return 0.0
-        return 1.0 - ss_res_val / ss_tot_val
+        ss_res = xp.sum((y_arr - y_pred) ** 2, axis=0)
+        ss_tot = xp.sum((y_arr - xp.mean(y_arr, axis=0)) ** 2, axis=0)
+        ss_res_np = np.asarray(_to_numpy(ss_res), dtype=np.float64)
+        ss_tot_np = np.asarray(_to_numpy(ss_tot), dtype=np.float64)
+        scores = np.empty_like(ss_res_np)
+        nonconstant = ss_tot_np > 0.0
+        scores[nonconstant] = 1.0 - ss_res_np[nonconstant] / ss_tot_np[nonconstant]
+        scores[~nonconstant] = np.where(ss_res_np[~nonconstant] <= 1e-15, 1.0, 0.0)
+        return float(np.mean(scores))
 
     def get_params(self, deep=True):
         """Get parameters for this estimator."""

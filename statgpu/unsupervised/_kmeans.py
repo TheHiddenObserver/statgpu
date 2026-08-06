@@ -71,9 +71,9 @@ class KMeans(BaseEstimator):
             if not isinstance(self.n_init, (int, np.integer)) or int(self.n_init) < 1:
                 raise ValueError("n_init must be 'auto' or a positive integer")
             n_init = int(self.n_init)
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
-        if float(self.tol) < 0.0:
+        if float(self._tol) < 0.0:
             raise ValueError("tol must be non-negative")
         return n_clusters, n_init
 
@@ -175,13 +175,13 @@ class KMeans(BaseEstimator):
         labels = None
         min_dist_sq = None
         n_iter = 0
-        for n_iter in range(1, int(self.max_iter) + 1):
+        for n_iter in range(1, int(self._max_iter) + 1):
             distances = self._squared_distances_with_x_norm(backend, X, x_norm, centers)
             labels, min_dist_sq = self._labels_min_distances(backend, distances)
             new_centers = self._compute_centers(backend, X, labels, min_dist_sq, centers)
             center_shift = backend.sum((new_centers - centers) ** 2)
             centers = new_centers
-            if scalar_to_float(center_shift) <= float(self.tol):
+            if scalar_to_float(center_shift) <= float(self._tol):
                 break
         distances = self._squared_distances_with_x_norm(backend, X, x_norm, centers)
         labels, min_dist_sq = self._labels_min_distances(backend, distances)
@@ -240,8 +240,13 @@ class KMeans(BaseEstimator):
 
     def score(self, X, y=None):
         self._check_is_fitted()
+        if sparse.issparse(X):
+            raise NotImplementedError("sparse input is not supported in KMeans v1")
         backend = self._get_backend()
         X_arr = backend.asarray(X, dtype=backend.float64)
+        check_2d_array(X_arr)
+        if X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         distances = self._squared_distances(backend, X_arr, self.cluster_centers_)
         min_dist_sq = backend.min(distances, axis=1)
         return -scalar_to_float(backend.sum(min_dist_sq))

@@ -14,9 +14,14 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
-from statgpu.backends import get_backend, _torch_dev
+from statgpu.backends import get_backend, _torch_dev, xp_maximum
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model.wrappers._ridge import Ridge
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
 
 
 # =============================================================================
@@ -86,65 +91,62 @@ from statgpu.cross_validation._base import kfold_indices as _kfold_indices, fold
 # Alpha grid generation
 # =============================================================================
 
-def _default_ridge_alpha_grid(X, y, n_alphas: int = 100, alpha_min_ratio: float = 1e-3):
-    """
-    Generate default alpha grid for Ridge CV.
-
-    Mirrors sklearn's approach: alpha values are log-spaced between
-    alpha_min and alpha_max based on the data.
-
-    Parameters
-    ----------
-    X : ndarray
-        Design matrix (n_samples, n_features).
-    y : ndarray
-        Response vector.
-    n_alphas : int
-        Number of alpha values to generate.
-    alpha_min_ratio : float
-        Minimum alpha as a ratio of max alpha.
-
-    Returns
-    -------
-    alphas : ndarray
-        Log-spaced alpha values.
-    """
+def _default_ridge_alpha_grid(
+    X, y, n_alphas: int = 100, alpha_min_ratio: float = 1e-3,
+    sample_weight=None,
+):
+    """Generate an alpha grid on the package's average-loss scale."""
     X_arr = np.asarray(X, dtype=np.float64)
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
-
-    # Handle intercept by centering
-    X_mean = np.mean(X_arr, axis=0)
-    y_mean = np.mean(y_arr)
-    X_centered = X_arr - X_mean
-    y_centered = y_arr - y_mean
-
-    # Compute XtX and Xty for alpha_max estimation
-    XtX = X_centered.T @ X_centered
-    Xty = X_centered.T @ y_centered
-
-    # alpha_max: heuristic upper bound for the alpha grid.
-    # The *2.0 factor is a conservative heuristic to ensure the grid covers
-    # a wide enough range; CV selects the best alpha empirically regardless.
-    # (Exact L1 alpha_max = max(|X'y|)/n; Ridge has no exact sparsity threshold.)
-    n_samples = X_arr.shape[0]
-    alpha_max = np.max(np.abs(Xty)) * 2.0 / n_samples
-
-    if alpha_max == 0:
+    if sample_weight is None:
+        normalization = float(X_arr.shape[0])
+        X_mean = np.mean(X_arr, axis=0)
+        y_mean = float(np.mean(y_arr))
+        Xty = (X_arr - X_mean).T @ (y_arr - y_mean)
+    else:
+        sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        normalization = float(np.sum(sw))
+        X_mean = np.sum(X_arr * sw[:, None], axis=0) / normalization
+        y_mean = float(np.sum(y_arr * sw) / normalization)
+        Xty = ((X_arr - X_mean) * sw[:, None]).T @ (y_arr - y_mean)
+    alpha_max = float(np.max(np.abs(Xty)) * 2.0 / normalization)
+    if alpha_max == 0.0:
         alpha_max = 1.0
-
-    alpha_min = alpha_max * alpha_min_ratio
-
-    # Log-spaced grid
     if n_alphas <= 1:
         return np.array([alpha_max])
-
-    alphas = np.logspace(
-        np.log10(alpha_min),
-        np.log10(alpha_max),
-        num=n_alphas,
-        dtype=np.float64,
+    return np.logspace(
+        np.log10(alpha_max * alpha_min_ratio), np.log10(alpha_max),
+        num=n_alphas, dtype=np.float64,
     )
-    return alphas
+
+
+def _default_ridge_alpha_grid_backend(
+    X, y, backend, n_alphas: int = 100, alpha_min_ratio: float = 1e-3,
+    sample_weight=None,
+):
+    """Backend-native alpha grid with the same weighted normalization."""
+    X_arr = backend.asarray(X)
+    y_arr = backend.asarray(y).reshape(-1)
+    if sample_weight is None:
+        normalization = float(X_arr.shape[0])
+        X_mean = backend.mean(X_arr, axis=0)
+        y_mean = backend.mean(y_arr)
+        Xty = (X_arr - X_mean).T @ (y_arr - y_mean)
+    else:
+        sw = backend.asarray(sample_weight).reshape(-1)
+        normalization = float(backend.sum(sw))
+        X_mean = backend.sum(X_arr * sw[:, None], axis=0) / normalization
+        y_mean = backend.sum(y_arr * sw) / normalization
+        Xty = ((X_arr - X_mean) * sw[:, None]).T @ (y_arr - y_mean)
+    alpha_max = float(backend.max(backend.abs(Xty)) * 2.0 / normalization)
+    if alpha_max == 0.0:
+        alpha_max = 1.0
+    if n_alphas <= 1:
+        return np.array([alpha_max])
+    return np.logspace(
+        np.log10(alpha_max * alpha_min_ratio), np.log10(alpha_max),
+        num=n_alphas, dtype=np.float64,
+    )
 
 
 # =============================================================================
@@ -201,7 +203,7 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
         _eig_floor = max(float(xp.finfo(eigvals.dtype).tiny), 1e-15)
     except (AttributeError, TypeError):
         _eig_floor = 1e-15
-    eigvals = xp.maximum(eigvals, _eig_floor)
+    eigvals = xp_maximum(eigvals, _eig_floor, xp)
 
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)
@@ -328,45 +330,22 @@ def _select_ridge_alpha_cv(
     details : dict (if return_details=True)
         Full CV results including alpha grid, MSE path, etc.
     """
-    if isinstance(device, Device):
-        device = device.value
-    device_name = str(device).lower()
-    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value, "torch")
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        # Check if inputs are already on GPU (CuPy or Torch)
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-
-        # Also check for torch tensors
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     X_np = None
     y_np = None
     sample_weight_np = None
 
     if gpu_input_cupy or gpu_input_torch:
-        # GPU inputs - get backend for validation
-        # Use torch backend for torch tensors, cupy for cupy arrays
-        if gpu_input_torch:
-            backend = get_backend(backend='torch', device='cuda')
-        else:
-            backend = get_backend(backend='cupy', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
@@ -390,31 +369,23 @@ def _select_ridge_alpha_cv(
             raise ValueError("sample_weight must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
 
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
+
     # Generate alpha grid
     if alphas is None:
         if gpu_input_cupy or gpu_input_torch or use_gpu:
-            # GPU path for alpha grid generation
-            if gpu_input_torch:
-                backend = get_backend(backend='torch', device='cuda')
-            else:
-                backend = get_backend(backend='cupy', device='cuda')
-            X_temp = backend.asarray(X)
-            y_temp = backend.asarray(y)
-            X_mean = backend.mean(X_temp, axis=0)
-            y_mean = backend.mean(y_temp)
-            X_centered = X_temp - X_mean
-            y_centered = y_temp - y_mean
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered
-            n = int(X.shape[0])
-            alpha_max = float(backend.max(backend.abs(Xty)) * 2.0 / n)
-            if alpha_max == 0:
-                alpha_max = 1.0
-            alpha_min = alpha_max * alpha_min_ratio
-            alpha_grid = np.logspace(np.log10(alpha_min), np.log10(alpha_max), num=n_alphas)
-            del X_temp, y_temp, X_mean, y_mean, X_centered, y_centered, XtX, Xty
+            # backend was selected strictly by resolve_cv_backend above
+            alpha_grid = _default_ridge_alpha_grid_backend(
+                X, y, backend, n_alphas=n_alphas,
+                alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight,
+            )
         else:
-            alpha_grid = _default_ridge_alpha_grid(X_np, y_np, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio)
+            alpha_grid = _default_ridge_alpha_grid(
+                X_np, y_np, n_alphas=n_alphas,
+                alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
+            )
     else:
         alpha_grid = np.asarray(alphas, dtype=np.float64)
         alpha_grid = alpha_grid[np.isfinite(alpha_grid)]
@@ -422,24 +393,18 @@ def _select_ridge_alpha_cv(
         if alpha_grid.size == 0:
             warnings.warn("All provided alphas were filtered; using default grid.", RuntimeWarning)
             if gpu_input_cupy or gpu_input_torch or use_gpu:
-                # GPU path for alpha grid generation
-                backend = get_backend(backend="auto", device="cuda")
-                X_temp = backend.asarray(X)
-                y_temp = backend.asarray(y)
-                X_mean = backend.mean(X_temp, axis=0)
-                y_mean = backend.mean(y_temp)
-                X_centered = X_temp - X_mean
-                y_centered = y_temp - y_mean
-                XtX = X_centered.T @ X_centered
-                Xty = X_centered.T @ y_centered
-                n = int(X.shape[0])
-                alpha_max = float(backend.max(backend.abs(Xty)) * 2.0 / n)
-                if alpha_max == 0:
-                    alpha_max = 1.0
-                alpha_min = alpha_max * alpha_min_ratio
-                alpha_grid = np.logspace(np.log10(alpha_min), np.log10(alpha_max), num=n_alphas)
+                backend = get_backend(
+                    backend='torch' if gpu_input_torch else 'cupy', device='cuda'
+                )
+                alpha_grid = _default_ridge_alpha_grid_backend(
+                    X, y, backend, n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight,
+                )
             else:
-                alpha_grid = _default_ridge_alpha_grid(X_np, y_np, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio)
+                alpha_grid = _default_ridge_alpha_grid(
+                    X_np, y_np, n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
+                )
 
     # Handle degenerate cases
     if int(n_samples) < 4 or int(alpha_grid.size) == 1 or int(cv_folds) < 2:
@@ -492,13 +457,7 @@ def _select_ridge_alpha_cv(
                 cupy_available = False
 
             # Detect input type and select appropriate backend
-            if hasattr(X, '__module__') and 'torch' in str(type(X).__module__):
-                backend = _torch_backend
-            elif cupy_available and hasattr(X, '__cuda_array_interface__'):
-                backend = _cupy_backend
-            else:
-                # Default to auto-selection for numpy input
-                backend = get_backend(backend='auto', device='cuda')
+            # backend was selected strictly by resolve_cv_backend above
 
             xp = backend.xp
 
@@ -1073,6 +1032,21 @@ class RidgeCV(CVEstimatorBase):
         self.intercept_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
+
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alphas_ = None
+        self.cv_results_ = None
+        self.mean_mse_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def fit(self, X, y, sample_weight=None):
         """
@@ -1092,65 +1066,69 @@ class RidgeCV(CVEstimatorBase):
         self : RidgeCV
             Fitted estimator.
         """
+        self._reset_cv_fit_state()
         from statgpu.cross_validation._base import validate_cv_sample_weight
         n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
         sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
 
-        device_name = self._get_compute_device().value
+        device_name = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
+        refit_device = cv_refit_device(device_name, cv_backend_name)
 
         # Run CV to select alpha
         details = _select_ridge_alpha_cv(
             X,
             y,
             alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            cv_folds=self.cv,
+            n_alphas=self._n_alphas,
+            alpha_min_ratio=self._alpha_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
+            fit_intercept=self._fit_intercept,
             device=device_name,
-            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
-        # Store CV results
-        self.alpha_ = float(details["alpha"])
-        self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
+        # Keep candidate results local until the final refit succeeds.
+        selected_alpha = float(details["alpha"])
+        selected_alphas = np.asarray(details["alphas"], dtype=np.float64)
         mse_path = np.asarray(details["mse_path"], dtype=np.float64)
         mean_mse = np.asarray(details["mean_mse"], dtype=np.float64)
-
-        self.cv_results_ = {"mse_path": mse_path}
-        self.mean_mse_ = mean_mse
-
-        if np.any(np.isfinite(mean_mse)):
-            # sklearn convention: best_score_ is negative MSE (higher is better)
-            self.best_score_ = -float(np.nanmin(mean_mse))
-        else:
-            self.best_score_ = np.nan
+        best_score = (
+            -float(np.nanmin(mean_mse))
+            if np.any(np.isfinite(mean_mse))
+            else np.nan
+        )
 
         # Fit final model with selected alpha.
         # Exact solve uses n*alpha on unnormalized X'X, matching the
         # per-sample convention (loss/n + alpha*||w||^2) used by all paths.
         # alpha_ stores the CV-selected value; pass it directly to Ridge.
         estimator = Ridge(
-            alpha=self.alpha_,
-            fit_intercept=self.fit_intercept,
-            device=self.device,
+            alpha=selected_alpha,
+            fit_intercept=self._fit_intercept,
+            device=refit_device,
             n_jobs=self.n_jobs,
-            compute_inference=self.compute_inference,
-            cov_type=self.cov_type,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
+            compute_inference=self._compute_inference_enabled,
+            cov_type=self._cov_type,
+            gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
 
         estimator.fit(X, y, sample_weight=sample_weight)
 
+        self.alpha_ = selected_alpha
+        self.alphas_ = selected_alphas
+        self.cv_results_ = {"mse_path": mse_path}
+        self.mean_mse_ = mean_mse
+        self.best_score_ = best_score
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
-
+        self.cv_selected_device_ = refit_device
         self._fitted = True
         return self
 

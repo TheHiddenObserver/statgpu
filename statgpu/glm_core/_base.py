@@ -58,6 +58,77 @@ class GLMLoss(LossBase):
         """Link inverse: μ = g⁻¹(η). Override for clipping."""
         return eta  # default: identity link
 
+    def validate_response(self, y):
+        """Validate the response domain on its current array backend.
+
+        ``y_type`` is the shared public contract for every solver.  Only the
+        final scalar boolean is synchronized; Torch/CuPy response arrays are
+        never copied to NumPy for validation.
+        """
+        from statgpu.backends._array_ops import _xp
+
+        xp = _xp(y)
+        if xp.__name__ == "torch":
+            import torch
+
+            values = y if torch.is_tensor(y) else torch.as_tensor(y)
+        else:
+            try:
+                values = xp.asarray(y)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{self.name} response must be a numeric array-like."
+                ) from exc
+
+        ndim = int(values.ndim)
+        if ndim == 2 and int(values.shape[1]) == 1:
+            values = values.reshape(-1)
+        elif ndim != 1:
+            raise ValueError(
+                f"{self.name} response must be one-dimensional; "
+                "a single-column (n_samples, 1) response is also accepted."
+            )
+        if int(values.shape[0]) == 0:
+            raise ValueError(
+                f"{self.name} response must contain at least one observation."
+            )
+
+        if xp.__name__ == "torch":
+            import torch
+
+            nonreal = torch.is_complex(values)
+        else:
+            nonreal = getattr(values.dtype, "kind", "") not in "biuf"
+        if bool(nonreal.item() if hasattr(nonreal, "item") else nonreal):
+            raise ValueError(
+                f"{self.name} response must contain real numeric values."
+            )
+
+        try:
+            invalid = xp.any(~xp.isfinite(values))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{self.name} response must contain real numeric finite values."
+            ) from exc
+        y_type = str(getattr(self, "y_type", "continuous")).lower()
+        if y_type == "binary":
+            invalid = invalid | xp.any(values < 0) | xp.any(values > 1)
+            requirement = "values in [0, 1]"
+        elif y_type in ("count", "nonnegative"):
+            invalid = invalid | xp.any(values < 0)
+            requirement = "non-negative values"
+        elif y_type == "positive":
+            invalid = invalid | xp.any(values <= 0)
+            requirement = "strictly positive values"
+        else:
+            requirement = "finite values"
+
+        if bool(invalid.item() if hasattr(invalid, "item") else invalid):
+            raise ValueError(
+                f"{self.name} response requires finite {requirement}."
+            )
+        return values
+
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         """Fused value+gradient using GLM-specific optimized kernels.
 

@@ -58,10 +58,11 @@ def test_glm_penalized_formula_public_imports():
     assert get_glm_loss("poisson").name == "poisson"
 
 
-def test_old_losses_namespace_is_not_a_compatibility_entrypoint():
-    import importlib.util
+def test_losses_namespace_remains_a_public_compatibility_entrypoint():
+    from statgpu.losses import LossBase, get_loss
 
-    assert importlib.util.find_spec("statgpu.losses") is None
+    assert LossBase is not None
+    assert get_loss("huber").name == "huber"
 
 
 def test_penalized_glm_auto_solver_is_backend_aware():
@@ -74,24 +75,25 @@ def test_penalized_glm_auto_solver_is_backend_aware():
     logit = PenalizedLogisticRegression(penalty="l2", solver="auto")
     logit._penalty = logit._resolve_penalty()
     logit_loss = logit._resolve_loss()
-    # Smooth L2 GLMs dispatch to IRLS on all backends
-    assert logit._select_solver(logit_loss, backend_name="numpy") == "irls"
-    assert logit._select_solver(logit_loss, backend_name="cupy") == "irls"
-    assert logit._select_solver(logit_loss, backend_name="torch") == "irls"
+    # Smooth L2 GLMs dispatch to Newton on all backends.
+    assert logit._select_solver(logit_loss, backend_name="numpy") == "newton"
+    assert logit._select_solver(logit_loss, backend_name="cupy") == "newton"
+    assert logit._select_solver(logit_loss, backend_name="torch") == "newton"
 
     poisson = PenalizedPoissonRegression(penalty="l2", solver="auto")
     poisson._penalty = poisson._resolve_penalty()
     poisson_loss = poisson._resolve_loss()
-    # Smooth L2 GLMs dispatch to IRLS on all backends
-    assert poisson._select_solver(poisson_loss, backend_name="numpy") == "irls"
-    assert poisson._select_solver(poisson_loss, backend_name="cupy") == "irls"
-    assert poisson._select_solver(poisson_loss, backend_name="torch") == "irls"
+    # Smooth L2 GLMs dispatch to Newton on all backends.
+    assert poisson._select_solver(poisson_loss, backend_name="numpy") == "newton"
+    assert poisson._select_solver(poisson_loss, backend_name="cupy") == "newton"
+    assert poisson._select_solver(poisson_loss, backend_name="torch") == "newton"
 
     ridge = PenalizedLinearRegression(penalty="l2", solver="auto")
     ridge._penalty = ridge._resolve_penalty()
     ridge_loss = ridge._resolve_loss()
     assert ridge._select_solver(ridge_loss, backend_name="numpy") == "exact"
-    assert ridge._select_solver(ridge_loss, backend_name="cupy") == "exact"
+    assert ridge._select_solver(ridge_loss, backend_name="cupy") == "newton"
+    assert ridge._select_solver(ridge_loss, backend_name="torch") == "newton"
 
 
 def test_explicit_solvers_do_not_change_backend_choice():

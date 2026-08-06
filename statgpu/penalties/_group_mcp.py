@@ -12,6 +12,7 @@ where MCP(t; lambda, gamma) is the element-wise MCP penalty.
 
 __all__ = ["GroupMCPPenalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional, List, Union
 import numpy as np
 from statgpu.penalties._base import Penalty
@@ -25,31 +26,23 @@ def _get_group_mcp_torch_compiled():
     global _GROUP_MCP_PROXIMAL_TORCH_COMPILED
     if _GROUP_MCP_PROXIMAL_TORCH_COMPILED is not None:
         return _GROUP_MCP_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _GROUP_MCP_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w_mat, sqrt_pg, alpha, step, gamma):
-            t_g = alpha * sqrt_pg * step
-            gamma_alpha_g = gamma * alpha * sqrt_pg
-            norms = torch.linalg.norm(w_mat, dim=1)
-            mask_zero = norms <= t_g
-            mask_shrink = (norms > t_g) & (norms <= gamma_alpha_g)
-            denom = norms * (1.0 - step / gamma)
-            denom = torch.where(mask_shrink, denom, torch.ones_like(denom))
-            scale_shrink = (norms - t_g) / denom
-            scale = torch.where(mask_shrink, scale_shrink, 1.0)
-            scale = torch.where(mask_zero, 0.0, scale)
-            return (w_mat * scale[:, None]).reshape(-1)
-        _GROUP_MCP_PROXIMAL_TORCH_COMPILED = torch.compile(
-            _prox, dynamic=True, mode='reduce-overhead'
-        )
-    except Exception:
-        _GROUP_MCP_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w_mat, sqrt_pg, alpha, step, gamma):
+        t_g = alpha * sqrt_pg * step
+        gamma_alpha_g = gamma * alpha * sqrt_pg
+        norms = torch.linalg.norm(w_mat, dim=1)
+        mask_zero = norms <= t_g
+        mask_shrink = (norms > t_g) & (norms <= gamma_alpha_g)
+        denom = norms * (1.0 - step / gamma)
+        denom = torch.where(mask_shrink, denom, torch.ones_like(denom))
+        scale_shrink = (norms - t_g) / denom
+        scale = torch.where(mask_shrink, scale_shrink, 1.0)
+        scale = torch.where(mask_zero, 0.0, scale)
+        return (w_mat * scale[:, None]).reshape(-1)
+    _GROUP_MCP_PROXIMAL_TORCH_COMPILED = compile_torch(
+        _prox, dynamic=True, workload="iterative"
+    )
     return _GROUP_MCP_PROXIMAL_TORCH_COMPILED
-
 
 class GroupMCPPenalty(Penalty):
     """Group MCP penalty.
