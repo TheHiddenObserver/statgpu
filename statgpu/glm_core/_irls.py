@@ -321,16 +321,47 @@ def irls_solver(
         _to_backend(sw_validated, backend, X)
         if sw_validated is not None else None
     )
-    penalty_matrix_work = (
-        _to_backend(penalty_matrix, backend, X)
+    penalty_matrix_validated = (
+        validate_glm_design_matrix(penalty_matrix, name="penalty_matrix")
         if penalty_matrix is not None else None
     )
-    if penalty_matrix_work is not None and tuple(penalty_matrix_work.shape) != (
-        n_features, n_features
-    ):
+    if penalty_matrix_validated is not None and tuple(
+        penalty_matrix_validated.shape
+    ) != (n_features, n_features):
         raise ValueError(
             "penalty_matrix must have shape (X.shape[1], X.shape[1])"
         )
+    penalty_matrix_work = (
+        _to_backend(penalty_matrix_validated, backend, X)
+        if penalty_matrix_validated is not None else None
+    )
+    if penalty_matrix_work is not None:
+        if backend == "torch":
+            import torch
+
+            symmetric = bool(torch.allclose(
+                penalty_matrix_work, penalty_matrix_work.T, rtol=1e-10, atol=1e-12
+            ))
+            min_eig = float(torch.linalg.eigvalsh(penalty_matrix_work).min().item())
+            scale = max(1.0, float(torch.max(torch.abs(penalty_matrix_work)).item()))
+        elif backend == "cupy":
+            import cupy as cp
+
+            symmetric = bool(cp.allclose(
+                penalty_matrix_work, penalty_matrix_work.T, rtol=1e-10, atol=1e-12
+            ).item())
+            min_eig = float(cp.linalg.eigvalsh(penalty_matrix_work).min().item())
+            scale = max(1.0, float(cp.max(cp.abs(penalty_matrix_work)).item()))
+        else:
+            symmetric = bool(np.allclose(
+                penalty_matrix_work, penalty_matrix_work.T, rtol=1e-10, atol=1e-12
+            ))
+            min_eig = float(np.linalg.eigvalsh(penalty_matrix_work).min())
+            scale = max(1.0, float(np.max(np.abs(penalty_matrix_work))))
+        if not symmetric:
+            raise ValueError("penalty_matrix must be symmetric")
+        if min_eig < -1e-10 * scale:
+            raise ValueError("penalty_matrix must be positive semidefinite")
     line_search_failed = False
     converged = False
     iteration = 0

@@ -195,7 +195,7 @@ def _cv_lipschitz_failure_is_recoverable(exc) -> bool:
     """Return whether an optional Lipschitz hint may defer to the solver."""
     return isinstance(
         exc,
-        (NotImplementedError, ValueError, FloatingPointError, OverflowError),
+        (NotImplementedError, FloatingPointError, OverflowError, np.linalg.LinAlgError),
     ) or _linalg_exception_is_rank_failure(exc)
 
 
@@ -1704,14 +1704,22 @@ def _glm_sparse_cv_path(
             zero_lip = _zeros(n_features + 1, backend, ref_tensor=X_work)
             lipschitz_L = float(_to_numpy(loss_fn.lipschitz(X_work, zero_lip, y=yb)))
             if not np.isfinite(lipschitz_L) or lipschitz_L <= 0.0:
+                warnings.warn(
+                    "The optional closed-form Lipschitz hint was non-finite or "
+                    "non-positive; the solver will estimate its step size.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 lipschitz_L = None
         except Exception as exc:
             if not _cv_lipschitz_failure_is_recoverable(exc):
                 raise
-            # A solver may estimate L internally when the optional closed-form
-            # Lipschitz hint is unavailable or numerically invalid.  The shared
-            # classifier includes NumPy, CuPy, and Torch rank failures without
-            # treating OOM/device errors as recoverable.
+            warnings.warn(
+                f"The optional closed-form Lipschitz hint was unavailable "
+                f"({exc}); the solver will estimate its step size.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             lipschitz_L = None
 
     scores = []

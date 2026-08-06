@@ -545,3 +545,126 @@ def test_irls_cupy_rank_failure_uses_lstsq_and_oom_propagates(monkeypatch):
     with pytest.raises(RuntimeError, match='out of memory'):
         _solve(np.eye(1), np.ones(1), backend='cupy')
     assert calls == {'lstsq': 1}
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"cov_type": 1}, "cov_type"),
+        ({"hac_maxlags": 1.5}, "hac_maxlags"),
+        ({"hac_maxlags": True}, "hac_maxlags"),
+        ({"gpu_memory_cleanup": "False"}, "gpu_memory_cleanup"),
+    ],
+)
+def test_logistic_constructor_rejects_silently_coerced_types(kwargs, message):
+    from statgpu.linear_model import LogisticRegression
+
+    with pytest.raises(ValueError, match=message):
+        LogisticRegression(**kwargs)
+
+
+def test_irls_penalty_matrix_matches_quadratic_contract():
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    X = np.column_stack([np.ones(6), np.linspace(-1.0, 1.0, 6)])
+    y = 0.4 + 1.2 * X[:, 1]
+    penalty = np.diag([0.0, 0.5])
+    params, _ = IRLSSolver(Gaussian(), max_iter=10, tol=1e-12).fit(
+        X, y, penalty_matrix=penalty
+    )
+    expected = np.linalg.solve(X.T @ X + penalty, X.T @ y)
+    np.testing.assert_allclose(params, expected, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "penalty, message",
+    [
+        (np.array([[0.0, 1.0], [0.0, 0.0]]), "symmetric"),
+        (np.diag([0.0, -1.0]), "positive semidefinite"),
+        (np.array([[0.0, np.nan], [np.nan, 1.0]]), "finite"),
+        (np.array([[0.0, 1.0j], [-1.0j, 1.0]]), "real numeric"),
+    ],
+)
+def test_irls_rejects_invalid_quadratic_penalty_matrix(penalty, message):
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    with pytest.raises(ValueError, match=message):
+        IRLSSolver(Gaussian()).fit(
+            np.ones((5, 2)), np.arange(5.0), penalty_matrix=penalty
+        )
+
+
+def _patch_sparse_cv_loss(monkeypatch, loss):
+    import statgpu.linear_model.penalized._fit_mixin as fit_mixin
+
+    monkeypatch.setattr(
+        fit_mixin, '_resolve_loss_name', lambda *args, **kwargs: loss
+    )
+
+
+def test_sparse_cv_lipschitz_programming_value_error_propagates(monkeypatch):
+    from statgpu.linear_model.penalized._penalized_cv import _glm_sparse_cv_path
+
+    class Loss:
+        _lipschitz_at_init = False
+
+        def lipschitz(self, *args, **kwargs):
+            raise ValueError('programming shape bug')
+
+    _patch_sparse_cv_loss(monkeypatch, Loss())
+    with pytest.raises(ValueError, match='programming shape bug'):
+        _glm_sparse_cv_path(
+            'logistic', np.ones((6, 1)), np.array([0, 0, 0, 1, 1, 1]),
+            np.array([0.1]), 'l1', 1.0, 5, 1e-4, 'cpu'
+        )
+
+
+def test_sparse_cv_recoverable_lipschitz_fallback_is_visible(monkeypatch):
+    import statgpu.solvers as solvers
+    from statgpu.linear_model.penalized._penalized_cv import _glm_sparse_cv_path
+
+    class Loss:
+        _lipschitz_at_init = False
+
+        def lipschitz(self, *args, **kwargs):
+            raise NotImplementedError('no closed-form hint')
+
+    def fake_solver(loss, penalty, X, y, **kwargs):
+        assert 'lipschitz_L' not in kwargs
+        return np.zeros(X.shape[1]), 1
+
+    _patch_sparse_cv_loss(monkeypatch, Loss())
+    monkeypatch.setattr(solvers, 'fista_solver', fake_solver)
+    with pytest.warns(RuntimeWarning, match='solver will estimate'):
+        result = _glm_sparse_cv_path(
+            'logistic', np.ones((6, 1)), np.array([0, 0, 0, 1, 1, 1]),
+            np.array([0.1]), 'l1', 1.0, 5, 1e-4, 'cpu', return_path=True
+        )
+    assert result['n_iter'].tolist() == [1]
+    assert result['coef'].shape == (1, 1)
+
+
+def test_sparse_cv_invalid_lipschitz_value_fallback_is_visible(monkeypatch):
+    import statgpu.solvers as solvers
+    from statgpu.linear_model.penalized._penalized_cv import _glm_sparse_cv_path
+
+    class Loss:
+        _lipschitz_at_init = False
+
+        def lipschitz(self, *args, **kwargs):
+            return np.nan
+
+    def fake_solver(loss, penalty, X, y, **kwargs):
+        assert 'lipschitz_L' not in kwargs
+        return np.zeros(X.shape[1]), 1
+
+    _patch_sparse_cv_loss(monkeypatch, Loss())
+    monkeypatch.setattr(solvers, 'fista_solver', fake_solver)
+    with pytest.warns(RuntimeWarning, match='non-finite or non-positive'):
+        result = _glm_sparse_cv_path(
+            'logistic', np.ones((6, 1)), np.array([0, 0, 0, 1, 1, 1]),
+            np.array([0.1]), 'l1', 1.0, 5, 1e-4, 'cpu', return_path=True
+        )
+    assert result['n_iter'].tolist() == [1]

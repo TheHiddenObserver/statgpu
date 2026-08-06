@@ -120,13 +120,21 @@ class LogisticRegression(BaseEstimator):
         self.max_iter = max_iter
         self.tol = tol
         self.compute_inference = compute_inference
+        if not isinstance(cov_type, str):
+            raise ValueError("cov_type must be a string")
         self.cov_type = cov_type.lower()
         if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
             raise ValueError(
                 "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
             )
-        if hac_maxlags is not None and int(hac_maxlags) < 0:
+        if hac_maxlags is not None and (
+            isinstance(hac_maxlags, bool)
+            or not isinstance(hac_maxlags, Integral)
+            or int(hac_maxlags) < 0
+        ):
             raise ValueError("hac_maxlags must be a non-negative integer or None")
+        if not isinstance(gpu_memory_cleanup, (bool, np.bool_)):
+            raise ValueError("gpu_memory_cleanup must be boolean")
         self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
