@@ -1,0 +1,403 @@
+name: PR87 code-review fix cycle
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths: [.github/workflows/pr87-code-review-fix-cycle.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply review fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one anchor, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 1. Backend-native validation, strict binary labels, overflow-safe sums.
+          Path('statgpu/glm_core/_validation.py').write_text(dedent('''\
+          """Backend-native validation for scalar GLM design and weight inputs."""
+
+          from __future__ import annotations
+
+          import numpy as np
+
+
+          def _as_native_array(value, *, name):
+              """Return an array while preserving existing Torch/CuPy device residency."""
+              module = type(value).__module__
+              if module.startswith("pandas"):
+                  value = value.to_numpy()
+                  module = type(value).__module__
+              if module.startswith("torch"):
+                  import torch
+
+                  return value if torch.is_tensor(value) else torch.as_tensor(value)
+              if module.startswith("cupy"):
+                  import cupy as cp
+
+                  return value if isinstance(value, cp.ndarray) else cp.asarray(value)
+              try:
+                  return np.asarray(value)
+              except (TypeError, ValueError) as exc:
+                  raise ValueError(f"{name} must be a numeric array-like.") from exc
+
+
+          def _require_real_finite(values, *, name):
+              module = type(values).__module__
+              if module.startswith("torch"):
+                  import torch
+
+                  if torch.is_complex(values):
+                      raise ValueError(f"{name} must contain real numeric values.")
+                  if not bool(torch.all(torch.isfinite(values)).item()):
+                      raise ValueError(f"{name} must contain finite values.")
+                  return
+              if module.startswith("cupy"):
+                  import cupy as cp
+
+                  if getattr(values.dtype, "kind", "") not in "biuf":
+                      raise ValueError(f"{name} must contain real numeric values.")
+                  if not bool(cp.all(cp.isfinite(values)).item()):
+                      raise ValueError(f"{name} must contain finite values.")
+                  return
+
+              if getattr(values.dtype, "kind", "") not in "biuf":
+                  raise ValueError(f"{name} must contain real numeric values.")
+              if not bool(np.all(np.isfinite(values))):
+                  raise ValueError(f"{name} must contain finite values.")
+
+
+          def _safe_weight_sum(values) -> float:
+              """Accumulate analytic weights in float64 to avoid integer wraparound."""
+              module = type(values).__module__
+              if module.startswith("torch"):
+                  import torch
+
+                  total = torch.sum(values.to(dtype=torch.float64))
+                  return float(total.item())
+              if module.startswith("cupy"):
+                  import cupy as cp
+
+                  total = cp.sum(values, dtype=cp.float64)
+                  return float(total.item())
+              return float(np.sum(np.asarray(values), dtype=np.float64))
+
+
+          def validate_glm_design_matrix(X, *, name="X"):
+              """Validate a dense scalar-GLM design matrix and return its native array."""
+              values = _as_native_array(X, name=name)
+              if int(values.ndim) != 2:
+                  raise ValueError(f"{name} must be a two-dimensional design matrix.")
+              if int(values.shape[0]) == 0:
+                  raise ValueError(f"{name} must contain at least one observation.")
+              _require_real_finite(values, name=name)
+              return values
+
+
+          def validate_binary_response(y, n_samples=None, *, context="LogisticRegression"):
+              """Validate a strict 0/1 response while preserving GPU residency."""
+              values = _as_native_array(y, name="binary y")
+              if int(values.ndim) == 2 and int(values.shape[1]) == 1:
+                  values = values.reshape(-1)
+              elif int(values.ndim) != 1:
+                  raise ValueError(f"{context} requires one-dimensional binary y")
+              if int(values.shape[0]) == 0:
+                  raise ValueError(f"{context} requires at least one binary response")
+              if n_samples is not None and int(values.shape[0]) != int(n_samples):
+                  raise ValueError("Response length must match the number of X rows.")
+              _require_real_finite(values, name="binary y")
+
+              module = type(values).__module__
+              if module.startswith("torch"):
+                  import torch
+
+                  valid = torch.all((values == 0) | (values == 1))
+              elif module.startswith("cupy"):
+                  import cupy as cp
+
+                  valid = cp.all((values == 0) | (values == 1))
+              else:
+                  valid = np.all((values == 0) | (values == 1))
+              if not bool(valid.item() if hasattr(valid, "item") else valid):
+                  raise ValueError(f"{context} requires binary y with values 0 or 1")
+              return values
+
+
+          def validate_glm_sample_weight(sample_weight, n_samples, *, name="sample_weight"):
+              """Validate analytic sample weights without copying GPU arrays to NumPy."""
+              values = _as_native_array(sample_weight, name=name)
+              if int(values.ndim) != 1:
+                  raise ValueError(f"{name} must be one-dimensional")
+              if int(values.shape[0]) != int(n_samples):
+                  raise ValueError(f"{name} must have length n_samples")
+              _require_real_finite(values, name=name)
+
+              module = type(values).__module__
+              if module.startswith("torch"):
+                  import torch
+
+                  if bool(torch.any(values < 0).item()):
+                      raise ValueError(f"{name} must be non-negative")
+              elif module.startswith("cupy"):
+                  import cupy as cp
+
+                  if bool(cp.any(values < 0).item()):
+                      raise ValueError(f"{name} must be non-negative")
+              else:
+                  if np.any(values < 0):
+                      raise ValueError(f"{name} must be non-negative")
+              total = _safe_weight_sum(values)
+              if not np.isfinite(total) or total <= 0.0:
+                  raise ValueError(f"{name} must have a finite positive sum")
+              return values
+          '''), encoding='utf-8')
+
+          # 2. Binomial IRLS must honor non-logit links.
+          replace_once(
+              'statgpu/glm_core/_family.py',
+              '''    def irls_weights(self, mu, y):\n        mu_c = _clip(mu, 1e-10, 1 - 1e-10)\n        return mu_c * (1 - mu_c)\n\n    def irls_working_response(self, mu, y, eta):\n        mu_c = _clip(mu, 1e-10, 1 - 1e-10)\n        var = mu_c * (1 - mu_c)\n        return eta + (y - mu_c) / var\n''',
+              '''    def irls_weights(self, mu, y):\n        mu_c = _clip(mu, 1e-10, 1 - 1e-10)\n        if str(getattr(self.link, "name", "")).lower() == "logit":\n            return mu_c * (1 - mu_c)\n        return super().irls_weights(mu_c, y)\n\n    def irls_working_response(self, mu, y, eta):\n        mu_c = _clip(mu, 1e-10, 1 - 1e-10)\n        if str(getattr(self.link, "name", "")).lower() == "logit":\n            var = mu_c * (1 - mu_c)\n            return eta + (y - mu_c) / var\n        return super().irls_working_response(mu_c, y, eta)\n''',
+          )
+
+          replace_once(
+              'statgpu/glm_core/_irls.py',
+              '''def _objective_loss_for_family(family):\n    """Return the registered loss matching an IRLS family."""\n    from statgpu.glm_core._base import get_glm_loss\n\n    family_name = str(getattr(family, "name", "")).lower()\n    loss_names = {\n        "gaussian": "squared_error",\n        "squared_error": "squared_error",\n        "binomial": "logistic",\n        "logistic": "logistic",\n        "poisson": "poisson",\n        "gamma": "gamma",\n        "inverse_gaussian": "inverse_gaussian",\n        "negative_binomial": "negative_binomial",\n        "tweedie": "tweedie",\n    }\n''',
+              '''class _BinomialFamilyObjective:\n    """Bernoulli negative log-likelihood for an arbitrary Binomial link."""\n\n    def __init__(self, family):\n        from statgpu.glm_core._logistic import LogisticLoss\n\n        self.family = family\n        self._validator = LogisticLoss()\n\n    def validate_response(self, y):\n        return self._validator.validate_response(y)\n\n    def per_sample_value(self, eta, y):\n        from statgpu.backends._array_ops import _clip as _array_clip, _log\n\n        mu = _array_clip(self.family.link.inverse(eta), 1e-10, 1 - 1e-10)\n        return -y * _log(mu) - (1 - y) * _log(1 - mu)\n\n\ndef _objective_loss_for_family(family):\n    """Return the objective matching the exact IRLS family and link."""\n    from statgpu.glm_core._base import get_glm_loss\n\n    family_name = str(getattr(family, "name", "")).lower()\n    if family_name in {"binomial", "logistic"}:\n        return _BinomialFamilyObjective(family)\n    loss_names = {\n        "gaussian": "squared_error",\n        "squared_error": "squared_error",\n        "poisson": "poisson",\n        "gamma": "gamma",\n        "inverse_gaussian": "inverse_gaussian",\n        "negative_binomial": "negative_binomial",\n        "tweedie": "tweedie",\n    }\n''',
+          )
+          replace_once(
+              'statgpu/glm_core/_irls.py',
+              '''    if init_coef is None:\n        n_features = X.shape[1]\n        params = _zeros(n_features, backend, ref_tensor=X)\n    else:\n        params = init_coef\n''',
+              '''    n_features = int(X.shape[1])\n    if init_coef is None:\n        params = _zeros(n_features, backend, ref_tensor=X)\n    else:\n        params = _to_backend(init_coef, backend, X).reshape(-1)\n        if int(params.shape[0]) != n_features:\n            raise ValueError("init_coef must have length X.shape[1].")\n        params = _copy_arr(params)\n''',
+          )
+
+          # 3. Strict public LogisticRegression binary response contract.
+          replace_once(
+              'statgpu/linear_model/wrappers/_logistic.py',
+              'from statgpu.glm_core._validation import validate_glm_sample_weight\n',
+              'from statgpu.glm_core._validation import (\n    validate_binary_response,\n    validate_glm_sample_weight,\n)\n',
+          )
+          replace_once(
+              'statgpu/linear_model/wrappers/_logistic.py',
+              '''        self._y = self._to_numpy(y).astype(float)\n        self._train_pred_cache = None\n        self._train_eval_cache = None\n\n        # Get backend - support explicit torch backend selection\n        backend = self._get_backend(backend="auto")\n        backend_name = backend.name\n\n        X_arr = self._to_array(X, backend=backend_name)\n        # Handle dtype conversion based on backend\n        if backend_name == "torch":\n            import torch\n            y_arr = self._to_array(y, backend=backend_name)\n''',
+              '''        self._train_pred_cache = None\n        self._train_eval_cache = None\n\n        # Get backend - support explicit torch backend selection\n        backend = self._get_backend(backend="auto")\n        backend_name = backend.name\n\n        X_arr = self._to_array(X, backend=backend_name)\n        y_validated = validate_binary_response(\n            y, X_arr.shape[0], context="LogisticRegression"\n        )\n        self._y = self._to_numpy(y_validated).astype(float)\n        # Handle dtype conversion based on backend\n        if backend_name == "torch":\n            import torch\n            y_arr = self._to_array(y_validated, backend=backend_name)\n''',
+          )
+          replace_once(
+              'statgpu/linear_model/wrappers/_logistic.py',
+              '            y_arr = self._to_array(y, backend=backend_name).astype(cp.float64)\n',
+              '            y_arr = self._to_array(y_validated, backend=backend_name).astype(cp.float64)\n',
+          )
+          replace_once(
+              'statgpu/linear_model/wrappers/_logistic.py',
+              '            y_arr = self._to_array(y, backend=backend_name).astype(float)\n',
+              '            y_arr = self._to_array(y_validated, backend=backend_name).astype(float)\n',
+          )
+          replace_once(
+              'statgpu/linear_model/cv/_logistic_cv.py',
+              '''def _validate_binary_cv_response(y):\n    """Validate a strict 0/1 response without copying GPU arrays to NumPy."""\n    from statgpu.glm_core._logistic import LogisticLoss\n\n    values = LogisticLoss().validate_response(y)\n    module = type(values).__module__\n    if module.startswith("torch"):\n        import torch\n\n        valid = torch.all((values == 0) | (values == 1))\n    elif module.startswith("cupy"):\n        import cupy as cp\n\n        valid = cp.all((values == 0) | (values == 1))\n    else:\n        valid = np.all((values == 0) | (values == 1))\n    if not bool(valid.item() if hasattr(valid, "item") else valid):\n        raise ValueError("LogisticRegressionCV requires binary y (0 or 1)")\n    return values\n''',
+              '''def _validate_binary_cv_response(y):\n    """Validate a strict 0/1 response without copying GPU arrays to NumPy."""\n    from statgpu.glm_core._validation import validate_binary_response\n\n    return validate_binary_response(y, context="LogisticRegressionCV")\n''',
+          )
+
+          # 4. Positive allowlists for CV fallback.
+          replace_once(
+              'statgpu/linear_model/penalized/_penalized_cv.py',
+              '''def _raise_cv_infrastructure_failure(exc) -> None:\n    """Re-raise failures that make a CV fallback unsafe or misleading."""\n    if _cv_exception_is_infrastructure_failure(exc):\n        raise exc\n\n\n''',
+              '''def _raise_cv_infrastructure_failure(exc) -> None:\n    """Re-raise explicit hardware/runtime failures."""\n    if _cv_exception_is_infrastructure_failure(exc):\n        raise exc\n\n\ndef _cv_candidate_failure_is_recoverable(exc) -> bool:\n    """Return whether one alpha may be marked failed without hiding a bug."""\n    return isinstance(\n        exc, (FloatingPointError, OverflowError, np.linalg.LinAlgError)\n    ) or _linalg_exception_is_rank_failure(exc)\n\n\ndef _cv_path_failure_is_recoverable(exc) -> bool:\n    """Return whether an optimized path may fall back to a slower path."""\n    return isinstance(exc, NotImplementedError) or _cv_candidate_failure_is_recoverable(exc)\n\n\ndef _raise_unless_recoverable_cv_candidate_failure(exc) -> None:\n    if not _cv_candidate_failure_is_recoverable(exc):\n        raise exc\n\n\ndef _raise_unless_recoverable_cv_path_failure(exc) -> None:\n    if not _cv_path_failure_is_recoverable(exc):\n        raise exc\n\n\n''',
+          )
+          p = Path('statgpu/linear_model/penalized/_penalized_cv.py')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace('''                except Exception as e:\n                    _raise_cv_infrastructure_failure(e)\n                    warnings.warn(\n                        f"Ridge eig batch failed''', '''                except Exception as e:\n                    _raise_unless_recoverable_cv_path_failure(e)\n                    warnings.warn(\n                        f"Ridge eig batch failed''', 1)
+          text = text.replace('''            except Exception as e:\n                _raise_cv_infrastructure_failure(e)\n                warnings.warn(\n                    f"Fold-batched''', '''            except Exception as e:\n                _raise_unless_recoverable_cv_path_failure(e)\n                warnings.warn(\n                    f"Fold-batched''', 1)
+          text = text.replace('''                except Exception as e:\n                    _raise_cv_infrastructure_failure(e)\n                    warnings.warn(\n                        f"{path_fn.__name__} failed''', '''                except Exception as e:\n                    _raise_unless_recoverable_cv_path_failure(e)\n                    warnings.warn(\n                        f"{path_fn.__name__} failed''', 1)
+          text = text.replace('''            except Exception as exc:\n                _raise_cv_infrastructure_failure(exc)\n                # Same as path-is-None''', '''            except Exception as exc:\n                _raise_unless_recoverable_cv_path_failure(exc)\n                # Same as path-is-None''', 1)
+          text = text.replace('''            except Exception as exc:\n                _raise_cv_infrastructure_failure(exc)\n                orig_idx = sort_idx[alpha_idx_sorted]''', '''            except Exception as exc:\n                _raise_unless_recoverable_cv_candidate_failure(exc)\n                orig_idx = sort_idx[alpha_idx_sorted]''', 1)
+          p.write_text(text, encoding='utf-8')
+
+          # 5. Overflow-safe solver weight accumulator.
+          replace_once(
+              'statgpu/solvers/_utils.py',
+              '''        finite = xp.all(xp.isfinite(values))\n        negative = xp.any(values < 0)\n        total_dev = xp.sum(values)\n        total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)\n''',
+              '''        finite = xp.all(xp.isfinite(values))\n        negative = xp.any(values < 0)\n        if backend == "torch":\n            import torch\n\n            total_dev = torch.sum(values.to(dtype=torch.float64))\n        elif backend == "cupy":\n            import cupy as cp\n\n            total_dev = cp.sum(values, dtype=cp.float64)\n        else:\n            total_dev = np.sum(np.asarray(values), dtype=np.float64)\n        total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)\n''',
+          )
+
+          # 6. Targeted contracts, including remote physical reduce-overhead test.
+          Path('dev/tests/test_pr87_code_review_fix_cycle.py').write_text(dedent('''\
+          from __future__ import annotations
+
+          import numpy as np
+          import pytest
+
+
+          def test_binomial_probit_irls_matches_direct_bernoulli_optimum():
+              scipy = pytest.importorskip("scipy")
+              from scipy.optimize import minimize
+              from scipy.special import ndtr
+
+              from statgpu.glm_core._family import Binomial, ProbitLink
+              from statgpu.glm_core._irls import IRLSSolver
+
+              X = np.column_stack([np.ones(10), np.linspace(-1.8, 1.8, 10)])
+              y = np.array([0, 0, 0, 0, 1, 0, 1, 1, 1, 1], dtype=float)
+              family = Binomial(link=ProbitLink())
+              params, _ = IRLSSolver(family, max_iter=100, tol=1e-9).fit(
+                  X, y, backend="numpy"
+              )
+
+              def objective(beta):
+                  mu = np.clip(ndtr(X @ beta), 1e-10, 1 - 1e-10)
+                  return float(np.sum(-y * np.log(mu) - (1 - y) * np.log(1 - mu)))
+
+              reference = minimize(objective, np.zeros(X.shape[1]), method="BFGS")
+              assert reference.success
+              np.testing.assert_allclose(params, reference.x, rtol=2e-4, atol=2e-4)
+              assert objective(params) <= objective(np.zeros(X.shape[1]))
+
+
+          def test_direct_logistic_rejects_soft_and_out_of_range_labels():
+              from statgpu.linear_model import LogisticRegression
+
+              X = np.arange(12, dtype=float).reshape(6, 2)
+              with pytest.raises(ValueError, match="binary y"):
+                  LogisticRegression(device="cpu").fit(
+                      X, np.array([0.0, 1.0, 0.5, 0.0, 1.0, 0.0])
+                  )
+              with pytest.raises(ValueError, match="binary y"):
+                  LogisticRegression(device="cpu").fit(
+                      X, np.array([0.0, 1.0, 2.0, 0.0, 1.0, 0.0])
+                  )
+
+
+          def test_irls_numpy_warm_start_is_normalized_to_torch_backend():
+              torch = pytest.importorskip("torch")
+              from statgpu.glm_core._family import Gaussian
+              from statgpu.glm_core._irls import IRLSSolver
+
+              X = torch.tensor(
+                  [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0]], dtype=torch.float64
+              )
+              y = torch.tensor([-1.0, 0.0, 1.0], dtype=torch.float64)
+              params, _ = IRLSSolver(Gaussian(), max_iter=4, tol=1e-12).fit(
+                  X, y, init_coef=np.zeros(2), backend="torch"
+              )
+              assert torch.is_tensor(params)
+              assert params.device == X.device
+              assert params.dtype == X.dtype
+              np.testing.assert_allclose(params.detach().cpu().numpy(), [0.0, 1.0], atol=1e-10)
+
+
+          def test_irls_rejects_wrong_length_warm_start():
+              from statgpu.glm_core._family import Gaussian
+              from statgpu.glm_core._irls import IRLSSolver
+
+              with pytest.raises(ValueError, match="init_coef"):
+                  IRLSSolver(Gaussian()).fit(
+                      np.ones((4, 2)), np.arange(4.0), init_coef=np.zeros(3)
+                  )
+
+
+          @pytest.mark.parametrize(
+              "exc",
+              [
+                  IndexError("index 5 is out of bounds for axis 0 with size 5"),
+                  TypeError("bad call signature"),
+                  AttributeError("missing coefficient state"),
+                  KeyError("scores"),
+                  AssertionError("unexpected path state"),
+              ],
+          )
+          def test_cv_candidate_programming_errors_are_never_converted_to_nan(exc):
+              from statgpu.linear_model.penalized._penalized_cv import (
+                  _raise_unless_recoverable_cv_candidate_failure,
+              )
+
+              with pytest.raises(type(exc)):
+                  _raise_unless_recoverable_cv_candidate_failure(exc)
+
+
+          def test_cv_candidate_numeric_failure_remains_explicitly_recoverable():
+              from statgpu.linear_model.penalized._penalized_cv import (
+                  _raise_unless_recoverable_cv_candidate_failure,
+              )
+
+              _raise_unless_recoverable_cv_candidate_failure(
+                  np.linalg.LinAlgError("singular matrix")
+              )
+              _raise_unless_recoverable_cv_candidate_failure(
+                  FloatingPointError("non-finite iterate")
+              )
+
+
+          def test_integer_weight_sum_uses_float64_accumulator():
+              from statgpu.glm_core._validation import _safe_weight_sum
+
+              weights = np.full(5, 2**62, dtype=np.int64)
+              expected = float(5 * (2**62))
+              assert _safe_weight_sum(weights) == pytest.approx(expected, rel=1e-15)
+
+
+          def test_reduce_overhead_repeated_cuda_calls_are_correct_or_visible_fallback(monkeypatch):
+              torch = pytest.importorskip("torch")
+              if not torch.cuda.is_available():
+                  pytest.skip("requires a physical Torch CUDA backend")
+              if torch.cuda.get_device_capability()[0] < 7:
+                  pytest.skip("torch.compile requires CUDA capability >= 7")
+
+              from statgpu.backends._torch_compile import compile_torch
+
+              monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "reduce-overhead")
+
+              def update(x):
+                  return x.square() + 1.0
+
+              guarded = compile_torch(update, workload="iterative")
+              x = torch.linspace(-2.0, 2.0, 128, device="cuda", dtype=torch.float64)
+              for _ in range(8):
+                  result = guarded(x)
+                  torch.cuda.synchronize()
+                  assert torch.allclose(result, update(x))
+              assert guarded.__statgpu_compile_status__ in {
+                  "compiled", "runtime-fallback"
+              }
+          '''), encoding='utf-8')
+          PY
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run targeted review-fix tests
+        run: |
+          python -m pytest -q \
+            dev/tests/test_pr87_code_review_fix_cycle.py \
+            dev/tests/test_maintenance_024_025.py -k "binary_validation or weighted_irls or infrastructure_classifier or alpha_grid_fallback_classifier or glm_weight_validation_rejects_overflowing_total"
+      - name: Run static compilation
+        run: |
+          python -m compileall -q statgpu dev/tests/test_pr87_code_review_fix_cycle.py
+      - name: Commit validated fixes and self-delete
+        shell: bash
+        run: |
+          rm .github/workflows/pr87-code-review-fix-cycle.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add statgpu dev/tests .github/workflows/pr87-code-review-fix-cycle.yml
+          git commit -m "fix: close code review correctness gaps"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
