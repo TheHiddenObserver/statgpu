@@ -1245,6 +1245,7 @@ class LogisticRegression(BaseEstimator):
 
     def confusion_matrix(self, X, y, threshold: float = 0.5) -> np.ndarray:
         """Compute binary confusion matrix on a dataset."""
+        threshold = self._validate_threshold(threshold)
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("confusion_matrix")
 
@@ -1283,6 +1284,7 @@ class LogisticRegression(BaseEstimator):
 
     def classification_table(self, X, y, threshold: float = 0.5) -> Dict[str, float]:
         """Return a compact classification table on a dataset."""
+        threshold = self._validate_threshold(threshold)
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("classification_table")
 
@@ -1414,8 +1416,7 @@ class LogisticRegression(BaseEstimator):
             A dictionary with batched metrics. On CUDA device, arrays/scalars
             are GPU-backed (CuPy) except ``threshold``.
         """
-        if threshold < 0.0 or threshold > 1.0:
-            raise ValueError("threshold must be in [0, 1]")
+        threshold = self._validate_threshold(threshold)
 
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("evaluate_classification")

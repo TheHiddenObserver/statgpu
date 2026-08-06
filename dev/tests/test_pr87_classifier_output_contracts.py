@@ -94,3 +94,32 @@ def test_logistic_torch_prediction_labels_are_int64(monkeypatch):
     assert thresholded.dtype == torch.int64
     assert prediction.shape == (2,)
     assert thresholded.shape == (2,)
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["confusion_matrix", "classification_table", "evaluate_classification"],
+)
+@pytest.mark.parametrize("threshold", [np.nan, np.inf, -0.01, 1.01, True, "0.5"])
+def test_logistic_evaluation_threshold_contract_is_consistent(
+    method_name, threshold
+):
+    model, X, y = _cpu_logistic_fixture()
+    method = getattr(model, method_name)
+
+    with pytest.raises(
+        ValueError, match=r"finite real number in \[0, 1\]"
+    ):
+        method(X, y, threshold=threshold)
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["confusion_matrix", "classification_table", "evaluate_classification"],
+)
+def test_logistic_evaluation_threshold_accepts_numpy_real(method_name):
+    model, X, y = _cpu_logistic_fixture()
+    method = getattr(model, method_name)
+
+    result = method(X, y, threshold=np.float64(0.5))
+    assert result is not None
