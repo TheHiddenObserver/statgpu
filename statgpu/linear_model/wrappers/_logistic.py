@@ -5,7 +5,10 @@ Uses IRLS (Iteratively Reweighted Least Squares) algorithm.
 
 __all__ = ["LogisticRegression"]
 
+from numbers import Integral, Real
 from typing import Any, Dict, Optional, Union, Tuple
+import warnings
+
 import numpy as np
 from scipy import stats
 
@@ -18,6 +21,7 @@ from statgpu.glm_core._validation import (
     validate_glm_sample_weight,
 )
 from statgpu.backends import _get_torch_device_str
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.metrics import (
     binary_average_precision_score,
     binary_precision_recall_curve,
@@ -71,8 +75,8 @@ class LogisticRegression(BaseEstimator):
     fit_intercept : bool, default=True
         Whether to calculate the intercept.
     C : float, default=1.0
-        Inverse of regularization strength; must be a positive float.
-        Smaller values specify stronger regularization.
+        Inverse of regularization strength. Positive values use L2
+        regularization; ``C=0`` preserves the legacy unregularized path.
     max_iter : int, default=100
         Maximum number of iterations for IRLS.
     tol : float, default=1e-4
@@ -108,6 +112,11 @@ class LogisticRegression(BaseEstimator):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
         self.C = C
+        self._C = (
+            float(C)
+            if isinstance(C, Real) and not isinstance(C, (bool, np.bool_))
+            else C
+        )
         self.max_iter = max_iter
         self.tol = tol
         self.compute_inference = compute_inference
@@ -167,8 +176,70 @@ class LogisticRegression(BaseEstimator):
             "_conf_int_gpu",
             "_loglik_gpu",
             "_accuracy_gpu",
+            "converged_",
         ):
             setattr(self, name, None)
+
+    def _validate_fit_controls(self):
+        """Validate and snapshot public controls for the current fit."""
+        if not isinstance(self.fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        if isinstance(self.C, bool) or not isinstance(self.C, Real):
+            raise ValueError("C must be a finite non-negative real number")
+        C = float(self.C)
+        if not np.isfinite(C) or C < 0.0:
+            raise ValueError("C must be a finite non-negative real number")
+        if (
+            isinstance(self.max_iter, bool)
+            or not isinstance(self.max_iter, Integral)
+            or int(self.max_iter) < 1
+        ):
+            raise ValueError("max_iter must be a positive integer")
+        if isinstance(self.tol, bool) or not isinstance(self.tol, Real):
+            raise ValueError("tol must be a finite positive real number")
+        tol = float(self.tol)
+        if not np.isfinite(tol) or tol <= 0.0:
+            raise ValueError("tol must be a finite positive real number")
+        if not isinstance(self.compute_inference, (bool, np.bool_)):
+            raise ValueError("compute_inference must be boolean")
+        if not isinstance(self.gpu_memory_cleanup, (bool, np.bool_)):
+            raise ValueError("gpu_memory_cleanup must be boolean")
+        if not isinstance(self.cov_type, str):
+            raise ValueError("cov_type must be a string")
+        cov_type = self.cov_type.lower()
+        valid_cov = {"nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"}
+        if cov_type not in valid_cov:
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', "
+                "'hc2', 'hc3', 'hac'"
+            )
+        if self.hac_maxlags is not None and (
+            isinstance(self.hac_maxlags, bool)
+            or not isinstance(self.hac_maxlags, Integral)
+            or int(self.hac_maxlags) < 0
+        ):
+            raise ValueError("hac_maxlags must be a non-negative integer or None")
+
+        self._fit_intercept = bool(self.fit_intercept)
+        self._C = C
+        self._max_iter = int(self.max_iter)
+        self._tol = tol
+        self._compute_inference_enabled = bool(self.compute_inference)
+        self._gpu_memory_cleanup = bool(self.gpu_memory_cleanup)
+        self._cov_type = cov_type
+        self._hac_maxlags = (
+            None if self.hac_maxlags is None else int(self.hac_maxlags)
+        )
+
+    def _publish_convergence(self, converged):
+        self.converged_ = bool(converged)
+        if not self.converged_:
+            warnings.warn(
+                f"LogisticRegression IRLS did not converge within "
+                f"{self._max_iter} iterations.",
+                ConvergenceWarning,
+                stacklevel=3,
+            )
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -242,6 +313,7 @@ class LogisticRegression(BaseEstimator):
         -------
         self : object
         """
+        self._validate_fit_controls()
         self._train_pred_cache = None
         self._train_eval_cache = None
 
@@ -314,10 +386,11 @@ class LogisticRegression(BaseEstimator):
         params = np.zeros(self._X_design.shape[1])
         
         # Regularization parameter (lambda = 1 / (2*C))
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
         
         # IRLS iteration
         iteration = 0
+        converged = False
         for iteration in range(self._max_iter):
             params_old = params.copy()
             
@@ -356,9 +429,11 @@ class LogisticRegression(BaseEstimator):
             
             # Check convergence
             if np.linalg.norm(params - params_old) < self._tol:
+                converged = True
                 break
         
         self.n_iter_ = iteration + 1
+        self._publish_convergence(converged)
         self._params = params
         
         if self._fit_intercept:
@@ -389,7 +464,7 @@ class LogisticRegression(BaseEstimator):
         params = cp.zeros(X_design.shape[1])
         
         # Regularization parameter
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
         sw_work = (
             None
             if sample_weight is None
@@ -398,6 +473,7 @@ class LogisticRegression(BaseEstimator):
 
         # IRLS iteration
         iteration = 0
+        converged = False
         for iteration in range(self._max_iter):
             params_old = params.copy()
             
@@ -429,10 +505,12 @@ class LogisticRegression(BaseEstimator):
                 params = cp.linalg.lstsq(XtWX, Xtz)[0]
             
             # Check convergence
-            if cp.linalg.norm(params - params_old) < self._tol:
+            if bool((cp.linalg.norm(params - params_old) < self._tol).item()):
+                converged = True
                 break
         
         self.n_iter_ = iteration + 1
+        self._publish_convergence(converged)
         
         # Compute log-likelihood on GPU
         eta = X_design @ params
@@ -620,7 +698,7 @@ class LogisticRegression(BaseEstimator):
         params = torch.zeros(X_design.shape[1], dtype=torch.float64, device=torch_device)
 
         # Regularization parameter (lambda = 1 / (2*C))
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
         sw_work = (
             None
             if sample_weight is None
@@ -631,6 +709,7 @@ class LogisticRegression(BaseEstimator):
 
         # IRLS iteration
         iteration = 0
+        converged = False
         for iteration in range(self._max_iter):
             params_old = params.clone()
 
@@ -662,10 +741,12 @@ class LogisticRegression(BaseEstimator):
                 params = torch.linalg.lstsq(XtWX, Xtz)[0]
 
             # Check convergence
-            if torch.linalg.norm(params - params_old) < self._tol:
+            if bool((torch.linalg.norm(params - params_old) < self._tol).item()):
+                converged = True
                 break
 
         self.n_iter_ = iteration + 1
+        self._publish_convergence(converged)
 
         # Compute log-likelihood on GPU
         eta = X_design @ params
@@ -843,7 +924,7 @@ class LogisticRegression(BaseEstimator):
         XtWX = self._X_design.T @ (self._X_design * W[:, np.newaxis])
         
         # Add regularization to Hessian
-        alpha = 1.0 / self.C if self.C > 0 else 0.0
+        alpha = 1.0 / self._C if self._C > 0 else 0.0
         if alpha > 0:
             reg_diag = np.full(XtWX.shape[0], alpha)
             if self._fit_intercept:

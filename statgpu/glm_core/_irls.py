@@ -6,6 +6,7 @@ Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
 import warnings
+from numbers import Integral, Real
 from typing import Optional
 
 import numpy as np
@@ -275,9 +276,29 @@ def irls_solver(
         validate_glm_sample_weight,
     )
 
+    if isinstance(max_iter, bool) or not isinstance(max_iter, Integral) or int(max_iter) < 1:
+        raise ValueError("max_iter must be a positive integer")
+    if isinstance(tol, bool) or not isinstance(tol, Real):
+        raise ValueError("tol must be a finite positive real number")
+    tol = float(tol)
+    if not np.isfinite(tol) or tol <= 0.0:
+        raise ValueError("tol must be a finite positive real number")
+    if isinstance(ridge_alpha, bool) or not isinstance(ridge_alpha, Real):
+        raise ValueError("ridge_alpha must be a finite non-negative real number")
+    ridge_alpha = float(ridge_alpha)
+    if not np.isfinite(ridge_alpha) or ridge_alpha < 0.0:
+        raise ValueError("ridge_alpha must be a finite non-negative real number")
+    if not isinstance(ridge_penalize_intercept, (bool, np.bool_)):
+        raise ValueError("ridge_penalize_intercept must be boolean")
+    max_iter = int(max_iter)
+
     X_validated = validate_glm_design_matrix(X)
     if backend == "auto":
         backend = _infer_backend(X_validated)
+    backend = str(backend).lower()
+    backend = {"cpu": "numpy", "cuda": "cupy"}.get(backend, backend)
+    if backend not in {"numpy", "cupy", "torch"}:
+        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
     X = _to_backend(X_validated, backend, X_validated)
 
     n_features = int(X.shape[1])
@@ -307,7 +328,14 @@ def irls_solver(
         _to_backend(penalty_matrix, backend, X)
         if penalty_matrix is not None else None
     )
+    if penalty_matrix_work is not None and tuple(penalty_matrix_work.shape) != (
+        n_features, n_features
+    ):
+        raise ValueError(
+            "penalty_matrix must have shape (X.shape[1], X.shape[1])"
+        )
     line_search_failed = False
+    converged = False
     iteration = 0
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -488,7 +516,7 @@ def irls_solver(
 
         # Convergence: normalized penalized score norm. Parameter changes can
         # be tiny merely because line search truncated a bad step.
-        if iteration % 5 == 4 or iteration == max_iter - 1:
+        if is_constant_weight or iteration % 5 == 4 or iteration == max_iter - 1:
             eta_check = X @ params
             if _link_name not in ("identity", "Identity"):
                 eta_check = _clip(eta_check, -30, 30, backend)
@@ -516,6 +544,7 @@ def irls_solver(
                 grad_f = grad_f + (penalty_matrix_work @ params) / n_eff
             grad_norm = float(_norm(grad_f, backend))
             if grad_norm < tol:
+                converged = True
                 break
 
     n_iter = iteration + 1
@@ -527,7 +556,7 @@ def irls_solver(
             ConvergenceWarning,
             stacklevel=2,
         )
-    elif n_iter >= max_iter:
+    elif not converged:
         warnings.warn(
             f"irls did not converge within {max_iter} iterations "
             f"(family={getattr(family, 'name', '?')}).",

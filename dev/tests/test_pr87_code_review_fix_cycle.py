@@ -279,3 +279,134 @@ def test_base_fit_guard_prefers_general_transaction_hook():
     assert model.reset_calls == 1
     assert model.body_calls == 0
     assert model._fitted is False
+
+
+def test_shared_irls_convergence_on_last_iteration_emits_no_false_warning():
+    import warnings
+
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+    from statgpu.solvers import ConvergenceWarning
+
+    X = np.column_stack([np.ones(5), np.linspace(-1.0, 1.0, 5)])
+    y = 0.5 + 2.0 * X[:, 1]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        params, n_iter = IRLSSolver(Gaussian(), max_iter=1, tol=1e-12).fit(
+            X, y, backend="numpy"
+        )
+    assert n_iter == 1
+    assert not any(isinstance(w.message, ConvergenceWarning) for w in caught)
+    np.testing.assert_allclose(params, [0.5, 2.0], atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"max_iter": 0}, "max_iter"),
+        ({"max_iter": True}, "max_iter"),
+        ({"tol": 0.0}, "tol"),
+        ({"tol": np.nan}, "tol"),
+        ({"ridge_alpha": -1.0}, "ridge_alpha"),
+        ({"ridge_penalize_intercept": 1}, "ridge_penalize_intercept"),
+        ({"backend": "mystery"}, "backend"),
+    ],
+)
+def test_shared_irls_rejects_invalid_controls(kwargs, message):
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    solver_kwargs = {k: v for k, v in kwargs.items() if k in {"max_iter", "tol"}}
+    fit_kwargs = {k: v for k, v in kwargs.items() if k not in solver_kwargs}
+    with pytest.raises(ValueError, match=message):
+        IRLSSolver(Gaussian(), **solver_kwargs).fit(
+            np.ones((4, 1)), np.arange(4.0), **fit_kwargs
+        )
+
+
+def test_shared_irls_rejects_bad_penalty_matrix_shape():
+    from statgpu.glm_core._family import Gaussian
+    from statgpu.glm_core._irls import IRLSSolver
+
+    with pytest.raises(ValueError, match="penalty_matrix"):
+        IRLSSolver(Gaussian()).fit(
+            np.ones((4, 2)), np.arange(4.0), penalty_matrix=np.eye(3)
+        )
+
+
+def test_logistic_nonconvergence_is_visible_and_state_is_published():
+    from statgpu.linear_model import LogisticRegression
+    from statgpu.solvers import ConvergenceWarning
+
+    X = np.linspace(-2.0, 2.0, 20)[:, None]
+    y = (X[:, 0] > 0).astype(float)
+    model = LogisticRegression(
+        C=1.0, max_iter=1, tol=1e-14, device="cpu",
+        compute_inference=False,
+    )
+    with pytest.warns(ConvergenceWarning, match="did not converge"):
+        model.fit(X, y)
+    assert model._fitted is True
+    assert model.converged_ is False
+    assert model.n_iter_ == 1
+
+
+def test_logistic_zero_C_legacy_unregularized_path_stays_finite():
+    from statgpu.linear_model import LogisticRegression
+
+    rng = np.random.default_rng(20260806)
+    X = rng.normal(size=(80, 2))
+    probability = 1.0 / (1.0 + np.exp(-(0.2 + X @ np.array([0.7, -0.4]))))
+    y = (rng.random(80) < probability).astype(float)
+    model = LogisticRegression(
+        C=0.0, max_iter=100, device="cpu", compute_inference=False
+    ).fit(X, y)
+    assert np.isfinite(model.coef_).all()
+    assert np.isfinite(model.intercept_)
+
+
+@pytest.mark.parametrize(
+    "name, value, message",
+    [
+        ("fit_intercept", "False", "fit_intercept"),
+        ("C", -1.0, "C"),
+        ("C", np.inf, "C"),
+        ("max_iter", 0, "max_iter"),
+        ("tol", 0.0, "tol"),
+        ("compute_inference", "False", "compute_inference"),
+        ("gpu_memory_cleanup", "False", "gpu_memory_cleanup"),
+        ("cov_type", "invalid", "cov_type"),
+        ("hac_maxlags", 1.5, "hac_maxlags"),
+    ],
+)
+def test_logistic_invalid_mutated_control_clears_stale_state(
+    name, value, message
+):
+    model, X, y = _fitted_logistic_fixture()
+    setattr(model, name, value)
+    with pytest.raises(ValueError, match=message):
+        model.fit(X, y)
+    _assert_logistic_state_cleared(model)
+
+
+def test_logistic_direct_control_mutation_is_used_by_refit():
+    from statgpu.linear_model import LogisticRegression
+
+    rng = np.random.default_rng(20260807)
+    X = rng.normal(size=(120, 2))
+    p = 1.0 / (1.0 + np.exp(-(0.3 + X @ np.array([0.8, -0.5]))))
+    y = (rng.random(120) < p).astype(float)
+    model = LogisticRegression(
+        C=1.0, max_iter=100, fit_intercept=True, device="cpu",
+        compute_inference=False,
+    ).fit(X, y)
+    model.fit_intercept = False
+    model.C = 0.0
+    model.max_iter = 200
+    model.tol = 1e-8
+    model.fit(X, y)
+    assert model._fit_intercept is False
+    assert model._C == 0.0
+    assert model._max_iter == 200
+    assert model._tol == pytest.approx(1e-8)
+    assert model.intercept_ == 0.0
