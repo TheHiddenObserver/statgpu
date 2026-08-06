@@ -1,112 +1,58 @@
 # Changelog
 
-- Decoupled direct LogisticRegression training confusion metrics from ROC/PR evaluation, so accuracy, precision, recall, and F1 remain available for one-class targets while ranking metrics keep their explicit support requirements; summary renders unavailable ranking metrics as NaN.
-
-- Kept direct LogisticRegression analytic weights device-native on CuPy/Torch fits instead of copying the full vector to NumPy solely for the CPU inference cache.
-
-- Closed follow-up review gaps in direct LogisticRegression and penalized CV: failed fits clear partial state, single-class confusion/table metrics remain available, and custom validation losses retain analytic weights.
-
-- Aligned direct LogisticRegression prediction contracts across NumPy, CuPy, and Torch: hard labels are integer-valued, single-column responses score without broadcasting, and non-finite decision thresholds are rejected.
-
-- Kept fitted likelihood diagnostics independent of covariance inference, so enabling inference cannot change AIC, BIC, or pseudo-R².
-
-- Unified CPU, CuPy, and Torch fitted log-likelihood diagnostics with the registered numerically stable LogisticLoss objective.
-
-- Completed the code-review fix cycle for scalar GLM runtime contracts: strict binary labels and controls, transactional refits, visible convergence, and backend-consistent analytic-weight diagnostics.
-
-- Corrected arbitrary-link Binomial IRLS, backend-native warm starts, quadratic-penalty validation, and explicit penalized-CV fallback semantics.
-
-- Removed universal ElasticNet backend thresholds, coefficient tolerances, and fixed speedup claims that were not established for the current exact-head environment; the model guide now requires workload-specific benchmarking and dtype/solver-specific validation.
-
-- Corrected ElasticNet/Ridge scaling documentation and added a regression test confirming that `ElasticNet(alpha, l1_ratio=0)` matches `Ridge(alpha)` under the shared average-loss convention.
-
-- Reconciled the ElasticNet API documentation with the implementation by correcting constructor defaults, removing nonexistent parameters, and replacing stale strict/approx guidance with the actual FISTA and post-fit inference semantics.
-
-- Completed the public ElasticNet inference contract: the standalone wrapper now exposes and forwards inference options, and ElasticNetCV honors `compute_inference=True` on its final full-data refit with NumPy/CuPy/Torch matrix tests.
-
-- Integrated transactional CV reset with the shared public finite-input guard, so NaN/Inf refit attempts invalidate stale RidgeCV, ElasticNetCV, LogisticRegressionCV, and unified penalized-CV state before validation raises.
-
-- Made dedicated RidgeCV, ElasticNetCV, and LogisticRegressionCV refits failure-safe: every fit attempt clears stale fitted state, and CV selections are published only after the final model refit succeeds.
-
-- Pinned AUTO-mode RidgeCV, ElasticNetCV, and LogisticRegressionCV final refits to the backend selected during CV, preventing silent Torch/CuPy backend drift after parameter selection.
-
-- Preserved `device='auto'` through public RidgeCV, ElasticNetCV, and LogisticRegressionCV dispatch so GPU-resident inputs retain their owning backend; LogisticRegressionCV now validates 0/1 responses without a full GPU-to-CPU copy.
-
-- Logistic and ElasticNet CV default regularization grids now use analytic weights and satisfy integer-weight row-replication equivalence; CV GPU-array device inspection no longer masks runtime failures.
-
-- Dedicated Ridge, ElasticNet, and Logistic CV routines now preserve explicit Torch versus CuPy backend requests, normalize Device enum values consistently, and validate analytic weights before grid generation or degenerate returns.
-
-- Corrected analytic-weight LogisticRegression IRLS across NumPy, CuPy, and Torch: weights now enter WLS curvature rather than the working-response denominator, and weighted likelihood/inference use the same objective. Narrowed penalized-CV alpha-grid and exact CuPy Ridge fallbacks so programming, CUDA OOM, and device errors propagate.
-
-- Completed penalized-CV fallback hardening: optional Lipschitz recovery now recognizes NumPy/CuPy/Torch rank failures consistently, while alpha-grid estimation no longer hides memory or GPU infrastructure failures.
-
-- Preserved the declared validation objective in penalized CV: non-Gaussian losses no longer silently fall back to MSE, weighted squared-error fallback retains validation weights, and GPU infrastructure failures propagate through layered CV fallbacks.
-
-- Narrowed GPU linear-algebra fallbacks so only genuine rank/definiteness failures use least-squares, pseudo-inverse, ridge, or zero-block recovery; CUDA OOM, device, index, and programming errors now propagate.
-
 > Language: English<br>
 > Last updated: 2026-08-06<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
-## Unreleased — PyTorch, validation, and sklearn compatibility
+## 0.2.4 — 2026-08-06
 
-### Runtime safety
+### Logistic regression and GLM correctness
 
-- Removed the package-initialization cycle between `statgpu.glm_core` and the Cox loss export by lazily exposing `CoxPartialLikelihoodLoss`; GLM internals and `LogisticRegression` no longer require a particular import order in a fresh interpreter.
-- Armijo backtracking no longer treats generic `out of range` errors as recoverable numerical trials, preserving index/device programming errors.
-- Proximal-Newton now backtracks on recognized numeric-domain ValueError trials while preserving unrelated contract and runtime failures.
-- Shared backend linear solves now use least-squares fallback only for recognized rank failures and preserve CUDA OOM/device RuntimeErrors.
-- Shared NumPy constructors now follow floating reference dtypes like the CuPy/Torch implementations, while integer references retain float64 numerical defaults.
-- FISTA-family warm starts now follow the preprocessed design, and smooth proximal-Newton weights are normalized to the active backend/device/dtype before loss evaluation.
-- Newton-family Armijo backtracking now suppresses only recognized numeric-domain trial failures and propagates CUDA OOM/device/runtime infrastructure errors.
-- Solver sample-weight validation now propagates backend RuntimeError failures such as CUDA OOM/device errors instead of masking them as invalid-input ValueError exceptions.
-- The executable solver matrix now treats Elastic Net as non-smooth and validates its precision through FISTA rather than a smooth-only solver.
-- Newton, L-BFGS, and L-BFGS-B now fail explicitly for Elastic Net and other non-smooth penalties rather than optimizing only their smooth part.
-- Newton-family, L-BFGS-family, and ADMM warm starts now follow the preprocessed design backend, device, and dtype rather than retaining the caller's original array placement.
-- Removed the wrong Euclidean-prox Newton shortcut that duplicated smooth penalties. Smooth objectives retain Newton; non-smooth objectives explicitly use FISTA until a Hessian-metric proximal solver exists.
-- Completed ADMM's Cholesky fallback initialization and hardened L-BFGS-B feasible directions and NaN-bound validation.
-- Adjacent Newton, proximal-Newton, ADMM, FISTA-BB, L-BFGS, and L-BFGS-B paths now validate weights before curvature work, narrow singular-system fallbacks, preserve dtype/device for proximal Newton and CuPy bounds, and use the correct squared-gradient Armijo slope.
-- Direct solver and penalized-CV sample-weight checks now remain on the selected backend, run before weighted Lipschitz operations, reject overflowing totals, and preserve HC1 analytic-weight scale invariance.
-- Internal iterative Torch kernels now use a centralized, opt-in compile policy.
-  Compilation remains eager when `STATGPU_TORCH_COMPILE_MODE` is unset,
-  `auto`, or `disable`. Users can explicitly select `default` or
-  `reduce-overhead`; known CUDA Graph output lifecycle failures then fall
-  back to eager execution once, while unrelated runtime errors remain visible.
-- Maintained public numerical entry points are checked for NaN/Inf using
-  NumPy, CuPy, or Torch reductions on the selected device. The matrix includes
-  fit/predict/transform, inverse-transform, scoring, initialization arrays,
-  and panel identifiers while preserving formula-owned missing-row semantics.
-- Formula sample weights are aligned only after Patsy selects retained rows,
-  then checked for shape, finite values, non-negativity, and positive total
-  weight. Torch and CuPy alignment and inference weights remain device-native.
-- Gaussian GLM FISTA now profiles the intercept with weighted feature and
-  response means, matching the declared weighted squared-loss objective and
-  closed-form weighted least squares when the penalty is zero.
-- GLM sample weights now follow one analytic-weight convention across IRLS
-  ridge scaling, line search, normalized pseudo-loglikelihood, AIC/BIC,
-  dispersion, and sandwich inference. Globally rescaling weights leaves fitted
-  parameters and reported diagnostics unchanged.
-- Every supported GLM family, including penalized and CV estimators, now
-  enforces its response domain before any solver or fold dispatch, using NumPy,
-  Torch, or CuPy reductions on the selected backend. Scalar GLM responses
-  accept non-empty real one-dimensional or single-column input and reject
-  non-real, multicolumn, or length-mismatched data before solver/fold dispatch.
-  Design matrices and analytic sample weights now use the same backend-native
-  real/finite/shape/length contract in model, formula, CV, and direct IRLS paths.
-  Active IRLS/FISTA helper compilation uses the centralized compile policy, and
-  unrelated linear-algebra/device failures are no longer masked as fallback.
+- Corrected arbitrary-link Binomial IRLS Fisher weights, working responses, line-search objectives, backend-native warm starts, and quadratic-penalty validation.
+- Hardened direct `LogisticRegression` validation, transactional refits, convergence reporting, integer hard predictions, single-column response handling, and finite decision thresholds.
+- Unified fitted logistic likelihood diagnostics across NumPy, CuPy, and Torch with the registered stable `LogisticLoss` objective. Likelihood, AIC, BIC, pseudo-R², and convergence remain available independently of covariance inference.
+- Kept confusion-matrix metrics available for one-class targets while retaining explicit class-support errors for ROC-AUC and average precision.
+- Kept analytic weights device-native on CuPy/Torch fits and corrected weighted IRLS curvature, likelihood, dispersion, and sandwich-inference semantics.
+- Standardized GLM analytic-weight behavior across fitting, line search, diagnostics, and covariance. Globally rescaling analytic weights does not change fitted parameters or reported diagnostics.
+- Added backend-native response-domain, real-valued, finite, shape, and length validation for scalar GLMs, including penalized and CV entry points.
+- Aligned formula sample weights after Patsy row filtering and corrected weighted Gaussian FISTA centering.
 
-### Estimator and test contracts
+### Cross-validation, inference, and estimator contracts
 
-- Exact constructor arguments are retained separately from normalized
-  runtime attributes so `sklearn.base.clone` works under legacy
-  scikit-learn identity checks.
-- Maintained pytest modules can no longer be hidden by broad `.gitignore`
-  rules; manual GPU diagnostics have an explicit directory and ownership
-  policy.
+- Made `RidgeCV`, `ElasticNetCV`, and `LogisticRegressionCV` failure-safe: stale state is cleared before fitting and selected parameters are published only after the final full-data refit succeeds.
+- Preserved explicit Torch/CuPy requests and pinned `device="auto"` final refits to the backend selected during cross-validation.
+- Updated Logistic and Elastic Net default regularization grids to incorporate analytic weights and satisfy integer-weight row-replication equivalence.
+- Preserved declared validation losses and analytic weights in penalized CV; programming, shape, CUDA OOM, and device errors are no longer converted into candidate `NaN` values or unrelated MSE fallback.
+- Completed standalone `ElasticNet` and final-refit `ElasticNetCV` inference across NumPy, CuPy, and Torch. Fold models remain estimation-only.
+- Corrected ElasticNet/Ridge scaling documentation: under the shared average-loss convention, `ElasticNet(alpha, l1_ratio=0)` matches `Ridge(alpha)`.
+- Made public finite-input guards, cloning, sklearn tags, nested `set_params`, and fitted-state invalidation transactional, including legacy scikit-learn clone identity checks.
 
-Related: Issue #45, Issue #81, Issue #82, Issue #83.
+### Solver and backend safety
+
+- Corrected the solver matrix so Newton, L-BFGS, and L-BFGS-B reject unsupported non-smooth penalties rather than optimizing only the smooth component.
+- Removed the incorrect Euclidean-prox Newton shortcut. Smooth L2/no-penalty objectives retain Newton; non-smooth proximal-Newton requests delegate visibly to backend-native FISTA until a Hessian-metric proximal solver exists.
+- Narrowed Armijo, linear-solve, CV-grid, and inference fallbacks to recognized numeric or rank failures. CUDA OOM, device, index, contract, and unrelated runtime failures propagate.
+- Normalized warm starts for FISTA, Newton-family, L-BFGS-family, and ADMM solvers to the preprocessed design backend, device, and dtype.
+- Completed ADMM's legitimate Cholesky fallback and hardened L-BFGS-B directions, backend-native bounds, and NaN-bound validation.
+- Added a centralized, observable Torch compile policy: eager remains the default for unset, `auto`, and `disable`; `default` and `reduce-overhead` are explicit opt-ins. Only the known CUDA Graph output-lifecycle failure becomes a permanent eager fallback.
+- Removed the package-initialization cycle between `statgpu.glm_core` and the Cox loss export by lazily exposing `CoxPartialLikelihoodLoss`; fresh-interpreter imports no longer require a particular order.
+
+### Documentation and release preparation
+
+- Reconciled the English and Chinese LogisticRegression, ElasticNet, cross-validation, solver-algorithm, and solver/penalty documentation with the maintained implementation.
+- Removed unsupported universal GPU speedup, backend-threshold, and coefficient-tolerance claims. Performance guidance now requires workload-specific benchmarking.
+- Documented the ownership boundary between maintained pytest coverage and manual physical-GPU diagnostics.
+- Bumped package metadata to `0.2.4` and added `.github/releases/v0.2.4.md` as the authoritative GitHub Release body.
+
+### Validation
+
+- The final PR #87 implementation head passed 2239 tests with 719 skipped, static and documentation contracts, Python 3.9–3.12 regression jobs, scikit-learn 1.2.2/1.3.2/latest compatibility, and release-package validation.
+- Physical NVIDIA validation passed on the unchanged numerical implementation: RTX 4090 with PyTorch 2.8.0+cu128 passed the selected compile/CUDA Graph matrix 9/9 and runtime assertions; Tesla P100 with CuPy 13.6.0 passed the corresponding runtime assertions.
+- The focused release PR changes version metadata and release-facing documentation only. Exact release-head hosted gates must pass before tag `v0.2.4` is created.
+
+Related: Issue #45, Issue #81, Issue #82, Issue #83, and pull request #87.
+
 ## 0.2.3 — 2026-08-04
 
 ### Survival analysis
