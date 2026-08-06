@@ -1,4 +1,4 @@
-import type { BenchmarkData, ParseReport } from '../schema';
+import type { BenchmarkData, ParseReport, SourceInventory } from '../schema';
 import type { AppState } from '../state';
 import { resetDownstreamFilters } from '../state';
 import { h } from '../utils/dom';
@@ -6,6 +6,7 @@ import { h } from '../utils/dom';
 export function renderHeader(
   data: BenchmarkData,
   parseReport: ParseReport | null,
+  sourceInventory: SourceInventory | null,
   state: AppState,
   onUpdate: () => void,
 ): HTMLElement {
@@ -48,7 +49,30 @@ export function renderHeader(
       h(
         'span',
         { class: 'header-meta' },
-        `${parseReport.runs_generated} runs from ${parseReport.files_parsed}/${parseReport.files_seen} files`,
+        `${parseReport.runs_generated} runs from ${parseReport.files_parsed}/${parseReport.files_seen} registered files`,
+      ),
+    );
+  }
+
+  if (sourceInventory) {
+    const inventoryText = [
+      `${sourceInventory.registered_sources} registered`,
+      `${sourceInventory.eligible_sources} eligible`,
+      `${sourceInventory.not_canonical_ready_sources} non-ready`,
+      `${sourceInventory.historical_or_excluded_sources} historical/excluded`,
+    ].join(' · ');
+    controls.appendChild(
+      h(
+        'span',
+        {
+          class: 'header-meta inventory-meta',
+          title:
+            `${sourceInventory.discovered_json_artifacts} discovered JSON artifacts; ` +
+            `${sourceInventory.classified_candidate_sources} classified; ` +
+            `${sourceInventory.eligible_unregistered_sources} eligible but unregistered; ` +
+            `${sourceInventory.unclassified_artifacts} unclassified`,
+        },
+        inventoryText,
       ),
     );
   }
