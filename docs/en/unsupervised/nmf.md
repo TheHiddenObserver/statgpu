@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-05-02
-> Switch: [Chinese](../../unsupervised/nmf.md)
+> Switch: [Chinese](../../cn/unsupervised/nmf.md)
 
 ## Overview
 

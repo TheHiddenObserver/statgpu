@@ -187,6 +187,8 @@ def _as_samples_2d(samples, xp, ref_arr=None):
     n_samples = int(arr.shape[0])
     if n_samples < 2:
         raise ValueError("samples must contain at least 2 observations")
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(arr)))):
+        raise ValueError("samples must contain only finite values")
     return arr
 
 
@@ -204,6 +206,8 @@ def _as_points_2d(points, n_features: int, xp, ref_arr=None):
 
     if int(arr.shape[1]) != int(n_features):
         raise ValueError("points feature dimension does not match samples")
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(arr)))):
+        raise ValueError("points must contain only finite values")
     return arr
 
 
@@ -215,6 +219,8 @@ def _normalize_weights(weights, n_samples: int, xp, device: str = "cpu", ref_arr
     w = xp_asarray(weights, dtype=xp.float64, xp=xp, ref_arr=ref_arr).reshape(-1)
     if int(w.size) != int(n_samples):
         raise ValueError("weights must have the same length as samples")
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(w)))):
+        raise ValueError("weights must contain only finite values")
     if _to_float_scalar(xp.min(w)) < 0.0:
         raise ValueError("weights must be non-negative")
 

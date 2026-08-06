@@ -1,0 +1,161 @@
+{
+  "backends": {
+    "cupy": {
+      "cases": {
+        "cv_device_normalization": {
+          "backend": "cupy",
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "effective_device": "cuda",
+          "finite": true,
+          "fit_seconds": 0.10049024224281311,
+          "passed": true
+        },
+        "public_boundary": {
+          "backend": "cupy",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "device_normalized": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 1.0814208984375,
+          "packed_target_stayed_native": true,
+          "passed": true
+        },
+        "single_group_workspace": {
+          "backend": "cupy",
+          "max_abs_differences": {
+            "information": 1.3322676295501878e-14,
+            "log_likelihood": 0.0,
+            "score": 6.661338147750939e-16,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.44438812136650085,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "cupy",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 3.9968028886505635e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.01681038737297058,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "13.6.0"
+    },
+    "torch": {
+      "cases": {
+        "cv_device_normalization": {
+          "backend": "torch",
+          "constructor_truthy_strings_rejected": {
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "effective_device": "torch",
+          "finite": true,
+          "fit_seconds": 0.044497907161712646,
+          "passed": true
+        },
+        "public_boundary": {
+          "backend": "torch",
+          "complex_prediction_rejected": true,
+          "constructor_truthy_strings_rejected": {
+            "compute_cindex": true,
+            "compute_inference": true,
+            "gpu_memory_cleanup": true
+          },
+          "device_normalized": true,
+          "failed_refit_cleared": true,
+          "finite": true,
+          "fit_seconds": 0.18785801529884338,
+          "packed_target_stayed_native": true,
+          "passed": true
+        },
+        "single_group_workspace": {
+          "backend": "torch",
+          "max_abs_differences": {
+            "information": 1.199040866595169e-14,
+            "log_likelihood": 0.0,
+            "score": 1.1102230246251565e-15,
+            "score_residuals": 2.220446049250313e-16
+          },
+          "n": 8192,
+          "p": 3,
+          "passed": true,
+          "seconds": 0.21753910183906555,
+          "workspace_limit_bytes": 4096
+        },
+        "wide_workspace_route": {
+          "backend": "torch",
+          "corrected_estimate_bytes": 9445376,
+          "corrected_estimate_selects_streaming": true,
+          "max_abs_differences": {
+            "information": 3.9968028886505635e-15,
+            "log_likelihood": 0.0,
+            "score": 1.7763568394002505e-15,
+            "score_residuals": 4.440892098500626e-16
+          },
+          "n": 4096,
+          "observed_streaming_calls": [
+            {
+              "n": 4096,
+              "p": 128,
+              "workspace_limit_bytes": 8388608
+            }
+          ],
+          "old_estimate_bytes": 1056768,
+          "old_estimate_selects_dense": true,
+          "p": 128,
+          "passed": true,
+          "seconds": 0.007363617420196533,
+          "workspace_limit_bytes": 8388608
+        }
+      },
+      "device": "Tesla P100-SXM2-16GB",
+      "version": "2.0.0+cu117"
+    }
+  },
+  "command": "python dev/benchmarks/benchmark_cox_boundary_gpu.py --output <path>",
+  "gate_failures": [],
+  "numpy": "1.24.2",
+  "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]",
+  "schema_version": 2,
+  "source_clean": true,
+  "source_commit": "b42ab0ade37e9fc7c5abf159089da195220680df",
+  "source_sha256": {
+    "dev/benchmarks/benchmark_cox_boundary_gpu.py": "312250ba5b489d8b24ca8de8d4e2193c074b9b05f735d6c19391f382e753b9ea",
+    "statgpu/survival/_cox.py": "2a8fcfbb84b7d54f49232b5764a9fc13002932efc25a5d5c5318397250e8f05a",
+    "statgpu/survival/_cox_cv.py": "0132264a62b1505a39bd70aa9e43167f8d80324547c59f69d00cf29ce384b061",
+    "statgpu/survival/_cox_fit_adapter.py": "8d34ab12ae5f136249cc597463868ae6af35968c7fad5896afe49dfccf1b3134",
+    "statgpu/survival/_risk_sets.py": "08a9f9c5f447d139cb143d8d715638f6e3db742ae2ba6485544a3e26e7fd657d"
+  },
+  "validation_tier": "remote-full"
+}

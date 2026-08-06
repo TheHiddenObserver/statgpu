@@ -62,7 +62,7 @@ class AgglomerativeClustering(BaseEstimator):
             raise NotImplementedError("AgglomerativeClustering only supports metric='euclidean'")
 
     def _use_gpu_path(self) -> bool:
-        return self.device in (Device.CUDA, Device.TORCH)
+        return self._device in (Device.CUDA, Device.TORCH)
 
     def _check_gpu_memory(self, n_samples: int):
         required = int(n_samples) * int(n_samples) * 8

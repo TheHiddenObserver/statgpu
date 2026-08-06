@@ -1,136 +1,100 @@
 # Solver × Penalty 兼容性矩阵
 
 > 语言：中文  
-> 最后更新：2026-06-12  
+> 最后更新：2026-08-03  
 > 页面定位：参考指南  
-> 切换：[English](../en/guides/solver-penalty-matrix.md)
+> 切换：[English](../../en/guides/solver-penalty-matrix.md)
 
 ## 概述
 
-`PenalizedGeneralizedLinearModel` 支持 **7 个损失族 × 9 种惩罚 × 9 个求解器** 的组合空间。本页记录哪些组合受支持、`solver='auto'` 如何分发、以及显式指定求解器时的行为。
+`PenalizedGeneralizedLinearModel` 支持 **7 个损失族 × 9 个注册惩罚名称 × 9 个求解器**。此外，公开的 `AdaptiveGroupLassoPenalty` 可作为 penalty object 使用；由于调用方必须显式提供 group weights，它有意不提供字符串 registry alias。
 
-**核心规则**：所有 loss × penalty 组合在 `solver='auto'` 下均可工作。限制仅在显式指定求解器时生效。
+支持的 loss × penalty 组合在 `solver='auto'` 下自动分发；显式求解器请求会在数值计算前验证。
 
 ## 1. 自动分发表
 
-当 `solver='auto'`（默认）时，模型为每个 loss × penalty 对选择最佳求解器：
-
 | Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
 |------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
-| **squared_error** | exact | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista (CD) | fista_lla | fista_lla |
-| **logistic** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **poisson** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **inverse_gaussian** | newton | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **negative_binomial** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
-| **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | fista_lla | fista_lla |
+| **squared_error** | exact | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **logistic** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **poisson** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **inverse_gaussian** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **negative_binomial** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
 
 **分发说明**：
-- `fista_lla` 不是用户可指定的求解器关键字。它在非凸惩罚（SCAD、MCP、group_scad、group_mcp）时被内部调用。外层 `solver` 关键字仅控制内层循环（fista、fista_bb 或 irls_cd）。
-- `irls_cd` 优先用于 squared_error + SCAD/MCP（Gauss-Seidel CD 对 OLS 更快）。GLM + SCAD/MCP 使用 `fista_lla` 配合 FISTA 内层循环。
-- GPU 路径可能用 `fista_bb` 替代 `fista`，当 Barzilai-Borwein 步长更有利时。
+- `AdaptiveGroupLassoPenalty` 沿 `group_lasso` 列分发，但使用调用方给定的 per-group weights。
+- `fista_lla` 是内部 continuation 路径；直接调用公开 `fista_lla_path()` 时也执行相同 surrogate contract。
+- 标量 squared-error SCAD/MCP 可使用坐标下降 continuation；Group SCAD/MCP 始终使用 weighted Group Lasso surrogate 与 group-aware FISTA 内层。
+- Group Lasso 与 Adaptive Group Lasso 都使用实际 loss gradient 和精确欧氏 group proximal，包括 robust/GLM loss、`sample_weight`、CV fold 与最终 selected-alpha refit。
+- 旧 Gaussian block 更新不再进入公开路由；其 inverse-Gram 后欧氏阈值只对正交归一 group block 精确。
 
 ## 2. 显式求解器约束
 
-当显式设置 `solver=` 时，以下约束生效：
-
 | 求解器 | 接受 | 拒绝 | 说明 |
 |--------|------|------|------|
-| `exact` | 仅 l2，仅 squared_error | 其他所有 | 特征分解闭式解 |
-| `irls` | 仅 l2（任意 loss） | 所有非光滑 | 迭代重加权最小二乘 |
-| `newton` | l2 / none（任意 loss） | l1, elasticnet, scad, mcp, adaptive_l1, group_* | 牛顿法 + 线搜索 |
-| `lbfgs` | l2 / none（任意 loss） | l1, elasticnet, scad, mcp, adaptive_l1, group_* | L-BFGS + 线搜索 |
-| `fista` | 所有惩罚（任意 loss） | — | FISTA + Nesterov 动量 |
-| `fista_bb` | 所有惩罚（任意 loss） | — | FISTA + Barzilai-Borwein 步长 |
-| `admm` | 所有惩罚（任意 loss） | — | ADMM + proximal z 更新 |
-| `irls_cd` | scad, mcp, adaptive_l1 | l1, elasticnet, group_* | IRLS 外层 + 坐标下降内层 |
-| `proximal_irls_cd` | scad, mcp（仅 quantile） | l1, elasticnet, group_* 及其他 loss | IRLS 上界 + LLA + 并行对角化 |
-| `proximal_newton` | scad, mcp, adaptive_l1（有 Hessian 的 loss） | 其他所有 | Newton 方向 + Armijo + proximal 算子 |
+| `exact` | 仅 l2 + squared_error | 其他所有 | 特征分解闭式解 |
+| `irls` | 光滑 l2 路径 | 非光滑惩罚 | IRLS |
+| `newton` | l2 / none | l1、elasticnet、非凸及全部 group penalty | Newton + 线搜索 |
+| `lbfgs` | l2 / none | l1、elasticnet、非凸及全部 group penalty | L-BFGS |
+| `fista` | 支持 proximal 的惩罚 | — | Nesterov FISTA |
+| `fista_bb` | 支持的稀疏组合 | 不支持的组合明确失败 | BB 自适应步长 |
+| `admm` | 支持的 proximal 组合 | 不支持的组合明确失败 | ADMM |
+| `irls_cd` | 标量 scad/mcp/adaptive_l1 | 全部 group penalty | IRLS + 坐标下降 |
+| `proximal_newton` | l2 / none 使用 Newton；非光滑 direct 调用显式转到 FISTA | 全部 group penalty 与不支持组合 | 不再静默使用 Euclidean-prox 近似 |
 
-**尝试不支持的组合会抛出 `ValueError`**，提示哪些 solver–penalty 对有效。
+不支持的组合在数值拟合前抛出 `ValueError`。
 
-## 3. 求解器能力
+## 3. CV 支持
 
-| 求解器 | sample_weight | warm_start | 推断 | 最佳用途 |
-|--------|:------------:|:----------:|:---:|----------|
-| `exact` | ✅ | ❌ | ✅ (OLS) | squared_error + l2（小 p） |
-| `irls** | ✅ | ❌ | ❌ | GLM + l2（标准 link） |
-| `newton** | ❌ | ❌ | ❌ | GLM + l2（非标准 link） |
-| `lbfgs** | ❌ | ❌ | ❌ | GLM + l2（大 p） |
-| `fista** | ✅ | ✅ | ❌ | 光滑 + 非光滑惩罚 |
-| `fista_bb** | ✅ | ✅ | ❌ | GLM + 非光滑（自适应步长） |
-| `admm** | ✅ | ✅ | ❌ | 任意惩罚（增广拉格朗日） |
-| `irls_cd** | ✅ | ✅ | ❌ | squared_error + SCAD/MCP（快速 CD） |
-| `proximal_irls_cd` | ✅ | ✅ | ❌ | quantile + SCAD/MCP（IRLS 上界） |
-| `proximal_newton` | ✅ | ✅ | ❌ | Huber/Bisquare/Cox + SCAD/MCP（5-10 iters） |
+| Loss | l2 | l1 / elasticnet | scad / mcp | adaptive_l1 | group_lasso / adaptive group | group_scad / group_mcp |
+|------|:--:|:---------------:|:----------:|:-----------:|:----------------------------:|:-----------------------:|
+| **squared_error** | eig-batch | 稀疏 FISTA | LLA + FISTA/CD | 通用 fit | Group FISTA | Group FISTA-LLA |
+| **logistic** | 通用 fit | 稀疏 FISTA | LLA + FISTA | 通用 fit | Group FISTA | Group FISTA-LLA |
+| **其他 GLM/robust** | 通用 fit | 稀疏/FISTA | LLA + FISTA | 通用 fit | Group FISTA | Group FISTA-LLA |
 
-## 4. CV 支持 (`PenalizedGLM_CV`)
+Group validation 在 alpha grid、fold construction 与 candidate fitting 前执行。Groups 按最终设计矩阵宽度解释，包括 formula 展开列。无显式 adaptive weights 时，遗漏特征补为 singleton groups；越界索引和不完整 adaptive weighted groups 会事务性失败。
 
-CV 估计器在可用时使用专用快速路径，其余回退到逐折 `fit()`：
+CV 使用 fit-local penalty state，不修改调用方的 penalty object 或 `penalty_kwargs` 字典。Penalty object 会在每个 candidate alpha 下重建；最终 estimator 公开一个无私有 marker 的 penalty 快照，其 alpha 与 groups 和实际 resolved objective 一致。顶层 CV estimator 保留原 constructor parameter。
 
-| Loss | l2 | l1 / elasticnet | scad / mcp | adaptive_l1 | group_* |
-|------|:--:|:---------------:|:----------:|:-----------:|:-------:|
-| **squared_error** | 特征批处理 O(p³) | 稀疏 FISTA 路径 | LLA + FISTA/CD | 通用 fit | 通用 fit |
-| **logistic** | 通用 fit | logistic 稀疏路径 | LLA + FISTA | 通用 fit | 通用 fit |
-| **poisson** | 通用 fit | 折批处理 GPU | LLA + FISTA | 通用 fit | 通用 fit |
-| **gamma** | 通用 fit | 折批处理 GPU | LLA + FISTA | 通用 fit | 通用 fit |
-| **inverse_gaussian** | 通用 fit | 折批处理 GPU | LLA + FISTA | 通用 fit | 通用 fit |
-| **negative_binomial** | 通用 fit | 折批处理 GPU | LLA + FISTA | 通用 fit | 通用 fit |
-| **tweedie** | 通用 fit | 折批处理 GPU | LLA + FISTA | 通用 fit | 通用 fit |
+Coefficient 与 intercept warm start 作为同一个一次性状态进入拟合，并在成功或失败后共同清除。
 
-**快速路径说明**：
-- **特征批处理**：预计算 X'X 特征分解一次，批量求解所有 alpha/fold。O(p³) 初始化 + O(p·n_alphas·n_folds) 求解。
-- **稀疏 FISTA 路径**：squared_error + l1/elasticnet 的专用 FISTA 循环。
-- **logistic 稀疏路径**：logistic + l1/elasticnet 的专用 FISTA 循环。
-- **折批处理 GPU**：所有 fold × alpha 在一次 GPU kernel launch 中求解。用于 GLM + l1/elasticnet GPU 路径。
-- **LLA + FISTA**：非凸惩罚的局部线性近似（LLA）延续路径。从 λ_max 追踪到目标 α。
-- **通用 fit**：回退到逐折 `PenalizedGeneralizedLinearModel.fit()`。所有组合可用但较慢。
-
-## 5. 惩罚参考
+## 4. 惩罚定义
 
 | 惩罚 | 公式 | Proximal | 参数 |
 |------|------|----------|------|
-| `l2` | ½α‖β‖² | β/(1+α·step) | `alpha` |
-| `l1` | α‖β‖₁ | soft_threshold(β, α·step) | `alpha` |
-| `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft_threshold / (1+α(1-λ)step) | `alpha`, `l1_ratio` |
-| `scad` | SCAD(β; α, a) | SCAD 阈值 | `alpha`, `a`（默认 3.7） |
-| `mcp` | MCP(β; α, γ) | MCP 阈值 | `alpha`, `gamma`（默认 3.0） |
-| `adaptive_l1` | α·w·‖β‖₁ | 加权 soft_threshold | `alpha`, `_weights` |
-| `group_lasso` | αΣ_g‖β_g‖₂ | 块 soft_threshold | `alpha`, `groups` |
-| `group_scad` | SCAD 组 | SCAD 块阈值 | `alpha`, `groups`, `a` |
-| `group_mcp` | MCP 组 | MCP 块阈值 | `alpha`, `groups`, `gamma` |
+| `l2` | ½α‖β‖² | ridge scale | `alpha` |
+| `l1` | α‖β‖₁ | soft threshold | `alpha` |
+| `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft threshold + L2 scale | `alpha`, `l1_ratio` |
+| `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft threshold | `alpha`, `groups` |
+| `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | weighted block soft threshold | `alpha`, `groups`, `weights`；仅 object |
+| `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | SCAD block threshold | `alpha`, `groups`, `a` |
+| `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | MCP block threshold | `alpha`, `groups`, `gamma` |
 
-**非凸惩罚说明**：
-- SCAD 和 MCP 通过 **LLA（局部线性近似）** 求解：每个延续步将非凸惩罚在当前估计处线性化，产生加权 L1 问题，FISTA/CD 可解。
-- 延续路径从 `λ_max`（所有系数为零）追踪到目标 `α`，使用 20-100 步。避免陷入不良局部最小值。
-- SCAD 的 `a=2.0` 和 MCP 的 `gamma=1.0` 数值奇异。代码将这些值 clamp 到安全范围（`a ≥ 2+1e-6`，`gamma ≥ 1+1e-6`）。
+对 Group SCAD/MCP，记关于 `‖β_g‖₂` 的导数为 `D_g`。精确凸 surrogate 是 `Σ_g D_g‖β_g‖₂`，内部表示为 `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`，不会再次乘 target alpha 或 group size。Group LLA 固定采用 FISTA 内层，因为通用 proximal-Newton 路径可能拒绝全部 Armijo steps 而不暴露失败状态。
 
-## 6. 推断支持
+Group 输入采用严格契约：alpha 与其他超参数必须是有限 numeric scalar，不能是 boolean 或可强制转换的字符串；索引/ID 必须是可由 signed `int64` 表示的非负整数值 numeric；显式 groups 不得为空或重复；flat IDs 必须从 0 连续；公开数值方法要求 coefficient vector 与 group feature width 完全一致。只有内部 fused group-LLA surrogate 通过私有 capability 允许一个未惩罚 trailing intercept。
 
-| 惩罚 | 推断方法 | 状态 |
-|------|---------|------|
-| `l2` | 标准 OLS/GLS 推断 | ✅ 可用 |
-| `l1` | Debiased Lasso（nodewise 回归） | ✅ 可用（`compute_inference=True`） |
-| `elasticnet` | Debiased Lasso（适配版） | 待实现 |
-| `scad` / `mcp` | Debiased 非凸 | 待实现 |
-| `adaptive_l1` | Debiased adaptive Lasso | 待实现 |
-| `group_*` | Group debiased | 待实现 |
+## 5. 推断支持
 
-## 7. 选择求解器
+| 惩罚 | 状态 |
+|------|------|
+| `l2` | 标准路径可用 |
+| `l1` | 支持的 debiased 路径可用 |
+| `scad` / `mcp` | 依 estimator/method 契约 |
+| Group Lasso / Adaptive Group Lasso / Group SCAD / Group MCP | Group-preserving covariance/bootstrap 尚未实现；所有 inference 请求在拟合前明确失败 |
+
+## 6. 选择求解器
 
 ```
-                    ┌─ squared_error + l2? ─── 是 ──→ exact（闭式解）
+                    ┌─ squared_error + l2? ─── 是 ──→ exact
                     │
-                    ├─ 仅光滑惩罚? ────────── 是 ──→ irls / newton / lbfgs
+                    ├─ 光滑惩罚? ───────────── 是 ──→ irls / newton / lbfgs
                     │
-solver='auto' ──────├─ 非凸 (SCAD/MCP)? ───── 是 ──→ fista_lla（自动）
+solver='auto' ──────├─ 标量非凸? ───────────── 是 ──→ scalar LLA
                     │
-                    ├─ l1 / elasticnet? ────── 是 ──→ fista / fista_bb
+                    ├─ 凸 group penalty? ───── 是 ──→ exact Group FISTA
                     │
-                    └─ 组惩罚? ─────────────── 是 ──→ fista + 块 CD
+                    └─ group SCAD/MCP? ─────── 是 ──→ Group FISTA-LLA
 ```
-
-**手动选择求解器指南**：
-- 使用 `solver='fista_bb'` 处理 GLM + 非光滑惩罚，当你需要自适应步长时（通常比固定步长 FISTA 更快）。
-- 使用 `solver='admm'` 当你需要特定的增广拉格朗日公式，或当 proximal 算子计算廉价时。
-- 使用 `solver='irls_cd'` 处理 squared_error + SCAD/MCP，当你需要 Gauss-Seidel CD 时（对小 p 收敛快于 Jacobi 块 CD）。

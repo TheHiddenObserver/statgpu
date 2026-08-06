@@ -3,12 +3,9 @@
 Unit tests for ElasticNetCV
 """
 import numpy as np
-import torch
-from statgpu.linear_model import ElasticNetCV, ElasticNet
-from statgpu import get_backend, Device
-
-import warnings
-warnings.filterwarnings('ignore')
+import pytest
+from statgpu.linear_model import ElasticNetCV
+from statgpu import get_backend
 
 
 def generate_elasticnet_data(n_samples=1000, n_features=100, seed=42):
@@ -116,39 +113,21 @@ def test_elasticnetcv_vs_sklearn():
     print("✓ PASSED\n")
 
 
+
 def test_elasticnetcv_gpu_backend():
-    """Test ElasticNetCV with GPU backends."""
-    print("=" * 60)
-    print("Test 4: GPU backend support")
-    print("=" * 60)
-
+    """Compare CPU and explicit CuPy results when CUDA is available."""
     X, y, _ = generate_elasticnet_data(n_samples=500, n_features=50)
-
-    results = {}
-    for device in ["cpu", "cuda"]:
-        try:
-            model = ElasticNetCV(
-                l1_ratio=0.5,
-                n_alphas=20,
-                cv=3,
-                random_state=42,
-                device=device
-            )
-            model.fit(X, y)
-            results[device] = {
-                'alpha': model.alpha_,
-                'l1_ratio': model.l1_ratio_,
-                'coef': model.coef_,
-            }
-            print(f"{device.upper()}: alpha={model.alpha_:.6f}, l1_ratio={model.l1_ratio_:.6f}")
-        except Exception as e:
-            print(f"{device.upper()}: Skipped ({e})")
-
-    if "cpu" in results and "cuda" in results:
-        l2_distance = np.linalg.norm(results['cpu']['coef'] - results['cuda']['coef'])
-        print(f"L2 distance (CPU vs GPU): {l2_distance:.6e}")
-
-    print("✓ PASSED\n")
+    cpu_model = ElasticNetCV(
+        l1_ratio=0.5, n_alphas=20, cv=3, random_state=42, device="cpu"
+    ).fit(X, y)
+    if not get_backend("cupy").is_available():
+        pytest.skip("working CuPy CUDA backend is unavailable")
+    cuda_model = ElasticNetCV(
+        l1_ratio=0.5, n_alphas=20, cv=3, random_state=42, device="cuda"
+    ).fit(X, y)
+    np.testing.assert_allclose(
+        cpu_model.coef_, cuda_model.coef_, rtol=5e-4, atol=5e-5
+    )
 
 
 def test_elasticnetcv_predict():

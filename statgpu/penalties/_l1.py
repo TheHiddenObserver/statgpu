@@ -7,6 +7,7 @@ P(w) = α * ||w||₁
 __all__ = ["L1Penalty"]
 
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 from statgpu.backends._array_ops import _xp
 import numpy as np
@@ -20,19 +21,11 @@ def _get_l1_torch_compiled():
     global _L1_PROXIMAL_TORCH_COMPILED
     if _L1_PROXIMAL_TORCH_COMPILED is not None:
         return _L1_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _L1_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w, thresh):
-            return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
-        _L1_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, mode='reduce-overhead')
-    except Exception:
-        _L1_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w, thresh):
+        return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
+    _L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, workload="iterative")
     return _L1_PROXIMAL_TORCH_COMPILED
-
 
 class L1Penalty(Penalty):
     """
@@ -101,7 +94,7 @@ class L1Penalty(Penalty):
         from statgpu.backends._array_ops import _soft_threshold
         return _soft_threshold(w, thresh)
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
         params["alpha"] = self.alpha
         return params

@@ -15,6 +15,7 @@ Supports both FISTA direct (proximal) and LLA (lla_weights) optimization.
 
 __all__ = ["SCADPenalty"]
 
+from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 import numpy as np
 from statgpu.penalties._base import Penalty
@@ -29,32 +30,24 @@ def _get_scad_torch_compiled():
     global _SCAD_PROXIMAL_TORCH_COMPILED
     if _SCAD_PROXIMAL_TORCH_COMPILED is not None:
         return _SCAD_PROXIMAL_TORCH_COMPILED
-    from statgpu.penalties import _torch_compile_ok
-    if not _torch_compile_ok():
-        _SCAD_PROXIMAL_TORCH_COMPILED = None
-        return None
-    try:
-        import torch
-        def _prox(w, step, alpha, a):
-            max_step = 0.9 * (a - 1.0)
-            step = torch.clamp(step, max=max_step)
-            t = alpha * step
-            abs_w = torch.abs(w)
-            sign_w = torch.sign(w)
-            r1 = abs_w <= alpha + t
-            r3 = abs_w > a * alpha
-            r2 = ~(r1 | r3)
-            result = torch.where(r1,
-                sign_w * torch.relu(abs_w - t),
-                torch.where(r2,
-                    sign_w * ((a - 1.0) * abs_w - a * t) / (a - 1.0 - step),
-                    w))
-            return result
-        _SCAD_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, dynamic=True, mode='reduce-overhead')
-    except Exception:
-        _SCAD_PROXIMAL_TORCH_COMPILED = None
+    import torch
+    def _prox(w, step, alpha, a):
+        max_step = 0.9 * (a - 1.0)
+        step = torch.clamp(step, max=max_step)
+        t = alpha * step
+        abs_w = torch.abs(w)
+        sign_w = torch.sign(w)
+        r1 = abs_w <= alpha + t
+        r3 = abs_w > a * alpha
+        r2 = ~(r1 | r3)
+        result = torch.where(r1,
+            sign_w * torch.relu(abs_w - t),
+            torch.where(r2,
+                sign_w * ((a - 1.0) * abs_w - a * t) / (a - 1.0 - step),
+                w))
+        return result
+    _SCAD_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _SCAD_PROXIMAL_TORCH_COMPILED
-
 
 class SCADPenalty(Penalty):
     """SCAD penalty.
@@ -254,7 +247,7 @@ class SCADPenalty(Penalty):
 
     # ----------------------------------------------------------------
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
         params.update({"alpha": self.alpha, "a": self.a})
         return params

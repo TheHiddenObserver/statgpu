@@ -92,6 +92,10 @@ def fista_solver(
     """
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
+    # Validate before any weighted Lipschitz or matrix operation so direct
+    # solver callers receive the public contract error rather than a backend
+    # broadcast, NaN, or device-mismatch failure.
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
     _is_quadratic = getattr(loss, '_is_quadratic', False)
     # Momentum control via loss class attributes:
     #   _momentum_beta_cap: if set, cap Nesterov beta at this value
@@ -104,9 +108,9 @@ def fista_solver(
 
     n_features = X_proc.shape[1]
     if init_coef is not None:
-        coef = _as_backend_vector(init_coef, backend, X)
+        coef = _as_backend_vector(init_coef, backend, X_proc)
     else:
-        coef = _zeros(n_features, backend, ref_tensor=X)
+        coef = _zeros(n_features, backend, ref_tensor=X_proc)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -129,7 +133,7 @@ def fista_solver(
         if getattr(loss, '_lipschitz_at_init', False):
             _lip_coef = _copy_arr(coef)
         else:
-            _lip_coef = _zeros(n_features, backend, ref_tensor=X)
+            _lip_coef = _zeros(n_features, backend, ref_tensor=X_proc)
         if sample_weight is not None:
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
@@ -205,7 +209,6 @@ def fista_solver(
         _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
-    _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
     _sw_arr = None

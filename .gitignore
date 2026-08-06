@@ -10,11 +10,6 @@ setup_cython.py
 spec_tracking.md
 SECURITY.md
 
-# Frontend dependencies and test artifacts
-frontend/node_modules/
-frontend/test-results/
-frontend/playwright-report/
-
 # IDE
 .vscode/
 .idea/
@@ -23,10 +18,34 @@ frontend/playwright-report/
 .claude/
 
 # Results
+# Keep the final PR80 Exact benchmark source available to the PR76 dashboard
+# pipeline while continuing to ignore ad-hoc result artifacts.
 results/
+!results/
+results/*
+!results/benchmark_frontend_sources/
+results/benchmark_frontend_sources/*
+!results/benchmark_frontend_sources/coxph_exact_pr80_20260726.json
+!results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json
+!results/benchmark_frontend_sources/coxph_exact_delayed_entry_strata_pr80_20260727.json
+!results/benchmark_frontend_sources/coxph_exact_strata_count_pr80_20260727.json
+!results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json
 
 # Dev tooling (benchmarks, scripts, plans, docs — not production code)
 dev/benchmarks/
+# Keep the PR79 evidence pipeline and its reviewed manifest versioned while
+# continuing to ignore ad-hoc benchmark artifacts elsewhere.
+!dev/benchmarks/
+dev/benchmarks/*
+!dev/benchmarks/benchmark_exact_ties_scaling.py
+!dev/benchmarks/benchmark_exact_strata_count_scaling.py
+!dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py
+!dev/benchmarks/pr79/
+dev/benchmarks/pr79/*
+!dev/benchmarks/pr79/aggregate_results.py
+!dev/benchmarks/pr79/configs/
+dev/benchmarks/pr79/configs/*
+!dev/benchmarks/pr79/configs/expected_accuracy_manifest.json
 dev/scripts/
 dev/docs/
 dev/plans/
@@ -84,6 +103,11 @@ dev/tests/verify_*.py
 dev/tests/REMOTE_GPU_TEST_GUIDE.md
 dev/tests/TORCH_BACKEND_CV_TESTING.md
 
+
+# Maintained pytest modules must always be visible to git.  Move manual,
+# remote, benchmark, or exploratory scripts to dev/manual instead.
+!dev/tests/test_*.py
+
 # Build artifacts
 build/
 dist/
@@ -110,7 +134,12 @@ dev/tests/remote_gpu_bench.py
 dev/tests/test_irls_gpu.py
 dev/tests/run_remote_gpu.py
 
-# === Benchmark dashboard tracked sources ===
+# Frontend dependencies and test artifacts
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+
+# Benchmark dashboard tracked implementation and canonical sources
 !dev/benchmarks/
 !dev/benchmarks/frontend_data/
 !dev/benchmarks/frontend_data/**
@@ -118,12 +147,10 @@ dev/tests/run_remote_gpu.py
 !dev/benchmarks/benchmark_frontend_schema.json
 !dev/benchmarks/frontend_sources.json
 !dev/benchmarks/benchmark_source_catalog.json
-
 !dev/tests/test_benchmark_frontend_data.py
 !dev/tests/test_frontend_parsers.py
 !dev/tests/fixtures/benchmark_frontend/
 !dev/tests/fixtures/benchmark_frontend/**
-
 !results/
 results/*
 !results/benchmark_frontend_sources/

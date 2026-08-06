@@ -1,191 +1,176 @@
 # statgpu TO DO
 
-> Primary planning document. Last updated: 2026-06-15.
-> See also `archive/PLAN_UNIFIED.md` for historical context.
+> Compact execution queue and mandatory completion checklist.  
+> Canonical roadmap: [`ROADMAP.md`](ROADMAP.md)  
+> Issue index: [`ISSUES.md`](ISSUES.md)  
+> Development guide: [`../AGENTS.md`](../AGENTS.md)  
+> Hard automation protocol: [`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md)  
+> Last synchronized: **2026-08-06**, release **0.2.4**, commit `0aeeb95b60e3e274053b8f1b6427ae50c8eec015`.
 
-## 开发门禁（必须遵守）
+This file is intentionally shorter than `dev/AGENTS.md` and the `.claude` workflows, but it is not a weaker checklist. When wording conflicts, the applicable `.claude` workflow/skill takes precedence, followed by `dev/AGENTS.md`. `ROADMAP.md` controls priority; GitHub issues control executable scope. Roadmap and issue scope may narrow work but may not weaken the hard gates.
 
-### 功能门禁
+## 1. Required task classification
 
-- 每次新增功能，必须同时提供：NumPy (CPU)、CuPy (GPU)、Torch (GPU) 三条路径
-- 每次新增统计功能后，必须补外部框架对标验证（statsmodels、sklearn、R）
-- 外部对标时必须显式统一口径（同一特征集合、ties/solver、正则设置）
+Before implementation, classify the touched impact axes and record which gates are active:
 
-### 推断门禁
+- public API;
+- backend, dtype, device, memory ownership, or fallback;
+- loss, penalty, solver, or loss × penalty capability;
+- cross-validation;
+- inference;
+- formula/model-matrix semantics;
+- benchmark or performance;
+- documentation-only.
 
-- Ridge/Lasso strict 模式必须通过外部对齐阈值：coef 1e-6, bse 1e-3, p-value 5e-2
-- strict 失败策略：默认 raise error
+Choose the broader classification when uncertain. Documentation-only work does not activate runtime gates unless it changes a support or performance claim.
 
-### 设备一致性门禁
+Every development report must end with exactly one workflow status:
 
-- strict 模式输出在 CPU/GPU 上对齐
+- `COMPLETE` — all active local blocking gates pass and required docs/artifacts are current;
+- `PARTIAL_REMOTE_PENDING` — local work is complete, but specified physical-GPU, R/external, or large-benchmark evidence is unavailable;
+- `BLOCKED_NEEDS_USER_APPROVAL` — continuation requires an explicit decision such as a backend deferral, API break, performance caveat, commit, push, merge, release, or publication;
+- `FAILED` — a blocking correctness, backend, formula, precision, convergence, fallback, review, or artifact gate remains unresolved.
 
-### 工程门禁
+Do not close work as “mostly complete” or treat `planned` as a completion status.
 
-- 每次提交：lint + type + test
-- 每月稳定版：外部矩阵 + benchmark 非回退 + 文档同步
+## 2. Non-negotiable development gates
 
----
+### 2.1 Public contract
 
-## 模块完成度 (2026-06-17, P2 完成后)
+- [ ] Define inputs, outputs, shapes, dtype/device behavior, errors, fallback behavior, statistical parameterization, and explicit non-goals before final implementation.
+- [ ] Preserve sklearn-style constructor identity, `get_params` / `set_params`, cloning, fitted-state invalidation, pipeline, and CV behavior where applicable.
+- [ ] User-visible unsupported combinations fail early and precisely; they do not optimize an incomplete objective or change behavior silently.
 
-| 模块 | 完成度 | 已实现 | 关键缺失 |
-|------|--------|--------|----------|
-| **linear_model/** | ~90% | Ridge, Lasso, ElasticNet, Logistic, 7 GLM, Penalized, Ordered, CV | multinomial, sparse input |
-| **glm_core/** | ~85% | 6 solvers, 7 families, 5 links | solver 拆分优化 |
-| **penalties/** | ~95% | 12 penalties (L1/L2/EN/SCAD/MCP/Adaptive/Group) | 无 |
-| **survival/** | ~45% | CoxPH, CoxPHCV, Breslow/Efron, robust SE, cluster, delayed entry | strata, frailty, time-varying |
-| **inference/** | ~80% | 15 distributions, p-value adjustment, bootstrap, permutation | 无 |
-| **unsupervised/** | ~95% | 12 estimators (PCA, KMeans, DBSCAN, tSNE, UMAP, NMF, GMM...) | sparse input |
-| **nonparametric/kernel_methods/** | ~80% | 7 kernels, KernelRidge, KernelRidgeCV, Nystroem, KernelPCA | SVM |
-| **panel/** | ~70% | PanelOLS, RE, PooledOLS, BetweenOLS, FDO, FMB, HAC, formula | IV, tests, R² variants |
-| **nonparametric/splines/** + **semiparametric/** | ~60% | bspline, natural_cubic, SplineTransformer, cyclic, thin plate, GAM | tensor product, adaptive |
-| **covariance/** | ~60% | EmpiricalCovariance, LedoitWolf, OAS, ShrunkCov, MinCovDet, GraphicalLasso | OGK, M-estimator |
-| **anova/** | ~60% | f_oneway, f_twoway, f_welch, tukey_hsd, bonferroni, effect sizes | repeated measures, Type II/III |
-| **nonparametric/** | ~70% | KDE, kernel regression, bandwidth selection | 无 |
-| **feature_selection/** | ~80% | KnockoffSelector, StepwiseSelector | 无 |
-| **metrics/** | ~60% | ROC, AUC, confusion matrix | VIF, influence |
-| **diagnostics/** | ~50% | RegressionDiagnostics | BP test, DW test |
-| **mixed_model/** | 0% | ❌ | lme4/nlme 等效 (LMM, GLMM, GEE) |
-| **meta_analysis/** | 0% | ❌ | metafor 等效 (rma, meta-regression, NMA) |
-| **changepoint/** | 0% | ❌ | changepoint 等效 (PELT, Bayesian, batch) |
-| **multivariate/** | 0% | ❌ | MASS/candisc 等效 (LDA, QDA, MANOVA, CCA, FA) |
-| **copula/** | 0% | ❌ | copula 等效 (Gaussian, t, Vine copula) |
-| **imputation/** | 0% | ❌ | mice 等效 (MICE, RF imputation, MI pooling) |
-| **nonlinear/** | 0% | ❌ | minpack.lm 等效 (NLS, Levenberg-Marquardt) |
+### 2.2 Three backends and device locality
 
----
+- [ ] Every new or materially changed statistical method implements NumPy, CuPy, and Torch; CPU-only work is incomplete.
+- [ ] A backend deferral requires explicit user approval plus the reason, user-visible failure behavior, deterministic skip condition, and follow-up issue.
+- [ ] Explicit `device="cuda"` and `device="torch"` never silently fall back to CPU or another backend; only `device="auto"` may select a backend automatically.
+- [ ] Core fitting, prediction, scoring, inference, and validation remain on the selected backend; no hidden full-array GPU-to-CPU transfer is introduced.
+- [ ] Fallback, approximate inference, dtype conversion, or device conversion is part of the public contract and is visible through an error, warning, result field, or report.
+- [ ] GPU-buffer-owning estimators implement the documented `gpu_memory_cleanup` lifecycle, including cleanup methods and finalization behavior without discarding fit state prematurely.
 
-## 待完成项
+### 2.3 Reuse and architecture
 
-### P0: 进行中
+- [ ] Reuse `BaseEstimator`, `statgpu/backends/`, existing array helpers, solver/penalty registries, `statgpu/cross_validation/`, formula infrastructure, and `statgpu/inference/` before adding private parallel implementations.
+- [ ] Model modules do not scatter direct CuPy imports or duplicate backend selection and conversion logic without a documented architectural reason.
+- [ ] New inference distribution, p-value, or interval logic checks existing backend-aware inference utilities before adding another implementation.
 
-- [ ] 完善推断严谨性：跨设备一致性（SE/t/z/p/CI、AIC/BIC/LLF）
-- [ ] CoxPH Cython 编译版本调试（当前仍需保留 Python fallback）
-- [ ] 补 `PenalizedLogisticRegression.predict_proba` smoke test，并修复 wrapper 内 `np` / `_ETA_CLIP` 依赖一致性
+### 2.4 Direct fit and CV closure
 
-### P1: API parity / 功能补齐
+- [ ] Every public tunable loss × penalty capability supported by direct `fit()` also supports the CV layer: path/grid generation, deterministic folds, fold scoring, best-parameter selection, and final refit.
+- [ ] CV preserves the declared loss, weighting, backend, device, dtype, formula alignment, and objective normalization.
+- [ ] A capability may omit CV only when it is explicitly non-tunable or the user approves a deferral with failure behavior, tests, docs, and a follow-up issue.
+- [ ] Do not advertise a partially completed penalized module: when a roadmap package declares a penalty matrix, direct fit and CV must close for the whole declared matrix before the package is marked complete.
 
-- [ ] LogisticRegression: multinomial/softmax
-- [ ] LogisticRegression penalized parity: 将 L1/elastic-net 能力对齐到公开 API、文档和测试矩阵
-- [ ] CoxPH: strata, frailty, time-varying covariates
-- [ ] 稀疏输入支持：明确 linear_model 与 unsupervised estimators 的 CSR/CSC 支持范围
-- [ ] CoxPHCV: 跨 CPU/CuPy/Torch 回归验证，覆盖 `entry`、`cluster`、`predict`、`score`、cache key 和文档示例
-- [ ] RidgeCV: 公开/文档化 alpha path 结果，补 sklearn 对标测试；单模型 `Ridge.warm_start` 作为待评估 API
+### 2.5 Inference contract
 
-### P2: 新模块扩展
+- [ ] A model family that exposes `compute_inference`, `summary()`, covariance, SE, p-values, or confidence intervals implements inference or is explicitly documented and tested as estimation-only.
+- [ ] Strict inference is the default path; strict failure raises by default. Approximate or downgraded inference requires explicit opt-in and visible status.
+- [ ] Inference outputs remain consistent across supported backends, including applicable `coef`, `bse`, `t/z`, `p`, confidence intervals, `AIC`, `BIC`, and `LLF` fields.
+- [ ] Current default external-alignment thresholds are recorded where applicable: coefficient error `<= 1e-6`, BSE error `<= 1e-3`, and p-value error `<= 5e-2`; a different tolerance requires a statistical or numerical justification.
+- [ ] Direct-fit and final-CV-refit inference use the same declared estimator contract; fold models remain estimation-only only when that behavior is intentional and tested.
 
-**anova/** (15% -> 目标 60%):
-- [ ] 二因素 ANOVA (with/without interaction)
-- [ ] Welch ANOVA (unequal variances)
-- [ ] 事后检验: Tukey HSD, Bonferroni
-- [ ] 效果量: Cohen's f, partial eta-squared；保留 one-way `eta_squared` 回归测试
+### 2.6 Formula contract
 
-**covariance/** (30% -> 目标 60%):
-- [ ] GraphicalLasso / GraphicalLassoCV (稀疏逆协方差)
-- [ ] MinCovDet (稳健估计)
-- [ ] ShrunkCovariance (通用收缩)
+- [ ] Formula-facing methods test intercept handling, categorical reference levels, interactions, transforms, missing-data row alignment, feature names, and prediction column order.
+- [ ] Array and formula paths agree after model-matrix alignment.
+- [ ] R-style/Patsy semantics are externally checked where applicable; unsupported syntax has a precise error and documented boundary.
 
-**panel/** (45% -> 目标 70%):
-- [ ] FamaMacBeth
-- [ ] HAC/Newey-West 协方差
-- [ ] PooledOLS, BetweenOLS, FirstDifferenceOLS
+### 2.7 Objective, penalty, precision, and convergence
 
-**nonparametric/splines/** + **semiparametric/** (35% -> 目标 60%):
-- [ ] sklearn SplineTransformer API (fit/transform)
-- [ ] 循环样条 (cyclic cubic)
-- [ ] 薄板样条 (thin plate)
+- [ ] State whether the objective uses a sum or average loss and whether the intercept is penalized.
+- [ ] Map external regularization scales explicitly; for example, use `lambda_external = n * lambda` when comparing average-loss statgpu objectives with summed-loss references.
+- [ ] Do not alter the statgpu objective merely to force agreement with an external package.
+- [ ] Validate loss value, gradient, Hessian or Hessian-vector behavior, proximal/KKT conditions, line search, stopping rules, and convergence status for the active component matrix.
+- [ ] Precision and convergence are blocking before performance optimization.
+- [ ] Numeric recovery catches only recognized numerical-domain or rank failures; OOM, device, shape, index, contract, and programming errors remain fatal.
 
-**nonparametric/kernel_methods/** (60% -> 目标 80%):
-- [ ] Nystroem 近似
-- [ ] KernelPCA
-- [ ] chi2_kernel
+### 2.8 External and architecture-specific validation
 
-### P3: 大规模重构
+- [ ] Use the strongest available baseline: analytic/derivative check, trusted statgpu path, Python reference, R reference, then documented numerical invariants.
+- [ ] External comparisons align feature sets, weights, ties, solver, penalty, objective normalization, `alpha` / `C`, `max_iter`, and `tol`.
+- [ ] Prefer statsmodels for statistical inference, sklearn for estimator/prediction behavior, and authoritative R packages for key statistical definitions.
+- [ ] Activate the relevant architecture matrix: loss, penalty, solver, direct-fit/CV, inference, formula, backend helper, survival, or nonparametric/unsupervised tests.
+- [ ] Broad cross-axis changes extend a maintained matrix test rather than relying only on isolated smoke tests.
 
-- [ ] `_penalized_cv.py` 文件拆分 (2800+ 行)
-- [ ] `_solver.py` 函数拆分 (fista_bb_solver 470 行)
-- [ ] `_fit_cpu` / `_fit_gpu` / `_fit_torch` 代码重复消除
-- [ ] `_irls_cd` 和 `_irls_cd_gpu` 统一为 backend-agnostic 实现
-- [ ] `_penalized_cv.py` 6 个 FISTA 循环提取为共享 `_fista_cv_step`
+### 2.9 Testing, review, and validation tier
 
-### P4: 性能优化
+- [ ] Run applicable lint, type, unit, regression, compatibility, formula, external-alignment, and import-order tests.
+- [ ] Add deterministic NumPy/CuPy/Torch parity tests and explicit unavailable-backend errors/skips.
+- [ ] Complete maintained physical CuPy and Torch validation for a `COMPLETE` claim when those paths are active; otherwise report `PARTIAL_REMOTE_PENDING` with exact commands and missing resources.
+- [ ] Record the highest completed validation tier: `local-minimal`, `local-full`, or `remote-full`.
+- [ ] Run code review and fix cycles until no unresolved CRITICAL or HIGH issue remains; remaining medium findings require a documented behavior boundary or follow-up issue.
+- [ ] Tests must independently calculate expected statistical values where feasible rather than only comparing one statgpu path with another.
 
-- [ ] Panel 双向 demeaning 批量化（减少 GPU kernel launch）
-- [ ] KernelRidgeCV CuPy 路径实现/验证（确认是否仍会回退到 NumPy）
-- [ ] 加权 CV 快速路径
+### 2.10 Performance and evidence artifacts
 
-### P5: 代码质量
+- [ ] Performance work starts only after correctness, precision, and convergence gates pass.
+- [ ] GPU timing synchronizes the correct CuPy/Torch backend before and after each measured region.
+- [ ] Record target scale, data shape, dtype, hardware, software environment, timing scope, transfer policy, repeats, seeds, and comparison identity.
+- [ ] Store machine-readable benchmark evidence under `results/*.json` and a concise audit summary; do not support public claims with rounded prose alone.
+- [ ] Do not claim universal GPU acceleration; report measured crossover and slower regimes.
+- [ ] Benchmark and remote evidence must be provenance-bearing and reproducible, with source hashes or equivalent source identity where the workflow requires them.
 
-- [ ] `_array_ops.py` 与 `_utils.py` helper 统一（`_xp_copy` / `xp_copy` 等重复）
-- [ ] `_solver.py` 标量提取模式统一（4 种不同方式）
-- [ ] `_solver.py` 异常捕获收窄（已部分完成）
-- [x] Panel summary() 返回 PanelSummary 结构化对象 ✅
-- [x] PanelOLS.predict() 包含固定效应 (entity_ids/time_ids) ✅
-- [x] ANOVA float32 支持 (dtype 参数) ✅
+### 2.11 Documentation and release surface
 
-### P6: Loss-as-Plugin 扩展 (详见 `development_priority.md`)
+- [ ] Update exports, README/USAGE where applicable, model pages, compatibility matrices, and changelogs in the same feature change.
+- [ ] Follow EN-first/CN-follow: update `docs/en/` and English entry points, then synchronize `docs/cn/` and Chinese entry points.
+- [ ] Keep root `CHANGELOG.md`, `docs/en/changelog.md`, and `docs/cn/changelog.md` consistent with the actual capability and validation evidence.
+- [ ] Model documentation includes applicable objective, estimating equation, covariance/inference, parameters, CPU/CuPy/Torch examples, strict/approx behavior, outputs, FAQ, external validation, and references.
+- [ ] Remote or benchmark claims cite auditable artifact paths rather than only verbal conclusions.
 
-**核心策略:** 将新方法实现为 `GLMLoss` 子类，接入现有 PenalizedGLM 框架，零改动 solver/penalty 代码。
+### 2.12 Required completion report
 
-**Phase 1: 新 Loss 函数 (最高 ROI，2026 Q3)**
-- [ ] **QuantileLoss** — `quantreg::rq()` — 2-3 周 — 分位数回归 + 所有 penalty
-- [ ] **HuberLoss** — `MASS::rlm()` — 2-3 周 — 稳健 M-estimator + 所有 penalty
-- [ ] **CoxPH refactor** — `survival::coxph()` — 3-4 周 — 将现有 CoxPH 接入 loss 框架
-- [ ] **BisquareLoss** — `robustbase::lmrob()` — 1 周 — MM-estimator 的 S 步
+- [ ] Report impact classification, workflow status, validation tier, files changed, backend matrix, CV status, inference status, formula status, objective/penalty mapping, precision/convergence evidence, tests, external baselines, physical-GPU evidence, benchmark artifacts, review outcome, documentation changes, and any pending remote commands.
+- [ ] Commits, pushes, PR creation, merges, tags, releases, and package publication occur only after an explicit user request.
+- [ ] Credentials are never read from tracked Markdown or settings files; remote execution uses the maintained untracked/environment configuration path.
 
-**Phase 2: 推断统一 (2026 Q3-Q4)**
-- [ ] 统一 `summary()` 支持所有 loss 类型
-- [ ] 稳健标准误 (HC0-HC3/HAC/cluster) 适用于所有 loss
-- [ ] Model selection (AIC/BIC/CV) 适用于所有 loss
+## 3. Active execution queue
 
-**Phase 3: 新模块 (2026 Q4-2027 Q1)**
-- [ ] **混合效应模型** — `lme4::lmer()` — 8-12 周 — 新模块，需稀疏矩阵
-- [ ] **元分析** — `metafor::rma()` — 4-6 周 — 新模块
-- [ ] **GEE** — `geepack::geeglm()` — 3-4 周 — 新模块
-- [ ] **变点检测** — `changepoint::cpt.mean()` — 4-6 周 — 新模块
+### P0 — planning and integration
 
-**Phase 4: 高级方法 (2027+)**
-- [ ] **多元统计** — `MASS::lda()`, `candisc::cancor()` — 6-8 周
-- [ ] **Copula** — `copula::fitCopula()` — 4-6 周
-- [ ] **SEM** — `lavaan::sem()` — 8-10 周
+- [ ] Merge roadmap reconciliation PR #89 and use `ROADMAP.md` as the only current priority source.
+- [ ] #90 — synchronize benchmark dashboard PR #76 with current `master` without adding new benchmark families in the same change.
+- [ ] Regenerate and validate dashboard data, inventory, parse report, and deployed assets during #90.
 
-**已有计划扩展:**
-- [ ] GAMM (扩展 plan_spline.md) — `mgcv::gamm()` — 广义可加混合模型
-- [ ] 竞争风险 (扩展 plan_survival.md) — `cmprsk::crr()` — Fine-Gray 模型
-- [ ] 变异函数/克里金 (扩展 plan_spatial.md) — `gstat::variogram()` — 空间插值
+### P1 — benchmark evidence and dashboard readiness
 
----
+- [ ] #91 — add a canonical CV benchmark source covering RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV.
+- [ ] Record folds, grid/path size, warm starts, CV time, final-refit time, selected parameter, score, failures, synchronization, and timing scope.
+- [ ] #92 — complete production-path browser QA, cross-browser smoke, accessibility checks, and documentation navigation before proposing PR #76 for `master` integration.
 
-### CRAN Task View 覆盖审计 (35 个 Task View)
+### P1 — panel workflow completion
 
-| 状态 | 数量 | 说明 |
-|------|------|------|
-| ✅ 已实现 | 3 | Cluster, Distributions, HPC |
-| 🟡 部分实现/已有计划 | 20 | Econometrics, Finance, FDA, GraphicalModels, ML, MetaAnalysis, Missing, MixedModels, Multivariate, NumericalMath, Optimization, Psychometrics, Robust, Spatial, SpatioTemporal, Survival, TimeSeries, Causal, ExperimentalDesign(partial) |
-| ❌ 缺失但应覆盖 | 2 | DoE(实验设计), DifferentialEquations(ODE求解) |
-| ❌ 战略排除 | 1 | Bayesian — Python已有成熟GPU方案(PyMC/NumPyro/Pyro/TFP)，不竞争，提供桥接 |
-| ❌ 不适用 | 9 | ChemPhys, MedicalImaging, ModelDeployment, NLP, Phylogenetics, ReproducibleResearch, TeachingStatistics, Tracking, WebTech |
+- [ ] #93 — refactor panel models onto a shared base and covariance registry while preserving numerical behavior.
+- [ ] Add Hausman, pooling F, and Breusch-Pagan LM tests.
+- [ ] Add within/between/overall/adjusted R-squared and model F-statistics.
+- [ ] Add robust RandomEffects covariance, HC0/HC2/HC3 where defined, and Driscoll-Kraay covariance.
+- [ ] Validate against `linearmodels`, R `plm`, and aligned sandwich covariance references.
 
-详见 `cran_r_package_supplement.md` Part F/G。
+### P2 — survival foundations
 
----
+- [ ] #94 — implement Kaplan-Meier and Nelson-Aalen estimators with variance, confidence intervals, grouped output, and external alignment.
+- [ ] #95 — implement Weibull, log-normal, and log-logistic AFT models with three backends, model-based inference, formula support, and prediction functions.
 
-## 已完成历史 (2026-04 ~ 2026-06)
+### P2 — multinomial and sparse foundations
 
-> 详细记录见 `archive/PLAN_UNIFIED.md` 和 git history。
+- [ ] #96 — define and implement the unpenalized-only multinomial/softmax estimator, including identifiability, shapes, inference, formula semantics, and three-backend parity.
+- [ ] #96 must expose no regularization parameter or penalized solver; it is non-tunable and therefore introduces no multinomial CV surface.
+- [ ] #98 — after #96, implement the complete penalized multinomial suite as one capability package.
+- [ ] #98 must cover at least L2, L1, ElasticNet, SCAD, and MCP across NumPy, CuPy, and Torch.
+- [ ] #98 must close direct fit, path/grid, deterministic CV, selection, final refit, supported inference, external alignment, physical-GPU validation, and EN/CN docs for every declared penalty before completion.
+- [ ] #97 — define a shared SciPy/CuPy/Torch sparse-input contract with no silent densification.
 
-- RidgeCV / LogisticRegressionCV 完整实现 (2026-04-21)
-- CoxPH C-index / Efron ties 修复 (2026-04-20)
-- 完整推断体系：LinearRegression / Ridge / Logistic / CoxPH (HC0-HC3/HAC)
-- 12 个 Unsupervised estimator
-- 5 个新模块：ANOVA, Covariance, Kernel Methods, Panel Data, Splines/GAM
-- Panel summary() 返回 PanelSummary 结构化对象
-- PanelOLS.predict() 包含固定效应 (`entity_ids` / `time_ids`)
-- ANOVA float32 支持 (`dtype` 参数)
-- CoxPHCV 从骨架推进为可拟合实现，仍需跨后端回归验证和文档补齐
-- RidgeCV alpha grid/path 结果可通过 `alphas_`、`cv_results_`、`mean_mse_` 获取，仍需 API 文档和 sklearn 对标测试
-- PR #49: 110+ bug fixes, 428 tests
-- PR #48: Panel, ANOVA, Covariance review fixes
-- Async FISTA (v22e): 最高 5.41x 加速
-- v23c: 1043/1043 ALL PASS
+### P3 — feature-driven technical debt
+
+- [ ] Split `_penalized_cv.py` by candidate generation, fold execution, selection, and final refit when #91 supplies regression coverage.
+- [ ] Split long FISTA-family solver functions into bounded numerical components without changing objective or stopping contracts.
+- [ ] Unify duplicated array-copy and scalar-extraction helpers.
+- [ ] Reduce backend duplication only where device behavior remains explicit and fully tested.
+
+## 4. Deferred
+
+The following are not immediate priorities: Panel IV, high-dimensional fixed effects, DID/event study, dynamic-panel GMM, frailty, Fine-Gray, multi-state survival, mixed models, GEE, meta-analysis, changepoints, copulas, multiple imputation, nonlinear least squares, and broad new unsupervised families.
+
+Promote a deferred item only through a scoped GitHub issue satisfying `ROADMAP.md`, this checklist, `dev/AGENTS.md`, and the applicable `.claude` workflow/skill.

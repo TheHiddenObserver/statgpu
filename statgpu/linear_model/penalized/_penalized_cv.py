@@ -1,9 +1,10 @@
 """
 Unified cross-validated penalized GLM estimator.
 
-Supports all GLM loss functions (squared_error, logistic, poisson, gamma,
-inverse_gaussian, negative_binomial, tweedie) with all penalty types
-(l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso).
+Supports scalar-response GLM losses (squared_error, logistic, poisson, gamma,
+inverse_gaussian, negative_binomial, tweedie) plus a separate survival-aware
+``cox_ph`` path with its supported penalty types
+(l1, l2, elasticnet, scad, mcp).
 
 Optimizations:
 - Warm-start across alpha values (descending order)
@@ -26,9 +27,19 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
-from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
+from statgpu.backends._array_ops import (
+    _copy_arr,
+    _linalg_exception_is_rank_failure,
+    _soft_threshold,
+    _xp_zeros,
+    _zeros,
+)
 from statgpu.backends._utils import _to_float_scalar
-from statgpu.cross_validation._base import CVEstimatorBase, kfold_indices
+from statgpu.cross_validation._base import (
+    CVEstimatorBase,
+    _cuda_backend_available,
+    kfold_indices,
+)
 from statgpu.solvers._utils import _nesterov_momentum
 
 
@@ -84,18 +95,173 @@ class ApproximateCVWarning(UserWarning):
     """Warning emitted when approximate two-stage CV screening is enabled."""
 
 
+def _cv_exception_is_infrastructure_failure(exc) -> bool:
+    """Return whether a CV exception must never be converted to fallback data.
+
+    Candidate-level numerical failures may be represented by ``NaN`` or routed
+    to a slower implementation. Hardware/runtime failures must remain visible,
+    otherwise CV can silently continue after CUDA OOM, device mismatch, illegal
+    memory access, or an indexing/programming error.
+    """
+    if isinstance(exc, MemoryError):
+        return True
+    exc_type = type(exc)
+    type_text = f"{exc_type.__module__}.{exc_type.__name__}".lower()
+    if "outofmemory" in type_text or "out_of_memory" in type_text:
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "out of memory",
+            "cuda error",
+            "hip error",
+            "device-side assert",
+            "illegal memory access",
+            "invalid device ordinal",
+            "expected all tensors to be on the same device",
+            "device mismatch",
+            "index out of range",
+            "cublas",
+            "cudnn",
+            "nvrtc",
+        )
+    )
+
+
+def _raise_cv_infrastructure_failure(exc) -> None:
+    """Re-raise explicit hardware/runtime failures."""
+    if _cv_exception_is_infrastructure_failure(exc):
+        raise exc
+
+
+def _cv_candidate_failure_is_recoverable(exc) -> bool:
+    """Return whether one alpha may be marked failed without hiding a bug."""
+    return isinstance(
+        exc, (FloatingPointError, OverflowError, np.linalg.LinAlgError)
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
+def _cv_path_failure_is_recoverable(exc) -> bool:
+    """Return whether an optimized path may fall back to a slower path."""
+    return isinstance(exc, NotImplementedError) or _cv_candidate_failure_is_recoverable(exc)
+
+
+def _cv_loss_evaluation_failure_is_recoverable(exc) -> bool:
+    """Return whether validation scoring may try an equivalent evaluator."""
+    return isinstance(
+        exc,
+        (
+            NotImplementedError,
+            FloatingPointError,
+            OverflowError,
+            np.linalg.LinAlgError,
+        ),
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
+def _raise_unless_recoverable_cv_loss_failure(exc) -> None:
+    if not _cv_loss_evaluation_failure_is_recoverable(exc):
+        raise exc
+
+
+def _raise_unless_recoverable_cv_candidate_failure(exc) -> None:
+    if not _cv_candidate_failure_is_recoverable(exc):
+        raise exc
+
+
+def _raise_unless_recoverable_cv_path_failure(exc) -> None:
+    if not _cv_path_failure_is_recoverable(exc):
+        raise exc
+
+
+def _weighted_mse_fallback(y_true, y_pred, sample_weight=None) -> float:
+    """Squared-error-only emergency evaluator preserving validation weights."""
+    residual_sq = (np.asarray(y_true, dtype=np.float64).ravel() -
+                   np.asarray(y_pred, dtype=np.float64).ravel()) ** 2
+    if sample_weight is None:
+        return float(np.mean(residual_sq))
+    weights = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+    if weights.shape != residual_sq.shape:
+        raise ValueError("validation sample_weight must match validation rows")
+    if not np.all(np.isfinite(weights)) or np.any(weights < 0):
+        raise ValueError("validation sample_weight must be finite and non-negative")
+    total = float(np.sum(weights))
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("validation sample_weight must have a finite positive sum")
+    return float(np.dot(weights, residual_sq) / total)
+
+
+def _is_squared_error_loss_name(loss_name) -> bool:
+    return str(loss_name).lower() in ("squared_error", "gaussian", "normal")
+
+
+def _cv_lipschitz_failure_is_recoverable(exc) -> bool:
+    """Return whether an optional Lipschitz hint may defer to the solver."""
+    return isinstance(
+        exc,
+        (NotImplementedError, FloatingPointError, OverflowError, np.linalg.LinAlgError),
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
+def _cv_alpha_grid_failure_is_recoverable(exc) -> bool:
+    """Allow default alpha fallback only for genuine numerical failures."""
+    return isinstance(
+        exc,
+        (FloatingPointError, OverflowError, np.linalg.LinAlgError),
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
 def _is_uniform_weight(sample_weight) -> bool:
-    """Check if sample_weight is uniform (all elements equal) or None."""
+    """Check uniformity on the current backend and synchronize one boolean."""
     if sample_weight is None:
         return True
-    sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-    return not sw_np.size or np.allclose(sw_np, sw_np[0])
+    module = type(sample_weight).__module__
+    if module.startswith("torch"):
+        import torch
+
+        values = sample_weight.reshape(-1)
+        if int(values.numel()) == 0:
+            return True
+        uniform = (
+            torch.allclose(values, values[0])
+            if torch.is_floating_point(values)
+            else torch.all(values == values[0])
+        )
+        return bool(uniform.item() if hasattr(uniform, "item") else uniform)
+    if module.startswith("cupy"):
+        import cupy as cp
+
+        values = sample_weight.reshape(-1)
+        if int(values.size) == 0:
+            return True
+        uniform = (
+            cp.allclose(values, values[0])
+            if getattr(values.dtype, "kind", "") == "f"
+            else cp.all(values == values[0])
+        )
+        return bool(uniform.item())
+    values = np.asarray(sample_weight).reshape(-1)
+    return not values.size or bool(np.allclose(values, values[0]))
 
 
 def _device_to_name(device):
     if isinstance(device, Device):
         return device.value
     return str(device).lower()
+
+
+def _should_build_squared_error_cv_cache(loss_name, penalty_name, solver_name, device_name):
+    """Return whether the general CV fallback can consume a Gram cache."""
+    if str(loss_name).lower() != "squared_error":
+        return False
+    if str(device_name).lower() not in ("cuda", "torch"):
+        return False
+    penalty_name = str(penalty_name).lower()
+    solver_name = str(solver_name).lower()
+    # The default GPU Ridge route is Newton and does not read _cv_cache.
+    # Explicit exact Ridge and sparse squared-error paths do consume it.
+    return not (penalty_name == "l2" and solver_name != "exact")
 
 
 def _slice_rows(arr, idx):
@@ -113,15 +279,143 @@ def _slice_rows(arr, idx):
         return np.asarray(arr)[idx]
 
 
+def _finite_column_mean(scores):
+    """Return per-candidate means without emitting empty-slice warnings."""
+    scores = np.asarray(scores, dtype=np.float64)
+    present = ~np.isnan(scores)
+    counts = np.sum(present, axis=0)
+    totals = np.sum(np.where(present, scores, 0.0), axis=0)
+    means = np.full(scores.shape[1], np.nan, dtype=np.float64)
+    np.divide(totals, counts, out=means, where=counts > 0)
+    return means
+
+
+def _coerce_scalar_alpha_grid_values(alpha_grid):
+    """Return float64 grid values without hiding malformed element types."""
+    if isinstance(alpha_grid, (list, tuple)):
+        # Object dtype preserves mixed Python element types. A normal
+        # ``np.asarray`` would silently promote True to 1.0 and numeric text
+        # to strings before the public validator can reject either contract.
+        raw = np.asarray(alpha_grid, dtype=object)
+    else:
+        raw = np.asarray(_to_numpy(alpha_grid))
+
+    if raw.ndim != 1:
+        raise ValueError("alpha_grid must be a one-dimensional array")
+
+    kind = raw.dtype.kind
+    if kind == "b":
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not booleans"
+        )
+    if kind == "c":
+        raise ValueError("alpha_grid must contain real numeric values")
+    if kind in ("S", "U"):
+        raise ValueError(
+            "alpha_grid must contain real numeric values, not strings or bytes"
+        )
+
+    if kind == "O":
+        grid = np.empty(raw.size, dtype=np.float64)
+        for index, value in enumerate(raw):
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not booleans"
+                )
+            if isinstance(value, (str, bytes, np.str_, np.bytes_)):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not strings "
+                    "or bytes"
+                )
+            value_array = np.asarray(value)
+            if value_array.ndim != 0:
+                raise ValueError(
+                    "alpha_grid must contain scalar real numeric values"
+                )
+            value_kind = value_array.dtype.kind
+            if value_kind == "b":
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not booleans"
+                )
+            if value_kind == "c" or np.iscomplexobj(value):
+                raise ValueError("alpha_grid must contain real numeric values")
+            if value_kind in ("S", "U"):
+                raise ValueError(
+                    "alpha_grid must contain real numeric values, not strings "
+                    "or bytes"
+                )
+            try:
+                grid[index] = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    "alpha_grid must contain real numeric values"
+                ) from exc
+        return grid
+
+    if kind not in ("i", "u", "f"):
+        raise ValueError("alpha_grid must contain real numeric values")
+    return np.asarray(raw, dtype=np.float64)
+
+
+def _normalize_scalar_alpha_grid(alpha_grid, *, penalty_name):
+    """Validate and filter a user scalar-response CV alpha grid.
+
+    Scalar-response CV searches strictly positive regularization strengths.
+    Invalid scalar values are filtered for compatibility with the dedicated
+    scalar CV estimators. ``None`` signals that the caller must generate the
+    default grid because the supplied grid was empty or fully filtered.
+    """
+    grid = _coerce_scalar_alpha_grid_values(alpha_grid)
+    valid = np.isfinite(grid) & (grid > 0.0)
+    n_invalid = int(grid.size - np.count_nonzero(valid))
+    penalty_label = str(penalty_name).lower().strip()
+    if grid.size == 0 or not np.any(valid):
+        warnings.warn(
+            "The scalar-response alpha_grid was empty or contained no finite "
+            "positive values; using the automatically generated default grid. "
+            f"The {penalty_label} CV path searches alpha > 0.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return None
+    if n_invalid:
+        warnings.warn(
+            f"Filtered {n_invalid} non-positive or non-finite alpha_grid "
+            f"value(s); the scalar-response {penalty_label} CV path searches "
+            "alpha > 0.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return grid[valid]
+
+
+def _validate_final_scalar_alpha_grid(alpha_grid):
+    """Require a generated or filtered scalar grid to be usable by CV."""
+    grid = np.asarray(alpha_grid, dtype=np.float64)
+    if (
+        grid.ndim != 1
+        or grid.size == 0
+        or not np.all(np.isfinite(grid))
+        or np.any(grid <= 0.0)
+    ):
+        raise ValueError(
+            "scalar-response alpha grid generation must produce a non-empty "
+            "one-dimensional array of finite positive values"
+        )
+    return grid
+
+
 def _nanargmin_prefer_larger_alpha(scores, alpha_grid, rel_tol=1e-10, abs_tol=1e-12):
     """Select min score with deterministic tie-break toward stronger regularization."""
     scores = np.asarray(scores, dtype=np.float64)
     alpha_grid = np.asarray(alpha_grid, dtype=np.float64)
     finite = np.isfinite(scores)
     if not np.any(finite):
-        # All scores are NaN/Inf — fall back to first alpha (strongest regularization)
-        warnings.warn("All CV scores are NaN/Inf; returning first alpha.", stacklevel=2)
-        return 0
+        # A selected alpha must have finite validation evidence.
+        raise RuntimeError(
+            "Cross-validation produced no finite candidate score; no "
+            "regularization parameter was selected."
+        )
     best = float(np.nanmin(scores))
     tol = max(float(abs_tol), abs(best) * float(rel_tol))
     candidates = np.flatnonzero(finite & (scores <= best + tol))
@@ -264,17 +558,16 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
     else:
         X_design = X_val_np
         coef_with_intercept = coef_np
-    # Fallback: unweighted loss. Weighted mean cannot be derived from
-    # unweighted mean, so weights are ignored for unknown loss types.
-    if sw is not None:
-        import warnings
-        warnings.warn(
-            f"_evaluate_loss_numpy: loss '{loss_name}' not in dispatch table, "
-            f"falling back to unweighted loss_fn.value(). Sample weights ignored.",
-            RuntimeWarning,
-            stacklevel=2,
+    # Unknown/custom losses use the same public LossBase contract as the
+    # optimized dispatch table, including analytic validation weights.
+    return float(
+        loss_fn.value(
+            X_design,
+            y_val_np,
+            coef_with_intercept,
+            sample_weight=sw,
         )
-    return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
+    )
 
 
 def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
@@ -357,10 +650,6 @@ def _backend_name_for_cv_device(device):
     if name == "torch":
         return "torch"
     return "numpy"
-
-
-# Import shared utility from _cv_base
-from statgpu.cross_validation._base import _torch_cuda_available
 
 
 def _logistic_sparse_effective_max_iter(max_iter, device, penalty_name, refit=False):
@@ -1419,8 +1708,22 @@ def _glm_sparse_cv_path(
             zero_lip = _zeros(n_features + 1, backend, ref_tensor=X_work)
             lipschitz_L = float(_to_numpy(loss_fn.lipschitz(X_work, zero_lip, y=yb)))
             if not np.isfinite(lipschitz_L) or lipschitz_L <= 0.0:
+                warnings.warn(
+                    "The optional closed-form Lipschitz hint was non-finite or "
+                    "non-positive; the solver will estimate its step size.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 lipschitz_L = None
-        except Exception:
+        except Exception as exc:
+            if not _cv_lipschitz_failure_is_recoverable(exc):
+                raise
+            warnings.warn(
+                f"The optional closed-form Lipschitz hint was unavailable "
+                f"({exc}); the solver will estimate its step size.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             lipschitz_L = None
 
     scores = []
@@ -1848,7 +2151,13 @@ _CV_DEVICE_ALWAYS_CPU = {
 
 
 class PenalizedGLM_CV(CVEstimatorBase):
-    """Cross-validated penalized GLM supporting all loss + penalty combinations."""
+    """Cross-validated penalized GLM and right-censored Cox estimator.
+
+    Scalar-response losses use the optimized GLM CV engine. ``loss="cox_ph"``
+    uses a survival-specific strict-CV path that preserves the two-column
+    target, scores unpenalized held-out partial likelihood, forbids an
+    intercept, and refits :class:`PenalizedCoxPHModel`.
+    """
 
     def __init__(
         self,
@@ -1900,35 +2209,52 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_selected_device_ = None
         self._cv_auto_reason_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear fitted selection state before every CV invocation."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alpha_grid_ = None
+        self.best_score_ = None
+        self.cv_results_ = None
+        self.estimator_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.cv_strategy_ = None
+        self.cv_selected_device_ = None
+        self._cv_auto_reason_ = None
+
     def _solver_for_cv(self, cv_device=None, X=None):
         """Return the strict internal solver used by the CV loop."""
-        solver = str(self.solver).lower()
+        solver = str(self._solver).lower()
         if solver != "auto":
             return solver
         from statgpu.linear_model.penalized._fit_mixin import _preferred_penalized_glm_solver
 
         return _preferred_penalized_glm_solver(
             self.loss,
-            self.penalty,
+            getattr(self.penalty, "name", self.penalty),
             backend_name=_backend_name_for_cv_device(
-                self.device if cv_device is None else cv_device
+                self._device if cv_device is None else cv_device
             ),
             l1_ratio=self.l1_ratio,
             cv_mode=True,
             problem_size=None if X is None else int(X.shape[0]) * int(X.shape[1]),
         )
 
-    def _effective_cv_device(self, X, penalty_name, n_alphas):
+    def _effective_cv_device(self, X, penalty_name, n_alphas, *, n_folds=None):
         """Resolve device for CV-level work; explicit devices are untouched."""
-        self.cv_selected_device_ = self.device
+        self.cv_selected_device_ = self._device
         self._cv_auto_reason_ = None
-        if _device_to_name(self.device) != "auto":
-            return self.device
+        if _device_to_name(self._device) != "auto":
+            return self._device
 
         n_samples, n_features = X.shape
         penalty_name = str(penalty_name).lower()
         loss_name = str(self.loss).lower()
         nx = int(n_samples) * int(n_features)
+        fold_count = int(self._cv) if n_folds is None else int(n_folds)
+        if fold_count < 1:
+            raise ValueError("n_folds must be a positive integer")
 
         # Small problems: always CPU
         if nx < _SMALL_PROBLEM_THRESHOLD:
@@ -1951,7 +2277,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 # OR condition: n_features >= or_min_feat AND nx >= 1_000_000
                 if not cond and or_min_feat > 0:
                     cond = int(n_features) >= or_min_feat and nx >= 1_000_000
-                if cond and _torch_cuda_available():
+                if cond and _cuda_backend_available("torch"):
                     self.cv_selected_device_ = "torch"
                     self._cv_auto_reason_ = reason
                     return "torch"
@@ -1961,47 +2287,66 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         # Fallback: large effective work → GPU
         continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
-        effective_work = nx * int(self.cv) * int(n_alphas) * continuation_factor
+        effective_work = nx * fold_count * int(n_alphas) * continuation_factor
         if effective_work < _GPU_BREAK_EVEN_THRESHOLD:
             self.cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
             return "cpu"
 
-        # Resolve device: if AUTO, prefer torch when CUDA available, else cpu
-        try:
-            import torch
-            if torch.cuda.is_available():
-                self.cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "GPU selected for large CV effective work"
-                return "torch"
-        except ImportError:
-            pass
-        try:
-            import cupy
-            self.cv_selected_device_ = "cupy"
+        # Resolve an operational backend rather than treating an importable GPU
+        # wheel as evidence that its CUDA driver and device are usable.
+        if _cuda_backend_available("torch"):
+            self.cv_selected_device_ = "torch"
             self._cv_auto_reason_ = "GPU selected for large CV effective work"
-            return "cupy"
-        except ImportError:
-            pass
+            return "torch"
+        if _cuda_backend_available("cupy"):
+            self.cv_selected_device_ = "cuda"
+            self._cv_auto_reason_ = "GPU selected for large CV effective work"
+            return "cuda"
         self.cv_selected_device_ = "cpu"
         self._cv_auto_reason_ = "No GPU available, falling back to CPU"
         return "cpu"
 
-    def _generate_alpha_grid(self, X, y):
-        """Auto-generate alpha grid based on loss and penalty type."""
+    def _generate_alpha_grid(self, X, y, sample_weight=None):
+        """Auto-generate an alpha grid on the fitted average-loss scale."""
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         X_np = _to_numpy(X).astype(np.float64)
         y_np = _to_numpy(y).astype(np.float64).ravel()
         n = X_np.shape[0]
+        if sample_weight is None:
+            sw_np = None
+            normalization = float(n)
+        else:
+            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
+            if sw_np.shape[0] != n:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw_np)):
+                raise ValueError("sample_weight must be finite")
+            if np.any(sw_np < 0):
+                raise ValueError("sample_weight must be non-negative")
+            normalization = float(np.sum(sw_np))
+            if normalization <= 0.0:
+                raise ValueError("sample_weight must have a positive sum")
 
         if self.loss == 'squared_error':
-            # Gradient at null model (intercept = mean(y)): X'(y - mean(y)) / n
-            alpha_max = float(np.max(np.abs(X_np.T @ (y_np - np.mean(y_np))))) / n
+            if sw_np is None:
+                x_mean = np.mean(X_np, axis=0)
+                y_mean = float(np.mean(y_np))
+                grad = (X_np - x_mean).T @ (y_np - y_mean) / normalization
+            else:
+                x_mean = np.sum(X_np * sw_np[:, None], axis=0) / normalization
+                y_mean = float(np.sum(y_np * sw_np) / normalization)
+                grad = (X_np - x_mean).T @ (sw_np * (y_np - y_mean)) / normalization
+            alpha_max = float(np.max(np.abs(grad)))
         elif self.loss == 'logistic':
-            # Null model prediction: mu_null = mean(y)
-            mu_null = np.mean(y_np)
-            alpha_max = float(np.max(np.abs(X_np.T @ (y_np - mu_null)))) / n
+            if sw_np is None:
+                mu_null = float(np.mean(y_np))
+                grad = X_np.T @ (y_np - mu_null) / normalization
+            else:
+                mu_null = float(np.sum(y_np * sw_np) / normalization)
+                grad = X_np.T @ (sw_np * (y_np - mu_null)) / normalization
+            alpha_max = float(np.max(np.abs(grad)))
         else:
             try:
                 model = PenalizedGeneralizedLinearModel(
@@ -2010,10 +2355,16 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
                     penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
-                model.fit(X_np, y_np)
-                grad = X_np.T @ (y_np - _to_numpy(model.predict(X_np))) / n
+                model.fit(X_np, y_np, sample_weight=sw_np)
+                residual = y_np - _to_numpy(model.predict(X_np))
+                if sw_np is None:
+                    grad = X_np.T @ residual / normalization
+                else:
+                    grad = X_np.T @ (sw_np * residual) / normalization
                 alpha_max = float(np.max(np.abs(grad)))
             except Exception as e:
+                if not _cv_alpha_grid_failure_is_recoverable(e):
+                    raise
                 warnings.warn(
                     f"Alpha grid estimation failed ({e}), using alpha_max=1.0",
                     RuntimeWarning,
@@ -2035,7 +2386,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             alpha_max = 1.0
 
-        grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
+        grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self._n_alphas)
         return grid
 
     def _solve_ridge_fold_batch(self, X_train, y_train, X_val, y_val, alphas):
@@ -2077,22 +2428,55 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 model.fit_intercept,
                 sample_weight=sample_weight,
             )
-        except Exception:
-            # Fallback: use loss_fn.value() for correct loss, not raw MSE
+        except Exception as primary_exc:
+            _raise_cv_infrastructure_failure(primary_exc)
+            _raise_unless_recoverable_cv_loss_failure(primary_exc)
+            warnings.warn(
+                f"Optimized validation scoring for '{self.loss}' was unavailable "
+                "or numerically invalid; retrying the same declared objective "
+                "through the generic loss interface.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            # Preserve the declared objective by retrying through the generic
+            # loss interface, including analytic validation weights.
             try:
                 if model.fit_intercept:
                     X_design = np.column_stack([np.ones(n_val), X_val_np])
-                    coef_full = np.concatenate([[float(model.intercept_)], _to_numpy(model.coef_).ravel()])
+                    coef_full = np.concatenate(
+                        [[float(model.intercept_)], _to_numpy(model.coef_).ravel()]
+                    )
                 else:
                     X_design = X_val_np
                     coef_full = _to_numpy(model.coef_).ravel()
-                val_loss = float(loss_fn.value(X_design, y_val_np, coef_full))
-            except Exception:
+                val_loss = float(
+                    loss_fn.value(
+                        X_design,
+                        y_val_np,
+                        coef_full,
+                        sample_weight=(
+                            None
+                            if sample_weight is None
+                            else np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+                        ),
+                    )
+                )
+            except Exception as fallback_exc:
+                _raise_cv_infrastructure_failure(fallback_exc)
+                _raise_unless_recoverable_cv_loss_failure(fallback_exc)
+                if not _is_squared_error_loss_name(self.loss):
+                    raise RuntimeError(
+                        f"Could not evaluate declared validation loss '{self.loss}'. "
+                        "Refusing to substitute mean squared error because that "
+                        "could select a different regularization parameter."
+                    ) from fallback_exc
                 y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
-                val_loss = float(np.mean((y_val_np - y_pred_np) ** 2))
+                val_loss = _weighted_mse_fallback(
+                    y_val_np, y_pred_np, sample_weight=sample_weight
+                )
                 warnings.warn(
-                    f"_evaluate_single: loss evaluation failed for '{self.loss}', "
-                    f"falling back to MSE. CV scores may be inaccurate for non-Gaussian losses.",
+                    "_evaluate_single: both squared-error evaluators failed; "
+                    "using an equivalent weighted-MSE calculation.",
                     RuntimeWarning,
                     stacklevel=2,
                 )
@@ -2123,9 +2507,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         # Resolve refit device (used by Ridge and general paths)
-        refit_device = self.device
-        if _device_to_name(self.device) == "auto":
-            refit_device = getattr(self, "_cv_selected_device_", self.device) or self.device
+        refit_device = self._device
+        if _device_to_name(self._device) == "auto":
+            refit_device = getattr(self, "cv_selected_device_", self._device) or self._device
 
         # For Ridge: use eigendecomposition to match CV path exactly.
         # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
@@ -2137,7 +2521,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             model = PenalizedGeneralizedLinearModel(
                 loss='squared_error', penalty='l2', alpha=best_alpha,
                 device=refit_device, compute_inference=False,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 loss_kwargs=getattr(self, '_loss_kwargs', None),
             )
             return self._populate_refit_model(model, coef, intercept, X, refit_device)
@@ -2151,19 +2535,19 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if self.loss == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
             refit_paths.append(lambda: _logistic_sparse_cv_path(
                 X, y, alpha_arr, penalty_name, self.l1_ratio,
-                _logistic_sparse_effective_max_iter(self.max_iter, refit_device, penalty_name, refit=True),
-                self.tol, refit_device, sample_weight=sample_weight,
+                _logistic_sparse_effective_max_iter(self._max_iter, refit_device, penalty_name, refit=True),
+                self._tol, refit_device, sample_weight=sample_weight,
             ))
         if self.loss == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
             refit_paths.append(lambda: _squared_error_sparse_cv_path(
                 X, y, alpha_arr, penalty_name, self.l1_ratio,
-                self.max_iter, self.tol, refit_device, sample_weight=sample_weight,
+                self._max_iter, self._tol, refit_device, sample_weight=sample_weight,
             ))
         cv_solver = self._solver_for_cv(refit_device, X=X)
         if self._uses_glm_sparse_path(penalty_name, cv_solver):
             refit_paths.append(lambda: _glm_sparse_cv_path(
                 self.loss, X, y, alpha_arr, penalty_name, self.l1_ratio,
-                self.max_iter, self.tol, refit_device,
+                self._max_iter, self._tol, refit_device,
                 return_path=True, solver_name=cv_solver, cv_mode=False,
                 sample_weight=sample_weight,
             ))
@@ -2174,8 +2558,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 model = PenalizedGeneralizedLinearModel(
                     loss=self.loss, penalty=self.penalty, alpha=best_alpha,
                     l1_ratio=self.l1_ratio, device=refit_device,
-                    compute_inference=False, max_iter=self.max_iter,
-                    tol=self.tol, solver=cv_solver,
+                    compute_inference=False, max_iter=self._max_iter,
+                    tol=self._tol, solver=cv_solver,
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
                     penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
@@ -2188,8 +2572,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         model = PenalizedGeneralizedLinearModel(
             loss=self.loss, penalty=self.penalty, alpha=best_alpha,
             l1_ratio=self.l1_ratio, device=refit_device,
-            compute_inference=can_infer, max_iter=self.max_iter,
-            tol=self.tol, solver=cv_solver,
+            compute_inference=can_infer, max_iter=self._max_iter,
+            tol=self._tol, solver=cv_solver,
             loss_kwargs=getattr(self, '_loss_kwargs', None),
             penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
@@ -2252,12 +2636,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(self.penalty).lower()
         loss_name = str(self.loss).lower()
         device_name = _device_to_name(cv_device)
-        max_iter = int(self.max_iter if max_iter is None else max_iter)
-        tol = self.tol if tol is None else tol
+        max_iter = int(self._max_iter if max_iter is None else max_iter)
+        tol = self._tol if tol is None else tol
 
         # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──
-        _is_explicit_gpu = device_name in ("cuda", "torch")
-        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_explicit_gpu:
+        _is_gpu_cv_device = device_name in ("cuda", "torch")
+        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_gpu_cv_device:
             all_scores = np.full((len(folds), n_alphas), np.nan)
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = _slice_rows(X, train_idx)
@@ -2270,6 +2654,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     )
                     all_scores[fold_idx, :] = mse
                 except Exception as e:
+                    _raise_unless_recoverable_cv_path_failure(e)
                     warnings.warn(
                         f"Ridge eig batch failed for fold {fold_idx}: {e}",
                         RuntimeWarning,
@@ -2302,6 +2687,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[:, sort_idx] = path["scores"]
                     return all_scores
             except Exception as e:
+                _raise_unless_recoverable_cv_path_failure(e)
                 warnings.warn(
                     f"Fold-batched {loss_name} sparse CV failed on {device_name}; "
                     f"falling back to per-fold path: {e}",
@@ -2398,6 +2784,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         fold_handled = True
                         break
                 except Exception as e:
+                    _raise_unless_recoverable_cv_path_failure(e)
                     warnings.warn(
                         f"{path_fn.__name__} failed for {loss_name}+{penalty_name} "
                         f"fold {fold_idx}: {e}",
@@ -2454,10 +2841,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
             y_train_fit = y_train
             sw_train_fit = sw_train
 
-        # Precompute XtX/Xty for squared-error GPU cache
-        cv_cache, L_np = self._build_cv_cache(
-            loss_name, device_name, X_train, y_train, sw_train
-        )
+        # Precompute a Gram cache only for solver paths that consume it.
+        if _should_build_squared_error_cv_cache(
+            loss_name, penalty_name, cv_solver, device_name
+        ):
+            cv_cache, L_np = self._build_cv_cache(
+                loss_name, device_name, X_train, y_train, sw_train
+            )
+        else:
+            cv_cache, L_np = None, None
 
         model = PenalizedGeneralizedLinearModel(
             loss=loss_name, penalty=self.penalty, alpha=alpha_sorted[0],
@@ -2504,7 +2896,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     # _preserve_cv_cache are still needed for the warm-start fallback.
                     for attr in ("_cv_alpha_path", "_cv_path_results"):
                         if hasattr(model, attr): delattr(model, attr)
-            except Exception:
+            except Exception as exc:
+                _raise_unless_recoverable_cv_path_failure(exc)
                 # Same as path-is-None: keep _cv_cache for warm-start fallback.
                 for attr in ("_cv_alpha_path", "_cv_path_results"):
                     if hasattr(model, attr): delattr(model, attr)
@@ -2534,6 +2927,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
             except Exception as exc:
+                _raise_unless_recoverable_cv_candidate_failure(exc)
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
                 logger.warning(
@@ -2625,40 +3019,53 @@ class PenalizedGLM_CV(CVEstimatorBase):
                      "n_effective": n_effective}
         return cache, L_np
 
-    def fit(self, X, y, sample_weight=None):
-        """Fit the CV model with optimized strict or explicit two-stage CV."""
+    def _fit_standard(self, X, y, sample_weight=None):
+        """Fit scalar-response CV after public transactional setup."""
         # Normalize array-like inputs (lists, tuples, etc.) to arrays
         if not hasattr(X, 'shape'):
             X = np.asarray(X, dtype=np.float64)
         if not hasattr(y, 'shape'):
             y = np.asarray(y, dtype=np.float64)
 
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
+        alpha_grid = None
         if self._alpha_grid_input is not None:
-            alpha_grid = np.asarray(self._alpha_grid_input, dtype=np.float64)
-        else:
-            alpha_grid = self._generate_alpha_grid(X, y)
-        alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
+            alpha_grid = _normalize_scalar_alpha_grid(
+                self._alpha_grid_input,
+                penalty_name=penalty_name,
+            )
+        if alpha_grid is None:
+            alpha_grid = self._generate_alpha_grid(
+                X, y, sample_weight=sample_weight
+            )
+        alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         self.alpha_grid_ = alpha_grid
         n_samples = X.shape[0]
         n_alphas = len(alpha_grid)
-        penalty_name = str(self.penalty).lower()
-        cv_device = self._effective_cv_device(X, penalty_name, n_alphas)
-        cv_solver = self._solver_for_cv(cv_device, X=X)
-        self.cv_strategy_ = self.cv_strategy
-        self.cv_selected_device_ = _device_to_name(cv_device)
-
         if self.cv_splits is not None:
-            # Normalize to list (generators would exhaust on first pass)
-            folds = list(self.cv_splits) if not isinstance(self.cv_splits, list) else self.cv_splits
+            # Normalize to list (generators would exhaust on first pass).
+            folds = (
+                list(self.cv_splits)
+                if not isinstance(self.cv_splits, list)
+                else self.cv_splits
+            )
         else:
-            folds = kfold_indices(n_samples, self.cv, self.random_state)
+            folds = kfold_indices(n_samples, self._cv, self.random_state)
+        cv_device = self._effective_cv_device(
+            X, penalty_name, n_alphas, n_folds=len(folds)
+        )
+        cv_solver = self._solver_for_cv(cv_device, X=X)
+        self.cv_strategy_ = self._cv_strategy
+        self.cv_selected_device_ = _device_to_name(cv_device)
         all_scores_stage1 = None
         mean_scores_stage1 = None
         refined_mask = np.ones(n_alphas, dtype=bool)
 
-        if self.cv_strategy == "two_stage":
-            if not self.acknowledge_approx:
+        if self._cv_strategy == "two_stage":
+            if not self._acknowledge_approx:
                 warnings.warn(
                     "PenalizedGLM_CV(cv_strategy='two_stage') uses relaxed CV "
                     "solves to screen the alpha grid before strict refinement. "
@@ -2667,8 +3074,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     ApproximateCVWarning,
                     stacklevel=2,
                 )
-            stage1_max_iter = min(int(self.max_iter), max(50, int(self.max_iter) // 4))
-            stage1_tol = max(float(self.tol) * 10.0, 1e-4)
+            stage1_max_iter = min(int(self._max_iter), max(50, int(self._max_iter) // 4))
+            stage1_tol = max(float(self._tol) * 10.0, 1e-4)
             all_scores_stage1 = self._compute_cv_scores(
                 X,
                 y,
@@ -2680,10 +3087,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=stage1_tol,
                 strict=False,
             )
-            mean_scores_stage1 = np.nanmean(all_scores_stage1, axis=0)
+            mean_scores_stage1 = _finite_column_mean(all_scores_stage1)
             refined_mask = _two_stage_candidate_mask(
                 mean_scores_stage1,
-                refine_top_k=self.refine_top_k,
+                refine_top_k=self._refine_top_k,
             )
             if self.loss == "squared_error" and penalty_name in ("scad", "mcp"):
                 refined_mask[:] = True
@@ -2698,14 +3105,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 cv_device,
                 folds,
                 sample_weight=sample_weight,
-                max_iter=self.max_iter,
-                tol=self.tol,
+                max_iter=self._max_iter,
+                tol=self._tol,
                 strict=True,
             )
             all_scores = np.array(all_scores_stage1, copy=True)
             all_scores[:, refined_mask] = refined_scores
-            mean_scores = np.nanmean(all_scores, axis=0)
-            refined_mean = np.nanmean(refined_scores, axis=0)
+            mean_scores = _finite_column_mean(all_scores)
+            refined_mean = _finite_column_mean(refined_scores)
             refined_best = self._best_index_from_scores(
                 refined_mean,
                 refined_alpha_grid,
@@ -2720,11 +3127,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 cv_device,
                 folds,
                 sample_weight=sample_weight,
-                max_iter=self.max_iter,
-                tol=self.tol,
+                max_iter=self._max_iter,
+                tol=self._tol,
                 strict=True,
             )
-            mean_scores = np.nanmean(all_scores, axis=0)
+            mean_scores = _finite_column_mean(all_scores)
             best_idx = self._best_index_from_scores(mean_scores, alpha_grid, cv_solver)
 
         best_alpha = float(alpha_grid[best_idx])
@@ -2735,6 +3142,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             "alpha": alpha_grid,
             "mean_score": mean_scores,
             "all_scores": all_scores,
+            "device_sizing_fold_count": len(folds),
             "cv_strategy_": self.cv_strategy_,
             "cv_selected_device_": self.cv_selected_device_,
             "mean_score_stage1": mean_scores_stage1,
@@ -2749,6 +3157,40 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self._fitted = True
         return self
 
+    def fit(self, X, y, sample_weight=None):
+        """Fit with a dedicated survival path and transactional state."""
+        self._reset_cv_fit_state()
+        try:
+            if str(self.loss).lower() == "cox_ph":
+                from ._penalized_cox_cv import fit_penalized_cox_cv
+
+                return fit_penalized_cox_cv(
+                    self, X, y, sample_weight=sample_weight
+                )
+            from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+            from statgpu.glm_core._validation import (
+                validate_glm_design_matrix,
+                validate_glm_sample_weight,
+            )
+
+            validated_X = validate_glm_design_matrix(X)
+            resolved_loss = _resolve_loss_name(
+                self.loss,
+                loss_kwargs=getattr(self, "_loss_kwargs", None),
+            )
+            if hasattr(resolved_loss, "validate_response"):
+                y = resolved_loss.validate_response(y)
+                if int(y.shape[0]) != int(validated_X.shape[0]):
+                    raise ValueError("Response length must match the number of X rows.")
+            if sample_weight is not None:
+                sample_weight = validate_glm_sample_weight(
+                    sample_weight, validated_X.shape[0]
+                )
+            return self._fit_standard(X, y, sample_weight=sample_weight)
+        except Exception:
+            self._reset_cv_fit_state()
+            raise
+
     def predict(self, X):
         """Predict using the refit estimator with the best alpha."""
         if not getattr(self, '_fitted', False):
@@ -2759,7 +3201,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """Return the score on the given data.
 
         For squared_error loss, returns R². For GLM losses, returns
-        the deviance-based pseudo-R² (1 - deviance/null_deviance).
+        the deviance-based pseudo-R² (1 - deviance/null_deviance). For
+        ``cox_ph``, delegates to the final penalized Cox concordance score.
 
         Note: ``best_score_`` is negative CV loss (sklearn convention),
         while ``score()`` returns R² or accuracy. These are different metrics.

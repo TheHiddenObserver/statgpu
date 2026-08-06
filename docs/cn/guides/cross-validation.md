@@ -1,9 +1,9 @@
 # 交叉验证
 
 > 语言：中文  
-> 最后更新：2026-06-12  
+> 最后更新：2026-08-03
 > 页面定位：CV 用户指南 + 架构实现 + 缓存机制（统一页面）  
-> 切换：[English](../en/guides/cross-validation.md)
+> 切换：[English](../../en/guides/cross-validation.md)
 
 ## 概述
 
@@ -15,7 +15,7 @@ statgpu 为所有惩罚模型提供交叉验证估计器。每个 CV 估计器�
 | `LassoCV` | `Lasso` | l1 | `statgpu.linear_model.LassoCV` |
 | `ElasticNetCV` | `ElasticNet` | elasticnet | `statgpu.linear_model.ElasticNetCV` |
 | `LogisticRegressionCV` | `LogisticRegression` | l2 | `statgpu.linear_model.LogisticRegressionCV` |
-| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` | 任意 | `statgpu.linear_model.PenalizedGLM_CV` |
+| `PenalizedGLM_CV` | `PenalizedGeneralizedLinearModel` 或 `PenalizedCoxPHModel` | family 支持的 penalty | `statgpu.linear_model.PenalizedGLM_CV` |
 
 ## 快速开始
 
@@ -72,6 +72,29 @@ model.fit(X, y)
 pred = model.predict(X_test)
 ```
 
+### 惩罚 Cox 交叉验证
+
+Cox target 在整个选择流程中必须保持二维：
+
+```python
+survival_y = np.column_stack([time, event])
+model = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="elasticnet",        # l1、l2、elasticnet、scad 或 mcp
+    l1_ratio=0.4,
+    alpha_grid=[0.2, 0.05, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cuda",               # 同时支持 NumPy CPU 与 Torch CUDA
+).fit(X_cuda, survival_y_cuda)
+```
+
+该路径要求每个可评估 fold 都提供有限的 held-out Cox partial-likelihood
+证据，并以无截距 `PenalizedCoxPHModel` 完成最终重拟合。若所有候选均无
+完整证据，会直接抛错而不是默认选择第一个 alpha。该分支仅提供估计，
+不发布 post-selection 系数推断；不支持 `two_stage`、sample weights 或字典 target。
+
 ### LogisticRegressionCV
 
 ```python
@@ -116,6 +139,9 @@ print(f"准确率: {model.score(X_test, y_test):.4f}")
 | `l1_ratio` | float/list | `0.5` | L1 混合比。传列表可搜索多个值。 |
 | `alphas` | array | `None` | Alpha 网格。 |
 | `n_alphas` | int | `100` | Alpha 数量。 |
+| `compute_inference` | bool | `False` | 对最终全数据 ElasticNet 重拟合执行 debiased 推断。 |
+
+各折拟合仍仅用于估计；只有在所选 `alpha` 与 `l1_ratio` 使用全部观测重拟合后才计算推断。
 
 ### PenalizedGLM_CV 专用
 
@@ -124,11 +150,10 @@ print(f"准确率: {model.score(X_test, y_test):.4f}")
 | `loss` | str | `"squared_error"` | 损失族（见 [Solver × Penalty 矩阵](solver-penalty-matrix.md)）。 |
 | `penalty` | str | `"l2"` | 惩罚类型。 |
 | `penalty_kwargs` | dict | `{}` | 惩罚参数（如 SCAD 的 `{"a": 3.7}`）。 |
-| `alphas` | array | `None` | Alpha 网格。 |
+| `alpha_grid` | array | `None` | Alpha 网格。 |
 | `n_alphas` | int | `100` | Alpha 数量。 |
 | `cv_splits` | list | `None` | 自定义折分割 `[(train_idx, val_idx), ...]`。 |
-| `scoring` | str | `"auto"` | 评分指标。`"auto"` 根据损失自动选择。 |
-| `compute_inference` | bool | `False` | 计算 debiased 推断（仅 l1）。 |
+| `loss_kwargs` | dict | `{}` | loss 选项；Cox 接受 `ties="breslow"` 或 `ties="efron"`。 |
 
 ## 自定义 CV 分割
 
@@ -155,9 +180,16 @@ model.fit(X, y)
 
 `cv_splits=None`（默认）时，估计器使用 `kfold_indices(n, cv, random_state)` 生成随机洗牌的折。
 
+对于 penalized Cox CV，每个自定义 train/validation pair 只需非空且互不重叠；
+train 不必是 validation 的补集，各 fold 的 validation 也不必把样本恰好覆盖一次。
+因此可使用前向 `TimeSeriesSplit` 和 repeated holdout。索引必须是一维、位于
+signed-int64 与样本边界内的精确整数。布尔值、数字字符串、小数、NaN/Inf、溢出、
+重复、交叠或越界索引都会在任何 candidate fit 前被拒绝。每个参与评估的 Cox
+train 与 validation partition 都必须至少包含一个观察事件。
+
 ## 样本权重
 
-所有 CV 估计器支持 `sample_weight`：
+大多数标量响应 CV 估计器支持 `sample_weight`；生存路径见下方限制：
 
 ```python
 model = RidgeCV(cv=5)
@@ -167,7 +199,8 @@ print(f"加权 R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 
 **限制**（见 [已知限制](#已知限制)）：
 - 非均匀权重 + l1/elasticnet/SCAD/MCP 在求解器层面抛出 `ValueError`。
-- 均匀权重（所有值相等）对所有惩罚有效。
+- 均匀权重（所有值相等）适用于受支持的标量响应 penalty。
+- `loss="cox_ph"` 会拒绝 `sample_weight`；加权惩罚 Cox CV 尚未实现。
 
 ## Alpha 网格
 
@@ -177,6 +210,14 @@ print(f"加权 R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 1. 计算 `alpha_max = max(|X'y|) / n`（或加权变体）
 2. 生成从 `alpha_max` 到 `alpha_max * alpha_min_ratio` 的 `n_alphas` 个值
 3. 网格为 log 等距：`np.logspace(log10(alpha_max * ratio), log10(alpha_max), n_alphas)`
+
+Penalized Cox 使用零模型处 partial-likelihood gradient 的无穷范数。ElasticNet
+在 `l1_ratio=rho > 0` 时，首个值是零模型 KKT 边界
+`alpha_max = ||gradient L(0)||_inf / rho`；字符串 penalty 使用 estimator 的
+`l1_ratio`，`ElasticNetPenalty` 对象使用对象自身的值。`rho=0` 是纯 L2，没有
+有限的全零 KKT 阈值，因此明确把 `||gradient L(0)||_inf` 作为网格 heuristic
+并记录。无 penalty 别名 `"none"`、`"null"` 与 `""` 不可调，Cox CV 会拒绝；
+无惩罚运行应直接拟合 `PenalizedCoxPHModel`。
 
 ### 自定义网格
 
@@ -190,7 +231,16 @@ model = RidgeCV(
 model.fit(X, y)
 ```
 
-非正和非有限值会被自动过滤。如果所有提供的 alpha 都被过滤，会发出警告并使用默认网格。
+标量响应 CV estimator 只搜索严格为正的 alpha。一维数值用户网格会保留原顺序，
+非正与非有限项会伴随 `RuntimeWarning` 被过滤；空网格或过滤后为空会 warning 并重新
+生成默认网格。因此 L1、L2、ElasticNet、SCAD、MCP、Adaptive L1、Group Lasso、
+Group SCAD 与 Group MCP 的标量 CV 都不会把零作为候选；无惩罚拟合应直接使用
+`alpha=0` 的 estimator。在 NumPy dtype promotion 前，Python sequence 与 object array
+会逐元素检查：布尔值与字符串/bytes（包括 `"0.2"` 这样的数字文本）会被拒绝，而不会
+变成 1.0 或 0.2。非一维、复数、布尔、字符串/bytes 或其他非数值网格会在设备路由与
+candidate 工作前抛出 `ValueError`。Penalized Cox 使用更严格的契约，
+不会过滤或替换用户网格：非有限或负值会抛出 `ValueError`，SCAD/MCP 还要求每个
+alpha 严格为正；L1、L2 与 ElasticNet Cox 网格允许零值。
 
 ## 拟合属性
 
@@ -230,14 +280,22 @@ r2_w = model.score(X_test, y_test, sample_weight=w_test)
 |------|---------|------|
 | n×p < 200k | CPU | Kernel launch 开销主导 |
 | squared_error + l1/en, p≥256, n×p≥1M | Torch | 批量 alpha 路径受益 |
-| logistic + l1/en, n≥5000, n×p≥500k | Torch | Fold-batch 路径 |
+| logistic + l1/en, p≥100, n×p≥500k | Torch | Fold-batch 路径 |
 | poisson + l1/en, p≥500, n×p≥1M | Torch | Fold-batch 路径 |
 | gamma + l1/en, p≥500, n×p≥2M | Torch | Fold-batch 路径 |
-| SCAD/MCP, n×p≥1M | Torch | 异步 FISTA 路径 |
-| NB（任意惩罚） | CPU | 复杂梯度开销 |
-| 其他 | CPU | 默认回退 |
+| 非 squared-error SCAD/MCP, n×p≥1M | Torch | 异步 FISTA 路径 |
+| NB + l1/l2/en | CPU | 复杂梯度开销 |
+| 通用 fallback 工作量 < 100M | CPU | 低于实测 GPU break-even |
+| 通用 fallback 工作量 ≥ 100M | 优先 Torch，其次 CuPy；均不可用时 CPU | 聚合 CV 工作量较大 |
 
 阈值基于 benchmark 数据，存储在 `_effective_cv_device()` 中。显式控制：`device="cpu"` 强制 CPU，`device="cuda"` 强制 GPU。
+`device="auto"` 只在 backend 报告 CUDA driver 与设备实际可用后选择 GPU；仅安装
+但无法运行的 CuPy wheel 不会阻止回退 CPU。通用 fallback 工作量为
+`n * p * n_work_folds * n_alphas`；非 squared-error 的 SCAD/MCP 另乘 20 的
+continuation factor。标量响应 CV 使用规范化后的 generated/custom fold 数，Cox CV
+只统计 training 与 validation 都含事件的可评估 fold。前面的经验 loss/penalty 行优先
+执行，仍只使用各自行中记录的 `n * p` 与 feature 条件，不乘 fold 数。显式
+`device="cuda"` 仍采用严格契约，CuPy CUDA 不可用时会抛错。
 
 ## CV 后推断
 
@@ -267,32 +325,65 @@ print(model.summary())
 
 ## 架构
 
+`PenalizedGLM_CV.fit()` 会分派到两套 preparation 与 routing 顺序。二者共享选择
+和最终重拟合契约，但 automatic grid 的构造位置不同，因此不能画成一条统一的有序
+流水线。
+
+### 标量响应顺序
+
 ```
-PenalizedGLM_CV.fit(X, y)
+PenalizedGLM_CV._fit_standard(X, y)
   │
-  ├─ 1. 自动设备选择 (_effective_cv_device)
-  │     └─ 根据问题规模和损失函数选择 CPU/CuPy/Torch
+  ├─ 1. 校验或生成完整 alpha 网格
+  │     └─ automatic grid 在 CV 设备选择前生成
   │
-  ├─ 2. Alpha 网格生成 (_generate_alpha_grid)
-  │     └─ 从 alpha_max 生成递减 alpha 网格
+  ├─ 2. 只 materialize 一次 generated/custom folds
+  │     └─ 一次性 generator 转为可复用 fold list
   │
-  ├─ 3. CV 评分 (_compute_cv_scores)
-  │     ├─ 快速路径: Ridge 特征分解 (squared_error + l2)
-  │     ├─ Fold-batch 路径 (logistic, poisson, gamma, NB, inv.gauss, tweedie)
-  │     ├─ Sparse CV 路径 (squared_error + l1/en)
-  │     ├─ LLA 路径 (SCAD/MCP)
-  │     └─ 通用逐 fold 路径 (兜底)
+  ├─ 3. 选择 CV 设备 (_effective_cv_device)
+  │     └─ 通用工作量估算使用 len(folds)
   │
-  ├─ 4. 最优 alpha 选择
+  ├─ 4. 对 alpha 网格评分 (_compute_cv_scores)
+  │     └─ Ridge 特征分解、fold-batch、sparse、LLA 或兜底路径
   │
-  └─ 5. 全数据重拟合 (_refit_best)
+  └─ 5. 选择最优 alpha 并重拟合
+        ├─ squared_error + l2：在 CPU 上执行精确 float64 特征分解
+        │  同时保留 cv_selected_device_ 作为预测/输出后端契约
+        └─ 其他路径：在解析后的选定 backend 上重拟合
+```
+
+### 惩罚 Cox 顺序
+
+```
+fit_penalized_cox_cv(estimator, X, (time, event))
+  │
+  ├─ 1. 规范化 survival target 并 materialize folds
+  │
+  ├─ 2. 校验 alpha-grid request
+  │     └─ 显式网格在此校验；automatic grid 尚不构造
+  │
+  ├─ 3. 校验每个 fold 的事件支持
+  │     └─ 计算 fold_valid 与 n_effective_folds
+  │
+  ├─ 4. 选择 CV 设备 (_effective_cv_device)
+  │     └─ 通用工作量估算使用 n_effective_folds
+  │
+  ├─ 5. 转换到选定 backend 并预处理 Cox loss
+  │     └─ automatic alpha grid 在此 backend 上生成
+  │
+  ├─ 6. 仅对可评估 fold 评分，并保留 skipped-fold 诊断
+  │
+  └─ 7. 要求完整有限 candidate 证据，完成选择与重拟合
 ```
 
 ## CV 评分路径
 
+以下编号路径描述标量响应 scoring。惩罚 Cox 在完成上述 preparation 后使用
+survival-aware fold 路径。
+
 ### 路径 1：Ridge 特征分解（squared_error + l2）
 
-**条件**：`loss="squared_error"`、`penalty="l2"`、`device` 为 CPU/auto、`sample_weight=None`。
+**条件**：`loss="squared_error"`、`penalty="l2"`、解析后的 CV device 为 CPU，且 `sample_weight=None`。
 
 **方法**：每 fold 批量特征分解。
 
@@ -307,6 +398,13 @@ coef = Q @ (1/(eigvals + n*alpha) * Q.T @ Xc.T @ yc)
 **复杂度**：每 fold O(p³)（特征分解），与 n_alphas 无关。
 
 **为什么快**：所有 alpha 从一次特征分解求解。对于 20 alpha × 5 fold，这是 5 次特征分解而非 100 次模型拟合。
+
+这条批量 scoring 路径取决于解析后的 CV device，而不是 constructor 的字面值：
+`device="auto"` 只有在自动路由解析为 CPU 时才使用它；若自动路由选择 CUDA/Torch，
+CV 会使用相应的 GPU scoring 路径。完成选择后，squared-error L2 总会把完整重拟合
+数据转换到 NumPy，并在 CPU 上执行精确 float64 `_ridge_eig_single()`，以保持 CV 与
+重拟合系数的精度一致。拟合后的 estimator 仍保留 `cv_selected_device_` 作为预测/输出
+backend 契约；该 metadata 并不表示重拟合特征分解运行在所选 accelerator 上。
 
 ### 路径 2：Fold-Batch CV（logistic, poisson, gamma, NB, inv.gauss, tweedie）
 
@@ -496,7 +594,7 @@ scores = to_numpy(torch.stack(scores_dev))  # 一次同步
 ```python
 coef = zeros(p)
 for alpha in alphas_descending:
-    coef = fista_solver(init_coef=coef, ...)  # Warm start
+    coef = fista_solver(..., init_coef=coef)  # Warm start
 ```
 
 这比冷启动减少 3-5 倍迭代次数。

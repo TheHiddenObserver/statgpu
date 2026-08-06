@@ -1,11 +1,11 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-05-20  
+> Last updated: 2026-08-02
 > This page: Model documentation  
-> Switch: [Chinese](../../models/generalized-linear-model.md)
+> Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
-Language switch: [Chinese](../../models/generalized-linear-model.md)
+Language switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
 ## Overview
 
@@ -185,6 +185,38 @@ fast_cv = PenalizedGLM_CV(
     device="cuda",
 )
 ```
+
+### Survival-aware penalized Cox CV
+
+`PenalizedGLM_CV(loss="cox_ph")` uses a separate survival path rather than the
+scalar-response GLM scorer. Pass `y` as an `(n_samples, 2)` array with columns
+`[time, event]`. L1, L2, ElasticNet, SCAD, and MCP are supported on NumPy,
+CuPy CUDA, and Torch CUDA. The path:
+
+- preserves the two-column target and never fits an intercept;
+- scores each held-out fold with unpenalized negative Cox partial likelihood
+  per row;
+- selects an alpha only when every evaluable fold supplies finite evidence;
+- hard-fails without publishing fitted state when no alpha is supported; and
+- refits `PenalizedCoxPHModel` with `compute_inference=False`.
+
+```python
+survival_y = np.column_stack([time, event])
+cox_cv = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="scad",              # l1, l2, elasticnet, scad, or mcp
+    alpha_grid=[0.1, 0.03, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cpu",                # or "cuda" / "torch"
+).fit(X, survival_y)
+```
+
+`cv_strategy="two_stage"`, `sample_weight`, dictionary targets, and
+post-selection coefficient inference are not supported for this Cox branch.
+`cv_results_` records per-fold losses, valid-evidence counts, event counts,
+failure reasons, the tie method, and the final-refit class.
 
 ## Outputs
 

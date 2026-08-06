@@ -12,7 +12,20 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model.wrappers._logistic import LogisticRegression
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
+
+
+def _validate_binary_cv_response(y):
+    """Validate a strict 0/1 response without copying GPU arrays to NumPy."""
+    from statgpu.glm_core._validation import validate_binary_response
+
+    return validate_binary_response(y, context="LogisticRegressionCV")
 
 
 # =============================================================================
@@ -90,55 +103,64 @@ from statgpu.cross_validation._base import kfold_indices as _kfold_indices, fold
 # C grid generation (C = 1/alpha, so we use similar approach)
 # =============================================================================
 
-def _default_logistic_c_grid(X, y, n_Cs: int = 100, C_min_ratio: float = 1e-3):
-    """
-    Generate default C grid for LogisticRegressionCV.
 
-    C values are log-spaced. Larger C = weaker regularization.
-
-    Parameters
-    ----------
-    X : ndarray
-        Design matrix (n_samples, n_features).
-    y : ndarray
-        Response vector.
-    n_Cs : int
-        Number of C values to generate.
-    C_min_ratio : float
-        Minimum C as a ratio of max C.
-
-    Returns
-    -------
-    Cs : ndarray
-        Log-spaced C values.
-    """
+def _default_logistic_c_grid(
+    X,
+    y,
+    n_Cs: int = 100,
+    C_min_ratio: float = 1e-3,
+    sample_weight=None,
+):
+    """Generate a default C grid for the declared weighted logistic loss."""
     X_arr = np.asarray(X, dtype=np.float64)
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
-
-    # Estimate C_max based on data
-    # For logistic regression, C_max is where coefficients become very large
-    # We use a heuristic based on the gradient at zero coefficients.
-    # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
-    grad = X_arr.T @ (y_arr - 0.5)
-    C_max = np.max(np.abs(grad)) * 2.0 / len(y_arr)
-
-    if C_max == 0:
+    if sample_weight is None:
+        residual = y_arr - 0.5
+        normalizer = float(y_arr.size)
+    else:
+        weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        residual = weight * (y_arr - 0.5)
+        normalizer = float(np.sum(weight))
+    grad = X_arr.T @ residual
+    C_max = float(np.max(np.abs(grad))) * 2.0 / normalizer
+    if not np.isfinite(C_max) or C_max <= 0.0:
         C_max = 1.0
-
-    C_min = C_max * C_min_ratio
-
-    # Log-spaced grid
-    if n_Cs <= 1:
-        return np.array([C_max])
-
-    Cs = np.logspace(
-        np.log10(C_min),
-        np.log10(C_max),
-        num=n_Cs,
-        dtype=np.float64,
+    if int(n_Cs) <= 1:
+        return np.asarray([C_max], dtype=np.float64)
+    C_min = max(float(C_min_ratio) * C_max, np.finfo(np.float64).tiny)
+    return np.logspace(
+        np.log10(C_min), np.log10(C_max), num=int(n_Cs), dtype=np.float64
     )
-    return Cs
 
+
+def _default_logistic_c_grid_backend(
+    X,
+    y,
+    backend,
+    n_Cs: int = 100,
+    C_min_ratio: float = 1e-3,
+    sample_weight=None,
+):
+    """Backend-native counterpart of :func:`_default_logistic_c_grid`."""
+    X_arr = backend.asarray(X, dtype=backend.float64)
+    y_arr = backend.asarray(y, dtype=backend.float64).reshape(-1)
+    if sample_weight is None:
+        residual = y_arr - 0.5
+        normalizer = float(y_arr.shape[0])
+    else:
+        weight = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
+        residual = weight * (y_arr - 0.5)
+        normalizer = float(backend.sum(weight))
+    grad = X_arr.T @ residual
+    C_max = float(backend.max(backend.abs(grad))) * 2.0 / normalizer
+    if not np.isfinite(C_max) or C_max <= 0.0:
+        C_max = 1.0
+    if int(n_Cs) <= 1:
+        return np.asarray([C_max], dtype=np.float64)
+    C_min = max(float(C_min_ratio) * C_max, np.finfo(np.float64).tiny)
+    return np.logspace(
+        np.log10(C_min), np.log10(C_max), num=int(n_Cs), dtype=np.float64
+    )
 
 # =============================================================================
 # Batch log-loss computation
@@ -305,7 +327,9 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
 
                 try:
                     params = backend.solve(XtWX, Xtz)
-                except Exception:
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
                     lstsq_result = backend.lstsq(XtWX, Xtz)
                     params = lstsq_result[0]
 
@@ -396,31 +420,15 @@ def _select_logistic_c_cv(
     details : dict (if return_details=True)
         Full CV results including C grid, loss path, etc.
     """
-    device_name = str(device).lower()
-    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value)
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        # Check if inputs are already on GPU (CuPy or Torch)
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-
-        # Also check for torch tensors
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     X_np = None
     y_np = None
@@ -428,10 +436,13 @@ def _select_logistic_c_cv(
 
     if gpu_input_cupy or gpu_input_torch:
         # GPU inputs - get backend for validation
-        backend = get_backend(backend='auto', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
+        y_check = backend.asarray(y).reshape(-1)
+        if int(y_check.shape[0]) != n_samples:
+            raise ValueError("y must have the same number of rows as X")
     else:
         X_np = np.asarray(X, dtype=np.float64)
         y_np = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -443,41 +454,52 @@ def _select_logistic_c_cv(
             raise ValueError("y must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
 
-    # Generate C grid
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
+
+
+    # Generate a grid for the same weighted objective optimized in each fold.
     if Cs is None:
-        if gpu_input_cupy or gpu_input_torch:
-            # GPU path for C grid generation
-            # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
-            # Do NOT center X/y — centering is incorrect for logistic regression
-            backend = get_backend(backend='auto', device='cuda')
-            X_temp = backend.asarray(X)
-            y_temp = backend.asarray(y)
-            grad = X_temp.T @ (y_temp - 0.5)
-            C_max = float(backend.max(backend.abs(grad)) * 2.0 / len(y_temp))
-            if C_max == 0:
-                C_max = 1.0
-            C_min = C_max * C_min_ratio
-            C_grid = np.logspace(np.log10(C_min), np.log10(C_max), num=n_Cs)
+        if use_gpu:
+            C_grid = _default_logistic_c_grid_backend(
+                X,
+                y,
+                backend,
+                n_Cs=n_Cs,
+                C_min_ratio=C_min_ratio,
+                sample_weight=validated_weight,
+            )
         else:
-            C_grid = _default_logistic_c_grid(X_np, y_np, n_Cs=n_Cs, C_min_ratio=C_min_ratio)
+            C_grid = _default_logistic_c_grid(
+                X_np,
+                y_np,
+                n_Cs=n_Cs,
+                C_min_ratio=C_min_ratio,
+                sample_weight=sample_weight_np,
+            )
     else:
         C_grid = np.asarray(Cs, dtype=np.float64)
         C_grid = C_grid[np.isfinite(C_grid)]
         C_grid = C_grid[C_grid > 0.0]
         if C_grid.size == 0:
-            if gpu_input_cupy or gpu_input_torch:
-                # GPU path for C grid generation
-                backend = get_backend(backend='auto', device='cuda')
-                X_temp = backend.asarray(X)
-                y_temp = backend.asarray(y)
-                grad = X_temp.T @ (y_temp - 0.5)
-                C_max = float(backend.max(backend.abs(grad)) * 2.0 / len(y_temp))
-                if C_max == 0:
-                    C_max = 1.0
-                C_min = C_max * C_min_ratio
-                C_grid = np.logspace(np.log10(C_min), np.log10(C_max), num=n_Cs)
+            if use_gpu:
+                C_grid = _default_logistic_c_grid_backend(
+                    X,
+                    y,
+                    backend,
+                    n_Cs=n_Cs,
+                    C_min_ratio=C_min_ratio,
+                    sample_weight=validated_weight,
+                )
             else:
-                C_grid = _default_logistic_c_grid(X_np, y_np, n_Cs=n_Cs, C_min_ratio=C_min_ratio)
+                C_grid = _default_logistic_c_grid(
+                    X_np,
+                    y_np,
+                    n_Cs=n_Cs,
+                    C_min_ratio=C_min_ratio,
+                    sample_weight=sample_weight_np,
+                )
 
     # Handle degenerate cases
     if int(n_samples) < 4 or int(C_grid.size) == 1 or int(cv_folds) < 2:
@@ -520,7 +542,7 @@ def _select_logistic_c_cv(
     if use_gpu:
         try:
             # Get backend - supports both CuPy and Torch
-            backend = get_backend(backend='auto', device='cuda')
+            # backend was selected strictly by resolve_cv_backend above
             xp = backend.xp
 
             cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
@@ -613,7 +635,7 @@ def _select_logistic_c_cv(
 
         except Exception as exc:
             raise RuntimeError(
-                "GPU path failed in _select_logistic_c_cv with device='cuda'; "
+                f"GPU path failed in _select_logistic_c_cv with backend={backend_name!r}; "
                 "CPU fallback is disabled for strict CUDA execution."
             ) from exc
 
@@ -797,6 +819,21 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.intercept_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
+
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.C_ = None
+        self.Cs_ = None
+        self.cv_results_ = None
+        self.mean_loss_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def fit(self, X, y, sample_weight=None):
         """
@@ -816,71 +853,70 @@ class LogisticRegressionCV(CVEstimatorBase):
         self : LogisticRegressionCV
             Fitted estimator.
         """
-        # Validate y is binary
-        y_arr = np.asarray(y, dtype=np.float64).ravel()
-        unique_y = np.unique(y_arr)
-        if not np.all(np.isin(unique_y, [0.0, 1.0])):
-            raise ValueError(
-                f"LogisticRegressionCV requires binary y (0 or 1), "
-                f"got unique values: {unique_y[:10]}"
-            )
+        self._reset_cv_fit_state()
+        # Preserve response residency; only a scalar validity decision syncs.
+        _validate_binary_cv_response(y)
 
-        device_name = self._get_compute_device().value
+        # Keep AUTO unresolved until resolve_cv_backend can inspect X.
+        device_name = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
+        refit_device = cv_refit_device(device_name, cv_backend_name)
 
         # Run CV to select C
         details = _select_logistic_c_cv(
             X,
             y,
             Cs=self.Cs,
-            n_Cs=self.n_Cs,
-            C_min_ratio=self.C_min_ratio,
-            cv_folds=self.cv,
+            n_Cs=self._n_Cs,
+            C_min_ratio=self._C_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
-            max_iter=self.max_iter,
-            tol=self.tol,
+            fit_intercept=self._fit_intercept,
+            max_iter=self._max_iter,
+            tol=self._tol,
             device=device_name,
-            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
-        # Store CV results
-        self.C_ = float(details["C"])
-        self.Cs_ = np.asarray(details["Cs"], dtype=np.float64)
+        # Keep candidate results local until the final refit succeeds.
+        selected_C = float(details["C"])
+        selected_Cs = np.asarray(details["Cs"], dtype=np.float64)
         loss_path = np.asarray(details["loss_path"], dtype=np.float64)
         mean_loss = np.asarray(details["mean_loss"], dtype=np.float64)
-
-        self.cv_results_ = {"loss_path": loss_path}
-        self.mean_loss_ = mean_loss
-
-        if np.any(np.isfinite(mean_loss)):
-            # sklearn convention: best_score_ is negative loss (higher is better)
-            self.best_score_ = -float(np.nanmin(mean_loss))
-        else:
-            self.best_score_ = np.nan
+        best_score = (
+            -float(np.nanmin(mean_loss))
+            if np.any(np.isfinite(mean_loss))
+            else np.nan
+        )
 
         # Fit final model with selected C
         estimator = LogisticRegression(
-            C=self.C_,
-            fit_intercept=self.fit_intercept,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            device=self.device,
+            C=selected_C,
+            fit_intercept=self._fit_intercept,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            device=refit_device,
             n_jobs=self.n_jobs,
-            compute_inference=self.compute_inference,
-            cov_type=self.cov_type,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
+            compute_inference=self._compute_inference_enabled,
+            cov_type=self._cov_type,
+            gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
 
         estimator.fit(X, y, sample_weight=sample_weight)
 
+        self.C_ = selected_C
+        self.Cs_ = selected_Cs
+        self.cv_results_ = {"loss_path": loss_path}
+        self.mean_loss_ = mean_loss
+        self.best_score_ = best_score
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
-
+        self.cv_selected_device_ = refit_device
         self._fitted = True
         return self
 

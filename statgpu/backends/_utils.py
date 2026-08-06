@@ -124,6 +124,111 @@ def _to_float_scalar(x: Any) -> float:
     return float(x)
 
 
+def _is_complex_array(value: Any) -> bool:
+    """Return whether an array-like value has a complex dtype without casting."""
+    is_complex = getattr(value, "is_complex", None)
+    if callable(is_complex):
+        return bool(is_complex())
+    dtype = getattr(value, "dtype", None)
+    if getattr(dtype, "kind", None) == "c":
+        return True
+    return bool(np.iscomplexobj(value))
+
+
+def _require_real_array(value: Any, name: str) -> None:
+    """Reject complex public inputs before any real-dtype normalization."""
+    if value is not None and _is_complex_array(value):
+        raise ValueError(f"{name} must be real-valued")
+
+
+def _normalize_integer_codes(
+    value: Any,
+    *,
+    xp: Any,
+    ref_arr: Any,
+    expected_size: Optional[int] = None,
+    name: str = "labels",
+):
+    """Validate and convert backend-native integer codes without truncation.
+
+    Floating inputs must be finite and exactly integral. Unsigned values are
+    checked before the signed-int64 cast, including host ``uint64`` inputs for
+    Torch versions that cannot construct such tensors directly.
+    """
+    if _is_complex_array(value):
+        raise ValueError(f"{name} must contain numeric integer-valued codes")
+
+    is_torch = getattr(xp, "__name__", "") == "torch"
+    candidate = value
+    if is_torch and not xp.is_tensor(candidate):
+        try:
+            host = np.asarray(candidate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} must contain numeric integer-valued codes within int64 range"
+            ) from exc
+        if host.dtype.kind == "u":
+            if np.any(host > np.iinfo(np.int64).max):
+                raise ValueError(
+                    f"{name} must contain integer-valued codes within int64 range"
+                )
+            candidate = host.astype(np.int64, copy=False)
+
+    try:
+        raw = xp_asarray(candidate, xp=xp, ref_arr=ref_arr)
+    except (TypeError, ValueError, RuntimeError, OverflowError) as exc:
+        raise ValueError(
+            f"{name} must contain numeric integer-valued codes within int64 range"
+        ) from exc
+
+    if getattr(raw, "ndim", None) != 1 or (
+        expected_size is not None and int(raw.shape[0]) != int(expected_size)
+    ):
+        raise ValueError(f"{name} must have shape (n_samples,)")
+
+    if is_torch:
+        if raw.is_complex():
+            raise ValueError(f"{name} must contain numeric integer-valued codes")
+        if raw.is_floating_point():
+            invalid = (
+                ~xp.isfinite(raw)
+                | (raw != xp.round(raw))
+                | (raw < -float(1 << 63))
+                | (raw >= float(1 << 63))
+            )
+            if bool(xp.any(invalid).item()):
+                raise ValueError(
+                    f"{name} must contain finite integer-valued codes within int64 range"
+                )
+        elif str(raw.dtype).rsplit(".", 1)[-1].startswith("uint") and bool(
+            xp.any(raw > (1 << 63) - 1).item()
+        ):
+            raise ValueError(
+                f"{name} must contain integer-valued codes within int64 range"
+            )
+        return raw.to(dtype=xp.int64)
+
+    kind = getattr(raw.dtype, "kind", None)
+    if kind is None or kind not in "biuf":
+        raise ValueError(f"{name} must contain numeric integer-valued codes")
+    if kind == "f":
+        invalid = (
+            ~xp.isfinite(raw)
+            | (raw != xp.rint(raw))
+            | (raw < -float(1 << 63))
+            | (raw >= float(1 << 63))
+        )
+        if bool(xp.any(invalid).item()):
+            raise ValueError(
+                f"{name} must contain finite integer-valued codes within int64 range"
+            )
+    elif kind == "u" and bool(xp.any(raw > (1 << 63) - 1).item()):
+        raise ValueError(
+            f"{name} must contain integer-valued codes within int64 range"
+        )
+    return raw.astype(xp.int64, copy=False)
+
+
 def scatter_add_1d(target, indices, values):
     """Scatter-add 1D values to target array at given indices.
 
@@ -131,7 +236,6 @@ def scatter_add_1d(target, indices, values):
     Returns a new array with values added at specified indices.
     """
     if hasattr(target, 'scatter_add_'):  # torch
-        import torch
         result = target.clone()
         result.scatter_add_(0, indices.long(), values)
         return result
@@ -406,11 +510,22 @@ def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
         torch = _require_torch()
         if not isinstance(dtype, torch.dtype):
             dtype = _np_dtype_to_torch(dtype)
-    if dev is not None:
+    if dev is not None and getattr(xp, '__name__', '') == 'torch':
         kwargs = {'device': dev}
         if dtype is not None:
             kwargs['dtype'] = dtype
         return xp.asarray(data, **kwargs)
+    if (
+        ref_arr is not None
+        and type(ref_arr).__module__.startswith("cupy")
+        and hasattr(ref_arr, "device")
+    ):
+        with ref_arr.device:
+            return (
+                xp.asarray(data, dtype=dtype)
+                if dtype is not None
+                else xp.asarray(data)
+            )
     if dtype is not None:
         return xp.asarray(data, dtype=dtype)
     return xp.asarray(data)
@@ -478,8 +593,11 @@ def xp_cholesky_solve(A, b, xp):
         return xp.linalg.solve(A, b)
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
-        tmp = xp.linalg.solve_triangular(L, b, upper=False)
-        return xp.linalg.solve_triangular(L.T, tmp, upper=True)
+        vector_rhs = getattr(b, "ndim", 0) == 1
+        rhs = b[:, None] if vector_rhs else b
+        tmp = xp.linalg.solve_triangular(L, rhs, upper=False)
+        solution = xp.linalg.solve_triangular(L.T, tmp, upper=True)
+        return solution[:, 0] if vector_rhs else solution
     # numpy: use scipy for solve_triangular
     from scipy.linalg import solve_triangular
     tmp = solve_triangular(L, b, lower=True)

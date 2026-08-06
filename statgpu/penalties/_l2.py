@@ -76,7 +76,7 @@ class L2Penalty(Penalty):
 
         return scale * w
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
         params["alpha"] = self.alpha
         return params

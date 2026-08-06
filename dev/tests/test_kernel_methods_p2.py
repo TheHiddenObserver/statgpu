@@ -88,7 +88,8 @@ class TestExistingKernels:
     def test_pairwise_kernels_registry(self):
         X = np.random.randn(10, 3)
         for metric in ["rbf", "linear", "poly", "laplacian", "sigmoid", "cosine", "chi2"]:
-            K = pairwise_kernels(X, metric=metric)
+            X_metric = np.abs(X) if metric == "chi2" else X
+            K = pairwise_kernels(X_metric, metric=metric)
             assert K.shape == (10, 10)
 
 

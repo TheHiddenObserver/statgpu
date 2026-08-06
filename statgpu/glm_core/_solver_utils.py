@@ -59,7 +59,7 @@ class ConvergenceWarning(UserWarning):
 _FISTA_STEP_COMPILED = None
 _NEWTON_STEP_COMPILED = None
 
-from statgpu.backends._utils import torch_compile_supported as _torch_compile_supported
+from statgpu.backends._torch_compile import compile_torch
 
 
 def _get_fista_step_compiled():
@@ -71,25 +71,17 @@ def _get_fista_step_compiled():
         w_tilde = y_k - step * grad
         y_k_new = coef + beta_t * (coef - coef_old)
         return w_tilde, y_k_new
-    if _torch_compile_supported():
-        try:
-            _FISTA_STEP_COMPILED = torch.compile(_fista_step, dynamic=True, fullgraph=False)
-        except RuntimeError:
-            _FISTA_STEP_COMPILED = _fista_step
-    else:
-        _FISTA_STEP_COMPILED = _fista_step
+    _FISTA_STEP_COMPILED = compile_torch(
+        _fista_step,
+        workload="iterative",
+        dynamic=True,
+        fullgraph=False,
+    )
     return _FISTA_STEP_COMPILED
 
 
 def _fista_step_call(compiled_fn, *args):
-    try:
-        return compiled_fn(*args)
-    except (RuntimeError, TypeError):
-        def _fista_eager(y_k, grad, step, coef_old, coef, beta_t):
-            w_tilde = y_k - step * grad
-            y_k_new = coef + beta_t * (coef - coef_old)
-            return w_tilde, y_k_new
-        return _fista_eager(*args)
+    return compiled_fn(*args)
 
 
 def _get_newton_step_compiled():
@@ -101,25 +93,17 @@ def _get_newton_step_compiled():
         params_new = params - direction
         diff_norm = torch.linalg.norm(params_new - params_old)
         return params_new, diff_norm
-    if _torch_compile_supported():
-        try:
-            _NEWTON_STEP_COMPILED = torch.compile(_newton_step, dynamic=True, fullgraph=False)
-        except RuntimeError:
-            _NEWTON_STEP_COMPILED = _newton_step
-    else:
-        _NEWTON_STEP_COMPILED = _newton_step
+    _NEWTON_STEP_COMPILED = compile_torch(
+        _newton_step,
+        workload="iterative",
+        dynamic=True,
+        fullgraph=False,
+    )
     return _NEWTON_STEP_COMPILED
 
 
 def _newton_step_call(compiled_fn, *args):
-    try:
-        return compiled_fn(*args)
-    except (RuntimeError, TypeError):
-        def _newton_eager(params, direction, params_old):
-            params_new = params - direction
-            diff_norm = torch.linalg.norm(params_new - params_old)
-            return params_new, diff_norm
-        return _newton_eager(*args)
+    return compiled_fn(*args)
 
 
 # ---------------------------------------------------------------------------
@@ -408,34 +392,7 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
 
 
 def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
-    n = X.shape[0]
-    _backend = _resolve_backend("auto", X)
-    xp = _get_xp(_backend)
-    _sw_np = _to_numpy(sample_weight)
-    if hasattr(X, 'device'):
-        _sw = xp.asarray(_sw_np, dtype=X.dtype, device=X.device)
-    else:
-        _sw = xp.asarray(_sw_np, dtype=X.dtype)
-    sw_sum = _to_float_scalar(xp.sum(_sw))
+    """Delegate to the single backend-native weighted GLM implementation."""
+    from statgpu.glm_core._fused import _weighted_loss_and_grad as _weighted
 
-    loss_name = getattr(loss, 'name', '')
-    if loss_name == 'squared_error':
-        resid = X @ coef - y
-        grad = X.T @ (_sw * resid) / sw_sum
-        val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
-        return val, grad
-
-    if hasattr(loss, 'fused_value_and_gradient'):
-        try:
-            return loss.fused_value_and_gradient(X, y, coef, sample_weight=sample_weight)
-        except TypeError:
-            pass
-
-    try:
-        val = loss.value(X, y, coef, sample_weight=sample_weight)
-        grad = loss.gradient(X, y, coef, sample_weight=sample_weight)
-        return val, grad
-    except TypeError:
-        val = loss.value(X, y, coef)
-        grad = loss.gradient(X, y, coef)
-        return val, grad
+    return _weighted(loss, X, y, coef, sample_weight)

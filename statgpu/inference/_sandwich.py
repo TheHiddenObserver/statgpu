@@ -53,6 +53,20 @@ def _infer_covariance_convention(cov_type: str, has_curvature: bool) -> str:
         return "penalized_sandwich" if has_curvature else "robust_sandwich"
 
 
+def _runtime_error_is_singular(exc: RuntimeError) -> bool:
+    """Return whether a backend RuntimeError specifically reports singularity."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "singular",
+            "not invertible",
+            "zero pivot",
+            "rank deficient",
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bread: inverse of (scaled) Hessian
 # ---------------------------------------------------------------------------
@@ -111,31 +125,20 @@ def compute_bread_avg(
     eye = xp_eye(p, H_avg.dtype, xp, ref_arr=H_avg)
     try:
         bread_avg = xp.linalg.solve(H_avg, eye)
-    except np.linalg.LinAlgError as e:
+    except np.linalg.LinAlgError as exc:
         raise np.linalg.LinAlgError(
             "Singular Hessian in compute_bread_avg. "
             "The design matrix may be rank-deficient or the penalty is too weak. "
             "Consider adding ridge regularization or checking for collinear features."
-        ) from e
-    except RuntimeError as e:
-        # torch raises RuntimeError for singular matrices AND other errors.
-        # Only re-wrap if the message suggests a linalg issue.
-        msg = str(e).lower()
-        if any(kw in msg for kw in ("singular", "linalg", "solve", "lapack")):
-            raise np.linalg.LinAlgError(
-                "Singular Hessian in compute_bread_avg. "
-                "The design matrix may be rank-deficient or the penalty is too weak. "
-                "Consider adding ridge regularization or checking for collinear features."
-            ) from e
-        raise
-    except Exception as e:
-        # CuPy may raise bare Exception for cuSOLVER failures.
-        # Re-wrap but note it may also be OOM or device errors.
+        ) from exc
+    except RuntimeError as exc:
+        if not _runtime_error_is_singular(exc):
+            raise
         raise np.linalg.LinAlgError(
-            "Hessian solve failed in compute_bread_avg. "
-            "This may indicate singularity, GPU out-of-memory, or cuSOLVER error. "
+            "Singular Hessian in compute_bread_avg. "
+            "The design matrix may be rank-deficient or the penalty is too weak. "
             "Consider adding ridge regularization or checking for collinear features."
-        ) from e
+        ) from exc
     return bread_avg
 
 
@@ -212,10 +215,14 @@ def assemble_cov_avg(
     n_eff,
     k,
     cov_type,
+    *,
+    hc1_n=None,
 ) -> np.ndarray:
     """Assemble covariance: cov = bread_avg @ meat_avg @ bread_avg / n_eff.
 
-    HC1: multiply by n_eff / (n_eff - k).
+    HC1: multiply by n / (n - k), where ``n`` is the observation count.
+    For analytic weights this keeps the correction invariant to a global
+    rescaling of the weights; ``n_eff`` remains the sandwich normalization.
 
     Parameters
     ----------
@@ -226,6 +233,9 @@ def assemble_cov_avg(
     k : int
         Number of parameters (including intercept if applicable).
     cov_type : str
+    hc1_n : int or float, optional
+        Observation count used by the HC1 finite-sample correction. Defaults
+        to ``n_eff`` for backward-compatible direct calls.
 
     Returns
     -------
@@ -235,8 +245,9 @@ def assemble_cov_avg(
 
     cov = bread_avg @ meat_avg @ bread_avg / n_eff
 
-    if cov_type == "hc1" and n_eff > k:
-        cov = cov * (n_eff / (n_eff - k))
+    correction_n = float(n_eff if hc1_n is None else hc1_n)
+    if cov_type == "hc1" and correction_n > k:
+        cov = cov * (correction_n / (correction_n - k))
 
     return cov
 
@@ -328,7 +339,9 @@ def m_estimation_inference(
 
     # ---- dispersion (for nonrobust) ----
     if dispersion is None and cov_type == "nonrobust":
-        dispersion = _default_dispersion(loss, X, y, coef, n_eff, k)
+        dispersion = _default_dispersion(
+            loss, X, y, coef, X.shape[0], k, sample_weight=sample_weight
+        )
 
     # ---- covariance ----
     if cov_type == "nonrobust":
@@ -341,7 +354,14 @@ def m_estimation_inference(
             bread_avg=bread_avg,
             sample_weight=sample_weight,
         )
-        cov = assemble_cov_avg(bread_avg, meat_avg, n_eff, k, cov_type)
+        cov = assemble_cov_avg(
+            bread_avg,
+            meat_avg,
+            n_eff,
+            k,
+            cov_type,
+            hc1_n=X.shape[0],
+        )
 
     # ---- standard errors ----
     cov_diag = xp.diag(cov)
@@ -367,7 +387,11 @@ def m_estimation_inference(
         # wald = coef' @ cov^{-1} @ coef via solve
         wald_vec = xp.linalg.solve(cov, coef)
         wald_stat = float(xp.dot(coef, wald_vec))
-    except (np.linalg.LinAlgError, RuntimeError):
+    except np.linalg.LinAlgError:
+        wald_stat = float("nan")
+    except RuntimeError as exc:
+        if not _runtime_error_is_singular(exc):
+            raise
         wald_stat = float("nan")
     from math import isnan as _math_isnan
     wald_pval = _chi2_sf(xp, wald_stat, k) if not _math_isnan(wald_stat) else float("nan")
@@ -393,7 +417,9 @@ def m_estimation_inference(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _default_dispersion(loss, X, y, coef, n_eff, k):
+def _default_dispersion(
+    loss, X, y, coef, n_obs, k, *, sample_weight=None
+):
     """Default dispersion for nonrobust covariance.  Backend-agnostic.
 
     Canonical-link GLMs (Poisson, logistic, NegBinom): = 1.0.
@@ -405,13 +431,16 @@ def _default_dispersion(loss, X, y, coef, n_eff, k):
     if name in ("squared_error",):
         _, xp = _resolve_backend_and_xp(X)
         eta = X @ coef; mu = eta
-        resid = y - mu; rss = float(xp.sum(resid ** 2))
-        return rss / max(n_eff - k, 1)
+        resid_sq = (y - mu) ** 2
+        if sample_weight is not None:
+            resid_sq = resid_sq * sample_weight
+        rss = float(xp.sum(resid_sq))
+        return rss / max(n_obs - k, 1)
 
     # Pearson dispersion for non-canonical GLMs (backend-agnostic)
     if name in ("gamma", "inverse_gaussian", "tweedie"):
         _, xp = _resolve_backend_and_xp(X)
-        df = max(n_eff - k, 1)
+        df = max(n_obs - k, 1)
         if hasattr(loss, '_mu_from_eta'):
             eta = X @ coef; mu = loss._mu_from_eta(eta)
         else:
@@ -428,7 +457,10 @@ def _default_dispersion(loss, X, y, coef, n_eff, k):
             return 1.0
         resid_sq = (y - mu) ** 2
         from statgpu.backends._utils import xp_maximum
-        pearson = float(xp.sum(resid_sq / xp_maximum(V, 1e-10, xp)))
+        pearson_terms = resid_sq / xp_maximum(V, 1e-10, xp)
+        if sample_weight is not None:
+            pearson_terms = pearson_terms * sample_weight
+        pearson = float(xp.sum(pearson_terms))
         return pearson / df
 
     return 1.0

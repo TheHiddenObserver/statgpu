@@ -1261,20 +1261,17 @@ def compute_breslow_hess_raw(
             pass
     meta = cp.array([n, p, nuft, seq_thresh], dtype=cp.int32)
     kernel = get_breslow_hess_kernel(cp)
-    try:
-        kernel(
-            (1,),
-            (threads,),
-            (
-                X,
-                e_eta,
-                first_idx_g,
-                counts_g,
-                meta,
-                hess_out.reshape(-1),
-                workspace,
-            ),
-        )
-    except Exception:
-        return None
+    kernel(
+        (1,),
+        (threads,),
+        (
+            X,
+            e_eta,
+            first_idx_g,
+            counts_g,
+            meta,
+            hess_out.reshape(-1),
+            workspace,
+        ),
+    )
     return hess_out
