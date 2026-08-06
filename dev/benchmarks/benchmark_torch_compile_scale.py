@@ -23,7 +23,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -125,9 +125,9 @@ def _parse_cases(value: str) -> tuple[str, ...]:
 
 def _resolve_plan(
     preset: str,
-    scales: Sequence[tuple[int, int]] | None,
-    cases: Sequence[str] | None,
-    repeats: int | None,
+    scales: Optional[Sequence[tuple[int, int]]],
+    cases: Optional[Sequence[str]],
+    repeats: Optional[int],
 ) -> tuple[tuple[tuple[int, int], ...], tuple[str, ...], int]:
     """Resolve CLI overrides against a named benchmark preset."""
     preset_config = _PRESETS[preset]
