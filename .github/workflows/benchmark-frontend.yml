@@ -29,6 +29,10 @@ on:
       - 'results/benchmark_frontend_sources/**'
       - 'pyproject.toml'
 
+concurrency:
+  group: benchmark-frontend-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python-data:
     runs-on: ubuntu-latest
