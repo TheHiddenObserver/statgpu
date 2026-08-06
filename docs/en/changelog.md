@@ -1,5 +1,7 @@
 # Changelog
 
+- Closed follow-up review gaps in direct LogisticRegression and penalized CV: failed fits clear partial state, single-class confusion/table metrics remain available, and custom validation losses retain analytic weights.
+
 - Aligned direct LogisticRegression prediction contracts across NumPy, CuPy, and Torch: hard labels are integer-valued, single-column responses score without broadcasting, and non-finite decision thresholds are rejected.
 
 - Kept fitted likelihood diagnostics independent of covariance inference, so enabling inference cannot change AIC, BIC, or pseudo-R².

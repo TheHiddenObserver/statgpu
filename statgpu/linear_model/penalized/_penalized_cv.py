@@ -558,17 +558,16 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
     else:
         X_design = X_val_np
         coef_with_intercept = coef_np
-    # Fallback: unweighted loss. Weighted mean cannot be derived from
-    # unweighted mean, so weights are ignored for unknown loss types.
-    if sw is not None:
-        import warnings
-        warnings.warn(
-            f"_evaluate_loss_numpy: loss '{loss_name}' not in dispatch table, "
-            f"falling back to unweighted loss_fn.value(). Sample weights ignored.",
-            RuntimeWarning,
-            stacklevel=2,
+    # Unknown/custom losses use the same public LossBase contract as the
+    # optimized dispatch table, including analytic validation weights.
+    return float(
+        loss_fn.value(
+            X_design,
+            y_val_np,
+            coef_with_intercept,
+            sample_weight=sw,
         )
-    return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
+    )
 
 
 def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):

@@ -25,6 +25,8 @@ from statgpu.backends import _get_torch_device_str
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.metrics import (
     binary_average_precision_score,
+    binary_classification_table,
+    binary_confusion_matrix,
     binary_precision_recall_curve,
     binary_roc_auc_score,
     binary_roc_curve,
@@ -324,61 +326,66 @@ class LogisticRegression(BaseEstimator):
         self : object
         """
         self._reset_fit_state()
-        self._validate_fit_controls()
-        self._train_pred_cache = None
-        self._train_eval_cache = None
+        try:
+            self._validate_fit_controls()
+            self._train_pred_cache = None
+            self._train_eval_cache = None
 
-        # Validate shape/domain before backend-specific unpacking.
-        X_validated = validate_glm_design_matrix(X)
+            # Validate shape/domain before backend-specific unpacking.
+            X_validated = validate_glm_design_matrix(X)
 
-        # Get backend - support explicit torch backend selection.
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
+            # Get backend - support explicit torch backend selection.
+            backend = self._get_backend(backend="auto")
+            backend_name = backend.name
 
-        X_arr = self._to_array(X_validated, backend=backend_name)
-        y_validated = validate_binary_response(
-            y, X_validated.shape[0], context="LogisticRegression"
-        )
-        self._y = self._to_numpy(y_validated).astype(float)
-        # Handle dtype conversion based on backend
-        if backend_name == "torch":
-            import torch
-            y_arr = self._to_array(y_validated, backend=backend_name)
-            if y_arr.dtype != torch.float64:
-                y_arr = y_arr.to(torch.float64)
-        elif backend_name == "cupy":
-            import cupy as cp
-            y_arr = self._to_array(y_validated, backend=backend_name).astype(cp.float64)
-        else:
-            y_arr = self._to_array(y_validated, backend=backend_name).astype(float)
-
-        if sample_weight is None:
-            sample_weight_arr = None
-            self._sample_weight = None
-        else:
-            sample_weight_arr = self._to_array(sample_weight, backend=backend_name)
-            sample_weight_arr = validate_glm_sample_weight(
-                sample_weight_arr, X_arr.shape[0]
+            X_arr = self._to_array(X_validated, backend=backend_name)
+            y_validated = validate_binary_response(
+                y, X_validated.shape[0], context="LogisticRegression"
             )
-            self._sample_weight = np.asarray(
-                self._to_numpy(sample_weight_arr), dtype=np.float64
-            ).reshape(-1)
+            self._y = self._to_numpy(y_validated).astype(float)
+            # Handle dtype conversion based on backend
+            if backend_name == "torch":
+                import torch
+                y_arr = self._to_array(y_validated, backend=backend_name)
+                if y_arr.dtype != torch.float64:
+                    y_arr = y_arr.to(torch.float64)
+            elif backend_name == "cupy":
+                import cupy as cp
+                y_arr = self._to_array(y_validated, backend=backend_name).astype(cp.float64)
+            else:
+                y_arr = self._to_array(y_validated, backend=backend_name).astype(float)
 
-        device = self._get_compute_device()
+            if sample_weight is None:
+                sample_weight_arr = None
+                self._sample_weight = None
+            else:
+                sample_weight_arr = self._to_array(sample_weight, backend=backend_name)
+                sample_weight_arr = validate_glm_sample_weight(
+                    sample_weight_arr, X_arr.shape[0]
+                )
+                self._sample_weight = np.asarray(
+                    self._to_numpy(sample_weight_arr), dtype=np.float64
+                ).reshape(-1)
 
-        # Route to appropriate backend
-        if backend_name == "torch":
-            self._fit_torch(X_arr, y_arr, sample_weight_arr)
-        elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, sample_weight_arr)
-        else:
-            self._fit_cpu(X_arr, y_arr, sample_weight_arr)
+            device = self._get_compute_device()
 
-        if self._compute_inference_enabled and device == Device.CPU:
-            self._compute_inference()
-        self._fitted = True
-        return self
+            # Route to appropriate backend
+            if backend_name == "torch":
+                self._fit_torch(X_arr, y_arr, sample_weight_arr)
+            elif backend_name == "cupy":
+                self._fit_gpu(X_arr, y_arr, sample_weight_arr)
+            else:
+                self._fit_cpu(X_arr, y_arr, sample_weight_arr)
+
+            if self._compute_inference_enabled and device == Device.CPU:
+                self._compute_inference()
+            self._fitted = True
+            return self
     
+        except Exception:
+            self._reset_fit_state()
+            raise
+
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU with IRLS."""
         X = np.asarray(X)
@@ -1246,80 +1253,50 @@ class LogisticRegression(BaseEstimator):
     def confusion_matrix(self, X, y, threshold: float = 0.5) -> np.ndarray:
         """Compute binary confusion matrix on a dataset."""
         threshold = self._validate_threshold(threshold)
+        y_pred = self.predict_with_threshold(X, threshold=threshold)
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("confusion_matrix")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X))[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="cupy",
+            return binary_confusion_matrix(
+                y_true, y_pred, backend="cupy"
             )
-            return out["confusion_matrix"]
         if self._get_compute_device() == Device.TORCH:
-            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
-            y_score = self.predict_proba(X)[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="torch",
+            y_true = self._to_array(
+                y, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            return binary_confusion_matrix(
+                y_true, y_pred, backend="torch"
             )
-            return out["confusion_matrix"]
 
         y_true = self._to_numpy(y)
-        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
-        out = evaluate_binary_classification(
-            y_true,
-            y_score,
-            threshold=threshold,
-            include_curves=False,
-            backend="numpy",
+        return binary_confusion_matrix(
+            y_true, y_pred, backend="numpy"
         )
-        return out["confusion_matrix"]
 
     def classification_table(self, X, y, threshold: float = 0.5) -> Dict[str, float]:
         """Return a compact classification table on a dataset."""
         threshold = self._validate_threshold(threshold)
+        y_pred = self.predict_with_threshold(X, threshold=threshold)
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("classification_table")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X))[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="cupy",
+            return binary_classification_table(
+                y_true, y_pred, backend="cupy"
             )
-            return out["classification_table"]
         if self._get_compute_device() == Device.TORCH:
-            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
-            y_score = self.predict_proba(X)[:, 1]
-            out = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=threshold,
-                include_curves=False,
-                backend="torch",
+            y_true = self._to_array(
+                y, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            return binary_classification_table(
+                y_true, y_pred, backend="torch"
             )
-            return out["classification_table"]
 
         y_true = self._to_numpy(y)
-        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
-        out = evaluate_binary_classification(
-            y_true,
-            y_score,
-            threshold=threshold,
-            include_curves=False,
-            backend="numpy",
+        return binary_classification_table(
+            y_true, y_pred, backend="numpy"
         )
-        return out["classification_table"]
 
     def roc_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute ROC curve arrays (fpr, tpr, thresholds)."""

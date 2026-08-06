@@ -123,3 +123,65 @@ def test_logistic_evaluation_threshold_accepts_numpy_real(method_name):
 
     result = method(X, y, threshold=np.float64(0.5))
     assert result is not None
+
+
+def test_logistic_confusion_and_table_support_single_class_targets():
+    model, X, _ = _cpu_logistic_fixture()
+    y_single = np.zeros(X.shape[0], dtype=np.int64)
+
+    matrix = model.confusion_matrix(X, y_single)
+    table = model.classification_table(X, y_single)
+
+    assert matrix.shape == (2, 2)
+    assert int(matrix.sum()) == X.shape[0]
+    assert table["support_negative"] == X.shape[0]
+    assert table["support_positive"] == 0
+
+
+def test_logistic_failed_backend_fit_clears_partial_publication(monkeypatch):
+    model, X, y = _cpu_logistic_fixture()
+
+    def fail_after_partial_publication(*args, **kwargs):
+        model.coef_ = np.array([99.0])
+        model.intercept_ = 99.0
+        model._params = np.array([99.0, 99.0])
+        model._loglik = -1.0
+        raise RuntimeError("synthetic backend failure")
+
+    monkeypatch.setattr(model, "_fit_cpu", fail_after_partial_publication)
+    with pytest.raises(RuntimeError, match="synthetic backend failure"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._loglik is None
+
+
+def test_logistic_failed_inference_clears_fitted_outputs(monkeypatch):
+    from statgpu.linear_model import LogisticRegression
+
+    _, X, y = _cpu_logistic_fixture()
+    model = LogisticRegression(
+        C=1.0,
+        max_iter=200,
+        tol=1e-10,
+        device="cpu",
+        compute_inference=True,
+    )
+
+    def fail_inference():
+        model._bse = np.array([1.0, 1.0])
+        raise RuntimeError("synthetic inference failure")
+
+    monkeypatch.setattr(model, "_compute_inference", fail_inference)
+    with pytest.raises(RuntimeError, match="synthetic inference failure"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._bse is None
+    assert model._loglik is None

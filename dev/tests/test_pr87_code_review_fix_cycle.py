@@ -823,3 +823,34 @@ def test_logistic_inference_source_does_not_recompute_likelihood():
     assert "self._loglik =" not in source
     assert "self._loglik_null =" not in source
     assert "Inference must not overwrite" in source
+
+
+def test_unknown_cv_loss_preserves_validation_sample_weight():
+    from statgpu.linear_model.penalized._penalized_cv import _evaluate_loss_numpy
+
+    observed = {}
+
+    class CustomLoss:
+        def value(self, X, y, coef, sample_weight=None):
+            observed["sample_weight"] = np.asarray(sample_weight).copy()
+            residual = np.asarray(y) - np.asarray(X) @ np.asarray(coef)
+            weights = np.asarray(sample_weight, dtype=np.float64)
+            return float(np.dot(weights, residual ** 2) / weights.sum())
+
+    X = np.array([[1.0], [2.0], [4.0]])
+    y = np.array([1.0, 1.0, 5.0])
+    weights = np.array([1.0, 3.0, 7.0])
+    value = _evaluate_loss_numpy(
+        "custom_weighted_loss",
+        CustomLoss(),
+        X,
+        y,
+        np.array([1.0]),
+        0.0,
+        False,
+        sample_weight=weights,
+    )
+
+    expected = np.dot(weights, (y - X[:, 0]) ** 2) / weights.sum()
+    assert value == pytest.approx(expected)
+    np.testing.assert_array_equal(observed["sample_weight"], weights)

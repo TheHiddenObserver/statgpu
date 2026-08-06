@@ -1,5 +1,7 @@
 # Changelog
 
+- 闭合直接 LogisticRegression 与惩罚 CV 的后续审查缺口：失败拟合会清除半发布状态，单一类别仍可计算混淆矩阵/分类表，自定义验证损失保留解析权重。
+
 - 统一直接 LogisticRegression 在 NumPy、CuPy 与 Torch 下的预测契约：硬标签使用整数 dtype，单列响应评分不再发生广播，非有限决策阈值会被拒绝。
 
 - 将拟合似然诊断与协方差推断解耦，开启推断不会改变 AIC、BIC 或伪 R²。
