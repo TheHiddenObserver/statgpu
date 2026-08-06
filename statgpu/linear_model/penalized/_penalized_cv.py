@@ -147,6 +147,19 @@ def _cv_path_failure_is_recoverable(exc) -> bool:
     return isinstance(exc, NotImplementedError) or _cv_candidate_failure_is_recoverable(exc)
 
 
+def _cv_loss_evaluation_failure_is_recoverable(exc) -> bool:
+    """Return whether validation scoring may try an equivalent evaluator."""
+    return isinstance(
+        exc,
+        (NotImplementedError, FloatingPointError, OverflowError, np.linalg.LinAlgError),
+    ) or _linalg_exception_is_rank_failure(exc)
+
+
+def _raise_unless_recoverable_cv_loss_failure(exc) -> None:
+    if not _cv_loss_evaluation_failure_is_recoverable(exc):
+        raise exc
+
+
 def _raise_unless_recoverable_cv_candidate_failure(exc) -> None:
     if not _cv_candidate_failure_is_recoverable(exc):
         raise exc
@@ -2405,6 +2418,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
         except Exception as primary_exc:
             _raise_cv_infrastructure_failure(primary_exc)
+            _raise_unless_recoverable_cv_loss_failure(primary_exc)
+            warnings.warn(
+                f"Optimized validation scoring for '{self.loss}' was unavailable "
+                "or numerically invalid; retrying the same declared objective "
+                "through the generic loss interface.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             # Preserve the declared objective by retrying through the generic
             # loss interface, including analytic validation weights.
             try:
@@ -2430,6 +2451,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 )
             except Exception as fallback_exc:
                 _raise_cv_infrastructure_failure(fallback_exc)
+                _raise_unless_recoverable_cv_loss_failure(fallback_exc)
                 if not _is_squared_error_loss_name(self.loss):
                     raise RuntimeError(
                         f"Could not evaluate declared validation loss '{self.loss}'. "

@@ -11,6 +11,8 @@ from typing import Optional
 
 import numpy as np
 
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+
 
 def _infer_backend(X):
     """Detect backend from array type."""
@@ -34,14 +36,7 @@ def _solve(A, b, backend="auto"):
         try:
             sol = torch.linalg.solve(A, b_col)
         except RuntimeError as exc:
-            message = str(exc).lower()
-            singular_markers = (
-                "singular",
-                "not invertible",
-                "zero pivot",
-                "rank deficient",
-            )
-            if not any(marker in message for marker in singular_markers):
+            if not _linalg_exception_is_rank_failure(exc):
                 raise
             sol = torch.linalg.lstsq(A, b_col).solution
         return sol.squeeze(1) if b.ndim == 1 else sol
@@ -51,7 +46,9 @@ def _solve(A, b, backend="auto"):
 
         try:
             return cp.linalg.solve(A, b)
-        except np.linalg.LinAlgError:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             return cp.linalg.lstsq(A, b)[0]
 
     try:

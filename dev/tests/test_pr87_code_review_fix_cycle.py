@@ -410,3 +410,138 @@ def test_logistic_direct_control_mutation_is_used_by_refit():
     assert model._max_iter == 200
     assert model._tol == pytest.approx(1e-8)
     assert model.intercept_ == 0.0
+
+
+def _cv_evaluation_owner(loss_name):
+    from statgpu.linear_model.penalized._penalized_cv import PenalizedGLM_CV
+
+    owner = object.__new__(PenalizedGLM_CV)
+    owner.loss = loss_name
+    return owner
+
+
+class _CVScoreModel:
+    fit_intercept = True
+    intercept_ = 0.25
+    coef_ = np.array([0.5])
+
+    def predict(self, X):
+        return self.intercept_ + np.asarray(X) @ self.coef_
+
+
+def test_cv_primary_scoring_programming_error_is_not_silently_retried(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            raise AssertionError("generic scorer must not run")
+
+    monkeypatch.setattr(
+        cv_mod, '_evaluate_loss_numpy',
+        lambda *args, **kwargs: (_ for _ in ()).throw(TypeError('bad scoring signature')),
+    )
+    with pytest.raises(TypeError, match='bad scoring signature'):
+        _cv_evaluation_owner('poisson')._evaluate_single(
+            _CVScoreModel(), np.ones((3, 1)), np.ones(3), loss_fn=Loss()
+        )
+
+
+def test_cv_recoverable_primary_scoring_fallback_is_visible(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    calls = {'generic': 0}
+
+    class Loss:
+        def value(self, X, y, coef, sample_weight=None):
+            calls['generic'] += 1
+            return 2.75
+
+    monkeypatch.setattr(
+        cv_mod, '_evaluate_loss_numpy',
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            NotImplementedError('optimized scorer unavailable')
+        ),
+    )
+    with pytest.warns(RuntimeWarning, match='generic loss interface'):
+        value = _cv_evaluation_owner('poisson')._evaluate_single(
+            _CVScoreModel(), np.ones((3, 1)), np.ones(3), loss_fn=Loss()
+        )
+    assert value == pytest.approx(2.75)
+    assert calls == {'generic': 1}
+
+
+def test_cv_generic_scoring_programming_error_is_not_converted_to_mse(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            raise TypeError('generic scorer bug')
+
+    monkeypatch.setattr(
+        cv_mod, '_evaluate_loss_numpy',
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            NotImplementedError('optimized scorer unavailable')
+        ),
+    )
+    with pytest.warns(RuntimeWarning, match='generic loss interface'):
+        with pytest.raises(TypeError, match='generic scorer bug'):
+            _cv_evaluation_owner('squared_error')._evaluate_single(
+                _CVScoreModel(), np.ones((3, 1)), np.ones(3), loss_fn=Loss()
+            )
+
+
+def test_cv_squared_error_numeric_failure_uses_visible_equivalent_mse(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            raise FloatingPointError('generic non-finite score')
+
+    monkeypatch.setattr(
+        cv_mod, '_evaluate_loss_numpy',
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            FloatingPointError('optimized non-finite score')
+        ),
+    )
+    X = np.arange(3.0)[:, None]
+    y = np.array([0.0, 1.0, 2.0])
+    with pytest.warns(RuntimeWarning) as caught:
+        value = _cv_evaluation_owner('squared_error')._evaluate_single(
+            _CVScoreModel(), X, y, loss_fn=Loss()
+        )
+    assert len(caught) == 2
+    expected = np.mean((y - _CVScoreModel().predict(X)) ** 2)
+    assert value == pytest.approx(expected)
+
+
+def test_irls_cupy_rank_failure_uses_lstsq_and_oom_propagates(monkeypatch):
+    import sys
+    import types
+    from statgpu.glm_core._irls import _solve
+
+    fake = types.ModuleType('cupy')
+    calls = {'lstsq': 0}
+
+    class Linalg:
+        @staticmethod
+        def solve(A, b):
+            raise RuntimeError('singular matrix')
+
+        @staticmethod
+        def lstsq(A, b):
+            calls['lstsq'] += 1
+            return (np.array([3.0]), None, None, None)
+
+    fake.linalg = Linalg()
+    monkeypatch.setitem(sys.modules, 'cupy', fake)
+    result = _solve(np.eye(1), np.ones(1), backend='cupy')
+    np.testing.assert_allclose(result, [3.0])
+    assert calls == {'lstsq': 1}
+
+    def oom(A, b):
+        raise RuntimeError('CUDA out of memory')
+
+    fake.linalg.solve = oom
+    with pytest.raises(RuntimeError, match='out of memory'):
+        _solve(np.eye(1), np.ones(1), backend='cupy')
+    assert calls == {'lstsq': 1}
