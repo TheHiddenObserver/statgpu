@@ -1,0 +1,75 @@
+name: PR87 review round 5 retry
+
+on:
+  push:
+    branches: [agent/maintenance-0.2.4-0.2.5]
+    paths: [.github/workflows/pr87-review-round5-retry.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-test-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reapply round 5 fixes with internal runtime snapshot
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          workflow = Path('.github/workflows/pr87-review-round5-fix.yml')
+          lines = workflow.read_text(encoding='utf-8').splitlines()
+          start = lines.index("          python - <<'PY'") + 1
+          end = lines.index("          PY", start)
+          script = dedent("\n".join(lines[start:end])) + "\n"
+          exec(compile(script, str(workflow), 'exec'), {'__name__': '__main__'})
+
+          path = Path('statgpu/linear_model/wrappers/_logistic.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''        self.C = C\n        self.max_iter = max_iter\n'''
+          new = '''        self.C = C\n        self._C = (\n            float(C)\n            if isinstance(C, Real) and not isinstance(C, (bool, np.bool_))\n            else C\n        )\n        self.max_iter = max_iter\n'''
+          if text.count(old) != 1:
+              raise RuntimeError('expected one LogisticRegression constructor C anchor')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Run shared IRLS and direct Logistic suites
+        run: |
+          python -m pytest -q \
+            dev/tests/test_pr87_code_review_fix_cycle.py \
+            dev/tests/test_logistic.py \
+            dev/tests/test_external_consistency.py \
+            -k "irls or logistic"
+      - name: Run solver and GLM regressions
+        run: |
+          python -m pytest -q \
+            dev/tests/test_loss_penalty_solver_matrix.py \
+            dev/tests/test_maintenance_024_025.py \
+            -k "irls or logistic or convergence or sample_weight"
+      - name: Static review gates
+        run: |
+          python -m compileall -q statgpu dev/tests/test_pr87_code_review_fix_cycle.py
+          git diff --check
+      - name: Commit fixes and self-delete
+        shell: bash
+        run: |
+          rm .github/workflows/pr87-review-round5-fix.yml
+          rm .github/workflows/pr87-review-round5-retry.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add statgpu dev/tests .github/workflows/pr87-review-round5-fix.yml .github/workflows/pr87-review-round5-retry.yml
+          git commit -m "fix: validate logistic controls and convergence"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
