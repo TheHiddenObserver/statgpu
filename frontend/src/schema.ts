@@ -246,16 +246,26 @@ export interface ParseReport {
   issues: ParseIssue[];
 }
 
-/** Source inventory */
+/** Audited source inventory v2 */
 export interface SourceInventory {
-  inventory_version: '1.0';
+  inventory_version: '2.0';
   catalog_version: string;
+  catalog_digest: string;
+  coverage_matrix_version: string;
+  coverage_matrix_digest: string;
   generation_id: string;
-  catalog_total: number;
-  eligible_total: number;
+  discovered_json_artifacts: number;
+  classified_candidate_sources: number;
+  eligible_sources: number;
   registered_sources: number;
-  available_sources: number;
-  parsed_sources: number;
+  available_registered_sources: number;
+  parsed_registered_sources: number;
+  eligible_unregistered_sources: number;
+  not_canonical_ready_sources: number;
+  historical_or_excluded_sources: number;
+  superseded_or_duplicate_sources: number;
+  unrelated_json_artifacts: number;
+  unclassified_artifacts: number;
 }
 
 /** Filter context and options */
