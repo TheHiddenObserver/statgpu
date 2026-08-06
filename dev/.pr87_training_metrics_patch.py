@@ -119,13 +119,37 @@ new_auc = '''    @property
 if text.count(old_auc) != 1:
     raise RuntimeError(f"training ranking property anchor count={text.count(old_auc)}")
 text = text.replace(old_auc, new_auc, 1)
+
+old_summary = '''        auc = self.auc
+        auc_display = self._to_python_float(auc)
+        print(f"ROC-AUC:                    {auc_display:>15.4f}")
+        ap = self.average_precision
+        ap_display = self._to_python_float(ap)
+        print(f"Avg Precision:              {ap_display:>15.4f}")
+'''
+new_summary = '''        try:
+            auc = self.auc
+        except ValueError:
+            auc = None
+        auc_display = self._to_python_float(auc)
+        print(f"ROC-AUC:                    {auc_display:>15.4f}")
+        try:
+            ap = self.average_precision
+        except ValueError:
+            ap = None
+        ap_display = self._to_python_float(ap)
+        print(f"Avg Precision:              {ap_display:>15.4f}")
+'''
+if text.count(old_summary) != 1:
+    raise RuntimeError(f"summary ranking anchor count={text.count(old_summary)}")
+text = text.replace(old_summary, new_summary, 1)
 path.write_text(text, encoding="utf-8")
 
 test_path = Path("dev/tests/test_pr87_classifier_output_contracts.py")
 tests = test_path.read_text(encoding="utf-8")
 addition = '''
 
-def test_logistic_training_hard_metrics_support_one_class_targets():
+def test_logistic_training_hard_metrics_support_one_class_targets(capsys):
     from statgpu.linear_model import LogisticRegression
 
     X = np.ones((8, 1), dtype=np.float64)
@@ -136,17 +160,23 @@ def test_logistic_training_hard_metrics_support_one_class_targets():
         max_iter=200,
         tol=1e-10,
         device="cpu",
-        compute_inference=False,
+        compute_inference=True,
     ).fit(X, y)
 
     assert model.accuracy == pytest.approx(1.0)
     assert model.precision == pytest.approx(0.0)
     assert model.recall == pytest.approx(0.0)
     assert model.f1 == pytest.approx(0.0)
-    with pytest.raises(ValueError, match="both positive and negative"):
+    with pytest.raises(ValueError, match="only one class"):
         _ = model.auc
     with pytest.raises(ValueError, match="no positive class"):
         _ = model.average_precision
+
+    model.summary()
+    output = capsys.readouterr().out.lower()
+    assert "roc-auc:" in output
+    assert "avg precision:" in output
+    assert "nan" in output
 
 
 def test_logistic_training_metric_caches_are_independent(monkeypatch):
@@ -181,11 +211,11 @@ test_path.write_text(tests, encoding="utf-8")
 for changelog, entry in [
     (
         Path("docs/en/changelog.md"),
-        "- Decoupled direct LogisticRegression training confusion metrics from ROC/PR evaluation, so accuracy, precision, recall, and F1 remain available for one-class targets while ranking metrics keep their explicit support requirements.\n\n",
+        "- Decoupled direct LogisticRegression training confusion metrics from ROC/PR evaluation, so accuracy, precision, recall, and F1 remain available for one-class targets while ranking metrics keep their explicit support requirements; summary renders unavailable ranking metrics as NaN.\n\n",
     ),
     (
         Path("docs/cn/changelog.md"),
-        "- 将直接 LogisticRegression 的训练集混淆指标与 ROC/PR 评估解耦，使单一类别目标仍可获得 accuracy、precision、recall 与 F1，同时排序指标保留其显式类别支持要求。\n\n",
+        "- 将直接 LogisticRegression 的训练集混淆指标与 ROC/PR 评估解耦，使单一类别目标仍可获得 accuracy、precision、recall 与 F1，同时排序指标保留其显式类别支持要求；summary 会将不可用的排序指标显示为 NaN。\n\n",
     ),
 ]:
     current = changelog.read_text(encoding="utf-8")
