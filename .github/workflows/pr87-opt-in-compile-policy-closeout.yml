@@ -1,0 +1,102 @@
+name: PR87 opt-in compile policy closeout
+
+on:
+  push:
+    branches:
+      - agent/maintenance-0.2.4-0.2.5
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/maintenance-0.2.4-0.2.5
+          fetch-depth: 0
+
+      - name: Update remaining explicit compile tests and changelog
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          test_path = Path("dev/tests/test_maintenance_024_025.py")
+          tests = test_path.read_text(encoding="utf-8")
+          for name in (
+              "test_torch_nonconvex_model_level_compile_matrix_py21",
+              "test_torch_elasticnet_model_level_compile_path_py21",
+          ):
+              pattern = re.compile(rf"(def {name}\(.*?)(?=\n\ndef |\Z)", re.S)
+              match = pattern.search(tests)
+              assert match is not None, name
+              block = match.group(1)
+              old = 'monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)'
+              assert block.count(old) == 1, (name, block.count(old))
+              block = block.replace(
+                  old,
+                  'monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")',
+              )
+              tests = tests[:match.start(1)] + block + tests[match.end(1):]
+          test_path.write_text(tests, encoding="utf-8")
+
+          en_path = Path("docs/en/changelog.md")
+          en = en_path.read_text(encoding="utf-8")
+          old_en = '''- Internal iterative Torch kernels now use a centralized compile policy.
+            The default avoids `reduce-overhead` CUDA Graph capture, while
+            `STATGPU_TORCH_COMPILE_MODE` permits explicit `default`,
+            `reduce-overhead`, or eager-only operation.  Known CUDA Graph output
+            lifecycle failures fall back to eager execution once; unrelated runtime
+            errors remain visible.'''
+          new_en = '''- Internal iterative Torch kernels now use a centralized, opt-in compile policy.
+            Compilation remains eager when `STATGPU_TORCH_COMPILE_MODE` is unset,
+            `auto`, or `disable`. Users can explicitly select `default` or
+            `reduce-overhead`; known CUDA Graph output lifecycle failures then fall
+            back to eager execution once, while unrelated runtime errors remain visible.'''
+          assert en.count(old_en) == 1
+          en_path.write_text(en.replace(old_en, new_en), encoding="utf-8")
+
+          cn_path = Path("docs/cn/changelog.md")
+          cn = cn_path.read_text(encoding="utf-8")
+          old_cn = '''- statgpu 内部迭代式 Torch kernel 统一通过集中式 compile policy。
+            默认不再使用会启用 CUDA Graph 的 `reduce-overhead`；用户仍可通过
+            `STATGPU_TORCH_COMPILE_MODE` 显式选择 `default`、
+            `reduce-overhead` 或完全 eager。遇到已知 CUDA Graph 输出生命周期错误时，
+            对应 callable 会永久回退 eager；其他运行时错误不会被吞掉。'''
+          new_cn = '''- statgpu 内部迭代式 Torch kernel 统一通过显式 opt-in 的集中式 compile policy。
+            当 `STATGPU_TORCH_COMPILE_MODE` 未设置、设为 `auto` 或 `disable` 时，
+            默认保持 eager；用户可显式选择 `default` 或 `reduce-overhead`。
+            遇到已知 CUDA Graph 输出生命周期错误时，对应 callable 会永久回退
+            eager；其他运行时错误不会被吞掉。'''
+          assert cn.count(old_cn) == 1
+          cn_path.write_text(cn.replace(old_cn, new_cn), encoding="utf-8")
+          PY
+
+      - name: Validate closeout
+        shell: bash
+        run: |
+          python -m compileall -q dev/tests/test_maintenance_024_025.py
+          python -m pip install -q pytest
+          python -m pip install -q -e .
+          python -m pytest -q \
+            dev/tests/test_maintenance_024_025.py::test_iterative_compile_policy_defaults_to_eager_and_allows_opt_in \
+            dev/tests/test_torch_compile_default_policy.py \
+            dev/tests/test_torch_compile_benchmark_contract.py
+          grep -RIn --exclude-dir=.git \
+            "defaults_to_non_cudagraph\|default avoids.*reduce-overhead\|默认不再使用会启用" \
+            statgpu dev docs README* pyproject.toml && exit 1 || true
+
+      - name: Commit closeout and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/pr87-opt-in-compile-policy-closeout.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/tests/test_maintenance_024_025.py \
+            docs/en/changelog.md docs/cn/changelog.md \
+            .github/workflows/pr87-opt-in-compile-policy-closeout.yml
+          git commit -m "docs: clarify torch compile opt-in policy"
+          git push origin HEAD:agent/maintenance-0.2.4-0.2.5
