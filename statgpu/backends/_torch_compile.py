@@ -3,8 +3,9 @@
 statgpu iterative solvers reuse tensors across calls. PyTorch's
 ``reduce-overhead`` mode enables CUDA Graphs and can therefore expose
 overwritten-output lifecycle errors on PyTorch 2.1 and newer. Internal
-iterative call sites use ``default`` mode unless a user explicitly opts
-into another mode through ``STATGPU_TORCH_COMPILE_MODE``.
+kernels therefore remain eager by default. Users can explicitly opt in
+to ``default`` or ``reduce-overhead`` compilation through
+``STATGPU_TORCH_COMPILE_MODE``.
 """
 
 from __future__ import annotations
@@ -25,22 +26,22 @@ def resolve_torch_compile_mode(
     workload: str = "general",
     requested_mode: Optional[str] = None,
 ) -> Optional[str]:
-    """Resolve the mode for a statgpu-owned compiled callable."""
+    """Resolve an explicitly opted-in mode for a statgpu callable.
+
+    ``auto`` is intentionally eager. ``workload`` and ``requested_mode``
+    remain part of the internal call-site contract, but neither can
+    silently enable compilation when the environment is unset or set to
+    ``auto``.
+    """
     configured = os.environ.get(_ENV_NAME, "auto").strip().lower()
     if configured not in _ALLOWED_MODES:
         allowed = ", ".join(sorted(_ALLOWED_MODES))
         raise ValueError(
             f"{_ENV_NAME} must be one of {allowed}; got {configured!r}"
         )
-    if configured == "disable":
+    if configured in {"auto", "disable"}:
         return None
-    if configured != "auto":
-        return configured
-    if workload.strip().lower() == "iterative":
-        return "default"
-    if requested_mode in (None, "reduce-overhead"):
-        return "default"
-    return requested_mode
+    return configured
 
 
 def torch_compile_available() -> bool:

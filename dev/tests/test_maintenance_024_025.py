@@ -10,13 +10,20 @@ import numpy as np
 import pytest
 
 
-def test_iterative_compile_policy_defaults_to_non_cudagraph_mode(monkeypatch):
+def test_iterative_compile_policy_defaults_to_eager_and_allows_opt_in(monkeypatch):
     from statgpu.backends._torch_compile import resolve_torch_compile_mode
 
     monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
-    assert resolve_torch_compile_mode(workload="iterative") == "default"
+    assert resolve_torch_compile_mode(workload="iterative") is None
+    assert resolve_torch_compile_mode(
+        workload="general", requested_mode="default"
+    ) is None
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "auto")
+    assert resolve_torch_compile_mode(workload="iterative") is None
     monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "disable")
     assert resolve_torch_compile_mode(workload="iterative") is None
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
+    assert resolve_torch_compile_mode(workload="iterative") == "default"
     monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "reduce-overhead")
     assert resolve_torch_compile_mode(workload="iterative") == "reduce-overhead"
 
@@ -46,7 +53,7 @@ def test_compile_runtime_cudagraph_failure_falls_back_once(monkeypatch):
     fake_torch.cuda = FakeCuda()
     fake_torch.compile = fake_compile
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
 
     from statgpu.backends._torch_compile import compile_torch
 
@@ -170,7 +177,7 @@ def test_torch_lasso_py21_iterative_compile_smoke(monkeypatch):
     from statgpu.backends._torch_compile import get_torch_compile_diagnostics
     from statgpu.linear_model import Lasso
 
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
     get_torch_compile_diagnostics(clear=True)
     torch._dynamo.reset()
     before_graphs = _dynamo_unique_graphs(torch)
@@ -220,7 +227,7 @@ def test_compile_construction_fallback_is_visible(monkeypatch):
     fake_torch.cuda = FakeCuda()
     fake_torch.compile = broken_compile
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
 
     from statgpu.backends._torch_compile import (
         compile_torch,
@@ -302,7 +309,7 @@ def test_physical_cuda_compile_path_is_observable(monkeypatch):
         get_torch_compile_diagnostics,
     )
 
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
     get_torch_compile_diagnostics(clear=True)
 
     def add_one(x):
@@ -324,7 +331,7 @@ def test_physical_cuda_compile_path_is_observable(monkeypatch):
 
 def test_torch_penalty_compile_matrix_py21(monkeypatch):
     torch = _require_modern_torch_cuda()
-    monkeypatch.delenv("STATGPU_TORCH_COMPILE_MODE", raising=False)
+    monkeypatch.setenv("STATGPU_TORCH_COMPILE_MODE", "default")
 
     from statgpu.backends._torch_compile import get_torch_compile_diagnostics
     import statgpu.penalties._adaptive_l1 as adaptive_module
