@@ -28,6 +28,7 @@ addition = '''
 def test_logistic_torch_fit_does_not_copy_weights_to_numpy(monkeypatch):
     torch = pytest.importorskip("torch")
     import statgpu.linear_model.wrappers._logistic as module
+    from statgpu.backends import get_backend
 
     monkeypatch.setattr(module, "_get_torch_device_str", lambda: "cpu")
     X = torch.tensor(
@@ -42,8 +43,13 @@ def test_logistic_torch_fit_does_not_copy_weights_to_numpy(monkeypatch):
         C=1.0,
         max_iter=200,
         tol=1e-10,
-        device="torch",
+        device="cpu",
         compute_inference=False,
+    )
+    monkeypatch.setattr(
+        model,
+        "_get_backend",
+        lambda backend="auto": get_backend("torch", device="cpu"),
     )
     original_to_numpy = model._to_numpy
 
@@ -53,8 +59,7 @@ def test_logistic_torch_fit_does_not_copy_weights_to_numpy(monkeypatch):
         return original_to_numpy(value)
 
     monkeypatch.setattr(model, "_to_numpy", guarded_to_numpy)
-    model._validate_fit_controls()
-    model._fit_torch(X, y, sample_weight=weights)
+    model.fit(X, y, sample_weight=weights)
 
     assert model._sample_weight is None
     assert np.isfinite(model.coef_).all()
