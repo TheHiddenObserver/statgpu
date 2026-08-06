@@ -38,7 +38,6 @@ jobs:
           python -m pytest \
             dev/tests/test_pr87_code_review_fix_cycle.py \
             dev/tests/test_maintenance_024_025.py \
-            dev/tests/test_penalized_cv_refit.py \
             -q --tb=short
 
       - name: Run complete CPU test tree
