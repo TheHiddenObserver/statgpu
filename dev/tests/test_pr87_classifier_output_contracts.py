@@ -244,3 +244,59 @@ def test_logistic_cpu_fit_retains_weight_cache_for_cpu_inference():
 
     np.testing.assert_array_equal(model._sample_weight, weights)
     assert model._bse is not None
+
+
+def test_logistic_training_hard_metrics_support_one_class_targets(capsys):
+    from statgpu.linear_model import LogisticRegression
+
+    X = np.ones((8, 1), dtype=np.float64)
+    y = np.zeros(8, dtype=np.int64)
+    model = LogisticRegression(
+        fit_intercept=False,
+        C=1.0,
+        max_iter=200,
+        tol=1e-10,
+        device="cpu",
+        compute_inference=True,
+    ).fit(X, y)
+
+    assert model.accuracy == pytest.approx(1.0)
+    assert model.precision == pytest.approx(0.0)
+    assert model.recall == pytest.approx(0.0)
+    assert model.f1 == pytest.approx(0.0)
+    with pytest.raises(ValueError, match="only one class"):
+        _ = model.auc
+    with pytest.raises(ValueError, match="no positive class"):
+        _ = model.average_precision
+
+    model.summary()
+    output = capsys.readouterr().out.lower()
+    assert "roc-auc:" in output
+    assert "avg precision:" in output
+    assert "nan" in output
+
+
+def test_logistic_training_metric_caches_are_independent(monkeypatch):
+    model, _, _ = _cpu_logistic_fixture()
+    calls = {"auc": 0, "ap": 0}
+    original_auc = model.roc_auc_score
+    original_ap = model.average_precision_score
+
+    def counted_auc(X, y):
+        calls["auc"] += 1
+        return original_auc(X, y)
+
+    def counted_ap(X, y):
+        calls["ap"] += 1
+        return original_ap(X, y)
+
+    monkeypatch.setattr(model, "roc_auc_score", counted_auc)
+    monkeypatch.setattr(model, "average_precision_score", counted_ap)
+
+    assert model.accuracy is not None
+    assert calls == {"auc": 0, "ap": 0}
+    first_auc = model.auc
+    first_ap = model.average_precision
+    assert model.auc == first_auc
+    assert model.average_precision == first_ap
+    assert calls == {"auc": 1, "ap": 1}

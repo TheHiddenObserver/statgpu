@@ -1,5 +1,7 @@
 # Changelog
 
+- Decoupled direct LogisticRegression training confusion metrics from ROC/PR evaluation, so accuracy, precision, recall, and F1 remain available for one-class targets while ranking metrics keep their explicit support requirements; summary renders unavailable ranking metrics as NaN.
+
 - Kept direct LogisticRegression analytic weights device-native on CuPy/Torch fits instead of copying the full vector to NumPy solely for the CPU inference cache.
 
 - Closed follow-up review gaps in direct LogisticRegression and penalized CV: failed fits clear partial state, single-class confusion/table metrics remain available, and custom validation losses retain analytic weights.

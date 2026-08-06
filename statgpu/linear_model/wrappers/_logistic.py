@@ -1031,58 +1031,48 @@ class LogisticRegression(BaseEstimator):
         # those public fit outputs with a different numerical approximation.
 
     def _train_classification_table(self):
-        """Training-set classification table on current device.
+        """Return and cache hard-label training metrics on the active backend.
 
-        Results are cached in ``_train_eval_cache`` so that multiple
-        properties (accuracy, precision, recall, f1, auc, average_precision)
-        sharing the same training data only trigger a single forward pass.
+        Confusion-based metrics are intentionally independent of ROC and
+        precision-recall curves so they remain available for one-class targets.
+        Ranking metrics are computed lazily by ``auc`` and
+        ``average_precision`` because their class-support requirements differ.
         """
         if self._y is None or not self._fitted:
             return None
 
         if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("classification_table")
+            cached = self._train_eval_cache.get("classification_table")
+            if cached is not None:
+                return cached
 
         X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
+        y_pred = self.predict(X_train)
         device = self._get_compute_device()
         if device == Device.CUDA:
             cp = _require_cupy("_train_classification_table")
-
-            y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X_train))[:, 1]
-            self._train_eval_cache = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=0.5,
-                include_curves=False,
-                backend="cupy",
+            y_true = cp.asarray(
+                self._to_array(self._y, Device.CUDA)
+            ).reshape(-1)
+            table = binary_classification_table(
+                y_true, y_pred, backend="cupy"
             )
-            return self._train_eval_cache["classification_table"]
-        if device == Device.TORCH:
-            import torch
-
-            y_true = self._to_array(self._y, Device.TORCH, backend="torch").reshape(-1)
-            y_score = self.predict_proba(X_train)[:, 1]
-            if not isinstance(y_score, torch.Tensor):
-                y_score = torch.as_tensor(y_score, dtype=torch.float64, device=y_true.device)
-            self._train_eval_cache = evaluate_binary_classification(
-                y_true,
-                y_score,
-                threshold=0.5,
-                include_curves=False,
-                backend="torch",
+        elif device == Device.TORCH:
+            y_true = self._to_array(
+                self._y, Device.TORCH, backend="torch"
+            ).reshape(-1)
+            table = binary_classification_table(
+                y_true, y_pred, backend="torch"
             )
-            return self._train_eval_cache["classification_table"]
+        else:
+            table = binary_classification_table(
+                self._y, self._to_numpy(y_pred), backend="numpy"
+            )
 
-        y_score = self._to_numpy(self.predict_proba(X_train))[:, 1]
-        self._train_eval_cache = evaluate_binary_classification(
-            self._y,
-            y_score,
-            threshold=0.5,
-            include_curves=False,
-            backend="numpy",
-        )
-        return self._train_eval_cache["classification_table"]
+        if self._train_eval_cache is None:
+            self._train_eval_cache = {}
+        self._train_eval_cache["classification_table"] = table
+        return table
 
     @staticmethod
     def _validate_threshold(threshold):
@@ -1581,28 +1571,36 @@ class LogisticRegression(BaseEstimator):
         """ROC-AUC on training data."""
         if self._y is None or not self._fitted:
             return None
-        # Use cached eval result if available (populated by _train_classification_table)
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("roc_auc")
-        # Trigger cache population via _train_classification_table
-        self._train_classification_table()
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("roc_auc")
-        return None
+        if (
+            self._train_eval_cache is not None
+            and "roc_auc" in self._train_eval_cache
+        ):
+            return self._train_eval_cache["roc_auc"]
+
+        X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
+        value = self.roc_auc_score(X_train, self._y)
+        if self._train_eval_cache is None:
+            self._train_eval_cache = {}
+        self._train_eval_cache["roc_auc"] = value
+        return value
 
     @property
     def average_precision(self):
         """Average precision on training data."""
         if self._y is None or not self._fitted:
             return None
-        # Use cached eval result if available (populated by _train_classification_table)
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("average_precision")
-        # Trigger cache population via _train_classification_table
-        self._train_classification_table()
-        if self._train_eval_cache is not None:
-            return self._train_eval_cache.get("average_precision")
-        return None
+        if (
+            self._train_eval_cache is not None
+            and "average_precision" in self._train_eval_cache
+        ):
+            return self._train_eval_cache["average_precision"]
+
+        X_train = self._X_design[:, 1:] if self._fit_intercept else self._X_design
+        value = self.average_precision_score(X_train, self._y)
+        if self._train_eval_cache is None:
+            self._train_eval_cache = {}
+        self._train_eval_cache["average_precision"] = value
+        return value
     
     def summary(self):
         """Print summary table similar to statsmodels/R."""
@@ -1637,10 +1635,16 @@ class LogisticRegression(BaseEstimator):
         print(f"Precision:                  {self._to_python_float(self.precision):>15.4f}")
         print(f"Recall:                     {self._to_python_float(self.recall):>15.4f}")
         print(f"F1 Score:                   {self._to_python_float(self.f1):>15.4f}")
-        auc = self.auc
+        try:
+            auc = self.auc
+        except ValueError:
+            auc = None
         auc_display = self._to_python_float(auc)
         print(f"ROC-AUC:                    {auc_display:>15.4f}")
-        ap = self.average_precision
+        try:
+            ap = self.average_precision
+        except ValueError:
+            ap = None
         ap_display = self._to_python_float(ap)
         print(f"Avg Precision:              {ap_display:>15.4f}")
         print("-" * 80)

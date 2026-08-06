@@ -1,5 +1,7 @@
 # Changelog
 
+- 将直接 LogisticRegression 的训练集混淆指标与 ROC/PR 评估解耦，使单一类别目标仍可获得 accuracy、precision、recall 与 F1，同时排序指标保留其显式类别支持要求；summary 会将不可用的排序指标显示为 NaN。
+
 - 直接 LogisticRegression 的解析权重在 CuPy/Torch 拟合中保持设备原生，不再仅为 CPU 推断缓存将整条权重向量复制到 NumPy。
 
 - 闭合直接 LogisticRegression 与惩罚 CV 的后续审查缺口：失败拟合会清除半发布状态，单一类别仍可计算混淆矩阵/分类表，自定义验证损失保留解析权重。
