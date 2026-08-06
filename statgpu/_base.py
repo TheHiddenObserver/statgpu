@@ -335,14 +335,17 @@ class BaseEstimator(ABC):
 
             @functools.wraps(original)
             def guarded(self, *args, **kwargs):
-                # A rejected refit must not leave a previously fitted CV model
-                # usable.  Reset only estimators that explicitly expose the
-                # transactional CV lifecycle hook; other estimator families keep
-                # their existing validation behavior.
+                # A rejected refit must not leave stale fitted outputs usable.
+                # Prefer the general transactional lifecycle hook and retain the
+                # older CV-specific hook for estimators that have not migrated.
                 if method_name == "fit":
-                    reset_cv_state = getattr(self, "_reset_cv_fit_state", None)
-                    if callable(reset_cv_state):
-                        reset_cv_state()
+                    reset_fit_state = getattr(self, "_reset_fit_state", None)
+                    if callable(reset_fit_state):
+                        reset_fit_state()
+                    else:
+                        reset_cv_state = getattr(self, "_reset_cv_fit_state", None)
+                        if callable(reset_cv_state):
+                            reset_cv_state()
                 try:
                     bound = signature.bind(self, *args, **kwargs)
                 except TypeError:

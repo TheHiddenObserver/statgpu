@@ -192,3 +192,90 @@ def test_torch_tensor_warm_start_does_not_use_copy_constructor_warning():
         )
     assert not any("copy construct from a tensor" in str(w.message) for w in captured)
     assert params.dtype == torch.float64
+
+
+def _fitted_logistic_fixture():
+    from statgpu.linear_model import LogisticRegression
+
+    X = np.array(
+        [[-2.0], [-1.0], [-0.25], [0.25], [1.0], [2.0]], dtype=float
+    )
+    y = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+    model = LogisticRegression(
+        device="cpu", max_iter=100, compute_inference=False
+    ).fit(X, y)
+    return model, X, y
+
+
+def _assert_logistic_state_cleared(model):
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model.n_iter_ is None
+    assert model._params is None
+    assert model._X_design is None
+    assert model._y is None
+    with pytest.raises(RuntimeError, match="fitted"):
+        model.predict(np.zeros((1, 1)))
+
+
+def test_logistic_invalid_binary_refit_clears_stale_state():
+    model, X, _ = _fitted_logistic_fixture()
+    with pytest.raises(ValueError, match="binary y"):
+        model.fit(X, np.array([0.0, 0.0, 0.5, 1.0, 1.0, 1.0]))
+    _assert_logistic_state_cleared(model)
+
+
+def test_logistic_nonfinite_refit_clears_stale_state_before_shared_guard():
+    model, X, y = _fitted_logistic_fixture()
+    bad_y = y.copy()
+    bad_y[0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        model.fit(X, bad_y)
+    _assert_logistic_state_cleared(model)
+
+
+@pytest.mark.parametrize(
+    "bad_X, message",
+    [
+        (np.asarray(1.0), "two-dimensional design matrix"),
+        (np.arange(6.0), "two-dimensional design matrix"),
+        (np.empty((0, 1)), "at least one observation"),
+    ],
+)
+def test_logistic_design_boundary_has_public_error_and_clears_state(
+    bad_X, message
+):
+    model, _, _ = _fitted_logistic_fixture()
+    with pytest.raises(ValueError, match=message):
+        model.fit(bad_X, np.empty(0))
+    _assert_logistic_state_cleared(model)
+
+
+def test_base_fit_guard_prefers_general_transaction_hook():
+    from statgpu._base import BaseEstimator
+
+    class TransactionalEstimator(BaseEstimator):
+        def __init__(self):
+            super().__init__(device="cpu")
+            self.reset_calls = 0
+            self.body_calls = 0
+
+        def _reset_fit_state(self):
+            self.reset_calls += 1
+            self._fitted = False
+
+        def fit(self, X, y=None):
+            self.body_calls += 1
+            self._fitted = True
+            return self
+
+        def predict(self, X):
+            return np.zeros(len(X))
+
+    model = TransactionalEstimator()
+    with pytest.raises(ValueError, match="finite"):
+        model.fit(np.array([[np.nan]]), np.array([0.0]))
+    assert model.reset_calls == 1
+    assert model.body_calls == 0
+    assert model._fitted is False

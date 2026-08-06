@@ -14,6 +14,7 @@ from statgpu._config import Device
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.glm_core._validation import (
     validate_binary_response,
+    validate_glm_design_matrix,
     validate_glm_sample_weight,
 )
 from statgpu.backends import _get_torch_device_str
@@ -139,6 +140,36 @@ class LogisticRegression(BaseEstimator):
         self._train_eval_cache = None
         self._sample_weight = None
 
+    def _reset_fit_state(self):
+        """Clear every published and cached result before a new fit attempt."""
+        self._fitted = False
+        for name in (
+            "coef_",
+            "intercept_",
+            "n_iter_",
+            "_X_design",
+            "_y",
+            "_nobs",
+            "_df_resid",
+            "_params",
+            "_bse",
+            "_zvalues",
+            "_pvalues",
+            "_conf_int",
+            "_loglik",
+            "_loglik_null",
+            "_train_pred_cache",
+            "_train_eval_cache",
+            "_sample_weight",
+            "_bse_gpu",
+            "_zvalues_gpu",
+            "_pvalues_gpu",
+            "_conf_int_gpu",
+            "_loglik_gpu",
+            "_accuracy_gpu",
+        ):
+            setattr(self, name, None)
+
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
         self._train_pred_cache = None
@@ -214,13 +245,16 @@ class LogisticRegression(BaseEstimator):
         self._train_pred_cache = None
         self._train_eval_cache = None
 
-        # Get backend - support explicit torch backend selection
+        # Validate shape/domain before backend-specific unpacking.
+        X_validated = validate_glm_design_matrix(X)
+
+        # Get backend - support explicit torch backend selection.
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
-        X_arr = self._to_array(X, backend=backend_name)
+        X_arr = self._to_array(X_validated, backend=backend_name)
         y_validated = validate_binary_response(
-            y, X_arr.shape[0], context="LogisticRegression"
+            y, X_validated.shape[0], context="LogisticRegression"
         )
         self._y = self._to_numpy(y_validated).astype(float)
         # Handle dtype conversion based on backend
