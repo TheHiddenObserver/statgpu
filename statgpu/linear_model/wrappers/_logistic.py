@@ -184,6 +184,7 @@ class LogisticRegression(BaseEstimator):
             "_conf_int_gpu",
             "_loglik_gpu",
             "_accuracy_gpu",
+            "_accuracy",
             "converged_",
         ):
             setattr(self, name, None)
@@ -321,6 +322,7 @@ class LogisticRegression(BaseEstimator):
         -------
         self : object
         """
+        self._reset_fit_state()
         self._validate_fit_controls()
         self._train_pred_cache = None
         self._train_eval_cache = None
@@ -453,6 +455,29 @@ class LogisticRegression(BaseEstimator):
         
         # Degrees of freedom
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
+
+        # Likelihood diagnostics are fit outputs, not inference-only state.
+        eta_diag = self._X_design @ params
+        p_diag = np.clip(self._sigmoid(eta_diag), 1e-15, 1.0 - 1e-15)
+        loglik_i = y * np.log(p_diag) + (1.0 - y) * np.log(1.0 - p_diag)
+        weights_diag = (
+            None
+            if sample_weight is None
+            else np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        )
+        self._loglik = float(np.sum(
+            loglik_i if weights_diag is None else weights_diag * loglik_i
+        ))
+        y_mean = (
+            float(np.mean(y))
+            if weights_diag is None
+            else float(np.average(y, weights=weights_diag))
+        )
+        y_mean = float(np.clip(y_mean, 1e-15, 1.0 - 1e-15))
+        null_i = y * np.log(y_mean) + (1.0 - y) * np.log(1.0 - y_mean)
+        self._loglik_null = float(np.sum(
+            null_i if weights_diag is None else weights_diag * null_i
+        ))
     
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with IRLS."""

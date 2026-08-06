@@ -99,13 +99,11 @@ def _validated_sample_weight(sample_weight, n_samples):
         if backend == "torch":
             import torch
 
-            total_dev = torch.sum(values.to(dtype=torch.float64))
-        elif backend == "cupy":
-            import cupy as cp
-
-            total_dev = cp.sum(values, dtype=cp.float64)
-        else:
-            total_dev = np.sum(np.asarray(values), dtype=np.float64)
+            if not torch.is_floating_point(values):
+                values = values.to(dtype=torch.float64)
+        elif getattr(values.dtype, "kind", "") in "biu":
+            values = values.astype(xp.float64, copy=False)
+        total_dev = xp.sum(values)
         total = float(total_dev.item() if hasattr(total_dev, "item") else total_dev)
     except (TypeError, ValueError) as exc:
         raise ValueError("sample_weight must contain real finite values") from exc
@@ -115,13 +113,6 @@ def _validated_sample_weight(sample_weight, n_samples):
         raise ValueError("sample_weight must be non-negative")
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError("sample_weight must have a finite positive sum")
-    if backend == "torch":
-        import torch
-
-        if not torch.is_floating_point(values):
-            values = values.to(dtype=torch.float64)
-    elif getattr(values.dtype, "kind", "") in "biu":
-        values = values.astype(xp.float64, copy=False)
     return backend, xp, values
 
 

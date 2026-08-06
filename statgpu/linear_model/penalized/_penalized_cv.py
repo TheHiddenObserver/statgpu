@@ -151,7 +151,13 @@ def _cv_loss_evaluation_failure_is_recoverable(exc) -> bool:
     """Return whether validation scoring may try an equivalent evaluator."""
     return isinstance(
         exc,
-        (NotImplementedError, FloatingPointError, OverflowError, np.linalg.LinAlgError),
+        (
+            NotImplementedError,
+            ValueError,
+            FloatingPointError,
+            OverflowError,
+            np.linalg.LinAlgError,
+        ),
     ) or _linalg_exception_is_rank_failure(exc)
 
 

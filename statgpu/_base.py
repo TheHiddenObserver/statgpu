@@ -335,17 +335,6 @@ class BaseEstimator(ABC):
 
             @functools.wraps(original)
             def guarded(self, *args, **kwargs):
-                # A rejected refit must not leave stale fitted outputs usable.
-                # Prefer the general transactional lifecycle hook and retain the
-                # older CV-specific hook for estimators that have not migrated.
-                if method_name == "fit":
-                    reset_fit_state = getattr(self, "_reset_fit_state", None)
-                    if callable(reset_fit_state):
-                        reset_fit_state()
-                    else:
-                        reset_cv_state = getattr(self, "_reset_cv_fit_state", None)
-                        if callable(reset_cv_state):
-                            reset_cv_state()
                 try:
                     bound = signature.bind(self, *args, **kwargs)
                 except TypeError:
@@ -353,31 +342,37 @@ class BaseEstimator(ABC):
                 loss_value = getattr(self, "loss", "")
                 loss_name = str(getattr(loss_value, "name", loss_value)).lower()
                 formula_active = bound.arguments.get("formula") is not None
-                for name, value in bound.arguments.items():
-                    if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
-                        # Cox response matrices have stronger joint time/event
-                        # contracts. Preserve model-specific errors and validate
-                        # them before device selection inside the Cox estimator.
-                        continue
-                    formula_owned_pandas = formula_active or (
-                        method_name != "fit"
-                        and name == "X"
-                        and getattr(self, "_design_info", None) is not None
-                    )
-                    formula_owned_side_array = formula_active and name == "sample_weight"
-                    if formula_owned_side_array or (
-                        formula_owned_pandas
-                        and type(value).__module__.startswith("pandas")
-                    ):
-                        # Current formula calls own pandas row alignment and
-                        # sample-weight alignment. Model-specific formula code checks
-                        # the retained side array after Patsy has selected rows.
-                        # After a formula fit, only X passed to a prediction-like
-                        # method is transformed by stored design_info; direct refits
-                        # and unrelated side arrays still use the shared finite guard.
-                        continue
-                    if name in self._FINITE_PARAMETER_NAMES and value is not None:
-                        check_finite(value, name=name)
+                try:
+                    for name, value in bound.arguments.items():
+                        if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
+                            continue
+                        formula_owned_pandas = formula_active or (
+                            method_name != "fit"
+                            and name == "X"
+                            and getattr(self, "_design_info", None) is not None
+                        )
+                        formula_owned_side_array = (
+                            formula_active and name == "sample_weight"
+                        )
+                        if formula_owned_side_array or (
+                            formula_owned_pandas
+                            and type(value).__module__.startswith("pandas")
+                        ):
+                            continue
+                        if name in self._FINITE_PARAMETER_NAMES and value is not None:
+                            check_finite(value, name=name)
+                except Exception:
+                    if method_name == "fit":
+                        reset_fit_state = getattr(self, "_reset_fit_state", None)
+                        if callable(reset_fit_state):
+                            reset_fit_state()
+                        else:
+                            reset_cv_state = getattr(
+                                self, "_reset_cv_fit_state", None
+                            )
+                            if callable(reset_cv_state):
+                                reset_cv_state()
+                    raise
                 return original(self, *args, **kwargs)
 
             guarded.__statgpu_finite_validation__ = True

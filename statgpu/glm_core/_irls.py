@@ -257,9 +257,9 @@ def irls_solver(
     backend : str
         'numpy', 'cupy', 'torch', or 'auto'.
     penalty_matrix : array, optional
-        Additional penalty matrix to add to the normal equations.
-        Shape must be (n_features, n_features). When provided, the
-        normal equations become: X'WX + ridge_alpha*I + penalty_matrix.
+        Real, finite, symmetric positive-semidefinite quadratic penalty
+        with shape ``(n_features, n_features)``. The normal equations and
+        line-search objective use the same quadratic form.
 
     Returns
     -------

@@ -1,5 +1,9 @@
 # Changelog
 
+- Completed the code-review fix cycle for scalar GLM runtime contracts: strict binary labels and controls, transactional refits, visible convergence, and backend-consistent analytic-weight diagnostics.
+
+- Corrected arbitrary-link Binomial IRLS, backend-native warm starts, quadratic-penalty validation, and explicit penalized-CV fallback semantics.
+
 - Removed universal ElasticNet backend thresholds, coefficient tolerances, and fixed speedup claims that were not established for the current exact-head environment; the model guide now requires workload-specific benchmarking and dtype/solver-specific validation.
 
 - Corrected ElasticNet/Ridge scaling documentation and added a regression test confirming that `ElasticNet(alpha, l1_ratio=0)` matches `Ridge(alpha)` under the shared average-loss convention.
@@ -29,7 +33,7 @@
 - Narrowed GPU linear-algebra fallbacks so only genuine rank/definiteness failures use least-squares, pseudo-inverse, ridge, or zero-block recovery; CUDA OOM, device, index, and programming errors now propagate.
 
 > Language: English<br>
-> Last updated: 2026-08-05<br>
+> Last updated: 2026-08-06<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 

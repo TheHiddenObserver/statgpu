@@ -1,5 +1,9 @@
 # Changelog
 
+- 完成标量 GLM 运行时契约的 code-review 修复循环：严格二分类标签与控制参数、事务性重拟合、显式收敛状态，以及跨后端一致的解析权重诊断。
+
+- 修正任意 link 的 Binomial IRLS、后端原生 warm start、二次惩罚校验与惩罚 CV 的显式降级语义。
+
 - 删除当前 exact-head 环境未能支撑的 ElasticNet 通用后端阈值、统一系数容差与固定加速比；模型文档现要求针对具体工作负载进行 benchmark，并按 dtype/求解路径验证数值一致性。
 
 - 修正 ElasticNet/Ridge 的缩放说明，并补充回归测试确认在共享平均损失尺度下 `ElasticNet(alpha, l1_ratio=0)` 与 `Ridge(alpha)` 一致。
@@ -29,7 +33,7 @@
 - 收窄 GPU 线性代数降级条件：仅真实的秩亏/非正定失败可转用最小二乘、伪逆、ridge 或零块恢复；CUDA OOM、设备、索引与实现错误将原样抛出。
 
 > 语言：中文<br>
-> 最后更新：2026-08-05<br>
+> 最后更新：2026-08-06<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 

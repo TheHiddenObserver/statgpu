@@ -215,6 +215,7 @@ def _assert_logistic_state_cleared(model):
     assert model._params is None
     assert model._X_design is None
     assert model._y is None
+    assert model._accuracy is None
     with pytest.raises(RuntimeError, match="fitted"):
         model.predict(np.zeros((1, 1)))
 
@@ -668,3 +669,72 @@ def test_sparse_cv_invalid_lipschitz_value_fallback_is_visible(monkeypatch):
             np.array([0.1]), 'l1', 1.0, 5, 1e-4, 'cpu', return_path=True
         )
     assert result['n_iter'].tolist() == [1]
+
+
+def test_logistic_failed_refit_clears_gpu_accuracy_shadow():
+    model, X, _ = _fitted_logistic_fixture()
+    model._accuracy = 0.875
+    with pytest.raises(ValueError, match="binary y"):
+        model.fit(X, np.array([0.0, 0.0, 0.5, 1.0, 1.0, 1.0]))
+    assert model._accuracy is None
+
+
+def test_logistic_cpu_likelihood_diagnostics_do_not_require_inference():
+    from statgpu.linear_model import LogisticRegression
+
+    X = np.array([[-1.5], [-0.5], [0.25], [1.0], [1.75]], dtype=float)
+    y = np.array([0.0, 0.0, 1.0, 1.0, 1.0])
+    weights = np.array([1.0, 2.0, 3.0, 1.5, 4.0])
+    model = LogisticRegression(
+        C=2.0, max_iter=200, tol=1e-10, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    eta = model.intercept_ + X @ model.coef_
+    probability = np.clip(1.0 / (1.0 + np.exp(-eta)), 1e-15, 1.0 - 1e-15)
+    expected = np.sum(
+        weights * (y * np.log(probability) + (1.0 - y) * np.log(1.0 - probability))
+    )
+    y_mean = np.average(y, weights=weights)
+    expected_null = np.sum(
+        weights * (y * np.log(y_mean) + (1.0 - y) * np.log(1.0 - y_mean))
+    )
+    assert model.loglikelihood == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert model.loglikelihood_null == pytest.approx(expected_null, rel=1e-12, abs=1e-12)
+    assert np.isfinite(model.aic)
+    assert np.isfinite(model.bic)
+    assert np.isfinite(model.pseudo_rsquared)
+    assert model._bse is None
+
+
+def test_cv_valueerror_retry_is_visible_but_typeerror_stays_fatal(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    class Model:
+        coef_ = np.array([0.0])
+        intercept_ = 0.0
+        fit_intercept = True
+        def predict(self, X):
+            return np.zeros(len(X))
+
+    class Loss:
+        def value(self, *args, **kwargs):
+            return 1.25
+
+    owner = object.__new__(cv_mod.PenalizedGLM_CV)
+    owner.loss = "poisson"
+    monkeypatch.setattr(
+        cv_mod, '_evaluate_loss_numpy',
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError('registered evaluator unavailable')),
+    )
+    with pytest.warns(RuntimeWarning, match='generic loss interface'):
+        assert owner._evaluate_single(
+            Model(), np.ones((2, 1)), np.ones(2), loss_fn=Loss()
+        ) == pytest.approx(1.25)
+    monkeypatch.setattr(
+        cv_mod, '_evaluate_loss_numpy',
+        lambda *args, **kwargs: (_ for _ in ()).throw(TypeError('programming bug')),
+    )
+    with pytest.raises(TypeError, match='programming bug'):
+        owner._evaluate_single(
+            Model(), np.ones((2, 1)), np.ones(2), loss_fn=Loss()
+        )
