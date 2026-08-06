@@ -74,6 +74,7 @@ def fista_bb_solver(
     backend = _resolve_backend("auto", X)
     _is_gpu = backend in ("torch", "cupy")
     X_proc, y_proc = loss.preprocess(X, y)
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
     n_features = X_proc.shape[1]
     _pen_name = _penalty_name(penalty)
 
@@ -103,9 +104,9 @@ def fista_bb_solver(
 
     # --- Initialize coefficients ---
     if init_coef is not None:
-        coef = _as_backend_vector(init_coef, backend, X)
+        coef = _as_backend_vector(init_coef, backend, X_proc)
     else:
-        coef = _zeros(n_features, backend, ref_tensor=X)
+        coef = _zeros(n_features, backend, ref_tensor=X_proc)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -155,7 +156,7 @@ def fista_bb_solver(
     # Initial Lipschitz at zero (safe for all losses).  Computing L at
     # init_coef can produce enormous values for exp-link families (mu =
     # exp(X@coef) explodes for warm-start coefs from OLS).
-    _zero_coef_bb = _zeros(n_features, backend, ref_tensor=X)
+    _zero_coef_bb = _zeros(n_features, backend, ref_tensor=X_proc)
     _cached_lipschitz_L = None
     if lipschitz_L is not None:
         try:
@@ -202,7 +203,6 @@ def fista_bb_solver(
     step_k = step_L
     step_max = step_L * step_max_factor
     step_min = step_L * step_min_factor
-    _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Gradient at initial point for first BB difference
     grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=_sw_arr)

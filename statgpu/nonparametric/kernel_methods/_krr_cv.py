@@ -197,9 +197,9 @@ class KernelRidgeCV(BaseEstimator):
 
         n_samples = X_arr.shape[0]
         n_targets = y_arr.shape[1]
-        if isinstance(self.cv, bool) or not isinstance(self.cv, (int, np.integer)):
+        if isinstance(self._cv, bool) or not isinstance(self._cv, (int, np.integer)):
             raise ValueError("cv must be an integer")
-        n_folds = int(self.cv)
+        n_folds = int(self._cv)
         if n_folds < 2 or n_folds > n_samples:
             raise ValueError("cv must satisfy 2 <= cv <= n_samples")
 
@@ -336,7 +336,7 @@ class KernelRidgeCV(BaseEstimator):
             degree=self.degree,
             coef0=self.coef0,
             kernel_params=self.kernel_params,
-            device=self.device,
+            device=self._device,
         )
         self.estimator_.fit(X, y)
 

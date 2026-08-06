@@ -144,6 +144,10 @@ print(f"Accuracy: {model.score(X_test, y_test):.4f}")
 | `l1_ratio` | float/list | `0.5` | L1 mixing. Pass a list to search over multiple values. |
 | `alphas` | array | `None` | Alpha grid. |
 | `n_alphas` | int | `100` | Number of alphas. |
+| `compute_inference` | bool | `False` | Run debiased inference on the final full-data ElasticNet refit. |
+
+Fold fits remain estimation-only; inference is computed only after the selected
+`alpha` and `l1_ratio` are refit on all observations.
 
 #### PenalizedGLM_CV-Specific
 

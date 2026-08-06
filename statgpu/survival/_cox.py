@@ -197,6 +197,9 @@ class CoxPH(BaseEstimator):
     """
 
     _estimator_type = "regressor"
+    _DEFERRED_SET_PARAMS = frozenset({
+        "compute_inference", "compute_cindex", "gpu_memory_cleanup"
+    })
     _canonical_fit_path = "counting_process"
 
     def __sklearn_tags__(self):
@@ -363,7 +366,7 @@ class CoxPH(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
@@ -374,7 +377,7 @@ class CoxPH(BaseEstimator):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch CUDA cache cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not self._gpu_memory_cleanup:
             return
         try:
             import torch
@@ -393,12 +396,12 @@ class CoxPH(BaseEstimator):
 
     def _validate_optimization_controls(self):
         """Validate mutable optimization controls before every fit attempt."""
-        if isinstance(self.max_iter, (bool, np.bool_)) or not isinstance(
-            self.max_iter, numbers.Integral
-        ) or int(self.max_iter) < 1:
+        if isinstance(self._max_iter, (bool, np.bool_)) or not isinstance(
+            self._max_iter, numbers.Integral
+        ) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
         try:
-            tol = float(self.tol)
+            tol = float(self._tol)
             penalty = float(self.penalty)
         except (TypeError, ValueError) as exc:
             raise ValueError(
@@ -1410,8 +1413,8 @@ class CoxPH(BaseEstimator):
             "counting_process": bool(self._is_counting_process),
             "stratified": self._strata is not None,
             "subject_grouped": self._subject_id is not None,
-            "clustered": self.cov_type == "cluster",
-            "ties": self.ties,
+            "clustered": self._cov_type == "cluster",
+            "ties": self._ties,
         }
         parts = []
         if call["interface"] == "formula":
@@ -1435,12 +1438,12 @@ class CoxPH(BaseEstimator):
             raise RuntimeError("Model has not been fitted yet.")
         controls = self._fit_controls
         fitted_cov_type = (
-            controls.cov_type if controls is not None else str(self.cov_type)
+            controls.cov_type if controls is not None else str(self._cov_type)
         )
         fitted_compute_inference = (
             controls.compute_inference
             if controls is not None
-            else bool(self.compute_inference)
+            else bool(self._compute_inference_enabled)
         )
         fitted_penalty = (
             controls.penalty if controls is not None else float(self.penalty)

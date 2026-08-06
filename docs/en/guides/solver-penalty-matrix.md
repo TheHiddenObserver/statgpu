@@ -43,7 +43,7 @@
 | `admm` | supported proximal penalties | unsupported combinations fail explicitly | ADMM with proximal z-update |
 | `irls_cd` | scalar scad, mcp, adaptive_l1 | l1, elasticnet, all group penalties | IRLS outer + coordinate descent inner |
 | `proximal_irls_cd` | scalar scad, mcp (quantile only) | group penalties and non-quantile losses | IRLS majorization + LLA |
-| `proximal_newton` | scalar scad, mcp, adaptive_l1 (Hessian losses) | group penalties and unsupported penalties | Newton direction + Armijo + proximal operator |
+| `proximal_newton` | l2 / none use Newton; non-smooth direct calls delegate visibly to FISTA | group penalties and unsupported penalties | no silent Euclidean-prox approximation |
 
 Unsupported combinations raise `ValueError` before numerical work.
 

@@ -14,6 +14,7 @@ import numpy as np
 from joblib import Parallel, delayed
 
 from statgpu.backends import _to_float_scalar
+from statgpu.backends._validation import check_finite
 from statgpu.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
 
 __all__ = ["StepwiseSelector", "stepwise_selection"]
@@ -53,6 +54,24 @@ class StepwiseSelector:
 
     _VALID_CRITERIA = {"aic", "bic"}
     _VALID_DIRECTIONS = {"forward", "backward", "both"}
+
+    def _more_tags(self):
+        return {"requires_y": True}
+
+    def __sklearn_tags__(self):
+        try:
+            from sklearn.utils import Tags, TargetTags, TransformerTags
+        except ImportError:
+            return self._more_tags()
+        return Tags(
+            estimator_type=None,
+            target_tags=TargetTags(required=True),
+            transformer_tags=TransformerTags(),
+            requires_fit=True,
+        )
+
+    def __sklearn_is_fitted__(self):
+        return bool(self._fitted and self.best_model_ is not None)
 
     def __init__(
         self,
@@ -111,6 +130,7 @@ class StepwiseSelector:
 
     @staticmethod
     def _prepare_X(X):
+        check_finite(X, name="X")
         if not hasattr(X, "shape") or not hasattr(X, "ndim"):
             X = np.asarray(X)
         if int(X.ndim) != 2:
@@ -119,6 +139,7 @@ class StepwiseSelector:
 
     @staticmethod
     def _prepare_y(y):
+        check_finite(y, name="y")
         if not hasattr(y, "shape") or not hasattr(y, "ndim"):
             y = np.asarray(y)
         if int(y.ndim) == 2 and int(y.shape[1]) == 1:
@@ -315,11 +336,17 @@ class StepwiseSelector:
         if not self._fitted or self.best_model_ is None:
             raise RuntimeError("StepwiseSelector has not been fitted yet")
 
+    def transform(self, X):
+        """Return the columns retained by the fitted selector."""
+        self._check_is_fitted()
+        X = self._prepare_X(X)
+        return X[:, self.selected_features_]
+
     def predict(self, X):
         """Predict with the selected feature subset."""
         self._check_is_fitted()
-        X = self._prepare_X(X)
-        return self.best_model_.predict(X[:, self.selected_features_])
+        X_selected = self.transform(X)
+        return self.best_model_.predict(X_selected)
 
     def score(self, X, y):
         """Return the wrapped estimator's score."""
@@ -362,21 +389,28 @@ class StepwiseSelector:
         return params
 
     def set_params(self, **params):
-        """Set selector or wrapped-model constructor parameters."""
-        selector_names = {
-            "model_class",
-            "criterion",
-            "direction",
-            "max_features",
-            "n_jobs",
-            "verbose",
+        """Set parameters transactionally and clear fitted selection state."""
+        if not params:
+            return self
+
+        selector_values = {
+            "model_class": self.model_class,
+            "criterion": self.criterion,
+            "direction": self.direction,
+            "max_features": self.max_features,
+            "n_jobs": self.n_jobs,
+            "verbose": self.verbose,
         }
+        model_kwargs = dict(self.model_kwargs)
         for name, value in params.items():
-            if name in selector_names:
-                setattr(self, name, value)
+            if name in selector_values:
+                selector_values[name] = value
             else:
-                self.model_kwargs[name] = value
-        self._validate_constructor_params()
+                model_kwargs[name] = value
+
+        fresh = type(self)(**selector_values, **model_kwargs)
+        self.__dict__.clear()
+        self.__dict__.update(fresh.__dict__)
         return self
 
 

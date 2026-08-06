@@ -67,7 +67,7 @@ class Ridge(_PenalizedLinearRegression):
         """
         if (formula is not None
                 or self._get_compute_device() != Device.CPU
-                or self.solver != "exact"):
+                or self._solver != "exact"):
             # Fall back to parent for formula, GPU, or non-exact solver
             return super().fit(X=X, y=y, sample_weight=sample_weight, formula=formula, data=data)
 
@@ -95,7 +95,7 @@ class Ridge(_PenalizedLinearRegression):
             if float(np.sum(sw)) <= 0.0:
                 raise ValueError("sample_weight must have a positive sum")
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             if sw is not None:
                 w_sum = float(sw.sum())
                 X_wmean = np.average(X_np, axis=0, weights=sw)
@@ -113,14 +113,14 @@ class Ridge(_PenalizedLinearRegression):
             sw_col = sw[:, None]
             XtX = (X_np * sw_col).T @ X_np
             Xty = (X_np * sw_col).T @ y_np
-            if self.fit_intercept:
+            if self._fit_intercept:
                 XtX -= w_sum * np.outer(X_wmean, X_wmean)
                 Xty -= w_sum * X_wmean * y_wmean
                 n_eff = w_sum
             else:
                 n_eff = float(sw.sum())
         else:
-            if self.fit_intercept:
+            if self._fit_intercept:
                 X_mean = np.mean(X_np, axis=0)
                 y_mean = np.mean(y_np)
                 XtX = X_np.T @ X_np
@@ -146,7 +146,7 @@ class Ridge(_PenalizedLinearRegression):
         except np.linalg.LinAlgError:
             coef = np.linalg.lstsq(A, Xty, rcond=None)[0].flatten()
 
-        if self.fit_intercept:
+        if self._fit_intercept:
             self.intercept_ = float(y_wmean - X_wmean @ coef)
             self.coef_ = coef
             self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -159,11 +159,11 @@ class Ridge(_PenalizedLinearRegression):
         self._resid = None
         self._scale = np.nan
         self.n_iter_ = 1
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
 
         # Build design matrix and compute residuals only when inference is needed
-        if self.compute_inference:
-            if self.fit_intercept:
+        if self._compute_inference_enabled:
+            if self._fit_intercept:
                 self._X_design = np.column_stack([np.ones(n_samples, dtype=X_np.dtype), X_np])
             else:
                 self._X_design = X_np.copy()

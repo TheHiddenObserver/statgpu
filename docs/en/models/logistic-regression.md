@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-05-20  
+> Last updated: 2026-08-06
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/logistic-regression.md)
 
@@ -38,6 +38,7 @@ under convergence controls `max_iter` and `tol`. As of v23c (2026-05), `solver="
 - `cov_type="hac"`: Newey-West (Bartlett) covariance with optional `hac_maxlags`.
 - Inference outputs use z-statistic conventions: `_bse`, `_zvalues`, `_pvalues`, `_conf_int`.
 - `compute_inference=True` is required for inference fields.
+- Likelihood, AIC, BIC, pseudo-R², and `converged_` remain available when `compute_inference=False`; covariance-based fields do not.
 
 ## Parameters
 

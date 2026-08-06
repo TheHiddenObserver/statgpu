@@ -45,8 +45,8 @@ class IncrementalPCA(BaseEstimator):
             raise ValueError("n_components must be less than or equal to n_features")
         if first_pass and n_samples < n_components:
             raise ValueError("first partial_fit batch must contain at least n_components samples")
-        if self.batch_size is not None:
-            if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
+        if self._batch_size is not None:
+            if not isinstance(self._batch_size, (int, np.integer)) or int(self._batch_size) < 1:
                 raise ValueError("batch_size must be None or a positive integer")
         return n_components
 
@@ -123,8 +123,8 @@ class IncrementalPCA(BaseEstimator):
         n_samples, n_features = X_arr.shape
         n_components = self._validate_params(n_samples, n_features, first_pass=True)
 
-        if self.batch_size is not None:
-            batch_size = int(self.batch_size)
+        if self._batch_size is not None:
+            batch_size = int(self._batch_size)
         else:
             # Default: process all at once (fast for single fit).
             # Only batch when data is too large or user explicitly sets batch_size.

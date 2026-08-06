@@ -27,6 +27,12 @@ from ._numpy import NumpyBackend
 from ._cupy import CuPyBackend
 from ._torch import TorchBackend
 from ._factory import get_backend
+from ._torch_compile import (
+    compile_torch,
+    get_torch_compile_diagnostics,
+    resolve_torch_compile_mode,
+    torch_compile_available,
+)
 from ._utils import (
     _get_xp,
     _to_numpy,
@@ -57,6 +63,10 @@ __all__ = [
     "CuPyBackend",
     "TorchBackend",
     "get_backend",
+    "compile_torch",
+    "get_torch_compile_diagnostics",
+    "resolve_torch_compile_mode",
+    "torch_compile_available",
     "_is_cupy_array",
     "_is_torch_array",
     "_resolve_backend",

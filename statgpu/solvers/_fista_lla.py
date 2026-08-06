@@ -7,6 +7,7 @@ recompute, array allocation) that accumulates over 300+ fista_solver calls.
 
 __all__ = ["fista_lla_path"]
 
+from statgpu.backends._torch_compile import compile_torch
 import copy
 import numpy as np
 
@@ -49,18 +50,16 @@ def _get_sqerr_proximal_torch():
         # Fall back to JIT script for older GPUs (P100 = 6.0).
         _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
         if _cap >= 7:
-            try:
-                @torch.compile(mode='reduce-overhead', backend='inductor')
-                def _fused_update(y_current, grad, step, thresh, coef_old, beta):
-                    w = y_current - step * grad
-                    abs_w = w.abs()
-                    sign_w = w.sign()
-                    coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
-                    y_k = coef_new + beta * (coef_new - coef_old)
-                    return coef_new, y_k
-                _SQERR_PROXIMAL_TORCH = _fused_update
-            except (RuntimeError, TypeError):
-                pass
+            def _fused_update(y_current, grad, step, thresh, coef_old, beta):
+                w = y_current - step * grad
+                abs_w = w.abs()
+                sign_w = w.sign()
+                coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
+                y_k = coef_new + beta * (coef_new - coef_old)
+                return coef_new, y_k
+            _SQERR_PROXIMAL_TORCH = compile_torch(
+                _fused_update, workload="iterative", backend="inductor"
+            )
         if _SQERR_PROXIMAL_TORCH is None:
             def _fused_update_eager(y_current, grad, step, thresh, coef_old, beta):
                 w = y_current - step * grad
@@ -127,11 +126,9 @@ def _get_fused_proximal_clip_torch():
         # Try torch.compile on capable GPUs
         _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
         if _cap >= 7:
-            try:
-                _FUSED_PROXIMAL_CLIP_TORCH = torch.compile(
-                    _fused, mode='reduce-overhead', backend='inductor')
-            except (RuntimeError, TypeError):
-                _FUSED_PROXIMAL_CLIP_TORCH = _fused
+            _FUSED_PROXIMAL_CLIP_TORCH = compile_torch(
+                _fused, workload="iterative", backend="inductor"
+            )
         else:
             _FUSED_PROXIMAL_CLIP_TORCH = _fused
     return _FUSED_PROXIMAL_CLIP_TORCH
@@ -487,19 +484,20 @@ def fista_lla_path(
                     break
             _record_path_alpha(cont_alpha)
     else:
-        # Generic path: fixed-step FISTA for quadratic/no-Hessian losses and
-        # proximal Newton for genuinely non-quadratic Hessian-equipped losses.
-        # For losses with Hessian: use Proximal Newton (5-10 iter per LLA step).
-        # For losses without Hessian: use FISTA (300+ iter per LLA step).
+        # Generic path: fixed-step FISTA is the correctness-preserving
+        # default for composite penalties. A proximal-Newton branch is used
+        # only when a loss explicitly advertises a correct Hessian-metric
+        # proximal subproblem implementation.
         # Cox partial likelihood has a Hessian, but the generic composite
         # proximal-Newton Armijo rule is not reliable for its risk-set
         # objective and frequently rejects every step.  Use the backend-native
         # FISTA-LLA path for Cox until a Cox-specific proximal Newton line
         # search is available.
         _has_hessian = (
-            getattr(loss, 'has_hessian', False)
+            getattr(loss, "has_hessian", False)
+            and getattr(loss, "_supports_metric_proximal_newton", False)
             and not _is_quadratic
-            and getattr(loss, 'name', '') != 'cox_ph'
+            and getattr(loss, "name", "") != "cox_ph"
         )
         _is_numpy = backend == "numpy"
 

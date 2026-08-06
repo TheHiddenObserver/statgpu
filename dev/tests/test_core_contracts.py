@@ -1,5 +1,6 @@
 """Regression tests for core contracts found during iterative review."""
 
+import subprocess
 import sys
 import types
 
@@ -57,12 +58,29 @@ def test_set_params_rejects_unknown_and_supports_nested_estimators():
     child = DummyEstimator(value=1)
     parent = DummyEstimator(child=child)
     assert parent.set_params(child__value=7) is parent
-    assert child.value == 7
+    assert child.value == 1
+    assert parent.child is not child
     assert parent.get_params(deep=True)["child__value"] == 7
     with pytest.raises(ValueError, match="Invalid parameter"):
         parent.set_params(unknown=3)
     parent.set_params(device="auto")
-    assert parent.device is Device.AUTO
+    assert parent.device == "auto"
+    assert parent._device is Device.AUTO
+
+
+def test_sklearn_clone_recursively_clears_nested_fitted_state():
+    from sklearn.base import clone
+
+    child = DummyEstimator(value=3).fit(np.ones((2, 1)))
+    parent = DummyEstimator(value=5, child=child)
+
+    cloned = clone(parent)
+
+    assert cloned is not parent
+    assert cloned.child is not child
+    assert cloned.child.value == 3
+    assert cloned.child._fitted is False
+    assert child._fitted is True
 
 
 def test_torch_rng_none_uses_entropy(monkeypatch):
@@ -144,3 +162,25 @@ def test_umap_fuzzy_graph_uses_reverse_edge_memberships(monkeypatch):
         [[0.0, 0.68, 0.58], [0.68, 0.0, 0.90], [0.58, 0.90, 0.0]]
     )
     np.testing.assert_allclose(graph, expected, rtol=0.0, atol=1e-12)
+
+
+def test_glm_core_import_order_is_clean_in_fresh_interpreter():
+    """Internal GLM imports must not depend on importing linear_model first."""
+    code = """
+from statgpu.glm_core._family import Gaussian
+from statgpu.glm_core._irls import IRLSSolver
+from statgpu.glm_core._logistic import LogisticLoss
+from statgpu.linear_model import LogisticRegression
+
+assert Gaussian().name == 'gaussian'
+assert IRLSSolver is not None
+assert LogisticLoss().name == 'logistic'
+assert LogisticRegression is not None
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr

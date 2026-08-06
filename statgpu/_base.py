@@ -8,6 +8,9 @@ __all__ = ["BaseEstimator"]
 
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
+import copy
+import functools
+import inspect
 import numpy as np
 
 from statgpu._config import Device, get_device
@@ -29,6 +32,373 @@ class BaseEstimator(ABC):
     Provides common functionality for device management and input validation.
     """
     
+    _FINITE_PUBLIC_METHODS = frozenset({
+        "fit",
+        "partial_fit",
+        "fit_predict",
+        "fit_transform",
+        "predict",
+        "predict_proba",
+        "predict_log_proba",
+        "decision_function",
+        "transform",
+        "score",
+        "survfit",
+        "predict_survival",
+        "predict_survival_function",
+        "predict_cumulative_hazard",
+        "inverse_transform",
+        "score_samples",
+        "bic",
+        "aic",
+        "predict_with_threshold",
+        "confusion_matrix",
+        "classification_table",
+        "roc_curve",
+        "roc_auc_score",
+        "precision_recall_curve",
+        "average_precision_score",
+    })
+    _NORMALIZED_PRIVATE_NAMES = {
+        "compute_inference": "_compute_inference_enabled",
+    }
+
+    @classmethod
+    def _normalized_private_name(cls, name):
+        return cls._NORMALIZED_PRIVATE_NAMES.get(name, f"_{name}")
+
+    _NORMALIZED_CONSTRUCTOR_PARAMS = frozenset({
+        "device",
+        "cov_type",
+        "hac_maxlags",
+        "gpu_memory_cleanup",
+        "solver",
+        "cpu_solver",
+        "stopping",
+        "inference_method",
+        "simultaneous_method",
+        "n_bootstrap",
+        "enable_simultaneous_inference",
+        "simultaneous_alpha",
+        "simultaneous_n_bootstrap",
+        "simultaneous_include_intercept",
+        "method",
+        "admm_rho",
+        "alpha_min_ratio",
+        "cd_kkt_check_every",
+        "compute_inference",
+        "cv",
+        "fit_intercept",
+        "gpu_cv_mixed_precision",
+        "max_iter",
+        "n_alphas",
+        "tol",
+        "n_Cs",
+        "C_min_ratio",
+        "penalty_kwargs",
+        "loss_kwargs",
+        "epsilon",
+        "ties",
+        "acknowledge_approx",
+        "refine_top_k",
+        "batch_size",
+        "min_effective_weight",
+        "quantile",
+        "cv_strategy",
+    })
+
+    _FINITE_PARAMETER_NAMES = frozenset({
+        "X",
+        "X_new",
+        "x",
+        "y",
+        "sample_weight",
+        "weights",
+        "offset",
+        "exposure",
+        "entry",
+        "start",
+        "stop",
+        "time",
+        "event",
+        "times",
+        "cluster",
+        "clusters",
+        "strata",
+        "subject",
+        "subjects",
+        "groups",
+        "init",
+        "init_coef",
+        "initial_coef",
+        "time_index",
+        "entity_ids",
+        "time_ids",
+        "pvalues",
+        "arrays",
+        "scores",
+        "thresholds",
+        "Xk",
+        "mu",
+        "Sigma",
+    })
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        declared = cls.__dict__.get("_estimator_type", ...)
+        if declared is ...:
+            inherited_type = next(
+                (
+                    base.__dict__.get("_estimator_type")
+                    for base in cls.__mro__[1:]
+                    if base.__dict__.get("_estimator_type")
+                    in {"classifier", "regressor"}
+                ),
+                None,
+            )
+            name = cls.__name__.lower()
+            module = cls.__module__
+            internal_module = module.startswith("statgpu.")
+            nonpredictive_module = module.startswith(
+                (
+                    "statgpu.covariance",
+                    "statgpu.unsupervised",
+                    "statgpu.preprocessing",
+                    "statgpu.feature_selection",
+                )
+            )
+            classifier_module = module.startswith("statgpu.linear_model")
+            regression_module = module.startswith(
+                (
+                    "statgpu.linear_model",
+                    "statgpu.nonparametric",
+                    "statgpu.panel",
+                    "statgpu.survival",
+                    "statgpu.semiparametric",
+                )
+            )
+            if not internal_module:
+                inferred_type = inherited_type
+            elif nonpredictive_module:
+                inferred_type = None
+            elif (
+                "classifier" in name
+                or "logistic" in name
+                or "logit" in name
+                or "probit" in name
+                or "orderedgeneralizedlinearmodel" in name
+            ) and classifier_module:
+                inferred_type = "classifier"
+            elif (
+                "regressor" in name
+                or "kernelridge" in name
+                or (
+                    regression_module
+                    and any(
+                        token in name
+                        for token in (
+                            "regression",
+                            "generalizedlinearmodel",
+                            "glm",
+                            "ridge",
+                            "lasso",
+                            "elasticnet",
+                            "quantile",
+                            "cox",
+                            "panel",
+                            "ols",
+                            "effects",
+                            "fama",
+                            "gam",
+                        )
+                    )
+                )
+            ):
+                inferred_type = "regressor"
+            else:
+                inferred_type = inherited_type
+            cls._estimator_type = inferred_type
+        elif declared not in {None, "classifier", "regressor"}:
+            raise ValueError(
+                "_estimator_type must be None, 'classifier', or 'regressor'"
+            )
+        cls._install_constructor_capture()
+        cls._install_public_finite_validation()
+
+    @classmethod
+    def _install_constructor_capture(cls):
+        original_init = cls.__dict__.get("__init__")
+        if original_init is None or getattr(
+            original_init, "__statgpu_constructor_capture__", False
+        ):
+            return
+        try:
+            signature = inspect.signature(original_init)
+        except (TypeError, ValueError):
+            return
+
+        @functools.wraps(original_init)
+        def wrapped(self, *args, **kwargs):
+            try:
+                bound = signature.bind(self, *args, **kwargs)
+                bound.apply_defaults()
+            except TypeError:
+                return original_init(self, *args, **kwargs)
+            raw_params = {
+                name: value
+                for name, value in bound.arguments.items()
+                if name != "self"
+                and signature.parameters[name].kind
+                not in (
+                    inspect.Parameter.VAR_POSITIONAL,
+                    inspect.Parameter.VAR_KEYWORD,
+                )
+            }
+
+            depth = int(getattr(self, "_statgpu_constructor_depth", 0))
+            if depth == 0:
+                self._statgpu_constructor_raw_pending = {}
+            self._statgpu_constructor_depth = depth + 1
+
+            try:
+                result = original_init(self, *args, **kwargs)
+            except BaseException:
+                if depth == 0:
+                    self.__dict__.pop("_statgpu_constructor_depth", None)
+                    self.__dict__.pop("_statgpu_constructor_raw_pending", None)
+                else:
+                    self._statgpu_constructor_depth = depth
+                raise
+
+            pending = self._statgpu_constructor_raw_pending
+            # Inner wrappers finish first; the most-derived constructor finishes
+            # last and therefore overrides shared defaults with its actual call.
+            pending.update(raw_params)
+            normalized_names = type(self)._NORMALIZED_CONSTRUCTOR_PARAMS
+
+            # Make runtime values available to any outer constructor code without
+            # restoring public raw values until the complete chain has returned.
+            for name, raw_value in raw_params.items():
+                private_name = type(self)._normalized_private_name(name)
+                if name in normalized_names:
+                    if name == "device" and hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    elif hasattr(self, name):
+                        runtime_value = getattr(self, name)
+                    elif hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    else:
+                        runtime_value = raw_value
+                    setattr(self, private_name, runtime_value)
+                elif not hasattr(self, name):
+                    setattr(self, name, raw_value)
+
+            remaining = depth
+            if remaining > 0:
+                self._statgpu_constructor_depth = remaining
+                return result
+
+            self.__dict__.pop("_statgpu_constructor_depth", None)
+            merged_raw = dict(pending)
+            self.__dict__.pop("_statgpu_constructor_raw_pending", None)
+
+            for name, raw_value in merged_raw.items():
+                private_name = type(self)._normalized_private_name(name)
+                if name in normalized_names:
+                    if name == "device" and hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    elif hasattr(self, name):
+                        runtime_value = getattr(self, name)
+                    elif hasattr(self, private_name):
+                        runtime_value = getattr(self, private_name)
+                    else:
+                        runtime_value = raw_value
+                    setattr(self, private_name, runtime_value)
+                # sklearn <=1.2 requires the public attribute to be the exact
+                # object supplied to the outermost constructor.
+                setattr(self, name, raw_value)
+            self._constructor_params_raw = merged_raw
+            return result
+
+        wrapped.__statgpu_constructor_capture__ = True
+        cls.__init__ = wrapped
+
+    @classmethod
+    def _install_public_finite_validation(cls):
+        from statgpu.backends._validation import check_finite
+
+        def wrap_method(original, method_name):
+            try:
+                signature = inspect.signature(original)
+            except (TypeError, ValueError):
+                return original
+
+            @functools.wraps(original)
+            def guarded(self, *args, **kwargs):
+                try:
+                    bound = signature.bind(self, *args, **kwargs)
+                except TypeError:
+                    return original(self, *args, **kwargs)
+                loss_value = getattr(self, "loss", "")
+                loss_name = str(getattr(loss_value, "name", loss_value)).lower()
+                formula_active = bound.arguments.get("formula") is not None
+                try:
+                    for name, value in bound.arguments.items():
+                        if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
+                            continue
+                        formula_owned_pandas = formula_active or (
+                            method_name != "fit"
+                            and name == "X"
+                            and getattr(self, "_design_info", None) is not None
+                        )
+                        formula_owned_side_array = (
+                            formula_active and name == "sample_weight"
+                        )
+                        if formula_owned_side_array or (
+                            formula_owned_pandas
+                            and type(value).__module__.startswith("pandas")
+                        ):
+                            continue
+                        if name in self._FINITE_PARAMETER_NAMES and value is not None:
+                            check_finite(value, name=name)
+                except Exception:
+                    if method_name == "fit":
+                        reset_fit_state = getattr(self, "_reset_fit_state", None)
+                        if callable(reset_fit_state):
+                            reset_fit_state()
+                        else:
+                            reset_cv_state = getattr(
+                                self, "_reset_cv_fit_state", None
+                            )
+                            if callable(reset_cv_state):
+                                reset_cv_state()
+                    raise
+                return original(self, *args, **kwargs)
+
+            guarded.__statgpu_finite_validation__ = True
+            return guarded
+
+        candidate_names = set(cls._FINITE_PUBLIC_METHODS)
+        candidate_names.update(
+            name for name in dir(cls) if not name.startswith("_")
+        )
+        for method_name in sorted(candidate_names):
+            original = getattr(cls, method_name, None)
+            if not callable(original):
+                continue
+            if getattr(original, "__isabstractmethod__", False):
+                continue
+            if getattr(original, "__statgpu_finite_validation__", False):
+                continue
+            try:
+                signature = inspect.signature(original)
+            except (TypeError, ValueError):
+                continue
+            numerical_parameters = set(signature.parameters) & cls._FINITE_PARAMETER_NAMES
+            if method_name not in cls._FINITE_PUBLIC_METHODS and not numerical_parameters:
+                continue
+            setattr(cls, method_name, wrap_method(original, method_name))
+
     def __init__(
         self,
         device: Union[str, Device] = Device.AUTO,
@@ -45,15 +415,16 @@ class BaseEstimator(ABC):
             Number of parallel jobs for CPU computation.
             -1 means using all processors.
         """
-        self.device = device if isinstance(device, Device) else Device(device)
+        self.device = device
+        self._device = device if isinstance(device, Device) else Device(device)
         self.n_jobs = n_jobs
         self._fitted = False
     
     def _get_compute_device(self) -> Device:
         """Resolve device for actual computation."""
-        if self.device == Device.AUTO:
+        if self._device == Device.AUTO:
             return get_device()
-        return self.device
+        return self._device
 
     def _get_backend(self, backend: str = "auto") -> BackendBase:
         """
@@ -75,7 +446,7 @@ class BaseEstimator(ABC):
         device_str = compute_device.value  # 'cpu', 'cuda', or 'torch'
 
         if (
-            self.device != Device.AUTO
+            self._device != Device.AUTO
             and compute_device == Device.CUDA
             and backend == "auto"
         ):
@@ -516,18 +887,70 @@ class BaseEstimator(ABC):
                 "Call 'fit' before using this method."
             )
     
-    def __sklearn_clone__(self):
-        """Return an unfitted estimator clone for scikit-learn >= 1.3.
+    def _statgpu_estimator_type(self):
+        """Return the class-level sklearn estimator classification."""
+        estimator_type = getattr(type(self), "_estimator_type", None)
+        if estimator_type in {"classifier", "regressor"}:
+            return estimator_type
+        return None
 
-        Several statgpu constructors validate or canonicalize immutable strings
-        and copy mutable dictionaries. scikit-learn's legacy identity check
-        treats those defensive copies as constructor mutation. The explicit
-        clone protocol preserves the public constructor values while discarding
-        fitted state.
+    def __sklearn_tags__(self):
+        """Return public estimator tags when sklearn >= 1.6 is installed."""
+        estimator_type = self._statgpu_estimator_type()
+        try:
+            from sklearn.utils import (
+                ClassifierTags,
+                RegressorTags,
+                Tags,
+                TargetTags,
+                TransformerTags,
+            )
+        except ImportError:
+            return self._more_tags()
+
+        has_transform = callable(getattr(self, "transform", None))
+        return Tags(
+            estimator_type=estimator_type,
+            target_tags=TargetTags(required=estimator_type is not None),
+            transformer_tags=TransformerTags() if has_transform else None,
+            classifier_tags=(
+                ClassifierTags() if estimator_type == "classifier" else None
+            ),
+            regressor_tags=(
+                RegressorTags() if estimator_type == "regressor" else None
+            ),
+            requires_fit=True,
+        )
+
+    def _more_tags(self):
+        """Return the legacy sklearn tag dictionary."""
+        estimator_type = self._statgpu_estimator_type()
+        return {"requires_y": estimator_type in {"classifier", "regressor"}}
+
+    def __sklearn_is_fitted__(self):
+        """Expose statgpu fitted state to sklearn meta-estimators."""
+        return bool(getattr(self, "_fitted", False))
+
+    def __sklearn_clone__(self):
+        """Return an unfitted recursive clone for scikit-learn >= 1.3.
+
+        Constructor values are preserved by the public raw-parameter contract,
+        while estimator-valued parameters must be cloned recursively so fitted
+        state is never copied into the new estimator.
         """
         from copy import deepcopy
 
-        return type(self)(**deepcopy(self.get_params(deep=False)))
+        params = self.get_params(deep=False)
+        try:
+            from sklearn.base import clone as sklearn_clone
+        except ImportError:
+            cloned_params = deepcopy(params)
+        else:
+            cloned_params = {
+                name: sklearn_clone(value, safe=False)
+                for name, value in params.items()
+            }
+        return type(self)(**cloned_params)
 
     def get_params(self, deep=True):
         """Get constructor parameters for this estimator.
@@ -538,6 +961,7 @@ class BaseEstimator(ABC):
         import inspect
 
         params = {}
+        raw_params = getattr(self, "_constructor_params_raw", {})
         try:
             sig = inspect.signature(type(self).__init__)
         except (ValueError, TypeError):
@@ -549,7 +973,9 @@ class BaseEstimator(ABC):
                 inspect.Parameter.VAR_KEYWORD,
             ):
                 continue
-            if hasattr(self, name):
+            if name in raw_params:
+                params[name] = raw_params[name]
+            elif hasattr(self, name):
                 params[name] = getattr(self, name)
             elif hasattr(self, f"_{name}"):
                 params[name] = getattr(self, f"_{name}")
@@ -563,43 +989,106 @@ class BaseEstimator(ABC):
 
 
     def set_params(self, **params):
-        """Set estimator parameters, validating names and nesting."""
+        """Set parameters transactionally and refresh normalized state."""
         if not params:
             return self
 
-        valid_params = self.get_params(deep=True)
-        nested_params = {}
+        import copy
+        from collections.abc import Iterator
 
+        valid_deep = self.get_params(deep=True)
+        direct = self.get_params(deep=False)
+        direct_updates = {}
+        nested = {}
         for key, value in params.items():
             root, delimiter, sub_key = key.partition("__")
-            if root not in valid_params:
-                valid_names = sorted(name for name in valid_params if "__" not in name)
+            if key not in valid_deep and root not in direct:
+                valid_names = sorted(
+                    name for name in valid_deep if "__" not in name
+                )
                 raise ValueError(
                     f"Invalid parameter {root!r} for estimator "
-                    f"{self.__class__.__name__}. Valid parameters are: "
-                    f"{', '.join(valid_names)}."
+                    f"{type(self).__name__}. Valid parameters are: {valid_names}."
                 )
-
             if delimiter:
-                nested_params.setdefault(root, {})[sub_key] = value
-                continue
-
-            if root == "device" and isinstance(value, str):
-                value = Device(value)
-            if hasattr(self, root):
-                setattr(self, root, value)
+                nested.setdefault(root, {})[sub_key] = value
             else:
-                setattr(self, f"_{root}", value)
+                direct[root] = value
+                direct_updates[root] = value
 
-        for root, sub_params in nested_params.items():
-            nested_estimator = getattr(self, root, None)
+        explicitly_updated = set(direct_updates)
+        for key, value in tuple(direct.items()):
+            if isinstance(value, Iterator) and key not in explicitly_updated:
+                snapshot = getattr(self, "_cox_cv_split_snapshot", None)
+                if snapshot is None:
+                    snapshot = list(value)
+                direct[key] = copy.deepcopy(snapshot)
+
+        if nested:
+            try:
+                from sklearn.base import clone as sklearn_clone
+            except ImportError:
+                sklearn_clone = None
+            for root in nested:
+                nested_value = direct[root]
+                if sklearn_clone is not None and hasattr(nested_value, "get_params"):
+                    direct[root] = sklearn_clone(nested_value)
+                else:
+                    direct[root] = copy.deepcopy(nested_value)
+
+        try:
+            fresh = type(self)(**direct)
+        except (TypeError, ValueError):
+            deferred = set(getattr(type(self), "_DEFERRED_SET_PARAMS", ()))
+            if nested or not direct_updates or not set(direct_updates).issubset(deferred):
+                raise
+            # A small number of estimators intentionally validate selected
+            # controls at fit time. Apply only those explicitly declared values
+            # after the complete update has been classified as deferred.
+            for key, value in direct_updates.items():
+                setattr(self, key, value)
+                if key in self._NORMALIZED_CONSTRUCTOR_PARAMS:
+                    setattr(self, self._normalized_private_name(key), value)
+                raw_params = getattr(self, "_constructor_params_raw", None)
+                if raw_params is None:
+                    raw_params = {}
+                    self._constructor_params_raw = raw_params
+                raw_params[key] = value
+            reset = getattr(self, "_reset_fit_state", None)
+            if callable(reset):
+                reset()
+            else:
+                self._fitted = False
+            return self
+
+        for root, sub_params in nested.items():
+            nested_estimator = getattr(fresh, root, None)
             if nested_estimator is None:
-                nested_estimator = getattr(self, f"_{root}", None)
+                nested_estimator = getattr(fresh, f"_{root}", None)
             if not hasattr(nested_estimator, "set_params"):
                 raise ValueError(
-                    f"Parameter {root!r} of {self.__class__.__name__} "
-                    "does not support nested parameters."
+                    f"Parameter {root!r} of {type(self).__name__} does not "
+                    "support nested parameters."
                 )
             nested_estimator.set_params(**sub_params)
 
+        self.__dict__.clear()
+        self.__dict__.update(fresh.__dict__)
         return self
+
+
+def refresh_public_finite_validation_contracts():
+    """Install finite guards after all estimator mixins and aliases are bound."""
+    BaseEstimator._install_public_finite_validation()
+    seen = set()
+    stack = list(BaseEstimator.__subclasses__())
+    while stack:
+        estimator_cls = stack.pop()
+        if estimator_cls in seen:
+            continue
+        seen.add(estimator_cls)
+        stack.extend(estimator_cls.__subclasses__())
+        estimator_cls._install_public_finite_validation()
+
+
+BaseEstimator._install_public_finite_validation()

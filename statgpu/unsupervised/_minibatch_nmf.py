@@ -42,12 +42,12 @@ class MiniBatchNMF(BaseEstimator):
             n_components = int(self.n_components)
         if self.init != "random":
             raise NotImplementedError("MiniBatchNMF v1 only supports init='random'")
-        if self.batch_size is not None:
-            if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
+        if self._batch_size is not None:
+            if not isinstance(self._batch_size, (int, np.integer)) or int(self._batch_size) < 1:
                 raise ValueError("batch_size must be a positive integer or None")
-        if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
+        if not isinstance(self._max_iter, (int, np.integer)) or int(self._max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
-        if float(self.tol) < 0.0:
+        if float(self._tol) < 0.0:
             raise ValueError("tol must be non-negative")
         return n_components
 
@@ -169,8 +169,8 @@ class MiniBatchNMF(BaseEstimator):
         self._fitted = True
 
         # Auto-size batch: large enough for GPU efficiency, small enough for mini-batch benefit
-        if self.batch_size is not None:
-            batch_size = min(int(self.batch_size), n_samples)
+        if self._batch_size is not None:
+            batch_size = min(int(self._batch_size), n_samples)
         else:
             batch_size = min(n_samples, max(20000, n_samples // 5))
 
@@ -182,7 +182,7 @@ class MiniBatchNMF(BaseEstimator):
         check_interval = 5 if backend.name != "numpy" else 1
         last_W = None
 
-        for epoch in range(1, int(self.max_iter) + 1):
+        for epoch in range(1, int(self._max_iter) + 1):
             A_epoch = backend.zeros((self.n_components_, self.n_components_), dtype=backend.float64)
             B_epoch = backend.zeros((self.n_components_, self.n_features_in_), dtype=backend.float64)
             # Pre-compute HtH once per epoch (H is frozen within epoch)
@@ -206,13 +206,13 @@ class MiniBatchNMF(BaseEstimator):
             last_B = B_epoch
 
             # Throttled convergence check
-            if epoch % check_interval == 0 or epoch == int(self.max_iter):
+            if epoch % check_interval == 0 or epoch == int(self._max_iter):
                 delta = scalar_to_float(backend.xp.linalg.norm(new_components - old_components) / (backend.xp.linalg.norm(old_components) + eps))
-                if previous_delta is not None and delta <= float(self.tol):
+                if previous_delta is not None and delta <= float(self._tol):
                     break
                 previous_delta = delta
         else:
-            epoch = int(self.max_iter)
+            epoch = int(self._max_iter)
         self.n_iter_ = int(epoch)
         if last_A is None or last_B is None:
             W_full = self.transform(X_arr)
@@ -239,7 +239,7 @@ class MiniBatchNMF(BaseEstimator):
         eps = np.finfo(np.float64).eps
         HtH = backend.matmul(self.components_, self.components_.T)
         W = self._init_w_from_data(backend, X_arr, self.components_, eps)
-        n_steps = max(100, min(300, int(self.max_iter) * 5))
+        n_steps = max(100, min(300, int(self._max_iter) * 5))
         for _ in range(n_steps):
             W = self._update_w(backend, X_arr, W, self.components_, HtH, eps)
         return W
@@ -252,7 +252,7 @@ class MiniBatchNMF(BaseEstimator):
         eps = np.finfo(np.float64).eps
         HtH = backend.matmul(self.components_, self.components_.T)
         W = self._init_w_from_data(backend, X_arr, self.components_, eps)
-        n_steps = max(100, min(300, int(self.max_iter) * 5))
+        n_steps = max(100, min(300, int(self._max_iter) * 5))
         for _ in range(n_steps):
             W = self._update_w(backend, X_arr, W, self.components_, HtH, eps)
         return W

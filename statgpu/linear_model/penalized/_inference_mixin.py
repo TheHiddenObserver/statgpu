@@ -6,6 +6,7 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 from statgpu.backends import _to_numpy
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.linear_model._gaussian_inference import (
     GaussianFitState,
     build_gaussian_fit_state,
@@ -59,7 +60,7 @@ class _PenalizedInferenceMixin:
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
         """Populate inference state after fit. Routes to sandwich/debiased/oracle."""
-        if not self.compute_inference:
+        if not self._compute_inference_enabled:
             return
 
         # Non-squared_error Hessian losses + smooth/L2 penalties: penalized sandwich
@@ -159,8 +160,8 @@ class _PenalizedInferenceMixin:
             self._resid,
             self._scale,
             self._df_resid,
-            self.cov_type,
-            hac_maxlags=self.hac_maxlags,
+            self._cov_type,
+            hac_maxlags=self._hac_maxlags,
             ridge_alpha=ridge_alpha,
             ridge_penalize_intercept=False if self._effective_intercept else True,
         )
@@ -236,7 +237,9 @@ class _PenalizedInferenceMixin:
             X_full = xp.concatenate([_ones, X], axis=1)
             try:
                 XtX_inv = xp.linalg.inv(X_full.T @ X_full)
-            except Exception:
+            except Exception as exc:
+                if not _linalg_exception_is_rank_failure(exc):
+                    raise
                 XtX_inv = xp.linalg.pinv(X_full.T @ X_full)
             se_intercept = float(xp.sqrt(sigma2 * XtX_inv[0, 0]))
             z_intercept = float(intercept) / (se_intercept + 1e-30)
@@ -295,7 +298,7 @@ class _PenalizedInferenceMixin:
         sigma_hat = np.sqrt(sigma2)
         lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat
         m_cache_key = _debiased_m_key_from_numpy_design(
-            X_np, n=n, p=p, lam_nw=lam_nw, tol=float(self.tol),
+            X_np, n=n, p=p, lam_nw=lam_nw, tol=float(self._tol),
         )
         M_cached = _debiased_m_cache_get(m_cache_key)
         if M_cached is not None:
@@ -551,7 +554,7 @@ class _PenalizedInferenceMixin:
             refit = PenalizedLinearRegression(
                 penalty="l1", alpha=float(self.alpha),
                 fit_intercept=self._effective_intercept,
-                max_iter=self.max_iter, tol=self.tol,
+                max_iter=self._max_iter, tol=self._tol,
                 device="cpu", cpu_solver="fista",
                 compute_inference=False, inference_method="none",
             )
@@ -640,7 +643,7 @@ class _PenalizedInferenceMixin:
         x_hasher = hashlib.blake2b(digest_size=32)
         x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
         x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
-        x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
+        x_hasher.update(np.asarray([float(lam_nw), float(self._tol)], dtype=np.float64).tobytes())
         row_chunk = max(1, min(int(n), _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK))
         for start in range(0, int(n), row_chunk):
             stop = min(int(n), start + row_chunk)
@@ -823,7 +826,7 @@ class _PenalizedInferenceMixin:
         X_sample = X_torch[: min(24, n), : min(24, p)].cpu().numpy()
         m_cache_key = _debiased_m_key_from_sample(
             n=n, p=p, dtype_name=str(dtype),
-            sample_block=X_sample, lam_nw=lam_nw, tol=float(self.tol),
+            sample_block=X_sample, lam_nw=lam_nw, tol=float(self._tol),
         )
         M_cached = _debiased_m_cache_get(m_cache_key)
 
@@ -1033,7 +1036,7 @@ class _PenalizedInferenceMixin:
 
         result = m_estimation_inference(
             self._loss, X_design, y_arr, params,
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             penalty_curvature_diag=curv if has_curv else None,
             sample_weight=sw_arr,
         )
@@ -1057,9 +1060,9 @@ class _PenalizedInferenceMixin:
                 "dispersion": result["dispersion"],
                 "wald_stat": result["wald_stat"],
                 "wald_pval": result["wald_pval"],
-                "meat_type": self.cov_type,
+                "meat_type": self._cov_type,
                 "covariance_convention": _infer_covariance_convention(
-                    self.cov_type, has_curv
+                    self._cov_type, has_curv
                 ),
                 "backend": backend,
             },
@@ -1169,7 +1172,7 @@ class _PenalizedInferenceMixin:
         loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
         result = m_estimation_inference(
             loss_obj, X_design, y_cpu, params_active,
-            cov_type=self.cov_type, sample_weight=sw_cpu)
+            cov_type=self._cov_type, sample_weight=sw_cpu)
 
         # Map back to full parameter space.
         # Inactive features keep their original penalized coefficient values
@@ -1207,7 +1210,7 @@ class _PenalizedInferenceMixin:
             metadata={
                 "n_active": n_active,
                 "active_set": active.tolist() if hasattr(active, 'tolist') else list(active),
-                "covariance_convention": _infer_covariance_convention(self.cov_type, False),
+                "covariance_convention": _infer_covariance_convention(self._cov_type, False),
             },
         )
         self._inference_result.apply_to(self)
@@ -1314,7 +1317,9 @@ class _PenalizedInferenceMixin:
         try:
             chol = cp.linalg.cholesky(bread)
             bread_inv = cp.linalg.solve(chol.T, cp.linalg.solve(chol, cp.eye(bread.shape[0], dtype=bread.dtype)))
-        except Exception:
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             bread_inv = cp.linalg.pinv(bread)
 
         y_pred = X @ coef_full if X_mean is None else coef_full[0] + X @ coef_full[1:]
@@ -1340,14 +1345,14 @@ class _PenalizedInferenceMixin:
             }
             return
 
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
             distribution, method = "t", "classical"
         else:
             from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
             cov_params = robust_covariance_gpu(
-                X_design_gpu, resid, bread_inv, self.cov_type, cp,
-                hac_maxlags=self.hac_maxlags,
+                X_design_gpu, resid, bread_inv, self._cov_type, cp,
+                hac_maxlags=self._hac_maxlags,
             )
             distribution, method = "normal", "sandwich"
 
@@ -1365,7 +1370,7 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._results import GaussianInferenceResult
         result = GaussianInferenceResult(
             params=coef_full.get(), bse=bse.get(), statistic=tvalues.get(),
-            pvalues=pvalues.get(), conf_int=conf_int.get(), cov_type=self.cov_type,
+            pvalues=pvalues.get(), conf_int=conf_int.get(), cov_type=self._cov_type,
             distribution=distribution, df=df_resid, method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
@@ -1410,7 +1415,9 @@ class _PenalizedInferenceMixin:
         try:
             chol = torch.linalg.cholesky(bread)
             bread_inv = torch.cholesky_inverse(chol)
-        except RuntimeError:
+        except RuntimeError as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
             bread_inv = torch.linalg.pinv(bread)
 
         y_pred = X @ coef_full if X_mean is None else coef_full[0] + X @ coef_full[1:]
@@ -1438,14 +1445,14 @@ class _PenalizedInferenceMixin:
             }
             return
 
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
             distribution, method = "t", "classical"
         else:
             from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
             cov_params = robust_covariance_gpu(
-                X_design_gpu, resid, bread_inv, self.cov_type, torch,
-                hac_maxlags=self.hac_maxlags,
+                X_design_gpu, resid, bread_inv, self._cov_type, torch,
+                hac_maxlags=self._hac_maxlags,
             )
             distribution, method = "normal", "sandwich"
 
@@ -1466,7 +1473,7 @@ class _PenalizedInferenceMixin:
             params=coef_full.detach().cpu().numpy(),
             bse=bse.detach().cpu().numpy(), statistic=tvalues.detach().cpu().numpy(),
             pvalues=pvalues.detach().cpu().numpy(), conf_int=conf_int.detach().cpu().numpy(),
-            cov_type=self.cov_type, distribution=distribution, df=df_resid, method=method,
+            cov_type=self._cov_type, distribution=distribution, df=df_resid, method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)

@@ -134,7 +134,7 @@ class PooledOLS(BaseEstimator):
 
         # HAC depends on temporal ordering. Metadata may remain on CPU, but the
         # numerical arrays are reordered on their selected backend.
-        if self.cov_type == "hac" and time_index is not None:
+        if self._cov_type == "hac" and time_index is not None:
             time_values = np.asarray(_to_numpy(time_index))
             if time_values.ndim != 1 or time_values.shape[0] != X_arr.shape[0]:
                 raise ValueError("time_index must be one-dimensional with length n_samples")
@@ -221,7 +221,7 @@ class PooledOLS(BaseEstimator):
         )
         return PanelSummary(
             model_type="PooledOLS",
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             coef=np.asarray(self.coef_),
             bse=np.asarray(self.bse_),
             tvalues=np.asarray(self.tvalues_),
@@ -241,21 +241,21 @@ class PooledOLS(BaseEstimator):
         XtX = X.T @ X / n
         XtX_inv = xp.linalg.pinv(XtX)
 
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             cov_params = scale * XtX_inv / n
-        elif self.cov_type == "robust":
+        elif self._cov_type == "robust":
             # HC1: (X'X)^{-1} X' diag(e^2) X (X'X)^{-1} * n/(n-k)
             scores = X * resid[:, None]
             meat = scores.T @ scores
             cov_params = XtX_inv @ meat @ XtX_inv / (n * n) * n / df_resid
-        elif self.cov_type == "clustered":
+        elif self._cov_type == "clustered":
             if cluster is None:
                 raise ValueError("cluster is required for cov_type='clustered'")
             cluster_arr, _ = factorize_panel_labels(
                 cluster, xp, ref_arr=X, name="cluster", expected_n=n,
             )
             cov_params = clustered_covariance(X, resid, cluster_arr, xp)
-        elif self.cov_type == "hac":
+        elif self._cov_type == "hac":
             cov_params = hac_covariance(X, resid, bandwidth=self.bandwidth,
                                         kernel=self.kernel, xp=xp)
 
@@ -265,7 +265,7 @@ class PooledOLS(BaseEstimator):
         df = df_resid
 
         from statgpu.inference._distributions_backend import get_distribution
-        dist_name = "norm" if self.cov_type in ("robust", "clustered", "hac") else "t"
+        dist_name = "norm" if self._cov_type in ("robust", "clustered", "hac") else "t"
         t_dist = get_distribution(dist_name, backend=backend_name)
         if dist_name == "t":
             pvalues_dev = 2 * t_dist.sf(xp.abs(tvalues_dev), df)
@@ -287,17 +287,9 @@ class PooledOLS(BaseEstimator):
         self.conf_int_ = _to_numpy(xp.stack([conf_low, conf_high], axis=1))
 
     def get_params(self, deep=True):
-        params = super().get_params(deep=deep)
-        params["cov_type"] = self.cov_type
-        params["alpha"] = self.alpha
-        params["bandwidth"] = self.bandwidth
-        params["kernel"] = self.kernel
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        for key in ["cov_type", "alpha", "bandwidth", "kernel"]:
-            if key in params:
-                setattr(self, key, params.pop(key))
-        if params:
-            super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)

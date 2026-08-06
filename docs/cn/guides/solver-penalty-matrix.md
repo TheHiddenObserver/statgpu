@@ -36,13 +36,13 @@
 |--------|------|------|------|
 | `exact` | 仅 l2 + squared_error | 其他所有 | 特征分解闭式解 |
 | `irls` | 光滑 l2 路径 | 非光滑惩罚 | IRLS |
-| `newton` | 光滑目标 | l1、非凸及全部 group penalty | Newton + 线搜索 |
-| `lbfgs` | 光滑目标 | l1、非凸及全部 group penalty | L-BFGS |
+| `newton` | l2 / none | l1、elasticnet、非凸及全部 group penalty | Newton + 线搜索 |
+| `lbfgs` | l2 / none | l1、elasticnet、非凸及全部 group penalty | L-BFGS |
 | `fista` | 支持 proximal 的惩罚 | — | Nesterov FISTA |
 | `fista_bb` | 支持的稀疏组合 | 不支持的组合明确失败 | BB 自适应步长 |
 | `admm` | 支持的 proximal 组合 | 不支持的组合明确失败 | ADMM |
 | `irls_cd` | 标量 scad/mcp/adaptive_l1 | 全部 group penalty | IRLS + 坐标下降 |
-| `proximal_newton` | 支持的标量非凸 Hessian 路径 | 全部 group penalty | Newton + Armijo + proximal |
+| `proximal_newton` | l2 / none 使用 Newton；非光滑 direct 调用显式转到 FISTA | 全部 group penalty 与不支持组合 | 不再静默使用 Euclidean-prox 近似 |
 
 不支持的组合在数值拟合前抛出 `ValueError`。
 

@@ -185,7 +185,7 @@ class PanelOLS(BaseEstimator):
             raise ValueError("entity_ids is required when entity_effects=True")
         if self.time_effects and time_ids is None:
             raise ValueError("time_ids is required when time_effects=True")
-        if self.cov_type == 'clustered' and cluster is None:
+        if self._cov_type == 'clustered' and cluster is None:
             raise ValueError("cluster is required when cov_type='clustered'")
 
         entity_arr = None
@@ -306,11 +306,11 @@ class PanelOLS(BaseEstimator):
         except _LINALG_ERRORS:
             XtX_inv = xp.linalg.pinv(XtX)
 
-        if self.cov_type == 'nonrobust':
+        if self._cov_type == 'nonrobust':
             cov_params = self._scale * XtX_inv
             bse_dev = xp.sqrt(xp_maximum(xp.diag(cov_params), 0.0, xp))
 
-        elif self.cov_type == 'robust':
+        elif self._cov_type == 'robust':
             # HC1 sandwich — on device
             # Use df_resid (not n-k) to account for absorbed fixed effects
             e2 = resid ** 2
@@ -343,7 +343,7 @@ class PanelOLS(BaseEstimator):
         abs_t = xp.abs(tvalues_dev)
 
         # p-values via backend-agnostic inference framework — on device
-        if self.cov_type in ('nonrobust',):
+        if self._cov_type in ('nonrobust',):
             t_dist = get_distribution("t", backend=backend_name)
             pvalues_dev = 2.0 * t_dist.sf(abs_t, float(df))
             t_crit = float(t_dist.isf(xp.asarray([alpha / 2.0]), float(df))[0])
@@ -451,7 +451,7 @@ class PanelOLS(BaseEstimator):
             conf_int=self.conf_int_,
             feature_names=feat_names,
             rsquared_within=self.rsquared_within,
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             entity_effects=self.entity_effects,
             time_effects=self.time_effects,
             alpha=self.alpha,
@@ -460,23 +460,12 @@ class PanelOLS(BaseEstimator):
         return s
 
     def get_params(self, deep=True):
-        """Get parameters for this estimator."""
-        params = super().get_params(deep)
-        params.update({
-            'entity_effects': self.entity_effects,
-            'time_effects': self.time_effects,
-            'cov_type': self.cov_type,
-            'alpha': self.alpha,
-        })
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        """Set parameters for this estimator."""
-        for key in ('entity_effects', 'time_effects', 'cov_type', 'alpha'):
-            if key in params:
-                setattr(self, key, params.pop(key))
-        super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)
 
 
 # Alias for naming consistency with RandomEffects, PooledOLS, etc.

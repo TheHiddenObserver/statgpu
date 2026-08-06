@@ -5,20 +5,22 @@
 
 ## 概述
 
-statgpu 提供 10 种求解器用于惩罚损失最小化。本文档记录每种求解器的算法、收敛条件、后端支持和超参数。
+statgpu 提供 11 种求解器用于惩罚损失最小化。本文档记录每种求解器的算法、收敛条件、后端支持和超参数。
 
 ## 求解器总览
 
 | 求解器 | 最佳用途 | 后端支持 |
 |--------|----------|:---:|
 | Proximal IRLS-CD | quantile + SCAD/MCP | numpy, cupy, torch |
-| Proximal Newton | Huber/Bisquare/Cox + SCAD/MCP | numpy, cupy, torch |
+| Proximal Newton | 光滑损失 + 光滑惩罚；非光滑情形显式使用 FISTA | numpy, cupy, torch |
 | FISTA | 一般非光滑惩罚 | numpy, cupy, torch |
 | FISTA-BB | GLM + 稀疏惩罚 | numpy, cupy, torch |
 | FISTA-LLA | 非凸惩罚（continuation path） | numpy, cupy, torch |
 | IRLS | 光滑损失 + L2 | numpy, cupy, torch |
 | Newton | 光滑损失 + L2 | numpy, cupy, torch |
 | L-BFGS | 光滑损失，中低维度 | numpy, cupy, torch |
+| L-BFGS-B | box-constrained 问题 | numpy, cupy, torch |
+| ADMM | 可分惩罚 | numpy, cupy, torch |
 | exact | squared_error + L2（闭式解） | numpy, cupy, torch |
 
 ---
@@ -55,17 +57,19 @@ statgpu 提供 10 种求解器用于惩罚损失最小化。本文档记录每�
 
 **文件**: `statgpu/solvers/_proximal_newton.py`
 
-**用途**: 有 Hessian 的光滑损失（Huber、Bisquare、Cox PH）+ 非光滑惩罚（SCAD/MCP 通过 LLA）。5-10 次迭代收敛。
+**用途**: 对光滑损失与 L2/无惩罚目标执行 Newton 更新。
+
+一般非光滑 proximal-Newton 需要求解 Hessian metric 下的 proximal 子问题；
+旧的 Euclidean-prox 快捷路径会优化错误目标。现在 direct 非光滑调用会明确告警并
+使用 FISTA；FISTA-LLA 也保持 backend-native FISTA，直到实现并显式声明正确的
+metric proximal 能力。
 
 ### 算法
 
-1. 计算 Hessian H = X'WX 和梯度 g = X'ψ / n
-2. Newton 方向 d = -H⁻¹·g
-3. Armijo 线搜索（最多 25 次回退）：
-   a. 尝试点: β_try = proximal(β − step·d, step)
-   b. 检查复合 Armijo: f(β_try) + g(β_try) ≤ f(β) + g(β) + c·step·g'd
-   c. 不满足则步长减半
-4. Hessian 奇异或 g'd ≤ 0 → 回退到梯度下降
+1. 对损失和光滑惩罚各计入一次梯度与 Hessian。
+2. 仅在真正的秩失败时使用 least-squares 降级。
+3. 对完整声明目标执行 Armijo 回溯。
+4. Newton 方向不是下降方向时使用最速下降。
 
 ---
 
@@ -133,8 +137,8 @@ SCAD/MCP/group MCP/group SCAD 禁用 BB 步长。LLA 重加权引起的 subgradi
 2. **LLA 外层**（每步 2-5 次）：
    a. 在当前 β 处计算 LLA 权重
    b. **内层求解器**：
-      - 有 Hessian → Proximal Newton（5-10 次迭代）
-      - 无 Hessian → FISTA（300+ 次迭代）
+      - 复合 LLA 子问题统一使用 backend-native FISTA
+      - 未来的 proximal-Newton 路径必须显式提供正确的 Hessian-metric proximal 能力
    c. LLA 收敛 ||β − β_before_lla||₁ < lla_tol
 
 ### 融合 Kernel（GPU）

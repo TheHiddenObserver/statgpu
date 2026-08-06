@@ -127,7 +127,8 @@ def test_cv_controls_use_private_canonical_fit_snapshot():
     assert model.inference_mode == "STRICT"
     assert model.compute_inference == 0
     assert model.gpu_memory_cleanup == 0
-    assert model.device is Device.CPU
+    assert model.device == "cpu"
+    assert model._device is Device.CPU
     assert model._fit_controls.ties == "efron"
     assert model._fit_controls.cov_type == "nonrobust"
     assert model._fit_controls.inference_mode == "strict"

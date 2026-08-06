@@ -17,6 +17,11 @@ from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev, xp_maximum
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model.wrappers._ridge import Ridge
+from ._device import (
+    cv_refit_device,
+    resolve_cv_backend,
+    validate_cv_sample_weight,
+)
 
 
 # =============================================================================
@@ -325,45 +330,22 @@ def _select_ridge_alpha_cv(
     details : dict (if return_details=True)
         Full CV results including alpha grid, MSE path, etc.
     """
-    if isinstance(device, Device):
-        device = device.value
-    device_name = str(device).lower()
-    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value, "torch")
+    (
+        device_name,
+        backend_name,
+        backend,
+        use_gpu,
+        gpu_input_cupy,
+        gpu_input_torch,
+    ) = resolve_cv_backend(device, X)
     gpu_requested = use_gpu
-
-    gpu_input_cupy = False
-    gpu_input_torch = False
-    if use_gpu:
-        # Check if inputs are already on GPU (CuPy or Torch)
-        try:
-            import cupy as cp
-            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
-            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
-                gpu_input_cupy = False
-        except Exception:
-            pass
-
-        # Also check for torch tensors
-        if not gpu_input_cupy:
-            try:
-                import torch
-                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
-                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
-                    gpu_input_torch = False
-            except Exception:
-                pass
 
     X_np = None
     y_np = None
     sample_weight_np = None
 
     if gpu_input_cupy or gpu_input_torch:
-        # GPU inputs - get backend for validation
-        # Use torch backend for torch tensors, cupy for cupy arrays
-        if gpu_input_torch:
-            backend = get_backend(backend='torch', device='cuda')
-        else:
-            backend = get_backend(backend='cupy', device='cuda')
+        # backend was selected strictly by resolve_cv_backend above
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
@@ -387,12 +369,14 @@ def _select_ridge_alpha_cv(
             raise ValueError("sample_weight must have the same number of rows as X")
         n_samples = int(X_np.shape[0])
 
+    validated_weight = validate_cv_sample_weight(sample_weight, n_samples)
+    if validated_weight is not None and not use_gpu:
+        sample_weight_np = np.asarray(validated_weight, dtype=np.float64).reshape(-1)
+
     # Generate alpha grid
     if alphas is None:
         if gpu_input_cupy or gpu_input_torch or use_gpu:
-            backend = get_backend(
-                backend='torch' if gpu_input_torch else 'cupy', device='cuda'
-            )
+            # backend was selected strictly by resolve_cv_backend above
             alpha_grid = _default_ridge_alpha_grid_backend(
                 X, y, backend, n_alphas=n_alphas,
                 alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight,
@@ -473,13 +457,7 @@ def _select_ridge_alpha_cv(
                 cupy_available = False
 
             # Detect input type and select appropriate backend
-            if hasattr(X, '__module__') and 'torch' in str(type(X).__module__):
-                backend = _torch_backend
-            elif cupy_available and hasattr(X, '__cuda_array_interface__'):
-                backend = _cupy_backend
-            else:
-                # Default to auto-selection for numpy input
-                backend = get_backend(backend='auto', device='cuda')
+            # backend was selected strictly by resolve_cv_backend above
 
             xp = backend.xp
 
@@ -1054,6 +1032,21 @@ class RidgeCV(CVEstimatorBase):
         self.intercept_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_selected_device_ = None
+
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alphas_ = None
+        self.cv_results_ = None
+        self.mean_mse_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_selected_device_ = None
 
     def fit(self, X, y, sample_weight=None):
         """
@@ -1073,65 +1066,69 @@ class RidgeCV(CVEstimatorBase):
         self : RidgeCV
             Fitted estimator.
         """
+        self._reset_cv_fit_state()
         from statgpu.cross_validation._base import validate_cv_sample_weight
         n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
         sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
 
-        device_name = self._get_compute_device().value
+        device_name = self._device
+        _, cv_backend_name, _, _, _, _ = resolve_cv_backend(device_name, X)
+        refit_device = cv_refit_device(device_name, cv_backend_name)
 
         # Run CV to select alpha
         details = _select_ridge_alpha_cv(
             X,
             y,
             alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            cv_folds=self.cv,
+            n_alphas=self._n_alphas,
+            alpha_min_ratio=self._alpha_min_ratio,
+            cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
             sample_weight=sample_weight,
-            fit_intercept=self.fit_intercept,
+            fit_intercept=self._fit_intercept,
             device=device_name,
-            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
-        # Store CV results
-        self.alpha_ = float(details["alpha"])
-        self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
+        # Keep candidate results local until the final refit succeeds.
+        selected_alpha = float(details["alpha"])
+        selected_alphas = np.asarray(details["alphas"], dtype=np.float64)
         mse_path = np.asarray(details["mse_path"], dtype=np.float64)
         mean_mse = np.asarray(details["mean_mse"], dtype=np.float64)
-
-        self.cv_results_ = {"mse_path": mse_path}
-        self.mean_mse_ = mean_mse
-
-        if np.any(np.isfinite(mean_mse)):
-            # sklearn convention: best_score_ is negative MSE (higher is better)
-            self.best_score_ = -float(np.nanmin(mean_mse))
-        else:
-            self.best_score_ = np.nan
+        best_score = (
+            -float(np.nanmin(mean_mse))
+            if np.any(np.isfinite(mean_mse))
+            else np.nan
+        )
 
         # Fit final model with selected alpha.
         # Exact solve uses n*alpha on unnormalized X'X, matching the
         # per-sample convention (loss/n + alpha*||w||^2) used by all paths.
         # alpha_ stores the CV-selected value; pass it directly to Ridge.
         estimator = Ridge(
-            alpha=self.alpha_,
-            fit_intercept=self.fit_intercept,
-            device=self.device,
+            alpha=selected_alpha,
+            fit_intercept=self._fit_intercept,
+            device=refit_device,
             n_jobs=self.n_jobs,
-            compute_inference=self.compute_inference,
-            cov_type=self.cov_type,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
+            compute_inference=self._compute_inference_enabled,
+            cov_type=self._cov_type,
+            gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
 
         estimator.fit(X, y, sample_weight=sample_weight)
 
+        self.alpha_ = selected_alpha
+        self.alphas_ = selected_alphas
+        self.cv_results_ = {"mse_path": mse_path}
+        self.mean_mse_ = mean_mse
+        self.best_score_ = best_score
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
-
+        self.cv_selected_device_ = refit_device
         self._fitted = True
         return self
 

@@ -281,16 +281,6 @@ class TestCompositePenaltyValidation:
         assert composite.weights == (0.25, 0.75)
 
 class TestEstimatorCloneAndFeatureSelectionBackend:
-    @pytest.mark.xfail(
-        condition=_SKLEARN_LT_13,
-        reason=(
-            "Pre-existing sklearn<=1.2 clone incompatibility: 26 estimators "
-            "canonicalize or copy public constructor parameters (cov_type, "
-            "solver, loss, penalty, kernel, alphas, etc.). "
-            + _SKLEARN_CLONE_ISSUE
-        ),
-        strict=True,
-    )
     def test_all_default_public_estimators_clone(self):
         import inspect
         import statgpu

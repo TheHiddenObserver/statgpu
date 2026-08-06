@@ -51,7 +51,7 @@ class _PenalizedPredictMixin:
             return "torch"
         if backend_name == "numpy":
             return "numpy"
-        if self.device == Device.AUTO:
+        if self._device == Device.AUTO:
             return "numpy"
         device = self._get_compute_device()
         if device == Device.CUDA:

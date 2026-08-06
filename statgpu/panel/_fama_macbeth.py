@@ -62,7 +62,7 @@ class FamaMacBeth(BaseEstimator):
             raise ValueError("cov_type must be 'nonrobust' or 'newey-west'")
 
     def _validate_parameters(self):
-        if self.cov_type not in ("nonrobust", "newey-west"):
+        if self._cov_type not in ("nonrobust", "newey-west"):
             raise ValueError("cov_type must be 'nonrobust' or 'newey-west'")
         if self.bandwidth is not None:
             if (
@@ -179,7 +179,7 @@ class FamaMacBeth(BaseEstimator):
 
         avg_beta = xp.mean(betas, axis=0)
         beta_centered = betas - avg_beta
-        if self.cov_type == "nonrobust":
+        if self._cov_type == "nonrobust":
             covariance = (beta_centered.T @ beta_centered) / float(T - 1)
             cov_params = covariance / float(T)
         else:
@@ -201,7 +201,7 @@ class FamaMacBeth(BaseEstimator):
 
         from statgpu.inference._distributions_backend import get_distribution
 
-        dist_name = "norm" if self.cov_type == "newey-west" else "t"
+        dist_name = "norm" if self._cov_type == "newey-west" else "t"
         distribution = get_distribution(dist_name, backend="numpy")
         pvalues_py = []
         for value in xp.abs(tvalues):
@@ -271,7 +271,7 @@ class FamaMacBeth(BaseEstimator):
         )
         return PanelSummary(
             model_type="FamaMacBeth",
-            cov_type=self.cov_type,
+            cov_type=self._cov_type,
             coef=np.asarray(_to_numpy(self.coef_)),
             bse=np.asarray(_to_numpy(self.bse_)),
             tvalues=np.asarray(_to_numpy(self.tvalues_)),
@@ -284,19 +284,9 @@ class FamaMacBeth(BaseEstimator):
         )
 
     def get_params(self, deep=True):
-        params = super().get_params(deep=deep)
-        params.update(
-            cov_type=self.cov_type,
-            bandwidth=self.bandwidth,
-            alpha=self.alpha,
-            min_obs_per_period=self.min_obs_per_period,
-        )
-        return params
+        """Return the shared exact-constructor parameter contract."""
+        return super().get_params(deep)
 
     def set_params(self, **params):
-        for key in ["cov_type", "bandwidth", "alpha", "min_obs_per_period"]:
-            if key in params:
-                setattr(self, key, params.pop(key))
-        if params:
-            super().set_params(**params)
-        return self
+        """Delegate parameter updates to the shared estimator contract."""
+        return super().set_params(**params)
