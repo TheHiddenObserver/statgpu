@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -74,6 +75,17 @@ class _InventoryV2(dict):
         return self[target]
 
 
+def _canonical_json_digest(value: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _strip_generation_id(value: dict) -> dict:
     result = deepcopy(value)
     if "meta" in result:
@@ -93,14 +105,7 @@ def _assign_bundle_generation_id(
         "parse_report": _strip_generation_id(parse_report),
         "source_inventory": _strip_generation_id(inventory),
     }
-    generation_id = hashlib.sha256(
-        json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    generation_id = _canonical_json_digest(payload)
     output["meta"]["generation_id"] = generation_id
     parse_report["generation_id"] = generation_id
     inventory["generation_id"] = generation_id
@@ -147,15 +152,15 @@ def generate(
         return output, parse_report, legacy_inventory
 
     assert manifest is not None
-    catalog = load_source_catalog(_repo_root)
+    catalog_policy = load_source_catalog(_repo_root)
     coverage_matrix = load_coverage_matrix(_repo_root)
-    if coverage_matrix.get("catalog_version") != catalog.get("catalog_version"):
+    if coverage_matrix.get("catalog_version") != catalog_policy.get("catalog_version"):
         raise ValueError(
             "coverage matrix catalog_version does not match source catalog"
         )
 
-    entries = discover_catalog_entries(_repo_root, catalog, manifest)
-    catalog_errors = validate_source_catalog(catalog, entries, manifest)
+    entries = discover_catalog_entries(_repo_root, catalog_policy, manifest)
+    catalog_errors = validate_source_catalog(catalog_policy, entries, manifest)
     coverage_errors = validate_coverage_matrix(coverage_matrix, manifest)
     contract_errors = catalog_errors + coverage_errors
     if contract_errors:
@@ -173,14 +178,24 @@ def generate(
         for run in output.get("runs", [])
         if run.get("source", {}).get("source_id") in registered_ids
     })
+    catalog_snapshot = {
+        "catalog_version": catalog_policy["catalog_version"],
+        "minimum_source_date": catalog_policy["minimum_source_date"],
+        "entries": entries,
+    }
     inventory = _InventoryV2(build_inventory_v2(
         entries,
         manifest,
         available_registered_sources=available,
         parsed_registered_sources=parsed,
-        catalog=catalog,
+        catalog=catalog_snapshot,
         coverage_matrix=coverage_matrix,
     ))
+    inventory["catalog_policy_digest"] = _canonical_json_digest(catalog_policy)
+    inventory["catalog_entries"] = entries
+    inventory["coverage_status_counts"] = dict(sorted(Counter(
+        row["status"] for row in coverage_matrix.get("capabilities", [])
+    ).items()))
     inventory["generation_id"] = ""
     _assign_bundle_generation_id(output, parse_report, inventory)
     return output, parse_report, inventory
