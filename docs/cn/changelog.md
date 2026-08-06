@@ -1,5 +1,7 @@
 # Changelog
 
+- 统一 CPU、CuPy 与 Torch 的拟合对数似然诊断，全部复用数值稳定的 LogisticLoss 注册目标。
+
 - 完成标量 GLM 运行时契约的 code-review 修复循环：严格二分类标签与控制参数、事务性重拟合、显式收敛状态，以及跨后端一致的解析权重诊断。
 
 - 修正任意 link 的 Binomial IRLS、后端原生 warm start、二次惩罚校验与惩罚 CV 的显式降级语义。

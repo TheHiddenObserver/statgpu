@@ -15,6 +15,7 @@ from scipy import stats
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+from statgpu.glm_core._logistic import LogisticLoss
 from statgpu.glm_core._validation import (
     validate_binary_response,
     validate_glm_design_matrix,
@@ -458,8 +459,7 @@ class LogisticRegression(BaseEstimator):
 
         # Likelihood diagnostics are fit outputs, not inference-only state.
         eta_diag = self._X_design @ params
-        p_diag = np.clip(self._sigmoid(eta_diag), 1e-15, 1.0 - 1e-15)
-        loglik_i = y * np.log(p_diag) + (1.0 - y) * np.log(1.0 - p_diag)
+        loglik_i = -LogisticLoss().per_sample_value(eta_diag, y)
         weights_diag = (
             None
             if sample_weight is None
@@ -545,10 +545,10 @@ class LogisticRegression(BaseEstimator):
         self.n_iter_ = iteration + 1
         self._publish_convergence(converged)
         
-        # Compute log-likelihood on GPU
+        # Reuse the registered stable Bernoulli objective on CuPy.
         eta = X_design @ params
         p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
-        loglik_i = y * cp.log(p + 1e-10) + (1 - y) * cp.log(1 - p + 1e-10)
+        loglik_i = -LogisticLoss().per_sample_value(eta, y)
         loglik = cp.sum(loglik_i if sw_work is None else sw_work * loglik_i)
 
         # Compute accuracy on GPU using the same analytic weights.
@@ -781,10 +781,10 @@ class LogisticRegression(BaseEstimator):
         self.n_iter_ = iteration + 1
         self._publish_convergence(converged)
 
-        # Compute log-likelihood on GPU
+        # Reuse the registered stable Bernoulli objective on Torch.
         eta = X_design @ params
         p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
-        loglik_i = y * torch.log(p + 1e-10) + (1 - y) * torch.log(1 - p + 1e-10)
+        loglik_i = -LogisticLoss().per_sample_value(eta, y)
         loglik = torch.sum(loglik_i if sw_work is None else sw_work * loglik_i)
 
         # Compute accuracy using the same analytic weights.

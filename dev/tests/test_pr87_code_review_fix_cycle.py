@@ -738,3 +738,53 @@ def test_cv_valueerror_retry_is_visible_but_typeerror_stays_fatal(monkeypatch):
         owner._evaluate_single(
             Model(), np.ones((2, 1)), np.ones(2), loss_fn=Loss()
         )
+
+
+def test_logistic_wrapper_reuses_registered_objective_on_all_backends():
+    import inspect
+    import statgpu.linear_model.wrappers._logistic as module
+
+    source = inspect.getsource(module.LogisticRegression)
+    assert source.count("LogisticLoss().per_sample_value") == 3
+    assert "log(p + 1e-10)" not in source
+    assert "log(1 - p + 1e-10)" not in source
+
+
+def test_logistic_cpu_likelihood_matches_stable_registered_objective():
+    from statgpu.glm_core._logistic import LogisticLoss
+    from statgpu.linear_model import LogisticRegression
+
+    X = np.array([[-30.0], [-10.0], [10.0], [30.0]], dtype=float)
+    y = np.array([0.0, 0.0, 1.0, 1.0])
+    weights = np.array([1.0, 2.0, 3.0, 4.0])
+    model = LogisticRegression(
+        C=0.5, max_iter=200, tol=1e-10, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=weights)
+    eta = model.intercept_ + X @ model.coef_
+    expected = -np.sum(weights * LogisticLoss().per_sample_value(eta, y))
+    assert model.loglikelihood == pytest.approx(expected, rel=1e-13, abs=1e-13)
+
+
+def test_logistic_private_torch_path_matches_registered_objective(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.linear_model.wrappers._logistic as module
+    from statgpu.glm_core._logistic import LogisticLoss
+
+    monkeypatch.setattr(module, "_get_torch_device_str", lambda: "cpu")
+    X = torch.tensor([[-8.0], [-2.0], [2.0], [8.0]], dtype=torch.float64)
+    y = torch.tensor([0.0, 0.0, 1.0, 1.0], dtype=torch.float64)
+    weights = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
+    model = module.LogisticRegression(
+        C=1.0, max_iter=200, tol=1e-10, device="torch",
+        compute_inference=False,
+    )
+    model._validate_fit_controls()
+    model._fit_torch(X, y, sample_weight=weights)
+    params = torch.as_tensor(model._params, dtype=torch.float64)
+    design = torch.cat([torch.ones((X.shape[0], 1), dtype=X.dtype), X], dim=1)
+    eta = design @ params
+    expected = -torch.sum(
+        weights * LogisticLoss().per_sample_value(eta, y)
+    ).item()
+    assert model._loglik == pytest.approx(expected, rel=1e-13, abs=1e-13)
