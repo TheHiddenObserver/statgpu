@@ -7,6 +7,7 @@ on:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
+      - 'dev/tests/test_benchmark_catalog.py'
       - 'dev/tests/test_frontend_contracts.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
@@ -19,6 +20,7 @@ on:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
+      - 'dev/tests/test_benchmark_catalog.py'
       - 'dev/tests/test_frontend_contracts.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
@@ -44,6 +46,7 @@ jobs:
         run: |
           pytest \
             dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_benchmark_catalog.py \
             dev/tests/test_frontend_contracts.py \
             dev/tests/test_frontend_domain_coverage.py -v
       - name: Validate generator output
@@ -106,6 +109,15 @@ jobs:
             exit 1
           fi
           echo "OK — generated benchmark assets are current"
+      - name: Upload generated bundle for stale-asset diagnosis
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-generated-assets
+          path: |
+            frontend/public/data/
+            docs/assets/benchmarks/
+          retention-days: 7
 
   frontend-e2e:
     runs-on: ubuntu-latest
