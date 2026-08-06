@@ -1,0 +1,180 @@
+{
+  "coverage_matrix_version": "1.0",
+  "catalog_version": "2.0",
+  "capabilities": [
+    {
+      "capability_id": "penalized-glm-fit",
+      "label": "Penalized GLM fit and solver performance",
+      "status": "canonical_current",
+      "source_ids": [
+        "penalized-glm-perf-20260622-e5baa1cbb516",
+        "glm-solver-20260623-1b6197d94d88"
+      ],
+      "representative_dimensions": ["family", "loss", "penalty", "solver", "backend", "scale"]
+    },
+    {
+      "capability_id": "coxph-breslow-efron-fit",
+      "label": "CoxPH Breslow and Efron fit coverage",
+      "status": "canonical_current",
+      "source_ids": [
+        "coxph-efron-20260622-7192358f4c6d",
+        "loss-functions-20260623-f7e2d070a3b7"
+      ],
+      "representative_dimensions": ["ties", "backend", "scale", "external_reference"]
+    },
+    {
+      "capability_id": "robust-quantile-fit",
+      "label": "Robust and quantile fit coverage",
+      "status": "partial_canonical",
+      "source_ids": ["loss-functions-20260623-f7e2d070a3b7"],
+      "representative_dimensions": ["loss", "backend", "scale"],
+      "issue": "#102",
+      "disposition": "Canonical rows exist for part of the maintained matrix; Bisquare, Fair, and complete all-backend coverage remain open."
+    },
+    {
+      "capability_id": "ordered-inference",
+      "label": "Ordered and penalized inference validation",
+      "status": "partial_canonical",
+      "source_ids": ["ordered-inference-20260712-c584a2bfa213"],
+      "representative_dimensions": ["method", "inference_mode", "backend", "scale"],
+      "issue": "#104",
+      "disposition": "Current inference evidence is canonical; broader Ordered crossover performance remains open."
+    },
+    {
+      "capability_id": "unsupervised-fit",
+      "label": "Unsupervised estimator fit coverage",
+      "status": "partial_canonical",
+      "source_ids": ["unsupervised-20260627-1ee68806e3ee"],
+      "representative_dimensions": ["estimator", "backend", "scale"],
+      "issue": "#109",
+      "disposition": "Current estimator-level rows are canonical; NNDescent and operation-specific timings remain open."
+    },
+    {
+      "capability_id": "panel-estimation",
+      "label": "Panel estimation coverage",
+      "status": "partial_canonical",
+      "source_ids": ["new-modules-20260624-bcbdb676223b"],
+      "representative_dimensions": ["estimator", "backend", "aligned_scale"],
+      "issue": "#108",
+      "disposition": "Aligned PanelOLS and RandomEffects evidence exists; additional estimators and covariance variants remain open."
+    },
+    {
+      "capability_id": "gam-nonparametric",
+      "label": "GAM and nonparametric coverage",
+      "status": "partial_canonical",
+      "source_ids": [
+        "new-modules-20260624-bcbdb676223b",
+        "p2-benchmark-20260617-e9c268d6a6f1"
+      ],
+      "representative_dimensions": ["method", "backend", "scale", "external_reference"],
+      "issue": "#106",
+      "disposition": "GAM and selected P2 rows are canonical; the maintained nonparametric matrix is incomplete."
+    },
+    {
+      "capability_id": "covariance-estimation",
+      "label": "Covariance estimator coverage",
+      "status": "partial_canonical",
+      "source_ids": ["p2-benchmark-20260617-e9c268d6a6f1"],
+      "representative_dimensions": ["estimator", "backend", "scale"],
+      "issue": "#106",
+      "disposition": "Empirical covariance evidence exists; shrinkage, robust, and graphical estimator breadth remains open."
+    },
+    {
+      "capability_id": "anova",
+      "label": "ANOVA coverage",
+      "status": "partial_canonical",
+      "source_ids": ["new-modules-20260624-bcbdb676223b"],
+      "representative_dimensions": ["function", "backend", "scale"],
+      "issue": "#104",
+      "disposition": "Available function rows are canonical; synchronization-safe crossover evidence remains open."
+    },
+    {
+      "capability_id": "distribution-api",
+      "label": "Distribution API operations",
+      "status": "current_evidence_not_canonical_ready",
+      "source_ids": [],
+      "issue": "#101",
+      "disposition": "June structured evidence exists but requires operation identity, provenance, timing, and parser audit before registration."
+    },
+    {
+      "capability_id": "feature-selection-knockoff",
+      "label": "Feature Selection and Knockoff",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#103",
+      "disposition": "Existing evidence predates the minimum source date and remains audit-only."
+    },
+    {
+      "capability_id": "linear-glm-inference",
+      "label": "Systematic linear and GLM inference",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#105",
+      "disposition": "A systematic coefficient, covariance, standard-error, test, interval, and likelihood matrix is not yet canonical."
+    },
+    {
+      "capability_id": "penalized-coxph",
+      "label": "Penalized CoxPH paths",
+      "status": "current_evidence_not_canonical_ready",
+      "source_ids": [],
+      "issue": "#107",
+      "disposition": "PR79/PR80 validation evidence exists but is not treated as canonical dashboard data without a dedicated audit or rerun."
+    },
+    {
+      "capability_id": "ridge-cv",
+      "label": "RidgeCV",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#91",
+      "disposition": "Dedicated current CV benchmark package."
+    },
+    {
+      "capability_id": "lasso-cv",
+      "label": "LassoCV",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#91",
+      "disposition": "Dedicated current CV benchmark package."
+    },
+    {
+      "capability_id": "elasticnet-cv",
+      "label": "ElasticNetCV",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#91",
+      "disposition": "Dedicated current CV benchmark package."
+    },
+    {
+      "capability_id": "logistic-regression-cv",
+      "label": "LogisticRegressionCV",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#91",
+      "disposition": "Dedicated current CV benchmark package."
+    },
+    {
+      "capability_id": "penalized-glm-cv",
+      "label": "PenalizedGLM_CV",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#91",
+      "disposition": "Dedicated current CV benchmark package."
+    },
+    {
+      "capability_id": "coxph-cv",
+      "label": "CoxPHCV",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#91",
+      "disposition": "Dedicated current CV benchmark package; penalized Cox-specific breadth is additionally tracked by #107."
+    },
+    {
+      "capability_id": "multiple-testing-resampling",
+      "label": "Multiple testing and resampling utilities",
+      "status": "benchmark_data_gap",
+      "source_ids": [],
+      "issue": "#109",
+      "disposition": "No current canonical utility-level statistical and timing matrix exists."
+    }
+  ]
+}
