@@ -48,7 +48,7 @@ def test_published_categories_have_runs(canonical_output):
 def test_dashboard_uses_only_june_2026_or_later_sources(canonical_output):
     output, _, _, manifest = canonical_output
     assert manifest["minimum_source_date"] == "2026-06-01"
-    assert len(manifest["sources"]) == 8
+    assert len(manifest["sources"]) == 9
 
     manifest_dates = {
         source["source_id"]: date.fromisoformat(source["source_date"])
@@ -353,8 +353,8 @@ def test_unsupervised_exposes_complete_source_matrix(canonical_output):
 
 def test_generated_bundle_has_expected_complete_run_count(canonical_output):
     output, report, _, _ = canonical_output
-    assert len(output["runs"]) == 1774
-    assert report["runs_generated"] == 1774
+    assert len(output["runs"]) == 1796
+    assert report["runs_generated"] == 1796
 
 
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
