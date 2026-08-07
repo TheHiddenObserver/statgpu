@@ -1,22 +1,22 @@
 {
   "inventory_version": "2.0",
   "catalog_version": "2.0",
-  "catalog_digest": "8666eab0e0ce2ddc833d00b6f10d1fa7644a3c04efb163903db06bede67ae747",
+  "catalog_digest": "1de71937d6d994c3ada387018a087e0d1c7b146099853c6ab700f0993f25a5fe",
   "coverage_matrix_version": "1.0",
-  "coverage_matrix_digest": "19f84d784f5dd771b26632da373b2790d8937427c4c087f8f0510adfe5395dc4",
-  "discovered_json_artifacts": 87,
-  "classified_candidate_sources": 87,
-  "eligible_sources": 9,
-  "registered_sources": 9,
-  "available_registered_sources": 9,
-  "parsed_registered_sources": 9,
+  "coverage_matrix_digest": "b9264e98be2d774a9251ff122a36a0acb16ab64217a1ae9bcc1ac2e11599edf0",
+  "discovered_json_artifacts": 89,
+  "classified_candidate_sources": 89,
+  "eligible_sources": 10,
+  "registered_sources": 10,
+  "available_registered_sources": 10,
+  "parsed_registered_sources": 10,
   "eligible_unregistered_sources": 0,
-  "not_canonical_ready_sources": 41,
+  "not_canonical_ready_sources": 42,
   "historical_or_excluded_sources": 37,
   "superseded_or_duplicate_sources": 9,
   "unrelated_json_artifacts": 0,
   "unclassified_artifacts": 0,
-  "catalog_policy_digest": "2cc10f8a4096dc00e1a71e498753664d6f76d96057cf4024151b597a1831d344",
+  "catalog_policy_digest": "23cd0e6e1ccc7a563a42fd6d999a7f6f0a3590726f93030c41c95672ebe19e0a",
   "catalog_entries": [
     {
       "path": "results/bench_large_scale.json",
@@ -1189,6 +1189,42 @@
       "rule_id": "superseded-penalized-glm-original"
     },
     {
+      "path": "results/pr116_p100/cv_benchmark_pr116_p100.json",
+      "artifact_type": "json",
+      "source_date": "2026-08-07",
+      "classification": "registered_canonical",
+      "canonical_eligible": true,
+      "registered": true,
+      "source_id": "cv-benchmark-pr116-20260807-bd8d512adced",
+      "parser": "cv_benchmark",
+      "parser_version": "1.1",
+      "provenance_status": "complete",
+      "timing_protocol_status": "accepted",
+      "statistical_alignment_status": "accepted",
+      "reason": "Registered in frontend_sources.json and protected by manifest SHA256.",
+      "superseded_by": null,
+      "issue": null,
+      "rule_id": "manifest-registration"
+    },
+    {
+      "path": "results/pr116_p100/focused_validation.json",
+      "artifact_type": "json",
+      "source_date": null,
+      "classification": "not_canonical_ready",
+      "canonical_eligible": false,
+      "registered": false,
+      "source_id": null,
+      "parser": null,
+      "parser_version": null,
+      "provenance_status": "validation_evidence",
+      "timing_protocol_status": "not_applicable",
+      "statistical_alignment_status": "accepted",
+      "reason": "Exact-head P100 focused correctness evidence for PR #116 is retained for audit but is intentionally not a dashboard timing source.",
+      "superseded_by": null,
+      "issue": "#112",
+      "rule_id": "pr116-logistic-cv-focused-validation"
+    },
+    {
       "path": "results/pr74_inference_validation.json",
       "artifact_type": "json",
       "source_date": null,
@@ -1587,9 +1623,9 @@
   ],
   "coverage_status_counts": {
     "benchmark_data_gap": 3,
-    "canonical_current": 7,
+    "canonical_current": 8,
     "current_evidence_not_canonical_ready": 2,
-    "partial_canonical": 8
+    "partial_canonical": 7
   },
-  "generation_id": "51a83bca4a61c930b4001a6c4f47780b97ae75947366bc9cbd2ab9f5c9fbe915"
+  "generation_id": "ceac2591d688920101474d09e145c7595e6d9460ce347828b4225139fcd60644"
 }
