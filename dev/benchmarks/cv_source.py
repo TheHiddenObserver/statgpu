@@ -3,13 +3,15 @@
 
 The JSON Schema enforces shape. This module enforces cross-row semantics that
 cannot be expressed cleanly in JSON Schema: complete model coverage, explicit
-backend dispositions, timing decomposition, and truthful environment claims.
+backend dispositions, timing decomposition, finite measurements, and truthful
+environment claims.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
@@ -55,10 +57,28 @@ def _successful_runs(case: dict[str, Any]) -> Iterable[dict[str, Any]]:
     return (run for run in case.get("runs", []) if run.get("status") == SUCCESS)
 
 
+def _nonfinite_paths(value: Any, path: str = "<root>") -> list[str]:
+    errors: list[str] = []
+    if isinstance(value, bool):
+        return errors
+    if isinstance(value, float) and not math.isfinite(value):
+        return [f"{path}: non-finite numeric value {value!r}"]
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = str(key) if path == "<root>" else f"{path}.{key}"
+            errors.extend(_nonfinite_paths(child, child_path))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            errors.extend(_nonfinite_paths(child, f"{path}[{index}]"))
+    return errors
+
+
 def validate_cv_source(source: dict[str, Any]) -> list[str]:
     errors = validate_against_schema(source)
     if errors:
         return errors
+
+    errors.extend(_nonfinite_paths(source))
 
     source_date = date.fromisoformat(source["source_date"])
     if source_date < MINIMUM_SOURCE_DATE:
