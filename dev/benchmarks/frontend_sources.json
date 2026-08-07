@@ -7,6 +7,12 @@
       "gpu": "NVIDIA Tesla P100-SXM2-16GB",
       "cpu": "Intel Xeon Platinum 8163",
       "host": "hz-4.matpool.com"
+    },
+    "remote-p100-cv-20260807": {
+      "label": "Tesla P100 CV rerun — 2026-08-07",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64",
+      "host": "wE6lDe"
     }
   },
   "frameworks": {
@@ -73,6 +79,10 @@
     "p2-benchmark-20260617": {
       "label": "Covariance and nonparametric benchmark — 2026-06-17",
       "env_id": "remote-p100"
+    },
+    "cv-benchmark-20260807": {
+      "label": "Cross-validation benchmark — 2026-08-07",
+      "env_id": "remote-p100-cv-20260807"
     }
   },
   "sources": [
@@ -179,6 +189,22 @@
       "required": true,
       "allowed_issue_codes": [],
       "source_date": "2026-06-17"
+    },
+    {
+      "source_id": "cv-benchmark-20260807-1347184c988d",
+      "comparison_id": "cv-benchmark-20260807",
+      "path": "results/benchmark_frontend_sources/cv_benchmark_20260807.json",
+      "original_path": "results/cv_benchmark_candidate.json",
+      "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2",
+      "parser": "cv_benchmark",
+      "parser_version": "1.1",
+      "env_id": "remote-p100-cv-20260807",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-07",
+      "measurement_git_sha": "ad2cf88d1d443a53eeb5207c33c4ee4f25de2400",
+      "raw_git_sha": "unknown",
+      "provenance_note": "The immutable P100 runner output could not resolve VCS metadata and therefore records git_sha=unknown. The rerun was executed from the ad2cf88 benchmark implementation tree; repository comparison confirms no file-level tree change across the intervening diagnostic add/remove commits."
     }
   ]
 }

@@ -24,3 +24,34 @@ test.describe('Audited source inventory', () => {
     await expect(page.locator('.dashboard-footer')).toContainText('Inventory 2.0');
   });
 });
+
+
+test.describe('Canonical cross-validation evidence', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('renders measured rows and preserves the explicit Torch failure', async ({ page }) => {
+    const response = await page.request.get('/data/benchmark_data.json');
+    expect(response.ok()).toBeTruthy();
+    const data = await response.json();
+    const cvRuns = data.runs.filter((run: { metrics?: { cross_validation?: unknown } }) => run.metrics?.cross_validation);
+    expect(cvRuns).toHaveLength(22);
+    const failed = cvRuns.filter((run: { metrics: { cross_validation: { status: string } } }) => run.metrics.cross_validation.status === 'failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0].model_id).toBe('LogisticRegressionCV');
+    expect(failed[0].backend).toBe('torch');
+    expect(failed[0].metrics.cross_validation.reason).toContain('CPU fallback is disabled');
+    expect(failed[0].metrics.timing).toBeUndefined();
+
+    const toggle = page.getByText(/Cross-validation Metrics \(\d+\)/);
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    const panel = toggle.locator('..');
+    const failedRow = panel.locator('tr').filter({ hasText: 'LogisticRegressionCV' }).filter({ hasText: 'torch' });
+    await expect(failedRow).toHaveCount(1);
+    await expect(failedRow).toContainText('failed');
+    await expect(failedRow).toContainText('CPU fallback is disabled');
+  });
+});

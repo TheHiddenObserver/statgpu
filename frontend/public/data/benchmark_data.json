@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "e07186c6987822c53607b86a10312a78b80091933f128b953e5662d4b710ccc9"
+    "generation_id": "51a83bca4a61c930b4001a6c4f47780b97ae75947366bc9cbd2ab9f5c9fbe915"
   },
   "environments": [
     {
@@ -13,6 +13,13 @@
       "gpu": "NVIDIA Tesla P100-SXM2-16GB",
       "cpu": "Intel Xeon Platinum 8163",
       "host": "hz-4.matpool.com"
+    },
+    {
+      "env_id": "remote-p100-cv-20260807",
+      "label": "Tesla P100 CV rerun — 2026-08-07",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64",
+      "host": "wE6lDe"
     }
   ],
   "categories": [
@@ -115,12 +122,31 @@
       "supports_inference": true
     },
     {
+      "model_id": "CoxPHCV",
+      "primary_category_id": "survival",
+      "category_ids": [
+        "survival"
+      ],
+      "supports_penalty": true,
+      "supports_inference": false
+    },
+    {
       "model_id": "DBSCAN",
       "primary_category_id": "unsupervised",
       "category_ids": [
         "unsupervised"
       ],
       "supports_penalty": false,
+      "supports_inference": false
+    },
+    {
+      "model_id": "ElasticNetCV",
+      "primary_category_id": "linear_models",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "supports_penalty": true,
       "supports_inference": false
     },
     {
@@ -166,6 +192,26 @@
         "unsupervised"
       ],
       "supports_penalty": false,
+      "supports_inference": false
+    },
+    {
+      "model_id": "LassoCV",
+      "primary_category_id": "linear_models",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "supports_penalty": true,
+      "supports_inference": false
+    },
+    {
+      "model_id": "LogisticRegressionCV",
+      "primary_category_id": "linear_models",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "supports_penalty": true,
       "supports_inference": false
     },
     {
@@ -248,6 +294,15 @@
       ],
       "supports_penalty": false,
       "supports_inference": true
+    },
+    {
+      "model_id": "PenalizedGLM_CV",
+      "primary_category_id": "penalized_glm",
+      "category_ids": [
+        "penalized_glm"
+      ],
+      "supports_penalty": true,
+      "supports_inference": false
     },
     {
       "model_id": "PenalizedGammaRegression",
@@ -346,6 +401,16 @@
       ],
       "supports_penalty": false,
       "supports_inference": true
+    },
+    {
+      "model_id": "RidgeCV",
+      "primary_category_id": "linear_models",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "supports_penalty": true,
+      "supports_inference": false
     },
     {
       "model_id": "RobustRegression",
@@ -454,6 +519,11 @@
       "comparison_id": "coxph-efron-20260622",
       "label": "CoxPH Efron benchmark — 2026-06-22",
       "env_id": "remote-p100"
+    },
+    {
+      "comparison_id": "cv-benchmark-20260807",
+      "label": "Cross-validation benchmark — 2026-08-07",
+      "env_id": "remote-p100-cv-20260807"
     },
     {
       "comparison_id": "glm-solver-20260623",
@@ -84547,6 +84617,3372 @@
         }
       },
       "comparison_id": "p2-benchmark-20260617"
+    },
+    {
+      "run_id": "8c9d73de17cd5fbc",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "RidgeCV",
+      "loss": "regression",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9b64329061dd28d3",
+      "method_config_id": "method-63a25e7502e608ea",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-ridgecv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 9.062319993972778,
+          "std_ms": 0.011520549774405635,
+          "min_ms": 9.062081575393677,
+          "max_ms": 9.086638689041138,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 4.670381546020508,
+          "final_refit_ms": 0.6518363952636719,
+          "total_fit_ms": 9.062319993972778,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.3042452317440152,
+          "final_score": 0.2526879274997583,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 1,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.3042452317440152,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2526879274997583,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "7329f20ec3127d26",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "RidgeCV",
+      "loss": "regression",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9b64329061dd28d3",
+      "method_config_id": "method-258d26d258eaadcd",
+      "variant": "mean_squared_error",
+      "implementation": "cuda",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-ridgecv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cuda"
+      },
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 17.41701364517212,
+          "std_ms": 0.10901293932213849,
+          "min_ms": 17.355382442474365,
+          "max_ms": 17.611205577850342,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 9.77104902267456,
+          "final_refit_ms": 3.364443778991699,
+          "total_fit_ms": 17.41701364517212,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.30424508452415466,
+          "final_score": 0.25268792749975866,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 1,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.30424508452415466,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.25268792749975866,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "a5a6aed51f5d17af",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "RidgeCV",
+      "loss": "regression",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9b64329061dd28d3",
+      "method_config_id": "method-1cecaefa7c37e370",
+      "variant": "mean_squared_error",
+      "implementation": "torch",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-ridgecv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "torch"
+      },
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 12.491881847381592,
+          "std_ms": 0.10357847916711392,
+          "min_ms": 12.459933757781982,
+          "max_ms": 12.69388198852539,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 5.6213438510894775,
+          "final_refit_ms": 2.697974443435669,
+          "total_fit_ms": 12.491881847381592,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.30424535274505615,
+          "final_score": 0.25268792749975866,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 1,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.30424535274505615,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.25268792749975866,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "ccc57cda0d82c9c4",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "RidgeCV",
+      "loss": "regression",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9b64329061dd28d3",
+      "method_config_id": "method-17fe279cc722f102",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-ridgecv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "sklearn",
+      "backend": null,
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.204592227935791,
+          "std_ms": 0.03478300871847091,
+          "min_ms": 7.1443915367126465,
+          "max_ms": 7.226705551147461,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 6.553083658218384,
+          "final_refit_ms": 0.5994439125061035,
+          "total_fit_ms": 7.204592227935791,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.30424523174401524,
+          "final_score": 0.2526879274997587,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 0,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.30424523174401524,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2526879274997587,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "7551a88cd5f360c3",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LassoCV",
+      "loss": "regression",
+      "penalty": "l1",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-6b4309ee6803c9ad",
+      "method_config_id": "method-149eb97d79149e2a",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-lassocv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l1"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 29.17364239692688,
+          "std_ms": 0.11058449868330528,
+          "min_ms": 29.15489673614502,
+          "max_ms": 29.398292303085327,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 20.912975072860718,
+          "final_refit_ms": 3.9431750774383545,
+          "total_fit_ms": 29.17364239692688,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.29281777940827264,
+          "final_score": 0.24399218595909514,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 22,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.29281777940827264,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.24399218595909514,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "14d91a0cbc8566e9",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LassoCV",
+      "loss": "regression",
+      "penalty": "l1",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-6b4309ee6803c9ad",
+      "method_config_id": "method-829c9522dd88c4f6",
+      "variant": "mean_squared_error",
+      "implementation": "cuda",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-lassocv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l1"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cuda"
+      },
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 76.099693775177,
+          "std_ms": 0.15514420258897654,
+          "min_ms": 75.85901021957397,
+          "max_ms": 76.23404264450073,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 60.851067304611206,
+          "final_refit_ms": 10.071873664855957,
+          "total_fit_ms": 76.099693775177,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.29281771183013916,
+          "final_score": 0.2439920711933378,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 25,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.29281771183013916,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2439920711933378,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "b6478cf36b9d5e6f",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LassoCV",
+      "loss": "regression",
+      "penalty": "l1",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-6b4309ee6803c9ad",
+      "method_config_id": "method-cd197ab597c6747f",
+      "variant": "mean_squared_error",
+      "implementation": "torch",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-lassocv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l1"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "torch"
+      },
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 34.79743003845215,
+          "std_ms": 0.08212314243487934,
+          "min_ms": 34.72268581390381,
+          "max_ms": 34.921795129776,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 22.661179304122925,
+          "final_refit_ms": 7.113397121429443,
+          "total_fit_ms": 34.79743003845215,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.2928177167971929,
+          "final_score": 0.24399207119333788,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 25,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.2928177167971929,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.24399207119333788,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "93b01ab4d798fd7e",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LassoCV",
+      "loss": "regression",
+      "penalty": "l1",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-6b4309ee6803c9ad",
+      "method_config_id": "method-646b2eebfd808af5",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-lassocv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l1"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "sklearn",
+      "backend": null,
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.392674684524536,
+          "std_ms": 0.06373652588749994,
+          "min_ms": 7.343053817749023,
+          "max_ms": 7.496058940887451,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 6.744980812072754,
+          "final_refit_ms": 0.6282031536102295,
+          "total_fit_ms": 7.392674684524536,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.2928178370189333,
+          "final_score": 0.24399212665572198,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 8,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.2928178370189333,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.24399212665572198,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "69fd7972552d5346",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "ElasticNetCV",
+      "loss": "regression",
+      "penalty": "elasticnet",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-1e8e7cf7410548e2",
+      "method_config_id": "method-6ab5f2773db83dab",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-elasticnetcv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "l1_ratio": 0.5,
+            "penalty": "elasticnet"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 76.40200853347778,
+          "std_ms": 0.12667643292286518,
+          "min_ms": 76.32750272750854,
+          "max_ms": 76.62561535835266,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 68.05020570755005,
+          "final_refit_ms": 4.691660404205322,
+          "total_fit_ms": 76.40200853347778,
+          "selected_parameters": {
+            "alpha": 0.01,
+            "l1_ratio": 0.5
+          },
+          "validation_score": 0.29786136196787205,
+          "final_score": 0.2482089192319689,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 23,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.29786136196787205,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2482089192319689,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "46be866c1fd21762",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "ElasticNetCV",
+      "loss": "regression",
+      "penalty": "elasticnet",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-1e8e7cf7410548e2",
+      "method_config_id": "method-2aa05c351cf0be85",
+      "variant": "mean_squared_error",
+      "implementation": "cuda",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-elasticnetcv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "l1_ratio": 0.5,
+            "penalty": "elasticnet"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cuda"
+      },
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 153.78409624099731,
+          "std_ms": 1.2051632389990876,
+          "min_ms": 151.39129757881165,
+          "max_ms": 154.0849506855011,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 139.16125893592834,
+          "final_refit_ms": 10.370612144470215,
+          "total_fit_ms": 153.78409624099731,
+          "selected_parameters": {
+            "alpha": 0.01,
+            "l1_ratio": 0.5
+          },
+          "validation_score": 0.29786094844896344,
+          "final_score": 0.24820917059193529,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 20,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.29786094844896344,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.24820917059193529,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "62954db8622a8575",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "ElasticNetCV",
+      "loss": "regression",
+      "penalty": "elasticnet",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-1e8e7cf7410548e2",
+      "method_config_id": "method-77bc7d7599f941d6",
+      "variant": "mean_squared_error",
+      "implementation": "torch",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-elasticnetcv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "l1_ratio": 0.5,
+            "penalty": "elasticnet"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "torch"
+      },
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 122.1560537815094,
+          "std_ms": 1.2313895375387158,
+          "min_ms": 122.06673622131348,
+          "max_ms": 124.722421169281,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 110.88469624519348,
+          "final_refit_ms": 7.108181715011597,
+          "total_fit_ms": 122.1560537815094,
+          "selected_parameters": {
+            "alpha": 0.01,
+            "l1_ratio": 0.5
+          },
+          "validation_score": 0.29786094844896344,
+          "final_score": 0.24820917059193523,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 20,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.29786094844896344,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.24820917059193523,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "29880a97bf6f0ecf",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "ElasticNetCV",
+      "loss": "regression",
+      "penalty": "elasticnet",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-1e8e7cf7410548e2",
+      "method_config_id": "method-959cf5f10188b58f",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-elasticnetcv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alphas": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "l1_ratio": 0.5,
+            "penalty": "elasticnet"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "sklearn",
+      "backend": null,
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.413893938064575,
+          "std_ms": 0.03394906482522582,
+          "min_ms": 7.350414991378784,
+          "max_ms": 7.428675889968872,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 6.7539215087890625,
+          "final_refit_ms": 0.6403923034667969,
+          "total_fit_ms": 7.413893938064575,
+          "selected_parameters": {
+            "alpha": 0.01,
+            "l1_ratio": 0.5
+          },
+          "validation_score": 0.2978609822319302,
+          "final_score": 0.24820899363770957,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 8,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.2978609822319302,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.24820899363770957,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "c24ebcadb833da5b",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LogisticRegressionCV",
+      "loss": "classification",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-384dfc97d8a90273",
+      "method_config_id": "method-6076ec82383ee2af",
+      "variant": "log_loss",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-logisticregressioncv",
+        "task": "classification",
+        "dataset": {
+          "generator": "statgpu-cv-classification-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "Cs": [
+              0.1,
+              1.0,
+              10.0
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "log_loss",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 50.83748698234558,
+          "std_ms": 0.5573683115942412,
+          "min_ms": 50.72379112243652,
+          "max_ms": 51.95888876914978,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 46.03630304336548,
+          "final_refit_ms": 3.292948007583618,
+          "total_fit_ms": 50.83748698234558,
+          "selected_parameters": {
+            "C": 0.1
+          },
+          "validation_score": 0.5562031403229579,
+          "final_score": 0.48143136720437835,
+          "scoring_name": "log_loss",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 5,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.5562031403229579,
+              "reference": "log_loss"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.48143136720437835,
+              "reference": "log_loss"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "c9978a3a720203c4",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LogisticRegressionCV",
+      "loss": "classification",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-384dfc97d8a90273",
+      "method_config_id": "method-c2ce86ad6b2219f3",
+      "variant": "log_loss",
+      "implementation": "cuda",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-logisticregressioncv",
+        "task": "classification",
+        "dataset": {
+          "generator": "statgpu-cv-classification-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "Cs": [
+              0.1,
+              1.0,
+              10.0
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "log_loss",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cuda"
+      },
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 103.54551672935486,
+          "std_ms": 0.43010181393284636,
+          "min_ms": 102.88560390472412,
+          "max_ms": 103.92677783966064,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 91.53670072555542,
+          "final_refit_ms": 9.529948234558105,
+          "total_fit_ms": 103.54551672935486,
+          "selected_parameters": {
+            "C": 0.1
+          },
+          "validation_score": 0.5562031417039379,
+          "final_score": 0.48143136720437835,
+          "scoring_name": "log_loss",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 5,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.5562031417039379,
+              "reference": "log_loss"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.48143136720437835,
+              "reference": "log_loss"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "f7609f3a89906888",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LogisticRegressionCV",
+      "loss": "classification",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-384dfc97d8a90273",
+      "method_config_id": "method-ec4af67e78a071ea",
+      "variant": "log_loss",
+      "implementation": "torch",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-logisticregressioncv",
+        "task": "classification",
+        "dataset": {
+          "generator": "statgpu-cv-classification-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "Cs": [
+              0.1,
+              1.0,
+              10.0
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "log_loss",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "torch"
+      },
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "metrics": {
+        "cross_validation": {
+          "status": "failed",
+          "reason": "RuntimeError: GPU path failed in _select_logistic_c_cv with backend='torch'; CPU fallback is disabled for strict CUDA execution.",
+          "scoring_name": "log_loss",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "764688cba9afc528",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "linear_models",
+        "penalized_glm"
+      ],
+      "model_id": "LogisticRegressionCV",
+      "loss": "classification",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-384dfc97d8a90273",
+      "method_config_id": "method-4e4540e0a1a92fb7",
+      "variant": "log_loss",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-logisticregressioncv",
+        "task": "classification",
+        "dataset": {
+          "generator": "statgpu-cv-classification-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "Cs": [
+              0.1,
+              1.0,
+              10.0
+            ],
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "log_loss",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "sklearn",
+      "backend": null,
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 32.809287309646606,
+          "std_ms": 0.22101482164439643,
+          "min_ms": 32.615602016448975,
+          "max_ms": 33.15025568008423,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 30.60048818588257,
+          "final_refit_ms": 2.1867752075195312,
+          "total_fit_ms": 32.809287309646606,
+          "selected_parameters": {
+            "C": 0.1
+          },
+          "validation_score": 0.5562036413826478,
+          "final_score": 0.4814321791572624,
+          "scoring_name": "log_loss",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 8,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.5562036413826478,
+              "reference": "log_loss"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.4814321791572624,
+              "reference": "log_loss"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "6a680d02ee6b4c8e",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "penalized_glm"
+      ],
+      "model_id": "PenalizedGLM_CV",
+      "loss": "squared_error",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-23b7920af7f75b51",
+      "method_config_id": "method-82b0a209b963add4",
+      "variant": "mean_squared_error",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-penalizedglm-cv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alpha_grid": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "loss": "squared_error",
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 5.704343318939209,
+          "std_ms": 0.05382879156628554,
+          "min_ms": 5.664348602294922,
+          "max_ms": 5.793154239654541,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 1.9721686840057373,
+          "final_refit_ms": 1.9038915634155273,
+          "total_fit_ms": 5.704343318939209,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.30424523174401547,
+          "final_score": 0.2526879274997585,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 0,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.30424523174401547,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2526879274997585,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "6ffa38839e182f94",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "penalized_glm"
+      ],
+      "model_id": "PenalizedGLM_CV",
+      "loss": "squared_error",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-23b7920af7f75b51",
+      "method_config_id": "method-624ea16860cfc740",
+      "variant": "mean_squared_error",
+      "implementation": "cuda",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-penalizedglm-cv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alpha_grid": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "loss": "squared_error",
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cuda"
+      },
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 79.3997049331665,
+          "std_ms": 0.2710391095246946,
+          "min_ms": 79.18986678123474,
+          "max_ms": 79.8402726650238,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 74.79295134544373,
+          "final_refit_ms": 2.059251070022583,
+          "total_fit_ms": 79.3997049331665,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.30424523174487156,
+          "final_score": 0.2526879274997585,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 0,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.30424523174487156,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2526879274997585,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "ed5f764a255c2126",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "penalized_glm"
+      ],
+      "model_id": "PenalizedGLM_CV",
+      "loss": "squared_error",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-23b7920af7f75b51",
+      "method_config_id": "method-210d2aa880be4df7",
+      "variant": "mean_squared_error",
+      "implementation": "torch",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-penalizedglm-cv",
+        "task": "regression",
+        "dataset": {
+          "generator": "statgpu-cv-regression-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": false
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "alpha_grid": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "loss": "squared_error",
+            "penalty": "l2"
+          }
+        },
+        "scoring": {
+          "name": "mean_squared_error",
+          "direction": "minimize",
+          "normalization": "per-validation-observation"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "torch"
+      },
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 53.322941064834595,
+          "std_ms": 0.0964612495050475,
+          "min_ms": 53.19675803184509,
+          "max_ms": 53.432852029800415,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 48.931241035461426,
+          "final_refit_ms": 2.0754635334014893,
+          "total_fit_ms": 53.322941064834595,
+          "selected_parameters": {
+            "alpha": 0.01
+          },
+          "validation_score": 0.30424523174487167,
+          "final_score": 0.2526879274997585,
+          "scoring_name": "mean_squared_error",
+          "scoring_direction": "minimize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 0,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": 0.30424523174487167,
+              "reference": "mean_squared_error"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": 0.2526879274997585,
+              "reference": "mean_squared_error"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "6a679ea6c94fb808",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "survival"
+      ],
+      "model_id": "CoxPHCV",
+      "loss": "survival",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9f29e29aa8384de6",
+      "method_config_id": "method-384be76ae5419035",
+      "variant": "held_out_partial_likelihood",
+      "implementation": "cpu",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-coxphcv",
+        "task": "survival",
+        "dataset": {
+          "generator": "statgpu-cv-survival-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": true
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "penalties": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2",
+            "ties": "efron"
+          }
+        },
+        "scoring": {
+          "name": "held_out_partial_likelihood",
+          "direction": "maximize",
+          "normalization": "per-observed-event"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cpu"
+      },
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 367.21765995025635,
+          "std_ms": 1.2007614908480113,
+          "min_ms": 367.20117926597595,
+          "max_ms": 369.7565793991089,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 325.98915696144104,
+          "final_refit_ms": 38.64032030105591,
+          "total_fit_ms": 367.21765995025635,
+          "selected_parameters": {
+            "penalty": 1.0
+          },
+          "validation_score": -164.5798957194568,
+          "final_score": -193.6145467513089,
+          "scoring_name": "held_out_partial_likelihood",
+          "scoring_direction": "maximize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 5,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": -164.5798957194568,
+              "reference": "held_out_partial_likelihood"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": -193.6145467513089,
+              "reference": "held_out_partial_likelihood"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "25704151612e545f",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "survival"
+      ],
+      "model_id": "CoxPHCV",
+      "loss": "survival",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9f29e29aa8384de6",
+      "method_config_id": "method-4cf4059d6039285b",
+      "variant": "held_out_partial_likelihood",
+      "implementation": "cuda",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-coxphcv",
+        "task": "survival",
+        "dataset": {
+          "generator": "statgpu-cv-survival-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": true
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "penalties": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2",
+            "ties": "efron"
+          }
+        },
+        "scoring": {
+          "name": "held_out_partial_likelihood",
+          "direction": "maximize",
+          "normalization": "per-observed-event"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "cuda"
+      },
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 387.08221912384033,
+          "std_ms": 1.7942564379041452,
+          "min_ms": 385.0722312927246,
+          "max_ms": 389.46205377578735,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 346.27383947372437,
+          "final_refit_ms": 37.92458772659302,
+          "total_fit_ms": 387.08221912384033,
+          "selected_parameters": {
+            "penalty": 1.0
+          },
+          "validation_score": -164.5798957194568,
+          "final_score": -193.61454675130878,
+          "scoring_name": "held_out_partial_likelihood",
+          "scoring_direction": "maximize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 5,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": -164.5798957194568,
+              "reference": "held_out_partial_likelihood"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": -193.61454675130878,
+              "reference": "held_out_partial_likelihood"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
+    },
+    {
+      "run_id": "b38b4072b46a3dd9",
+      "env_id": "remote-p100-cv-20260807",
+      "category_ids": [
+        "survival"
+      ],
+      "model_id": "CoxPHCV",
+      "loss": "survival",
+      "penalty": "l2",
+      "solver": "cv",
+      "solver_display": "Cross-validation",
+      "solver_kind": "internal",
+      "case_id": "case-9f29e29aa8384de6",
+      "method_config_id": "method-1b54ae92580b8f99",
+      "variant": "held_out_partial_likelihood",
+      "implementation": "torch",
+      "parameters": {
+        "metric_scope": "cross_validation",
+        "source_case_id": "cv-coxphcv",
+        "task": "survival",
+        "dataset": {
+          "generator": "statgpu-cv-survival-v1",
+          "n_samples": 240,
+          "n_features": 16,
+          "n_test_samples": 80,
+          "parameters": {
+            "seeds": [
+              20260807,
+              20260807,
+              20260807
+            ],
+            "signal_features": 5
+          }
+        },
+        "cv": {
+          "fold_count": 3,
+          "split_strategy": "statgpu-deterministic-kfold",
+          "shuffle": true,
+          "subject_preserving": true
+        },
+        "grid": {
+          "candidate_count": 3,
+          "identity": "explicit-candidate-grid-v1",
+          "parameters": {
+            "penalties": [
+              1.0,
+              0.1,
+              0.01
+            ],
+            "penalty": "l2",
+            "ties": "efron"
+          }
+        },
+        "scoring": {
+          "name": "held_out_partial_likelihood",
+          "direction": "maximize",
+          "normalization": "per-observed-event"
+        },
+        "protocol": {
+          "seeds": [
+            20260807
+          ],
+          "warmup": 1,
+          "repeats": 3,
+          "dtype": "float64",
+          "synchronization": "backend synchronize immediately before and after each observed timing region",
+          "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+          "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
+          "failure_policy": "retain_explicit_disposition"
+        },
+        "device": "torch"
+      },
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n240_p16",
+        "n_samples": 240,
+        "n_features": 16,
+        "label": "240×16"
+      },
+      "source": {
+        "file": "cv_benchmark_20260807.json",
+        "date": "2026-08-07",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
+        "source_id": "cv-benchmark-20260807-1347184c988d",
+        "original_path": "results/cv_benchmark_candidate.json",
+        "sha256": "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+      },
+      "replicate": {
+        "n_runs": 3,
+        "seed_count": 1,
+        "n_failed": 0
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 226.59814357757568,
+          "std_ms": 1.4370176592588964,
+          "min_ms": 225.08418560028076,
+          "max_ms": 228.59317064285278,
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "cross_validation": {
+          "status": "success",
+          "reason": null,
+          "cv_evaluation_ms": 200.43820142745972,
+          "final_refit_ms": 23.18364381790161,
+          "total_fit_ms": 226.59814357757568,
+          "selected_parameters": {
+            "penalty": 1.0
+          },
+          "validation_score": -164.5798957194568,
+          "final_score": -193.61454675130878,
+          "scoring_name": "held_out_partial_likelihood",
+          "scoring_direction": "maximize",
+          "candidate_count": 3,
+          "fold_count": 3,
+          "failed_candidates": 0,
+          "failed_folds": 0,
+          "final_refit_converged": true,
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "convergence": {
+          "n_iter_mean": 5,
+          "converged_rate": 1.0,
+          "quality": "reported",
+          "source_file": "cv_benchmark_20260807.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "validation_score",
+              "status": "pass",
+              "value": -164.5798957194568,
+              "reference": "held_out_partial_likelihood"
+            },
+            {
+              "metric": "final_score",
+              "status": "pass",
+              "value": -193.61454675130878,
+              "reference": "held_out_partial_likelihood"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "cv_benchmark_20260807.json"
+        }
+      },
+      "comparison_id": "cv-benchmark-20260807"
     }
   ]
 }

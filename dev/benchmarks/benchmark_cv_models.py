@@ -176,6 +176,9 @@ class RegionProfiler:
 
 
 def _git_sha() -> str:
+    override = os.environ.get("STATGPU_BENCHMARK_GIT_SHA")
+    if override:
+        return override.strip()
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True

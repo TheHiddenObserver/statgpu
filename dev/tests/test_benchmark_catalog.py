@@ -82,7 +82,10 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
 
     assert validate_coverage_matrix(coverage_matrix, manifest) == []
     rows = {row["capability_id"]: row for row in coverage_matrix["capabilities"]}
-    assert rows["ridge-cv"]["issue"] == "#91"
+    assert rows["ridge-cv"]["status"] == "canonical_current"
+    assert rows["ridge-cv"]["source_ids"] == ["cv-benchmark-20260807-1347184c988d"]
+    assert rows["logistic-regression-cv"]["status"] == "partial_canonical"
+    assert rows["logistic-regression-cv"]["issue"] == "#112"
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
     assert rows["penalized-coxph"]["issue"] == "#107"
@@ -105,9 +108,9 @@ def test_inventory_v2_reconciles_literal_counts(
     assert inventory["inventory_version"] == "2.0"
     assert inventory["discovered_json_artifacts"] == len(entries)
     assert inventory["classified_candidate_sources"] == len(entries)
-    assert inventory["registered_sources"] == len(manifest["sources"]) == 8
-    assert inventory["available_registered_sources"] == 8
-    assert inventory["parsed_registered_sources"] == 8
+    assert inventory["registered_sources"] == len(manifest["sources"]) == 9
+    assert inventory["available_registered_sources"] == 9
+    assert inventory["parsed_registered_sources"] == 9
     assert inventory["eligible_sources"] == (
         inventory["registered_sources"]
         + inventory["eligible_unregistered_sources"]

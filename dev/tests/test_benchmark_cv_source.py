@@ -225,20 +225,28 @@ def test_canonical_parser_emits_normalized_cv_metrics(tmp_path: Path) -> None:
     source_path.write_text(json.dumps(_source()), encoding="utf-8")
     runs, models, warnings = parse_cv_benchmark(source_path, "contract-fixture-cpu")
 
-    assert len(runs) == 12
+    assert len(runs) == 24
     assert len(models) == 6
-    assert len(warnings) == 12
+    assert warnings == []
     assert {run["model_id"] for run in runs} == {model for model, _ in MODELS}
-    assert {run["backend"] for run in runs} == {"numpy", None}
+    assert {run["backend"] for run in runs} == {"numpy", "cupy", "torch", None}
     assert all(model["supports_penalty"] is True for model in models)
     assert all(run["parameters"]["metric_scope"] == "cross_validation" for run in runs)
     assert all("cv_evaluation_ms" not in run["parameters"] for run in runs)
-    assert all(run["metrics"]["timing"]["fit_time_ms"] == 12.5 for run in runs)
-    assert all(run["metrics"]["cross_validation"]["cv_evaluation_ms"] == 10.0 for run in runs)
-    assert all(run["metrics"]["cross_validation"]["final_refit_ms"] == 2.0 for run in runs)
-    assert all(run["metrics"]["cross_validation"]["selected_parameters"] == {"alpha": 0.1} for run in runs)
     assert all(run["case_id"].startswith("case-") for run in runs)
     assert all(run["method_config_id"].startswith("method-") for run in runs)
+
+    successful = [run for run in runs if run["metrics"]["cross_validation"]["status"] == "success"]
+    unavailable = [run for run in runs if run["metrics"]["cross_validation"]["status"] == "unavailable"]
+    assert len(successful) == 12
+    assert len(unavailable) == 12
+    assert all(run["metrics"]["timing"]["fit_time_ms"] == 12.5 for run in successful)
+    assert all(run["metrics"]["cross_validation"]["cv_evaluation_ms"] == 10.0 for run in successful)
+    assert all(run["metrics"]["cross_validation"]["final_refit_ms"] == 2.0 for run in successful)
+    assert all(run["metrics"]["cross_validation"]["selected_parameters"] == {"alpha": 0.1} for run in successful)
+    assert all("timing" not in run["metrics"] for run in unavailable)
+    assert all(run["metrics"]["cross_validation"]["reason"] for run in unavailable)
+    assert all("cv_evaluation_ms" not in run["metrics"]["cross_validation"] for run in unavailable)
 
     dashboard_schema = json.loads(
         (REPO_ROOT / "dev" / "benchmarks" / "benchmark_frontend_schema.json").read_text()
@@ -247,3 +255,40 @@ def test_canonical_parser_emits_normalized_cv_metrics(tmp_path: Path) -> None:
     validator = Draft202012Validator(cv_schema)
     for run in runs:
         assert list(validator.iter_errors(run["metrics"]["cross_validation"])) == []
+
+
+def test_repository_p100_source_is_immutable_and_registered() -> None:
+    from dev.benchmarks.cv_source import validate_cv_source
+    from dev.benchmarks.frontend_data.canonical import source_sha256
+    from dev.benchmarks.frontend_data.parsers.cv_package import parse_cv_benchmark
+    from dev.benchmarks.frontend_data.registry import load_manifest
+
+    raw_path = REPO_ROOT / "results" / "cv_benchmark_candidate.json"
+    canonical_path = REPO_ROOT / "results" / "benchmark_frontend_sources" / "cv_benchmark_20260807.json"
+    expected_sha = "1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2"
+    assert raw_path.read_bytes() == canonical_path.read_bytes()
+    assert source_sha256(raw_path) == expected_sha
+    assert source_sha256(canonical_path) == expected_sha
+
+    source = json.loads(raw_path.read_text(encoding="utf-8"))
+    assert validate_cv_source(source) == []
+    assert source["git_sha"] == "unknown"
+    assert source["environment"]["gpu"] == "Tesla P100-SXM2-16GB"
+
+    runs, models, warnings = parse_cv_benchmark(canonical_path, "remote-p100-cv-20260807")
+    assert len(models) == 6
+    assert len(runs) == 22
+    assert warnings == []
+    failed = [run for run in runs if run["metrics"]["cross_validation"]["status"] == "failed"]
+    assert len(failed) == 1
+    assert failed[0]["model_id"] == "LogisticRegressionCV"
+    assert failed[0]["backend"] == "torch"
+    assert "CPU fallback is disabled" in failed[0]["metrics"]["cross_validation"]["reason"]
+    assert "timing" not in failed[0]["metrics"]
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    entry = next(source for source in manifest["sources"] if source["source_id"] == "cv-benchmark-20260807-1347184c988d")
+    assert entry["sha256"] == expected_sha
+    assert entry["measurement_git_sha"] == "ad2cf88d1d443a53eeb5207c33c4ee4f25de2400"
+    assert entry["raw_git_sha"] == "unknown"

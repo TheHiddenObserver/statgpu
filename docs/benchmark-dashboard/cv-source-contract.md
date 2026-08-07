@@ -54,6 +54,14 @@ The source records the statgpu commit, source/result date, generation time, host
 
 The historical `lassocv_combined_20260409.json` file remains audit-only. It predates the canonical minimum date and does not provide the six-family timing decomposition required by this contract.
 
+## Registered P100 source — 2026-08-07
+
+The initial six-family package is registered as `cv-benchmark-20260807-1347184c988d`. The canonical file is `results/benchmark_frontend_sources/cv_benchmark_20260807.json`; its SHA256 is `1347184c988d0f9648c8477d64752b646249282978cf28f65c165b391839bad2`, exactly matching the retained raw candidate at `results/cv_benchmark_candidate.json`.
+
+The immutable raw output records `git_sha: "unknown"` because the remote execution environment could not resolve Git metadata. That field is intentionally not edited after measurement. The manifest attaches `measurement_git_sha: ad2cf88d1d443a53eeb5207c33c4ee4f25de2400`; the rerun provenance identifies that implementation commit, and repository comparison confirms that the intervening diagnostic add/remove commits produced no file-level tree change. Future remote canonical runs can set `STATGPU_BENCHMARK_GIT_SHA` so the runner records the intended commit directly.
+
+The source contains 22 backend/framework dispositions: 21 successful measured rows and one explicit `LogisticRegressionCV` Torch strict-CUDA failure. The failed row is rendered in the dashboard with its reason and without timing, selection, score, or convergence measurements. The estimator defect remains owned by #112.
+
 ## Registration sequence
 
 1. Run the benchmark on the declared CPU/GPU environment.
