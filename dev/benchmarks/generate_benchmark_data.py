@@ -119,15 +119,9 @@ def _is_repository_manifest(manifest: Optional[dict]) -> bool:
     repository_manifest = load_manifest(_repo_root)
     if repository_manifest is None:
         return False
-    expected = [
-        (source.get("source_id"), source.get("path"))
-        for source in repository_manifest.get("sources", [])
-    ]
-    observed = [
-        (source.get("source_id"), source.get("path"))
-        for source in manifest.get("sources", [])
-    ]
-    return observed == expected
+    return _canonical_json_digest(manifest) == _canonical_json_digest(
+        repository_manifest
+    )
 
 
 def generate(
