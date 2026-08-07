@@ -1,0 +1,36 @@
+============================================================
+PR #116 PHYSICAL ACCEPTANCE SUMMARY
+============================================================
+git_sha: e6e4846b06604ed53e65fc9afd9054bd5777098f
+env_id: remote-p100-pr116-20260807
+host: wE6lDe
+GPU: Tesla P100-SXM2-16GB
+Python: 3.9.16
+available_backends: ['cupy', 'numpy', 'torch']
+
+LogisticRegressionCV:
+  numpy : success    selected={'C': 0.1}
+  cupy  : success    selected={'C': 0.1}
+  torch : success    selected={'C': 0.1}
+
+Torch timing:
+{
+  "cv_evaluation_ms": 41.83235764503479,
+  "final_refit_ms": 5.459070205688477,
+  "total_fit_ms": 49.2972731590271,
+  "peak_memory_bytes": null
+}
+
+Torch convergence:
+{
+  "candidate_count": 3,
+  "fold_count": 3,
+  "failed_candidates": 0,
+  "failed_folds": 0,
+  "final_refit_converged": true,
+  "n_iter": 5
+}
+
+============================================================
+PR #116 TARGETED PHYSICAL GPU ACCEPTANCE: PASS
+============================================================

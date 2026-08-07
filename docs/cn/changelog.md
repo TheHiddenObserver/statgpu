@@ -1,9 +1,21 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-06<br>
+> 最后更新：2026-08-07<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 2026-08-07
+
+### PR #116 — Torch LogisticRegressionCV strict-CUDA 修复
+
+- 修复 maintained Torch strict-CUDA `LogisticRegressionCV` 在 batched GPU IRLS 路径中的 mixed-precision 失败。CV 现在按当前 working dtype 分配参数与 ridge diagonal，并在 validation scoring 前保持 coefficient/intercept path 为 backend-native。
+- 增加 float32/float64 CV、weighted/unweighted、intercept/no-intercept 以及完整 selector consumer 的 regression coverage；新增 Python 3.9 + Torch 2.0 CPU CI gate，避免 optional Torch 缺失时相关回归测试被静默跳过。
+- 在精确数值实现 head `e6e4846b06604ed53e65fc9afd9054bd5777098f` 上完成物理 GPU 验证：Tesla P100-SXM2-16GB、Python 3.9.16、PyTorch 2.0.0+cu117 / CUDA 11.7、CuPy 13.6.0。四个 focused Torch CUDA case 均与 CPU reference 选择相同的 `C=0.2`；最大 mean-loss 差异小于 `6.2e-8`，float64 路径达到机器精度一致。
+- canonical 六类 CV rerun 中，statgpu 的 18 个 NumPy/CuPy/Torch backend row 全部成功，failed candidate/fold 均为 0，最终 refit 全部收敛。`LogisticRegressionCV` 在 NumPy、CuPy、Torch 和 sklearn 上均选择 `C=0.1`；Torch 与 NumPy 的 validation-loss 差异小于 `4.7e-8`。
+- 历史 pre-fix P100 failure source 保持不可变并继续注册；post-fix exact-head source 单独从 `results/pr116_p100/cv_benchmark_pr116_p100.json` 注册，`focused_validation.json` 作为 validation-only evidence 保留，不作为 dashboard timing source。
+
+关联：Issue #112 与 pull request #116。
 
 ## 0.2.4 — 2026-08-06
 

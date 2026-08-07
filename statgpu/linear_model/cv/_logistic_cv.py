@@ -256,9 +256,9 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
 
     Returns
     -------
-    coefs_desc : ndarray
+    coefs_desc : backend-native array
         Coefficients for each C and fold (n_Cs, n_folds, n_features).
-    intercepts_desc : ndarray
+    intercepts_desc : backend-native array
         Intercepts for each C and fold (n_Cs, n_folds).
     """
     xp = backend.xp
@@ -280,7 +280,7 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
         fold_intercepts = []
 
         for C in Cs:
-            # Initialize
+            # Initialize in the same working dtype as the CV design matrix.
             if fit_intercept:
                 ones_col = backend.ones(n_train, dtype=X_fold.dtype)
                 if _torch_dev(X_fold) is not None:
@@ -289,10 +289,10 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
                     X_design = xp.cat([ones_col, X_fold], dim=1)
                 else:
                     X_design = xp.column_stack([ones_col, X_fold])
-                params = backend.zeros(X_design.shape[1])
+                params = backend.zeros(X_design.shape[1], dtype=X_design.dtype)
             else:
                 X_design = X_fold
-                params = backend.zeros(X_fold.shape[1])
+                params = backend.zeros(X_fold.shape[1], dtype=X_fold.dtype)
 
             # sklearn convention: reg term = 1/(2C) * ||w||^2, Hessian contribution = 1/C * I
             alpha = 1.0 / C if C > 0 else 0.0
@@ -317,9 +317,10 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
                 XtWX = X_design.T @ (X_design * W[:, None])
 
                 if alpha > 0:
-                    reg_diag = backend.full(XtWX.shape[0], alpha)
+                    reg_diag = backend.full(
+                        XtWX.shape[0], alpha, dtype=XtWX.dtype
+                    )
                     if fit_intercept:
-                        reg_diag = backend.asarray(reg_diag)
                         reg_diag[0] = 0.0
                     XtWX += backend.diag(reg_diag)
 
@@ -337,17 +338,17 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
                     break
 
             if fit_intercept:
-                fold_coefs.append(backend.to_numpy(params[1:]))
-                fold_intercepts.append(float(backend.to_numpy(params[0])))
+                fold_coefs.append(backend.copy(params[1:]))
+                fold_intercepts.append(backend.copy(params[0]))
             else:
-                fold_coefs.append(backend.to_numpy(params))
-                fold_intercepts.append(0.0)
+                fold_coefs.append(backend.copy(params))
+                fold_intercepts.append(backend.zeros((), dtype=params.dtype))
 
-        all_coefs.append(np.stack(fold_coefs, axis=0))
-        all_intercepts.append(np.array(fold_intercepts))
+        all_coefs.append(backend.stack(fold_coefs, axis=0))
+        all_intercepts.append(backend.stack(fold_intercepts, axis=0))
 
-    coefs_desc = np.stack(all_coefs, axis=1)  # (n_Cs, n_folds, n_features)
-    intercepts_desc = np.stack(all_intercepts, axis=1)  # (n_Cs, n_folds)
+    coefs_desc = backend.stack(all_coefs, axis=1)  # (n_Cs, n_folds, n_features)
+    intercepts_desc = backend.stack(all_intercepts, axis=1)  # (n_Cs, n_folds)
 
     return coefs_desc, intercepts_desc
 
@@ -619,10 +620,10 @@ def _select_logistic_c_cv(
                 X_val, y_val, sw_val = fold_eval_payload[fold_idx]
                 n_val = int(X_val.shape[0])
 
-                # Batched matmul: X_val @ coefs_all.T for all C at once
-                # coefs_batch shape: (n_C, n_folds, n_features)
-                coefs_all = backend.asarray(coefs_batch[:, fold_idx, :])  # (n_C, n_features)
-                intercepts_all = backend.asarray(intercepts_batch[:, fold_idx])  # (n_C,)
+                # Batched matmul: X_val @ coefs_all.T for all C at once.
+                # Path outputs stay backend-native and retain the CV working dtype.
+                coefs_all = coefs_batch[:, fold_idx, :]  # (n_C, n_features)
+                intercepts_all = intercepts_batch[:, fold_idx]  # (n_C,)
 
                 # eta_all shape: (n_val, n_C)
                 xp = backend.xp

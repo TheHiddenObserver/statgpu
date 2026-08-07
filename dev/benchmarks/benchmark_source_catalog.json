@@ -120,6 +120,18 @@
       "reason": "Immutable P100 candidate retained for audit; its byte-identical SHA-protected canonical copy is registered in frontend_sources.json."
     },
     {
+      "rule_id": "pr116-logistic-cv-focused-validation",
+      "priority": 19,
+      "path": "results/pr116_p100/focused_validation.json",
+      "classification": "not_canonical_ready",
+      "canonical_eligible": false,
+      "provenance_status": "validation_evidence",
+      "timing_protocol_status": "not_applicable",
+      "statistical_alignment_status": "accepted",
+      "issue": "#112",
+      "reason": "Exact-head P100 focused correctness evidence for PR #116 is retained for audit but is intentionally not a dashboard timing source."
+    },
+    {
       "rule_id": "distribution-current-needs-audit",
       "priority": 30,
       "path": "results/distribution_bench_2026-06-21.json",

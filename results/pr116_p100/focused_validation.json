@@ -1,0 +1,109 @@
+{
+  "git_sha": "e6e4846b06604ed53e65fc9afd9054bd5777098f",
+  "torch_version": "2.0.0+cu117",
+  "torch_cuda_version": "11.7",
+  "gpu": "Tesla P100-SXM2-16GB",
+  "cuda_capability": [
+    6,
+    0
+  ],
+  "status": "success",
+  "cases": [
+    {
+      "name": "mixed_precision_float32_unweighted_intercept",
+      "mixed_precision": true,
+      "weighted": false,
+      "fit_intercept": true,
+      "cpu_C": 0.2,
+      "gpu_C": 0.2,
+      "selected_same": true,
+      "near_tie": false,
+      "max_abs_loss_diff": 6.140255837117081e-08,
+      "cpu_mean_loss": [
+        0.5401663851224364,
+        0.5279698880087841,
+        0.553948301265797,
+        0.5724674251511581
+      ],
+      "gpu_mean_loss": [
+        0.5401663780212402,
+        0.527969886859258,
+        0.5539483626683553,
+        0.5724674065907797
+      ],
+      "gpu_cv_selected_device": "torch"
+    },
+    {
+      "name": "float64_unweighted_intercept",
+      "mixed_precision": false,
+      "weighted": false,
+      "fit_intercept": true,
+      "cpu_C": 0.2,
+      "gpu_C": 0.2,
+      "selected_same": true,
+      "near_tie": false,
+      "max_abs_loss_diff": 1.1102230246251565e-16,
+      "cpu_mean_loss": [
+        0.5401663851224364,
+        0.5279698880087841,
+        0.553948301265797,
+        0.5724674251511581
+      ],
+      "gpu_mean_loss": [
+        0.5401663851224364,
+        0.5279698880087841,
+        0.5539483012657969,
+        0.572467425151158
+      ],
+      "gpu_cv_selected_device": "torch"
+    },
+    {
+      "name": "mixed_precision_float32_weighted_intercept",
+      "mixed_precision": true,
+      "weighted": true,
+      "fit_intercept": true,
+      "cpu_C": 0.2,
+      "gpu_C": 0.2,
+      "selected_same": true,
+      "near_tie": false,
+      "max_abs_loss_diff": 4.58755755605722e-08,
+      "cpu_mean_loss": [
+        0.5312568243206001,
+        0.5310540830685948,
+        0.5640065135358437,
+        0.5833582510665631
+      ],
+      "gpu_mean_loss": [
+        0.5312568247318268,
+        0.5310540596644083,
+        0.5640064676602682,
+        0.5833582480748495
+      ],
+      "gpu_cv_selected_device": "torch"
+    },
+    {
+      "name": "mixed_precision_float32_no_intercept",
+      "mixed_precision": true,
+      "weighted": false,
+      "fit_intercept": false,
+      "cpu_C": 0.2,
+      "gpu_C": 0.2,
+      "selected_same": true,
+      "near_tie": false,
+      "max_abs_loss_diff": 1.126216464530927e-08,
+      "cpu_mean_loss": [
+        0.5439314828943549,
+        0.5328606708682867,
+        0.5599329017882831,
+        0.5788302186875424
+      ],
+      "gpu_mean_loss": [
+        0.5439314941565195,
+        0.532860666513443,
+        0.5599329074223837,
+        0.5788302222887675
+      ],
+      "gpu_cv_selected_device": "torch"
+    }
+  ]
+}

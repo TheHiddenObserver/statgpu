@@ -13,6 +13,12 @@
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64",
       "host": "wE6lDe"
+    },
+    "remote-p100-pr116-20260807": {
+      "label": "Tesla P100 PR #116 CV validation — 2026-08-07",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64",
+      "host": "wE6lDe"
     }
   },
   "frameworks": {
@@ -83,6 +89,10 @@
     "cv-benchmark-20260807": {
       "label": "Cross-validation benchmark — 2026-08-07",
       "env_id": "remote-p100-cv-20260807"
+    },
+    "cv-benchmark-pr116-20260807": {
+      "label": "Cross-validation benchmark after PR #116 repair — 2026-08-07",
+      "env_id": "remote-p100-pr116-20260807"
     }
   },
   "sources": [
@@ -205,6 +215,21 @@
       "measurement_git_sha": "ad2cf88d1d443a53eeb5207c33c4ee4f25de2400",
       "raw_git_sha": "unknown",
       "provenance_note": "The immutable P100 runner output could not resolve VCS metadata and therefore records git_sha=unknown. The rerun was executed from the ad2cf88 benchmark implementation tree; repository comparison confirms no file-level tree change across the intervening diagnostic add/remove commits."
+    },
+    {
+      "source_id": "cv-benchmark-pr116-20260807-bd8d512adced",
+      "comparison_id": "cv-benchmark-pr116-20260807",
+      "path": "results/pr116_p100/cv_benchmark_pr116_p100.json",
+      "sha256": "bd8d512adced442b066de20fb2c31f3f50b19f271d6d0de6bd0d82e9b4cd9be8",
+      "parser": "cv_benchmark",
+      "parser_version": "1.1",
+      "env_id": "remote-p100-pr116-20260807",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-07",
+      "measurement_git_sha": "e6e4846b06604ed53e65fc9afd9054bd5777098f",
+      "raw_git_sha": "e6e4846b06604ed53e65fc9afd9054bd5777098f",
+      "provenance_note": "Physical PR #116 validation was executed on Tesla P100 from exact numerical implementation head e6e4846b06604ed53e65fc9afd9054bd5777098f. The artifact records that SHA directly; the historical pre-fix P100 source remains registered separately."
     }
   ]
 }
