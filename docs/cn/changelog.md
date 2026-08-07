@@ -7,6 +7,16 @@
 
 ## 2026-08-07
 
+### PR #119 — Panel Tier-1 共享框架 Stage A
+
+- 为 Issue #93 增加内部 `BasePanelModel`、`PanelIndexInfo`、`PanelTestResult` 与 `PanelFitStatistics` 基础层。Stage A 只建立共享生命周期和 panel 结构契约；Hausman、pooling F、Breusch-Pagan LM 以及扩展 fit statistics 仍属于 Stage B。
+- 将 panel estimator 中已经存在的 residual-based OLS covariance 分派集中到共享 registry，同时保持各模型原有的 nonrobust scaling、HC1 correction、one-/two-way cluster、HAC、rank/df 约定和 unsupported-name 行为。此阶段不新增 HC0/HC2/HC3 或 Driscoll-Kraay。
+- 在统计上合理的边界内，将 `PanelOLS`、`RandomEffects`、`PooledOLS`、`BetweenOLS`、`FirstDifferenceOLS` 与 `FamaMacBeth` 迁移到共享生命周期 helper；fixed-effect recovery/prediction、Swamy-Arora variance component 与 quasi-demeaning、Fama-MacBeth beta-series covariance 继续保持模型专用实现。
+- 保持现有 formula、缺失行对齐、intercept/effect token、prediction output、summary schema/打印行为、balanced/unbalanced 语义、residual-df 定义以及显式 device 不允许静默 fallback 的契约。
+- 在任何 panel source 重构之前先提交并通过 pre-refactor golden suite，并在重构后持续作为回归 gate；专用 Python 3.9 + Torch 2.0 CPU CI 现在也执行共享 panel metadata/covariance/inference 测试，避免 optional Torch 缺失时静默跳过。
+
+Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；Stage A 不会把这些尚未实现的能力写成公开支持。
+
 ### PR #116 — Torch LogisticRegressionCV strict-CUDA 修复
 
 - 修复 maintained Torch strict-CUDA `LogisticRegressionCV` 在 batched GPU IRLS 路径中的 mixed-precision 失败。CV 现在按当前 working dtype 分配参数与 ridge diagonal，并在 validation scoring 前保持 coefficient/intercept path 为 backend-native。
