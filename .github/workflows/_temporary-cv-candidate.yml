@@ -26,7 +26,7 @@ jobs:
         run: |
           python -m pip install -U pip
           python -m pip install -e . 'jsonschema[format]'
-      - name: Run CPU candidate and retain status
+      - name: Run repeated CPU candidate and retain status
         id: candidate
         shell: bash
         run: |
@@ -38,40 +38,13 @@ jobs:
             --backends numpy,cupy,torch \
             --n-samples 120 \
             --n-features 8 \
-            --repeats 1 \
-            --warmup 0 \
+            --repeats 3 \
+            --warmup 1 \
             > _candidate/runner.log 2>&1
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           cat _candidate/runner.log
           exit 0
-      - name: Profile PenalizedGLM CV internals
-        if: always()
-        run: |
-          python - <<'PY' > _candidate/pglm_profile.txt
-          import cProfile
-          import importlib
-          import io
-          import pstats
-          from dev.benchmarks.benchmark_cv_models import (
-              CASE_SPECS,
-              _construct,
-              _fit_args,
-              _model_kwargs,
-              _regression_data,
-          )
-
-          spec = next(spec for spec in CASE_SPECS if spec.model_id == "PenalizedGLM_CV")
-          X, y, _, _ = _regression_data(20260807, 120, 8)
-          cls = getattr(importlib.import_module(spec.import_module), spec.import_name)
-          model = _construct(cls, _model_kwargs(spec, "numpy", 20260807))
-          profile = cProfile.Profile()
-          profile.runcall(model.fit, *_fit_args(spec, X, y))
-          stream = io.StringIO()
-          pstats.Stats(profile, stream=stream).strip_dirs().sort_stats("cumulative").print_stats(160)
-          print(stream.getvalue())
-          PY
-          cat _candidate/pglm_profile.txt
       - name: Upload candidate evidence
         if: always()
         uses: actions/upload-artifact@v4
