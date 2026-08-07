@@ -34,18 +34,32 @@ jobs:
             --repeats 3 \
             --warmup 1 \
             --include-sklearn
-      - name: Verify expected framework coverage
+      - name: Verify framework and score semantics
         run: |
           python - <<'PY'
           import json
+          import math
           from pathlib import Path
+
           source = json.loads(Path('_candidate/cv_benchmark_external_candidate.json').read_text())
           aligned = {'RidgeCV', 'LassoCV', 'ElasticNetCV', 'LogisticRegressionCV'}
+          minimize = {'RidgeCV', 'LassoCV', 'ElasticNetCV', 'LogisticRegressionCV', 'PenalizedGLM_CV'}
           for case in source['cases']:
-              successes = {(run['framework'], run['backend']) for run in case['runs'] if run['status'] == 'success'}
-              assert ('statgpu', 'numpy') in successes, (case['model_id'], successes)
+              successes = [run for run in case['runs'] if run['status'] == 'success']
+              pairs = {(run['framework'], run['backend']) for run in successes}
+              assert ('statgpu', 'numpy') in pairs, (case['model_id'], pairs)
               if case['model_id'] in aligned:
-                  assert ('sklearn', None) in successes, (case['model_id'], successes)
+                  assert ('sklearn', None) in pairs, (case['model_id'], pairs)
+              for run in successes:
+                  scores = run['scores']
+                  assert math.isfinite(scores['validation_score'])
+                  assert math.isfinite(scores['final_score'])
+                  if case['model_id'] in minimize:
+                      assert scores['validation_score'] >= 0.0
+                      assert scores['final_score'] >= 0.0
+                  assert run['timing']['cv_evaluation_ms'] > 0.0
+                  assert run['timing']['final_refit_ms'] > 0.0
+                  assert run['timing']['total_fit_ms'] > 0.0
           PY
       - uses: actions/upload-artifact@v4
         if: always()
