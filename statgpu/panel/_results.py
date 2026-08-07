@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
+from statgpu.backends import _to_numpy
+
 
 @dataclass(frozen=True)
 class PanelTestResult:
@@ -65,7 +67,10 @@ class PanelIndexInfo:
 def _factorize_metadata(values, name: str, nobs: int):
     if values is None:
         return None, None, None
-    arr = np.asarray(values)
+    # Entity/time identifiers are metadata and may safely be factorized on the
+    # host. Use the common backend conversion so CuPy/Torch CUDA labels do not
+    # rely on an invalid implicit ``np.asarray`` device transfer.
+    arr = np.asarray(_to_numpy(values))
     if arr.ndim != 1 or arr.size == 0:
         raise ValueError(f"{name} must be a non-empty one-dimensional array")
     if arr.shape[0] != nobs:
