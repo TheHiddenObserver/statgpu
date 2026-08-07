@@ -208,7 +208,17 @@ def test_six_initial_models_are_required_exactly_once() -> None:
     assert any("missing required CV model cases: CoxPHCV" in error for error in errors)
 
 
-def test_canonical_parser_emits_success_rows_and_explicit_warnings(tmp_path: Path) -> None:
+def test_registry_exposes_new_parser_without_removing_historical_parser() -> None:
+    from dev.benchmarks.frontend_data.parsers import parse_cv_benchmark, parse_lassocv_combined
+    from dev.benchmarks.frontend_data.registry import PARSER_FUNCTIONS
+
+    assert PARSER_FUNCTIONS["cv_benchmark"] is parse_cv_benchmark
+    assert PARSER_FUNCTIONS["lassocv_combined"] is parse_lassocv_combined
+
+
+def test_canonical_parser_emits_normalized_cv_metrics(tmp_path: Path) -> None:
+    from jsonschema import Draft202012Validator
+
     from dev.benchmarks.frontend_data.parsers.cv_package import parse_cv_benchmark
 
     source_path = tmp_path / "cv_source.json"
@@ -220,9 +230,20 @@ def test_canonical_parser_emits_success_rows_and_explicit_warnings(tmp_path: Pat
     assert len(warnings) == 12
     assert {run["model_id"] for run in runs} == {model for model, _ in MODELS}
     assert {run["backend"] for run in runs} == {"numpy", None}
+    assert all(model["supports_penalty"] is True for model in models)
     assert all(run["parameters"]["metric_scope"] == "cross_validation" for run in runs)
-    assert all(run["parameters"]["cv_evaluation_ms"] == 10.0 for run in runs)
-    assert all(run["parameters"]["final_refit_ms"] == 2.0 for run in runs)
+    assert all("cv_evaluation_ms" not in run["parameters"] for run in runs)
     assert all(run["metrics"]["timing"]["fit_time_ms"] == 12.5 for run in runs)
+    assert all(run["metrics"]["cross_validation"]["cv_evaluation_ms"] == 10.0 for run in runs)
+    assert all(run["metrics"]["cross_validation"]["final_refit_ms"] == 2.0 for run in runs)
+    assert all(run["metrics"]["cross_validation"]["selected_parameters"] == {"alpha": 0.1} for run in runs)
     assert all(run["case_id"].startswith("case-") for run in runs)
     assert all(run["method_config_id"].startswith("method-") for run in runs)
+
+    dashboard_schema = json.loads(
+        (REPO_ROOT / "dev" / "benchmarks" / "benchmark_frontend_schema.json").read_text()
+    )
+    cv_schema = dashboard_schema["properties"]["runs"]["items"]["properties"]["metrics"]["properties"]["cross_validation"]
+    validator = Draft202012Validator(cv_schema)
+    for run in runs:
+        assert list(validator.iter_errors(run["metrics"]["cross_validation"])) == []
