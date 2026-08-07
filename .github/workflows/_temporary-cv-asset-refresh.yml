@@ -1,0 +1,49 @@
+name: Temporary CV asset refresh
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-asset-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - name: Download exact generated bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-generated-assets
+          path: _generated
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: TheHiddenObserver/statgpu
+          run-id: 31149413973
+      - name: Replace committed generated assets
+        run: |
+          test -f _generated/frontend/public/data/benchmark_data.json
+          test -f _generated/frontend/public/data/parse_report.json
+          test -f _generated/frontend/public/data/source_inventory.json
+          test -f _generated/docs/assets/benchmarks/index.html
+          rm -rf frontend/public/data docs/assets/benchmarks
+          mkdir -p frontend/public docs/assets
+          cp -a _generated/frontend/public/data frontend/public/data
+          cp -a _generated/docs/assets/benchmarks docs/assets/benchmarks
+      - name: Commit exact generated assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/public/data docs/assets/benchmarks
+          if git diff --cached --quiet; then
+            echo "Generated assets already current."
+            exit 0
+          fi
+          git commit -m "benchmark: refresh CV dashboard assets"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
