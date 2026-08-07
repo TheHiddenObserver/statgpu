@@ -1,14 +1,20 @@
-/** Cross-validation timing, selection, score, and failure diagnostics. */
+/** Cross-validation timing, selection, score, and backend-disposition diagnostics. */
 
 import type { Run } from '../../schema';
 import type { AppState } from '../../state';
 import { renderPanelTable } from './PanelTable';
 
-function selectedLabel(value: Record<string, unknown>): string {
-  return Object.entries(value)
+function fixed(value: number | undefined, digits: number): string {
+  return value === undefined ? '—' : value.toFixed(digits);
+}
+
+function selectedLabel(value: Record<string, unknown> | undefined): string {
+  if (!value) return '—';
+  const label = Object.entries(value)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, selected]) => `${key}=${String(selected)}`)
     .join(', ');
+  return label || '—';
 }
 
 export function renderCrossValidationPanel(
@@ -25,15 +31,25 @@ export function renderCrossValidationPanel(
       framework: run.framework,
       backend: run.backend ?? run.framework,
       scale: run.scale.label,
-      cv_time: cv.cv_evaluation_ms.toFixed(3),
-      refit_time: cv.final_refit_ms.toFixed(3),
-      total_time: cv.total_fit_ms.toFixed(3),
+      status: cv.status,
+      cv_time: fixed(cv.cv_evaluation_ms, 3),
+      refit_time: fixed(cv.final_refit_ms, 3),
+      total_time: fixed(cv.total_fit_ms, 3),
       selected: selectedLabel(cv.selected_parameters),
-      validation_score: cv.validation_score.toFixed(6),
-      final_score: cv.final_score.toFixed(6),
+      validation_score: fixed(cv.validation_score, 6),
+      final_score: fixed(cv.final_score, 6),
       scoring: `${cv.scoring_name} (${cv.scoring_direction})`,
-      failures: `${cv.failed_candidates} candidates / ${cv.failed_folds} folds`,
-      refit: cv.final_refit_converged ? 'yes' : 'no',
+      failures:
+        cv.failed_candidates === undefined || cv.failed_folds === undefined
+          ? '—'
+          : `${cv.failed_candidates} candidates / ${cv.failed_folds} folds`,
+      refit:
+        cv.final_refit_converged === undefined
+          ? '—'
+          : cv.final_refit_converged
+            ? 'yes'
+            : 'no',
+      reason: cv.reason ?? '—',
     });
   }
   if (rows.length === 0) return null;
@@ -45,6 +61,7 @@ export function renderCrossValidationPanel(
       { key: 'framework', label: 'Framework', render: row => String(row.framework) },
       { key: 'backend', label: 'Backend', render: row => String(row.backend) },
       { key: 'scale', label: 'Scale', render: row => String(row.scale) },
+      { key: 'status', label: 'Status', render: row => String(row.status) },
       { key: 'cv_time', label: 'CV evaluation (ms)', render: row => String(row.cv_time) },
       { key: 'refit_time', label: 'Final refit (ms)', render: row => String(row.refit_time) },
       { key: 'total_time', label: 'Total fit (ms)', render: row => String(row.total_time) },
@@ -54,6 +71,7 @@ export function renderCrossValidationPanel(
       { key: 'scoring', label: 'Scoring', render: row => String(row.scoring) },
       { key: 'failures', label: 'Failures', render: row => String(row.failures) },
       { key: 'refit', label: 'Refit converged', render: row => String(row.refit) },
+      { key: 'reason', label: 'Reason', render: row => String(row.reason) },
     ],
     rows,
     state,
