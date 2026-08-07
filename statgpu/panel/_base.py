@@ -220,16 +220,21 @@ class BasePanelModel(BaseEstimator):
         theta=None,
         extra=None,
         prefix: str = "x",
+        feature_names_override=None,
+        print_result: bool = False,
     ):
-        """Construct the existing public PanelSummary without changing its schema."""
+        """Construct the existing PanelSummary with explicit compatibility knobs."""
         self._check_is_fitted()
         from statgpu.panel._formula import _get_feature_names
 
         coef_np = np.asarray(_to_numpy(self.coef_)).ravel()
-        feature_names = _get_feature_names(
-            getattr(self, "_feature_names", None), len(coef_np), prefix=prefix
-        )
-        return PanelSummary(
+        if feature_names_override is None:
+            feature_names = _get_feature_names(
+                getattr(self, "_feature_names", None), len(coef_np), prefix=prefix
+            )
+        else:
+            feature_names = list(feature_names_override)
+        summary = PanelSummary(
             model_type=model_type,
             cov_type=cov_type,
             coef=coef_np,
@@ -248,3 +253,6 @@ class BasePanelModel(BaseEstimator):
             theta=theta,
             extra={} if extra is None else dict(extra),
         )
+        if print_result:
+            print(summary)
+        return summary
