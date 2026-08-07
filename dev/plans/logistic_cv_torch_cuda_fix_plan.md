@@ -49,6 +49,8 @@ In `_solve_logistic_path_gpu_from_batch()` the current Torch path then creates:
 
 The same helper also converts every fitted coefficient vector/intercept to NumPy inside the candidate/fold loop and then converts them back to the GPU backend for scoring. This does not cause the reported failure, but it is an unnecessary device round trip in the exact code being repaired and increases the risk of dtype drift.
 
+A repository-wide call-site search found exactly one caller of `_solve_logistic_path_gpu_from_batch()`: `_select_logistic_c_cv()` in the same module. Therefore changing this private helper to keep its return batches backend-native is a bounded internal refactor, not a public API change. Both `TorchBackend` and `CuPyBackend` provide the required `stack`, `copy`, `zeros`, and dtype-aware array-creation primitives.
+
 ## 4. Implementation plan
 
 ### A. Make the batched IRLS working dtype explicit
@@ -58,6 +60,7 @@ In `statgpu/linear_model/cv/_logistic_cv.py`:
 - create `params` with `dtype=X_design.dtype`;
 - create regularization diagonals with `dtype=XtWX.dtype`;
 - keep coefficient/intercept batches in backend-native arrays through scoring;
+- use backend-native stacking so the returned path batch preserves dtype and device;
 - only transfer the per-fold loss vector to NumPy when populating the public `loss_path` result;
 - preserve the current objective, intercept non-penalization rule, folds, C grid, sample-weight semantics, convergence tolerance, and strict no-CPU-fallback behavior.
 
@@ -65,12 +68,18 @@ No statistical definition changes are allowed in this repair.
 
 ### B. Add deterministic regression coverage that does not require hosted CUDA
 
-Add a focused test using `TorchBackend(device="cpu")` to exercise the internal mixed-precision batched helper with `float32` tensors. The test should prove:
+Add focused tests using `TorchBackend(device="cpu")` to exercise the internal batched helper on both working-dtype modes:
+
+- default mixed precision: `float32`;
+- `gpu_cv_mixed_precision=False` analogue: `float64`.
+
+The tests should prove:
 
 - the helper no longer raises a Float/Double dtype mismatch;
-- returned coefficient/intercept batches remain Torch tensors on the selected backend and keep the working dtype;
-- candidate losses are finite and have the expected shape;
-- no internal `backend.to_numpy()` call is required by the path solver.
+- returned coefficient/intercept batches remain Torch tensors on the selected backend and keep the requested working dtype;
+- candidate outputs are finite and have the expected shapes;
+- the path solver itself performs no `backend.to_numpy()` conversion;
+- float32 and float64 paths agree to a documented mixed-precision tolerance on the same deterministic problem.
 
 Add/extend public CV tests to preserve:
 
@@ -79,12 +88,14 @@ Add/extend public CV tests to preserve:
 - sample-weight behavior;
 - deterministic candidate selection and transactional final refit.
 
+The private return-type change is safe only while the single-caller invariant holds; the regression should exercise that consuming path rather than expose the helper publicly.
+
 ### C. Check compatibility and numerical parity
 
 Run the strongest locally available evidence:
 
 - targeted LogisticRegressionCV tests;
-- Torch CPU internal mixed-precision regression;
+- Torch CPU internal float32/float64 regressions;
 - maintenance/static tests covering CV backend routing;
 - full hosted CPU/compatibility workflows on the PR head.
 
@@ -104,13 +115,14 @@ Required for `COMPLETE`:
 
 - Torch CUDA on a real NVIDIA GPU, preferably the original Tesla P100 / Torch 2.0.x compatibility environment or an equally strict supported environment;
 - run the canonical CV reproduction for `LogisticRegressionCV` with default `gpu_cv_mixed_precision=True`;
+- also smoke the `gpu_cv_mixed_precision=False` path on the same source head;
 - confirm strict Torch execution succeeds without CPU fallback;
 - compare selected C / CV loss against NumPy or CuPy within a documented mixed-precision tolerance;
 - record software/hardware/source SHA and the exact command.
 
 A fresh canonical benchmark artifact may be added only from an actual rerun. The old failed artifact remains historical evidence.
 
-## 6. Review/fix protocol
+## 6. Plan review/fix closure criteria
 
 Review the plan before implementation for:
 
@@ -118,8 +130,17 @@ Review the plan before implementation for:
 2. whether it accidentally weakens strict device semantics;
 3. whether it leaves another Torch mixed-dtype boundary in fit or scoring;
 4. whether tests can catch the original failure on CPU-only CI;
-5. whether the plan improperly rewrites historical benchmark evidence;
-6. whether the change should remain bounded to #112 rather than becoming a general CV refactor.
+5. whether both float32 and float64 working modes are covered;
+6. whether the private backend-native return change has any caller outside this module;
+7. whether the plan improperly rewrites historical benchmark evidence;
+8. whether the change should remain bounded to #112 rather than becoming a general CV refactor.
+
+First plan review findings and fixes:
+
+- **MEDIUM / TEST — fixed:** the initial plan tested only the default float32 path. It now requires both float32 and float64 working modes plus cross-dtype numerical parity.
+- **MEDIUM / MAINT — fixed:** the initial plan changed the private helper return representation without establishing call-site scope. Repository search confirms exactly one caller in the same module, and CuPy/Torch backend primitives support the bounded backend-native stacking change.
+
+Implementation may begin only after a fresh re-review finds no new in-scope plan issue.
 
 After implementation, run `.claude/skills/code-review.md` in auto-fix mode and repeat targeted validation/re-review until no new CRITICAL/HIGH or in-scope MEDIUM issue is found.
 
