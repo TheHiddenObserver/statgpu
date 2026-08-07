@@ -80,7 +80,7 @@ test.describe('Deployed benchmark dashboard', () => {
     await expect(page.locator('input[name="backend"][value="all"]')).toBeChecked();
   });
 
-  test('exposes keyboard sorting, disclosure controls, skip link, and chart tables', async ({ page }) => {
+  test('exposes keyboard sorting, disclosure controls, skip link, and lazy chart tables', async ({ page }) => {
     await openProduction(page);
     const skip = page.getByRole('link', { name: 'Skip to benchmark results' });
     await skip.focus();
@@ -97,9 +97,18 @@ test.describe('Deployed benchmark dashboard', () => {
 
     await expect(page.locator('#timing-chart-data')).toBeVisible();
     await expect(page.locator('#speedup-chart-data')).toBeVisible();
+    await expect(page.locator('#timing-chart-data table')).toHaveCount(0);
+    await expect(page.locator('#speedup-chart-data table')).toHaveCount(0);
+
     await page.locator('#timing-chart-data summary').click();
     await expect(page.locator('#timing-chart-data table')).toBeVisible();
+    await expect(page.locator('#timing-chart-data tbody tr').first()).toBeVisible();
     await expect(page.locator('#timing-chart-data caption')).toContainText('Full labels');
+
+    await page.locator('#speedup-chart-data summary').click();
+    await expect(page.locator('#speedup-chart-data table')).toBeVisible();
+    await expect(page.locator('#speedup-chart-data tbody tr').first()).toBeVisible();
+    await expect(page.locator('#speedup-chart-data caption')).toContainText('Full labels');
 
     const selects = page.locator('select');
     for (let i = 0; i < await selects.count(); i += 1) {
