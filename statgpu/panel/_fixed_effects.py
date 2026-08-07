@@ -1,9 +1,8 @@
 """
 Fixed effects panel data model (PanelOLS).
 
-Implements one-way and two-way fixed effects estimation with support
-for non-robust, HC1 robust, and clustered standard errors.  GPU
-acceleration is provided transparently via the statgpu backend system.
+Implements one-way and two-way fixed effects estimation with support for the
+existing non-robust, HC1 robust, and clustered covariance estimators.
 """
 
 from __future__ import annotations
@@ -13,59 +12,31 @@ __all__ = ["PanelOLS"]
 from typing import Optional, Union
 
 import numpy as np
-from scipy import stats
 
-from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_cholesky_solve, xp_maximum
+from statgpu.backends import (
+    _LINALG_ERRORS,
+    _to_float_scalar,
+    _to_numpy,
+    xp_cholesky_solve,
+    xp_maximum,
+)
+from statgpu.panel._base import BasePanelModel
+from statgpu.panel._utils import (
+    _scatter_add,
+    demean_variables,
+    factorize_panel_labels,
+)
 
-from statgpu.panel._utils import PanelSummary, _scatter_add, demean_variables, factorize_panel_labels, validate_panel_alpha, validate_panel_numeric_data
-from statgpu.panel._covariance import clustered_covariance, two_way_clustered_covariance
 
-
-class PanelOLS(BaseEstimator):
-    """Fixed effects estimator for panel data.
-
-    Supports entity (individual) fixed effects, time fixed effects,
-    and two-way fixed effects via the within transformation.
-
-    Parameters
-    ----------
-    entity_effects : bool, default=False
-        Include entity (individual) fixed effects.
-    time_effects : bool, default=False
-        Include time fixed effects.
-    cov_type : str, default='nonrobust'
-        Covariance estimator: ``'nonrobust'``, ``'robust'`` (HC1), or
-        ``'clustered'``.
-    device : str or Device, default='auto'
-        Computation device.
-
-    Attributes
-    ----------
-    coef_ : ndarray, shape (k,)
-        Estimated slope coefficients.
-    bse_ : ndarray, shape (k,)
-        Standard errors.
-    tvalues_ : ndarray, shape (k,)
-        t-statistics.
-    pvalues_ : ndarray, shape (k,)
-        Two-sided p-values.
-    conf_int_ : ndarray, shape (k, 2)
-        95 % confidence intervals.
-    rsquared_within : float
-        Within R-squared (variance explained by regressors after demeaning).
-    nobs : int
-        Number of observations used in estimation.
-    df_resid : int
-        Residual degrees of freedom.
-    """
+class PanelOLS(BasePanelModel):
+    """Fixed effects estimator for panel data."""
 
     def __init__(
         self,
         entity_effects: bool = False,
         time_effects: bool = False,
-        cov_type: str = 'nonrobust',
+        cov_type: str = "nonrobust",
         alpha: float = 0.05,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
@@ -75,12 +46,11 @@ class PanelOLS(BaseEstimator):
         self.time_effects = time_effects
         self.cov_type = cov_type.lower()
         self.alpha = alpha
-        if self.cov_type not in ('nonrobust', 'robust', 'clustered'):
+        if self.cov_type not in ("nonrobust", "robust", "clustered"):
             raise ValueError(
                 "cov_type must be 'nonrobust', 'robust', or 'clustered'"
             )
 
-        # Public attributes set by fit()
         self.coef_ = None
         self.bse_ = None
         self.tvalues_ = None
@@ -90,103 +60,73 @@ class PanelOLS(BaseEstimator):
         self.nobs = None
         self.df_resid = None
 
-        # Internal storage
         self._params = None
         self._scale = None
         self._entity_effects_map = {}
         self._time_effects_map = {}
 
-    def fit(self, X=None, y=None, entity_ids=None, time_ids=None, cluster=None,
-            formula=None, data=None):
-        """Fit the fixed effects model.
+    def fit(
+        self,
+        X=None,
+        y=None,
+        entity_ids=None,
+        time_ids=None,
+        cluster=None,
+        formula=None,
+        data=None,
+    ):
+        """Fit the fixed effects model."""
+        (
+            y_data,
+            X_data,
+            fe_entity_ids,
+            fe_time_ids,
+            fe_entity_effects,
+            fe_time_effects,
+            aligned,
+        ) = self._panel_prepare_formula_fit(
+            formula,
+            data,
+            X,
+            y,
+            model_has_intercept=False,
+            support_pipe=True,
+            side_arrays={
+                "entity_ids": entity_ids,
+                "time_ids": time_ids,
+                "cluster": cluster,
+            },
+        )
 
-        Parameters
-        ----------
-        X : array-like, shape (n, k), optional
-            Regressor matrix. Include a constant column if you want an
-            intercept (the model does not add one automatically).
-            Required if ``formula`` is None.
-        y : array-like, shape (n,), optional
-            Outcome vector.  Required if ``formula`` is None.
-        entity_ids : array-like, shape (n,), optional
-            Entity (individual) identifiers.  Required when
-            ``entity_effects=True`` and ``formula`` is None.
-        time_ids : array-like, shape (n,), optional
-            Time-period identifiers.  Required when ``time_effects=True``
-            and ``formula`` is None.
-        cluster : array-like, shape (n,), optional
-            Cluster labels for clustered standard errors.  Required when
-            ``cov_type='clustered'``.
-        formula : str, optional
-            Formula string.  Supports fixest pipe syntax:
-            ``"y ~ x1 + x2 | entity + time"``.
-            Also supports linearmodels tokens:
-            ``"y ~ x1 + EntityEffects + TimeEffects"``.
-        data : DataFrame, optional
-            DataFrame for formula parsing.
+        # Preserve the existing formula contract: formula-extracted effects
+        # enable constructor flags, and formula identifiers fill only missing
+        # explicit side arrays.
+        if fe_entity_effects:
+            self.entity_effects = True
+        if fe_time_effects:
+            self.time_effects = True
+        entity_ids = aligned["entity_ids"]
+        time_ids = aligned["time_ids"]
+        cluster = aligned["cluster"]
+        if entity_ids is None and fe_entity_ids is not None:
+            entity_ids = fe_entity_ids
+        if time_ids is None and fe_time_ids is not None:
+            time_ids = fe_time_ids
 
-        Returns
-        -------
-        self
-        """
-        # Handle formula interface
-        if formula is not None:
-            from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
-            (y_raw, X_raw, self._design_info, self._feature_names,
-             self._formula_has_intercept,
-             fe_entity_ids, fe_time_ids,
-             fe_entity_effects, fe_time_effects) = \
-                _prepare_formula_fit(formula, data, X, y,
-                                     model_has_intercept=False,
-                                     support_pipe=True)
-            # Formula-extracted FE overrides constructor settings
-            if fe_entity_effects:
-                self.entity_effects = True
-            if fe_time_effects:
-                self.time_effects = True
-            if fe_entity_ids is not None and entity_ids is None:
-                entity_ids = fe_entity_ids
-            if fe_time_ids is not None and time_ids is None:
-                time_ids = fe_time_ids
-            X = X_raw
-            y = y_raw
-            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_raw), "entity_ids")
-            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_raw), "time_ids")
-            cluster = _align_formula_side_array(cluster, self._design_info, len(y_raw), "cluster")
-        else:
-            self._design_info = None
-            self._feature_names = None
-            self._formula_has_intercept = None
-
-        # Resolve backend
-        backend = self._get_backend(backend='auto')
-        backend_name = backend.name
-        xp = backend.xp
-
-        # Convert inputs to backend arrays
-        y_arr = xp_astype(self._to_array(y, backend=backend_name).ravel(), xp.float64, xp)
-        X_arr = xp_astype(self._to_array(X, backend=backend_name), xp.float64, xp)
-        if X_arr.ndim == 1:
-            X_arr = X_arr.reshape(-1, 1)
-        validate_panel_alpha(self.alpha)
-        validate_panel_numeric_data(X_arr, y_arr, xp)
-
+        backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
         n, k = X_arr.shape
         self.nobs = n
 
-        # Validate shapes
-        if y_arr.shape[0] != n:
-            raise ValueError(
-                f"y has {y_arr.shape[0]} observations but X has {n} rows"
-            )
-
-        # Validate
         if self.entity_effects and entity_ids is None:
             raise ValueError("entity_ids is required when entity_effects=True")
         if self.time_effects and time_ids is None:
             raise ValueError("time_ids is required when time_effects=True")
-        if self._cov_type == 'clustered' and cluster is None:
+        if self._cov_type == "clustered" and cluster is None:
             raise ValueError("cluster is required when cov_type='clustered'")
+
+        self._panel_set_index_info(
+            n, entity_ids=entity_ids, time_ids=time_ids
+        )
 
         entity_arr = None
         time_arr = None
@@ -194,17 +134,25 @@ class PanelOLS(BaseEstimator):
         time_labels = None
         if entity_ids is not None:
             entity_arr, entity_labels = factorize_panel_labels(
-                entity_ids, xp, ref_arr=X_arr, name="entity_ids", expected_n=X_arr.shape[0]
+                entity_ids,
+                xp,
+                ref_arr=X_arr,
+                name="entity_ids",
+                expected_n=n,
             )
         if time_ids is not None:
             time_arr, time_labels = factorize_panel_labels(
-                time_ids, xp, ref_arr=X_arr, name="time_ids", expected_n=X_arr.shape[0]
+                time_ids,
+                xp,
+                ref_arr=X_arr,
+                name="time_ids",
+                expected_n=n,
             )
 
-        # Demean if fixed effects requested
         if self.entity_effects or self.time_effects:
             y_d, X_d = demean_variables(
-                y_arr, X_arr,
+                y_arr,
+                X_arr,
                 entity_ids=entity_arr if self.entity_effects else None,
                 time_ids=time_arr if self.time_effects else None,
                 xp=xp,
@@ -213,39 +161,36 @@ class PanelOLS(BaseEstimator):
             y_d = y_arr
             X_d = X_arr
 
-        # OLS on demeaned data: beta = (X'X)^{-1} X'y
         XtX = X_d.T @ X_d
         Xty = X_d.T @ y_d
-
         try:
             coef = xp_cholesky_solve(XtX, Xty, xp)
         except _LINALG_ERRORS:
             coef = xp.linalg.solve(XtX, Xty)
 
-        # Degrees of freedom
-        n_entities = len(xp.unique(entity_arr)) if entity_arr is not None else 0
-        n_times = len(xp.unique(time_arr)) if time_arr is not None else 0
+        n_entities = len(entity_labels) if entity_labels is not None else 0
+        n_times = len(time_labels) if time_labels is not None else 0
         n_effects = 0
         if self.entity_effects:
             n_effects += n_entities - 1
         if self.time_effects:
             n_effects += n_times - 1
         self.df_resid = n - k - n_effects
-
         if self.df_resid <= 0:
             raise ValueError(
                 f"Not enough observations: n={n}, k={k}, n_effects={n_effects}, "
                 f"df_resid={self.df_resid}.  Check that N*T >> k + effects."
             )
 
-        # Residuals and scale (on the demeaned data, all on device)
         y_pred = X_d @ coef
         resid = y_d - y_pred
         scale = _to_float_scalar(xp.sum(resid ** 2)) / self.df_resid
         self._scale = scale
 
-        # Compute entity/time effects for predict()
-        # Subtract grand mean to avoid double-counting in two-way FE
+        # Effect recovery remains model-specific and byte-for-byte equivalent in
+        # meaning to the pre-Stage-A implementation. The stored grand mean is
+        # intentionally not added by predict(); that historical behavior is
+        # frozen by test_panel_stage_a_golden.py.
         self._entity_effects_map = {}
         self._time_effects_map = {}
         resid_orig = y_arr - X_arr @ coef
@@ -254,161 +199,94 @@ class PanelOLS(BaseEstimator):
         self._grand_mean = grand_mean
 
         if self.entity_effects and entity_arr is not None:
-            ent_sums = _scatter_add(xp, entity_arr, resid_centered, len(entity_labels))
+            ent_sums = _scatter_add(
+                xp, entity_arr, resid_centered, len(entity_labels)
+            )
             ent_counts = _scatter_add(
-                xp, entity_arr, xp.ones_like(resid_centered), len(entity_labels)
+                xp,
+                entity_arr,
+                xp.ones_like(resid_centered),
+                len(entity_labels),
             )
             ent_effects = _to_numpy(
                 ent_sums / xp_maximum(ent_counts, 1.0, xp)
             ).ravel()
             for i, eid in enumerate(entity_labels):
                 self._entity_effects_map[eid] = float(ent_effects[i])
+
         if self.time_effects and time_arr is not None:
-            time_sums = _scatter_add(xp, time_arr, resid_centered, len(time_labels))
-            time_counts = _scatter_add(
-                xp, time_arr, xp.ones_like(resid_centered), len(time_labels)
+            time_sums = _scatter_add(
+                xp, time_arr, resid_centered, len(time_labels)
             )
-            time_effects = _to_numpy(
+            time_counts = _scatter_add(
+                xp,
+                time_arr,
+                xp.ones_like(resid_centered),
+                len(time_labels),
+            )
+            time_effect_values = _to_numpy(
                 time_sums / xp_maximum(time_counts, 1.0, xp)
             ).ravel()
             for i, tid in enumerate(time_labels):
-                self._time_effects_map[tid] = float(time_effects[i])
+                self._time_effects_map[tid] = float(time_effect_values[i])
 
-        # Keep arrays on device for inference — only transfer final results
-        self._compute_inference(xp, cluster, backend_name,
-                                X_d, coef, resid, y_d)
-
-        # Single batch transfer of final results to CPU
-        self._params = _to_numpy(coef).ravel()
-        self.coef_ = self._params
-
-        self._fitted = True
-        return self
-
-    def _compute_inference(self, xp, cluster, backend_name,
-                           X_d, coef, resid, y_d):
-        """Compute SE, t-values, p-values, and CIs — all on device.
-
-        Uses statgpu's backend-agnostic inference framework for p-values,
-        so no GPU→CPU transfer is needed for the computation.  Only the
-        final numpy result vectors are stored for the user API.
-        """
-        from statgpu.inference._distributions_backend import get_distribution
-
-        n, k = X_d.shape
-        df = self.df_resid
-        alpha = self.alpha
-
-        # XtX and its inverse — on device
-        XtX = X_d.T @ X_d
-        try:
-            XtX_inv = xp.linalg.inv(XtX)
-        except _LINALG_ERRORS:
-            XtX_inv = xp.linalg.pinv(XtX)
-
-        if self._cov_type == 'nonrobust':
-            cov_params = self._scale * XtX_inv
-            bse_dev = xp.sqrt(xp_maximum(xp.diag(cov_params), 0.0, xp))
-
-        elif self._cov_type == 'robust':
-            # HC1 sandwich — on device
-            # Use df_resid (not n-k) to account for absorbed fixed effects
-            e2 = resid ** 2
-            Xw = X_d * e2[:, None]
-            meat = X_d.T @ Xw
-            cov_params = XtX_inv @ meat @ XtX_inv
-            if self.df_resid > 0:
-                cov_params = cov_params * (n / self.df_resid)
-            bse_dev = xp.sqrt(xp_maximum(xp.diag(cov_params), 0.0, xp))
-
-        else:  # clustered
-            cluster_np = _to_numpy(cluster)
-            # Validate cluster length matches fitted data
+        cluster_for_cov = cluster
+        if self._cov_type == "clustered":
+            cluster_np = np.asarray(_to_numpy(cluster))
             if len(cluster_np) != X_d.shape[0]:
                 raise ValueError(
                     f"cluster length ({len(cluster_np)}) does not match "
                     f"data length ({X_d.shape[0]})"
                 )
-            if cluster_np.ndim == 2 and cluster_np.shape[1] == 2:
-                V = two_way_clustered_covariance(
-                    X_d, resid, cluster_np[:, 0], cluster_np[:, 1], xp=xp
-                )
-            else:
-                V = clustered_covariance(X_d, resid, cluster_np, xp=xp)
-            bse_dev = xp.sqrt(xp_maximum(xp.diag(V), 0.0, xp))
+            cluster_for_cov = cluster_np
 
-        # t-values — on device
-        _eps = xp.finfo(xp.float64).tiny if hasattr(xp, 'finfo') else 2.2e-308
-        tvalues_dev = coef / xp_maximum(bse_dev, _eps, xp)
-        abs_t = xp.abs(tvalues_dev)
+        self._panel_store_ols_inference(
+            X_d,
+            resid,
+            coef,
+            scale=scale,
+            df_resid=self.df_resid,
+            backend=backend,
+            cov_type=self._cov_type,
+            cluster=cluster_for_cov,
+            allowed=("nonrobust", "robust", "clustered"),
+            hc1_correction=(
+                n / self.df_resid if self._cov_type == "robust" else None
+            ),
+            distribution_df=self.df_resid,
+            diag_floor=0.0,
+        )
 
-        # p-values via backend-agnostic inference framework — on device
-        if self._cov_type in ('nonrobust',):
-            t_dist = get_distribution("t", backend=backend_name)
-            pvalues_dev = 2.0 * t_dist.sf(abs_t, float(df))
-            t_crit = float(t_dist.isf(xp.asarray([alpha / 2.0]), float(df))[0])
-        else:
-            norm_dist = get_distribution("norm", backend=backend_name)
-            pvalues_dev = 2.0 * norm_dist.sf(abs_t)
-            t_crit = float(norm_dist.isf(xp.asarray([alpha / 2.0]))[0])
-
-        # Final transfer: only k-length vectors to CPU for storage
-        self.bse_ = _to_numpy(bse_dev).ravel()
-        self.tvalues_ = _to_numpy(tvalues_dev).ravel()
-        self.pvalues_ = _to_numpy(pvalues_dev).ravel()
-
-        coef_np = _to_numpy(coef).ravel()
-        self.conf_int_ = np.column_stack([
-            coef_np - t_crit * self.bse_,
-            coef_np + t_crit * self.bse_,
-        ])
-
-        # Within R-squared — on device, single sync
         ss_res = _to_float_scalar(xp.sum(resid ** 2))
         y_d_mean = _to_float_scalar(xp.mean(y_d))
         ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
+        self._params = np.asarray(self.coef_).ravel()
+        self.coef_ = self._params
+        self._fitted = True
+        return self
+
     def predict(self, X, entity_ids=None, time_ids=None):
-        """Predict using the fitted model.
-
-        If the model was fitted with entity/time effects and the
-        corresponding identifiers are provided, the predictions include
-        the estimated fixed effects.
-
-        Parameters
-        ----------
-        X : array-like, shape (n, k)
-            Regressor matrix.
-        entity_ids : array-like, shape (n,), optional
-            Entity identifiers.  Required to include entity effects in
-            the prediction.
-        time_ids : array-like, shape (n,), optional
-            Time-period identifiers.  Required to include time effects
-            in the prediction.
-
-        Returns
-        -------
-        y_pred : ndarray, shape (n,)
-            Predicted values.
-        """
+        """Predict using the fitted model, preserving existing effect semantics."""
         self._check_is_fitted()
-        # Formula-aware prediction
-        if getattr(self, '_design_info', None) is not None and hasattr(X, 'columns'):
+        if getattr(self, "_design_info", None) is not None and hasattr(X, "columns"):
             from statgpu.panel._formula import _formula_predict
-            X_arr = _formula_predict(X, self._design_info,
-                                     self._formula_has_intercept,
-                                     model_has_intercept=False)
+
+            X_arr = _formula_predict(
+                X,
+                self._design_info,
+                self._formula_has_intercept,
+                model_has_intercept=False,
+            )
         else:
             X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
-        # Add intercept if model expects it (coef_ includes intercept)
         if X_arr.shape[1] + 1 == self.coef_.shape[0]:
             X_arr = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
         y_pred = X_arr @ self.coef_
 
-        # Add entity effects via vectorized lookup
         if self._entity_effects_map and entity_ids is not None:
             ent_arr = np.asarray(entity_ids).ravel()
             ent_effects = np.vectorize(
@@ -416,7 +294,6 @@ class PanelOLS(BaseEstimator):
             )(ent_arr, 0.0)
             y_pred = y_pred + ent_effects
 
-        # Add time effects via vectorized lookup
         if self._time_effects_map and time_ids is not None:
             time_arr = np.asarray(time_ids).ravel()
             time_effects = np.vectorize(
@@ -427,37 +304,17 @@ class PanelOLS(BaseEstimator):
         return y_pred
 
     def summary(self):
-        """Print and return a structured coefficient summary.
-
-        Returns
-        -------
-        PanelSummary
-            Dataclass with all model results.  Also prints a formatted
-            table to stdout for interactive use.
-        """
-        self._check_is_fitted()
-
+        """Print and return the existing structured coefficient summary."""
         k = len(self._params)
-        feat_names = [f'x{i+1}' for i in range(k)]
-
-        s = PanelSummary(
-            model_type='PanelOLS',
-            nobs=self.nobs,
-            df_resid=self.df_resid,
-            coef=self._params,
-            bse=self.bse_,
-            tvalues=self.tvalues_,
-            pvalues=self.pvalues_,
-            conf_int=self.conf_int_,
-            feature_names=feat_names,
-            rsquared_within=self.rsquared_within,
+        return self._panel_summary(
+            model_type="PanelOLS",
             cov_type=self._cov_type,
+            rsquared_within=self.rsquared_within,
             entity_effects=self.entity_effects,
             time_effects=self.time_effects,
-            alpha=self.alpha,
+            feature_names_override=[f"x{i + 1}" for i in range(k)],
+            print_result=True,
         )
-        print(s)
-        return s
 
     def get_params(self, deep=True):
         """Return the shared exact-constructor parameter contract."""
@@ -468,5 +325,4 @@ class PanelOLS(BaseEstimator):
         return super().set_params(**params)
 
 
-# Alias for naming consistency with RandomEffects, PooledOLS, etc.
 FixedEffects = PanelOLS
