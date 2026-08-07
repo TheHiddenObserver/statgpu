@@ -20,52 +20,70 @@ function identityCells(run: Run): string[] {
   ];
 }
 
+interface TableValue {
+  value: string;
+  reference: string;
+}
+
 function renderTable(
   id: string,
   caption: string,
   valueLabel: string,
-  rows: Array<{ run: Run; value: string; reference: string }>,
+  runs: Run[],
+  valueForRun: (run: Run) => TableValue,
 ): HTMLElement {
-  const details = h('details', { class: 'chart-data-details', id });
-  details.appendChild(h('summary', {}, `${caption} (${rows.length} rows)`));
-  const wrapper = h('div', { class: 'chart-data-table-wrap' });
-  const table = h('table', { class: 'chart-data-table' });
-  table.appendChild(
-    h(
-      'caption',
-      {},
-      `${caption}. Full labels are shown here when chart labels are truncated.`,
-    ),
-  );
+  const details = h('details', { class: 'chart-data-details', id }) as HTMLDetailsElement;
+  details.appendChild(h('summary', {}, `${caption} (${runs.length} rows)`));
 
-  const header = h('tr');
-  for (const label of [
-    'Model',
-    'Variant',
-    'Penalty',
-    'Solver',
-    'Backend / reference',
-    'Scale',
-    valueLabel,
-    'Reference',
-  ]) {
-    header.appendChild(h('th', { scope: 'col' }, label));
-  }
-  const thead = h('thead');
-  thead.appendChild(header);
-  table.appendChild(thead);
+  let materialized = false;
+  const materialize = (): void => {
+    if (materialized) return;
+    materialized = true;
 
-  const tbody = h('tbody');
-  for (const { run, value, reference } of rows) {
-    const tr = h('tr');
-    for (const cell of [...identityCells(run), value, reference]) {
-      tr.appendChild(h('td', {}, cell));
+    const wrapper = h('div', { class: 'chart-data-table-wrap' });
+    const table = h('table', { class: 'chart-data-table' });
+    table.appendChild(
+      h(
+        'caption',
+        {},
+        `${caption}. Full labels are shown here when chart labels are truncated.`,
+      ),
+    );
+
+    const header = h('tr');
+    for (const label of [
+      'Model',
+      'Variant',
+      'Penalty',
+      'Solver',
+      'Backend / reference',
+      'Scale',
+      valueLabel,
+      'Reference',
+    ]) {
+      header.appendChild(h('th', { scope: 'col' }, label));
     }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  wrapper.appendChild(table);
-  details.appendChild(wrapper);
+    const thead = h('thead');
+    thead.appendChild(header);
+    table.appendChild(thead);
+
+    const tbody = h('tbody');
+    for (const run of runs) {
+      const { value, reference } = valueForRun(run);
+      const tr = h('tr');
+      for (const cell of [...identityCells(run), value, reference]) {
+        tr.appendChild(h('td', {}, cell));
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    details.appendChild(wrapper);
+  };
+
+  details.addEventListener('toggle', () => {
+    if (details.open) materialize();
+  });
   return details;
 }
 
@@ -87,20 +105,32 @@ export function renderChartDataFallback(
     ),
   );
 
-  const timing = selectTimingRuns(timingSourceRuns, state).runs.map((run) => ({
-    run,
-    value: `${run.metrics.timing!.fit_time_ms.toFixed(3)} ms`,
-    reference: run.metrics.timing!.quality,
-  }));
-  const speedup = selectSpeedupRuns(speedupSourceRuns, state).runs.map((run) => ({
-    run,
-    value: `${run.metrics.speedup!.value.toFixed(3)}×`,
-    reference: `${run.metrics.speedup!.reference_framework} (${run.metrics.speedup!.reported_semantics})`,
-  }));
+  const timingRuns = selectTimingRuns(timingSourceRuns, state).runs;
+  const speedupRuns = selectSpeedupRuns(speedupSourceRuns, state).runs;
 
-  section.appendChild(renderTable('timing-chart-data', 'Fit Time chart data', 'Time', timing));
   section.appendChild(
-    renderTable('speedup-chart-data', 'Speedup chart data', 'Speedup', speedup),
+    renderTable(
+      'timing-chart-data',
+      'Fit Time chart data',
+      'Time',
+      timingRuns,
+      run => ({
+        value: `${run.metrics.timing!.fit_time_ms.toFixed(3)} ms`,
+        reference: run.metrics.timing!.quality,
+      }),
+    ),
+  );
+  section.appendChild(
+    renderTable(
+      'speedup-chart-data',
+      'Speedup chart data',
+      'Speedup',
+      speedupRuns,
+      run => ({
+        value: `${run.metrics.speedup!.value.toFixed(3)}×`,
+        reference: `${run.metrics.speedup!.reference_framework} (${run.metrics.speedup!.reported_semantics})`,
+      }),
+    ),
   );
   return section;
 }
