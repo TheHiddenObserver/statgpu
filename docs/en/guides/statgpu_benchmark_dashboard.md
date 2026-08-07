@@ -6,7 +6,7 @@ The browser is a presentation layer over a generated benchmark bundle. Raw resul
 
 ## Current coverage
 
-The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,774 normalized runs across 36 models**:
+The canonical manifest is the source of truth for current benchmark inputs, and the deployed inventory is the source of truth for live counts. **Snapshot (2026-08-07):** 9 registered/available/parsed sources produce 1,796 normalized runs, including the first current six-family CV package:
 
 | Source | Frontend coverage |
 |---|---|
@@ -18,6 +18,7 @@ The canonical manifest registers **eight benchmark sources**, all dated **2026-0
 | `new_modules_full_20260624.json` | Panel, two complete fixed-lambda GAM comparison variants, and ANOVA benchmarks |
 | `unsupervised_20260627.json` | Complete source matrix for PCA, clustering, decomposition, mini-batch methods, UMAP, and t-SNE |
 | `ordered_inference_pr74.json` | Ordered, Quantile, sandwich, oracle, and bootstrap inference configurations |
+| `cv_benchmark_20260807.json` | RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV with explicit backend dispositions |
 
 These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA.
 
@@ -98,7 +99,7 @@ The global summary card shows only the fastest runner-reported GPU speedup. Comp
 
 The page uses a low-saturation blue-gray application background, white cards, soft borders and shallow shadows. Backend and framework colors are deliberately muted so that long benchmark sessions remain comfortable to scan. Selected categories use a light primary tint rather than a high-contrast block, and chart grid lines are lighter than the 1× parity marker.
 
-The responsive layout keeps paired charts on large screens and stacks them below 1080 px. Summary cards collapse from six to three columns below 1450 px.
+The responsive layout keeps paired charts on large screens and stacks them below 1080 px. Summary cards collapse from six to three columns below 1450 px. Charts also expose filter-synchronized exact-value tables with full labels, while primary filters, scale chips, sorting, and metric-panel disclosure support keyboard navigation with visible focus. The production QA suite serves the committed `docs/assets/benchmarks/` path and exercises Chromium, Firefox, and WebKit.
 
 ## Overview and metric panels
 
@@ -107,6 +108,7 @@ The overview table supports stable keyed sorting, a default 200-row limit, “Sh
 Panels appear only when filtered rows contain the corresponding metric group:
 
 - **Validation**: pass/warn/fail checks and tolerances.
+- **Cross-validation**: backend disposition, CV/final-refit/total timing, selected parameters, normalized scores, convergence/failure counts, and explicit non-success reasons.
 - **Accuracy**: coefficient and standard-error differences.
 - **Inference**: BSE, Wald statistic, p-value, backend, scale, and status.
 - **Prediction**: train/test MSE, noiseless MSE, selected alpha, and C-index.
@@ -132,7 +134,7 @@ The frontend loads:
 - `parse_report.json`: source/run counts and structured issues;
 - `source_inventory.json`: catalog, registration, availability, and parsed counts.
 
-All three files share one `generation_id`. In canonical mode, `eligible_total`, `registered_sources`, `available_sources`, and `parsed_sources` refer only to the eight manifest-registered June-or-later sources.
+All three files share one `generation_id`. In canonical mode, inventory fields refer to the manifest-registered June-or-later sources. Read the generated inventory for current counts instead of copying those counts into downstream documentation.
 
 ## Reproduce and test
 
@@ -153,8 +155,9 @@ cd frontend
 npm ci
 npm run typecheck
 npm run build
-npx playwright install --with-deps chromium
+npx playwright install --with-deps chromium firefox webkit
 npm run test:e2e
+npm run test:e2e:production
 ```
 
 ## Adding a source

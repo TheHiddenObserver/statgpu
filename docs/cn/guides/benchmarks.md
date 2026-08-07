@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言：中文  
-> 最后更新：2026-07-20  
+> 最后更新：2026-08-07
 > 页面定位：基准脚本索引  
 > 切换：[English](../../en/guides/benchmarks.md)
 
@@ -54,8 +54,9 @@ cd frontend
 npm ci
 npm run typecheck
 npm run build
-npx playwright install --with-deps chromium
+npx playwright install --with-deps chromium firefox webkit
 npm run test:e2e
+npm run test:e2e:production
 ```
 
 ---
