@@ -45,6 +45,12 @@ test.describe('Canonical cross-validation evidence', () => {
     expect(failed[0].metrics.cross_validation.reason).toContain('CPU fallback is disabled');
     expect(failed[0].metrics.timing).toBeUndefined();
 
+    await page.locator('#env-select').selectOption('remote-p100-cv-20260807');
+    const cvScope = page.locator('[data-metric-scope="cross_validation"]');
+    await expect(cvScope).toBeEnabled();
+    await expect(cvScope).toContainText(/CV \([1-9]\d*\)/);
+    await cvScope.click();
+
     const toggle = page.getByText(/Cross-validation Metrics \(\d+\)/);
     await expect(toggle).toBeVisible();
     await toggle.click();
