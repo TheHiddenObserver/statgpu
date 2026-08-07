@@ -3,7 +3,7 @@
   "catalog_version": "2.0",
   "catalog_digest": "2def39980b2e803f26bfcd59778b0343fcbb9aab6f60357e7fc0b9482d9a6602",
   "coverage_matrix_version": "1.0",
-  "coverage_matrix_digest": "6f390c1506d577000df09cc689c150107d1b02f4e316a29c182bbee9b0ef039b",
+  "coverage_matrix_digest": "b805a2033ef63416ecb2fd8bf53fcc54c6bd3d838e3d43f03828d3e235cdaea9",
   "discovered_json_artifacts": 85,
   "classified_candidate_sources": 85,
   "eligible_sources": 8,
@@ -1555,5 +1555,5 @@
     "current_evidence_not_canonical_ready": 2,
     "partial_canonical": 7
   },
-  "generation_id": "a79f5c947cb9085454f6c9e4c8a6821a33ba5d7abd2f98a318f00b6bfcdccc0b"
+  "generation_id": "e07186c6987822c53607b86a10312a78b80091933f128b953e5662d4b710ccc9"
 }
