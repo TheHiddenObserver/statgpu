@@ -1,0 +1,48 @@
+name: PR116 benchmark bundle refresh
+
+on:
+  push:
+    branches:
+      - agent/fix-logistic-cv-torch-p100
+    paths:
+      - '.github/workflows/pr116-refresh-benchmark.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-logistic-cv-torch-p100
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install generator dependencies
+        run: python -m pip install 'jsonschema[format]'
+      - name: Regenerate canonical benchmark data
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+      - name: Rebuild committed benchmark dashboard
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - name: Commit generated bundle and remove one-shot workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/public/data docs/assets/benchmarks
+          git rm .github/workflows/pr116-refresh-benchmark.yml
+          git commit -m 'benchmark: refresh dashboard for PR116 evidence'
+          git push origin HEAD:agent/fix-logistic-cv-torch-p100
