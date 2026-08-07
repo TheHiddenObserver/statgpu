@@ -1,0 +1,102 @@
+name: Temporary CV runner fix
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-runner-fix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-cv-runner-fix
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply exact runner patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('dev/benchmarks/benchmark_cv_models.py')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  'or name in {"_run_cv", "_evaluate_candidates", "_cross_validate"}',
+                  'or name in {"_run_cv", "_evaluate_candidates", "_cross_validate", "_compute_cv_scores"}',
+              ),
+              (
+                  'def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int):\n',
+                  '''def _clear_cv_caches() -> None:\n    """Prevent warmups or repeats from reusing global CV-selection caches."""\n    for module_name, module in list(sys.modules.items()):\n        if module is None or not module_name.startswith("statgpu."):\n            continue\n        for name, value in list(vars(module).items()):\n            if "CACHE" not in name.upper():\n                continue\n            try:\n                if isinstance(value, dict):\n                    value.clear()\n                elif hasattr(value, "clear") and callable(value.clear):\n                    value.clear()\n                elif isinstance(getattr(value, "_cache", None), dict):\n                    value._cache.clear()\n            except Exception:\n                # Cache cleanup is an isolation aid; never hide the measured fit.\n                continue\n\n\ndef _candidate_count(spec: CaseSpec) -> int:\n    """Derive candidate count from the declared case grid."""\n    grid = spec.grid_parameters\n    for key in ("alphas", "Cs", "alpha_grid", "penalties"):\n        value = grid.get(key)\n        if isinstance(value, (list, tuple)):\n            count = len(value)\n            ratios = grid.get("l1_ratio")\n            if isinstance(ratios, (list, tuple)):\n                count *= len(ratios)\n            return count\n    raise ValueError(f"{spec.model_id}: no explicit candidate grid")\n\n\ndef _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int):\n''',
+              ),
+              (
+                  '    module = importlib.import_module(spec.import_module)\n    cls = getattr(module, spec.import_name)\n',
+                  '    module = importlib.import_module(spec.import_module)\n    cls = getattr(module, spec.import_name)\n    _clear_cv_caches()\n',
+              ),
+              (
+                  '            "candidate_count": 3,\n',
+                  '            "candidate_count": _candidate_count(spec),\n',
+              ),
+              (
+                  'def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int):\n',
+                  'def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int):\n',
+              ),
+              (
+                  '''        try:\n            samples = [\n                _run_once(spec, backend, seed, n_samples, n_features)\n                for seed in seeds\n            ]\n''',
+                  '''        try:\n            for warmup_index in range(warmup):\n                _run_once(\n                    spec, backend, seeds[0] + 1_000_000 + warmup_index,\n                    n_samples, n_features,\n                )\n            samples = [\n                _run_once(spec, backend, seed, n_samples, n_features)\n                for seed in seeds\n            ]\n''',
+              ),
+              (
+                  '            "candidate_count": 3,\n            "identity": "explicit-three-candidate-v1",\n',
+                  '            "candidate_count": _candidate_count(spec),\n            "identity": "explicit-candidate-grid-v1",\n',
+              ),
+              (
+                  '    seeds = list(range(args.seed, args.seed + args.repeats))\n',
+                  '    seeds = [args.seed] * args.repeats\n',
+              ),
+              (
+                  '            "seeds": seeds,\n',
+                  '            "seeds": sorted(set(seeds)),\n',
+              ),
+              (
+                  '            _case(spec, backends, seeds, args.n_samples, args.n_features)\n',
+                  '            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup)\n',
+              ),
+              (
+                  'args.out.write_text(json.dumps(source, indent=2, sort_keys=False) + "\\n", encoding="utf-8")',
+                  'args.out.write_text(json.dumps(source, indent=2, sort_keys=False, allow_nan=False) + "\\n", encoding="utf-8")',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, found {count}: {old[:100]!r}')
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate patched runner
+        run: |
+          python -m py_compile dev/benchmarks/benchmark_cv_models.py dev/benchmarks/cv_source.py
+          python -m pip install pytest 'jsonschema[format]'
+          pytest dev/tests/test_benchmark_cv_source.py dev/tests/test_cv_runner_instrumentation.py -q
+      - name: Commit runner fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/benchmarks/benchmark_cv_models.py
+          git commit -m "benchmark: harden CV runner measurement boundaries"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
