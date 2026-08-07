@@ -77,3 +77,11 @@ if cn.exists():
         1,
     )
     cn.write_text(text, encoding="utf-8")
+
+for path in ("docs/en/guides/benchmarks.md", "docs/cn/guides/benchmarks.md"):
+    target = Path(path)
+    if target.exists():
+        text = target.read_text(encoding="utf-8")
+        text = text.replace("> Last updated: 2026-08-07  \n", "> Last updated: 2026-08-07\n")
+        text = text.replace("> 最后更新：2026-08-07  \n", "> 最后更新：2026-08-07\n")
+        target.write_text(text, encoding="utf-8")
