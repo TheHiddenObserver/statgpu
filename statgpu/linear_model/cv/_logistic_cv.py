@@ -730,7 +730,7 @@ class LogisticRegressionCV(CVEstimatorBase):
     max_iter : int
         Maximum number of IRLS iterations. Default is 100.
     tol : float
-        Tolerance for stopping criteria. Default is 1e-4.
+        Convergence tolerance. Default is 1e-4.
     device : str or Device
         Computation device: 'cpu', 'cuda', or 'auto'.
     compute_inference : bool
