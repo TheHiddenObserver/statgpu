@@ -22,6 +22,14 @@ def test_case_specs_cover_six_initial_families() -> None:
     }
 
 
+def test_git_sha_honors_explicit_remote_provenance(monkeypatch) -> None:
+    from dev.benchmarks.benchmark_cv_models import _git_sha
+
+    expected = "ad2cf88d1d443a53eeb5207c33c4ee4f25de2400"
+    monkeypatch.setenv("STATGPU_BENCHMARK_GIT_SHA", expected)
+    assert _git_sha() == expected
+
+
 def test_profiler_observes_selector_and_full_data_refit() -> None:
     from dev.benchmarks.benchmark_cv_models import RegionProfiler
 
