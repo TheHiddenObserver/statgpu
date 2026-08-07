@@ -201,12 +201,17 @@
     {
       "capability_id": "logistic-regression-cv",
       "label": "LogisticRegressionCV",
-      "status": "partial_canonical",
+      "status": "canonical_current",
       "source_ids": [
-        "cv-benchmark-20260807-1347184c988d"
+        "cv-benchmark-20260807-1347184c988d",
+        "cv-benchmark-pr116-20260807-bd8d512adced"
       ],
-      "issue": "#112",
-      "disposition": "Current canonical P100 evidence records NumPy and CuPy success and the explicit Torch strict-CUDA failure without CPU fallback. The production Torch defect is tracked by #112."
+      "representative_dimensions": [
+        "backend",
+        "pre_fix_failure",
+        "post_fix_success",
+        "physical_gpu"
+      ]
     },
     {
       "capability_id": "penalized-glm-cv",
