@@ -8,5 +8,10 @@
     "skipLibCheck": true,
     "types": ["node", "@playwright/test"]
   },
-  "include": ["e2e/**/*.ts", "src/identity.ts"]
+  "include": [
+    "e2e/**/*.ts",
+    "e2e-production/**/*.ts",
+    "playwright.production.config.ts",
+    "src/identity.ts"
+  ]
 }
