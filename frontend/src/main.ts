@@ -7,11 +7,13 @@ import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns 
 import { createDefaultState } from './state';
 import type { AppState } from './state';
 import { h, clear } from './utils/dom';
+import { enhanceDashboardAccessibility } from './accessibility';
 import { renderHeader } from './components/Header';
 import { renderSidebar } from './components/Sidebar';
 import { renderFilterBar } from './components/FilterBar';
 import { renderOverviewTable } from './components/OverviewTable';
 import { renderSummaryCards } from './components/SummaryCards';
+import { renderChartDataFallback } from './components/ChartDataFallback';
 import { renderTimingChart } from './charts/TimingChart';
 import { renderSpeedupChart } from './charts/SpeedupChart';
 import { emptyStateMessage } from './components/EmptyState';
@@ -55,11 +57,13 @@ function renderBody(): HTMLElement {
 }
 
 function renderMain(): HTMLElement {
-  const main = h('div', { class: 'main' });
+  const main = h('main', { class: 'main', id: 'dashboard-main', tabindex: '-1' });
   const filtered = getFilteredRuns();
   main.appendChild(renderFilterBar(data!.runs, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
+  main.appendChild(renderChartDataFallback(filtered, focusedSpeedupRuns(filtered), state!));
   main.appendChild(renderOverviewTable(filtered, state!, update));
+  enhanceDashboardAccessibility(main);
   return main;
 }
 
@@ -86,9 +90,21 @@ function focusedSpeedupRuns(filtered: Run[]): Run[] {
 }
 
 function renderChartArea(filtered: Run[]): HTMLElement {
-  const area = h('div', { class: 'chart-area' });
-  const timingDiv = h('div', { id: 'timing-chart', class: 'chart-container' });
-  const speedupDiv = h('div', { id: 'speedup-chart', class: 'chart-container' });
+  const area = h('div', { class: 'chart-area', 'aria-label': 'Benchmark charts' });
+  const timingDiv = h('div', {
+    id: 'timing-chart',
+    class: 'chart-container',
+    role: 'img',
+    'aria-label': 'Fit Time chart',
+    'aria-describedby': 'timing-chart-data',
+  });
+  const speedupDiv = h('div', {
+    id: 'speedup-chart',
+    class: 'chart-container',
+    role: 'img',
+    'aria-label': 'Speedup vs Reference chart',
+    'aria-describedby': 'speedup-chart-data',
+  });
   area.appendChild(timingDiv);
   area.appendChild(speedupDiv);
 
@@ -186,7 +202,9 @@ function update(): void {
   clear(main);
   main.appendChild(renderFilterBar(allRuns, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
+  main.appendChild(renderChartDataFallback(filtered, focusedSpeedupRuns(filtered), state!));
   main.appendChild(renderOverviewTable(filtered, state!, update));
+  enhanceDashboardAccessibility(main);
 }
 
 // ---------------------------------------------------------------------------
