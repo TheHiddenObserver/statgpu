@@ -7,297 +7,331 @@ Scope: PR-A only — behavior-preserving shared panel framework refactor
 
 ## 1. Stage boundary
 
-Issue #93 explicitly decomposes Tier-1 panel work into at least three PRs. This plan implements **Stage A only**:
+Issue #93 decomposes Tier-1 panel work into at least three PRs. This plan implements **Stage A only**:
 
 1. freeze current numerical/public behavior with golden regression tests;
 2. add an internal shared panel base abstraction;
 3. centralize covariance dispatch for the existing covariance contracts;
-4. migrate existing estimators without changing their statistical definitions or public constructor signatures.
+4. add shared panel index/structure validation and structured result substrate required by #93;
+5. migrate existing estimators without changing statistical definitions or public constructor signatures.
 
-Stage B (Hausman/pooling-F/Breusch-Pagan LM and fit statistics) and Stage C (HC0/HC2/HC3, RandomEffects robust covariance, Driscoll-Kraay, expanded cluster contracts) are intentionally not implemented here.
+Stage B (Hausman/pooling-F/Breusch-Pagan LM and populated fit statistics) and Stage C (HC0/HC2/HC3, RandomEffects robust covariance, Driscoll-Kraay, expanded cluster corrections/contracts) remain separate PRs.
 
-The purpose of Stage A is to create a safe internal substrate for those later public features without mixing structural refactoring with new econometric definitions.
+Stage A may define internal result dataclasses that Stage B will populate, but it must **not** advertise new diagnostic methods or new fitted statistics before their formulas and applicability rules are implemented and externally aligned.
 
 ## 2. Current-source observations
 
 The existing panel package already has substantial shared infrastructure:
 
 - `_formula.py` centralizes formula parsing, missing-row alignment, fixed-effect tokens, and prediction design reconstruction;
-- `_utils.py` already contains `PanelSummary`, panel label factorization, numeric/alpha validation, group operations, demeaning, and a shared OLS inference helper used by `BetweenOLS` and `FirstDifferenceOLS`;
+- `_utils.py` already contains `PanelSummary`, label factorization, numeric/alpha validation, group operations, demeaning, and a shared OLS inference helper used by `BetweenOLS` and `FirstDifferenceOLS`;
 - `_covariance.py` already provides one-way cluster, two-way cluster, and HAC covariance functions with backend-native score accumulation after metadata factorization;
 - `PanelOLS`, `PooledOLS`, `RandomEffects`, and `FamaMacBeth` still contain estimator-local inference/summary/lifecycle logic;
 - all six estimators duplicate some combination of formula-state setup, fitted-state validation, summary construction, feature-name reconstruction, backend conversion, or covariance dispatch.
 
-The refactor must build on these existing helpers rather than replace them with a parallel framework.
+The refactor must extend these helpers rather than create a parallel panel stack.
 
 ## 3. Impact classification
 
 Active axes:
 
-- **Public API compatibility**: constructor signatures, fitted attributes, output array types, summary fields, prediction return types, and exception behavior must remain unchanged;
-- **Backend**: shared helpers must preserve NumPy, CuPy, and Torch device/dtype ownership and strict explicit-device behavior;
-- **Inference**: covariance, standard errors, test statistics, p-values, and confidence intervals are structurally refactored but numerically frozen;
-- **Formula**: shared formula-state/input helpers must preserve intercept, effects-token, missing-row, categorical/interactions, and prediction design behavior;
+- **Public API compatibility**: constructor signatures, fitted attributes, output array types, summary fields, prediction return types, and current exception behavior are frozen;
+- **Backend**: NumPy/CuPy/Torch device and dtype ownership, plus strict explicit-device behavior, are active gates;
+- **Inference**: covariance, standard errors, t statistics, p-values, and confidence intervals are structurally refactored but numerically frozen;
+- **Formula**: intercept/effect token/missing-row/categorical/interaction/prediction-design behavior is active;
+- **Panel structure**: entity/time metadata, balanced/unbalanced detection, ordering, and validation become shared primitives;
 - **Architecture/maintenance**: duplication removal is the principal goal;
-- **Tests**: golden before/after regression coverage is a blocking gate;
-- **Docs/changelog**: architecture change and behavior-preservation evidence must be recorded.
+- **Tests/docs**: golden regression tests and synchronized changelog/design docs are blocking.
 
 Inactive axes:
 
-- CV: panel estimators in this stage are not CV/tuning wrappers;
-- loss/penalty/solver: no optimization objective or penalty changes;
-- new diagnostics: deferred to Stage B;
-- new covariance formulas: deferred to Stage C;
-- performance claims: no speedup claim is made. Any incidental transfer reduction is not a release performance claim.
+- CV: panel estimators here are not tunable CV wrappers;
+- loss/penalty/solver: no objective or optimizer changes;
+- new diagnostics: Stage B;
+- new covariance formulas: Stage C;
+- performance claims: none. Incidental transfer reductions are not marketed as speedups.
 
 ## 4. Capability decisions
 
 | Family | backend | inference | formula | benchmark |
 | --- | --- | --- | --- | --- |
-| PanelOLS | three-backend | supported, behavior-preserving | supported | no performance claim; physical GPU regression required |
-| RandomEffects | three-backend | supported, nonrobust unchanged | supported | no performance claim; physical GPU regression required |
-| PooledOLS | three-backend | supported, existing covariance set unchanged | supported | no performance claim; physical GPU regression required |
-| BetweenOLS | three-backend | supported, existing covariance set unchanged | supported | no performance claim; physical GPU regression required |
-| FirstDifferenceOLS | three-backend | supported, existing covariance set unchanged | supported | no performance claim; physical GPU regression required |
-| FamaMacBeth | three-backend | supported, estimator-specific covariance unchanged | supported | no performance claim; physical GPU regression required |
+| PanelOLS | three-backend | supported, behavior-preserving | supported | physical GPU regression required; no speed claim |
+| RandomEffects | three-backend | supported, nonrobust unchanged | supported | physical GPU regression required; no speed claim |
+| PooledOLS | three-backend | supported, existing covariance set unchanged | supported | physical GPU regression required; no speed claim |
+| BetweenOLS | three-backend | supported, existing covariance set unchanged | supported | physical GPU regression required; no speed claim |
+| FirstDifferenceOLS | three-backend | supported, existing covariance set unchanged | supported | physical GPU regression required; no speed claim |
+| FamaMacBeth | three-backend | supported, estimator-specific covariance unchanged | supported | physical GPU regression required; no speed claim |
 
-`FamaMacBeth` must **not** be routed through the OLS residual sandwich registry: its covariance is computed from the time series of cross-sectional coefficient estimates and is statistically distinct. It may reuse lifecycle/summary/formula helpers only.
+`FamaMacBeth` must **not** use the OLS residual-sandwich dispatcher. Its inference covariance is based on the time series of cross-sectional coefficient estimates and is a different statistical object. It may reuse statistically neutral lifecycle/formula/summary helpers only.
 
-## 5. Golden behavior freeze — before structural migration
+## 5. Golden behavior freeze before refactoring
 
-Add a deterministic `dev/tests/test_panel_stage_a_golden.py` based on the current master behavior. Use fixed seeds and explicit balanced/unbalanced datasets to record invariants for all six estimators.
+Create `dev/tests/test_panel_stage_a_golden.py` in a **pre-refactor commit** and require that commit to pass before changing panel source files. The same file remains active after migration.
 
 For every relevant model freeze:
 
 - `coef_`;
-- fitted/predicted values on deterministic evaluation rows;
-- residual-dependent public statistics where currently exposed;
+- deterministic predictions/fitted behavior;
 - `bse_`, `tvalues_`, `pvalues_`, `conf_int_`;
-- covariance matrix if publicly stored;
-- `nobs`, `df_resid`, rank/effect metadata where currently exposed;
-- existing R-squared field(s);
-- summary `to_dict()` content/field names;
-- prediction return type (NumPy versus backend-native) as currently documented/implemented.
+- covariance matrix if currently public/stored;
+- `nobs`, `df_resid`, rank/effect metadata currently exposed;
+- current R-squared field(s);
+- `PanelSummary.to_dict()` keys/values;
+- prediction return type (NumPy versus backend-native);
+- current failure behavior for rank/df/required identifiers and unsupported covariance names.
 
-Coverage matrix:
+Coverage:
 
-- `PanelOLS`: no effects, entity FE, time FE, two-way FE; nonrobust/robust/one-way clustered/two-way clustered where currently supported; string labels; balanced and unbalanced panels;
-- `RandomEffects`: balanced and unbalanced entity sizes, formula/array parity, variance components and theta;
-- `PooledOLS`: nonrobust/robust/clustered/HAC;
+- `PanelOLS`: no effects, entity, time and two-way FE; nonrobust/robust/one-way/two-way cluster; balanced/unbalanced; string labels;
+- `RandomEffects`: balanced/unbalanced group sizes, variance components, theta, formula/array parity;
+- `PooledOLS`: nonrobust/robust/clustered/HAC, including time-index sorting;
 - `BetweenOLS`: nonrobust/robust;
 - `FirstDifferenceOLS`: nonrobust/robust with and without explicit time sorting;
-- `FamaMacBeth`: nonrobust/newey-west and existing backend-native prediction contract.
+- `FamaMacBeth`: nonrobust/newey-west plus backend-native prediction contract.
 
-Use the unchanged current implementation as the trusted baseline; do not hard-code opaque constants when a same-test pre-refactor calculation or analytic OLS definition is clearer. Where exact snapshots are appropriate, tolerances must be strict enough to catch scaling/df changes.
+Prefer analytic/current-formula reference calculations in tests over unexplained opaque constants. For behavior that is easiest to snapshot, use deterministic constants generated from the pre-refactor commit and strict tolerances that would catch covariance normalization or df drift.
 
-## 6. Shared base design
+## 6. Shared result and panel-structure substrate
 
-Add internal `statgpu/panel/_base.py` with `BasePanelModel(BaseEstimator)` and small structured helper types. It is internal in Stage A and is **not** exported as a public API.
+Add internal `statgpu/panel/_results.py` (not publicly exported in Stage A) with stable dataclasses for later Stage B use:
 
-The base should provide only statistically neutral lifecycle primitives:
+### `PanelTestResult`
+
+Fields should be capable of representing the #93 Stage-B contract without yet creating diagnostic methods:
+
+- `statistic`;
+- `pvalue`;
+- `distribution`;
+- degrees of freedom (scalar or structured tuple as appropriate);
+- `null`;
+- `alternative`;
+- `applicable`;
+- `reason` / applicability diagnostic;
+- small `metadata` mapping.
+
+### `PanelFitStatistics`
+
+Optional fields prepared for Stage B:
+
+- within/between/overall R-squared;
+- adjusted R-squared;
+- model F statistic / p-value / df;
+- any definition metadata needed to state the df convention.
+
+All Stage-A fields may remain `None` where the statistic is not currently implemented. Stage A must not attach misleading new public values to fitted estimators.
+
+### `PanelIndexInfo`
+
+Add a shared internal structure/helper (in `_base.py`, `_utils.py`, or `_results.py`) for observation metadata:
+
+- `nobs`;
+- entity/time factor codes and original labels where provided;
+- entity/time counts;
+- `n_entities`, `n_times`;
+- balanced/unbalanced status when both dimensions are available;
+- optional duplicate `(entity, time)` detection status;
+- observation-order metadata needed to preserve row alignment.
+
+Building this structure may factorize metadata on CPU, but it must not transfer full numerical X/y/residual arrays to CPU. It must not reorder observations implicitly.
+
+This closes the Stage-A requirement for common entity/time/balance validation and prevents Stage B diagnostics from reimplementing panel structure logic independently.
+
+## 7. Shared base design
+
+Add internal `statgpu/panel/_base.py` with `BasePanelModel(BaseEstimator)`. It is **not** exported publicly in Stage A.
+
+The base provides statistically neutral primitives only.
 
 ### A. Formula/model-matrix state
 
-A helper wrapping the existing `_prepare_formula_fit()` / `_align_formula_side_array()` behavior should:
+Wrap existing `_prepare_formula_fit()` / `_align_formula_side_array()` rather than reimplementing parser logic. The helper must:
 
-- preserve `model_has_intercept` and `support_pipe` as explicit per-model arguments;
+- accept explicit `model_has_intercept` and `support_pipe` flags;
 - store `_design_info`, `_feature_names`, `_formula_has_intercept` exactly as today;
-- align named side arrays (entity/time/cluster/time-index) only through existing formula helpers;
-- return fixed-effect metadata without mutating constructor options unless the subclass explicitly applies current behavior (notably `PanelOLS`).
-
-Do not reimplement patsy/fixest/token parsing in `_base.py`.
+- align named side arrays through the existing formula helper;
+- return FE metadata without silently mutating estimator options. `PanelOLS` explicitly applies its current formula-induced effect mutation.
 
 ### B. Backend numeric preparation
 
-Provide a helper that:
+A helper should:
 
-- resolves the estimator backend through the existing `BaseEstimator` device contract;
-- converts numerical X/y to backend float64 while preserving selected device;
-- reshapes a 1-D design to `(n, 1)`;
-- calls existing `validate_panel_alpha()` and `validate_panel_numeric_data()`;
-- does not convert full numerical GPU arrays to NumPy.
+- resolve through the existing `BaseEstimator` device contract;
+- convert numerical X/y to backend float64 on the selected device;
+- reshape 1-D X to `(n, 1)`;
+- reuse `validate_panel_alpha()` and `validate_panel_numeric_data()`;
+- optionally build `PanelIndexInfo` from side metadata;
+- never convert full numerical GPU arrays to NumPy.
 
-Metadata labels may continue to be factorized/aligned on CPU as already documented.
+### C. Shared linear prediction
 
-### C. Shared linear prediction helper
+Provide a helper with explicit switches for:
 
-Provide a helper for ordinary linear prediction that accepts explicit flags:
+- formula-aware design reconstruction;
+- intercept addition;
+- expected feature count;
+- return NumPy versus backend-native.
 
-- add intercept or not;
-- formula-aware reconstruction or raw arrays;
-- return NumPy or backend-native result.
-
-This is required because existing return contracts differ: most panel estimators return NumPy predictions, while `FamaMacBeth` currently preserves a backend-native result. Stage A must preserve this difference rather than normalize it silently.
+The explicit return switch is required because most panel models return NumPy predictions, while `FamaMacBeth` currently keeps a backend-native result.
 
 ### D. Shared summary construction
 
-Provide a helper that creates the existing `PanelSummary` from fitted public attributes while accepting model-specific metadata (`entity_effects`, `time_effects`, variance components, theta, within R², extra fields).
+Construct the existing `PanelSummary` from fitted fields while accepting model-specific metadata (effect flags, within R², variance components, theta, `extra`). Preserve the current `PanelSummary.to_dict()` contract exactly in Stage A.
 
-`PanelSummary` remains the public structured summary container in Stage A. New Stage-B test/fit-stat result types will be added later rather than prematurely expanding the Stage-A public contract.
+## 8. Covariance registry design
 
-## 7. Covariance registry design
+Extend `statgpu/panel/_covariance.py` with an internal registry/dispatcher for the **existing** OLS/transformed-OLS covariance names only.
 
-Extend `statgpu/panel/_covariance.py` with an internal centralized registry/dispatcher for the **existing** covariance names only.
-
-The registry must distinguish statistical contexts rather than assume every estimator uses the same sandwich object:
-
-- OLS/transformed-OLS residual covariance: nonrobust, HC1 (`robust`), clustered, HAC when currently supported;
-- Fama-MacBeth coefficient-series covariance: remains estimator-specific and outside the residual-sandwich dispatcher.
-
-The OLS dispatcher should accept explicit context rather than infer hidden corrections:
+Inputs must make statistical corrections explicit:
 
 - `X`, `resid`, `scale`;
-- `df_resid` and effective rank/parameter count as applicable;
+- `df_resid` / effective rank information as required;
+- backend/xp;
 - cluster metadata;
 - bandwidth/kernel;
-- backend/xp;
-- allowed covariance names for the calling estimator.
+- allowed names for the calling estimator.
 
 Behavior-preserving formulas:
 
-- nonrobust: preserve current scale and bread normalization exactly;
-- `robust`: preserve the current HC1 correction used by each migrated path; where the existing correction is `n/df_resid`, pass that explicitly rather than replacing it by `n/(n-k)`;
-- clustered: call the existing `clustered_covariance()` / `two_way_clustered_covariance()` functions without adding a new small-sample correction;
-- HAC: call the existing `hac_covariance()` implementation with unchanged bandwidth/kernel semantics.
+- nonrobust: preserve existing bread/scale normalization exactly;
+- `robust`: preserve current HC1 correction. If current behavior is `n/df_resid`, pass that correction explicitly rather than replacing it with a generic hidden `n/(n-k)`;
+- clustered: delegate to existing one-/two-way cluster functions with no new small-sample correction;
+- HAC: delegate to existing `hac_covariance()` with unchanged bandwidth/kernel semantics.
 
-The dispatcher must reject unsupported covariance names explicitly. Stage A must not add HC0/HC2/HC3/Driscoll-Kraay aliases; those belong to Stage C.
+Unsupported names must fail explicitly. Do **not** add HC0/HC2/HC3/Driscoll-Kraay aliases in Stage A.
 
-## 8. Estimator migration order
+The registry should return a backend-native covariance matrix. A shared inference helper may then compute bse/t-or-z/p/CI and transfer only final small vectors.
 
-Migrate in risk order and rerun golden tests after each group.
+## 9. Estimator migration order
 
-### Group 1 — BetweenOLS and FirstDifferenceOLS
+Migrate and rerun golden tests in risk order.
 
-These already share `compute_panel_inference`; move them to `BasePanelModel`, the shared input/summary/prediction lifecycle, and the covariance registry with the smallest numerical surface change.
+### Group 1 — BetweenOLS / FirstDifferenceOLS
+
+They already share `compute_panel_inference`; move to `BasePanelModel`, shared formula/backend/summary/prediction helpers and registry with minimal numerical change.
 
 ### Group 2 — PooledOLS
 
-Replace estimator-local formula/backend/summary/prediction duplication and covariance `if/elif` dispatch with shared primitives. Preserve:
+Replace local lifecycle/summary/prediction and covariance dispatch. Preserve:
 
 - automatic intercept;
-- rank-aware df;
+- effective-rank residual df;
 - robust HC1 scaling;
-- cluster requirement and factorization;
-- HAC temporal stable sort behavior;
-- NumPy prediction return type.
+- cluster requirement/factorization;
+- HAC stable sort by `time_index`;
+- NumPy prediction output.
 
 ### Group 3 — PanelOLS
 
-Adopt the shared base and covariance registry while leaving fixed-effect transformation and effect-map computation model-specific. Preserve:
+Share base/registry while keeping within transformation and effect-map computation specialized. Preserve:
 
-- constructor flags and formula token/pipe mutation behavior;
-- FE df counting exactly as current behavior;
-- one-way/two-way clustered contracts;
+- constructor and formula effect behavior;
+- absorbed-effect df logic;
+- one-/two-way cluster behavior;
 - within R²;
-- existing prediction/effect-map semantics.
+- existing effect maps and prediction semantics.
 
-Do not make effects lazy in this PR unless golden tests prove the externally observable maps and predictions remain identical. The proposal's lazy-effects idea is subordinate to behavior preservation.
+Do not make effects lazy in Stage A unless the same public maps/predictions are demonstrably identical. Behavior preservation outranks the older proposal's lazy-effects preference.
 
 ### Group 4 — RandomEffects
 
-Adopt shared formula/backend/summary/prediction lifecycle and shared nonrobust inference primitives, but leave Swamy-Arora variance-component estimation and quasi-demeaning model-specific. Do not add `cov_type` here in Stage A; robust RE belongs to Stage C.
+Share neutral formula/backend/summary/prediction and nonrobust inference primitives. Keep Swamy-Arora variance-component estimation and quasi-demeaning specialized. Do not add a `cov_type` constructor argument in Stage A; robust RE is Stage C.
 
 ### Group 5 — FamaMacBeth
 
-Inherit from the shared base only for formula state, parameter validation helpers, and summary construction where this can be done without changing backend-native output contracts. Its beta-series covariance and backend-native `predict()` result remain specialized.
+Reuse only neutral formula state, common parameter validation where equivalent, `PanelIndexInfo`, and summary construction. Keep backend detection, beta-series covariance and backend-native prediction specialized if sharing them would change current behavior or create more branching than duplication removed.
 
-If migration of a specialized Fama-MacBeth path creates more duplication/branches than it removes, Stage A may leave its numerical path unchanged while still sharing the neutral summary/formula lifecycle. This must be documented in the PR review rather than forcing an inappropriate abstraction.
+## 10. Rank/df and validation contract
 
-## 9. Rank/df and validation contract
+Stage A must not harmonize currently different df conventions.
 
-Stage A must not silently harmonize currently different df conventions.
-
-Before migration, tests must freeze:
+Freeze and preserve:
 
 - PooledOLS effective-rank residual df;
-- PanelOLS absorbed-effect df logic;
+- PanelOLS absorbed-effect df;
 - BetweenOLS group-level residual df;
 - FirstDifferenceOLS differenced-sample residual df;
 - RandomEffects within/between/GLS df definitions;
 - FamaMacBeth `T-1` inference df.
 
-A later Stage B may expose/document unified fit-statistics df definitions, but this PR must not change the fitted inference numbers to achieve superficial architectural consistency.
+Shared `PanelIndexInfo` validation must explicitly cover:
 
-Rank-deficient behavior should remain explicit and should not become silently more permissive or restrictive through a shared helper.
+- one-dimensional entity/time labels of correct length;
+- balanced and unbalanced panels;
+- deterministic original-label/code mapping;
+- observation-order preservation;
+- duplicate `(entity, time)` detection as metadata/error according to current model needs, without introducing a blanket new rejection that would break existing valid inputs.
 
-## 10. Backend and host-transfer contract
+Rank-deficient paths must not become silently more or less permissive because of shared helpers.
+
+## 11. Backend and host-transfer contract
 
 Blocking rules:
 
-- NumPy, CuPy, and Torch remain supported for all touched public estimators;
-- explicit `device='cuda'` / `device='torch'` never falls back to CPU;
-- full transformed designs, residuals, scores, and covariance accumulation remain backend-native;
-- CPU transfer is allowed for metadata factorization and final small result vectors/scalars exactly where existing contracts permit it;
-- do not introduce a new `_to_numpy(X)` / `_to_numpy(resid)` in numerical core paths.
+- NumPy, CuPy and Torch remain supported for every touched public model;
+- explicit CUDA/Torch requests never silently fall back;
+- transformed design, residual, score and covariance accumulation remain on selected backend;
+- CPU transfer is allowed for metadata factorization and final small result/scalar conversion only, consistent with current contracts;
+- no new `_to_numpy(X)`, `_to_numpy(y)`, `_to_numpy(resid)` in numerical core paths.
 
-Add Torch-CPU backend tests for deterministic hosted coverage and preserve/extend static host-transfer assertions. Physical CuPy/Torch validation remains a required remote gate because the refactor touches shared backend paths.
+Hosted Torch-CPU tests provide deterministic backend coverage; physical CuPy/Torch CUDA remains a remote completion gate.
 
-## 11. Test plan
+## 12. Test plan
 
-Add or strengthen:
+Add/strengthen:
 
-1. `test_panel_stage_a_golden.py` — behavior freeze for all six estimators;
-2. `test_panel_stage_a_framework.py` — base helper lifecycle and covariance registry contracts;
-3. formula parity tests covering intercept, categorical, interaction, missing-row alignment, FE tokens/pipe syntax;
-4. balanced/unbalanced panel validation and string label ordering;
-5. rank-deficiency/df failure tests;
-6. covariance registry direct tests for existing nonrobust/HC1/cluster/HAC formulas versus the pre-refactor analytic/current implementations;
-7. NumPy/Torch-CPU parity across all touched estimators;
-8. CuPy/Torch CUDA physical smoke matrix after hosted CI is clean;
-9. static tests that forbid new full-data host transfers in transformed design/residual/covariance paths.
+1. `test_panel_stage_a_golden.py` — committed and green before source refactor, then retained;
+2. `test_panel_stage_a_framework.py` — base/result/index/registry contracts;
+3. direct covariance formula tests for nonrobust/HC1/cluster/HAC against analytic pre-refactor definitions;
+4. formula parity: intercept, categorical, interactions, missing-row alignment, FE tokens/pipe syntax;
+5. balanced/unbalanced/index-order/string-label/duplicate-pair metadata tests;
+6. rank-deficiency and residual-df failure tests;
+7. NumPy/Torch-CPU parity across touched estimators;
+8. static host-transfer checks in transformed-design/residual/covariance paths;
+9. physical CuPy/Torch CUDA smoke matrix after hosted CI is clean.
 
-Existing `test_panel_p2.py`, `test_panel_formula.py`, and panel coverage in `test_third_full_review.py` remain regression gates and should be reused rather than duplicated blindly.
+Reuse existing `test_panel_p2.py`, `test_panel_formula.py`, and panel checks in `test_third_full_review.py` rather than duplicating them blindly.
 
-## 12. External alignment
+## 13. External alignment
 
-Stage A is behavior-preserving, so its primary correctness baseline is the exact pre-refactor statgpu implementation plus analytic OLS/sandwich identities.
+Stage A's primary baseline is exact pre-refactor statgpu behavior plus analytic OLS/sandwich identities. If `linearmodels` is available, retain/add representative comparisons, but do not change formulas merely to match another package's small-sample or df convention.
 
-Where `linearmodels` is available locally/CI, retain or add representative coefficient/covariance comparison. Do not change Stage-A formulas merely to match a different external small-sample/df convention.
+The complete linearmodels/plm/Stata definition matrix becomes blocking in Stage B/C when new diagnostics/covariances are public.
 
-The full linearmodels/plm/Stata definition matrix is a Stage B/C acceptance item when new diagnostics/covariance APIs are introduced.
+## 14. Documentation
 
-## 13. Documentation
+After validation update:
 
-Update:
+- root changelog;
+- EN/CN changelogs;
+- panel design/proposal status showing Stage A implemented and Stage B/C pending.
 
-- root changelog with PR-A architecture summary after validation;
-- EN/CN changelog consistently;
-- panel developer/design documentation to mark Stage A implemented and Stage B/C still pending.
+Do not advertise diagnostics/covariance types that Stage A does not implement.
 
-Because Stage A is intended to preserve user behavior, do not advertise new diagnostics or covariance types.
+## 15. Review/fix gates
 
-## 14. Review/fix gates
+Plan review must challenge:
 
-Plan review must specifically challenge:
+- output/device/formula compatibility of the base abstraction;
+- covariance normalization and HC1 df correction;
+- whether FamaMacBeth is forced into an invalid OLS abstraction;
+- whether golden coverage is genuinely pre-refactor;
+- whether effect maps are accidentally changed;
+- whether Stage-A structured result/index requirements from #93 are actually represented without prematurely publishing Stage-B statistics.
 
-- whether the base abstraction changes any output/device/formula contract;
-- whether covariance normalization/HC1 df corrections remain estimator-equivalent;
-- whether FamaMacBeth is being forced through an invalid OLS abstraction;
-- whether golden tests are sufficiently broad before refactoring;
-- whether effect maps/predictions are accidentally changed by proposed lazy handling.
+Implementation review must inspect formulas/scaling/df, three-backend ownership/transfers, formula/missing-row/index alignment, rank behavior, result/summary/prediction types, covariance unsupported-name errors, and whether duplication is actually removed.
 
-Implementation review must inspect:
+Fix every CRITICAL/HIGH and relevant MEDIUM finding, rerun affected gates, and perform a fresh review again.
 
-- formulas/scaling/df;
-- three-backend device ownership and host transfers;
-- formula/missing-row/index alignment;
-- rank-deficiency behavior;
-- summary/prediction output types;
-- covariance dispatch and unsupported-name errors;
-- code reuse and whether the new base actually removes duplication.
-
-Fix all CRITICAL/HIGH and relevant MEDIUM findings, rerun targeted/full gates, then fresh-review again.
-
-## 15. Exit criteria for PR-A
+## 16. Exit criteria
 
 `COMPLETE` requires:
 
-- golden behavior tests pass after migration;
-- all existing panel tests and full hosted CPU suite pass;
-- Python compatibility/static/docs gates pass;
+- pre-refactor golden tests were green and remain green after migration;
+- existing panel tests plus full hosted CPU suite pass;
+- compatibility/static/docs gates pass;
 - NumPy/Torch hosted parity passes;
-- physical CuPy and Torch CUDA regression passes on the final numerical implementation head;
+- final numerical implementation head passes physical CuPy and Torch CUDA regression;
 - no unresolved CRITICAL/HIGH review findings;
-- docs/changelog updated.
+- docs/changelog are synchronized.
 
-If only physical GPU validation is unavailable after all local/hosted gates pass, stop at `PARTIAL_REMOTE_PENDING` with an exact final-head remote command. Do not merge PR-A until the user explicitly requests merge.
+If only physical GPU evidence is unavailable after all hosted/local gates pass, finish Stage A as `PARTIAL_REMOTE_PENDING` with an exact final-head validation command. PR-A must not be merged without an explicit user merge request.
