@@ -163,20 +163,24 @@ export interface InferenceMetric {
   source_file: string;
 }
 
+export type CrossValidationStatus = 'success' | 'failed' | 'unavailable' | 'unsupported';
+
 export interface CrossValidationMetric {
-  cv_evaluation_ms: number;
-  final_refit_ms: number;
-  total_fit_ms: number;
-  selected_parameters: Record<string, unknown>;
-  validation_score: number;
-  final_score: number;
+  status: CrossValidationStatus;
+  reason: string | null;
+  cv_evaluation_ms?: number;
+  final_refit_ms?: number;
+  total_fit_ms?: number;
+  selected_parameters?: Record<string, unknown>;
+  validation_score?: number;
+  final_score?: number;
   scoring_name: string;
   scoring_direction: 'minimize' | 'maximize';
   candidate_count: number;
   fold_count: number;
-  failed_candidates: number;
-  failed_folds: number;
-  final_refit_converged: boolean;
+  failed_candidates?: number;
+  failed_folds?: number;
+  final_refit_converged?: boolean;
   quality: MetricQuality;
   source_file: string;
 }
