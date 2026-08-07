@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -86,3 +87,24 @@ def test_serialized_inventory_omits_legacy_aliases() -> None:
     # reintroducing those keys into the published JSON contract.
     assert inventory["available_sources"] == 8
     assert inventory["parsed_sources"] == 8
+
+
+def test_modified_repository_manifest_retains_legacy_inventory_contract() -> None:
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    modified = deepcopy(manifest)
+    modified["environments"]["remote-p100"]["label"] = "Synthetic environment"
+
+    output, _, inventory = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=modified,
+        strict_sources=True,
+    )
+
+    assert inventory["inventory_version"] == "1.0"
+    assert "catalog_entries" not in inventory
+    assert output["environments"][0]["label"] == "Synthetic environment"
