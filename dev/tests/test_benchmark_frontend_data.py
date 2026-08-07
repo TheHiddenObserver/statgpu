@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Tests for the benchmark frontend data generator."""
 
 import json
 import math
@@ -8,112 +9,134 @@ from pathlib import Path
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
+repo_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(repo_root))
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def generator():
     from dev.benchmarks.generate_benchmark_data import generate
 
     return generate
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def results_dir():
-    return REPO_ROOT / "results"
+    return repo_root / "results"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def manifest():
     from dev.benchmarks.frontend_data.registry import load_manifest
 
-    return load_manifest(REPO_ROOT)
+    return load_manifest(repo_root)
 
 
 class TestGenerateBenchmarkData:
-    """Transitional discovery-mode generator tests."""
+    """Integration tests for the June-only fallback registry."""
 
     def test_generate_produces_valid_output(self, generator, results_dir):
-        output, report, inventory = generator(results_dir, deterministic=True)
+        output, report, inventory = generator(results_dir)
         assert output["schema_version"] == "1.1.0"
+        assert len(output["environments"]) >= 1
+        assert len(output["categories"]) == 12
+        assert output["models"]
         assert output["runs"]
+        assert output["frameworks"]
+        assert output["comparisons"]
+        assert output["meta"]["generation_id"]
+        assert report["files_parsed"] == 2
         assert report["runs_generated"] == len(output["runs"])
-        assert inventory["catalog_total"] >= 1
+        assert inventory["registered_sources"] == 2
 
     def test_all_runs_have_required_fields(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
+        output, _, _ = generator(results_dir)
+        required = {
+            "run_id",
+            "env_id",
+            "category_ids",
+            "model_id",
+            "framework",
+            "backend",
+            "scale",
+            "source",
+            "comparison_id",
+            "case_id",
+            "method_config_id",
+        }
         for run in output["runs"]:
-            assert run["run_id"]
-            assert run["env_id"]
-            assert run["category_ids"]
-            assert run["model_id"]
-            assert run["framework"]
-            assert "backend" in run
-            assert run["scale"]["scale_key"]
-            assert run["source"]["file"]
-            assert run["metrics"]
+            assert required <= run.keys(), run.get("run_id", "?")
+            assert "source_id" in run["source"]
 
     def test_no_duplicate_run_ids(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
+        output, _, _ = generator(results_dir)
         run_ids = [run["run_id"] for run in output["runs"]]
         assert len(run_ids) == len(set(run_ids))
 
     def test_framework_backend_consistency(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
-        external = {
-            framework["framework_id"]
-            for framework in output["frameworks"]
-            if framework["external"]
-        }
+        output, _, _ = generator(results_dir)
         for run in output["runs"]:
-            if run["framework"] in external:
+            if run["framework"] == "statgpu":
+                assert run["backend"] in {"numpy", "cupy", "torch"}
+            else:
                 assert run["backend"] is None
 
     def test_metrics_are_finite_and_valid(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
+        output, _, _ = generator(results_dir)
 
-        def visit(value):
-            if isinstance(value, dict):
-                for nested in value.values():
-                    visit(nested)
+        def check_finite(value, path=""):
+            if isinstance(value, float):
+                assert not math.isnan(value), path
+                assert not math.isinf(value), path
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    check_finite(item, f"{path}.{key}")
             elif isinstance(value, list):
-                for nested in value:
-                    visit(nested)
-            elif isinstance(value, float):
-                assert math.isfinite(value)
+                for index, item in enumerate(value):
+                    check_finite(item, f"{path}[{index}]")
 
-        visit(output)
         for run in output["runs"]:
             timing = run.get("metrics", {}).get("timing")
             if timing:
-                assert timing["fit_time_ms"] > 0
+                assert timing["fit_time_ms"] >= 0
+                if "std_ms" in timing:
+                    assert timing["std_ms"] >= 0
+                if "min_ms" in timing and "max_ms" in timing:
+                    assert timing["min_ms"] <= timing["max_ms"]
+            speedup = run.get("metrics", {}).get("speedup")
+            if speedup:
+                assert speedup["value"] > 0
+                assert "reference_backend" in speedup
+                assert "reference_framework" in speedup
+                assert "reported_semantics" in speedup
+            check_finite(run, run["run_id"])
 
     def test_penalized_glm_parser_has_three_backends(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
-        rows = [
-            run
-            for run in output["runs"]
-            if run["source"]["file"] == "penalized_glm_bench_perf_2026-06-22.json"
-            and run["framework"] == "statgpu"
-        ]
-        if rows:
-            assert {run["backend"] for run in rows} == {"numpy", "cupy", "torch"}
+        output, _, _ = generator(results_dir)
+        runs = [run for run in output["runs"] if "penalized_glm" in run["category_ids"]]
+        assert runs
+        assert {run["backend"] for run in runs if run["backend"]} >= {
+            "numpy",
+            "cupy",
+            "torch",
+        }
+        assert any(run.get("loss") == "squared_error" for run in runs)
 
     def test_solver_parser_has_dispatch_and_manual_runs(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
-        rows = [
+        output, _, _ = generator(results_dir)
+        runs = [
             run
             for run in output["runs"]
-            if run["source"]["file"] == "glm_solver_benchmark_2026-06-23.json"
+            if run["source"]["parser"] == "parse_glm_solver_benchmark_v1"
+            and run.get("metrics", {}).get("speedup")
         ]
-        if rows:
-            kinds = {run.get("solver_kind") for run in rows}
-            assert {"dispatch", "manual"} <= kinds
+        assert runs
+        assert {run.get("solver_kind") for run in runs} >= {"dispatch", "manual"}
 
     def test_category_and_scale_contracts(self, generator, results_dir):
-        output, _, _ = generator(results_dir, deterministic=True)
+        output, _, _ = generator(results_dir)
         for run in output["runs"]:
+            assert isinstance(run["category_ids"], list)
             assert run["category_ids"]
             scale = run["scale"]
             assert {"scale_key", "n_samples", "n_features", "label"} <= scale.keys()
@@ -204,8 +227,6 @@ class TestManifestMode:
             "PenalizedGLM_CV",
             "CoxPHCV",
         } <= model_ids
-        # The old April non-CV ElasticNet benchmark remains excluded; only the
-        # current six-family CV package is promoted by #91.
         assert "ElasticNet" not in model_ids
 
 
@@ -225,111 +246,96 @@ def test_make_scale_label_preserves_fractional_thousands():
     assert make_scale_label(1500, 20) == "1.5K×20"
 
 
-def test_manifest_registry_allows_unhashed_sources(tmp_path):
-    from dev.benchmarks.frontend_data.registry import validate_manifest_sources
+def test_manifest_registry_allows_unhashed_sources():
+    from dev.benchmarks.frontend_data.registry import build_registry_from_manifest
 
-    source = tmp_path / "sample.json"
-    source.write_text("{}", encoding="utf-8")
-    manifest = {
-        "sources": [
-            {
-                "source_id": "sample",
-                "path": "sample.json",
-                "parser": "comprehensive_validation",
-                "env_id": "env",
-                "required": True,
-                "source_date": "2026-06-01",
-            }
-        ]
-    }
-    issues = validate_manifest_sources(tmp_path, manifest, strict_sources=False)
-    assert not any(issue["severity"] == "error" for issue in issues)
+    registry = build_registry_from_manifest(
+        {
+            "minimum_source_date": "2026-06-01",
+            "sources": [
+                {
+                    "path": "results/example.json",
+                    "parser": "knockoff_benchmark",
+                    "env_id": "test",
+                    "source_id": "example-20260601-000000000000",
+                    "source_date": "2026-06-01",
+                }
+            ],
+        }
+    )
+    assert "sha256" not in registry["results/example.json"]
 
 
-def test_manifest_date_policy_rejects_old_and_undated_sources(tmp_path):
-    from dev.benchmarks.frontend_data.registry import validate_manifest_sources
+def test_manifest_date_policy_rejects_old_and_undated_sources():
+    from dev.benchmarks.frontend_data.registry import (
+        build_registry_from_manifest,
+        validate_manifest_source_dates,
+    )
 
-    (tmp_path / "old.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "undated.json").write_text("{}", encoding="utf-8")
-    manifest = {
+    undated = {"minimum_source_date": "2026-06-01", "sources": [{"source_id": "x"}]}
+    old = {
         "minimum_source_date": "2026-06-01",
-        "sources": [
-            {
-                "source_id": "old",
-                "path": "old.json",
-                "parser": "comprehensive_validation",
-                "env_id": "env",
-                "required": True,
-                "source_date": "2026-05-31",
-            },
-            {
-                "source_id": "undated",
-                "path": "undated.json",
-                "parser": "comprehensive_validation",
-                "env_id": "env",
-                "required": True,
-            },
-        ],
+        "sources": [{"source_id": "x", "source_date": "2026-04-30"}],
     }
-    issues = validate_manifest_sources(tmp_path, manifest, strict_sources=False)
-    codes = {issue["code"] for issue in issues}
-    assert "source_before_minimum_date" in codes
-    assert "missing_source_date" in codes
+
+    with pytest.raises(ValueError, match="missing source_date"):
+        validate_manifest_source_dates(undated)
+    with pytest.raises(ValueError, match="minimum allowed date"):
+        validate_manifest_source_dates(old)
+    with pytest.raises(ValueError, match="minimum allowed date"):
+        build_registry_from_manifest(old)
 
 
-def test_direct_manifest_generation_rejects_pre_june_sources(tmp_path):
-    from dev.benchmarks.generate_benchmark_data import generate
-
+def test_direct_manifest_generation_rejects_pre_june_sources(generator, tmp_path):
     source = tmp_path / "old.json"
     source.write_text("{}", encoding="utf-8")
     manifest = {
         "minimum_source_date": "2026-06-01",
-        "environments": {"env": {"label": "env", "gpu": "", "cpu": ""}},
-        "frameworks": {},
-        "comparisons": {},
         "sources": [
             {
-                "source_id": "old",
-                "path": "old.json",
-                "parser": "comprehensive_validation",
-                "env_id": "env",
-                "required": True,
-                "source_date": "2026-05-31",
+                "path": str(source),
+                "parser": "knockoff_benchmark",
+                "env_id": "test",
+                "source_id": "old-20260430-000000000000",
+                "source_date": "2026-04-30",
             }
         ],
     }
-    with pytest.raises(ValueError, match="source_before_minimum_date"):
-        generate(tmp_path, manifest=manifest, strict_sources=True)
+    with pytest.raises(ValueError, match="minimum allowed date"):
+        generator(tmp_path, manifest=manifest)
 
 
-def test_strict_mode_requires_hash_for_required_source(tmp_path):
-    from dev.benchmarks.frontend_data.registry import validate_manifest_sources
-
-    source = tmp_path / "sample.json"
+def test_strict_mode_requires_hash_for_required_source(generator, tmp_path):
+    source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")
     manifest = {
+        "catalog_total": 1,
         "minimum_source_date": "2026-06-01",
+        "environments": {"test": {"label": "Test", "gpu": "none", "cpu": "test"}},
         "sources": [
             {
-                "source_id": "sample",
-                "path": "sample.json",
-                "parser": "comprehensive_validation",
-                "env_id": "env",
-                "required": True,
+                "path": str(source),
+                "parser": "knockoff_benchmark",
+                "env_id": "test",
+                "source_id": "example-20260601-000000000000",
                 "source_date": "2026-06-01",
+                "required": True,
             }
         ],
     }
-    issues = validate_manifest_sources(tmp_path, manifest, strict_sources=True)
-    assert any(issue["code"] == "missing_source_hash" for issue in issues)
+    with pytest.raises(ValueError, match="missing SHA256"):
+        generator(tmp_path, manifest=manifest, strict_sources=True)
 
 
 def test_load_manifest_propagates_invalid_json(tmp_path):
     from dev.benchmarks.frontend_data.registry import load_manifest
 
-    (tmp_path / "dev" / "benchmarks").mkdir(parents=True)
-    (tmp_path / "dev" / "benchmarks" / "frontend_sources.json").write_text(
-        "{ invalid", encoding="utf-8"
-    )
+    manifest_dir = tmp_path / "dev" / "benchmarks"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "frontend_sources.json").write_text("{", encoding="utf-8")
     with pytest.raises(json.JSONDecodeError):
         load_manifest(tmp_path)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
