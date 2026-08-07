@@ -315,16 +315,59 @@ def _fit_args(spec: CaseSpec, X, target):
     return (X, target)
 
 
+def _to_numpy(value):
+    import numpy as np
+
+    module = type(value).__module__.split(".")[0]
+    if module == "cupy":
+        import cupy as cp
+        return cp.asnumpy(value)
+    if module == "torch":
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
 def _score_model(model, spec: CaseSpec, X_test, target_test) -> float:
-    if spec.task == "survival":
-        time_value, event = target_test
-        for args in ((X_test, time_value, event), (X_test, (time_value, event))):
-            try:
-                return float(model.score(*args))
-            except (TypeError, AttributeError):
-                continue
-        return float("nan")
-    return float(model.score(X_test, target_test))
+    """Evaluate the source-declared score rather than estimator.score aliases."""
+    import numpy as np
+
+    if spec.task == "regression":
+        prediction = _to_numpy(model.predict(X_test)).reshape(-1)
+        target = _to_numpy(target_test).reshape(-1)
+        residual = prediction - target
+        return float(np.mean(residual * residual))
+
+    if spec.task == "classification":
+        target = _to_numpy(target_test).astype(int).reshape(-1)
+        if hasattr(model, "predict_proba"):
+            probability = _to_numpy(model.predict_proba(X_test))
+            if probability.ndim == 2:
+                probability = probability[:, 1]
+        else:
+            decision = _to_numpy(model.decision_function(X_test)).reshape(-1)
+            probability = 1.0 / (1.0 + np.exp(-decision))
+        probability = np.clip(
+            np.asarray(probability).reshape(-1), 1e-15, 1.0 - 1e-15
+        )
+        return float(
+            -np.mean(
+                target * np.log(probability)
+                + (1 - target) * np.log(1 - probability)
+            )
+        )
+
+    time_value, event = target_test
+    from statgpu.survival._cox_cv import _compute_partial_likelihood
+
+    return float(
+        _compute_partial_likelihood(
+            _to_numpy(X_test),
+            _to_numpy(time_value),
+            _to_numpy(event),
+            _to_numpy(model.coef_),
+            ties=str(spec.grid_parameters.get("ties", "breslow")),
+        )
+    )
 
 
 def _selected_parameters(model) -> dict[str, Any]:
@@ -341,15 +384,17 @@ def _selected_parameters(model) -> dict[str, Any]:
     return selected
 
 
-def _best_score(model) -> float:
+def _validation_score(model, spec: CaseSpec) -> float:
+    """Normalize internal CV scores to the declared direction and units."""
     for name in ("best_score_", "best_cv_score_", "cv_score_"):
         value = getattr(model, name, None)
-        if value is not None:
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                pass
-    return float("nan")
+        if value is None:
+            continue
+        score = float(value)
+        if spec.scoring_direction == "minimize" and score < 0.0:
+            score = -score
+        return score
+    raise RuntimeError("fitted CV estimator did not expose a validation score")
 
 
 def _clear_cv_caches() -> None:
@@ -439,7 +484,7 @@ def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_feature
         "final_refit_ms": profiler.refit_ms,
         "total_fit_ms": total_ms,
         "selected_parameters": selected,
-        "validation_score": _best_score(model),
+        "validation_score": _validation_score(model, spec),
         "final_score": _score_model(model, spec, X_test_backend, target_test_backend),
         "n_iter": n_iter,
     }
