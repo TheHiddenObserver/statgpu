@@ -1,0 +1,49 @@
+name: Temporary materialize dashboard QA assets
+
+on:
+  push:
+    branches:
+      - agent/benchmark-production-qa-accessibility
+    paths:
+      - .github/workflows/_temporary-materialize-dashboard-qa.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/benchmark-production-qa-accessibility
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Typecheck and build deployed assets
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run build
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Run existing Chromium regression
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Run nested production three-browser QA
+        working-directory: frontend
+        run: npm run test:e2e:production
+      - name: Commit validated deployed assets
+        run: |
+          git rm .github/workflows/_temporary-materialize-dashboard-qa.yml
+          git config user.name 'Ziqian Lin'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git add docs/assets/benchmarks
+          git diff --cached --check
+          git commit -m 'benchmark: materialize production QA assets'
+          git push origin HEAD:agent/benchmark-production-qa-accessibility
