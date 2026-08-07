@@ -15,6 +15,7 @@ SUPPORTED_SKLEARN_MODELS = {
 
 
 def _candidate_values(spec: Any) -> list[dict[str, Any]]:
+    """Return candidates on statgpu's public parameter scale."""
     grid = spec.grid_parameters
     if spec.model_id == "RidgeCV":
         return [{"alpha": float(value)} for value in grid["alphas"]]
@@ -34,25 +35,48 @@ def _candidate_values(spec: Any) -> list[dict[str, Any]]:
     raise ValueError(f"no aligned sklearn reference for {spec.model_id}")
 
 
-def _make_estimator(spec: Any, candidate: dict[str, Any], seed: int):
+def _make_estimator(
+    spec: Any,
+    candidate: dict[str, Any],
+    seed: int,
+    n_fit_samples: int,
+):
+    """Construct an aligned reference on the current fit-subset scale."""
     from sklearn.linear_model import ElasticNet, Lasso, LogisticRegression, Ridge
 
     if spec.model_id == "RidgeCV":
-        return Ridge(alpha=candidate["alpha"], fit_intercept=True)
+        # statgpu uses average squared loss while sklearn Ridge uses an
+        # unnormalised residual sum of squares. The mapping therefore depends
+        # on the number of rows in each fold and differs again for final refit.
+        return Ridge(
+            alpha=float(n_fit_samples) * candidate["alpha"],
+            fit_intercept=True,
+        )
     if spec.model_id == "LassoCV":
         return Lasso(
-            alpha=candidate["alpha"], fit_intercept=True,
-            max_iter=5000, tol=1e-7, selection="cyclic",
+            alpha=candidate["alpha"],
+            fit_intercept=True,
+            max_iter=5000,
+            tol=1e-7,
+            selection="cyclic",
         )
     if spec.model_id == "ElasticNetCV":
         return ElasticNet(
-            alpha=candidate["alpha"], l1_ratio=candidate["l1_ratio"],
-            fit_intercept=True, max_iter=5000, tol=1e-7, selection="cyclic",
+            alpha=candidate["alpha"],
+            l1_ratio=candidate["l1_ratio"],
+            fit_intercept=True,
+            max_iter=5000,
+            tol=1e-7,
+            selection="cyclic",
         )
     if spec.model_id == "LogisticRegressionCV":
         return LogisticRegression(
-            C=candidate["C"], penalty="l2", solver="lbfgs",
-            fit_intercept=True, max_iter=1000, tol=1e-7,
+            C=candidate["C"],
+            penalty="l2",
+            solver="lbfgs",
+            fit_intercept=True,
+            max_iter=1000,
+            tol=1e-7,
             random_state=seed,
         )
     raise ValueError(f"unsupported sklearn reference model: {spec.model_id}")
@@ -102,7 +126,12 @@ def _run_once(
     for candidate in candidates:
         fold_losses: list[float] = []
         for train_index, validation_index in folds:
-            estimator = _make_estimator(spec, candidate, seed)
+            estimator = _make_estimator(
+                spec,
+                candidate,
+                seed,
+                n_fit_samples=len(train_index),
+            )
             estimator.fit(X[train_index], y[train_index])
             fold_losses.append(
                 _loss(spec, estimator, X[validation_index], y[validation_index])
@@ -112,7 +141,12 @@ def _run_once(
 
     best_index = int(np.argmin(mean_losses))
     selected = candidates[best_index]
-    final = _make_estimator(spec, selected, seed)
+    final = _make_estimator(
+        spec,
+        selected,
+        seed,
+        n_fit_samples=n_samples,
+    )
     refit_start = time.perf_counter()
     final.fit(X, y)
     refit_ms = (time.perf_counter() - refit_start) * 1000.0
@@ -170,8 +204,11 @@ def build_sklearn_reference(
     try:
         for warmup_index in range(warmup):
             _run_once(
-                spec, seeds[0] + 2_000_000 + warmup_index,
-                n_samples, n_features, data_factory,
+                spec,
+                seeds[0] + 2_000_000 + warmup_index,
+                n_samples,
+                n_features,
+                data_factory,
             )
         samples = [
             _run_once(spec, seed, n_samples, n_features, data_factory)
@@ -187,15 +224,25 @@ def build_sklearn_reference(
             "status": "success",
             "reason": None,
             "timing": {
-                "cv_evaluation_ms": float(np.median([s["cv_evaluation_ms"] for s in samples])),
-                "final_refit_ms": float(np.median([s["final_refit_ms"] for s in samples])),
-                "total_fit_ms": float(np.median([s["total_fit_ms"] for s in samples])),
+                "cv_evaluation_ms": float(
+                    np.median([sample["cv_evaluation_ms"] for sample in samples])
+                ),
+                "final_refit_ms": float(
+                    np.median([sample["final_refit_ms"] for sample in samples])
+                ),
+                "total_fit_ms": float(
+                    np.median([sample["total_fit_ms"] for sample in samples])
+                ),
                 "peak_memory_bytes": None,
             },
             "selected_parameters": selected,
             "scores": {
-                "validation_score": float(np.mean([s["validation_score"] for s in samples])),
-                "final_score": float(np.mean([s["final_score"] for s in samples])),
+                "validation_score": float(
+                    np.mean([sample["validation_score"] for sample in samples])
+                ),
+                "final_score": float(
+                    np.mean([sample["final_score"] for sample in samples])
+                ),
             },
             "convergence": {
                 "candidate_count": len(_candidate_values(spec)),
@@ -217,6 +264,8 @@ def build_sklearn_reference(
         }
     except Exception as exc:
         return {
-            **_unavailable(f"aligned sklearn reference failed: {type(exc).__name__}: {exc}"),
+            **_unavailable(
+                f"aligned sklearn reference failed: {type(exc).__name__}: {exc}"
+            ),
             "status": "failed",
         }
