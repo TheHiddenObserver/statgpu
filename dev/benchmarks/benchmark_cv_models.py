@@ -115,7 +115,7 @@ class RegionProfiler:
             return False
         return (
             ("select" in name and ("cv" in name or module.endswith("_cv")))
-            or name in {"_run_cv", "_evaluate_candidates", "_cross_validate"}
+            or name in {"_run_cv", "_evaluate_candidates", "_cross_validate", "_compute_cv_scores"}
         )
 
     def _is_full_refit(self, frame) -> bool:
@@ -344,6 +344,40 @@ def _best_score(model) -> float:
     return float("nan")
 
 
+def _clear_cv_caches() -> None:
+    """Prevent warmups or repeats from reusing global CV-selection caches."""
+    for module_name, module in list(sys.modules.items()):
+        if module is None or not module_name.startswith("statgpu."):
+            continue
+        for name, value in list(vars(module).items()):
+            if "CACHE" not in name.upper():
+                continue
+            try:
+                if isinstance(value, dict):
+                    value.clear()
+                elif hasattr(value, "clear") and callable(value.clear):
+                    value.clear()
+                elif isinstance(getattr(value, "_cache", None), dict):
+                    value._cache.clear()
+            except Exception:
+                # Cache cleanup is an isolation aid; never hide the measured fit.
+                continue
+
+
+def _candidate_count(spec: CaseSpec) -> int:
+    """Derive candidate count from the declared case grid."""
+    grid = spec.grid_parameters
+    for key in ("alphas", "Cs", "alpha_grid", "penalties"):
+        value = grid.get(key)
+        if isinstance(value, (list, tuple)):
+            count = len(value)
+            ratios = grid.get("l1_ratio")
+            if isinstance(ratios, (list, tuple)):
+                count *= len(ratios)
+            return count
+    raise ValueError(f"{spec.model_id}: no explicit candidate grid")
+
+
 def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int):
     import numpy as np
 
@@ -364,6 +398,7 @@ def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_feature
 
     module = importlib.import_module(spec.import_module)
     cls = getattr(module, spec.import_name)
+    _clear_cv_caches()
     model = _construct(cls, _model_kwargs(spec, backend, seed))
     sync = _synchronizer(backend)
     sync()
@@ -440,7 +475,7 @@ def _aggregate_run(spec: CaseSpec, backend: str, samples: list[dict[str, Any]]) 
             "final_score": float(np.mean([s["final_score"] for s in samples])),
         },
         "convergence": {
-            "candidate_count": 3,
+            "candidate_count": _candidate_count(spec),
             "fold_count": 3,
             "failed_candidates": 0,
             "failed_folds": 0,
@@ -459,7 +494,7 @@ def _aggregate_run(spec: CaseSpec, backend: str, samples: list[dict[str, Any]]) 
     }
 
 
-def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int):
+def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int):
     runs = []
     for backend in backends:
         available, _, reason = _backend_status(backend)
@@ -467,6 +502,11 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
             runs.append(_non_success(backend, "unavailable", reason or "backend unavailable"))
             continue
         try:
+            for warmup_index in range(warmup):
+                _run_once(
+                    spec, backend, seeds[0] + 1_000_000 + warmup_index,
+                    n_samples, n_features,
+                )
             samples = [
                 _run_once(spec, backend, seed, n_samples, n_features)
                 for seed in seeds
@@ -497,8 +537,8 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
             "subject_preserving": spec.task == "survival",
         },
         "grid": {
-            "candidate_count": 3,
-            "identity": "explicit-three-candidate-v1",
+            "candidate_count": _candidate_count(spec),
+            "identity": "explicit-candidate-grid-v1",
             "parameters": spec.grid_parameters,
         },
         "scoring": {
@@ -512,7 +552,7 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
 
 def build_source(args) -> dict[str, Any]:
     backends = [item.strip() for item in args.backends.split(",") if item.strip()]
-    seeds = list(range(args.seed, args.seed + args.repeats))
+    seeds = [args.seed] * args.repeats
     available = [backend for backend in backends if _backend_status(backend)[0]]
     gpu_name = None
     if "cupy" in available:
@@ -540,7 +580,7 @@ def build_source(args) -> dict[str, Any]:
             "available_backends": available,
         },
         "protocol": {
-            "seeds": seeds,
+            "seeds": sorted(set(seeds)),
             "warmup": args.warmup,
             "repeats": args.repeats,
             "dtype": "float64",
@@ -550,7 +590,7 @@ def build_source(args) -> dict[str, Any]:
             "failure_policy": "retain_explicit_disposition",
         },
         "cases": [
-            _case(spec, backends, seeds, args.n_samples, args.n_features)
+            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup)
             for spec in CASE_SPECS
         ],
     }
@@ -573,7 +613,7 @@ def main() -> None:
         parser.error("repeats must be positive and warmup must be non-negative")
     source = build_source(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(source, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps(source, indent=2, sort_keys=False, allow_nan=False) + "\n", encoding="utf-8")
     check_file(args.out)
     print(f"Wrote validated CV benchmark source: {args.out}")
 
