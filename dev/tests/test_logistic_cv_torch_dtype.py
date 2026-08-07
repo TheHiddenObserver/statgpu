@@ -49,7 +49,7 @@ def _torch_path_problem(torch, dtype):
     return X, y, sample_weight
 
 
-def _solve(torch, dtype, *, sample_weight=True):
+def _solve(torch, dtype, *, sample_weight=True, fit_intercept=True):
     from statgpu.backends import TorchBackend
     from statgpu.linear_model.cv._logistic_cv import (
         _solve_logistic_path_gpu_from_batch,
@@ -63,7 +63,7 @@ def _solve(torch, dtype, *, sample_weight=True):
         np.asarray([8, 8], dtype=np.int32),
         np.asarray([0.5, 2.0], dtype=np.float64),
         backend,
-        fit_intercept=True,
+        fit_intercept=fit_intercept,
         max_iter=60,
         tol=1e-7,
         sw_batch=weights if sample_weight else None,
@@ -145,6 +145,22 @@ def test_torch_logistic_cv_unweighted_path_keeps_dtype():
     assert intercepts.dtype == torch.float32
     assert bool(torch.isfinite(coefs).all().item())
     assert bool(torch.isfinite(intercepts).all().item())
+
+
+def test_torch_logistic_cv_no_intercept_path_keeps_dtype_and_zero_intercept():
+    torch = pytest.importorskip("torch")
+
+    _, coefs, intercepts = _solve(
+        torch, torch.float32, fit_intercept=False
+    )
+
+    assert coefs.dtype == torch.float32
+    assert intercepts.dtype == torch.float32
+    assert tuple(coefs.shape) == (2, 2, 2)
+    assert tuple(intercepts.shape) == (2, 2)
+    assert bool(torch.isfinite(coefs).all().item())
+    assert bool(torch.isfinite(intercepts).all().item())
+    assert int(torch.count_nonzero(intercepts).item()) == 0
 
 
 @pytest.mark.parametrize("mixed_precision", [True, False])
