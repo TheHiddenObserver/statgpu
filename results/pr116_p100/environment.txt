@@ -1,0 +1,61 @@
+============================================================
+statgpu PR #116 physical validation environment
+============================================================
+
+git SHA:
+e6e4846b06604ed53e65fc9afd9054bd5777098f
+
+git status:
+
+hostname:
+wE6lDe
+
+date:
+2026-08-07T14:05:10Z
+
+python:
+Python 3.9.16
+
+nvidia-smi:
+Fri Aug  7 22:05:10 2026       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 460.32.03    Driver Version: 460.32.03    CUDA Version: 11.2     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla P100-SXM2...  On   | 00000000:B4:00.0 Off |                    0 |
+| N/A   31C    P0    30W / 300W |      0MiB / 16280MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+
+Python package / CUDA information:
+Python executable: /root/miniconda3/envs/myconda/bin/python
+Python version: 3.9.16
+Platform: Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31
+
+NumPy: 1.24.2
+SciPy: 1.10.1
+sklearn: 1.2.2
+
+Torch: 2.0.0+cu117
+torch.version.cuda: 11.7
+torch.cuda.is_available(): True
+torch.cuda.device_count(): 1
+Torch GPU 0: Tesla P100-SXM2-16GB
+Torch capability 0: (6, 0)
+
+CuPy: 13.6.0
+CuPy device count: 1
+CuPy GPU 0: Tesla P100-SXM2-16GB
+
+statgpu: 0.2.4
