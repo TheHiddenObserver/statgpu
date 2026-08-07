@@ -52,6 +52,8 @@ Cox cases additionally require subject-preserving folds and explicit survival sc
 
 The source records the statgpu commit, source/result date, generation time, host, CPU/GPU identity, Python/package versions, seeds, warmup count, repeats, synchronization policy, timing scope, and transfer policy. Successful rows retain raw per-seed timing samples in addition to aggregates.
 
+For remote runs where the checkout cannot resolve Git metadata, `STATGPU_BENCHMARK_GIT_SHA` may pin the intended implementation commit. Package-version capture first queries distribution metadata and then falls back to an importable module's `__version__`; this preserves versions for CUDA-specific wheel names such as `cupy-cuda11x` without changing the benchmark implementation being measured.
+
 The historical `lassocv_combined_20260409.json` file remains audit-only. It predates the canonical minimum date and does not provide the six-family timing decomposition required by this contract.
 
 ## Registered P100 source — 2026-08-07
