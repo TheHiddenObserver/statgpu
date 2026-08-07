@@ -7,6 +7,7 @@ from .elasticnet import parse_elasticnet_benchmark_full
 from .coxph import parse_coxph_efron_bench
 from .validation import parse_comprehensive_validation, parse_coxph_package_comparison
 from .cv_models import parse_lassocv_combined
+from .cv_package import parse_cv_benchmark
 from .knockoff import parse_knockoff_benchmark
 from .loss_functions import parse_loss_functions_benchmark
 from .domains import (
@@ -26,6 +27,7 @@ __all__ = [
     "parse_comprehensive_validation",
     "parse_coxph_package_comparison",
     "parse_lassocv_combined",
+    "parse_cv_benchmark",
     "parse_knockoff_benchmark",
     "parse_loss_functions_benchmark",
     "parse_ordered_inference_benchmark",
