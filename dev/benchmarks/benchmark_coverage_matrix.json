@@ -126,7 +126,7 @@
       "status": "benchmark_data_gap",
       "source_ids": [],
       "issue": "#91",
-      "disposition": "Dedicated current CV benchmark package."
+      "disposition": "Validated P100 evidence exists externally; canonical source registration is pending the exact raw JSON file."
     },
     {
       "capability_id": "lasso-cv",
@@ -134,7 +134,7 @@
       "status": "benchmark_data_gap",
       "source_ids": [],
       "issue": "#91",
-      "disposition": "Dedicated current CV benchmark package."
+      "disposition": "Validated P100 evidence exists externally; canonical source registration is pending the exact raw JSON file."
     },
     {
       "capability_id": "elasticnet-cv",
@@ -142,7 +142,7 @@
       "status": "benchmark_data_gap",
       "source_ids": [],
       "issue": "#91",
-      "disposition": "Dedicated current CV benchmark package."
+      "disposition": "Validated P100 evidence exists externally; canonical source registration is pending the exact raw JSON file."
     },
     {
       "capability_id": "logistic-regression-cv",
@@ -150,7 +150,7 @@
       "status": "benchmark_data_gap",
       "source_ids": [],
       "issue": "#91",
-      "disposition": "Dedicated current CV benchmark package."
+      "disposition": "Validated P100 evidence exists externally. NumPy and CuPy succeed; the explicit Torch strict-CUDA failure is tracked by #112. Canonical source registration is pending the exact raw JSON file."
     },
     {
       "capability_id": "penalized-glm-cv",
@@ -158,7 +158,7 @@
       "status": "benchmark_data_gap",
       "source_ids": [],
       "issue": "#91",
-      "disposition": "Dedicated current CV benchmark package."
+      "disposition": "Validated P100 evidence exists externally; canonical source registration is pending the exact raw JSON file."
     },
     {
       "capability_id": "coxph-cv",
@@ -166,7 +166,7 @@
       "status": "benchmark_data_gap",
       "source_ids": [],
       "issue": "#91",
-      "disposition": "Dedicated current CV benchmark package; penalized Cox-specific breadth is additionally tracked by #107."
+      "disposition": "Validated P100 evidence exists externally; canonical source registration is pending the exact raw JSON file. Penalized Cox-specific breadth is additionally tracked by #107."
     },
     {
       "capability_id": "multiple-testing-resampling",
