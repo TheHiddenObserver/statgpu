@@ -111,6 +111,7 @@ export interface Metrics {
   speedup?: SpeedupMetric;
   accuracy?: AccuracyMetric;
   inference?: InferenceMetric;
+  cross_validation?: CrossValidationMetric;
   convergence?: ConvergenceMetric;
   selection?: SelectionMetric;
   prediction?: PredictionMetric;
@@ -158,6 +159,24 @@ export interface InferenceMetric {
   wald_stat?: number;
   p_value?: number;
   ok?: boolean;
+  quality: MetricQuality;
+  source_file: string;
+}
+
+export interface CrossValidationMetric {
+  cv_evaluation_ms: number;
+  final_refit_ms: number;
+  total_fit_ms: number;
+  selected_parameters: Record<string, unknown>;
+  validation_score: number;
+  final_score: number;
+  scoring_name: string;
+  scoring_direction: 'minimize' | 'maximize';
+  candidate_count: number;
+  fold_count: number;
+  failed_candidates: number;
+  failed_folds: number;
+  final_refit_converged: boolean;
   quality: MetricQuality;
   source_file: string;
 }
