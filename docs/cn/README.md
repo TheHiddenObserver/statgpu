@@ -1,7 +1,7 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 最后更新：2026-08-04  
+> 最后更新：2026-08-06  
 > 切换：[English](../en/README.md)
 
 ## 快速开始
@@ -22,7 +22,8 @@
 - [PyTorch 后端](guides/pytorch-backend.md) — torch 后端指南、torch.compile
 - [推断模式](guides/inference-modes.md) — Lasso 推断（debiased、bootstrap）
 - [多重检验](guides/multiple-testing-combine-pvalues.md) — p 值校正与合并
-- [基准测试](guides/benchmarks.md) — 性能基准与对比
+- [基准测试](guides/benchmarks.md) — 基准脚本、产物与对比说明
+- [交互式基准面板](../assets/benchmarks/index.html) — 筛选、图表、指标、数据来源与复现
 
 ## 模型
 

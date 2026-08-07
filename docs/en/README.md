@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-08-04
+> Last updated: 2026-08-06
 >
 > Switch: [Chinese](../cn/README.md)
 
@@ -22,7 +22,8 @@
 - [Distribution API](guides/distribution-api.md) — statistical distribution functions
 - [Inference Modes](guides/inference-modes.md) — Lasso inference (debiased, bootstrap)
 - [Multiple Testing](guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
-- [Benchmarks](guides/benchmarks.md) — performance benchmarks and comparisons
+- [Benchmarks](guides/benchmarks.md) — benchmark scripts, artifacts, and comparison notes
+- [Interactive Benchmark Dashboard](guides/statgpu_benchmark_dashboard.md) — filters, charts, metric panels, data provenance, and reproduction
 
 ## Models
 

@@ -1,0 +1,22 @@
+{
+  "date": "2026-04-19",
+  "comparison_type": "cross_language",
+  "frameworks": [
+    "statgpu (Python)",
+    "knockpy (Python)",
+    "knockoff (R)",
+    "selectiveInference (R)"
+  ],
+  "methods": [
+    {
+      "name": "knockpy (Gaussian+Lasso) [historical]",
+      "framework": "knockpy",
+      "note": "From results/remote_knockpy_comparison_2026-04-06.md",
+      "time_ms_mean": 288.576,
+      "precision_mean": 0.9744,
+      "recall_mean": 1.0,
+      "fdp_mean": 0.0256
+    }
+  ],
+  "pairwise": {}
+}
