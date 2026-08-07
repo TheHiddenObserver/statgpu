@@ -35,6 +35,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from dev.benchmarks.cv_source import check_file
+from dev.benchmarks.cv_external import build_sklearn_reference
 
 
 @dataclass(frozen=True)
@@ -501,7 +502,7 @@ def _aggregate_run(spec: CaseSpec, backend: str, samples: list[dict[str, Any]]) 
     }
 
 
-def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int):
+def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int, include_sklearn: bool):
     runs = []
     for backend in backends:
         available, _, reason = _backend_status(backend)
@@ -525,6 +526,18 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
                     backend, "failed", f"{type(exc).__name__}: {exc}"
                 )
             )
+
+    if include_sklearn:
+        data_factory = {
+            "regression": _regression_data,
+            "classification": _classification_data,
+            "survival": _survival_data,
+        }[spec.task]
+        reference = build_sklearn_reference(
+            spec, seeds, n_samples, n_features, warmup, data_factory
+        )
+        if reference is not None:
+            runs.append(reference)
 
     return {
         "case_id": f"cv-{spec.model_id.lower().replace('_', '-')}",
@@ -597,7 +610,7 @@ def build_source(args) -> dict[str, Any]:
             "failure_policy": "retain_explicit_disposition",
         },
         "cases": [
-            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup)
+            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup, args.include_sklearn)
             for spec in CASE_SPECS
         ],
     }
@@ -614,6 +627,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20260807)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--include-sklearn", action="store_true", help="measure aligned sklearn references for the four equivalent estimator families")
     args = parser.parse_args()
 
     if args.repeats < 1 or args.warmup < 0:
