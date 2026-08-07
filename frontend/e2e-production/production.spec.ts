@@ -119,14 +119,17 @@ test.describe('Deployed benchmark dashboard', () => {
     await page.locator('[data-metric-scope="cross_validation"]').click();
     await page.getByLabel('Model').selectOption('LogisticRegressionCV');
     const panelToggle = page.getByRole('button', { name: /Cross-validation Metrics/ });
+    const panelBodyId = await panelToggle.getAttribute('aria-controls');
+    expect(panelBodyId).toBeTruthy();
     await panelToggle.click();
     await expect(panelToggle).toHaveAttribute('aria-expanded', 'true');
     const failed = page
-      .locator('.table-container tr')
+      .locator(`#${panelBodyId} tr`)
       .filter({ hasText: 'LogisticRegressionCV' })
       .filter({ hasText: 'torch' });
-    await expect(failed.first()).toContainText('failed');
-    await expect(failed.first()).toContainText('CPU fallback is disabled');
+    await expect(failed).toHaveCount(1);
+    await expect(failed).toContainText('failed');
+    await expect(failed).toContainText('CPU fallback is disabled');
 
     await page.reload();
     await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
