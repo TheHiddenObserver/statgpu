@@ -37,7 +37,17 @@ jobs:
         run: npm run test:e2e
       - name: Run nested production three-browser QA
         working-directory: frontend
-        run: npm run test:e2e:production
+        run: |
+          set -o pipefail
+          npm run test:e2e:production 2>&1 | tee production-playwright.log
+      - name: Upload production QA log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-playwright-log
+          path: frontend/production-playwright.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Commit validated deployed assets
         run: |
           git rm .github/workflows/_temporary-materialize-dashboard-qa.yml
