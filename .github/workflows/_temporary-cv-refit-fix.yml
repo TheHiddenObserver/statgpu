@@ -1,0 +1,45 @@
+name: Temporary PenalizedGLM refit fix
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-refit-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply exact refit boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/benchmarks/benchmark_cv_models.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    def _is_full_refit(self, frame) -> bool:\n        if frame.f_code.co_name != "fit":\n            return False\n'''
+          new = '''    def _is_full_refit(self, frame) -> bool:\n        module = str(frame.f_globals.get("__name__", ""))\n        name = frame.f_code.co_name\n        if (\n            module == "statgpu.linear_model.penalized._penalized_cv"\n            and name == "_refit_best"\n        ):\n            return True\n        if name != "fit":\n            return False\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one refit boundary, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+      - name: Validate and commit
+        run: |
+          python -m py_compile dev/benchmarks/benchmark_cv_models.py
+          python -m pip install pytest
+          pytest dev/tests/test_cv_runner_instrumentation.py -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/benchmarks/benchmark_cv_models.py
+          git commit -m "benchmark: observe PenalizedGLM final refit directly"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
