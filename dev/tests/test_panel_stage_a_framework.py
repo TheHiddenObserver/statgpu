@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
 
+from statgpu.panel import (
+    BetweenOLS,
+    FamaMacBeth,
+    FirstDifferenceOLS,
+    PanelOLS,
+    PooledOLS,
+    RandomEffects,
+)
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._covariance import (
     clustered_covariance,
@@ -47,6 +56,18 @@ class _DummyPanel(BasePanelModel):
         )
 
 
+def test_all_stage_a_panel_estimators_use_shared_base():
+    for cls in (
+        PanelOLS,
+        RandomEffects,
+        PooledOLS,
+        BetweenOLS,
+        FirstDifferenceOLS,
+        FamaMacBeth,
+    ):
+        assert issubclass(cls, BasePanelModel)
+
+
 def test_panel_result_substrate_is_inert_until_stage_b():
     result = PanelTestResult(null="pooled model is adequate")
     assert result.statistic is None
@@ -84,13 +105,19 @@ def test_panel_index_info_balanced_unbalanced_and_order():
     assert duplicate.is_balanced is False
 
 
+def test_panel_index_info_accepts_torch_metadata_without_implicit_numpy_conversion():
+    torch = pytest.importorskip("torch")
+    entity = torch.tensor([1, 1, 2, 2], dtype=torch.int64)
+    time = torch.tensor([0, 1, 0, 1], dtype=torch.int64)
+    info = build_panel_index_info(4, entity_ids=entity, time_ids=time)
+    assert info.is_balanced is True
+    assert info.n_entities == 2
+    assert info.n_times == 2
+
+
 def test_panel_index_info_validates_metadata_lengths():
-    try:
+    with pytest.raises(ValueError, match="4 observations"):
         build_panel_index_info(4, entity_ids=[0, 1, 2])
-    except ValueError as exc:
-        assert "4 observations" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("length mismatch must fail")
 
 
 def _ols_problem():
@@ -159,9 +186,27 @@ def test_ols_covariance_registry_delegates_cluster_and_hac_exactly():
     )
 
 
+def test_cluster_registry_preserves_panelols_column_vector_contract():
+    X, resid, _, df = _ols_problem()
+    cluster = np.asarray([0, 0, 1, 1, 1])
+    assert_allclose(
+        ols_covariance(
+            X,
+            resid,
+            cov_type="clustered",
+            cluster=cluster[:, None],
+            df_resid=df,
+            xp=np,
+        ),
+        clustered_covariance(X, resid, cluster, xp=np),
+        rtol=0,
+        atol=0,
+    )
+
+
 def test_covariance_registry_rejects_context_unsupported_name():
     X, resid, scale, df = _ols_problem()
-    try:
+    with pytest.raises(ValueError, match="not supported here"):
         ols_covariance(
             X,
             resid,
@@ -171,10 +216,6 @@ def test_covariance_registry_rejects_context_unsupported_name():
             xp=np,
             allowed=("nonrobust", "robust"),
         )
-    except ValueError as exc:
-        assert "not supported here" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("context-unsupported covariance must fail")
 
 
 def test_base_panel_numeric_prediction_and_summary_contract():
@@ -189,3 +230,23 @@ def test_base_panel_numeric_prediction_and_summary_contract():
     assert payload["nobs"] == 4
     assert payload["df_resid"] == 2
     assert payload["feature_names"] == ["x0", "x1"]
+
+
+def test_fama_macbeth_does_not_use_residual_ols_covariance_registry(monkeypatch):
+    from statgpu.panel import _covariance
+
+    monkeypatch.setattr(
+        _covariance,
+        "ols_covariance",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("FamaMacBeth must keep beta-series covariance")
+        ),
+    )
+    rng = np.random.default_rng(91)
+    time = np.repeat(np.arange(4), 8)
+    X = rng.normal(size=(time.size, 2))
+    y = 0.5 + X @ np.asarray([0.8, -0.3]) + rng.normal(scale=0.2, size=time.size)
+    model = FamaMacBeth(cov_type="nonrobust", device="cpu").fit(
+        X, y, time_ids=time
+    )
+    assert np.isfinite(np.asarray(model.coef_)).all()
