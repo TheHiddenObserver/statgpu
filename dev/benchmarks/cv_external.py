@@ -83,16 +83,15 @@ def _make_estimator(
 
 
 def _folds(spec: Any, X, y, seed: int):
-    if spec.task == "classification":
-        from sklearn.model_selection import StratifiedKFold
+    """Reuse the exact fold generator exercised by statgpu CV estimators."""
+    from statgpu.cross_validation._base import kfold_indices
 
-        splitter = StratifiedKFold(n_splits=3, shuffle=True, random_state=seed)
-        return list(splitter.split(X, y))
-
-    from sklearn.model_selection import KFold
-
-    splitter = KFold(n_splits=3, shuffle=True, random_state=seed)
-    return list(splitter.split(X))
+    return kfold_indices(
+        n_samples=len(X),
+        n_splits=3,
+        random_state=seed,
+        shuffle=True,
+    )
 
 
 def _loss(spec: Any, estimator, X, y) -> float:
