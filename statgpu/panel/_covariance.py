@@ -1,12 +1,18 @@
 """
-Clustered covariance estimators for panel data models.
+Covariance estimators and internal dispatch for panel data models.
 
-Implements one-way and two-way clustered standard errors following
-Cameron & Miller (2015) and Cameron, Gelbach & Miller (2011).
+The public one-way/two-way cluster and HAC functions retain their existing
+contracts. Stage A of issue #93 adds ``ols_covariance`` as an internal
+behavior-preserving dispatcher for residual-based OLS/transformed-OLS models.
 """
 from __future__ import annotations
 
-__all__ = ["clustered_covariance", "two_way_clustered_covariance", "hac_covariance"]
+__all__ = [
+    "clustered_covariance",
+    "two_way_clustered_covariance",
+    "hac_covariance",
+    "ols_covariance",
+]
 
 from typing import Optional
 
@@ -14,8 +20,6 @@ import numpy as np
 
 from statgpu.backends import (
     _LINALG_ERRORS,
-    _get_torch_device_str,
-    _torch_dev,
     _to_numpy,
     xp_asarray,
     xp_zeros,
@@ -30,27 +34,11 @@ def _ensure_xp(xp=None):
 def clustered_covariance(X, resid, clusters, xp=None):
     """One-way clustered robust covariance matrix.
 
-    Implements the cluster-robust sandwich estimator:
+    Implements the cluster-robust sandwich estimator::
 
-        V = (X'X/n)^{-1} @ meat @ (X'X/n)^{-1}
+        V = (X'X/n)^{-1} @ meat @ (X'X/n)^{-1} / n^2
 
-    where ``meat = sum_g (X_g' e_g)(X_g' e_g)'`` summed over clusters.
-
-    Parameters
-    ----------
-    X : array-like, shape (n, k)
-        Design matrix (including intercept if applicable).
-    resid : array-like, shape (n,)
-        OLS residuals.
-    clusters : array-like, shape (n,)
-        Cluster assignment labels (integer or categorical).
-    xp : module, optional
-        Array module (numpy / cupy / torch).  Defaults to numpy.
-
-    Returns
-    -------
-    V : array, shape (k, k)
-        Cluster-robust covariance matrix of the coefficient estimates.
+    where ``meat = sum_g (X_g' e_g)(X_g' e_g)'``.
     """
     xp = _ensure_xp(xp)
 
@@ -64,77 +52,36 @@ def clustered_covariance(X, resid, clusters, xp=None):
     if resid.shape[0] != n or clusters_np.shape[0] != n:
         raise ValueError("X, resid, and clusters must have the same number of observations")
 
-    # Bread: (X'X / n)^{-1}
     XtX = X.T @ X / n
     try:
         bread = xp.linalg.inv(XtX)
     except _LINALG_ERRORS:
         bread = xp.linalg.pinv(XtX)
 
-    # Meat: sum over clusters of (X_g' e_g)(X_g' e_g)'
-    # Vectorized: scores = X * e, then scatter_add per cluster, then S'@S
-    scores = X * resid[:, None]  # (n, k)
-
-    # Factorize cluster labels to contiguous indices
+    scores = X * resid[:, None]
     unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)
     n_clusters = len(unique_labels)
     cluster_idx_xp = xp_asarray(cluster_idx, dtype=xp.int64, xp=xp, ref_arr=X)
 
-    # Scatter-add: sum scores per cluster → S shape (n_clusters, k)
     S = xp_zeros((n_clusters, k), dtype=xp.float64, xp=xp, ref_arr=X)
-    if hasattr(S, 'scatter_add_'):
-        # torch
+    if hasattr(S, "scatter_add_"):
         S.scatter_add_(0, cluster_idx_xp.unsqueeze(1).expand_as(scores), scores)
-    elif type(S).__module__.startswith('cupy'):
+    elif type(S).__module__.startswith("cupy"):
         xp.add.at(S, cluster_idx_xp, scores)
     else:
         np.add.at(S, cluster_idx, scores)
 
-    # meat = S' @ S  (k, k)
     meat = S.T @ S
-
-    # Sandwich: V = bread @ meat @ bread / n^2
-    V = bread @ meat @ bread / (n * n)
-    return V
+    return bread @ meat @ bread / (n * n)
 
 
 def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
-    """Two-way clustered robust covariance matrix.
-
-    Implements the Cameron, Gelbach & Miller (2011) intersection
-    correction::
-
-        V = V_cluster1 + V_cluster2 - V_intersection
-
-    where the intersection clusters are formed from all unique
-    ``(cluster1, cluster2)`` pairs.
-
-    Parameters
-    ----------
-    X : array-like, shape (n, k)
-        Design matrix.
-    resid : array-like, shape (n,)
-        OLS residuals.
-    cluster1 : array-like, shape (n,)
-        First cluster dimension (e.g. entity).  Accepts integer or
-        categorical labels (will be factorized to integers internally).
-    cluster2 : array-like, shape (n,)
-        Second cluster dimension (e.g. time).  Same as cluster1.
-    xp : module, optional
-        Array module (numpy / cupy / torch).  Defaults to numpy.
-
-    Returns
-    -------
-    V : array, shape (k, k)
-        Two-way cluster-robust covariance matrix.
-    """
+    """Two-way clustered covariance with intersection correction."""
     xp = _ensure_xp(xp)
 
     V1 = clustered_covariance(X, resid, cluster1, xp)
     V2 = clustered_covariance(X, resid, cluster2, xp)
 
-    # Intersection clusters: unique (c1, c2) pairs via Cantor-pair hash
-    # Factorize labels to integers (supports string/categorical labels)
     c1_raw = np.asarray(_to_numpy(cluster1)).ravel()
     c2_raw = np.asarray(_to_numpy(cluster2)).ravel()
     n = int(X.shape[0])
@@ -142,7 +89,6 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
         raise ValueError("cluster arrays must match the number of observations")
     _, c1 = np.unique(c1_raw, return_inverse=True)
     _, c2 = np.unique(c2_raw, return_inverse=True)
-    # Vectorized Cantor-pair hash: s = c1 + c2, hash = s*(s+1)/2 + c2
     s = c1.astype(np.int64) + c2.astype(np.int64)
     combined_np = s * (s + 1) // 2 + c2.astype(np.int64)
     combined = xp_asarray(combined_np, dtype=xp.int64, xp=xp, ref_arr=V1)
@@ -152,40 +98,7 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
 
 
 def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
-    """Heteroskedasticity and Autocorrelation Consistent (HAC) covariance.
-
-    Implements the Newey-West (1987) HAC estimator with Bartlett kernel:
-
-        V = (X'X/n)^{-1} @ Omega_hat @ (X'X/n)^{-1}
-
-    where ``Omega_hat = Gamma_0 + sum_{h=1}^{bw} w(h) (Gamma_h + Gamma_h')``
-    and ``Gamma_h = (1/n) sum_i (x_i e_i)(x_{i-h} e_{i-h})'``.
-
-    Parameters
-    ----------
-    X : array-like, shape (n, k)
-        Design matrix (must be sorted by time within each entity).
-    resid : array-like, shape (n,)
-        OLS residuals.
-    bandwidth : int or None, default=None
-        Bandwidth (number of lags).  If None, uses ``floor(4 * (n/100)^{2/9})``
-        (Newey-West 1994 rule of thumb).
-    kernel : str, default='bartlett'
-        Kernel function.  Currently only ``'bartlett'`` is supported.
-    xp : module, optional
-        Array module (numpy / cupy / torch).  Defaults to numpy.
-
-    Returns
-    -------
-    V : array, shape (k, k)
-        HAC covariance matrix of the coefficient estimates.
-
-    References
-    ----------
-    Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite,
-    heteroskedasticity and autocorrelation consistent covariance matrix.
-    *Econometrica*, 55(3), 703-708.
-    """
+    """Newey-West HAC covariance using the Bartlett kernel."""
     xp = _ensure_xp(xp)
     if str(kernel).lower() != "bartlett":
         raise ValueError("kernel must be 'bartlett'")
@@ -200,37 +113,105 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
 
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
         raise ValueError("X and resid must have matching observation counts")
-    n, k = X.shape
+    n, _ = X.shape
 
-    # Default bandwidth: Newey-West (1994) rule
     if bandwidth is None:
         bandwidth = int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))
     bandwidth = max(0, min(bandwidth, n - 1))
 
-    # Bread: (X'X / n)^{-1}
     XtX = X.T @ X / n
     try:
         bread = xp.linalg.inv(XtX)
     except _LINALG_ERRORS:
         bread = xp.linalg.pinv(XtX)
 
-    # Meat: Omega_hat
-    # Score matrix: s_i = x_i * e_i, shape (n, k)
-    scores = X * resid[:, None]  # (n, k)
-
-    # Gamma_0 = (1/n) * sum_i s_i s_i' = scores' @ scores / n
+    scores = X * resid[:, None]
     meat = scores.T @ scores / n
 
-    # Gamma_h for h = 1..bandwidth
     for h in range(1, bandwidth + 1):
-        # Bartlett kernel weight: w(h) = 1 - h/(bandwidth+1)
         w = 1.0 - h / (bandwidth + 1.0)
+        gamma_h = scores[h:].T @ scores[: n - h] / n
+        meat = meat + w * (gamma_h + gamma_h.T)
 
-        # Gamma_h = (1/n) * sum_{i=h}^{n-1} s_i s_{i-h}'
-        Gamma_h = scores[h:].T @ scores[:n - h] / n
+    return bread @ meat @ bread / n
 
-        meat = meat + w * (Gamma_h + Gamma_h.T)
 
-    # Sandwich: V = bread @ meat @ bread / n
-    V = bread @ meat @ bread / n
-    return V
+def ols_covariance(
+    X,
+    resid,
+    *,
+    cov_type,
+    scale=None,
+    df_resid=None,
+    cluster=None,
+    bandwidth=None,
+    kernel="bartlett",
+    xp=None,
+    allowed=None,
+    hc1_correction=None,
+):
+    """Dispatch existing residual-based panel covariance definitions.
+
+    This helper deliberately does not infer model-specific degrees of freedom.
+    Callers pass ``scale`` and ``df_resid`` (or an explicit HC1 correction) so
+    Stage A cannot silently harmonize distinct panel-model conventions.
+    """
+    xp = _ensure_xp(xp)
+    name = str(cov_type).lower()
+    if allowed is not None and name not in {str(value).lower() for value in allowed}:
+        choices = ", ".join(sorted(str(value) for value in allowed))
+        raise ValueError(f"cov_type={cov_type!r} is not supported here; expected one of: {choices}")
+
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
+    if X.ndim != 2 or resid.shape[0] != X.shape[0]:
+        raise ValueError("X and resid must have matching observation counts")
+    n = int(X.shape[0])
+
+    if name == "nonrobust":
+        if scale is None:
+            raise ValueError("scale is required for nonrobust covariance")
+        XtX = X.T @ X
+        try:
+            bread = xp.linalg.inv(XtX)
+        except _LINALG_ERRORS:
+            bread = xp.linalg.pinv(XtX)
+        return float(scale) * bread
+
+    if name == "robust":
+        XtX = X.T @ X
+        try:
+            bread = xp.linalg.inv(XtX)
+        except _LINALG_ERRORS:
+            bread = xp.linalg.pinv(XtX)
+        scores = X * resid[:, None]
+        meat = scores.T @ scores
+        correction = hc1_correction
+        if correction is None:
+            if df_resid is None or int(df_resid) <= 0:
+                raise ValueError("positive df_resid or hc1_correction is required for robust covariance")
+            correction = n / float(df_resid)
+        return bread @ meat @ bread * float(correction)
+
+    if name == "clustered":
+        if cluster is None:
+            raise ValueError("cluster is required for cov_type='clustered'")
+        cluster_np = np.asarray(_to_numpy(cluster))
+        if cluster_np.ndim == 2:
+            if cluster_np.shape[1] != 2:
+                raise ValueError("two-way cluster input must have exactly two columns")
+            return two_way_clustered_covariance(
+                X, resid, cluster_np[:, 0], cluster_np[:, 1], xp=xp
+            )
+        if cluster_np.ndim != 1:
+            raise ValueError("cluster must be one-dimensional or an (n, 2) array")
+        return clustered_covariance(X, resid, cluster_np, xp=xp)
+
+    if name == "hac":
+        return hac_covariance(
+            X, resid, bandwidth=bandwidth, kernel=kernel, xp=xp
+        )
+
+    raise ValueError(
+        "cov_type must be one of 'nonrobust', 'robust', 'clustered', or 'hac'"
+    )
