@@ -4,6 +4,17 @@
   --color-primary: #4f6bb8;
 }
 
+/* Keep contrast independent of stylesheet extraction/order in the Vite build. */
+.card-label,
+.chart-data-help,
+.chart-data-table caption {
+  color: #626d80 !important;
+}
+
+.scale-chip.active {
+  background: #4f6bb8 !important;
+}
+
 .skip-link {
   position: fixed;
   left: 12px;
@@ -65,7 +76,6 @@ input:focus-visible,
 
 .chart-data-help {
   margin-bottom: 6px;
-  color: var(--color-muted);
   font-size: var(--font-size-sm);
 }
 
@@ -93,7 +103,6 @@ input:focus-visible,
 
 .chart-data-table caption {
   padding: 4px 0 7px;
-  color: var(--color-muted);
   text-align: left;
 }
 
