@@ -119,106 +119,39 @@
       "reason": "Current structured evidence exists, but operation identity, timing protocol, provenance, and parser contract require audit before registration."
     },
     {
-      "rule_id": "historical-lassocv-evidence",
+      "rule_id": "cv-p100-validated-external",
+      "priority": 31,
+      "glob": "results/cv_benchmark*.json",
+      "classification": "not_canonical_ready",
+      "canonical_eligible": false,
+      "provenance_status": "complete",
+      "timing_protocol_status": "accepted",
+      "statistical_alignment_status": "accepted",
+      "issue": "#91",
+      "reason": "Current P100 CV evidence has been validated externally; exact raw JSON must be copied unchanged into the canonical source directory and registered before it becomes canonical."
+    },
+    {
+      "rule_id": "feature-selection-historical",
       "priority": 40,
-      "path_regex": "(?i)lassocv|lasso_cv",
-      "date_before": "2026-06-01",
+      "glob": "results/**/*feature*selection*.json",
       "classification": "historical_or_excluded",
       "canonical_eligible": false,
-      "provenance_status": "historical",
-      "timing_protocol_status": "historical",
-      "statistical_alignment_status": "historical",
-      "issue": "#91",
-      "reason": "Pre-June CV evidence is retained for audit only; #91 owns current canonical CV measurements."
-    },
-    {
-      "rule_id": "historical-knockoff-evidence",
-      "priority": 41,
-      "path_regex": "(?i)knockoff|feature_selection",
-      "date_before": "2026-06-01",
-      "classification": "historical_or_excluded",
-      "canonical_eligible": false,
-      "provenance_status": "historical",
-      "timing_protocol_status": "historical",
-      "statistical_alignment_status": "historical",
-      "issue": "#103",
-      "reason": "Pre-June Feature Selection and Knockoff evidence is retained for audit only; #103 owns current coverage."
-    },
-    {
-      "rule_id": "historical-elasticnet-evidence",
-      "priority": 42,
-      "path_regex": "(?i)elasticnet|elastic_net",
-      "date_before": "2026-06-01",
-      "classification": "historical_or_excluded",
-      "canonical_eligible": false,
-      "provenance_status": "historical",
-      "timing_protocol_status": "historical",
-      "statistical_alignment_status": "historical",
-      "issue": "#91",
-      "reason": "Pre-June ElasticNet/CV evidence is retained for audit only; current CV coverage is owned by #91."
-    },
-    {
-      "rule_id": "pr80-cox-validation-evidence",
-      "priority": 50,
-      "path_regex": "^results/benchmark_frontend_sources/.*(?:pr80|coxph_completion_contract|coxph_exact|coxph_robust|penalized_cox).*[.]json$",
-      "classification": "not_canonical_ready",
-      "canonical_eligible": false,
-      "provenance_status": "validation_evidence",
-      "timing_protocol_status": "mixed",
-      "statistical_alignment_status": "mixed",
-      "issue": "#107",
-      "reason": "PR80 correctness and resource evidence is valuable for audit but is not a canonical dashboard source without case-level provenance and timing review."
-    },
-    {
-      "rule_id": "current-unregistered-json",
-      "priority": 900,
-      "path_glob": "results/*.json",
-      "date_on_or_after": "2026-06-01",
-      "classification": "not_canonical_ready",
-      "canonical_eligible": false,
-      "provenance_status": "review_required",
-      "timing_protocol_status": "review_required",
-      "statistical_alignment_status": "review_required",
-      "issue": "#100",
-      "reason": "Current unregistered evidence requires an explicit parser, provenance, timing, alignment, and ownership review before canonical eligibility can be asserted."
-    },
-    {
-      "rule_id": "historical-json",
-      "priority": 910,
-      "path_glob": "results/*.json",
-      "date_before": "2026-06-01",
-      "classification": "historical_or_excluded",
-      "canonical_eligible": false,
-      "provenance_status": "historical",
-      "timing_protocol_status": "historical",
-      "statistical_alignment_status": "historical",
-      "issue": "#100",
-      "reason": "Artifact predates the canonical minimum source date and remains audit-only unless a dedicated issue reruns or promotes it."
-    },
-    {
-      "rule_id": "undated-json",
-      "priority": 920,
-      "path_glob": "results/*.json",
-      "undated": true,
-      "classification": "historical_or_excluded",
-      "canonical_eligible": false,
-      "provenance_status": "incomplete_date",
+      "provenance_status": "unknown",
       "timing_protocol_status": "unknown",
       "statistical_alignment_status": "unknown",
-      "issue": "#100",
-      "reason": "Artifact has no deterministically recoverable result date and is excluded pending explicit provenance review."
+      "issue": "#103",
+      "reason": "Historical feature-selection evidence remains outside the current canonical bundle pending a dedicated rerun."
     },
     {
-      "rule_id": "catalog-safety-net",
-      "priority": 9999,
-      "path_glob": "results/*.json",
+      "rule_id": "fallback-current-unregistered",
+      "priority": 900,
+      "glob": "results/**/*.json",
       "classification": "not_canonical_ready",
       "canonical_eligible": false,
       "provenance_status": "unknown",
       "timing_protocol_status": "unknown",
       "statistical_alignment_status": "unknown",
-      "issue": "#100",
-      "reason": "Deterministic safety-net classification: this artifact needs an explicit family-specific disposition before it can become eligible."
+      "reason": "JSON benchmark artifact is not yet registered as canonical and has no more specific audited classification rule."
     }
   ]
 }
