@@ -1,0 +1,213 @@
+name: Temporary dashboard full optimization verification
+
+on:
+  push:
+    branches:
+      - agent/benchmark-dashboard-optimization-audit
+    paths:
+      - .github/workflows/_temporary-dashboard-full-verification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Serve committed production dashboard
+        run: |
+          python3 -m http.server 4173 --directory . >/tmp/statgpu-dashboard-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4173/docs/assets/benchmarks/ >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/statgpu-dashboard-http.log
+          exit 1
+      - name: Measure complete optimized production metrics
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import zlib from 'node:zlib';
+          import { performance } from 'node:perf_hooks';
+          import { chromium } from '@playwright/test';
+
+          const root = path.resolve('..');
+          const deployment = path.join(root, 'docs/assets/benchmarks');
+          const assetDir = path.join(deployment, 'assets');
+          const dataDir = path.join(deployment, 'data');
+          const jsName = fs.readdirSync(assetDir).find(name => name.endsWith('.js'));
+          const cssName = fs.readdirSync(assetDir).find(name => name.endsWith('.css'));
+
+          function sizeRecord(filePath) {
+            const bytes = fs.readFileSync(filePath);
+            return {
+              raw_bytes: bytes.length,
+              gzip9_bytes: zlib.gzipSync(bytes, { level: 9 }).length,
+            };
+          }
+
+          const payloads = {
+            javascript: sizeRecord(path.join(assetDir, jsName)),
+            css: sizeRecord(path.join(assetDir, cssName)),
+            benchmark_data: sizeRecord(path.join(dataDir, 'benchmark_data.json')),
+            parse_report: sizeRecord(path.join(dataDir, 'parse_report.json')),
+            source_inventory: sizeRecord(path.join(dataDir, 'source_inventory.json')),
+          };
+
+          function stats(values) {
+            const xs = [...values].sort((a, b) => a - b);
+            const percentile = p => xs[Math.min(xs.length - 1, Math.max(0, Math.ceil(p * xs.length) - 1))];
+            return {
+              min: xs[0],
+              median: xs[Math.floor(xs.length / 2)],
+              p95: percentile(0.95),
+              max: xs[xs.length - 1],
+            };
+          }
+
+          async function twoFrames(page) {
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          }
+
+          async function dashboardSnapshot(page, cdp) {
+            const dom = await page.evaluate(() => ({
+              nodes: document.querySelectorAll('*').length,
+              timing_fallback_rows: document.querySelectorAll('#timing-chart-data tbody tr').length,
+              speedup_fallback_rows: document.querySelectorAll('#speedup-chart-data tbody tr').length,
+              overview_rows: document.querySelectorAll('.table-container tbody tr').length,
+              timing_displayed: Number(document.querySelector('#timing-chart')?.dataset.timingDisplayed ?? 0),
+              speedup_displayed: Number(document.querySelector('#speedup-chart')?.dataset.speedupDisplayed ?? 0),
+              html_chars: document.documentElement.outerHTML.length,
+            }));
+            const perf = await cdp.send('Performance.getMetrics');
+            const map = Object.fromEntries(perf.metrics.map(({ name, value }) => [name, value]));
+            return {
+              ...dom,
+              js_heap_used_bytes: map.JSHeapUsedSize ?? null,
+              js_heap_total_bytes: map.JSHeapTotalSize ?? null,
+              layout_count: map.LayoutCount ?? null,
+              recalc_style_count: map.RecalcStyleCount ?? null,
+              task_duration_s: map.TaskDuration ?? null,
+              script_duration_s: map.ScriptDuration ?? null,
+            };
+          }
+
+          async function timedAction(page, action) {
+            const start = performance.now();
+            await action();
+            await twoFrames(page);
+            return performance.now() - start;
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          const coldLoads = [];
+          const defaultSnapshots = [];
+          const fullMatrixDurations = [];
+          const fullMatrixSnapshots = [];
+          const focusedReturnDurations = [];
+          const cvCascadeDurations = [];
+          const cvSnapshots = [];
+
+          for (let round = 0; round < 5; round += 1) {
+            const context = await browser.newContext();
+            const page = await context.newPage();
+            const cdp = await context.newCDPSession(page);
+            await cdp.send('Performance.enable');
+
+            const start = performance.now();
+            await page.goto('http://127.0.0.1:4173/docs/assets/benchmarks/', { waitUntil: 'load' });
+            await page.locator('.header').waitFor({ state: 'visible', timeout: 15000 });
+            await page.waitForFunction(() => document.querySelector('#timing-chart')?.dataset.timingDisplayed !== undefined);
+            await twoFrames(page);
+            coldLoads.push(performance.now() - start);
+            defaultSnapshots.push(await dashboardSnapshot(page, cdp));
+
+            fullMatrixDurations.push(await timedAction(page, async () => {
+              await page.locator('[data-chart-view="full"]').click();
+            }));
+            fullMatrixSnapshots.push(await dashboardSnapshot(page, cdp));
+
+            focusedReturnDurations.push(await timedAction(page, async () => {
+              await page.locator('[data-chart-view="focused"]').click();
+            }));
+
+            const cvStart = performance.now();
+            await page.locator('#env-select').selectOption('remote-p100-cv-20260807');
+            await twoFrames(page);
+            await page.getByRole('button', { name: 'None' }).click();
+            await twoFrames(page);
+            await page.locator('#cat-linear_models').check();
+            await twoFrames(page);
+            await page.locator('[data-metric-scope="cross_validation"]').click();
+            await twoFrames(page);
+            await page.getByLabel('Model', { exact: true }).selectOption('RidgeCV');
+            await twoFrames(page);
+            const variant = page.getByLabel('Variant', { exact: true });
+            if (await variant.count()) {
+              await variant.selectOption({ index: 1 });
+              await twoFrames(page);
+            }
+            const penalty = page.getByLabel('Penalty', { exact: true });
+            if (await penalty.count()) {
+              await penalty.selectOption('l2');
+              await twoFrames(page);
+            }
+            const solver = page.getByLabel('Solver', { exact: true });
+            if (await solver.count()) {
+              await solver.selectOption('cv');
+              await twoFrames(page);
+            }
+            const scale = page.locator('.scale-chip').first();
+            if (await scale.count()) {
+              await scale.click();
+              await twoFrames(page);
+            }
+            const cupy = page.locator('input[name="backend"][value="cupy"]');
+            if (await cupy.count()) {
+              await cupy.check();
+              await twoFrames(page);
+            }
+            cvCascadeDurations.push(performance.now() - cvStart);
+            cvSnapshots.push(await dashboardSnapshot(page, cdp));
+            await context.close();
+          }
+
+          await browser.close();
+          const report = {
+            measured_commit: process.env.GITHUB_SHA,
+            runner: 'ubuntu-latest / chromium-headless / local production deployment',
+            rounds: 5,
+            payloads,
+            payload_totals: {
+              raw_bytes: Object.values(payloads).reduce((sum, x) => sum + x.raw_bytes, 0),
+              gzip9_bytes: Object.values(payloads).reduce((sum, x) => sum + x.gzip9_bytes, 0),
+            },
+            cold_ready_ms: stats(coldLoads),
+            full_matrix_toggle_ms: stats(fullMatrixDurations),
+            focused_return_ms: stats(focusedReturnDurations),
+            cv_cascade_ms: stats(cvCascadeDurations),
+            default_snapshots: defaultSnapshots,
+            full_matrix_snapshots: fullMatrixSnapshots,
+            cv_snapshots: cvSnapshots,
+          };
+          fs.writeFileSync('../dashboard-optimization-full-after.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-optimization-full-after
+          path: dashboard-optimization-full-after.json
+          if-no-files-found: error
