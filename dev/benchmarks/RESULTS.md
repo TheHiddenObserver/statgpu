@@ -2,6 +2,16 @@
 
 GPU performance data for statgpu. Results are from remote GPU testing unless noted otherwise.
 
+## Current canonical CV repair evidence — PR #116
+
+The exact numerical implementation head `e6e4846b06604ed53e65fc9afd9054bd5777098f` was physically validated on Tesla P100-SXM2-16GB with Python 3.9.16, PyTorch 2.0.0+cu117 / CUDA 11.7, and CuPy 13.6.0.
+
+- focused Torch CUDA validation: 4/4 cases passed, covering mixed-precision float32, float64, analytic weights, and `fit_intercept=False`;
+- canonical six-family CV rerun: all 18 statgpu NumPy/CuPy/Torch rows succeeded, with zero failed candidates/folds and converged final refits;
+- `LogisticRegressionCV` selected `C=0.1` on NumPy, CuPy, Torch, and sklearn;
+- raw exact-head evidence is retained under `results/pr116_p100/`;
+- the historical pre-fix P100 failure source remains registered separately and is not rewritten.
+
 ## Test Coverage (v23c — Latest)
 
 **1043/1043 ALL PASS (100%)**
