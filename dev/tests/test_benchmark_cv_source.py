@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 from pathlib import Path
 
@@ -72,7 +73,7 @@ def _source() -> dict:
     for model, task in MODELS:
         cases.append(
             {
-                "case_id": f"cv-{model.lower().replace('_', '-').replace('cv', 'cv')}",
+                "case_id": f"cv-{model.lower().replace('_', '-')}",
                 "model_id": model,
                 "task": task,
                 "dataset": {
@@ -194,3 +195,23 @@ def test_six_initial_models_are_required_exactly_once() -> None:
     source["cases"].pop()
     errors = validate_cv_source(source)
     assert any("missing required CV model cases: CoxPHCV" in error for error in errors)
+
+
+def test_canonical_parser_emits_success_rows_and_explicit_warnings(tmp_path: Path) -> None:
+    from dev.benchmarks.frontend_data.parsers.cv_package import parse_cv_benchmark
+
+    source_path = tmp_path / "cv_source.json"
+    source_path.write_text(json.dumps(_source()), encoding="utf-8")
+    runs, models, warnings = parse_cv_benchmark(source_path, "contract-fixture-cpu")
+
+    assert len(runs) == 12
+    assert len(models) == 6
+    assert len(warnings) == 12
+    assert {run["model_id"] for run in runs} == {model for model, _ in MODELS}
+    assert {run["backend"] for run in runs} == {"numpy", None}
+    assert all(run["parameters"]["metric_scope"] == "cross_validation" for run in runs)
+    assert all(run["parameters"]["cv_evaluation_ms"] == 10.0 for run in runs)
+    assert all(run["parameters"]["final_refit_ms"] == 2.0 for run in runs)
+    assert all(run["metrics"]["timing"]["fit_time_ms"] == 12.5 for run in runs)
+    assert all(run["case_id"].startswith("case-") for run in runs)
+    assert all(run["method_config_id"].startswith("method-") for run in runs)
