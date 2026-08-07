@@ -1,0 +1,132 @@
+name: Temporary fetch P100 CV source
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-fetch-p100-cv-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SSH dependency
+        run: python -m pip install --disable-pip-version-check paramiko
+      - name: Fetch exact validated P100 CV JSON
+        env:
+          STATGPU_REMOTE_PASSWORD: ${{ secrets.STATGPU_REMOTE_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import posixpath
+          import stat
+          import sys
+          import paramiko
+
+          host = "hz-4.matpool.com"
+          port = 27495
+          user = "root"
+          password = os.environ.get("STATGPU_REMOTE_PASSWORD")
+          if not password:
+              raise SystemExit("STATGPU_REMOTE_PASSWORD repository secret is unavailable")
+
+          expected_sha = "a9564d510c37f23187d47d91db849324e7a67c31"
+          required_models = {
+              "RidgeCV", "LassoCV", "ElasticNetCV", "LogisticRegressionCV",
+              "PenalizedGLM_CV", "CoxPHCV",
+          }
+          roots = [
+              "/root/statgpu-validation",
+              "/root/statgpu",
+              "/root/statgpu-dev",
+              "/root",
+              "/tmp",
+          ]
+          name_tokens = ("cv_benchmark", "benchmark_cv", "cv-benchmark", "benchmark-cv")
+
+          ssh = paramiko.SSHClient()
+          ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+          ssh.connect(
+              host, port=port, username=user, password=password,
+              look_for_keys=False, allow_agent=False, timeout=30,
+          )
+          sftp = ssh.open_sftp()
+
+          seen = set()
+          candidates = []
+
+          def inspect_file(path):
+              if path in seen:
+                  return
+              seen.add(path)
+              base = posixpath.basename(path).lower()
+              if not base.endswith(".json"):
+                  return
+              if not any(token in base for token in name_tokens):
+                  return
+              try:
+                  with sftp.open(path, "rb") as fh:
+                      raw = fh.read()
+                  doc = json.loads(raw.decode("utf-8"))
+              except Exception:
+                  return
+              if not isinstance(doc, dict):
+                  return
+              models = {
+                  case.get("model_id") for case in doc.get("cases", [])
+                  if isinstance(case, dict)
+              }
+              env = doc.get("environment") or {}
+              gpu = str(env.get("gpu") or "")
+              if (
+                  doc.get("source_schema_version") == "1.0"
+                  and doc.get("git_sha") == expected_sha
+                  and required_models <= models
+                  and "P100" in gpu
+              ):
+                  candidates.append((path, raw, doc))
+
+          # First use bounded shell discovery so a large home tree is not recursively walked via SFTP.
+          quoted_roots = " ".join(roots)
+          command = (
+              "find " + quoted_roots + " -maxdepth 7 -type f "
+              "\\( -iname '*cv*benchmark*.json' -o -iname '*benchmark*cv*.json' \\) "
+              "-print 2>/dev/null | head -500"
+          )
+          _, stdout, _ = ssh.exec_command(command, timeout=60)
+          for line in stdout.read().decode("utf-8", errors="replace").splitlines():
+              inspect_file(line.strip())
+
+          if len(candidates) != 1:
+              print("matching_candidate_count=", len(candidates))
+              for path, _, doc in candidates:
+                  print("candidate:", path, "generated_at=", doc.get("generated_at"))
+              raise SystemExit("expected exactly one exact P100 CV source")
+
+          path, raw, doc = candidates[0]
+          out = "cv_p100_raw_source.json"
+          with open(out, "wb") as fh:
+              fh.write(raw)
+          print("source_path=", path)
+          print("source_date=", doc.get("source_date"))
+          print("generated_at=", doc.get("generated_at"))
+          print("git_sha=", doc.get("git_sha"))
+          print("gpu=", (doc.get("environment") or {}).get("gpu"))
+          print("bytes=", len(raw))
+
+          sftp.close()
+          ssh.close()
+          PY
+      - name: Upload raw source without rewriting
+        uses: actions/upload-artifact@v4
+        with:
+          name: cv-p100-raw-source
+          path: cv_p100_raw_source.json
+          if-no-files-found: error
+          retention-days: 7
