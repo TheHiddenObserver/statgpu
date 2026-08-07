@@ -107,6 +107,19 @@
       "reason": "Original-path copy superseded by the manifest-protected canonical copy."
     },
     {
+      "rule_id": "superseded-cv-benchmark-candidate",
+      "priority": 18,
+      "path": "results/cv_benchmark_candidate.json",
+      "classification": "superseded_or_duplicate",
+      "canonical_eligible": false,
+      "provenance_status": "complete",
+      "timing_protocol_status": "accepted",
+      "statistical_alignment_status": "accepted",
+      "superseded_by": "results/benchmark_frontend_sources/cv_benchmark_20260807.json",
+      "issue": "#91",
+      "reason": "Immutable P100 candidate retained for audit; its byte-identical SHA-protected canonical copy is registered in frontend_sources.json."
+    },
+    {
       "rule_id": "distribution-current-needs-audit",
       "priority": 30,
       "path": "results/distribution_bench_2026-06-21.json",

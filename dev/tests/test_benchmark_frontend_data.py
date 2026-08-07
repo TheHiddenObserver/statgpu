@@ -159,7 +159,7 @@ class TestManifestMode:
     def test_manifest_loads_with_exact_current_sources(self, manifest):
         assert manifest is not None
         assert manifest["minimum_source_date"] == "2026-06-01"
-        assert len(manifest["sources"]) == 8
+        assert len(manifest["sources"]) == 9
         assert all(source.get("source_date") for source in manifest["sources"])
 
     def test_canonical_generate(self, generator, manifest, results_dir):
@@ -174,11 +174,11 @@ class TestManifestMode:
         assert output["frameworks"]
         assert output["comparisons"]
         assert output["meta"]["generation_id"]
-        assert report["files_seen"] == 8
-        assert report["files_parsed"] == 8
-        assert inventory["registered_sources"] == 8
-        assert inventory["available_sources"] == 8
-        assert inventory["parsed_sources"] == 8
+        assert report["files_seen"] == 9
+        assert report["files_parsed"] == 9
+        assert inventory["registered_sources"] == 9
+        assert inventory["available_sources"] == 9
+        assert inventory["parsed_sources"] == 9
         assert not any(
             run["source"]["source_id"].startswith("transitional:")
             for run in output["runs"]
@@ -219,7 +219,15 @@ class TestManifestMode:
         output, _, _ = generator(results_dir, manifest=manifest)
         model_ids = {model["model_id"] for model in output["models"]}
         assert {"CoxPH", "QuantileRegression", "PanelOLS"} <= model_ids
-        assert {"LassoCV", "ElasticNet"}.isdisjoint(model_ids)
+        assert {
+            "RidgeCV",
+            "LassoCV",
+            "ElasticNetCV",
+            "LogisticRegressionCV",
+            "PenalizedGLM_CV",
+            "CoxPHCV",
+        } <= model_ids
+        assert "ElasticNet" not in model_ids
 
 
 def test_parse_family_penalty_solver_handles_underscored_solver():
