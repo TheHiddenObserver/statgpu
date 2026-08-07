@@ -1,4 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
+
+async function announcedRowCount(details: Locator): Promise<number> {
+  const text = (await details.locator('summary').textContent()) ?? '';
+  const match = text.match(/\((\d+) rows\)$/);
+  expect(match, `expected row count in disclosure summary: ${text}`).not.toBeNull();
+  return Number(match![1]);
+}
 
 test.describe('Deployed benchmark chart runtime', () => {
   test('completes tree-shaken ECharts initialization without async runtime errors', async ({ page }) => {
@@ -50,5 +57,39 @@ test.describe('Deployed benchmark chart runtime', () => {
     expect(runtime.speedupCanvas[1]).toBeGreaterThan(0);
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('materializes exactly the announced chart rows and resets them on rerender', async ({ page }) => {
+    await page.goto('./');
+    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+
+    const timing = page.locator('#timing-chart-data');
+    const speedup = page.locator('#speedup-chart-data');
+    const focusedTimingRows = await announcedRowCount(timing);
+    const focusedSpeedupRows = await announcedRowCount(speedup);
+
+    await expect(timing.locator('table')).toHaveCount(0);
+    await expect(speedup.locator('table')).toHaveCount(0);
+    await timing.locator('summary').click();
+    await speedup.locator('summary').click();
+    await expect(timing.locator('tbody tr')).toHaveCount(focusedTimingRows);
+    await expect(speedup.locator('tbody tr')).toHaveCount(focusedSpeedupRows);
+
+    // A filter/view update replaces the dashboard main content. The newly
+    // selected disclosure must start unmaterialized and derive rows from the
+    // new selection rather than retaining the previous table DOM.
+    await page.locator('[data-chart-view="full"]').click();
+    await expect(timing.locator('table')).toHaveCount(0);
+    await expect(speedup.locator('table')).toHaveCount(0);
+
+    const fullTimingRows = await announcedRowCount(timing);
+    const fullSpeedupRows = await announcedRowCount(speedup);
+    expect(fullTimingRows).toBeGreaterThanOrEqual(focusedTimingRows);
+    expect(fullSpeedupRows).toBeGreaterThanOrEqual(focusedSpeedupRows);
+
+    await timing.locator('summary').click();
+    await speedup.locator('summary').click();
+    await expect(timing.locator('tbody tr')).toHaveCount(fullTimingRows);
+    await expect(speedup.locator('tbody tr')).toHaveCount(fullSpeedupRows);
   });
 });
