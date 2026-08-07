@@ -188,6 +188,17 @@ def test_failed_rows_cannot_publish_partial_measurements() -> None:
     assert any("must not publish measurements" in error for error in errors)
 
 
+def test_non_finite_measurements_are_rejected() -> None:
+    from dev.benchmarks.cv_source import validate_cv_source
+
+    source = _source()
+    source["cases"][0]["runs"][0]["scores"]["validation_score"] = float("nan")
+    source["cases"][1]["runs"][0]["timing"]["total_fit_ms"] = float("inf")
+    errors = validate_cv_source(source)
+    assert any("validation_score: non-finite numeric value nan" in error for error in errors)
+    assert any("total_fit_ms: non-finite numeric value inf" in error for error in errors)
+
+
 def test_six_initial_models_are_required_exactly_once() -> None:
     from dev.benchmarks.cv_source import validate_cv_source
 
