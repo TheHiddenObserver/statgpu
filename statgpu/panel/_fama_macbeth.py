@@ -8,7 +8,6 @@ from typing import Optional, Union
 
 import numpy as np
 
-from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import (
     _LINALG_ERRORS,
@@ -19,7 +18,7 @@ from statgpu.backends import (
     xp_ones,
 )
 from statgpu.covariance._empirical import _detect_backend
-from statgpu.panel._utils import PanelSummary
+from statgpu.panel._base import BasePanelModel
 
 
 def _stack(values, xp, axis=0):
@@ -36,12 +35,12 @@ def _finite_all(x, xp):
     return bool(_to_float_scalar(xp.all(xp.isfinite(x))))
 
 
-class FamaMacBeth(BaseEstimator):
+class FamaMacBeth(BasePanelModel):
     """Fama-MacBeth two-pass regression estimator.
 
-    Formula parsing and time-label factorization are CPU metadata operations.
-    Cross-sectional regressions, coefficient aggregation, and HAC covariance are
-    evaluated on the selected NumPy, CuPy, or Torch backend.
+    The beta-series covariance remains estimator-specific. Stage A only shares
+    neutral formula/index/summary lifecycle; it deliberately does not route this
+    estimator through the residual-based OLS covariance registry.
     """
 
     def __init__(
@@ -81,6 +80,8 @@ class FamaMacBeth(BaseEstimator):
             raise ValueError("min_obs_per_period must be a positive integer")
 
     def _prepare_backend_arrays(self, X, y):
+        # Keep the established Fama-MacBeth backend selection because it also
+        # controls the backend-native prediction contract.
         backend_name = _detect_backend(X, self._get_compute_device())
         xp = _get_xp(backend_name)
         ref = None
@@ -107,37 +108,28 @@ class FamaMacBeth(BaseEstimator):
 
     def fit(self, X=None, y=None, time_ids=None, formula=None, data=None):
         self._validate_parameters()
+        # Preserve current public behavior: time_ids must be explicitly supplied;
+        # FamaMacBeth does not infer it from formula tokens in Stage A.
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
-        if formula is None:
-            if X is None or y is None:
-                raise ValueError("Either formula+data or X+y must be provided.")
-            X_data = X
-            y_data = y
-            self._design_info = None
-            self._feature_names = None
-            self._formula_has_intercept = None
-        else:
-            from statgpu.panel._formula import (
-                _align_formula_side_array,
-                _prepare_formula_fit,
-            )
-
-            (
-                y_data,
-                X_data,
-                self._design_info,
-                self._feature_names,
-                self._formula_has_intercept,
-                _fe_eids,
-                _fe_tids,
-                _fe_entity,
-                _fe_time,
-            ) = _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
-            time_ids = _align_formula_side_array(
-                time_ids, self._design_info, len(y_data), "time_ids"
-            )
+        (
+            y_data,
+            X_data,
+            _fe_eids,
+            _fe_tids,
+            _fe_entity,
+            _fe_time,
+            aligned,
+        ) = self._panel_prepare_formula_fit(
+            formula,
+            data,
+            X,
+            y,
+            model_has_intercept=True,
+            side_arrays={"time_ids": time_ids},
+        )
+        time_ids = aligned["time_ids"]
 
         backend_name, xp, X_arr, y_arr = self._prepare_backend_arrays(X_data, y_data)
         n_orig = int(X_arr.shape[0])
@@ -146,6 +138,7 @@ class FamaMacBeth(BaseEstimator):
             raise ValueError("time_ids must have one entry per observation")
         if np.any(np.asarray([x is None for x in tids_np], dtype=bool)):
             raise ValueError("time_ids must not contain missing values")
+        self._panel_set_index_info(n_orig, time_ids=tids_np)
 
         _, time_codes = np.unique(tids_np, return_inverse=True)
         counts = np.bincount(time_codes)
@@ -263,24 +256,9 @@ class FamaMacBeth(BaseEstimator):
         return X_design @ self.coef_
 
     def summary(self):
-        self._check_is_fitted()
-        from statgpu.panel._formula import _get_feature_names
-
-        feature_names = _get_feature_names(
-            getattr(self, "_feature_names", None), len(self.coef_), prefix="x"
-        )
-        return PanelSummary(
+        return self._panel_summary(
             model_type="FamaMacBeth",
             cov_type=self._cov_type,
-            coef=np.asarray(_to_numpy(self.coef_)),
-            bse=np.asarray(_to_numpy(self.bse_)),
-            tvalues=np.asarray(_to_numpy(self.tvalues_)),
-            pvalues=np.asarray(_to_numpy(self.pvalues_)),
-            conf_int=np.asarray(_to_numpy(self.conf_int_)),
-            nobs=self.nobs,
-            df_resid=self.df_resid,
-            alpha=self.alpha,
-            feature_names=feature_names,
         )
 
     def get_params(self, deep=True):
