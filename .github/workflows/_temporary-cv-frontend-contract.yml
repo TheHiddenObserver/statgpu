@@ -1,0 +1,146 @@
+name: Temporary CV frontend contract
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-frontend-contract.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Add normalized CV metric schema
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/benchmarks/benchmark_frontend_schema.json')
+          text = path.read_text(encoding='utf-8')
+          marker = '''              "convergence": {\n'''
+          block = '''              "cross_validation": {\n                "type": "object", "additionalProperties": false,\n                "required": ["cv_evaluation_ms", "final_refit_ms", "total_fit_ms", "selected_parameters", "validation_score", "final_score", "scoring_name", "scoring_direction", "candidate_count", "fold_count", "failed_candidates", "failed_folds", "final_refit_converged", "quality", "source_file"],\n                "properties": {\n                  "cv_evaluation_ms": { "type": "number", "exclusiveMinimum": 0 },\n                  "final_refit_ms": { "type": "number", "exclusiveMinimum": 0 },\n                  "total_fit_ms": { "type": "number", "exclusiveMinimum": 0 },\n                  "selected_parameters": { "type": "object", "minProperties": 1 },\n                  "validation_score": { "type": "number" },\n                  "final_score": { "type": "number" },\n                  "scoring_name": { "type": "string", "minLength": 1 },\n                  "scoring_direction": { "type": "string", "enum": ["minimize", "maximize"] },\n                  "candidate_count": { "type": "integer", "minimum": 1 },\n                  "fold_count": { "type": "integer", "minimum": 2 },\n                  "failed_candidates": { "type": "integer", "minimum": 0 },\n                  "failed_folds": { "type": "integer", "minimum": 0 },\n                  "final_refit_converged": { "type": "boolean" },\n                  "quality": { "type": "string", "enum": ["measured", "reported", "computed", "partial"] },\n                  "source_file": { "type": "string" }\n                }\n              },\n'''
+          if text.count(marker) != 1:
+              raise SystemExit(f'expected one convergence marker, found {text.count(marker)}')
+          path.write_text(text.replace(marker, block + marker), encoding='utf-8')
+          PY
+      - name: Add TypeScript metric and panel
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          schema = Path('frontend/src/schema.ts')
+          text = schema.read_text(encoding='utf-8')
+          old = '''  inference?: InferenceMetric;\n  convergence?: ConvergenceMetric;\n'''
+          new = '''  inference?: InferenceMetric;\n  cross_validation?: CrossValidationMetric;\n  convergence?: ConvergenceMetric;\n'''
+          if text.count(old) != 1:
+              raise SystemExit('Metrics insertion marker mismatch')
+          text = text.replace(old, new)
+          marker = '''export interface ConvergenceMetric {\n'''
+          block = '''export interface CrossValidationMetric {\n  cv_evaluation_ms: number;\n  final_refit_ms: number;\n  total_fit_ms: number;\n  selected_parameters: Record<string, unknown>;\n  validation_score: number;\n  final_score: number;\n  scoring_name: string;\n  scoring_direction: 'minimize' | 'maximize';\n  candidate_count: number;\n  fold_count: number;\n  failed_candidates: number;\n  failed_folds: number;\n  final_refit_converged: boolean;\n  quality: MetricQuality;\n  source_file: string;\n}\n\n'''
+          if text.count(marker) != 1:
+              raise SystemExit('CrossValidationMetric marker mismatch')
+          schema.write_text(text.replace(marker, block + marker), encoding='utf-8')
+
+          overview = Path('frontend/src/components/OverviewTable.ts')
+          text = overview.read_text(encoding='utf-8')
+          old_import = "import { renderInferencePanel } from './panels/InferencePanel';\n"
+          new_import = old_import + "import { renderCrossValidationPanel } from './panels/CrossValidationPanel';\n"
+          if text.count(old_import) != 1:
+              raise SystemExit('Overview import marker mismatch')
+          text = text.replace(old_import, new_import)
+          old_panel = '''    renderInferencePanel(filtered, state, onUpdate),\n    renderPredictionPanel(filtered, state, onUpdate),\n'''
+          new_panel = '''    renderInferencePanel(filtered, state, onUpdate),\n    renderCrossValidationPanel(filtered, state, onUpdate),\n    renderPredictionPanel(filtered, state, onUpdate),\n'''
+          if text.count(old_panel) != 1:
+              raise SystemExit('Overview panel marker mismatch')
+          overview.write_text(text.replace(old_panel, new_panel), encoding='utf-8')
+          PY
+          cat > frontend/src/components/panels/CrossValidationPanel.ts <<'TS'
+          /** Cross-validation timing, selection, score, and failure diagnostics. */
+
+          import type { Run } from '../../schema';
+          import type { AppState } from '../../state';
+          import { renderPanelTable } from './PanelTable';
+
+          function selectedLabel(value: Record<string, unknown>): string {
+            return Object.entries(value)
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([key, selected]) => `${key}=${String(selected)}`)
+              .join(', ');
+          }
+
+          export function renderCrossValidationPanel(
+            runs: Run[],
+            state: AppState,
+            onUpdate: () => void,
+          ): HTMLElement | null {
+            const rows: Record<string, unknown>[] = [];
+            for (const run of runs) {
+              const cv = run.metrics.cross_validation;
+              if (!cv) continue;
+              rows.push({
+                model: run.model_id,
+                framework: run.framework,
+                backend: run.backend ?? run.framework,
+                scale: run.scale.label,
+                cv_time: cv.cv_evaluation_ms.toFixed(3),
+                refit_time: cv.final_refit_ms.toFixed(3),
+                total_time: cv.total_fit_ms.toFixed(3),
+                selected: selectedLabel(cv.selected_parameters),
+                validation_score: cv.validation_score.toFixed(6),
+                final_score: cv.final_score.toFixed(6),
+                scoring: `${cv.scoring_name} (${cv.scoring_direction})`,
+                failures: `${cv.failed_candidates} candidates / ${cv.failed_folds} folds`,
+                refit: cv.final_refit_converged ? 'yes' : 'no',
+              });
+            }
+            if (rows.length === 0) return null;
+            return renderPanelTable({
+              panelId: 'cross-validation',
+              title: 'Cross-validation Metrics',
+              columns: [
+                { key: 'model', label: 'Model', render: row => String(row.model) },
+                { key: 'framework', label: 'Framework', render: row => String(row.framework) },
+                { key: 'backend', label: 'Backend', render: row => String(row.backend) },
+                { key: 'scale', label: 'Scale', render: row => String(row.scale) },
+                { key: 'cv_time', label: 'CV evaluation (ms)', render: row => String(row.cv_time) },
+                { key: 'refit_time', label: 'Final refit (ms)', render: row => String(row.refit_time) },
+                { key: 'total_time', label: 'Total fit (ms)', render: row => String(row.total_time) },
+                { key: 'selected', label: 'Selected parameters', render: row => String(row.selected) },
+                { key: 'validation_score', label: 'Validation score', render: row => String(row.validation_score) },
+                { key: 'final_score', label: 'Final score', render: row => String(row.final_score) },
+                { key: 'scoring', label: 'Scoring', render: row => String(row.scoring) },
+                { key: 'failures', label: 'Failures', render: row => String(row.failures) },
+                { key: 'refit', label: 'Refit converged', render: row => String(row.refit) },
+              ],
+              rows,
+              state,
+              onToggle: onUpdate,
+            });
+          }
+          TS
+      - name: Validate and commit
+        run: |
+          python -m json.tool dev/benchmarks/benchmark_frontend_schema.json >/dev/null
+          cd frontend
+          npm ci
+          npm run typecheck
+          npm run build
+          cd ..
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/benchmarks/benchmark_frontend_schema.json frontend/src/schema.ts frontend/src/components/OverviewTable.ts frontend/src/components/panels/CrossValidationPanel.ts
+          git commit -m "benchmark: add structured CV dashboard metrics"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
