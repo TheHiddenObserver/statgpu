@@ -178,8 +178,12 @@ jobs:
           assert not torch.cuda.is_available()
           print("torch", torch.__version__, "device=cpu")
           PY
-      - name: Run Issue 112 Torch CPU regressions
-        run: python -m pytest dev/tests/test_logistic_cv_torch_dtype.py -q --tb=short
+      - name: Run maintained Torch CPU regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_logistic_cv_torch_dtype.py \
+            dev/tests/test_panel_stage_a_torch_cpu.py \
+            -q --tb=short
 
   static-contracts:
     runs-on: ubuntu-latest
