@@ -30,6 +30,24 @@ def test_git_sha_honors_explicit_remote_provenance(monkeypatch) -> None:
     assert _git_sha() == expected
 
 
+def test_package_version_falls_back_to_importable_module(monkeypatch) -> None:
+    import types
+
+    import dev.benchmarks.benchmark_cv_models as benchmark_cv_models
+
+    def missing_distribution(name: str) -> str:
+        raise benchmark_cv_models.importlib.metadata.PackageNotFoundError(name)
+
+    fake_cupy = types.SimpleNamespace(__version__="13.6.0")
+    monkeypatch.setattr(benchmark_cv_models.importlib.metadata, "version", missing_distribution)
+    monkeypatch.setattr(
+        benchmark_cv_models.importlib,
+        "import_module",
+        lambda name: fake_cupy if name == "cupy" else (_ for _ in ()).throw(ModuleNotFoundError(name)),
+    )
+    assert benchmark_cv_models._package_version("cupy") == "13.6.0"
+
+
 def test_profiler_observes_selector_and_full_data_refit() -> None:
     from dev.benchmarks.benchmark_cv_models import RegionProfiler
 

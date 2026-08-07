@@ -191,7 +191,13 @@ def _package_version(name: str) -> str | None:
     try:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
-        return None
+        module_name = {"scikit-learn": "sklearn"}.get(name, name.replace("-", "_"))
+        try:
+            module = importlib.import_module(module_name)
+        except (ImportError, ModuleNotFoundError):
+            return None
+        version = getattr(module, "__version__", None)
+        return None if version is None else str(version)
 
 
 def _backend_status(backend: str) -> tuple[bool, str | None, str | None]:
