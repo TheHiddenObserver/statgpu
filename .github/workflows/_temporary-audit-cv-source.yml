@@ -1,0 +1,72 @@
+name: Temporary audit canonical CV source
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-audit-cv-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install validator dependency
+        run: python -m pip install 'jsonschema[format]'
+      - name: Audit immutable P100 source
+        run: |
+          python dev/benchmarks/cv_source.py results/cv_benchmark_candidate.json
+          python - <<'PY'
+          import hashlib, json, math
+          from pathlib import Path
+
+          path = Path('results/cv_benchmark_candidate.json')
+          raw = path.read_bytes()
+          data = json.loads(raw)
+          print('sha256=' + hashlib.sha256(raw).hexdigest())
+          print('source_date=' + str(data['source_date']))
+          print('generated_at=' + str(data['generated_at']))
+          print('raw_git_sha=' + str(data['git_sha']))
+          print('gpu=' + str(data['environment']['gpu']))
+          print('python=' + str(data['environment']['python']))
+          print('available_backends=' + ','.join(data['environment']['available_backends']))
+
+          expected = ['RidgeCV','LassoCV','ElasticNetCV','LogisticRegressionCV','PenalizedGLM_CV','CoxPHCV']
+          cases = {case['model_id']: case for case in data['cases']}
+          assert list(cases) == expected, list(cases)
+          total_success = 0
+          total_failed = 0
+          for model in expected:
+              case = cases[model]
+              statuses = {(r['framework'], r['backend']): r['status'] for r in case['runs']}
+              print(model + ':' + ','.join(f'{fw}/{be}={st}' for (fw,be),st in statuses.items()))
+              for run in case['runs']:
+                  if run['status'] == 'success':
+                      total_success += 1
+                      assert run['timing']['cv_evaluation_ms'] > 0
+                      assert run['timing']['final_refit_ms'] > 0
+                      assert run['timing']['total_fit_ms'] > 0
+                      assert run['selected_parameters']
+                      assert math.isfinite(run['scores']['validation_score'])
+                      assert math.isfinite(run['scores']['final_score'])
+                  elif run['status'] == 'failed':
+                      total_failed += 1
+                      assert run['timing'] is None
+                      assert run['selected_parameters'] is None
+                      assert run['scores'] is None
+                      assert run['convergence'] is None
+                      assert run['reason']
+          logit_torch = next(r for r in cases['LogisticRegressionCV']['runs'] if r['framework']=='statgpu' and r['backend']=='torch')
+          assert logit_torch['status'] == 'failed'
+          assert 'CPU fallback is disabled' in logit_torch['reason']
+          print(f'success_rows={total_success}')
+          print(f'failed_rows={total_failed}')
+          print('logistic_torch_failure=' + logit_torch['reason'])
+          PY
