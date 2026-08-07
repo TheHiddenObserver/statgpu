@@ -119,7 +119,14 @@ class RegionProfiler:
         )
 
     def _is_full_refit(self, frame) -> bool:
-        if frame.f_code.co_name != "fit":
+        module = str(frame.f_globals.get("__name__", ""))
+        name = frame.f_code.co_name
+        if (
+            module == "statgpu.linear_model.penalized._penalized_cv"
+            and name == "_refit_best"
+        ):
+            return True
+        if name != "fit":
             return False
         owner = frame.f_locals.get("self")
         if owner is None or owner is self.outer_estimator:
