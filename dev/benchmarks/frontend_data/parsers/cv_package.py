@@ -56,9 +56,9 @@ def parse_cv_benchmark(
 ) -> tuple[list[dict], list[dict], list[str]]:
     """Parse a validated canonical six-family CV source.
 
-    Only measured successful runs become dashboard rows. Every non-success
-    disposition becomes a parse warning, preserving the reason in the report
-    rather than turning unavailable hardware into a zero-time benchmark row.
+    Successful runs expose measured timing, selection, score, and convergence
+    fields. Explicit non-success backend dispositions are retained as dashboard
+    rows with status/reason metadata and without fabricated measurements.
     """
     with filepath.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -72,8 +72,8 @@ def parse_cv_benchmark(
     source = {
         "file": filepath.name,
         "date": data["source_date"],
-        "parser": "parse_cv_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_cv_benchmark_v1_1",
+        "parser_version": "1.1",
     }
     protocol = data["protocol"]
     runs: list[dict] = []
@@ -115,22 +115,9 @@ def parse_cv_benchmark(
         )
 
         for raw_run in case["runs"]:
-            pair = f"{raw_run['framework']}/{raw_run['backend']}"
-            if raw_run["status"] != "success":
-                warnings.append(
-                    f"{filepath.name}: {source_case_id} {pair} "
-                    f"{raw_run['status']}: {raw_run['reason']}"
-                )
-                continue
-
-            repeat_samples = raw_run["repeat_samples"]
-            total_samples = [sample["total_fit_ms"] for sample in repeat_samples]
-            timing = raw_run["timing"]
-            convergence = raw_run["convergence"]
-            selected = raw_run["selected_parameters"]
-            scores = raw_run["scores"]
             framework = raw_run["framework"]
             backend = raw_run["backend"]
+            selected = raw_run["selected_parameters"]
             method_config_id = _digest_id(
                 "method",
                 {
@@ -141,16 +128,6 @@ def parse_cv_benchmark(
                     "device": raw_run["device"],
                 },
             )
-            std_ms = statistics.pstdev(total_samples) if len(total_samples) > 1 else 0.0
-            converged_rate = 1.0 if convergence["final_refit_converged"] else 0.0
-            validation_status = (
-                "pass"
-                if convergence["failed_candidates"] == 0
-                and convergence["failed_folds"] == 0
-                and convergence["final_refit_converged"]
-                else "warn"
-            )
-
             parameters = {
                 "metric_scope": "cross_validation",
                 "source_case_id": source_case_id,
@@ -162,8 +139,7 @@ def parse_cv_benchmark(
                 "protocol": protocol,
                 "device": raw_run["device"],
             }
-
-            run = {
+            run: dict[str, Any] = {
                 "run_id": "",
                 "env_id": env_id,
                 "category_ids": categories,
@@ -178,69 +154,109 @@ def parse_cv_benchmark(
                 "variant": case["scoring"]["name"],
                 "implementation": raw_run["device"],
                 "parameters": parameters,
-                "replicate": {
-                    "n_runs": len(repeat_samples),
-                    "seed_count": len({sample["seed"] for sample in repeat_samples}),
-                    "n_failed": convergence["failed_candidates"] + convergence["failed_folds"],
-                },
                 "framework": framework,
                 "backend": backend,
                 "scale": scale,
                 "source": dict(source),
-                "metrics": {
-                    "timing": {
-                        "fit_time_ms": timing["total_fit_ms"],
-                        "std_ms": std_ms,
-                        "min_ms": min(total_samples),
-                        "max_ms": max(total_samples),
-                        "sample_count": len(total_samples),
-                        "std_ddof": 0,
-                        "std_scope": "replicates",
-                        "quality": "measured",
-                        "source_file": filepath.name,
-                    },
+            }
+
+            status = raw_run["status"]
+            if status != "success":
+                run["metrics"] = {
                     "cross_validation": {
-                        "cv_evaluation_ms": timing["cv_evaluation_ms"],
-                        "final_refit_ms": timing["final_refit_ms"],
-                        "total_fit_ms": timing["total_fit_ms"],
-                        "selected_parameters": selected,
-                        "validation_score": scores["validation_score"],
-                        "final_score": scores["final_score"],
+                        "status": status,
+                        "reason": raw_run["reason"],
                         "scoring_name": case["scoring"]["name"],
                         "scoring_direction": case["scoring"]["direction"],
-                        "candidate_count": convergence["candidate_count"],
-                        "fold_count": convergence["fold_count"],
-                        "failed_candidates": convergence["failed_candidates"],
-                        "failed_folds": convergence["failed_folds"],
-                        "final_refit_converged": convergence["final_refit_converged"],
-                        "quality": "measured",
-                        "source_file": filepath.name,
-                    },
-                    "convergence": {
-                        "n_iter_mean": convergence.get("n_iter", 0) or 0,
-                        "converged_rate": converged_rate,
+                        "candidate_count": case["grid"]["candidate_count"],
+                        "fold_count": case["cv"]["fold_count"],
                         "quality": "reported",
                         "source_file": filepath.name,
-                    },
-                    "validation": {
-                        "status": validation_status,
-                        "checks": [
-                            {
-                                "metric": "validation_score",
-                                "status": "pass",
-                                "value": scores["validation_score"],
-                                "reference": case["scoring"]["name"],
-                            },
-                            {
-                                "metric": "final_score",
-                                "status": "pass",
-                                "value": scores["final_score"],
-                                "reference": case["scoring"]["name"],
-                            },
-                        ],
-                        "quality": "measured",
-                        "source_file": filepath.name,
-                    },
+                    }
+                }
+                runs.append(run)
+                continue
+
+            repeat_samples = raw_run["repeat_samples"]
+            total_samples = [sample["total_fit_ms"] for sample in repeat_samples]
+            timing = raw_run["timing"]
+            convergence = raw_run["convergence"]
+            scores = raw_run["scores"]
+            assert timing is not None
+            assert selected is not None
+            assert convergence is not None
+            assert scores is not None
+
+            std_ms = statistics.pstdev(total_samples) if len(total_samples) > 1 else 0.0
+            converged_rate = 1.0 if convergence["final_refit_converged"] else 0.0
+            validation_status = (
+                "pass"
+                if convergence["failed_candidates"] == 0
+                and convergence["failed_folds"] == 0
+                and convergence["final_refit_converged"]
+                else "warn"
+            )
+
+            run["replicate"] = {
+                "n_runs": len(repeat_samples),
+                "seed_count": len({sample["seed"] for sample in repeat_samples}),
+                "n_failed": convergence["failed_candidates"] + convergence["failed_folds"],
+            }
+            run["metrics"] = {
+                "timing": {
+                    "fit_time_ms": timing["total_fit_ms"],
+                    "std_ms": std_ms,
+                    "min_ms": min(total_samples),
+                    "max_ms": max(total_samples),
+                    "sample_count": len(total_samples),
+                    "std_ddof": 0,
+                    "std_scope": "replicates",
+                    "quality": "measured",
+                    "source_file": filepath.name,
+                },
+                "cross_validation": {
+                    "status": "success",
+                    "reason": None,
+                    "cv_evaluation_ms": timing["cv_evaluation_ms"],
+                    "final_refit_ms": timing["final_refit_ms"],
+                    "total_fit_ms": timing["total_fit_ms"],
+                    "selected_parameters": selected,
+                    "validation_score": scores["validation_score"],
+                    "final_score": scores["final_score"],
+                    "scoring_name": case["scoring"]["name"],
+                    "scoring_direction": case["scoring"]["direction"],
+                    "candidate_count": convergence["candidate_count"],
+                    "fold_count": convergence["fold_count"],
+                    "failed_candidates": convergence["failed_candidates"],
+                    "failed_folds": convergence["failed_folds"],
+                    "final_refit_converged": convergence["final_refit_converged"],
+                    "quality": "measured",
+                    "source_file": filepath.name,
+                },
+                "convergence": {
+                    "n_iter_mean": convergence.get("n_iter", 0) or 0,
+                    "converged_rate": converged_rate,
+                    "quality": "reported",
+                    "source_file": filepath.name,
+                },
+                "validation": {
+                    "status": validation_status,
+                    "checks": [
+                        {
+                            "metric": "validation_score",
+                            "status": "pass",
+                            "value": scores["validation_score"],
+                            "reference": case["scoring"]["name"],
+                        },
+                        {
+                            "metric": "final_score",
+                            "status": "pass",
+                            "value": scores["final_score"],
+                            "reference": case["scoring"]["name"],
+                        },
+                    ],
+                    "quality": "measured",
+                    "source_file": filepath.name,
                 },
             }
             runs.append(run)
