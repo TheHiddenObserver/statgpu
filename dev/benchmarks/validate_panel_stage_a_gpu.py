@@ -39,6 +39,15 @@ def _git_sha() -> str:
         return "unknown"
 
 
+def _git_status_porcelain() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "status", "--porcelain"], text=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("unable to verify working-tree cleanliness") from exc
+
+
 def _version(name: str):
     try:
         return importlib.metadata.version(name)
@@ -263,6 +272,12 @@ def main():
     sha = _git_sha()
     if args.expected_sha is not None and sha != args.expected_sha:
         raise RuntimeError(f"wrong source head: {sha} != {args.expected_sha}")
+    dirty = _git_status_porcelain()
+    if dirty.strip():
+        raise RuntimeError(
+            "physical acceptance requires a clean working tree; uncommitted changes:\n"
+            + dirty
+        )
 
     X, y, entity, time = _dataset()
     reference_models = _cases(X, y, entity, time, "numpy")
@@ -296,6 +311,7 @@ def main():
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": sha,
+        "working_tree_clean": True,
         "status": "success",
         "environment": _environment(backends),
         "tolerances": {"rtol": args.rtol, "atol": args.atol},
