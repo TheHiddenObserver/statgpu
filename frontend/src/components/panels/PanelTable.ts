@@ -25,13 +25,20 @@ export function renderPanelTable(opts: PanelTableOptions): HTMLElement {
   const limit = state.panelLimits[panelId] ?? defaultLimit;
   const expanded = state.expandedPanels.has(panelId);
   const displayRows = limit === Infinity ? rows : rows.slice(0, limit);
+  const bodyId = `${panelId}-panel-body`;
 
   const container = h('div', { style: 'margin-top:6px; font-size:12px;' });
 
-  // Toggle header
-  const toggle = h('div', {
-    style: 'color:#1890ff; cursor:pointer; font-weight:bold; margin-bottom:4px;',
-  }, `${expanded ? '▼' : '▶'} ${title} (${rows.length})`);
+  const toggle = h(
+    'button',
+    {
+      type: 'button',
+      class: 'metric-panel-toggle',
+      'aria-expanded': String(expanded),
+      'aria-controls': bodyId,
+    },
+    `${expanded ? '▼' : '▶'} ${title} (${rows.length})`,
+  );
   toggle.addEventListener('click', () => {
     if (expanded) {
       state.expandedPanels.delete(panelId);
@@ -44,16 +51,23 @@ export function renderPanelTable(opts: PanelTableOptions): HTMLElement {
 
   if (!expanded) return container;
 
-  // Table
+  const body = h('div', { id: bodyId });
   const table = h('table', {
     style: 'width:100%; border-collapse:collapse; font-size:11px;',
   });
 
   const thead = h('tr');
   for (const col of columns) {
-    thead.appendChild(h('th', {
-      style: 'padding:2px 6px; border-bottom:1px solid #ddd; text-align:left;',
-    }, col.label));
+    thead.appendChild(
+      h(
+        'th',
+        {
+          scope: 'col',
+          style: 'padding:2px 6px; border-bottom:1px solid #ddd; text-align:left;',
+        },
+        col.label,
+      ),
+    );
   }
   table.appendChild(thead);
 
@@ -65,31 +79,39 @@ export function renderPanelTable(opts: PanelTableOptions): HTMLElement {
     }
     table.appendChild(tr);
   }
-  container.appendChild(table);
+  body.appendChild(table);
 
-  // "Showing N of M" + "Show all" toggle
   if (rows.length > defaultLimit) {
     const showing = limit === Infinity ? rows.length : limit;
     const footer = h('div', { style: 'margin-top:4px; font-size:11px; color:#666;' });
     footer.appendChild(h('span', {}, `Showing ${showing} of ${rows.length}`));
 
     if (limit === Infinity) {
-      const btn = h('button', { style: 'margin-left:8px; padding:1px 6px; font-size:11px;' }, 'Show first 30');
+      const btn = h(
+        'button',
+        { style: 'margin-left:8px; padding:1px 6px; font-size:11px;' },
+        'Show first 30',
+      );
       btn.addEventListener('click', () => {
         state.panelLimits[panelId] = 30;
         opts.onToggle?.();
       });
       footer.appendChild(btn);
     } else {
-      const btn = h('button', { style: 'margin-left:8px; padding:1px 6px; font-size:11px;' }, `Show all ${rows.length}`);
+      const btn = h(
+        'button',
+        { style: 'margin-left:8px; padding:1px 6px; font-size:11px;' },
+        `Show all ${rows.length}`,
+      );
       btn.addEventListener('click', () => {
         state.panelLimits[panelId] = Infinity;
         opts.onToggle?.();
       });
       footer.appendChild(btn);
     }
-    container.appendChild(footer);
+    body.appendChild(footer);
   }
 
+  container.appendChild(body);
   return container;
 }

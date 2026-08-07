@@ -1,7 +1,7 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-07-20  
+> Last updated: 2026-08-07
 > This page: Benchmark index  
 > Switch: [Chinese](../../cn/guides/benchmarks.md)
 
@@ -10,7 +10,7 @@
 - **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
 - **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. It currently contains **8 registered sources, 1,774 normalized runs, and 36 models**.
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Live source/run counts are read from the dashboard inventory rather than maintained as long-lived prose. **Snapshot (2026-08-07):** the canonical bundle has 9 registered/available/parsed sources and 1,796 normalized runs.
 
 The current bundle connects penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA. The feature-selection category remains reserved until a June 2026-or-later structured benchmark is available.
 
@@ -26,7 +26,8 @@ Current capabilities:
 - Focused and Full matrix chart modes.
 - Timing and speedup charts with distinct computed and runner-reported semantics.
 - Sortable run-level table with explicit scope labels.
-- Validation, accuracy, inference, prediction, convergence, and selection panels.
+- Validation, accuracy, inference, cross-validation, prediction, convergence, and selection panels.
+- Keyboard-visible focus, accessible filter naming, disclosure controls, and exact chart-data tables.
 - Source provenance, parse-report metadata, and source-inventory coverage.
 
 Generate and validate the canonical bundle:
@@ -48,8 +49,9 @@ cd frontend
 npm ci
 npm run typecheck
 npm run build
-npx playwright install --with-deps chromium
+npx playwright install --with-deps chromium firefox webkit
 npm run test:e2e
+npm run test:e2e:production
 ```
 
 ---
