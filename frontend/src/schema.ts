@@ -246,16 +246,57 @@ export interface ParseReport {
   issues: ParseIssue[];
 }
 
-/** Source inventory */
+export type SourceCatalogClassification =
+  | 'registered_canonical'
+  | 'eligible_unregistered'
+  | 'not_canonical_ready'
+  | 'historical_or_excluded'
+  | 'superseded_or_duplicate'
+  | 'unrelated_json'
+  | 'unclassified';
+
+export interface SourceCatalogEntry {
+  path: string;
+  artifact_type: 'json';
+  source_date: string | null;
+  classification: SourceCatalogClassification;
+  canonical_eligible: boolean;
+  registered: boolean;
+  source_id: string | null;
+  parser: string | null;
+  parser_version: string | null;
+  provenance_status: string;
+  timing_protocol_status: string;
+  statistical_alignment_status: string;
+  reason: string;
+  superseded_by: string | null;
+  issue: string | null;
+  rule_id: string | null;
+}
+
+/** Audited source inventory v2 */
 export interface SourceInventory {
-  inventory_version: '1.0';
+  inventory_version: '2.0';
   catalog_version: string;
+  catalog_digest: string;
+  catalog_policy_digest: string;
+  coverage_matrix_version: string;
+  coverage_matrix_digest: string;
   generation_id: string;
-  catalog_total: number;
-  eligible_total: number;
+  discovered_json_artifacts: number;
+  classified_candidate_sources: number;
+  eligible_sources: number;
   registered_sources: number;
-  available_sources: number;
-  parsed_sources: number;
+  available_registered_sources: number;
+  parsed_registered_sources: number;
+  eligible_unregistered_sources: number;
+  not_canonical_ready_sources: number;
+  historical_or_excluded_sources: number;
+  superseded_or_duplicate_sources: number;
+  unrelated_json_artifacts: number;
+  unclassified_artifacts: number;
+  catalog_entries: SourceCatalogEntry[];
+  coverage_status_counts: Record<string, number>;
 }
 
 /** Filter context and options */

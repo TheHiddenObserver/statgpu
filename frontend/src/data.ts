@@ -4,6 +4,7 @@ import type {
   MetricScope,
   ParseReport,
   Run,
+  SourceInventory,
 } from './schema';
 import type { AppState } from './state';
 
@@ -15,6 +16,7 @@ const INVENTORY_URL = `${import.meta.env.BASE_URL}data/source_inventory.json`;
 
 let cachedData: BenchmarkData | null = null;
 let cachedReport: ParseReport | null = null;
+let cachedInventory: SourceInventory | null = null;
 
 export async function fetchBenchmarkData(): Promise<BenchmarkData> {
   if (cachedData) return cachedData;
@@ -43,17 +45,30 @@ export async function fetchParseReport(): Promise<ParseReport | null> {
   }
 }
 
-let cachedInventory: import('./schema').SourceInventory | null = null;
-
-export async function fetchSourceInventory(): Promise<import('./schema').SourceInventory | null> {
+export async function fetchSourceInventory(): Promise<SourceInventory | null> {
   if (cachedInventory) return cachedInventory;
   try {
     const resp = await fetch(INVENTORY_URL);
     if (!resp.ok) return null;
     const raw = await resp.json();
-    if (raw.inventory_version !== '1.0') return null;
-    cachedInventory = raw;
-    return cachedInventory!;
+    if (raw.inventory_version !== '2.0') return null;
+    const requiredCounts = [
+      'discovered_json_artifacts',
+      'classified_candidate_sources',
+      'eligible_sources',
+      'registered_sources',
+      'available_registered_sources',
+      'parsed_registered_sources',
+      'eligible_unregistered_sources',
+      'not_canonical_ready_sources',
+      'historical_or_excluded_sources',
+      'unclassified_artifacts',
+    ];
+    if (requiredCounts.some(key => !Number.isInteger(raw[key]) || raw[key] < 0)) {
+      return null;
+    }
+    cachedInventory = raw as SourceInventory;
+    return cachedInventory;
   } catch {
     return null;
   }

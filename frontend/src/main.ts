@@ -2,7 +2,7 @@ import './style.css';
 import './metric-scope.css';
 
 import * as echarts from 'echarts';
-import type { BenchmarkData, ParseReport, Run } from './schema';
+import type { BenchmarkData, ParseReport, Run, SourceInventory } from './schema';
 import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns } from './data';
 import { createDefaultState } from './state';
 import type { AppState } from './state';
@@ -22,7 +22,7 @@ import { emptyStateMessage } from './components/EmptyState';
 
 let data: BenchmarkData | null = null;
 let parseReport: ParseReport | null = null;
-let sourceInventory: import('./schema').SourceInventory | null = null;
+let sourceInventory: SourceInventory | null = null;
 let state: AppState | null = null;
 
 /** Track ECharts instances for cleanup before re-render */
@@ -34,7 +34,7 @@ const chartInstances: echarts.ECharts[] = [];
 
 function renderApp(): HTMLElement {
   const app = h('div', { id: 'app-root' });
-  app.appendChild(renderHeader(data!, parseReport, state!, update));
+  app.appendChild(renderHeader(data!, parseReport, sourceInventory, state!, update));
   app.appendChild(renderBody());
   return app;
 }
@@ -116,6 +116,15 @@ function renderFooter(): HTMLElement {
     ['Benchmark guide', '../../en/guides/benchmarks.html'],
     ['Raw data (JSON)', 'data/benchmark_data.json'],
     ['Parse report (JSON)', 'data/parse_report.json'],
+    ['Source inventory (JSON)', 'data/source_inventory.json'],
+    [
+      'Catalog policy',
+      'https://github.com/TheHiddenObserver/statgpu/blob/master/dev/benchmarks/benchmark_source_catalog.json',
+    ],
+    [
+      'Coverage matrix',
+      'https://github.com/TheHiddenObserver/statgpu/blob/master/dev/benchmarks/benchmark_coverage_matrix.json',
+    ],
     [
       'GitHub source',
       'https://github.com/TheHiddenObserver/statgpu/tree/master/dev/benchmarks',
@@ -126,7 +135,14 @@ function renderFooter(): HTMLElement {
     footer.appendChild(a);
   }
 
-  const meta = h('span', {}, `Schema ${data!.schema_version} · ${data!.meta.git_sha}`);
+  const inventorySuffix = sourceInventory
+    ? ` · Inventory ${sourceInventory.inventory_version}`
+    : '';
+  const meta = h(
+    'span',
+    {},
+    `Schema ${data!.schema_version}${inventorySuffix} · ${data!.meta.git_sha}`,
+  );
   footer.appendChild(meta);
 
   return footer;
