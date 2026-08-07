@@ -1,9 +1,9 @@
 """Shared internal lifecycle helpers for panel estimators.
 
 The Stage-A abstraction is intentionally conservative: it centralizes formula
-state, backend preparation, panel metadata, ordinary linear prediction, and
-summary construction without choosing an econometric transformation or
-covariance definition for subclasses.
+state, backend preparation, panel metadata, ordinary linear prediction,
+residual-based inference finalization, and summary construction without choosing
+an econometric transformation for subclasses.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Dict, Optional
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from statgpu.backends import _to_numpy, xp_asarray, xp_ones
+from statgpu.backends import _to_numpy, xp_asarray, xp_maximum, xp_ones
 from statgpu.panel._results import build_panel_index_info
 from statgpu.panel._utils import PanelSummary, validate_panel_alpha, validate_panel_numeric_data
 
@@ -137,6 +137,76 @@ class BasePanelModel(BaseEstimator):
             raise ValueError("X has an incompatible feature count")
         prediction = X_arr @ params_dev
         return _to_numpy(prediction) if return_numpy else prediction
+
+    def _panel_store_ols_inference(
+        self,
+        X,
+        resid,
+        params,
+        *,
+        scale,
+        df_resid,
+        backend,
+        cov_type,
+        cluster=None,
+        bandwidth=None,
+        kernel="bartlett",
+        allowed=None,
+        hc1_correction=None,
+        distribution_df=None,
+        diag_floor=1e-30,
+    ):
+        """Store existing residual-based OLS inference from the shared registry."""
+        from statgpu.inference._distributions_backend import get_distribution
+        from statgpu.panel._covariance import ols_covariance
+
+        xp = backend.xp
+        cov_params = ols_covariance(
+            X,
+            resid,
+            cov_type=cov_type,
+            scale=scale,
+            df_resid=df_resid,
+            cluster=cluster,
+            bandwidth=bandwidth,
+            kernel=kernel,
+            xp=xp,
+            allowed=allowed,
+            hc1_correction=hc1_correction,
+        )
+        diag = xp.diag(cov_params)
+        if diag_floor is not None:
+            diag = xp_maximum(diag, float(diag_floor), xp)
+        bse_dev = xp.sqrt(diag)
+        if diag_floor is None:
+            tvalues_dev = params / bse_dev
+        else:
+            denominator = xp_maximum(bse_dev, np.finfo(np.float64).tiny, xp)
+            tvalues_dev = params / denominator
+
+        dist_name = "t" if str(cov_type).lower() == "nonrobust" else "norm"
+        distribution = get_distribution(dist_name, backend=backend.name)
+        df = int(df_resid if distribution_df is None else distribution_df)
+        if dist_name == "t":
+            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev), df)
+            critical = distribution.isf(float(self.alpha) / 2, df)
+        else:
+            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
+            critical = distribution.isf(float(self.alpha) / 2)
+        critical = xp_asarray(
+            critical, dtype=params.dtype, xp=xp, ref_arr=params
+        )
+        conf_low = params - critical * bse_dev
+        conf_high = params + critical * bse_dev
+
+        self.coef_ = np.asarray(_to_numpy(params)).ravel()
+        self.bse_ = np.asarray(_to_numpy(bse_dev)).ravel()
+        self.tvalues_ = np.asarray(_to_numpy(tvalues_dev)).ravel()
+        self.pvalues_ = np.asarray(_to_numpy(pvalues_dev)).ravel()
+        self.conf_int_ = np.asarray(
+            _to_numpy(xp.stack([conf_low, conf_high], axis=1))
+        )
+        return cov_params
 
     def _panel_summary(
         self,
