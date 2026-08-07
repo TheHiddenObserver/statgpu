@@ -1,0 +1,43 @@
+name: Temporary CV fold alignment
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-fold-alignment.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reuse statgpu deterministic folds
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('dev/benchmarks/cv_external.py')
+          text = path.read_text(encoding='utf-8')
+          start = text.index('def _folds(')
+          end = text.index('\n\ndef _loss', start)
+          replacement = '''def _folds(spec: Any, X, y, seed: int):\n    """Reuse the exact fold generator exercised by statgpu CV estimators."""\n    from statgpu.cross_validation._base import kfold_indices\n\n    return kfold_indices(\n        n_samples=len(X),\n        n_splits=3,\n        random_state=seed,\n        shuffle=True,\n    )\n'''
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
+      - name: Validate and commit
+        run: |
+          python -m py_compile dev/benchmarks/cv_external.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/benchmarks/cv_external.py
+          git commit -m "benchmark: align external CV fold indices"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
