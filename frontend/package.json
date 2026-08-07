@@ -11,7 +11,8 @@
     "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
     "typecheck:contract": "tsc --noEmit -p tsconfig.contract.json",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:production": "playwright test -c playwright.production.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
