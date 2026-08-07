@@ -1,0 +1,87 @@
+name: Temporary CV score alignment
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-score-alignment.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Patch score and parameter mappings
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          external = Path('dev/benchmarks/cv_external.py')
+          text = external.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  'def _candidate_values(spec: Any) -> list[dict[str, Any]]:\n',
+                  'def _candidate_values(spec: Any, n_samples: int) -> list[dict[str, Any]]:\n',
+              ),
+              (
+                  '        return [{"alpha": float(value)} for value in grid["alphas"]]\n',
+                  '        return [{"alpha": float(value), "sklearn_alpha": float(value) * n_samples} for value in grid["alphas"]]\n',
+              ),
+              (
+                  '        return Ridge(alpha=candidate["alpha"], fit_intercept=True)\n',
+                  '        return Ridge(alpha=candidate["sklearn_alpha"], fit_intercept=True)\n',
+              ),
+              (
+                  '    candidates = _candidate_values(spec)\n',
+                  '    candidates = _candidate_values(spec, n_samples)\n',
+              ),
+              (
+                  '                "candidate_count": len(_candidate_values(spec)),\n',
+                  '                "candidate_count": len(_candidate_values(spec, n_samples)),\n',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'external mapping marker mismatch {count}: {old!r}')
+              text = text.replace(old, new)
+          external.write_text(text, encoding='utf-8')
+
+          runner = Path('dev/benchmarks/benchmark_cv_models.py')
+          text = runner.read_text(encoding='utf-8')
+          start = text.index('def _score_model(')
+          end = text.index('\n\ndef _selected_parameters', start)
+          replacement = '''def _to_numpy(value):\n    import numpy as np\n    module = type(value).__module__.split(".")[0]\n    if module == "cupy":\n        import cupy as cp\n        return cp.asnumpy(value)\n    if module == "torch":\n        return value.detach().cpu().numpy()\n    return np.asarray(value)\n\n\ndef _score_model(model, spec: CaseSpec, X_test, target_test) -> float:\n    import numpy as np\n\n    if spec.task == "regression":\n        prediction = _to_numpy(model.predict(X_test)).reshape(-1)\n        target = _to_numpy(target_test).reshape(-1)\n        residual = prediction - target\n        return float(np.mean(residual * residual))\n\n    if spec.task == "classification":\n        target = _to_numpy(target_test).astype(int).reshape(-1)\n        if hasattr(model, "predict_proba"):\n            probability = _to_numpy(model.predict_proba(X_test))\n            if probability.ndim == 2:\n                probability = probability[:, 1]\n        else:\n            decision = _to_numpy(model.decision_function(X_test)).reshape(-1)\n            probability = 1.0 / (1.0 + np.exp(-decision))\n        probability = np.clip(np.asarray(probability).reshape(-1), 1e-15, 1.0 - 1e-15)\n        return float(-np.mean(target * np.log(probability) + (1 - target) * np.log(1 - probability)))\n\n    time_value, event = target_test\n    from statgpu.survival._cox_cv import _compute_partial_likelihood\n    return float(\n        _compute_partial_likelihood(\n            _to_numpy(X_test),\n            _to_numpy(time_value),\n            _to_numpy(event),\n            _to_numpy(model.coef_),\n            ties=str(spec.grid_parameters.get("ties", "breslow")),\n        )\n    )\n'''
+          text = text[:start] + replacement + text[end:]
+
+          start = text.index('def _best_score(')
+          end = text.index('\n\ndef _run_once', start)
+          replacement = '''def _validation_score(model, spec: CaseSpec) -> float:\n    for name in ("best_score_", "best_cv_score_", "cv_score_"):\n        value = getattr(model, name, None)\n        if value is not None:\n            score = float(value)\n            if spec.scoring_direction == "minimize" and score < 0.0:\n                score = -score\n            return score\n    raise RuntimeError("fitted CV estimator did not expose a validation score")\n'''
+          text = text[:start] + replacement + text[end:]
+          old = '        "validation_score": _best_score(model),\n'
+          new = '        "validation_score": _validation_score(model, spec),\n'
+          if text.count(old) != 1:
+              raise SystemExit('validation score call marker mismatch')
+          text = text.replace(old, new)
+          runner.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate and commit
+        run: |
+          python -m py_compile dev/benchmarks/benchmark_cv_models.py dev/benchmarks/cv_external.py
+          python -m pip install pytest 'jsonschema[format]'
+          pytest dev/tests/test_benchmark_cv_source.py dev/tests/test_cv_runner_instrumentation.py -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/benchmarks/benchmark_cv_models.py dev/benchmarks/cv_external.py
+          git commit -m "benchmark: align CV score and Ridge reference semantics"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
