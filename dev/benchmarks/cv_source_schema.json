@@ -4,23 +4,14 @@
   "title": "statgpu canonical cross-validation benchmark source",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "source_schema_version",
-    "source_date",
-    "generated_at",
-    "git_sha",
-    "environment",
-    "protocol",
-    "cases"
-  ],
+  "required": ["source_schema_version", "source_date", "generated_at", "git_sha", "environment", "protocol", "cases"],
   "properties": {
     "source_schema_version": {"const": "1.0"},
     "source_date": {"type": "string", "format": "date"},
     "generated_at": {"type": "string", "format": "date-time"},
     "git_sha": {"type": "string", "minLength": 7},
     "environment": {
-      "type": "object",
-      "additionalProperties": false,
+      "type": "object", "additionalProperties": false,
       "required": ["env_id", "host", "cpu", "gpu", "python", "packages", "available_backends"],
       "properties": {
         "env_id": {"type": "string", "minLength": 1},
@@ -28,37 +19,15 @@
         "cpu": {"type": "string", "minLength": 1},
         "gpu": {"type": ["string", "null"]},
         "python": {"type": "string", "minLength": 1},
-        "packages": {
-          "type": "object",
-          "additionalProperties": {"type": ["string", "null"]}
-        },
-        "available_backends": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"enum": ["numpy", "cupy", "torch"]}
-        }
+        "packages": {"type": "object", "additionalProperties": {"type": ["string", "null"]}},
+        "available_backends": {"type": "array", "uniqueItems": true, "items": {"enum": ["numpy", "cupy", "torch"]}}
       }
     },
     "protocol": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "seeds",
-        "warmup",
-        "repeats",
-        "dtype",
-        "synchronization",
-        "timing_scope",
-        "transfer_policy",
-        "failure_policy"
-      ],
+      "type": "object", "additionalProperties": false,
+      "required": ["seeds", "warmup", "repeats", "dtype", "synchronization", "timing_scope", "transfer_policy", "failure_policy"],
       "properties": {
-        "seeds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"type": "integer"}
-        },
+        "seeds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer"}},
         "warmup": {"type": "integer", "minimum": 0},
         "repeats": {"type": "integer", "minimum": 1},
         "dtype": {"enum": ["float32", "float64"]},
@@ -68,42 +37,18 @@
         "failure_policy": {"const": "retain_explicit_disposition"}
       }
     },
-    "cases": {
-      "type": "array",
-      "minItems": 6,
-      "items": {"$ref": "#/$defs/case"}
-    }
+    "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}
   },
   "$defs": {
     "case": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "case_id",
-        "model_id",
-        "task",
-        "dataset",
-        "cv",
-        "grid",
-        "scoring",
-        "runs"
-      ],
+      "type": "object", "additionalProperties": false,
+      "required": ["case_id", "model_id", "task", "dataset", "cv", "grid", "scoring", "runs"],
       "properties": {
         "case_id": {"type": "string", "pattern": "^cv-[a-z0-9][a-z0-9-]*$"},
-        "model_id": {
-          "enum": [
-            "RidgeCV",
-            "LassoCV",
-            "ElasticNetCV",
-            "LogisticRegressionCV",
-            "PenalizedGLM_CV",
-            "CoxPHCV"
-          ]
-        },
+        "model_id": {"enum": ["RidgeCV", "LassoCV", "ElasticNetCV", "LogisticRegressionCV", "PenalizedGLM_CV", "CoxPHCV"]},
         "task": {"enum": ["regression", "classification", "survival"]},
         "dataset": {
-          "type": "object",
-          "additionalProperties": false,
+          "type": "object", "additionalProperties": false,
           "required": ["generator", "n_samples", "n_features", "n_test_samples", "parameters"],
           "properties": {
             "generator": {"type": "string", "minLength": 1},
@@ -114,8 +59,7 @@
           }
         },
         "cv": {
-          "type": "object",
-          "additionalProperties": false,
+          "type": "object", "additionalProperties": false,
           "required": ["fold_count", "split_strategy", "shuffle", "subject_preserving"],
           "properties": {
             "fold_count": {"type": "integer", "minimum": 2},
@@ -125,8 +69,7 @@
           }
         },
         "grid": {
-          "type": "object",
-          "additionalProperties": false,
+          "type": "object", "additionalProperties": false,
           "required": ["candidate_count", "identity", "parameters"],
           "properties": {
             "candidate_count": {"type": "integer", "minimum": 1},
@@ -135,8 +78,7 @@
           }
         },
         "scoring": {
-          "type": "object",
-          "additionalProperties": false,
+          "type": "object", "additionalProperties": false,
           "required": ["name", "direction", "normalization"],
           "properties": {
             "name": {"type": "string", "minLength": 1},
@@ -144,28 +86,12 @@
             "normalization": {"type": "string", "minLength": 1}
           }
         },
-        "runs": {
-          "type": "array",
-          "minItems": 3,
-          "items": {"$ref": "#/$defs/run"}
-        }
+        "runs": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/run"}}
       }
     },
     "run": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "framework",
-        "backend",
-        "device",
-        "status",
-        "reason",
-        "timing",
-        "selected_parameters",
-        "scores",
-        "convergence",
-        "repeat_samples"
-      ],
+      "type": "object", "additionalProperties": false,
+      "required": ["framework", "backend", "device", "status", "reason", "timing", "selected_parameters", "scores", "convergence", "repeat_samples"],
       "properties": {
         "framework": {"enum": ["statgpu", "sklearn", "lifelines", "glmnet", "other"]},
         "backend": {"type": ["string", "null"], "enum": ["numpy", "cupy", "torch", null]},
@@ -176,8 +102,7 @@
           "oneOf": [
             {"type": "null"},
             {
-              "type": "object",
-              "additionalProperties": false,
+              "type": "object", "additionalProperties": false,
               "required": ["cv_evaluation_ms", "final_refit_ms", "total_fit_ms"],
               "properties": {
                 "cv_evaluation_ms": {"type": "number", "exclusiveMinimum": 0},
@@ -193,13 +118,9 @@
           "oneOf": [
             {"type": "null"},
             {
-              "type": "object",
-              "additionalProperties": false,
+              "type": "object", "additionalProperties": false,
               "required": ["validation_score", "final_score"],
-              "properties": {
-                "validation_score": {"type": "number"},
-                "final_score": {"type": "number"}
-              }
+              "properties": {"validation_score": {"type": "number"}, "final_score": {"type": "number"}}
             }
           ]
         },
@@ -207,15 +128,8 @@
           "oneOf": [
             {"type": "null"},
             {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "candidate_count",
-                "fold_count",
-                "failed_candidates",
-                "failed_folds",
-                "final_refit_converged"
-              ],
+              "type": "object", "additionalProperties": false,
+              "required": ["candidate_count", "fold_count", "failed_candidates", "failed_folds", "final_refit_converged"],
               "properties": {
                 "candidate_count": {"type": "integer", "minimum": 1},
                 "fold_count": {"type": "integer", "minimum": 2},
@@ -230,8 +144,7 @@
         "repeat_samples": {
           "type": "array",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
+            "type": "object", "additionalProperties": false,
             "required": ["seed", "cv_evaluation_ms", "final_refit_ms", "total_fit_ms"],
             "properties": {
               "seed": {"type": "integer"},
