@@ -1,0 +1,350 @@
+name: Temporary dashboard measured optimizations
+
+on:
+  push:
+    branches:
+      - agent/benchmark-dashboard-optimization-audit
+    paths:
+      - .github/workflows/_temporary-dashboard-optimize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/benchmark-dashboard-optimization-audit
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply optimization patch
+        run: |
+          set -euo pipefail
+          cat > frontend/src/echarts.ts <<'EOF'
+          /** Tree-shakeable ECharts surface used by the benchmark dashboard. */
+          import * as echarts from 'echarts/core';
+          import { BarChart } from 'echarts/charts';
+          import {
+            DataZoomComponent,
+            GridComponent,
+            LegendComponent,
+            MarkLineComponent,
+            TitleComponent,
+            TooltipComponent,
+          } from 'echarts/components';
+          import { CanvasRenderer } from 'echarts/renderers';
+
+          echarts.use([
+            BarChart,
+            DataZoomComponent,
+            GridComponent,
+            LegendComponent,
+            MarkLineComponent,
+            TitleComponent,
+            TooltipComponent,
+            CanvasRenderer,
+          ]);
+
+          export { echarts };
+          export type { ECharts } from 'echarts/core';
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('frontend/src/main.ts'): [
+                  ("import * as echarts from 'echarts';", "import { echarts, type ECharts } from './echarts';"),
+                  ('const chartInstances: echarts.ECharts[] = [];', 'const chartInstances: ECharts[] = [];'),
+                  ("""    data = await fetchBenchmarkData();
+              state = createDefaultState(data.environments, data.runs);
+              // Non-critical metadata — fetch in parallel, failure doesn't block dashboard
+              [parseReport, sourceInventory] = await Promise.all([
+                fetchParseReport().catch(() => null),
+                fetchSourceInventory().catch(() => null),
+              ]);""",
+                   """    // Start all production assets together. Data is required; metadata remains
+              // non-critical, but it should not add a serial network round trip.
+              const [loadedData, loadedReport, loadedInventory] = await Promise.all([
+                fetchBenchmarkData(),
+                fetchParseReport().catch(() => null),
+                fetchSourceInventory().catch(() => null),
+              ]);
+              data = loadedData;
+              parseReport = loadedReport;
+              sourceInventory = loadedInventory;
+              state = createDefaultState(data.environments, data.runs);"""),
+              ],
+              Path('frontend/src/charts/TimingChart.ts'): [
+                  ("import * as echarts from 'echarts';", "import { echarts, type ECharts } from '../echarts';"),
+                  ('chartInstances: echarts.ECharts[],', 'chartInstances: ECharts[],'),
+              ],
+              Path('frontend/src/charts/SpeedupChart.ts'): [
+                  ("import * as echarts from 'echarts';", "import { echarts, type ECharts } from '../echarts';"),
+                  ('chartInstances: echarts.ECharts[],', 'chartInstances: ECharts[],'),
+              ],
+          }
+
+          for path, pairs in replacements.items():
+              text = path.read_text()
+              for old, new in pairs:
+                  if old not in text:
+                      raise SystemExit(f'missing replacement anchor in {path}: {old[:80]!r}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text)
+          PY
+
+          cat > frontend/src/components/ChartDataFallback.ts <<'EOF'
+          /** Accessible tabular alternative for ECharts content. */
+
+          import type { Run } from '../schema';
+          import type { AppState } from '../state';
+          import { selectTimingRuns } from '../charts/TimingChart';
+          import { selectSpeedupRuns } from '../charts/SpeedupChart';
+          import { h } from '../utils/dom';
+          import { formatModelName } from '../utils/format';
+
+          function identityCells(run: Run): string[] {
+            return [
+              formatModelName(run.model_id),
+              run.variant ?? '—',
+              run.penalty ?? '—',
+              run.solver_display ?? run.solver ?? '—',
+              run.framework === 'statgpu'
+                ? [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu'
+                : run.framework,
+              run.scale.label,
+            ];
+          }
+
+          interface TableValue {
+            value: string;
+            reference: string;
+          }
+
+          function renderTable(
+            id: string,
+            caption: string,
+            valueLabel: string,
+            runs: Run[],
+            valueForRun: (run: Run) => TableValue,
+          ): HTMLElement {
+            const details = h('details', { class: 'chart-data-details', id });
+            details.appendChild(h('summary', {}, `${caption} (${runs.length} rows)`));
+
+            let materialized = false;
+            const materialize = (): void => {
+              if (materialized) return;
+              materialized = true;
+
+              const wrapper = h('div', { class: 'chart-data-table-wrap' });
+              const table = h('table', { class: 'chart-data-table' });
+              table.appendChild(
+                h(
+                  'caption',
+                  {},
+                  `${caption}. Full labels are shown here when chart labels are truncated.`,
+                ),
+              );
+
+              const header = h('tr');
+              for (const label of [
+                'Model',
+                'Variant',
+                'Penalty',
+                'Solver',
+                'Backend / reference',
+                'Scale',
+                valueLabel,
+                'Reference',
+              ]) {
+                header.appendChild(h('th', { scope: 'col' }, label));
+              }
+              const thead = h('thead');
+              thead.appendChild(header);
+              table.appendChild(thead);
+
+              const tbody = h('tbody');
+              for (const run of runs) {
+                const { value, reference } = valueForRun(run);
+                const tr = h('tr');
+                for (const cell of [...identityCells(run), value, reference]) {
+                  tr.appendChild(h('td', {}, cell));
+                }
+                tbody.appendChild(tr);
+              }
+              table.appendChild(tbody);
+              wrapper.appendChild(table);
+              details.appendChild(wrapper);
+            };
+
+            details.addEventListener('toggle', () => {
+              if (details.open) materialize();
+            });
+            return details;
+          }
+
+          export function renderChartDataFallback(
+            timingSourceRuns: Run[],
+            speedupSourceRuns: Run[],
+            state: AppState,
+          ): HTMLElement {
+            const section = h('section', {
+              class: 'chart-data-fallback',
+              'aria-label': 'Accessible chart data',
+            });
+            section.appendChild(h('h2', { class: 'chart-data-heading' }, 'Chart data tables'));
+            section.appendChild(
+              h(
+                'p',
+                { class: 'chart-data-help' },
+                'Use these tables for exact values and full labels; they follow the current filters and chart view.',
+              ),
+            );
+
+            const timingRuns = selectTimingRuns(timingSourceRuns, state).runs;
+            const speedupRuns = selectSpeedupRuns(speedupSourceRuns, state).runs;
+
+            section.appendChild(
+              renderTable(
+                'timing-chart-data',
+                'Fit Time chart data',
+                'Time',
+                timingRuns,
+                run => ({
+                  value: `${run.metrics.timing!.fit_time_ms.toFixed(3)} ms`,
+                  reference: run.metrics.timing!.quality,
+                }),
+              ),
+            );
+            section.appendChild(
+              renderTable(
+                'speedup-chart-data',
+                'Speedup chart data',
+                'Speedup',
+                speedupRuns,
+                run => ({
+                  value: `${run.metrics.speedup!.value.toFixed(3)}×`,
+                  reference: `${run.metrics.speedup!.reference_framework} (${run.metrics.speedup!.reported_semantics})`,
+                }),
+              ),
+            );
+            return section;
+          }
+          EOF
+      - name: Typecheck and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Chromium regression
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Measure optimized production dashboard
+        working-directory: frontend
+        run: |
+          python3 -m http.server 4173 --directory .. >/tmp/statgpu-dashboard-opt-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/docs/assets/benchmarks/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import zlib from 'node:zlib';
+          import { performance } from 'node:perf_hooks';
+          import { chromium } from '@playwright/test';
+
+          const deployment = path.resolve('../docs/assets/benchmarks');
+          const assets = path.join(deployment, 'assets');
+          const data = path.join(deployment, 'data');
+          const js = fs.readdirSync(assets).find(x => x.endsWith('.js'));
+          const css = fs.readdirSync(assets).find(x => x.endsWith('.css'));
+          const size = p => {
+            const b = fs.readFileSync(p);
+            return { raw_bytes: b.length, gzip9_bytes: zlib.gzipSync(b, { level: 9 }).length };
+          };
+          const payloads = {
+            javascript: size(path.join(assets, js)),
+            css: size(path.join(assets, css)),
+            benchmark_data: size(path.join(data, 'benchmark_data.json')),
+            parse_report: size(path.join(data, 'parse_report.json')),
+            source_inventory: size(path.join(data, 'source_inventory.json')),
+          };
+          const stats = xs => {
+            xs = [...xs].sort((a,b)=>a-b);
+            return { min: xs[0], median: xs[Math.floor(xs.length/2)], p95: xs[xs.length-1], max: xs[xs.length-1] };
+          };
+          const twoFrames = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+          const snapshot = page => page.evaluate(() => ({
+            nodes: document.querySelectorAll('*').length,
+            timing_fallback_rows: document.querySelectorAll('#timing-chart-data tbody tr').length,
+            speedup_fallback_rows: document.querySelectorAll('#speedup-chart-data tbody tr').length,
+            overview_rows: document.querySelectorAll('.table-container tbody tr').length,
+            timing_displayed: Number(document.querySelector('#timing-chart')?.dataset.timingDisplayed ?? 0),
+            speedup_displayed: Number(document.querySelector('#speedup-chart')?.dataset.speedupDisplayed ?? 0),
+          }));
+
+          const browser = await chromium.launch({ headless: true });
+          const cold = [], full = [], focused = [], defaults = [], fullSnaps = [];
+          for (let i=0; i<5; i++) {
+            const context = await browser.newContext();
+            const page = await context.newPage();
+            const t0 = performance.now();
+            await page.goto('http://127.0.0.1:4173/docs/assets/benchmarks/', { waitUntil: 'load' });
+            await page.locator('.header').waitFor({ state: 'visible', timeout: 15000 });
+            await page.waitForFunction(() => document.querySelector('#timing-chart')?.dataset.timingDisplayed !== undefined);
+            await twoFrames(page);
+            cold.push(performance.now()-t0);
+            defaults.push(await snapshot(page));
+            let t = performance.now();
+            await page.locator('[data-chart-view="full"]').click();
+            await twoFrames(page);
+            full.push(performance.now()-t);
+            fullSnaps.push(await snapshot(page));
+            t = performance.now();
+            await page.locator('[data-chart-view="focused"]').click();
+            await twoFrames(page);
+            focused.push(performance.now()-t);
+            await context.close();
+          }
+          await browser.close();
+          const report = {
+            measured_commit: process.env.GITHUB_SHA,
+            payloads,
+            payload_totals: {
+              raw_bytes: Object.values(payloads).reduce((s,x)=>s+x.raw_bytes,0),
+              gzip9_bytes: Object.values(payloads).reduce((s,x)=>s+x.gzip9_bytes,0),
+            },
+            cold_ready_ms: stats(cold),
+            full_matrix_toggle_ms: stats(full),
+            focused_return_ms: stats(focused),
+            default_snapshots: defaults,
+            full_matrix_snapshots: fullSnaps,
+          };
+          fs.writeFileSync('../dashboard-optimization-after.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-optimization-after
+          path: dashboard-optimization-after.json
+          if-no-files-found: error
+      - name: Commit optimized sources and generated assets
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src frontend/public/data docs/assets/benchmarks
+          git diff --cached --check
+          git commit -m "perf: reduce dashboard bundle and collapsed DOM"
+          git push origin HEAD:agent/benchmark-dashboard-optimization-audit
