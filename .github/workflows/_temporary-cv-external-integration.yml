@@ -1,0 +1,68 @@
+name: Temporary CV external integration
+
+on:
+  push:
+    branches:
+      - agent/canonical-cv-benchmark-source
+    paths:
+      - .github/workflows/_temporary-cv-external-integration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/canonical-cv-benchmark-source
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Integrate optional aligned references
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/benchmarks/benchmark_cv_models.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  'from dev.benchmarks.cv_source import check_file\n',
+                  'from dev.benchmarks.cv_source import check_file\nfrom dev.benchmarks.cv_external import build_sklearn_reference\n',
+              ),
+              (
+                  'def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int):\n',
+                  'def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int, include_sklearn: bool):\n',
+              ),
+              (
+                  '''            runs.append(\n                _non_success(\n                    backend, "failed", f"{type(exc).__name__}: {exc}"\n                )\n            )\n\n    return {\n''',
+                  '''            runs.append(\n                _non_success(\n                    backend, "failed", f"{type(exc).__name__}: {exc}"\n                )\n            )\n\n    if include_sklearn:\n        data_factory = {\n            "regression": _regression_data,\n            "classification": _classification_data,\n            "survival": _survival_data,\n        }[spec.task]\n        reference = build_sklearn_reference(\n            spec, seeds, n_samples, n_features, warmup, data_factory\n        )\n        if reference is not None:\n            runs.append(reference)\n\n    return {\n''',
+              ),
+              (
+                  '            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup)\n',
+                  '            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup, args.include_sklearn)\n',
+              ),
+              (
+                  '    parser.add_argument("--warmup", type=int, default=1)\n',
+                  '    parser.add_argument("--warmup", type=int, default=1)\n    parser.add_argument("--include-sklearn", action="store_true", help="measure aligned sklearn references for the four equivalent estimator families")\n',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one match, found {count}: {old[:100]!r}')
+              text = text.replace(old, new)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate and commit
+        run: |
+          python -m py_compile dev/benchmarks/benchmark_cv_models.py dev/benchmarks/cv_external.py
+          python -m pip install pytest 'jsonschema[format]'
+          pytest dev/tests/test_benchmark_cv_source.py dev/tests/test_cv_runner_instrumentation.py -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev/benchmarks/benchmark_cv_models.py dev/benchmarks/cv_external.py
+          git commit -m "benchmark: add aligned sklearn CV references"
+          git push origin HEAD:agent/canonical-cv-benchmark-source
