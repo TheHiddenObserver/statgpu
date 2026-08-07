@@ -197,14 +197,16 @@ def ols_covariance(
         if cluster is None:
             raise ValueError("cluster is required for cov_type='clustered'")
         cluster_np = np.asarray(_to_numpy(cluster))
-        if cluster_np.ndim == 2:
-            if cluster_np.shape[1] != 2:
-                raise ValueError("two-way cluster input must have exactly two columns")
+        if cluster_np.ndim == 2 and cluster_np.shape[1] == 2:
             return two_way_clustered_covariance(
                 X, resid, cluster_np[:, 0], cluster_np[:, 1], xp=xp
             )
+        # Preserve the historical PanelOLS one-way behavior for a column-vector
+        # cluster array: clustered_covariance() ravelled an (n, 1) input.
+        if cluster_np.ndim == 2 and cluster_np.shape[1] == 1:
+            cluster_np = cluster_np[:, 0]
         if cluster_np.ndim != 1:
-            raise ValueError("cluster must be one-dimensional or an (n, 2) array")
+            raise ValueError("cluster must be one-dimensional, (n, 1), or (n, 2)")
         return clustered_covariance(X, resid, cluster_np, xp=xp)
 
     if name == "hac":
