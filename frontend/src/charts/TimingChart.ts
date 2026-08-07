@@ -1,4 +1,4 @@
-import * as echarts from 'echarts';
+import { echarts, type ECharts } from '../echarts';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { CHART_STYLE, COLORS } from '../utils/theme';
@@ -153,7 +153,7 @@ export function renderTimingChart(
   el: HTMLElement,
   runs: Run[],
   state: AppState,
-  chartInstances: echarts.ECharts[],
+  chartInstances: ECharts[],
 ): void {
   let chart = echarts.getInstanceByDom(el);
   if (!chart) {

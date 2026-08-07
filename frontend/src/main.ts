@@ -1,7 +1,7 @@
 import './style.css';
 import './metric-scope.css';
 
-import * as echarts from 'echarts';
+import { echarts, type ECharts } from './echarts';
 import type { BenchmarkData, ParseReport, Run, SourceInventory } from './schema';
 import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns } from './data';
 import { createDefaultState } from './state';
@@ -28,7 +28,7 @@ let sourceInventory: SourceInventory | null = null;
 let state: AppState | null = null;
 
 /** Track ECharts instances for cleanup before re-render */
-const chartInstances: echarts.ECharts[] = [];
+const chartInstances: ECharts[] = [];
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -219,13 +219,17 @@ async function init(): Promise<void> {
   root.appendChild(emptyStateMessage('Loading benchmark data...'));
 
   try {
-    data = await fetchBenchmarkData();
-    state = createDefaultState(data.environments, data.runs);
-    // Non-critical metadata — fetch in parallel, failure doesn't block dashboard
-    [parseReport, sourceInventory] = await Promise.all([
+    // Start all production assets together. Data is required; metadata remains
+    // non-critical, but it should not add a serial network round trip.
+    const [loadedData, loadedReport, loadedInventory] = await Promise.all([
+      fetchBenchmarkData(),
       fetchParseReport().catch(() => null),
       fetchSourceInventory().catch(() => null),
     ]);
+    data = loadedData;
+    parseReport = loadedReport;
+    sourceInventory = loadedInventory;
+    state = createDefaultState(data.environments, data.runs);
 
     // Cross-validate generation_id: discard metadata that doesn't match data
     if (parseReport && parseReport.generation_id !== data.meta.generation_id) {
