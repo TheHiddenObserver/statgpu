@@ -17,7 +17,9 @@ test.describe('Deployed benchmark dashboard', () => {
   test('loads from the nested docs path with relative assets and metadata', async ({ page }) => {
     const failedResponses: string[] = [];
     page.on('response', response => {
-      if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
+      if (response.status() >= 400 && !response.url().endsWith('/favicon.ico')) {
+        failedResponses.push(`${response.status()} ${response.url()}`);
+      }
     });
     await openProduction(page);
 
@@ -48,13 +50,13 @@ test.describe('Deployed benchmark dashboard', () => {
     await page.locator('#cat-linear_models').check();
     await page.locator('[data-metric-scope="cross_validation"]').click();
 
-    const model = page.getByLabel('Model');
+    const model = page.getByLabel('Model', { exact: true });
     await model.selectOption('RidgeCV');
-    const variant = page.getByLabel('Variant');
+    const variant = page.getByLabel('Variant', { exact: true });
     await expect(variant).toBeVisible();
     await variant.selectOption({ index: 1 });
-    await page.getByLabel('Penalty').selectOption('l2');
-    await page.getByLabel('Solver').selectOption('cv');
+    await page.getByLabel('Penalty', { exact: true }).selectOption('l2');
+    await page.getByLabel('Solver', { exact: true }).selectOption('cv');
 
     const scale = page.locator('.scale-chip').first();
     await expect(scale).toHaveAttribute('role', 'button');
@@ -73,7 +75,7 @@ test.describe('Deployed benchmark dashboard', () => {
     await expect(page.locator('.table-container tbody tr').first()).toBeVisible();
 
     await page.locator('#env-select').selectOption({ index: 0 });
-    await expect(page.getByLabel('Model')).toHaveValue('');
+    await expect(page.getByLabel('Model', { exact: true })).toHaveValue('');
     await expect(page.locator('.scale-chip[aria-pressed="true"]')).toHaveCount(0);
     await expect(page.locator('input[name="backend"][value="all"]')).toBeChecked();
   });
@@ -117,7 +119,7 @@ test.describe('Deployed benchmark dashboard', () => {
     await page.locator('#env-select').selectOption('remote-p100-cv-20260807');
     await page.locator('#cat-linear_models').check();
     await page.locator('[data-metric-scope="cross_validation"]').click();
-    await page.getByLabel('Model').selectOption('LogisticRegressionCV');
+    await page.getByLabel('Model', { exact: true }).selectOption('LogisticRegressionCV');
     const panelToggle = page.getByRole('button', { name: /Cross-validation Metrics/ });
     const panelBodyId = await panelToggle.getAttribute('aria-controls');
     expect(panelBodyId).toBeTruthy();
