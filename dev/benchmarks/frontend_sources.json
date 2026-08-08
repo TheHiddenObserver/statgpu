@@ -19,6 +19,11 @@
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64",
       "host": "wE6lDe"
+    },
+    "remote-p100-pr122-20260808": {
+      "label": "Tesla P100 PR #122 Panel Stage B validation — 2026-08-08",
+      "gpu": "Tesla P100",
+      "cpu": "x86_64"
     }
   },
   "frameworks": {
@@ -93,6 +98,10 @@
     "cv-benchmark-pr116-20260807": {
       "label": "Cross-validation benchmark after PR #116 repair — 2026-08-07",
       "env_id": "remote-p100-pr116-20260807"
+    },
+    "panel-stage-b-pr122-20260808": {
+      "label": "Panel Stage B physical validation — PR #122 — 2026-08-08",
+      "env_id": "remote-p100-pr122-20260808"
     }
   },
   "sources": [
@@ -230,6 +239,21 @@
       "measurement_git_sha": "e6e4846b06604ed53e65fc9afd9054bd5777098f",
       "raw_git_sha": "e6e4846b06604ed53e65fc9afd9054bd5777098f",
       "provenance_note": "Physical PR #116 validation was executed on Tesla P100 from exact numerical implementation head e6e4846b06604ed53e65fc9afd9054bd5777098f. The artifact records that SHA directly; the historical pre-fix P100 source remains registered separately."
+    },
+    {
+      "source_id": "panel-stage-b-pr122-20260808-882892c6e307",
+      "comparison_id": "panel-stage-b-pr122-20260808",
+      "path": "results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260808.json",
+      "sha256": "882892c6e3077fe3b9f6084212647311da795fd05d1ed9f12ec53da1e05d0d4d",
+      "parser": "panel_stage_b_physical_validation",
+      "parser_version": "1.0",
+      "env_id": "remote-p100-pr122-20260808",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-08",
+      "measurement_git_sha": "636988751bcbfad3442d24d3073cdfcd2b3ac637",
+      "raw_git_sha": "636988751bcbfad3442d24d3073cdfcd2b3ac637",
+      "provenance_note": "Correctness/backend-provenance source only. Tesla P100 physical validation passed on the exact clean Stage-B implementation head; no timing was collected, so the frontend must not infer timing or speedup from this source."
     }
   ]
 }
