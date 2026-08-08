@@ -15,38 +15,7 @@ from statgpu.panel._utils import factorize_panel_labels, group_means
 
 
 class BetweenOLS(BasePanelModel):
-    """Between-entity OLS estimator for panel data.
-
-    Collapses the data to group means and runs OLS on the collapsed data.
-
-    Parameters
-    ----------
-    cov_type : str, default='nonrobust'
-        Covariance estimator: ``'nonrobust'`` or ``'robust'`` (HC1).
-    alpha : float, default=0.05
-        Significance level for confidence intervals.
-    device : str or Device, default='auto'
-        Computation device.
-
-    Attributes
-    ----------
-    coef_ : ndarray, shape (k,)
-        Estimated coefficients (including intercept).
-    bse_ : ndarray, shape (k,)
-        Standard errors.
-    tvalues_ : ndarray, shape (k,)
-        t-statistics.
-    pvalues_ : ndarray, shape (k,)
-        Two-sided p-values.
-    conf_int_ : ndarray, shape (k, 2)
-        Confidence intervals.
-    rsquared : float
-        R-squared.
-    nobs : int
-        Number of observations (groups).
-    df_resid : int
-        Residual degrees of freedom.
-    """
+    """Between-entity OLS estimator for panel data."""
 
     def __init__(
         self,
@@ -60,11 +29,10 @@ class BetweenOLS(BasePanelModel):
         self.alpha = alpha
         if self.cov_type not in ("nonrobust", "robust"):
             raise ValueError("cov_type must be 'nonrobust' or 'robust'")
+        self.fit_statistics_ = None
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the between OLS model."""
-        # Preserve the pre-Stage-A requirement: BetweenOLS always requires an
-        # explicit entity_ids side array, including for formula-based fitting.
         if entity_ids is None:
             raise ValueError("entity_ids is required for BetweenOLS")
 
@@ -97,8 +65,6 @@ class BetweenOLS(BasePanelModel):
         )
 
         n_orig = X_arr.shape[0]
-
-        # Add intercept exactly as before.
         ones = xp.ones((n_orig, 1), dtype=xp.float64)
         if hasattr(X_arr, "is_cuda"):
             ones = ones.to(device=X_arr.device)
@@ -150,6 +116,36 @@ class BetweenOLS(BasePanelModel):
         self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
         self.nobs = n
         self.df_resid = df_resid
+
+        from statgpu.panel._diagnostic_context import build_model_fit_statistics
+        from statgpu.panel._diagnostics import _matrix_rank
+
+        rank_mean = _matrix_rank(X_mean, xp)
+        diagnostic_df = n - rank_mean
+        self.fit_statistics_ = build_model_fit_statistics(
+            y_arr,
+            X_full,
+            params,
+            xp=xp,
+            entity_codes=eids,
+            has_constant=True,
+            rss_fit=ss_res,
+            tss_fit=ss_tot,
+            df_resid=diagnostic_df,
+            df_total=n - 1,
+            f_y=y_mean,
+            f_X=X_mean,
+            f_params=params,
+            f_has_constant=True,
+            metadata={
+                "fit_space": "entity-mean between regression",
+                "legacy_df_resid": int(df_resid),
+                "diagnostic_df_resid": int(diagnostic_df),
+                "diagnostic_rank": int(rank_mean),
+                "legacy_rsquared": self.rsquared,
+            },
+        )
+
         self._fitted = True
         return self
 
