@@ -76,6 +76,19 @@ def _matrix_rank(X, xp) -> int:
     return int(_to_float_scalar(xp.linalg.matrix_rank(X)))
 
 
+def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
+    """Return a float64 roundoff tolerance that preserves scale equivariance.
+
+    Statistical quantities such as RSS and covariance matrices have physical
+    scale.  Using an absolute ``max(1, scale)`` floor makes F/Hausman decisions
+    depend on the arbitrary units of y or beta.  A zero scale therefore maps to
+    an exact zero tolerance; otherwise the tolerance scales linearly with the
+    compared quantity.
+    """
+    scale = max((abs(float(value)) for value in values), default=0.0)
+    return float(factor) * np.finfo(np.float64).eps * scale
+
+
 def _safe_r2(ss_res: float, ss_tot: float) -> Tuple[float, bool]:
     """Return linearmodels-style parameter R² and a degenerate-TSS flag."""
     ss_res = float(ss_res)
@@ -212,7 +225,7 @@ def _classical_model_f(
         rss_r = _to_float_scalar(xp.sum(y * y))
 
     diff = rss_r - rss_u
-    tol = 256.0 * np.finfo(np.float64).eps * max(1.0, abs(rss_r), abs(rss_u))
+    tol = _relative_tolerance(rss_r, rss_u)
     if diff < -tol:
         metadata["unavailable_reason"] = "restricted RSS is materially below unrestricted RSS"
         metadata["rss_restricted"] = float(rss_r)
@@ -338,20 +351,9 @@ def _pooling_f_from_sums(
             reason="pooling F requires positive numerator and denominator degrees of freedom",
             metadata=meta,
         )
-    if float(rss_effects) <= 0.0:
-        return _inapplicable(
-            null=null,
-            alternative=alternative,
-            distribution="F",
-            df=(float(df_num), float(df_denom)),
-            reason="fixed-effects residual sum of squares must be positive",
-            metadata=meta,
-        )
 
     diff = float(rss_pooled) - float(rss_effects)
-    tol = 256.0 * np.finfo(np.float64).eps * max(
-        1.0, abs(float(rss_pooled)), abs(float(rss_effects))
-    )
+    tol = _relative_tolerance(rss_pooled, rss_effects)
     if diff < -tol:
         return _inapplicable(
             null=null,
@@ -364,6 +366,27 @@ def _pooling_f_from_sums(
     if diff < 0.0:
         diff = 0.0
         meta["roundoff_normalized"] = True
+
+    if float(rss_effects) <= tol:
+        if diff > tol:
+            meta["exact_fit"] = True
+            return _applicable(
+                float("inf"),
+                0.0,
+                null=null,
+                alternative=alternative,
+                distribution="F",
+                df=(float(df_num), float(df_denom)),
+                metadata=meta,
+            )
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="F",
+            df=(float(df_num), float(df_denom)),
+            reason="pooled and fixed-effects residual sums of squares are both zero",
+            metadata=meta,
+        )
 
     statistic = (diff / int(df_num)) / (float(rss_effects) / int(df_denom))
     dist = get_distribution("f", backend="numpy")
@@ -465,7 +488,7 @@ def _hausman_quadratic(
     D = 0.5 * (D + D.T)
     eigvals, eigvecs = np.linalg.eigh(D)
     norm_D = float(np.linalg.norm(D, ord=2)) if D.size else 0.0
-    tol = 256.0 * np.finfo(np.float64).eps * max(1.0, norm_D) * max(1, d.size)
+    tol = _relative_tolerance(norm_D, factor=256.0 * max(1, d.size))
     meta = {
         "eigen_tolerance": tol,
         "minimum_eigenvalue": float(eigvals.min()),
@@ -496,7 +519,7 @@ def _hausman_quadratic(
     basis = eigvecs[:, positive]
     projected = basis @ (basis.T @ d)
     null_component = d - projected
-    range_tol = 1024.0 * np.finfo(np.float64).eps * max(1.0, np.linalg.norm(d))
+    range_tol = _relative_tolerance(np.linalg.norm(d), factor=1024.0)
     meta["range_tolerance"] = float(range_tol)
     meta["nullspace_component_norm"] = float(np.linalg.norm(null_component))
     if float(np.linalg.norm(null_component)) > range_tol:
