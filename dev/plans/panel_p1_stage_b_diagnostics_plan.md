@@ -44,18 +44,21 @@ Stage B will record and test against the following definitions. External package
 
 Primary alignment: `linearmodels` 7.0.
 
-Reference:
+References:
 
 - https://bashtage.github.io/linearmodels/panel/faq.html
 - https://bashtage.github.io/linearmodels/panel/mathematical-formula.html
+- https://bashtage.github.io/linearmodels/_modules/linearmodels/panel/model.html
 
 `linearmodels` explicitly distinguishes parameter-based R² from correlation-based measures used by some other software. Stage B adopts the parameter-based family because it evaluates the actual estimated coefficient vector.
 
 For unweighted data and a fitted coefficient vector `beta`:
 
-- **Overall**: residual `e_o = y - X beta`; center `y` only when the corresponding level equation has an intercept/implicit constant; `R²_o = 1 - SSE_o / TSS_o`.
-- **Between**: form entity means `y_bar_i`, `X_bar_i`; residual `e_b = y_bar - X_bar beta`; center the between response when the level equation has an intercept/implicit constant; `R²_b = 1 - SSE_b / TSS_b`.
+- **Overall**: residual `e_o = y - X beta`; center `y` only when the corresponding level equation has an identified explicit/implicit constant; `R²_o = 1 - SSE_o / TSS_o`.
+- **Between**: form entity means `y_bar_i`, `X_bar_i`; residual `e_b = y_bar - X_bar beta`; center the between response when the corresponding level equation has an identified explicit/implicit constant; `R²_b = 1 - SSE_b / TSS_b`.
 - **Within**: entity-demean `y` and `X`; `e_w = y_within - X_within beta`; `R²_w = 1 - SSE_w / TSS_w`.
+
+For the new standardized `fit_statistics_` fields, a zero total sum of squares follows the `linearmodels` convention and reports `0.0`, with `metadata['degenerate_total_ss'][<measure>] = True`. Stage B does **not** rewrite legacy estimator attributes that already have another degenerate-TSS behavior; those remain frozen for compatibility.
 
 Important compatibility rule: Stage A froze the existing public `PanelOLS.rsquared_within`. For two-way FE that legacy attribute is computed on the full entity+time transformed fit, whereas the standard `linearmodels` `rsquared_within` is entity-within. **Stage B must not silently change the legacy attribute.** The new `fit_statistics_.rsquared_within` is the explicitly documented standard entity-within measure; metadata records `legacy_rsquared_within` when the existing attribute differs (notably two-way FE). For one-way entity FE the two coincide up to numerical tolerance.
 
@@ -71,7 +74,7 @@ For a model fit in its estimator-specific estimation space:
 
 `F = ((RSS_R - RSS_U) / q) / (RSS_U / df_resid)`
 
-where the restriction sets all estimable non-constant slope coefficients to zero, `q` is the effective number of tested slopes, and `df_resid` is the model's established residual degrees of freedom.
+where the restriction sets all estimable non-constant slope coefficients to zero, `q` is the **effective restriction rank** (`rank_unrestricted - rank_restricted`, not blindly the raw column count), and `df_resid` is the model's established residual degrees of freedom.
 
 Stage B's `PanelFitStatistics.f_statistic` is the **classical homoskedastic model F**. It does not silently turn into a robust Wald statistic when `cov_type='robust'` or `'clustered'`. Robust Wald/model tests are a separate contract and are not added in Stage B.
 
@@ -84,6 +87,8 @@ Estimator fit spaces:
 - `FirstDifferenceOLS`: first-difference regression.
 - `FamaMacBeth`: do not manufacture a residual-OLS F statistic; beta-series joint Wald inference may be a later explicitly named capability.
 
+If there are no estimable non-constant restrictions, the F field is unavailable with an explicit metadata reason rather than dividing by zero.
+
 ### 3.3 Pooling F / fixed-effect significance test
 
 Primary alignment: `linearmodels.PanelEffectsResults.f_pooled` and `plm::pFtest`.
@@ -91,18 +96,20 @@ Primary alignment: `linearmodels.PanelEffectsResults.f_pooled` and `plm::pFtest`
 References:
 
 - https://bashtage.github.io/linearmodels/panel/panel/linearmodels.panel.results.PanelEffectsResults.f_pooled.html
+- https://bashtage.github.io/linearmodels/_modules/linearmodels/panel/model.html
 - https://rdrr.io/cran/plm/man/pFtest.html
 - https://rdrr.io/cran/plm/src/R/test_general.R
 
 For the same aligned estimation sample and regressors:
 
-`F_pool = ((RSS_pool - RSS_FE) / df_num) / (RSS_FE / df_resid_FE)`
+`F_pool = ((RSS_pool - RSS_FE) / df_num) / (RSS_FE / df_resid_FE)`.
 
-with
+The restricted pooled model must be constructed with the **same constant convention as the FE model's nested null**, including the no-explicit-constant correction used by `linearmodels`:
 
-`df_num = df_resid_pool - df_resid_FE`.
+- when the level design contains an identified explicit constant, fit the pooled regression with that level design;
+- when the FE specification has effects but no explicit constant column, project both pooled `y` and pooled `X` off the common constant before the pooled slope fit, and reduce the effect-test numerator df by one. This prevents the common mean from being incorrectly counted as a tested fixed effect.
 
-This df-difference definition is preferred to hard-coding `N-1`, `T-1`, or `N+T-2`, because it automatically respects the actual effective pooled design rank and Stage-A absorbed-effect residual df. In ordinary full-rank one-way FE it reduces to the standard effect-count df.
+The primary numerator-df calculation is the nested-model rank/df difference, equivalent to `df_resid_pool - df_resid_FE` after the constant correction. The implementation records both effective ranks and the final df in metadata; it never hard-codes `N-1`, `T-1`, or `N+T-2`.
 
 Contract:
 
@@ -149,6 +156,7 @@ Contract:
 - add optional `entity_ids=None` to `PooledOLS.fit()`; existing calls remain unchanged;
 - when entity IDs are supplied, formula row filtering aligns them through the existing side-array machinery;
 - pooled residual group sums and counts are accumulated on the selected backend during fit; full numerical residual arrays are not copied to CPU for the test;
+- if `cov_type='hac'` and `time_index` causes a stable numerical row reorder, the aligned `entity_ids` diagnostic codes are reordered by the **same** permutation before any residual grouping, R² accumulation, or sample fingerprinting; diagnostic metadata may never remain in pre-sort order while X/y are post-sort;
 - null: entity random-effect variance is zero (pooled OLS sufficient);
 - alternative: a nonzero entity random-effect component is present;
 - distribution: `chi2(1)`;
@@ -172,9 +180,7 @@ For common non-intercept coefficients:
 
 `D = V_FE - V_RE`
 
-`H = d' D^{-1} d ~ chi2(q)`
-
-where `q` is the effective rank of the covariance-difference restriction space.
+`H = d' D^{-1} d ~ chi2(q)` for full-rank `D`.
 
 Stage-B applicability is deliberately stricter than a blind matrix solve:
 
@@ -190,9 +196,10 @@ Covariance-difference handling:
 1. symmetrize `D` numerically as `(D + D.T)/2` on the small final matrix;
 2. compute an eigenvalue/rank tolerance scaled by matrix norm and machine epsilon;
 3. if an eigenvalue is materially negative, return `applicable=False` with reason `covariance difference is not positive semidefinite`; do **not** force a statistic by absolute values or eigenvalue clipping;
-4. if `D` is positive semidefinite but rank-deficient, use a Moore–Penrose inverse on the identified range and set chi-square df to `rank(D)`, but only if `d` lies in the column space within tolerance; record `metadata['used_pinv']=True` and the numerical rank;
-5. if `d` has a material component in the null space, return inapplicable rather than pretending the unidentified direction contributes zero;
-6. a computed statistic slightly below zero only from roundoff may be normalized to zero with metadata; a materially negative statistic is inapplicable.
+4. if `D` is positive semidefinite but rank-deficient, statgpu may use a Moore–Penrose inverse on the identified range and set chi-square df to `rank(D)`, but only if `d` lies in the column space within tolerance; record `metadata['used_pinv']=True`, numerical rank, tolerance, and `metadata['definition_extension']='singular PSD generalized-inverse Hausman'`;
+5. this singular-PSD generalized-inverse case is a documented statgpu extension to the ordinary full-rank `plm`/Stata path, not claimed as byte-for-byte external behavior;
+6. if `d` has a material component in the null space, return inapplicable rather than pretending the unidentified direction contributes zero;
+7. a computed statistic slightly below zero only from roundoff may be normalized to zero with metadata; a materially negative statistic is inapplicable.
 
 This makes singular/indefinite behavior explicit as required by Issue #93 and avoids generic linear-algebra exceptions.
 
@@ -276,33 +283,38 @@ Create `statgpu/panel/_diagnostics.py` for:
 - classical model-F helper;
 - pooling-F helper;
 - BP-LM helper;
-- Hausman small-matrix comparison and applicability logic.
+- Hausman small-matrix comparison and applicability logic;
+- compact backend-native sample/design fingerprint construction.
 
-Core observation-scale operations take `xp` and backend arrays. Only final scalars, small `k x k` covariance matrices, feature names, and index metadata may be converted to NumPy.
+Core observation-scale operations take `xp` and backend arrays. Only final scalars, O(k) numerical fingerprint components, small `k x k` covariance matrices, feature names, and index metadata may be converted to NumPy.
 
 ### 5.2 Covariance persistence
 
-`BasePanelModel._panel_store_ols_inference()` already returns `cov_params`. Stage B will persist the final small covariance matrix on fitted inference-capable estimators as `cov_params_` in a consistent public CPU ndarray contract, while preserving all existing `bse_/tvalues_/pvalues_/conf_int_` values.
+`BasePanelModel._panel_store_ols_inference()` already returns `cov_params`. Stage B stores the final small covariance matrix needed by diagnostics as an **internal** CPU ndarray (for example `_panel_cov_params`) on FE/RE and other relevant OLS-style models while preserving all existing `bse_/tvalues_/pvalues_/conf_int_` values.
+
+Do not create a new universal public `cov_params_` contract merely to implement Hausman. `FamaMacBeth.cov_params_` is an existing estimator-specific attribute and remains unchanged.
 
 The conversion is limited to `k x k`; no full design or residual matrix is copied to host merely for Hausman.
 
-`FamaMacBeth` already stores `cov_params_` backend-native. Its existing output contract should not be silently changed solely for Hausman, since FMB is not a Hausman input. Any broader covariance-output normalization is separate work unless review finds it necessary for an existing public contract.
-
 ### 5.3 Sample/design identity for Hausman
 
-Add small immutable diagnostic metadata to FE/RE fits sufficient to verify compatibility without retaining the full input data on CPU:
+FE/RE fits store compact immutable diagnostic metadata sufficient to reject mismatched samples/designs without retaining a full second host copy of X/y.
+
+Identity components:
 
 - `nobs`;
-- aligned entity codes/counts or a deterministic hash/signature of the aligned entity label sequence;
-- aligned retained-row signature for formula fits;
+- aligned entity label/code sequence signature and entity counts;
+- aligned retained-row signature for formula fits when available;
 - feature-name sequence after formula/model-matrix construction;
-- numeric design width;
-- intercept-presence metadata;
-- effect specification.
+- numeric design width and intercept-presence metadata;
+- effect specification;
+- a **backend-native numerical fingerprint** of aligned `X`, `y`, and row order, reduced on the selected backend to O(k) scalars before host conversion.
 
-For raw array fits without formula names, deterministic positional slope names (`x1`, `x2`, ...) are used for matching. Same `nobs` alone is never treated as proof that the samples match.
+The numerical fingerprint must include multiple independent deterministic moments, e.g. per-column/y sum, sum of squares, and an index-weighted first moment (using a deterministic row weight sequence), all accumulated in float64. It is an integrity check rather than a cryptographic hash. Comparison uses a scale-aware floating-point tolerance so the same float64 data on NumPy/CuPy/Torch are accepted while materially different samples/designs are rejected.
 
-If a safe sample identity cannot be established for two independently fitted raw-array models, `hausman_test` returns `applicable=False` with a reason asking for matched identifiers rather than guessing.
+For raw array fits without formula names, deterministic positional slope names (`x1`, `x2`, ...) are used for coefficient matching **in addition to** the numerical fingerprint. Same `nobs`, entity counts, or shape alone is never treated as proof that the samples match.
+
+If identity metadata are missing or disagree materially, `hausman_test` returns `applicable=False` with the precise mismatch reason rather than guessing.
 
 ### 5.4 R² accumulation
 
@@ -311,6 +323,8 @@ Compute R² variants during `fit()` while backend numerical arrays are available
 For estimators where the model coefficient includes an explicit intercept, use the existing design convention to determine centering. For FE, standard R² variants use the level slope vector and the level/entity-demeaned data as defined above; fixed effects themselves are not inserted into overall/between predictions.
 
 For `PooledOLS` and `FamaMacBeth`, add optional `entity_ids=None` to `fit()` only to unlock panel decomposition metrics; coefficient estimates are unchanged. Absence of IDs leaves within/between fields as `None` with reasons in metadata.
+
+Any estimator-specific row reorder (currently notably PooledOLS HAC time sorting and FirstDifference sorting/differencing) must carry diagnostic metadata through the exact same permutation/transform before sufficient statistics are accumulated.
 
 ### 5.5 Adjusted R²
 
@@ -338,19 +352,19 @@ Tests must cover at least:
 - FE model with no effects passed to pooling F;
 - time-only/two-way FE passed to one-way FE-vs-RE Hausman;
 - FE robust/clustered covariance passed to classical Hausman;
-- same shapes but mismatched samples/entity ordering in Hausman;
+- same shapes/entity counts but materially mismatched X/y samples in Hausman;
+- same data across NumPy/CuPy/Torch accepted by fingerprint tolerance;
 - no common slope coefficients;
 - singular PSD Hausman covariance difference with identified `d`;
 - singular PSD difference with `d` outside the identified range;
 - materially indefinite covariance difference;
 - roundoff-level negative Hausman/pooling quantities versus materially negative violations;
 - BP-LM with one entity, singleton-only entities, zero pooled RSS, and unbalanced panels;
-- constant outcome / zero TSS R² behavior;
-- rank-deficient pooled design using effective rank;
+- PooledOLS HAC sorting with unsorted `time_index` and entity IDs, proving X/y/entity diagnostic alignment after sorting;
+- constant outcome / zero TSS standardized R² behavior (`0.0` plus degenerate metadata) while legacy attributes remain unchanged;
+- rank-deficient pooled design using effective restriction rank;
 - formula missing-row alignment for IDs;
 - explicit CUDA/Torch request with unavailable backend must fail rather than fall back.
-
-For undefined R² due zero TSS, use `NaN` for a mathematically undefined numeric ratio and explain the reason in metadata; do not convert undefined values to 0 merely for presentation.
 
 ## 7. Test plan
 
@@ -358,7 +372,7 @@ For undefined R² due zero TSS, use `NaN` for a mathematically undefined numeric
 
 Add `dev/tests/test_panel_stage_b_diagnostics.py` with deterministic small panels and hand-computed sufficient statistics for:
 
-- pooling F formula and df;
+- pooling F formula, no-explicit-constant correction, and df;
 - balanced and unbalanced entity BP-LM;
 - full-rank Hausman quadratic form;
 - singular/indefinite Hausman applicability behavior;
@@ -414,6 +428,8 @@ R `plm` comparisons:
 - `plmtest(pooling, type='bp', effect='individual')` on balanced and unbalanced panels;
 - `phtest(within, random)` for a well-conditioned classical Hausman example.
 
+For the singular-PSD generalized-inverse Hausman extension, use an analytic matrix fixture rather than claiming `plm`/Stata parity.
+
 Stata is documentation/reference-only unless a licensed callable environment is available. Record its Hausman formula/interpretation, not unverifiable claimed numeric parity.
 
 ## 8. Physical GPU acceptance
@@ -428,6 +444,7 @@ Requirements:
 - balanced and unbalanced data;
 - compare new fit statistics and diagnostics against NumPy references;
 - include at least PanelOLS pooling F, PooledOLS BP-LM, FE/RE Hausman prerequisites, R² variants, adjusted R², and model F;
+- include an unsorted-HAC PooledOLS case with entity IDs to guard metadata permutation;
 - record environment/package/GPU provenance and max absolute differences in JSON.
 
 No performance claim is made from this runner.
@@ -445,10 +462,13 @@ Update, in EN-first / CN-follow order:
 Documentation must explicitly state:
 
 - parameter-based versus correlation-based R²;
+- standardized zero-TSS behavior and preservation of legacy attributes;
 - the preserved legacy `PanelOLS.rsquared_within` compatibility distinction for two-way FE;
 - classical/homoskedastic nature of model F and pooling F;
+- pooling-F implicit-constant correction;
 - BP-LM is the panel error-components test, not the heteroskedasticity BP test;
-- classical Hausman restrictions and explicit singular/indefinite behavior;
+- classical Hausman restrictions, data-identity checks, and explicit singular/indefinite behavior;
+- the generalized-inverse singular-PSD Hausman case is a statgpu extension with rank df;
 - which statistics are unavailable without entity IDs;
 - three-backend/no-silent-fallback behavior.
 
@@ -457,8 +477,8 @@ Documentation must explicitly state:
 1. **Plan review gate** — audit this document against Issue #93, Stage-A contracts, external definitions, and repo workflow. Fix all HIGH and relevant MEDIUM findings before source edits.
 2. **Result/API substrate** — export Stage-A result dataclasses; add `_diagnostics.py`; define applicability helpers and public exports.
 3. **Sufficient-statistic helpers** — R²/model-F/pooling-F/BP helpers with NumPy tests first, written backend-generically from the start.
-4. **Estimator integration** — persist small covariance matrices; populate `fit_statistics_`; compute pooling/BP contexts during fit; add optional entity metadata where required without changing coefficients.
-5. **Hausman integration** — sample/design identity, common-coefficient matching, PSD/rank logic.
+4. **Estimator integration** — persist small internal covariance matrices; populate `fit_statistics_`; compute pooling/BP contexts during fit; add optional entity metadata where required without changing coefficients; propagate every numerical row transform to diagnostics metadata.
+5. **Hausman integration** — numerical sample/design fingerprints, common-coefficient matching, PSD/rank logic.
 6. **Three-backend targeted tests** — NumPy/CuPy/Torch parity and strict-device failure behavior.
 7. **External Python/R alignment** — run strongest available local baselines; if R unavailable locally, retain exact script/command and mark only that external gate remote-pending.
 8. **Full hosted CI** — complete test suite, Python matrix, static/docs, maintenance, release-package/front-end gates as applicable.
@@ -479,7 +499,16 @@ Documentation must explicitly state:
 
 These remain Stage C or later work unless a blocking correctness dependency is discovered.
 
-## 12. Completion criteria
+## 12. Plan-review findings closed before implementation
+
+- **[HIGH][INFER] fixed** — pooling F now specifies the implicit-common-constant correction and corresponding numerator-df decrement when the FE design lacks an explicit constant, matching the nested linearmodels definition.
+- **[HIGH][API/INFER] fixed** — Hausman sample compatibility no longer relies on `nobs`/entity order alone; the plan requires a backend-native O(k) numerical X/y/order fingerprint.
+- **[HIGH][BACKEND] fixed** — PooledOLS HAC sorting must apply the identical permutation to entity diagnostic metadata before BP/R²/fingerprint accumulation.
+- **[MEDIUM][INFER] fixed** — standardized fit-stat R² adopts linearmodels' zero-TSS `0.0` convention with explicit degenerate metadata while preserving existing legacy attributes.
+- **[MEDIUM][API] fixed** — Hausman only needs an internal small covariance matrix; Stage B will not create a new universal public `cov_params_` contract.
+- **[MEDIUM][INFER] fixed** — singular-PSD generalized-inverse Hausman behavior is labeled explicitly as a statgpu extension and validated analytically rather than presented as direct plm/Stata parity.
+
+## 13. Completion criteria
 
 Stage B can be called COMPLETE only when:
 
