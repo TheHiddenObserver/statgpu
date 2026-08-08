@@ -73,4 +73,4 @@ The canonical frontend source represents 42 validation-only runs: 34 estimator/b
 
 The dedicated identity-overhead benchmark remains accepted from the immediately preceding implementation candidate because the `faa95ce7...` repair only changes the explicit-constant RandomEffects auxiliary-within branch, while the benchmark exercises PanelOLS and no-explicit-constant RandomEffects. Its measured digest/no-digest ratios remained approximately 1.04x-1.29x over the maintained target scales.
 
-This exact-head raw artifact supersedes the earlier `636988...` canonical physical record and the failed `9c78bf66...` correctness attempt. Generated frontend assets and hosted staleness/e2e/production gates must be refreshed after canonical promotion before the stale-evidence review thread is closed.
+This exact-head raw artifact supersedes the earlier `636988...` canonical physical record and the failed `9c78bf66...` correctness attempt. Canonical promotion is complete: generated frontend assets were refreshed, exact-head hosted staleness/e2e/production QA passed on the evidence head, and the stale-evidence review thread was resolved.
