@@ -285,6 +285,8 @@ class PanelOLS(BasePanelModel):
             entity_effects=self.entity_effects,
             time_effects=self.time_effects,
             has_constant=False,
+            entity_codes=entity_arr,
+            time_codes=time_arr,
         )
         ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
         self.fit_statistics_ = build_model_fit_statistics(
