@@ -30,6 +30,20 @@ def _digest_id(prefix: str, value: Any) -> str:
     return f"{prefix}-{hashlib.sha256(payload).hexdigest()[:16]}"
 
 
+def _stable_pstdev_ms(values: list[float]) -> float:
+    """Return a cross-Python-stable population std for generated JSON.
+
+    ``statistics.pstdev`` may differ by one floating-point ULP across supported
+    Python runtimes for the same benchmark samples. The dashboard bundle is a
+    committed deterministic artifact whose generation id hashes the serialized
+    floats, so retain substantially more precision than the benchmark warrants
+    while normalizing those runtime-only representation differences.
+    """
+    if len(values) <= 1:
+        return 0.0
+    return round(statistics.pstdev(values), 12)
+
+
 def _category_ids(model_id: str) -> list[str]:
     primary = _PRIMARY_CATEGORY[model_id]
     if model_id in {"RidgeCV", "LassoCV", "ElasticNetCV", "LogisticRegressionCV"}:
@@ -187,7 +201,7 @@ def parse_cv_benchmark(
             assert convergence is not None
             assert scores is not None
 
-            std_ms = statistics.pstdev(total_samples) if len(total_samples) > 1 else 0.0
+            std_ms = _stable_pstdev_ms(total_samples)
             converged_rate = 1.0 if convergence["final_refit_converged"] else 0.0
             validation_status = (
                 "pass"
