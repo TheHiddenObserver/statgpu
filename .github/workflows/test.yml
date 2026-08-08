@@ -197,7 +197,7 @@ jobs:
       - name: Install current external panel reference
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . "linearmodels==7.0"
+          python -m pip install -e . "linearmodels==7.0" pytest
       - name: Confirm linearmodels reference version
         run: |
           python - <<'PY'
