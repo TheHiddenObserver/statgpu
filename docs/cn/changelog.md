@@ -7,6 +7,17 @@
 
 ## 2026-08-08
 
+### PR #122 — Panel Tier-1 diagnostics Stage B
+
+- 新增公开的结构化 `PanelTestResult`、`PanelFitStatistics` 以及维护中 panel estimator 的标准化 `fit_statistics_`。新的 fit statistics 包含 parameter-based within/between/overall R²、显式定义的 adjusted R²，以及在存在 residual-OLS 拟合空间时的 classical homoskedastic model F。
+- Stage-A 的 coefficient inference 与 legacy R²/df 行为保持不变。特别是 `PanelOLS` 继续公开历史 residual df 和 BSE/t/p/CI；Stage-B diagnostics 使用单独的标准 fixed-effect nuisance-rank df，经典 Hausman 只读取按该标准 denominator 重标度的小型 diagnostic covariance，不修改公共 inference。
+- 新增 fixed-effects classical pooling F、one-way entity error-components Breusch-Pagan LM（包含 Baltagi-Li unbalanced-panel 公式）以及 classical one-way entity FE-vs-RE Hausman。计量上不适用的情况返回结构化 reason；Hausman covariance difference 若为奇异 PSD，则使用明确记录的 generalized-inverse/rank extension；若实质 indefinite，则直接报告不可用。
+- `PooledOLS.fit()` 与 `FamaMacBeth.fit()` 的可选 `entity_ids` 只用于 Stage-B within/between fit statistics 和 panel BP-LM。Pooled HAC 稳定排序现在让 entity diagnostic metadata 与 X/y 使用完全相同的 permutation；formula missing-row filtering 也会在形成 diagnostics 前对齐 observation-level side arrays。
+- 增加 analytic/fitted regression、维护中的 Python 3.9 + Torch 2.0 CPU parity，以及可执行的 `linearmodels==7.0` definition-alignment job。FirstDifference 的外部比较只在两边 transformed sample 定义一致的 panel 上执行；Stage B 不会为了 external gate 静默改变 Stage-A 对内部缺期采用 adjacent-observed-row differencing 的既有契约。
+- 新增 `dev/benchmarks/validate_panel_stage_b_gpu.py` 作为最终 exact-head physical correctness/provenance gate。schema-2 runner 会在请求的 CuPy/Torch CUDA 上对照 NumPy 检查 Stage-B diagnostics/fit statistics，并重新核验 `coef`、BSE、t-value、p-value、confidence interval、`nobs` 与 `df_resid`，以保证新增 diagnostics 不会掩盖 Stage-A inference regression。当前仍需在 clean exact commit 上完成这项物理 GPU promotion。
+
+关联：Issue #93 与 pull request #122。
+
 ### PR #121 — CuPy inverse-quantile LUT 正确性修复
 
 - 修正 CuPy `betaincinv()` 与 `gammaincinv()` 的 LUT cache tuple 顺序。LUT builder 原本已经按 `(x_grid, y_grid)` 存储，但缓存读取时反向解包，导致 inverse lookup 在错误坐标轴上搜索，并可能把 quantile 推到 clipped boundary。
