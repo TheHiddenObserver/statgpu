@@ -311,13 +311,26 @@ class PanelOLS(BasePanelModel):
                 "legacy_rsquared_within": float(self.rsquared_within),
             },
         )
-        self._panel_diagnostic_identity = build_diagnostic_identity(
-            X_arr,
-            y_arr,
-            xp=xp,
-            entity_codes=entity_arr,
-            feature_names=self._feature_names,
-            has_constant=False,
+        # Full-content identity is only needed for the Stage-B Hausman domain:
+        # one-way entity FE with classical nonrobust covariance.  Robust,
+        # clustered, time-only, and two-way FE are rejected before identity
+        # comparison, so hashing their full X/y would be pure host-transfer cost.
+        hausman_compatible = (
+            bool(self.entity_effects)
+            and not bool(self.time_effects)
+            and str(self._cov_type).lower() == "nonrobust"
+        )
+        self._panel_diagnostic_identity = (
+            build_diagnostic_identity(
+                X_arr,
+                y_arr,
+                xp=xp,
+                entity_codes=entity_arr,
+                feature_names=self._feature_names,
+                has_constant=False,
+            )
+            if hausman_compatible
+            else None
         )
         self._pooling_f_result = (
             pooling_f_from_level_arrays(
