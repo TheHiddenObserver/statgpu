@@ -1,6 +1,6 @@
 # Panel Stage B diagnostic-df addendum
 
-This addendum is normative for `panel_p1_stage_b_diagnostics_plan.md` and closes second-round definition issues discovered immediately before estimator integration.
+This addendum is normative for `panel_p1_stage_b_diagnostics_plan.md` and closes second-round definition issues discovered immediately before estimator integration. Where this addendum explicitly overrides a conflicting clause in the main plan, the addendum is the final Stage-B contract.
 
 ## Why a separate diagnostic df is required
 
@@ -97,10 +97,42 @@ The common-constant projection used by the **pooling F test** is a separate nest
 
 For `RandomEffects`, an explicit nonzero constant column in the supplied level design is detected directly. The quasi-demeaned transformed version of that same column is retained as the restricted intercept design for adjusted R² and classical model F, including on unbalanced panels where the transformed intercept is not a vector of ones.
 
+## Normative post-review overrides
+
+Final PR review exposed additional correctness boundaries that supersede conflicting early-plan wording in Sections 5.1--5.3, 5.5, 6, 7, and 12 of `panel_p1_stage_b_diagnostics_plan.md`.
+
+### Hausman sample/design identity
+
+The earlier O(k) low-order-moment fingerprint is retained only as optional audit metadata; it is **not** sufficient proof that FE and RE used the same aligned numerical sample. Distinct row sequences can share sums, sums of squares, and index-weighted first moments.
+
+The authoritative Stage-B identity contract is:
+
+- compute a versioned SHA-256 digest over **every aligned float64 X/y value in row order**, including shape framing;
+- compare the digest together with feature-name/intercept metadata and a separate aligned entity-code signature;
+- require exact digest equality rather than an `allclose` tolerance for identity;
+- on CuPy/Torch fits, transfer X/y to host in bounded chunks solely for hashing; no single extra full-design host allocation is required;
+- persist only the digest and compact metadata after hashing, never a second retained CPU copy of the full design.
+
+This bounded hashing transfer is an explicit exception to the early-plan statement that Hausman may transfer only O(k) fingerprint scalars. The statistical estimation, covariance construction, and fit-statistic reductions remain backend-native; the exception exists only to make the identity check collision-resistant.
+
+### Classical model-F exact-fit boundary
+
+The early generic “unavailable when unrestricted RSS is zero” wording is too coarse. The final Stage-B contract is:
+
+- if unrestricted RSS is numerically zero and restricted RSS is materially positive, report the limiting classical result `F = inf`, `p = 0`, with the ordinary numerator/denominator df;
+- if both restricted and unrestricted RSS are numerically zero, the joint-slope statistic is indeterminate and remains unavailable with an explicit reason;
+- material nesting violations remain inapplicable rather than being silently clipped.
+
+### RandomEffects explicit constant
+
+`RandomEffects` must detect an actual nonzero constant column in the supplied level design. Because Swamy-Arora quasi-demeaning transforms that column and an unbalanced panel generally does not leave a vector of ones, the transformed constant column itself is the restricted design for adjusted R²/model-F accounting. No implicit intercept is invented when the level design has none.
+
 ## Review status
 
-- **[HIGH][INFER] fixed in specification** — Stage-B poolability/model-F inference will no longer reuse a legacy FE residual df that differs from the standard nuisance-effect rank convention.
-- **[HIGH][INFER] fixed after review** — two-way FE nuisance rank now uses the observed incidence-graph component count (`N + T - C`) instead of assuming every incomplete panel is connected.
+- **[HIGH][INFER] fixed in specification** — Stage-B poolability/model-F inference no longer reuses a legacy FE residual df that differs from the standard nuisance-effect rank convention.
+- **[HIGH][INFER] fixed after review** — two-way FE nuisance rank uses the observed incidence-graph component count (`N + T - C`) instead of assuming every incomplete panel is connected.
+- **[HIGH][API/INFER] fixed after review** — Hausman identity uses a collision-resistant full-content digest; low-order moments alone are no longer accepted as proof of sample identity.
 - **[MEDIUM][INFER] fixed in specification** — FE adjusted R² uses nuisance-rank-consistent total df rather than provisional `n-1`.
 - **[MEDIUM][INFER] fixed in specification** — overall/between R² centering is explicitly separated from the pooling-F common-constant correction.
 - **[MEDIUM][INFER] fixed after review** — RandomEffects explicit-constant diagnostics retain the transformed intercept in the restricted fit-space definition.
+- **[MEDIUM][INFER] fixed after review** — exact unrestricted fits with a nonzero restricted RSS report `F=inf, p=0` instead of being discarded as unavailable.
