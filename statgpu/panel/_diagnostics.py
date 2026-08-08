@@ -2,9 +2,10 @@
 
 Stage B of Issue #93 adds structured specification tests and parameter-based
 fit statistics without changing the Stage-A estimator transformations or
-covariance definitions. Observation-scale accumulation stays on the selected
-NumPy/CuPy/Torch backend; public diagnostic results contain only CPU scalars
-and small metadata.
+covariance definitions. Observation-scale statistical accumulation stays on the
+selected NumPy/CuPy/Torch backend. Hausman sample identity additionally uses a
+chunked full-content SHA-256 over normalized float64 X/y values so different
+aligned samples cannot be accepted merely because low-order moments collide.
 """
 
 from __future__ import annotations
@@ -178,10 +179,13 @@ def _classical_model_f(
     xp,
     df_resid: int,
     has_constant: bool,
+    restricted_X=None,
 ) -> Tuple[Optional[float], Optional[float], Optional[Tuple[float, float]], Dict[str, Any]]:
     """Classical homoskedastic joint-slope F statistic in the fit space."""
     rank_u = _matrix_rank(X, xp)
-    rank_r = 1 if has_constant else 0
+    rank_r = _matrix_rank(restricted_X, xp) if restricted_X is not None else (
+        1 if has_constant else 0
+    )
     q = rank_u - rank_r
     metadata = {
         "classical_homoskedastic": True,
@@ -189,13 +193,19 @@ def _classical_model_f(
         "rank_restricted": rank_r,
         "restriction_rank": q,
     }
+    if restricted_X is not None:
+        metadata["restricted_design_supplied"] = True
     if q <= 0 or int(df_resid) <= 0:
         metadata["unavailable_reason"] = "no estimable non-constant restrictions"
         return None, None, None, metadata
 
     resid = y - X @ params.ravel()
     rss_u = _to_float_scalar(xp.sum(resid * resid))
-    if has_constant:
+    if restricted_X is not None:
+        beta_r = xp.linalg.pinv(restricted_X) @ y
+        resid_r = y - restricted_X @ beta_r
+        rss_r = _to_float_scalar(xp.sum(resid_r * resid_r))
+    elif has_constant:
         y_r = y - xp.mean(y)
         rss_r = _to_float_scalar(xp.sum(y_r * y_r))
     else:
@@ -212,15 +222,25 @@ def _classical_model_f(
         diff = 0.0
         metadata["roundoff_normalized"] = True
 
-    if rss_u <= 0.0:
-        metadata["unavailable_reason"] = "unrestricted residual sum of squares is zero"
+    metadata["rss_restricted"] = float(rss_r)
+    metadata["rss_unrestricted"] = float(rss_u)
+    if rss_u <= tol:
+        if diff > tol:
+            metadata["exact_fit"] = True
+            return (
+                float("inf"),
+                0.0,
+                (float(q), float(df_resid)),
+                metadata,
+            )
+        metadata["unavailable_reason"] = (
+            "restricted and unrestricted residual sums of squares are both zero"
+        )
         return None, None, None, metadata
 
     statistic = (diff / q) / (rss_u / int(df_resid))
     dist = get_distribution("f", backend="numpy")
     pvalue = _to_float_scalar(dist.sf(statistic, q, int(df_resid)))
-    metadata["rss_restricted"] = float(rss_r)
-    metadata["rss_unrestricted"] = float(rss_u)
     return float(statistic), float(pvalue), (float(q), float(df_resid)), metadata
 
 
@@ -240,6 +260,7 @@ def _build_fit_statistics(
     f_X=None,
     f_params=None,
     f_has_constant: Optional[bool] = None,
+    f_restricted_X=None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> PanelFitStatistics:
     within, between, overall, degenerate = _parameter_r2_components(
@@ -259,6 +280,7 @@ def _build_fit_statistics(
         has_constant=(
             bool(has_constant) if f_has_constant is None else bool(f_has_constant)
         ),
+        restricted_X=f_restricted_X,
     )
     meta = {} if metadata is None else dict(metadata)
     meta.setdefault("r2_definition", "parameter-based")
@@ -533,8 +555,38 @@ def _row_weights(n: int, xp, ref_arr):
     return xp.arange(1, int(n) + 1, dtype=xp.float64)
 
 
-def _numerical_fingerprint(X, y, *, xp) -> Dict[str, np.ndarray]:
-    """Reduce aligned X/y/order to O(k) deterministic float64 moments."""
+def _full_content_digest(X, y) -> str:
+    """Hash every aligned X/y value with bounded chunked host transfers."""
+    h = hashlib.sha256()
+    h.update(b"statgpu-panel-diagnostic-identity-v2")
+
+    for label, array, shape in (
+        (b"X", X, (int(X.shape[0]), int(X.shape[1]))),
+        (b"y", y, (int(y.shape[0]),)),
+    ):
+        h.update(label)
+        h.update(np.asarray(shape, dtype="<i8").tobytes())
+        width = int(X.shape[1]) if label == b"X" else 1
+        rows_per_chunk = max(1, 1_000_000 // max(width, 1))
+        for start in range(0, int(shape[0]), rows_per_chunk):
+            stop = min(int(shape[0]), start + rows_per_chunk)
+            chunk = np.array(
+                _to_numpy(array[start:stop]),
+                dtype=np.float64,
+                copy=True,
+                order="C",
+            )
+            # Numerical identity treats signed zero as the same value.  Panel
+            # input validation excludes missing values, so no NaN payload
+            # canonicalization is required here.
+            chunk[chunk == 0.0] = 0.0
+            chunk = np.ascontiguousarray(chunk.astype("<f8", copy=False))
+            h.update(chunk.tobytes())
+    return h.hexdigest()
+
+
+def _numerical_fingerprint(X, y, *, xp) -> Dict[str, Any]:
+    """Retain audit moments plus an authoritative full-content digest."""
     n = int(X.shape[0])
     weights = _row_weights(n, xp, X)
     X_sum = xp.sum(X, axis=0)
@@ -544,6 +596,7 @@ def _numerical_fingerprint(X, y, *, xp) -> Dict[str, np.ndarray]:
     y_sq = xp.sum(y * y)
     y_weighted = xp.sum(y * weights)
     return {
+        "content_digest": _full_content_digest(X, y),
         "X_sum": np.asarray(_to_numpy(X_sum), dtype=np.float64).ravel(),
         "X_sq": np.asarray(_to_numpy(X_sq), dtype=np.float64).ravel(),
         "X_weighted": np.asarray(_to_numpy(X_weighted), dtype=np.float64).ravel(),
@@ -597,16 +650,12 @@ def _fingerprints_match(left: Dict[str, Any], right: Dict[str, Any]) -> Tuple[bo
     rf = right.get("fingerprint")
     if not isinstance(lf, dict) or not isinstance(rf, dict):
         return False, "diagnostic identity is missing numerical fingerprint metadata"
-    for key in ("X_sum", "X_sq", "X_weighted", "y"):
-        if key not in lf or key not in rf:
-            return False, f"diagnostic fingerprint is missing {key}"
-        if not np.allclose(
-            np.asarray(lf[key]),
-            np.asarray(rf[key]),
-            rtol=5e-11,
-            atol=5e-12,
-        ):
-            return False, f"diagnostic numerical fingerprint mismatch: {key}"
+    left_digest = lf.get("content_digest")
+    right_digest = rf.get("content_digest")
+    if not isinstance(left_digest, str) or not isinstance(right_digest, str):
+        return False, "diagnostic fingerprint is missing full-content digest"
+    if left_digest != right_digest:
+        return False, "diagnostic numerical fingerprint mismatch: content_digest"
     return True, ""
 
 
