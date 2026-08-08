@@ -160,7 +160,12 @@ def fixed_effect_diagnostic_df(
 
 
 def explicit_constant_column(X, *, xp):
-    """Return an identified explicit constant-column index, if one is present."""
+    """Return an identified explicit constant-column index, if one is present.
+
+    The classification is relative to each column's own magnitude so multiplying
+    a valid design column by a nonzero unit-conversion factor does not change
+    whether it is recognized as an explicit constant.
+    """
     if int(X.shape[1]) == 0:
         return None
     if getattr(xp, "__name__", "") == "torch":
@@ -171,11 +176,10 @@ def explicit_constant_column(X, *, xp):
         max_native = xp.max(X, axis=0)
     col_min = np.asarray(_to_numpy(min_native), dtype=np.float64).ravel()
     col_max = np.asarray(_to_numpy(max_native), dtype=np.float64).ravel()
-    scale = np.maximum(1.0, np.maximum(np.abs(col_min), np.abs(col_max)))
-    tol = 256.0 * np.finfo(np.float64).eps * scale
-    span = np.abs(col_max - col_min)
     magnitude = np.maximum(np.abs(col_min), np.abs(col_max))
-    candidates = np.flatnonzero((span <= tol) & (magnitude > tol))
+    tol = 256.0 * np.finfo(np.float64).eps * magnitude
+    span = np.abs(col_max - col_min)
+    candidates = np.flatnonzero((span <= tol) & (magnitude > 0.0))
     if candidates.size == 0:
         return None
     return int(candidates[0])
