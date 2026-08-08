@@ -84,6 +84,17 @@ def test_catalog_retains_distinct_noncanonical_dispositions(entries):
     assert focused["provenance_status"] == "validation_evidence"
     assert focused["issue"] == "#112"
 
+    panel_raw = next(
+        entry for entry in entries
+        if entry["path"]
+        == "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json"
+    )
+    assert panel_raw["classification"] == "not_canonical_ready"
+    assert panel_raw["provenance_status"] == "validation_evidence"
+    assert panel_raw["timing_protocol_status"] == "not_applicable"
+    assert panel_raw["statistical_alignment_status"] == "accepted"
+    assert panel_raw["issue"] == "#93"
+
 
 def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     from dev.benchmarks.frontend_data.catalog import validate_coverage_matrix
@@ -99,7 +110,7 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     ]
     assert rows["panel-estimation"]["source_ids"] == [
         "new-modules-20260624-bcbdb676223b",
-        "panel-stage-b-pr122-20260808-882892c6e307",
+        "panel-stage-b-pr122-20260808-b8caffa6f915",
     ]
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
