@@ -111,17 +111,24 @@ Final PR review exposed additional correctness boundaries that supersede conflic
 
 The earlier O(k) low-order-moment fingerprint is retained only as optional audit metadata; it is **not** sufficient proof that FE and RE used the same aligned numerical sample. Distinct row sequences can share sums, sums of squares, and index-weighted first moments.
 
+A standard FE-vs-RE Hausman comparison may absorb the common intercept in the FE nuisance-effect space while estimating an explicit intercept in RE. Consequently identity is defined on the **canonical common-slope design**, not on raw full design matrices that differ only by an RE intercept.
+
 The authoritative Stage-B identity contract is:
 
-- compute a versioned SHA-256 digest over **every aligned float64 X/y value in row order**, including shape framing;
-- compare the digest together with feature-name/intercept metadata and a separate aligned entity-code signature;
+- remove the identified explicit constant column, if any, before constructing the Hausman design identity;
+- compute a versioned SHA-256 digest over every aligned float64 **slope-X/y** value in row order, including shape framing;
+- compare exact canonical slope feature names, the canonical slope count, the digest, and the aligned entity-code signature;
+- do **not** require FE and RE `has_constant` metadata to agree when their canonical slope design is identical;
+- retain a `coefficient_indices` map from canonical slope positions back to each fitted model's original coefficient/covariance positions, so an RE intercept at position 0 produces slope indices `(1, 2, ...)` rather than silently shifting the comparison;
 - require exact digest equality rather than an `allclose` tolerance for identity;
-- on CuPy/Torch fits, transfer X/y to host in bounded chunks solely for hashing; no single extra full-design host allocation is required;
-- persist only the digest and compact metadata after hashing, never a second retained CPU copy of the full design.
+- on CuPy/Torch fits, transfer the canonical slope X/y to host in bounded chunks solely for hashing; no single extra full-design host allocation is required;
+- persist only the digest, coefficient-index map, and compact metadata after hashing, never a second retained CPU copy of the design.
 
 This bounded hashing transfer is an explicit exception to the early-plan statement that Hausman may transfer only O(k) fingerprint scalars. The statistical estimation, covariance construction, and fit-statistic reductions remain backend-native; the exception exists only to make the identity check collision-resistant.
 
 The full-content digest is constructed only when the fitted FE model is actually in the Stage-B Hausman domain: one-way entity FE with nonrobust covariance. Robust/clustered, time-only, and two-way FE are rejected before identity comparison and must not pay the full X/y host-hash cost. `RandomEffects` remains a potential Hausman input and therefore retains the identity contract.
+
+For array input without explicit feature names, canonical slopes are renumbered after removal of an RE-only constant (`x1`, `x2`, ...), while the stored coefficient-index map preserves the original RE positions. For named/formula designs, the canonical slope names are retained and the intercept is excluded.
 
 ### Scale-equivariant numerical tolerances
 
@@ -145,7 +152,9 @@ The early generic “unavailable when unrestricted RSS is zero” wording is too
 
 `RandomEffects` must detect an actual nonzero constant column in the supplied level design. Because Swamy-Arora quasi-demeaning transforms that column and an unbalanced panel generally does not leave a vector of ones, the transformed constant column itself is the restricted design for adjusted R²/model-F accounting. No implicit intercept is invented when the level design has none.
 
-Physical CUDA validation must include balanced and unbalanced explicit-constant RandomEffects cases, in addition to the ordinary no-explicit-constant cases, and must compare the constant/restricted-design metadata as well as numerical fit statistics.
+Physical CUDA validation must include balanced and unbalanced explicit-constant RandomEffects cases, in addition to the ordinary no-explicit-constant cases, and must compare the constant/restricted-design metadata as well as numerical fit statistics. The same runner must also evaluate FE-vs-RE Hausman with the RE-only explicit constant on both balanced and unbalanced panels, so the canonical slope digest and coefficient-index mapping are exercised on CuPy and Torch CUDA.
+
+The final physical runner therefore contains 17 distinct estimator model cases per backend and four Hausman diagnostic cases per backend: ordinary and explicit-RE-constant parameterizations on balanced and unbalanced panels.
 
 ## Review status
 
@@ -154,7 +163,8 @@ Physical CUDA validation must include balanced and unbalanced explicit-constant 
 - **[HIGH][API/INFER] fixed after review** — Hausman identity uses a collision-resistant full-content digest; low-order moments alone are no longer accepted as proof of sample identity.
 - **[CRITICAL][INFER] fixed after fresh review** — F/Hausman applicability tolerances and explicit-constant detection are scale equivariant instead of imposing a unit-sized absolute floor.
 - **[HIGH][INFER] fixed after fresh review** — an exact FE fit with positive pooled RSS reports the limiting pooling `F=inf, p=0`; the both-zero case remains explicitly inapplicable.
-- **[HIGH][TEST/BACKEND] fixed locally after fresh review** — the physical runner includes balanced/unbalanced explicit-constant RandomEffects cases and checks the restricted-design contract; exact-head P100 execution is still required after the final code head is fixed.
+- **[HIGH][INFER/API] fixed after thread-aware re-review** — Hausman identity is canonicalized to common slopes, so an FE-absorbed intercept and an RE-only explicit constant no longer cause a false identity rejection or coefficient-index shift.
+- **[HIGH][TEST/BACKEND] fixed locally after fresh review** — the physical runner includes balanced/unbalanced explicit-constant RandomEffects cases plus explicit-constant Hausman diagnostics and checks the restricted-design contract; exact-head P100 execution is still required after the final code head is fixed.
 - **[MEDIUM][PERF] fixed/measurement pending** — FE fits outside the Hausman domain no longer build the full-content digest; a dedicated physical benchmark measures the remaining digest overhead for Hausman-compatible one-way FE/RE fits.
 - **[MEDIUM][INFER] fixed in specification** — FE adjusted R² uses nuisance-rank-consistent total df rather than provisional `n-1`.
 - **[MEDIUM][INFER] fixed in specification** — overall/between R² centering is explicitly separated from the pooling-F common-constant correction.
