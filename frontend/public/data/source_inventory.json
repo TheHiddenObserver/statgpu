@@ -1,15 +1,15 @@
 {
   "inventory_version": "2.0",
   "catalog_version": "2.0",
-  "catalog_digest": "1de71937d6d994c3ada387018a087e0d1c7b146099853c6ab700f0993f25a5fe",
+  "catalog_digest": "013c057dfd3e9f8bd4fe529e6b843be2851461b65d215222fa6085aacdbfc049",
   "coverage_matrix_version": "1.0",
-  "coverage_matrix_digest": "b9264e98be2d774a9251ff122a36a0acb16ab64217a1ae9bcc1ac2e11599edf0",
-  "discovered_json_artifacts": 89,
-  "classified_candidate_sources": 89,
-  "eligible_sources": 10,
-  "registered_sources": 10,
-  "available_registered_sources": 10,
-  "parsed_registered_sources": 10,
+  "coverage_matrix_digest": "2fdfa2291fac57c59cb0ec75669380fbfd278b995556b3b18043f7a4e2624360",
+  "discovered_json_artifacts": 90,
+  "classified_candidate_sources": 90,
+  "eligible_sources": 11,
+  "registered_sources": 11,
+  "available_registered_sources": 11,
+  "parsed_registered_sources": 11,
   "eligible_unregistered_sources": 0,
   "not_canonical_ready_sources": 42,
   "historical_or_excluded_sources": 37,
@@ -829,6 +829,24 @@
       "rule_id": "manifest-registration"
     },
     {
+      "path": "results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260808.json",
+      "artifact_type": "json",
+      "source_date": "2026-08-08",
+      "classification": "registered_canonical",
+      "canonical_eligible": true,
+      "registered": true,
+      "source_id": "panel-stage-b-pr122-20260808-882892c6e307",
+      "parser": "panel_stage_b_physical_validation",
+      "parser_version": "1.0",
+      "provenance_status": "complete",
+      "timing_protocol_status": "accepted",
+      "statistical_alignment_status": "accepted",
+      "reason": "Registered in frontend_sources.json and protected by manifest SHA256.",
+      "superseded_by": null,
+      "issue": null,
+      "rule_id": "manifest-registration"
+    },
+    {
       "path": "results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json",
       "artifact_type": "json",
       "source_date": "2026-07-27",
@@ -1627,5 +1645,5 @@
     "current_evidence_not_canonical_ready": 2,
     "partial_canonical": 7
   },
-  "generation_id": "ceac2591d688920101474d09e145c7595e6d9460ce347828b4225139fcd60644"
+  "generation_id": "9543fdc0b57ceabcb1323c257b4a313e48866439059782263f8a6970b1a0b65d"
 }
