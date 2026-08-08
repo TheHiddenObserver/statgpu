@@ -33,6 +33,11 @@ from statgpu.inference._distributions_backend import (
 )
 
 
+# benchmark_distributions.py defines 1e-6 as the PASS threshold for PPF/ISF;
+# inverse special functions are documented there as approximately 1e-7 accurate.
+_INVERSE_ABS_ACCURACY = 1e-6
+
+
 def _hosted_cupy_special_functions() -> CuPySpecialFunctions:
     """Construct the CuPy implementation with NumPy/SciPy test doubles."""
     sf = CuPySpecialFunctions.__new__(CuPySpecialFunctions)
@@ -129,7 +134,12 @@ def test_cupy_public_inverse_distribution_surface_matches_scipy(
     """PPF/ISF and inverse round-trips stay correct through the public factory."""
     _patch_hosted_cupy_factory(monkeypatch)
     dist = dist_backend.get_distribution(name, backend="cupy", use_lut=True)
-    probability = np.asarray([0.01, 0.025, 0.20, 0.50, 0.95, 0.975], dtype=np.float64)
+    # Avoid the exact Student-t symmetry point q=0.5 here: the LUT contract is
+    # approximate (1e-6 absolute PPF/ISF threshold). A dedicated test below
+    # checks that the median residual remains inside that documented contract.
+    probability = np.asarray(
+        [0.01, 0.025, 0.20, 0.40, 0.60, 0.95, 0.975], dtype=np.float64
+    )
 
     actual_ppf = np.asarray(dist.ppf(probability, **kwargs))
     expected_ppf = np.asarray(scipy_dist.ppf(probability, **kwargs))
@@ -157,7 +167,7 @@ def test_cupy_t_inverse_quantiles_cover_lut_and_native_fallback(monkeypatch, df)
     """Exercise t quantiles across the inverse-beta LUT eligibility boundary."""
     _patch_hosted_cupy_factory(monkeypatch)
     dist = dist_backend.get_distribution("t", backend="cupy", use_lut=True)
-    probability = np.asarray([0.025, 0.50, 0.975], dtype=np.float64)
+    probability = np.asarray([0.025, 0.25, 0.75, 0.975], dtype=np.float64)
 
     assert_allclose(
         np.asarray(dist.ppf(probability, df=df)),
@@ -173,12 +183,27 @@ def test_cupy_t_inverse_quantiles_cover_lut_and_native_fallback(monkeypatch, df)
     )
 
 
+@pytest.mark.parametrize("df", [1.0, 10.0, 45.0, 60.0, 80.0])
+def test_cupy_t_median_and_symmetry_stay_within_inverse_accuracy_contract(
+    monkeypatch, df
+):
+    """Track the existing LUT median residual separately from Issue #120."""
+    _patch_hosted_cupy_factory(monkeypatch)
+    dist = dist_backend.get_distribution("t", backend="cupy", use_lut=True)
+
+    median = float(np.asarray(dist.ppf(0.5, df=df)))
+    assert abs(median) < _INVERSE_ABS_ACCURACY
+
+    tails = np.asarray(dist.ppf(np.asarray([0.025, 0.975]), df=df))
+    assert abs(float(tails[0] + tails[1])) < _INVERSE_ABS_ACCURACY
+
+
 def test_cupy_distribution_proxies_route_inverse_quantiles_through_fixed_factory(
     monkeypatch,
 ):
     """Module-level public proxies must hit the same corrected CuPy primitives."""
     _patch_hosted_cupy_factory(monkeypatch)
-    probability = np.asarray([0.025, 0.50, 0.975], dtype=np.float64)
+    probability = np.asarray([0.025, 0.25, 0.75, 0.975], dtype=np.float64)
 
     assert_allclose(
         np.asarray(dist_backend.t.ppf(probability, df=45, backend="cupy")),
