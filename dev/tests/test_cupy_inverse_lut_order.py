@@ -230,7 +230,7 @@ def test_cupy_distribution_proxies_route_inverse_quantiles_through_fixed_factory
 
 
 def test_shared_panel_inference_uses_correct_cupy_t_quantile(monkeypatch):
-    """Exercise the actual shared panel consumer, not just reconstructed CI math."""
+    """Exercise the retained shared panel utility with the corrected CuPy t path."""
     _patch_hosted_cupy_factory(monkeypatch)
     from statgpu.panel._utils import compute_panel_inference
 
@@ -268,61 +268,43 @@ def test_shared_panel_inference_uses_correct_cupy_t_quantile(monkeypatch):
     assert_allclose(model.conf_int_, expected, rtol=5e-8, atol=5e-9)
 
 
-def test_panelols_direct_cupy_inference_uses_correct_t_quantile(monkeypatch):
-    """Cover the pre-Stage-A PanelOLS direct distribution consumer on master."""
+@pytest.mark.parametrize("model_name", ["PanelOLS", "RandomEffects"])
+def test_stage_a_panel_estimators_use_shared_cupy_t_inference(monkeypatch, model_name):
+    """Stage-A estimators inherit the shared inference path that uses CuPy t quantiles."""
     _patch_hosted_cupy_factory(monkeypatch)
+    from statgpu.panel._base import BasePanelModel
     from statgpu.panel._fixed_effects import PanelOLS
-
-    rng = np.random.default_rng(121)
-    n, k = 48, 3
-    X = rng.normal(size=(n, k))
-    coef = np.asarray([0.35, 1.05, -0.60], dtype=np.float64)
-    resid = rng.normal(scale=0.25, size=n)
-    y = X @ coef + resid
-    holder = SimpleNamespace(
-        df_resid=45,
-        alpha=0.05,
-        _cov_type="nonrobust",
-        _scale=float(np.sum(resid ** 2) / 45.0),
-    )
-
-    PanelOLS._compute_inference(holder, np, None, "cupy", X, coef, resid, y)
-
-    critical = stats.t.isf(0.025, 45)
-    expected = np.column_stack(
-        [
-            coef - critical * holder.bse_,
-            coef + critical * holder.bse_,
-        ]
-    )
-    assert np.all(holder.conf_int_[:, 1] > holder.conf_int_[:, 0])
-    assert_allclose(holder.conf_int_, expected, rtol=5e-8, atol=5e-9)
-
-
-def test_random_effects_direct_cupy_inference_uses_correct_t_quantile(monkeypatch):
-    """Cover the pre-Stage-A RandomEffects direct distribution consumer on master."""
-    _patch_hosted_cupy_factory(monkeypatch)
     from statgpu.panel._random_effects import RandomEffects
 
-    rng = np.random.default_rng(122)
+    model_cls = {"PanelOLS": PanelOLS, "RandomEffects": RandomEffects}[model_name]
+    assert issubclass(model_cls, BasePanelModel)
+
+    rng = np.random.default_rng(121 if model_name == "PanelOLS" else 122)
     n, k = 48, 3
     X = rng.normal(size=(n, k))
     coef = np.asarray([0.35, 1.05, -0.60], dtype=np.float64)
     resid = rng.normal(scale=0.25, size=n)
-    holder = SimpleNamespace(
-        df_resid=45,
-        alpha=0.05,
-        _scale=float(np.sum(resid ** 2) / 45.0),
-        _backend_name="cupy",
-    )
+    scale = float(np.sum(resid ** 2) / 45.0)
+    holder = SimpleNamespace(alpha=0.05)
+    backend = SimpleNamespace(xp=np, name="cupy")
 
-    RandomEffects._compute_inference_on_device(holder, np, X, coef, resid)
+    model_cls._panel_store_ols_inference(
+        holder,
+        X,
+        resid,
+        coef,
+        scale=scale,
+        df_resid=45,
+        backend=backend,
+        cov_type="nonrobust",
+        distribution_df=45,
+    )
 
     critical = stats.t.isf(0.025, 45)
     expected = np.column_stack(
         [
-            coef - critical * holder.bse_,
-            coef + critical * holder.bse_,
+            holder.coef_ - critical * holder.bse_,
+            holder.coef_ + critical * holder.bse_,
         ]
     )
     assert np.all(holder.conf_int_[:, 1] > holder.conf_int_[:, 0])
