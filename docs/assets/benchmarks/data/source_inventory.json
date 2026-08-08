@@ -1,22 +1,22 @@
 {
   "inventory_version": "2.0",
   "catalog_version": "2.0",
-  "catalog_digest": "013c057dfd3e9f8bd4fe529e6b843be2851461b65d215222fa6085aacdbfc049",
+  "catalog_digest": "ddb41b31459bcfb1ebbd0efc20dbf1f5a747ba326b071f16fa171270ecf28717",
   "coverage_matrix_version": "1.0",
-  "coverage_matrix_digest": "2fdfa2291fac57c59cb0ec75669380fbfd278b995556b3b18043f7a4e2624360",
-  "discovered_json_artifacts": 90,
-  "classified_candidate_sources": 90,
+  "coverage_matrix_digest": "4b5f60ff535d819979d8d9e11f5c41ad6f4f3f8bb3405abdffcc03856a923113",
+  "discovered_json_artifacts": 91,
+  "classified_candidate_sources": 91,
   "eligible_sources": 11,
   "registered_sources": 11,
   "available_registered_sources": 11,
   "parsed_registered_sources": 11,
   "eligible_unregistered_sources": 0,
-  "not_canonical_ready_sources": 42,
+  "not_canonical_ready_sources": 43,
   "historical_or_excluded_sources": 37,
   "superseded_or_duplicate_sources": 9,
   "unrelated_json_artifacts": 0,
   "unclassified_artifacts": 0,
-  "catalog_policy_digest": "23cd0e6e1ccc7a563a42fd6d999a7f6f0a3590726f93030c41c95672ebe19e0a",
+  "catalog_policy_digest": "a6c275db00cdc4819a443117eef58e0f8eff7c04b923721371ba4b1bdb713195",
   "catalog_entries": [
     {
       "path": "results/bench_large_scale.json",
@@ -835,7 +835,7 @@
       "classification": "registered_canonical",
       "canonical_eligible": true,
       "registered": true,
-      "source_id": "panel-stage-b-pr122-20260808-882892c6e307",
+      "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
       "parser": "panel_stage_b_physical_validation",
       "parser_version": "1.0",
       "provenance_status": "complete",
@@ -1243,6 +1243,24 @@
       "rule_id": "pr116-logistic-cv-focused-validation"
     },
     {
+      "path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
+      "artifact_type": "json",
+      "source_date": null,
+      "classification": "not_canonical_ready",
+      "canonical_eligible": false,
+      "registered": false,
+      "source_id": null,
+      "parser": null,
+      "parser_version": null,
+      "provenance_status": "validation_evidence",
+      "timing_protocol_status": "not_applicable",
+      "statistical_alignment_status": "accepted",
+      "reason": "Exact-head P100 Stage-B correctness/backend-provenance evidence for PR #122 is retained as the immutable raw artifact; its normalized SHA-protected canonical validation-only source is registered separately in frontend_sources.json.",
+      "superseded_by": null,
+      "issue": "#93",
+      "rule_id": "pr122-panel-stage-b-physical-validation"
+    },
+    {
       "path": "results/pr74_inference_validation.json",
       "artifact_type": "json",
       "source_date": null,
@@ -1645,5 +1663,5 @@
     "current_evidence_not_canonical_ready": 2,
     "partial_canonical": 7
   },
-  "generation_id": "820a294b2b6fd58f6c1384b5ffad602f20168dc30102f93a49895e97fb0003dc"
+  "generation_id": "45a94e710ad14d391e40efb258f904369f3625a55d2b3080f635d98e3677609f"
 }
