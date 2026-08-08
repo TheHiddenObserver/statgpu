@@ -143,6 +143,32 @@ def test_stage_b_random_effects_torch_cpu_fit_stats_and_identity_match_numpy():
         assert h_actual.reason == h_expected.reason
 
 
+def test_stage_b_random_effects_explicit_constant_torch_cpu_matches_numpy():
+    rng = np.random.default_rng(1224)
+    counts = np.asarray([5, 4, 3, 5, 4, 3])
+    entity = np.repeat(np.arange(counts.size), counts)
+    time = np.concatenate([np.arange(count) for count in counts])
+    slope = rng.normal(size=entity.size)
+    X = np.column_stack([np.ones(entity.size), slope])
+    alpha = np.repeat(np.linspace(-0.45, 0.55, counts.size), counts)
+    y = 1.4 + 0.72 * slope + alpha + rng.normal(scale=0.14, size=entity.size)
+    X_t, y_t, entity_t, _ = _torch_arrays(X, y, entity, time)
+
+    expected = RandomEffects().fit(X, y, entity_ids=entity)
+    actual = RandomEffects().fit(X_t, y_t, entity_ids=entity_t)
+
+    assert_allclose(actual.coef_, expected.coef_, rtol=1e-9, atol=1e-10)
+    _assert_fit_statistics_close(actual.fit_statistics_, expected.fit_statistics_)
+    assert actual.fit_statistics_.metadata["has_explicit_constant"] is True
+    assert actual.fit_statistics_.metadata["constant_column_index"] == 0
+    assert actual.fit_statistics_.metadata["model_f"]["rank_restricted"] == 1
+    assert actual.fit_statistics_.metadata["model_f"]["restricted_design_supplied"] is True
+    assert (
+        actual._panel_diagnostic_identity["fingerprint"]["content_digest"]
+        == expected._panel_diagnostic_identity["fingerprint"]["content_digest"]
+    )
+
+
 def test_stage_b_fama_macbeth_torch_cpu_r2_matches_numpy_without_ols_f():
     X, y, entity, time = _panel(seed=1223)
     X_t, y_t, entity_t, time_t = _torch_arrays(X, y, entity, time)
