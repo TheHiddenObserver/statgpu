@@ -2,16 +2,27 @@
   "method": "Panel Tier-1 Stage B physical GPU validation",
   "source_schema_version": "1.0",
   "source_date": "2026-08-08",
-  "git_sha": "636988751bcbfad3442d24d3073cdfcd2b3ac637",
+  "git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
   "working_tree_clean": true,
   "status": "success",
+  "raw_artifact": {
+    "path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
+    "sha256": "c1ba014a3b9bb0d32cbc0ca3d844ccfe767e7149189efb9ba2969f5bc1b94b31",
+    "repository_commit": "806789ac7c1f71d7c91656b86dad91ab0f103582",
+    "generated_at": "2026-08-08T14:49:33.405711Z",
+    "schema_version": 2
+  },
   "environment": {
     "env_id": "remote-p100-pr122-20260808",
-    "gpu": "Tesla P100",
+    "gpu": "Tesla P100-SXM2-16GB",
     "cpu": "x86_64",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
     "python": "3.9.16",
     "packages": {
-      "cupy": "13.6.0",
+      "statgpu": "0.2.4",
+      "numpy": "1.24.2",
+      "scipy": "1.10.1",
+      "cupy": null,
       "torch": "2.0.0"
     },
     "available_backends": [
@@ -25,7 +36,9 @@
     "reference_backend": "numpy",
     "dtype": "float64",
     "timing_collected": false,
-    "failure_policy": "fail_on_backend_mismatch_or_precision_regression"
+    "failure_policy": "fail_on_backend_mismatch_or_precision_regression",
+    "rtol": 5e-06,
+    "atol": 5e-07
   },
   "backend_times": {
     "numpy": null,
@@ -43,16 +56,30 @@
     "cupy": "pass",
     "torch": "pass"
   },
+  "precision_summary": {
+    "max_coef_abs_difference": {
+      "cupy": 5.551115123125783e-16,
+      "torch": 6.661338147750939e-16
+    },
+    "explicit_constant_re_max_coef_abs_difference": {
+      "cupy": 9.71445146547012e-17,
+      "torch": 2.220446049250313e-16
+    },
+    "random_effects_diagnostic_contract_max_difference": {
+      "cupy": 0.0,
+      "torch": 0.0
+    }
+  },
   "compatibility_matrix": {
     "cupy": {
-      "model_cases": "15/15",
-      "diagnostics": "2/2",
+      "model_cases": "17/17",
+      "diagnostics": "4/4",
       "executed_backend": "cupy",
       "cpu_fallback": false
     },
     "torch": {
-      "model_cases": "15/15",
-      "diagnostics": "2/2",
+      "model_cases": "17/17",
+      "diagnostics": "4/4",
       "executed_backend": "torch",
       "cpu_fallback": false
     }
@@ -70,7 +97,7 @@
       "df_resid"
     ],
     "reference": "statgpu NumPy",
-    "reported_precision": "machine-epsilon scale"
+    "reported_precision": "all checks within validator tolerances; coefficient differences are at machine-epsilon scale"
   },
   "threshold_source": {
     "stage_b": "validator-defined backend parity tolerances",
@@ -90,13 +117,16 @@
     "reason": "Correctness/backend-provenance validation only; no benchmark timing was measured."
   },
   "reproducibility": {
-    "exact_git_sha": "636988751bcbfad3442d24d3073cdfcd2b3ac637",
+    "exact_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
     "working_tree_clean": true,
-    "runner": "dev/benchmarks/validate_panel_stage_b_gpu.py"
+    "runner": "dev/benchmarks/validate_panel_stage_b_gpu.py",
+    "raw_artifact_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
+    "raw_artifact_sha256": "c1ba014a3b9bb0d32cbc0ca3d844ccfe767e7149189efb9ba2969f5bc1b94b31"
   },
   "uncovered_reasons": [
     "Performance timing was not collected by this correctness-only physical validation and must not be inferred from this artifact.",
-    "Hausman was consistently inapplicable for the generated balanced and unbalanced validation datasets; applicability consistency, not a fabricated statistic, is recorded."
+    "All standard and explicit-RE-constant Hausman validation datasets produced materially indefinite covariance differences; applicability/reason parity against NumPy, not a fabricated statistic, is recorded.",
+    "The runner could not resolve an installed CuPy distribution version through importlib.metadata, so the canonical source records the CuPy package version as null while preserving executed_backend='cupy' as physical backend provenance."
   ],
   "case_catalog": [
     {
@@ -105,13 +135,7 @@
       "variant": "balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "bp_lm",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "bp_lm", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "pooled_hac_unsorted_balanced",
@@ -119,14 +143,7 @@
       "variant": "balanced-hac-unsorted",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "bp_lm",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "metadata_sort_alignment",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "bp_lm", "diagnostic_covariance", "stage_a_inference", "metadata_sort_alignment", "backend_provenance"]
     },
     {
       "case_id": "between_balanced",
@@ -134,12 +151,7 @@
       "variant": "balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "first_difference_balanced",
@@ -147,12 +159,7 @@
       "variant": "balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "panel_entity_balanced",
@@ -160,13 +167,7 @@
       "variant": "entity-fe-balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "pooling_f",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "pooling_f", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "random_effects_balanced",
@@ -174,12 +175,15 @@
       "variant": "balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "random_effects_diagnostic_contract", "backend_provenance"]
+    },
+    {
+      "case_id": "random_effects_explicit_constant_balanced",
+      "model_id": "RandomEffects",
+      "variant": "explicit-constant-balanced",
+      "n_samples": 54,
+      "n_features": 3,
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "random_effects_diagnostic_contract", "backend_provenance"]
     },
     {
       "case_id": "fama_macbeth_balanced",
@@ -187,12 +191,7 @@
       "variant": "balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "panel_two_way_balanced",
@@ -200,13 +199,7 @@
       "variant": "two-way-fe-balanced",
       "n_samples": 54,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "pooling_f",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "pooling_f", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "pooled_unbalanced",
@@ -214,13 +207,7 @@
       "variant": "unbalanced",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "bp_lm",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "bp_lm", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "pooled_hac_unsorted_unbalanced",
@@ -228,14 +215,7 @@
       "variant": "unbalanced-hac-unsorted",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "bp_lm",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "metadata_sort_alignment",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "bp_lm", "diagnostic_covariance", "stage_a_inference", "metadata_sort_alignment", "backend_provenance"]
     },
     {
       "case_id": "between_unbalanced",
@@ -243,12 +223,7 @@
       "variant": "unbalanced",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "first_difference_unbalanced",
@@ -256,12 +231,7 @@
       "variant": "unbalanced",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "panel_entity_unbalanced",
@@ -269,13 +239,7 @@
       "variant": "entity-fe-unbalanced",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "pooling_f",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "pooling_f", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     },
     {
       "case_id": "random_effects_unbalanced",
@@ -283,12 +247,15 @@
       "variant": "unbalanced",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "random_effects_diagnostic_contract", "backend_provenance"]
+    },
+    {
+      "case_id": "random_effects_explicit_constant_unbalanced",
+      "model_id": "RandomEffects",
+      "variant": "explicit-constant-unbalanced",
+      "n_samples": 49,
+      "n_features": 3,
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "random_effects_diagnostic_contract", "backend_provenance"]
     },
     {
       "case_id": "fama_macbeth_unbalanced",
@@ -296,12 +263,7 @@
       "variant": "unbalanced",
       "n_samples": 49,
       "n_features": 2,
-      "checks": [
-        "fit_statistics",
-        "diagnostic_covariance",
-        "stage_a_inference",
-        "backend_provenance"
-      ]
+      "checks": ["fit_statistics", "diagnostic_covariance", "stage_a_inference", "backend_provenance"]
     }
   ],
   "backend_results": {
@@ -315,6 +277,7 @@
         "first_difference_balanced": "success",
         "panel_entity_balanced": "success",
         "random_effects_balanced": "success",
+        "random_effects_explicit_constant_balanced": "success",
         "fama_macbeth_balanced": "success",
         "panel_two_way_balanced": "success",
         "pooled_unbalanced": "success",
@@ -323,17 +286,14 @@
         "first_difference_unbalanced": "success",
         "panel_entity_unbalanced": "success",
         "random_effects_unbalanced": "success",
+        "random_effects_explicit_constant_unbalanced": "success",
         "fama_macbeth_unbalanced": "success"
       },
       "diagnostics": {
-        "hausman_balanced": {
-          "status": "success",
-          "applicable": false
-        },
-        "hausman_unbalanced": {
-          "status": "success",
-          "applicable": false
-        }
+        "hausman_balanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"},
+        "hausman_explicit_re_constant_balanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"},
+        "hausman_unbalanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"},
+        "hausman_explicit_re_constant_unbalanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"}
       }
     },
     "torch": {
@@ -346,6 +306,7 @@
         "first_difference_balanced": "success",
         "panel_entity_balanced": "success",
         "random_effects_balanced": "success",
+        "random_effects_explicit_constant_balanced": "success",
         "fama_macbeth_balanced": "success",
         "panel_two_way_balanced": "success",
         "pooled_unbalanced": "success",
@@ -354,17 +315,14 @@
         "first_difference_unbalanced": "success",
         "panel_entity_unbalanced": "success",
         "random_effects_unbalanced": "success",
+        "random_effects_explicit_constant_unbalanced": "success",
         "fama_macbeth_unbalanced": "success"
       },
       "diagnostics": {
-        "hausman_balanced": {
-          "status": "success",
-          "applicable": false
-        },
-        "hausman_unbalanced": {
-          "status": "success",
-          "applicable": false
-        }
+        "hausman_balanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"},
+        "hausman_explicit_re_constant_balanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"},
+        "hausman_unbalanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"},
+        "hausman_explicit_re_constant_unbalanced": {"status": "success", "applicable": false, "reason": "covariance difference is not positive semidefinite"}
       }
     }
   }
