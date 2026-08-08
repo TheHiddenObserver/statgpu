@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import numpy as np
 import scipy.special as sc
 from numpy.testing import assert_allclose
@@ -36,12 +34,13 @@ def test_legacy_inverse_aliases_route_through_corrected_cupy_quantiles(monkeypat
             return sf
         return original_make_sf(backend, device, use_lut=use_lut)
 
-    # DistributionProxy resolves the backend at call time. Force that public
-    # resolver to CuPy while retaining NumPy/SciPy as API-compatible stand-ins.
+    # DistributionProxy passes the resolver result directly as the backend name.
+    # Force the public proxy onto the CuPy implementation while retaining
+    # NumPy/SciPy as API-compatible stand-ins for hosted CI.
     monkeypatch.setattr(
         backends,
         "_resolve_backend",
-        lambda *arrays, backend="auto": SimpleNamespace(name="cupy"),
+        lambda *arrays, backend="auto": "cupy",
     )
     monkeypatch.setattr(dist_backend, "_make_sf", _make_sf)
 
