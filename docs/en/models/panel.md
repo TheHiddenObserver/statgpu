@@ -128,7 +128,7 @@ For coefficient vector \(\hat\beta\):
 - **between R²** evaluates entity means \(\bar y_i-\bar X_i\hat\beta\);
 - **within R²** evaluates entity-demeaned \(y\) and \(X\).
 
-Overall and between total sums of squares are centered only when the actual level regressor design contains an identified constant. Fixed effects by themselves do not change this centering rule. `RandomEffects` detects an explicit nonzero constant column in the supplied level design and retains its quasi-demeaned transformed column when defining adjusted R² and the restricted model-F regression. A zero total sum of squares is reported as `0.0` in the standardized Stage-B field and marked in `metadata["degenerate_total_ss"]`.
+Overall and between total sums of squares are centered only when the actual level regressor design contains an identified constant. Fixed effects by themselves do not change this centering rule. `RandomEffects` detects an explicit nonzero constant column in the supplied level design and retains its quasi-demeaned transformed column when defining adjusted R² and the restricted model-F regression. Constant detection uses a tolerance relative to the column's own magnitude, so changing units does not turn a nonzero constant into a slope or vice versa. A zero total sum of squares is reported as `0.0` in the standardized Stage-B field and marked in `metadata["degenerate_total_ss"]`.
 
 ### Legacy `PanelOLS.rsquared_within`
 
@@ -172,7 +172,7 @@ F=
      {RSS_U/\mathrm{df}_{\mathrm{resid}}},
 $$
 
-where \(q\) is the effective restriction rank. A robust or clustered covariance choice does not silently convert this field into a robust Wald test. When the unrestricted regression fits exactly while the restricted regression has positive RSS, the standardized result is the limiting classical value `F=inf`, `p=0` rather than an unavailable statistic.
+where \(q\) is the effective restriction rank. A robust or clustered covariance choice does not silently convert this field into a robust Wald test. When the unrestricted regression fits exactly while the restricted regression has positive RSS, the standardized result is the limiting classical value `F=inf`, `p=0` rather than an unavailable statistic. RSS zero/nesting tolerances are relative to the RSS scale, so multiplying the response and fitted coefficients by a common unit-conversion factor does not change the dimensionless F statistic or its applicability.
 
 `FamaMacBeth` does not receive a residual-OLS model F or adjusted R². Its covariance is based on the time series of cross-sectional coefficient estimates, and Stage B does not relabel that beta-series inference as residual OLS.
 
@@ -193,6 +193,8 @@ result = pooling_f_test(fe)
 The classical poolability null is that all included fixed effects are jointly zero. The statistic compares the effect model against a nested pooled regression on the exact aligned estimation sample.
 
 When the FE level design has no explicit constant, the pooled null projects both y and X off the common constant before fitting the slopes. This prevents the common mean from being counted as a tested fixed effect. The numerator and denominator degrees of freedom are derived from effective nested-model ranks, not hard-coded effect counts.
+
+If the fixed-effects fit is exact (`RSS_FE` numerically zero) while the restricted pooled RSS is materially positive, the classical limiting result is `F=inf`, `p=0`. If both pooled and FE RSS are numerically zero, the ratio is indeterminate and the structured result is inapplicable. These zero/nesting decisions use RSS-relative tolerances rather than a unit-sized absolute floor.
 
 The test is classical/homoskedastic even when the fitted FE object uses a robust or clustered covariance for coefficient inference.
 
@@ -236,12 +238,15 @@ Applicability rules are explicit:
 
 - FE must be one-way entity effects only;
 - the FE coefficient covariance must be classical/nonrobust;
-- FE and RE must be fitted to the same aligned X/y/entity sample and common slope design;
-- row/sample compatibility uses a collision-resistant SHA-256 digest of every aligned float64 X/y value plus the entity-code signature and feature metadata, not only matching shapes or low-order moments;
-- intercepts are excluded from the comparison;
+- FE and RE must be fitted to the same aligned y/entity sample and the same canonical slope design;
+- an RE-only explicit constant is allowed because entity FE absorbs the common intercept; that constant is excluded from the Hausman coefficient vector;
+- row/sample compatibility uses a collision-resistant SHA-256 digest of every aligned float64 **slope-X/y** value plus the entity-code signature and canonical feature metadata, not only matching shapes or low-order moments;
+- canonical slope positions retain a map to each model's original coefficient/covariance positions, so an RE intercept at position 0 does not shift `x1`, `x2`, ... into the wrong coefficients;
 - a materially indefinite covariance difference is reported as inapplicable instead of being eigenvalue-clipped into a statistic.
 
-For GPU fits, the full-content digest is computed through bounded chunks copied to host solely for hashing. The fitted model stores only the digest and compact metadata; it does not retain a second CPU copy of the full design. Statistical estimation, covariance construction, and fit-statistic reductions remain on the selected numerical backend.
+For array input, slopes are canonically renumbered after an RE-only constant is removed. For named/formula designs, slope names are preserved. Hausman covariance-rank and identified-range tolerances are relative to the covariance/coefficient scale, so a change of outcome units does not change applicability for the same mathematical problem.
+
+For GPU fits, the canonical slope full-content digest is computed through bounded chunks copied to host solely for hashing. One-way entity FE with nonrobust covariance and `RandomEffects` retain this identity because they can participate in Stage-B Hausman. Robust/clustered, time-only, and two-way FE are rejected before identity comparison and do not pay the full X/y hashing cost. Fitted models retain only the digest/index metadata, not a second CPU copy of the design. Statistical estimation, covariance construction, and fit-statistic reductions remain on the selected numerical backend.
 
 If the covariance difference is positive semidefinite but rank-deficient, statgpu provides a documented generalized-inverse extension: the test uses the identified range and chi-square degrees of freedom equal to the numerical rank, but only when the coefficient difference lies in that range. Metadata records `used_pinv=True` and labels this as the `singular PSD generalized-inverse Hausman` extension. Robust auxiliary-regression Hausman is not part of Stage B.
 
@@ -331,7 +336,7 @@ re = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
 print(fe.hausman_test(re))
 ```
 
-For CuPy CUDA use `device="cuda"`; for Torch CUDA use CUDA tensors and `device="torch"`. Stage-B statistical transforms and sufficient-statistic accumulation follow the selected numerical backend. Formula/label metadata, final scalars, and small covariance matrices use the CPU metadata boundary; Hausman additionally performs a bounded chunked host copy of aligned X/y solely to compute the full-content identity digest.
+For CuPy CUDA use `device="cuda"`; for Torch CUDA use CUDA tensors and `device="torch"`. Stage-B statistical transforms and sufficient-statistic accumulation follow the selected numerical backend. Formula/label metadata, final scalars, and small covariance matrices use the CPU metadata boundary; Hausman-compatible one-way FE/RE fits additionally perform bounded chunked host copies of canonical slope X/y solely for collision-resistant identity hashing.
 
 ## Outputs
 
@@ -348,13 +353,13 @@ Common fitted attributes include:
 
 ## Formula and Metadata Boundaries
 
-Formula evaluation may drop rows with missing values. Entity, time, cluster, and other side arrays are aligned to the retained rows. String and categorical labels are factorized on CPU; numerical transforms and sufficient-statistic calculations remain on the selected backend. Hausman computes a full-content SHA-256 identity by copying aligned X/y to host in bounded chunks, then stores only the digest, feature/entity metadata, and a small covariance matrix rather than a second CPU copy of the full design.
+Formula evaluation may drop rows with missing values. Entity, time, cluster, and other side arrays are aligned to the retained rows. String and categorical labels are factorized on CPU; numerical transforms and sufficient-statistic calculations remain on the selected backend. For Hausman-compatible fits, canonical slope X/y are copied to host in bounded chunks for SHA-256 identity, after excluding any RE-only explicit constant; the fitted model stores only the digest, original coefficient-index map, feature/entity metadata, and a small covariance matrix rather than a second CPU copy of the design.
 
 ## Validation
 
 Stage A / PR #119 established the shared panel framework and passed exact-head physical validation on Tesla P100 across 10 CuPy and 10 Torch cases.
 
-Stage B adds maintained analytic and fitted-model regression tests, formula/missing-row alignment tests, Python 3.9 + Torch 2.0 CPU parity coverage, and an executable `linearmodels==7.0` external-definition gate. Final promotion also requires `dev/benchmarks/validate_panel_stage_b_gpu.py` to pass on an exact clean commit for both CuPy and Torch CUDA; this runner is a correctness/provenance gate rather than a performance benchmark.
+Stage B adds maintained analytic and fitted-model regression tests, formula/missing-row alignment tests, Python 3.9 + Torch 2.0 CPU parity coverage, and an executable `linearmodels==7.0` external-definition gate. The physical runner contains 17 estimator cases per backend and four Hausman diagnostic cases per backend, including balanced/unbalanced RandomEffects with an explicit constant and FE-versus-RE Hausman where FE absorbs that intercept. Final promotion requires `dev/benchmarks/validate_panel_stage_b_gpu.py` to pass on an exact clean commit for both CuPy and Torch CUDA; this runner is a correctness/provenance gate rather than a performance benchmark. A separate physical benchmark measures the remaining full-content identity overhead on Hausman-compatible FE/RE fits.
 
 ## References
 
