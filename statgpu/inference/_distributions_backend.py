@@ -1784,7 +1784,7 @@ class BinomDistributionBase:
         valid = (k_floor >= 0.0) & (k_floor <= float(n_i)) & is_int
         k_safe = sf.clip(k_floor, 0.0, float(n_i))
         logcoef = sf.gammaln(n_i + 1.0) - sf.gammaln(k_safe + 1.0) - sf.gammaln(n_i - k_safe + 1.0)
-        logpmf = k_safe * sf.log(sf.maximum(p_f, 1e-300)) + (n_i - k_safe) * sf.log(sf.maximum(1.0 - p_f, 1e-300))
+        logpmf = logcoef + k_safe * sf.log(sf.maximum(p_f, 1e-300)) + (n_i - k_safe) * sf.log(sf.maximum(1.0 - p_f, 1e-300))
         return sf.where(valid, sf.exp(logpmf), 0.0)
 
     def cdf(self, k, n, p, *, loc=0):
