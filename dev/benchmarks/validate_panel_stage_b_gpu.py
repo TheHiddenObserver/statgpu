@@ -213,10 +213,11 @@ def _fit_cases(X, y, entity, time, backend, *, unbalanced):
     re = RandomEffects(device=device).fit(Xb, yb, entity_ids=eb)
     cases[f"random_effects_{suffix}"] = re
 
-    # Exercise the explicit-constant RandomEffects branch on the physical GPU.
-    # This is intentionally a separate case so the no-intercept Stage-A path
-    # remains independently frozen by the ordinary RandomEffects case above.
-    X_constant = np.column_stack([np.ones(X.shape[0]), X[:, 0]])
+    # Exercise the explicit-constant RandomEffects branch on the physical GPU
+    # using the same two slopes as FE. This validates both transformed-intercept
+    # diagnostics and the standard Hausman parameterization where FE absorbs the
+    # common intercept while RE estimates it explicitly.
+    X_constant = np.column_stack([np.ones(X.shape[0]), X])
     Xcb, ycb, ecb, _ = _to_backend_arrays(
         X_constant, y, entity, time, backend
     )
@@ -233,6 +234,9 @@ def _fit_cases(X, y, entity, time, backend, *, unbalanced):
 
     diagnostics = {
         f"hausman_{suffix}": _test_result(fe.hausman_test(re)),
+        f"hausman_explicit_re_constant_{suffix}": _test_result(
+            fe.hausman_test(re_constant)
+        ),
     }
 
     if not unbalanced:
