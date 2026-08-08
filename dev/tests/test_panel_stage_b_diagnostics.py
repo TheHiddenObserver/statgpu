@@ -1,4 +1,4 @@
-"""Analytic contracts for Panel Tier-1 Stage B diagnostics."""
+"""Analytic and fitted-model contracts for Panel Tier-1 Stage B diagnostics."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 from scipy import stats
 
+from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._diagnostics import (
     _bp_lm_from_components,
     _build_fit_statistics,
@@ -242,3 +243,138 @@ def test_numerical_fingerprint_detects_row_order_and_data_changes():
     ok, reason = _fingerprints_match(left, reordered)
     assert not ok
     assert "identity mismatch" in reason or "fingerprint mismatch" in reason
+
+
+def _balanced_panel(seed=930):
+    rng = np.random.default_rng(seed)
+    n_entities, n_times = 6, 4
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    X = rng.normal(size=(entity.size, 2))
+    alpha = np.repeat(np.linspace(-0.7, 0.8, n_entities), n_times)
+    y = 0.9 * X[:, 0] - 0.45 * X[:, 1] + alpha + rng.normal(
+        scale=0.18, size=entity.size
+    )
+    return X, y, entity, time
+
+
+def _demean_by_entity(values, entity):
+    values = np.asarray(values)
+    out = values.copy()
+    for group in np.unique(entity):
+        mask = entity == group
+        out[mask] -= values[mask].mean(axis=0)
+    return out
+
+
+def test_panelols_pooling_f_uses_standard_diagnostic_df_not_legacy_inference_df():
+    X, y, entity, _ = _balanced_panel()
+    model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
+
+    # Stage-A legacy inference df remains untouched.
+    assert model.df_resid == len(y) - X.shape[1] - (len(np.unique(entity)) - 1)
+    diagnostic_df = model.fit_statistics_.metadata["diagnostic_df"]
+    assert diagnostic_df["df_resid"] == model.df_resid - 1
+    assert diagnostic_df["effect_rank"] == len(np.unique(entity))
+
+    yw = _demean_by_entity(y, entity)
+    Xw = _demean_by_entity(X, entity)
+    beta_fe = np.linalg.pinv(Xw) @ yw
+    rss_fe = float(np.sum((yw - Xw @ beta_fe) ** 2))
+    yc = y - y.mean()
+    Xc = X - X.mean(axis=0)
+    beta_pool = np.linalg.pinv(Xc) @ yc
+    rss_pool = float(np.sum((yc - Xc @ beta_pool) ** 2))
+    df_pool = len(y) - np.linalg.matrix_rank(Xc) - 1
+    df_fe = len(y) - np.linalg.matrix_rank(Xw) - len(np.unique(entity))
+    df_num = df_pool - df_fe
+    expected = ((rss_pool - rss_fe) / df_num) / (rss_fe / df_fe)
+
+    result = model.pooling_f_test()
+    assert result.applicable
+    assert result.df == (float(df_num), float(df_fe))
+    assert_allclose(result.statistic, expected, rtol=1e-11, atol=1e-12)
+    assert_allclose(result.pvalue, stats.f.sf(expected, df_num, df_fe), rtol=1e-11)
+    assert model.fit_statistics_.f_df == (
+        float(np.linalg.matrix_rank(Xw)),
+        float(df_fe),
+    )
+
+
+def test_pooled_bp_lm_matches_direct_residual_formula():
+    X, y, entity, _ = _balanced_panel(seed=931)
+    model = PooledOLS().fit(X, y, entity_ids=entity)
+    design = np.column_stack([np.ones(len(y)), X])
+    resid = y - design @ model.coef_
+    sums = np.asarray([resid[entity == g].sum() for g in np.unique(entity)])
+    counts = np.asarray([(entity == g).sum() for g in np.unique(entity)], dtype=float)
+    cp = float(resid @ resid)
+    a1 = float(np.sum(sums ** 2) / cp - 1.0)
+    m11 = float(np.sum(counts ** 2))
+    lm1 = len(y) * np.sqrt(1.0 / (2.0 * (m11 - len(y)))) * a1
+    expected = lm1 ** 2
+
+    result = model.breusch_pagan_lm_test()
+    assert result.applicable
+    assert_allclose(result.statistic, expected, rtol=1e-11, atol=1e-12)
+    assert_allclose(result.pvalue, stats.chi2.sf(expected, 1), rtol=1e-11)
+    assert model.fit_statistics_.rsquared_within is not None
+    assert model.fit_statistics_.rsquared_between is not None
+
+
+def test_pooled_hac_sort_reorders_entity_diagnostic_metadata_with_xy():
+    X, y, entity, time = _balanced_panel(seed=932)
+    scrambled_time = (3 - time + 2 * entity) % 4
+    baseline = PooledOLS(cov_type="nonrobust").fit(X, y, entity_ids=entity)
+    hac = PooledOLS(cov_type="hac", bandwidth=1).fit(
+        X,
+        y,
+        time_index=scrambled_time,
+        entity_ids=entity,
+    )
+    assert_allclose(hac.coef_, baseline.coef_, rtol=1e-12, atol=1e-12)
+    assert_allclose(
+        hac.breusch_pagan_lm_test().statistic,
+        baseline.breusch_pagan_lm_test().statistic,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert_allclose(
+        hac.fit_statistics_.rsquared_between,
+        baseline.fit_statistics_.rsquared_between,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_hausman_checks_sample_identity_and_classical_fe_covariance():
+    X, y, entity, _ = _balanced_panel(seed=933)
+    fe = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
+    re = RandomEffects().fit(X, y, entity_ids=entity)
+    same = fe.hausman_test(re)
+    assert "identity mismatch" not in (same.reason or "")
+    assert "fingerprint" not in (same.reason or "")
+
+    changed_y = y.copy()
+    changed_y[-1] += 0.25
+    re_changed = RandomEffects().fit(X, changed_y, entity_ids=entity)
+    mismatch = fe.hausman_test(re_changed)
+    assert not mismatch.applicable
+    assert "fingerprint mismatch" in mismatch.reason
+
+    fe_robust = PanelOLS(entity_effects=True, cov_type="robust").fit(
+        X, y, entity_ids=entity
+    )
+    robust = fe_robust.hausman_test(re)
+    assert not robust.applicable
+    assert "nonrobust FE covariance" in robust.reason
+
+
+def test_pooled_bp_without_entity_ids_is_structured_inapplicable():
+    X, y, _, _ = _balanced_panel(seed=934)
+    model = PooledOLS().fit(X, y)
+    result = model.breusch_pagan_lm_test()
+    assert not result.applicable
+    assert "entity_ids" in result.reason
+    assert model.fit_statistics_.rsquared_within is None
+    assert model.fit_statistics_.rsquared_between is None
