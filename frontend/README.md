@@ -4,7 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,774 normalized runs across 36 models**:
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **11 sources**, producing **1,852 normalized runs across 46 models**:
 
 - `p2_benchmark_20260617.json`;
 - `penalized_glm_perf_20260622.json`;
@@ -13,15 +13,18 @@ The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or
 - `loss_functions_20260623.json`;
 - `new_modules_full_20260624.json`;
 - `unsupervised_20260627.json`;
-- `ordered_inference_pr74.json`.
+- `ordered_inference_pr74.json`;
+- `cv_benchmark_20260807.json`;
+- `results/pr116_p100/cv_benchmark_pr116_p100.json`;
+- `panel_stage_b_pr122_p100_20260808.json`.
 
-Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA.
+Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and current cross-validation families.
 
 Survival coverage combines the dedicated Efron benchmark with the aligned Breslow rows embedded in `loss_functions_20260623.json`. Breslow contributes five scales, NumPy/CuPy/Torch and statsmodels timings, runner-reported speedups against statsmodels, and CPU/CuPy precision validation. The richer Efron source retains its light-ties and heavy-ties variants.
 
 GAM coverage exposes two distinct fixed-lambda pyGAM comparison variants at `1K×3`, `10K×5`, and `100K×10`: the ordinary source comparison and the uniform-knot precision-aligned comparison. Each variant includes NumPy, CuPy, Torch, and pyGAM timing, reported speedup, and prediction-difference validation. Other nonparametric and covariance families remain limited by available source artifacts rather than hidden frontend rows.
 
-Panel coverage exposes both aligned linearmodels scales present in the June 24 source: `10K×10` and `100K×20`. PanelOLS and RandomEffects each include NumPy, CuPy, Torch, and linearmodels timing, runner-reported speedup, and coefficient-relative-error metrics.
+Panel coverage has two complementary evidence classes. The June 24 timing source exposes aligned `10K×10` and `100K×20` PanelOLS and RandomEffects comparisons with NumPy, CuPy, Torch, and linearmodels timing, runner-reported speedup, and coefficient-relative-error metrics. PR #122 additionally registers `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260808.json` (SHA256 `882892c6e3077fe3b9f6084212647311da795fd05d1ed9f12ec53da1e05d0d4d`) as **validation-only** P100 evidence for PooledOLS, BetweenOLS, FirstDifferenceOLS, PanelOLS, RandomEffects, and FamaMacBeth. It contributes 34 CuPy/Torch validation rows covering Stage-B fit statistics/specification diagnostics, backend provenance, and Stage-A coefficient-inference regression. No timing was collected by that physical validator, so these rows deliberately expose neither timing nor speedup metrics.
 
 Unsupervised coverage now retains all 131 rows present in the June 27 source rather than selecting one scale per estimator. This includes complete small/medium/large matrices for PCA, KMeans, GaussianMixture, NMF, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, and MiniBatchNMF; both DBSCAN dimensional variants; and every feasible AgglomerativeClustering, UMAP, and t-SNE row. Large input dimensions are labelled from the arrays actually passed to fit, so capped estimators correctly show `100K×50` rather than the uncapped `100K×100` template.
 
@@ -29,7 +32,7 @@ The PR #74 source now contributes all of its inference methods: Ordered Logit/Pr
 
 ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction on NumPy, CuPy, and Torch. One-way ANOVA also includes aligned SciPy timing and F-statistic validation rows.
 
-The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
+The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_benchmark_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
 
 Current June-or-later sources provide external comparisons through scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM. The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later structured benchmark is available. A June distribution report also exists, but it remains outside the dashboard until its rounded Markdown tables are converted or rerun as a structured source with full timing and precision provenance.
 
@@ -38,7 +41,7 @@ Current June-or-later sources provide external comparisons through scikit-learn,
 - Environment and category navigation.
 - Progressive filters for model, variant, penalty, solver, scale, backend, and external framework.
 - Explicit **Focused** and **Full matrix** chart views.
-- Timing and speedup charts.
+- Timing and speedup charts when those metrics exist for the selected runs.
 - A sortable and paginated overview table.
 - Validation, accuracy, inference, prediction, convergence, and selection panels.
 - Parse-report and source-inventory metadata.
@@ -51,6 +54,8 @@ Speedups have two distinct meanings:
 
 - **Computed**: reference timing divided by current-run timing. The generated record contains `reference_run_id`.
 - **Reported by runner**: copied from a benchmark runner that already computed the speedup. These rows carry an `Ⓡ` marker and do not imply frontend recomputation.
+
+Validation-only runs such as PR #122 do not participate in either speedup class because their source contains no timing measurements.
 
 The speedup chart uses a dashed gray 1× parity line with a compact in-chart `1×` badge and `×` axis labels. Runner-reported bars use a subtle border instead of a patterned fill. The global headline card displays only the fastest runner-reported GPU speedup; computed ratios remain available in the chart and raw data for auditing.
 
@@ -88,8 +93,11 @@ The generator automatically uses `dev/benchmarks/frontend_sources.json`. Require
 python -m pip install -U pytest jsonschema
 pytest \
   dev/tests/test_benchmark_frontend_data.py \
+  dev/tests/test_benchmark_catalog.py \
+  dev/tests/test_benchmark_inventory_v2.py \
   dev/tests/test_frontend_contracts.py \
-  dev/tests/test_frontend_domain_coverage.py -v
+  dev/tests/test_frontend_domain_coverage.py \
+  dev/tests/test_panel_stage_b_frontend_source.py -v
 
 python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 
@@ -100,7 +108,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, both complete GAM comparison variants, both aligned Panel scales, all 131 Unsupervised rows and corrected scale labels, all PR #74 inference methods, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
+The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, both complete GAM comparison variants, both aligned Panel timing scales, the PR #122 34-row validation-only Panel source, all 131 Unsupervised rows and corrected scale labels, all PR #74 inference methods, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
 
 ## Production build and staleness
 
