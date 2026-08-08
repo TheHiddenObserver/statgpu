@@ -268,31 +268,46 @@ def main():
 
     # ------------------------------------------------------------------
     # Backward-compatible inverse-quantile aliases. A CuPy q array forces
-    # the module-level DistributionProxy to resolve the CuPy backend.
+    # the module-level DistributionProxy to resolve the CuPy backend. Shape
+    # parameters are passed by keyword because that is the current public
+    # DistributionProxy contract.
     # ------------------------------------------------------------------
     from statgpu.linear_model.legacy import _distributions_legacy_gpu as legacy
 
     legacy_probability = cp.asarray(
         [0.025, 0.25, 0.75, 0.975], dtype=cp.float64
     )
-    legacy_checks = {}
+    legacy_probability_np = cp.asnumpy(legacy_probability)
     legacy_specs = [
-        ("qt_gpu", legacy.qt_gpu, (45,), stats.t, {"df": 45}),
+        (
+            "qt_gpu",
+            lambda q: legacy.qt_gpu(q, 45),
+            stats.t.ppf(legacy_probability_np, df=45),
+        ),
         (
             "qbeta_gpu",
-            legacy.qbeta_gpu,
-            (2.5, 5.5),
-            stats.beta,
-            {"a": 2.5, "b": 5.5},
+            lambda q: legacy.qbeta_gpu(q, a=2.5, b=5.5),
+            stats.beta.ppf(legacy_probability_np, a=2.5, b=5.5),
         ),
-        ("qf_gpu", legacy.qf_gpu, (5, 24), stats.f, {"dfn": 5, "dfd": 24}),
-        ("qgamma_gpu", legacy.qgamma_gpu, (4.0,), stats.gamma, {"a": 4.0}),
-        ("qchisq_gpu", legacy.qchisq_gpu, (8,), stats.chi2, {"df": 8}),
+        (
+            "qf_gpu",
+            lambda q: legacy.qf_gpu(q, dfn=5, dfd=24),
+            stats.f.ppf(legacy_probability_np, dfn=5, dfd=24),
+        ),
+        (
+            "qgamma_gpu",
+            lambda q: legacy.qgamma_gpu(q, a=4.0),
+            stats.gamma.ppf(legacy_probability_np, a=4.0),
+        ),
+        (
+            "qchisq_gpu",
+            lambda q: legacy.qchisq_gpu(q, df=8),
+            stats.chi2.ppf(legacy_probability_np, df=8),
+        ),
     ]
-    legacy_probability_np = cp.asnumpy(legacy_probability)
-    for label, func, shape_args, scipy_dist, scipy_kwargs in legacy_specs:
-        actual = cp.asnumpy(func(legacy_probability, *shape_args))
-        expected = scipy_dist.ppf(legacy_probability_np, **scipy_kwargs)
+    legacy_checks = {}
+    for label, func, expected in legacy_specs:
+        actual = cp.asnumpy(func(legacy_probability))
         np.testing.assert_allclose(
             actual, expected, rtol=args.rtol, atol=args.atol
         )
