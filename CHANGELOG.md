@@ -2,6 +2,14 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## 2026-08-08
+
+### PR #121 — CuPy inverse-quantile LUT correctness
+
+- Fixed CuPy `betaincinv` and `gammaincinv` LUT cache tuple ordering so inverse quantiles no longer collapse to boundary values and downstream confidence intervals retain their correct width.
+- Added maintained regression coverage for public CuPy Student-t, Beta, F, Gamma, and chi-square PPF/ISF paths, LUT/native-fallback boundaries, legacy inverse-quantile aliases, and Panel inference consumers.
+- Validated the unchanged two-line numerical fix on Tesla P100 with Python 3.9.16 and CuPy 13.6.0: the original `t_{0.975,45}` failure now agrees with SciPy within `4.04e-09`, all expanded inverse-distribution checks pass, and the formerly zero-width Panel intervals match the reference.
+
 ## 2026-08-07
 
 ### PR #119 — Panel Tier-1 shared framework Stage A
