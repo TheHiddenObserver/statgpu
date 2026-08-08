@@ -128,7 +128,7 @@ For coefficient vector \(\hat\beta\):
 - **between R²** evaluates entity means \(\bar y_i-\bar X_i\hat\beta\);
 - **within R²** evaluates entity-demeaned \(y\) and \(X\).
 
-Overall and between total sums of squares are centered only when the actual level regressor design contains an identified constant. Fixed effects by themselves do not change this centering rule. A zero total sum of squares is reported as `0.0` in the standardized Stage-B field and marked in `metadata["degenerate_total_ss"]`.
+Overall and between total sums of squares are centered only when the actual level regressor design contains an identified constant. Fixed effects by themselves do not change this centering rule. `RandomEffects` detects an explicit nonzero constant column in the supplied level design and retains its quasi-demeaned transformed column when defining adjusted R² and the restricted model-F regression. A zero total sum of squares is reported as `0.0` in the standardized Stage-B field and marked in `metadata["degenerate_total_ss"]`.
 
 ### Legacy `PanelOLS.rsquared_within`
 
@@ -140,7 +140,9 @@ For new standardized diagnostics, `PanelOLS` uses the rank of the complete fixed
 
 - entity effects only: \(N\);
 - time effects only: \(T\);
-- entity and time effects: \(N+T-1\).
+- entity and time effects: \(N+T-C\), where \(C\) is the number of connected components in the observed entity-time incidence graph.
+
+Thus the familiar \(N+T-1\) formula is the connected-panel special case \(C=1\); incomplete panels with disconnected incidence components receive their actual dummy-space rank rather than a hard-coded connected-panel rank.
 
 If \(r_X\) is the numerical rank of the transformed slope design, Stage B uses
 
@@ -170,7 +172,7 @@ F=
      {RSS_U/\mathrm{df}_{\mathrm{resid}}},
 $$
 
-where \(q\) is the effective restriction rank. A robust or clustered covariance choice does not silently convert this field into a robust Wald test.
+where \(q\) is the effective restriction rank. A robust or clustered covariance choice does not silently convert this field into a robust Wald test. When the unrestricted regression fits exactly while the restricted regression has positive RSS, the standardized result is the limiting classical value `F=inf`, `p=0` rather than an unavailable statistic.
 
 `FamaMacBeth` does not receive a residual-OLS model F or adjusted R². Its covariance is based on the time series of cross-sectional coefficient estimates, and Stage B does not relabel that beta-series inference as residual OLS.
 
@@ -235,9 +237,11 @@ Applicability rules are explicit:
 - FE must be one-way entity effects only;
 - the FE coefficient covariance must be classical/nonrobust;
 - FE and RE must be fitted to the same aligned X/y/entity sample and common slope design;
-- row/sample compatibility is checked using compact backend-native numerical fingerprints, not just matching shapes;
+- row/sample compatibility uses a collision-resistant SHA-256 digest of every aligned float64 X/y value plus the entity-code signature and feature metadata, not only matching shapes or low-order moments;
 - intercepts are excluded from the comparison;
 - a materially indefinite covariance difference is reported as inapplicable instead of being eigenvalue-clipped into a statistic.
+
+For GPU fits, the full-content digest is computed through bounded chunks copied to host solely for hashing. The fitted model stores only the digest and compact metadata; it does not retain a second CPU copy of the full design. Statistical estimation, covariance construction, and fit-statistic reductions remain on the selected numerical backend.
 
 If the covariance difference is positive semidefinite but rank-deficient, statgpu provides a documented generalized-inverse extension: the test uses the identified range and chi-square degrees of freedom equal to the numerical rank, but only when the coefficient difference lies in that range. Metadata records `used_pinv=True` and labels this as the `singular PSD generalized-inverse Hausman` extension. Robust auxiliary-regression Hausman is not part of Stage B.
 
@@ -327,7 +331,7 @@ re = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
 print(fe.hausman_test(re))
 ```
 
-For CuPy CUDA use `device="cuda"`; for Torch CUDA use CUDA tensors and `device="torch"`. Stage-B sufficient-statistic accumulation follows the selected numerical backend. Only compact metadata, final scalars, and small covariance matrices cross the CPU metadata boundary.
+For CuPy CUDA use `device="cuda"`; for Torch CUDA use CUDA tensors and `device="torch"`. Stage-B statistical transforms and sufficient-statistic accumulation follow the selected numerical backend. Formula/label metadata, final scalars, and small covariance matrices use the CPU metadata boundary; Hausman additionally performs a bounded chunked host copy of aligned X/y solely to compute the full-content identity digest.
 
 ## Outputs
 
@@ -344,7 +348,7 @@ Common fitted attributes include:
 
 ## Formula and Metadata Boundaries
 
-Formula evaluation may drop rows with missing values. Entity, time, cluster, and other side arrays are aligned to the retained rows. String and categorical labels are factorized on CPU; numerical transforms and sufficient-statistic calculations remain on the selected backend. Hausman stores only compact sample/design fingerprints and a small covariance matrix rather than a second CPU copy of the full design.
+Formula evaluation may drop rows with missing values. Entity, time, cluster, and other side arrays are aligned to the retained rows. String and categorical labels are factorized on CPU; numerical transforms and sufficient-statistic calculations remain on the selected backend. Hausman computes a full-content SHA-256 identity by copying aligned X/y to host in bounded chunks, then stores only the digest, feature/entity metadata, and a small covariance matrix rather than a second CPU copy of the full design.
 
 ## Validation
 
