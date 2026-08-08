@@ -162,13 +162,45 @@ class RandomEffects(BasePanelModel):
         for j in range(k):
             X_within[:, j] = within_transform(X_arr[:, j], entity_arr, xp=xp)
 
-        XtX_w = X_within.T @ X_within
-        Xty_w = X_within.T @ y_within
-        try:
-            beta_within = xp.linalg.solve(XtX_w, Xty_w)
-        except _LINALG_ERRORS:
-            beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
-        resid_within = y_within - X_within @ beta_within
+        # An explicit level constant is annihilated exactly by the within
+        # transform. Passing that structural zero column into a normal-equation
+        # solve makes XtX singular. NumPy reliably raises LinAlgError here, while
+        # GPU linalg stacks may return a value or warning instead, which can make
+        # sigma2_e/theta/backend coefficients diverge. Remove the known null
+        # column and compute the same auxiliary least-squares RSS on the slope
+        # subspace. The df formula below is unchanged: k includes the explicit
+        # constant while the (N - 1) nuisance count uses the equivalent
+        # parameterization, so n - k - (N - 1) = n - n_slopes - N.
+        if constant_index is not None:
+            slope_indices = np.asarray(
+                [j for j in range(k) if j != int(constant_index)],
+                dtype=np.int64,
+            )
+            if slope_indices.size == 0:
+                resid_within = y_within
+            else:
+                slope_idx_dev = xp_asarray(
+                    slope_indices,
+                    dtype=xp.int64,
+                    xp=xp,
+                    ref_arr=X_arr,
+                )
+                X_within_fit = X_within[:, slope_idx_dev]
+                XtX_w = X_within_fit.T @ X_within_fit
+                Xty_w = X_within_fit.T @ y_within
+                # Use the small-matrix pseudoinverse deliberately in this
+                # structural-rank branch so correctness does not depend on
+                # backend-specific singular-solve exception semantics.
+                beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
+                resid_within = y_within - X_within_fit @ beta_within
+        else:
+            XtX_w = X_within.T @ X_within
+            Xty_w = X_within.T @ y_within
+            try:
+                beta_within = xp.linalg.solve(XtX_w, Xty_w)
+            except _LINALG_ERRORS:
+                beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
+            resid_within = y_within - X_within @ beta_within
         rss_within = float(xp.sum(resid_within ** 2))
 
         # --- Step 3: Swamy-Arora variance components ---
