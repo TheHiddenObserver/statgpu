@@ -13,6 +13,7 @@ on:
       - 'dev/tests/test_cv_runner_instrumentation.py'
       - 'dev/tests/test_frontend_contracts.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
+      - 'dev/tests/test_panel_stage_b_frontend_source.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
@@ -29,6 +30,7 @@ on:
       - 'dev/tests/test_cv_runner_instrumentation.py'
       - 'dev/tests/test_frontend_contracts.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
+      - 'dev/tests/test_panel_stage_b_frontend_source.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
@@ -61,7 +63,8 @@ jobs:
             dev/tests/test_benchmark_cv_source.py \
             dev/tests/test_cv_runner_instrumentation.py \
             dev/tests/test_frontend_contracts.py \
-            dev/tests/test_frontend_domain_coverage.py -v
+            dev/tests/test_frontend_domain_coverage.py \
+            dev/tests/test_panel_stage_b_frontend_source.py -v
       - name: Validate generator output
         run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 

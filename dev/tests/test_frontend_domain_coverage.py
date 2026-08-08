@@ -48,7 +48,7 @@ def test_published_categories_have_runs(canonical_output):
 def test_dashboard_uses_only_june_2026_or_later_sources(canonical_output):
     output, _, _, manifest = canonical_output
     assert manifest["minimum_source_date"] == "2026-06-01"
-    assert len(manifest["sources"]) == 10
+    assert len(manifest["sources"]) == 11
 
     manifest_dates = {
         source["source_id"]: date.fromisoformat(source["source_date"])
@@ -297,6 +297,38 @@ def test_panel_exposes_complete_aligned_scale_matrix(canonical_output):
     assert {run["source"]["parser_version"] for run in panel_runs} == {"1.4"}
 
 
+def test_panel_stage_b_physical_validation_is_published_without_timing(canonical_output):
+    output, _, _, _ = canonical_output
+    rows = [
+        run
+        for run in output["runs"]
+        if run["source"]["source_id"]
+        == "panel-stage-b-pr122-20260808-882892c6e307"
+    ]
+    assert len(rows) == 34
+    assert {run["backend"] for run in rows} == {"cupy", "torch"}
+    assert {run["model_id"] for run in rows} == {
+        "PooledOLS",
+        "BetweenOLS",
+        "FirstDifferenceOLS",
+        "PanelOLS",
+        "RandomEffects",
+        "FamaMacBeth",
+    }
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in rows)
+    assert all("timing" not in run["metrics"] for run in rows)
+    assert all("speedup" not in run["metrics"] for run in rows)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "636988751bcbfad3442d24d3073cdfcd2b3ac637"
+        for run in rows
+    )
+
+    hausman = [run for run in rows if run["parameters"].get("diagnostic") == "hausman"]
+    assert len(hausman) == 4
+    assert all(run["parameters"]["applicable"] is False for run in hausman)
+
+
 def test_unsupervised_exposes_complete_source_matrix(canonical_output):
     output, _, _, _ = canonical_output
     rows = [
@@ -353,8 +385,8 @@ def test_unsupervised_exposes_complete_source_matrix(canonical_output):
 
 def test_generated_bundle_has_expected_complete_run_count(canonical_output):
     output, report, _, _ = canonical_output
-    assert len(output["runs"]) == 1818
-    assert report["runs_generated"] == 1818
+    assert len(output["runs"]) == 1852
+    assert report["runs_generated"] == 1852
 
 
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
@@ -366,6 +398,7 @@ def test_missing_domain_sources_are_manifest_registered(canonical_output):
         "unsupervised_benchmark",
         "new_modules_with_anova_benchmark",
         "p2_benchmark",
+        "panel_stage_b_physical_validation",
     } <= parsers
 
 
@@ -389,6 +422,10 @@ def test_domain_models_are_present(canonical_output):
         "KMeans",
         "PanelOLS",
         "RandomEffects",
+        "PooledOLS",
+        "BetweenOLS",
+        "FirstDifferenceOLS",
+        "FamaMacBeth",
         "GAM",
         "EmpiricalCovariance",
         "OneWayANOVA",

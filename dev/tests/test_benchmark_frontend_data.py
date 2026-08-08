@@ -159,7 +159,7 @@ class TestManifestMode:
     def test_manifest_loads_with_exact_current_sources(self, manifest):
         assert manifest is not None
         assert manifest["minimum_source_date"] == "2026-06-01"
-        assert len(manifest["sources"]) == 10
+        assert len(manifest["sources"]) == 11
         assert all(source.get("source_date") for source in manifest["sources"])
 
     def test_canonical_generate(self, generator, manifest, results_dir):
@@ -174,11 +174,11 @@ class TestManifestMode:
         assert output["frameworks"]
         assert output["comparisons"]
         assert output["meta"]["generation_id"]
-        assert report["files_seen"] == 10
-        assert report["files_parsed"] == 10
-        assert inventory["registered_sources"] == 10
-        assert inventory["available_sources"] == 10
-        assert inventory["parsed_sources"] == 10
+        assert report["files_seen"] == 11
+        assert report["files_parsed"] == 11
+        assert inventory["registered_sources"] == 11
+        assert inventory["available_sources"] == 11
+        assert inventory["parsed_sources"] == 11
         assert not any(
             run["source"]["source_id"].startswith("transitional:")
             for run in output["runs"]
