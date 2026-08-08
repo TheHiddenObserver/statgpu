@@ -1,9 +1,21 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-07<br>
+> 最后更新：2026-08-08<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 2026-08-08
+
+### PR #121 — CuPy inverse-quantile LUT 正确性修复
+
+- 修正 CuPy `betaincinv()` 与 `gammaincinv()` 的 LUT cache tuple 顺序。LUT builder 原本已经按 `(x_grid, y_grid)` 存储，但缓存读取时反向解包，导致 inverse lookup 在错误坐标轴上搜索，并可能把 quantile 推到 clipped boundary。
+- 该问题由 Panel Stage A 物理 GPU 验证暴露：Tesla P100 上 CuPy `t.isf(0.025, 45)` 曾得到接近 0 的 critical value，从而产生 zero-width confidence interval。修正后的两行数值实现返回 `2.014103388876289`，与 SciPy reference 的绝对差为 `4.04e-09`。
+- 增加 maintained regression coverage，覆盖 raw inverse-beta/inverse-gamma cache reuse、公开 CuPy Student-t/Beta/F/Gamma/chi-square PPF/ISF 与 round trip、df=1/10/45/60/80 的 Student-t LUT/native-fallback 边界、module-level distribution proxy、legacy inverse-quantile alias，以及 representative Panel inference consumer。
+- 在精确数值实现 head `f768b312d05f47debdb8fa13ae4da09b27d00239` 上完成 expanded physical validation：Tesla P100、Python 3.9.16、CuPy 13.6.0、clean working tree。Student-t 的最大 PPF/ISF 绝对误差为 `4.04e-09`，Beta 为 `5.49e-13`/`1.68e-13`，F 为 `4.51e-12`，Gamma 为 `1.45e-08`，chi-square 为 `2.90e-08`，均明显小于 maintained inverse-quantile accuracy contract。
+- reconstructed Panel CI 与实际 shared Panel inference consumer 分别在 `3.42e-10` 与 `1.96e-10` 的最大绝对误差内匹配 reference；此前退化为 zero-width 的区间现已恢复为非退化区间，并与 Torch/reference 结果一致。
+
+关联：Issue #120 与 pull request #121。
 
 ## 2026-08-07
 
