@@ -128,7 +128,7 @@ within/between/overall R² 采用与 `linearmodels` 对齐的 parameter-based �
 - **between R²** 在个体均值上评价 \(\bar y_i-\bar X_i\hat\beta\)；
 - **within R²** 在 entity-demeaned 的 y 和 X 上评价同一系数向量。
 
-只有 level regressor design 中存在实际可识别的常数项时，overall 和 between total sum of squares 才中心化。固定效应本身不会自动改变这一规则。若 total sum of squares 为 0，Stage-B 标准字段返回 `0.0`，并在 `metadata["degenerate_total_ss"]` 中标记。
+只有 level regressor design 中存在实际可识别的常数项时，overall 和 between total sum of squares 才中心化。固定效应本身不会自动改变这一规则。`RandomEffects` 会检测传入 level design 中显式的非零常数列，并在 adjusted R² 与 restricted model-F 中保留其 quasi-demeaned transformed column。若 total sum of squares 为 0，Stage-B 标准字段返回 `0.0`，并在 `metadata["degenerate_total_ss"]` 中标记。
 
 ### Legacy `PanelOLS.rsquared_within`
 
@@ -140,7 +140,9 @@ within/between/overall R² 采用与 `linearmodels` 对齐的 parameter-based �
 
 - 仅 entity effects：\(N\)；
 - 仅 time effects：\(T\)；
-- entity + time effects：\(N+T-1\)。
+- entity + time effects：\(N+T-C\)，其中 \(C\) 是观测到的 entity-time incidence graph 的 connected-component 数。
+
+因此常见的 \(N+T-1\) 只是连通面板 \(C=1\) 的特例；若 incomplete panel 的 incidence graph 不连通，diagnostic df 使用实际 dummy-space rank，而不会硬编码连通情形。
 
 若 transformed slope design 的数值 rank 为 \(r_X\)，Stage B 使用
 
@@ -170,7 +172,7 @@ F=
      {RSS_U/\mathrm{df}_{\mathrm{resid}}},
 $$
 
-其中 \(q\) 是有效 restriction rank。即使 estimator 的 coefficient covariance 使用 robust 或 clustered 选项，这一字段也不会静默变成 robust Wald test。
+其中 \(q\) 是有效 restriction rank。即使 estimator 的 coefficient covariance 使用 robust 或 clustered 选项，这一字段也不会静默变成 robust Wald test。当 unrestricted regression 精确拟合而 restricted regression 的 RSS 为正时，标准化结果采用经典极限值 `F=inf`、`p=0`，而不是把统计量标成 unavailable。
 
 `FamaMacBeth` 不定义 residual-OLS model F 或 adjusted R²，因为其 covariance 来自逐期横截面系数时间序列；Stage B 不会把 beta-series inference 重命名成 residual OLS inference。
 
@@ -235,9 +237,11 @@ $$
 - FE 必须只有 one-way entity effects；
 - FE coefficient covariance 必须是 classical/nonrobust；
 - FE 与 RE 必须来自同一个对齐后的 X/y/entity 样本和共同 slope design；
-- 行/样本一致性使用紧凑的 backend-native numerical fingerprint 检查，而不是仅比较 shape；
+- 行/样本一致性使用所有对齐 float64 X/y 值的 collision-resistant SHA-256 digest，并结合 entity-code signature 与 feature metadata，而不是只比较 shape 或低阶 moments；
 - intercept 不进入共同 slope 比较；
 - covariance difference 若实质上 indefinite，则返回 inapplicable，不通过 eigenvalue clipping 强行制造统计量。
+
+GPU 拟合下，full-content digest 仅为了 hashing 而通过有界 chunk 分批复制到 host；拟合对象只保存 digest 与紧凑 metadata，不保留第二份完整 CPU design copy。统计估计、covariance 构造与 fit-statistic reduction 仍在所选数值 backend 上完成。
 
 若 covariance difference 为 positive semidefinite 但 rank deficient，statgpu 提供显式记录的 generalized-inverse extension：只在 coefficient difference 位于 identified range 内时计算，并使用 numerical rank 作为 chi-square df。metadata 会记录 `used_pinv=True` 和 `singular PSD generalized-inverse Hausman`。Stage B 不实现 robust auxiliary-regression Hausman。
 
@@ -327,7 +331,7 @@ re = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
 print(fe.hausman_test(re))
 ```
 
-CuPy CUDA 使用 `device="cuda"`；Torch CUDA 使用 CUDA tensor 并设置 `device="torch"`。Stage-B sufficient-statistic accumulation 跟随所选数值 backend；只有紧凑 metadata、最终 scalar 与小型 covariance matrix 跨越 CPU metadata boundary。
+CuPy CUDA 使用 `device="cuda"`；Torch CUDA 使用 CUDA tensor 并设置 `device="torch"`。Stage-B 的统计变换与 sufficient-statistic accumulation 跟随所选数值 backend；formula/label metadata、最终 scalar 与小型 covariance matrix 使用 CPU metadata boundary；Hausman 还会仅为 full-content identity digest 对对齐 X/y 做有界分块 host copy。
 
 ## 输出
 
@@ -344,7 +348,7 @@ CuPy CUDA 使用 `device="cuda"`；Torch CUDA 使用 CUDA tensor 并设置 `devi
 
 ## Formula 与元数据边界
 
-formula evaluation 可能因为 missing value 删除行。entity、time、cluster 等 side array 会与保留行同步对齐。字符串和分类标签在 CPU 上 factorize；数值变换与 sufficient-statistic calculation 继续留在所选 backend。Hausman 只保存紧凑 sample/design fingerprint 与小型 covariance matrix，不保存第二份完整 CPU design copy。
+formula evaluation 可能因为 missing value 删除行。entity、time、cluster 等 side array 会与保留行同步对齐。字符串和分类标签在 CPU 上 factorize；数值变换与 sufficient-statistic calculation 继续留在所选 backend。Hausman 会把对齐 X/y 以有界 chunk 复制到 host 计算 full-content SHA-256 identity，随后只保存 digest、feature/entity metadata 与小型 covariance matrix，不保存第二份完整 CPU design copy。
 
 ## 验证
 
