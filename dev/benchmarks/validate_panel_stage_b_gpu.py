@@ -150,6 +150,18 @@ def _model_snapshot(model):
         payload["pooling_f"] = _test_result(model.pooling_f_test())
     if hasattr(model, "breusch_pagan_lm_test") and isinstance(model, PooledOLS):
         payload["bp_lm"] = _test_result(model.breusch_pagan_lm_test())
+    if isinstance(model, RandomEffects):
+        meta = model.fit_statistics_.metadata
+        model_f_meta = meta.get("model_f", {})
+        payload["random_effects_diagnostic_contract"] = {
+            "has_explicit_constant": bool(meta.get("has_explicit_constant")),
+            "constant_column_index": meta.get("constant_column_index"),
+            "restricted_rank": int(meta.get("restricted_rank", 0)),
+            "model_f_rank_restricted": int(model_f_meta.get("rank_restricted", 0)),
+            "model_f_restricted_design_supplied": bool(
+                model_f_meta.get("restricted_design_supplied", False)
+            ),
+        }
     return payload
 
 
@@ -200,6 +212,16 @@ def _fit_cases(X, y, entity, time, backend, *, unbalanced):
 
     re = RandomEffects(device=device).fit(Xb, yb, entity_ids=eb)
     cases[f"random_effects_{suffix}"] = re
+
+    # Exercise the explicit-constant RandomEffects branch on the physical GPU.
+    # This is intentionally a separate case so the no-intercept Stage-A path
+    # remains independently frozen by the ordinary RandomEffects case above.
+    X_constant = np.column_stack([np.ones(X.shape[0]), X[:, 0]])
+    Xcb, ycb, ecb, _ = _to_backend_arrays(
+        X_constant, y, entity, time, backend
+    )
+    re_constant = RandomEffects(device=device).fit(Xcb, ycb, entity_ids=ecb)
+    cases[f"random_effects_explicit_constant_{suffix}"] = re_constant
 
     fmb = FamaMacBeth(cov_type="newey-west", bandwidth=2, device=device).fit(
         Xb,
@@ -322,6 +344,17 @@ def _compare_model(reference, candidate, *, rtol, atol, label):
             candidate["diagnostic_covariance"],
             reference["diagnostic_covariance"],
         )
+
+    if "random_effects_diagnostic_contract" in reference:
+        if candidate.get("random_effects_diagnostic_contract") != reference[
+            "random_effects_diagnostic_contract"
+        ]:
+            raise AssertionError(
+                f"{label}.random_effects_diagnostic_contract mismatch: "
+                f"{candidate.get('random_effects_diagnostic_contract')} != "
+                f"{reference['random_effects_diagnostic_contract']}"
+            )
+        differences["random_effects_diagnostic_contract"] = 0.0
 
     for test_name in ("pooling_f", "bp_lm"):
         if test_name in reference:
