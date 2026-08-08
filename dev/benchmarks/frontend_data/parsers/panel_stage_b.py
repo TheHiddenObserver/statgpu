@@ -135,6 +135,17 @@ def parse_panel_stage_b_physical_validation(
 
         for diagnostic_id, diagnostic in backend_result.get("diagnostics", {}).items():
             balance = "unbalanced" if diagnostic_id.endswith("unbalanced") else "balanced"
+            explicit_re_constant = diagnostic_id.startswith(
+                "hausman_explicit_re_constant_"
+            )
+            parameterization = (
+                "re-explicit-constant" if explicit_re_constant else "standard"
+            )
+            variant = (
+                f"hausman-re-explicit-constant-{balance}"
+                if explicit_re_constant
+                else f"hausman-{balance}"
+            )
             n_samples = 49 if balance == "unbalanced" else 54
             scale = {
                 "scale_key": make_scale_key(n_samples, 2),
@@ -154,6 +165,13 @@ def parse_panel_stage_b_physical_validation(
                         "status": "fail",
                     }
                 )
+            method_parts: list[object] = [
+                "panel-stage-b-physical-validation",
+                "hausman",
+                balance,
+            ]
+            if explicit_re_constant:
+                method_parts.append(parameterization)
             model_ids.add("PanelOLS")
             runs.append(
                 {
@@ -163,10 +181,8 @@ def parse_panel_stage_b_physical_validation(
                     "category_ids": ["panel"],
                     "model_id": "PanelOLS",
                     "case_id": _stable_id("case", diagnostic_id, scale["scale_key"]),
-                    "method_config_id": _stable_id(
-                        "method", "panel-stage-b-physical-validation", "hausman", balance
-                    ),
-                    "variant": f"hausman-{balance}",
+                    "method_config_id": _stable_id("method", *method_parts),
+                    "variant": variant,
                     "penalty": None,
                     "solver": "physical_validation",
                     "solver_display": "Physical validation",
@@ -177,6 +193,7 @@ def parse_panel_stage_b_physical_validation(
                     "parameters": {
                         "metric_scope": "physical_validation",
                         "diagnostic": "hausman",
+                        "parameterization": parameterization,
                         "applicable": bool(diagnostic.get("applicable")),
                         "measurement_git_sha": data.get("git_sha"),
                         "working_tree_clean": bool(data.get("working_tree_clean")),
