@@ -4,7 +4,9 @@
 This is a correctness/backend-provenance gate, not a performance benchmark.
 It validates the new parameter-based fit statistics and specification tests on
 balanced and unbalanced panels against the NumPy implementation while proving
-that requested CuPy/Torch CUDA backends actually execute.
+that requested CuPy/Torch CUDA backends actually execute. It also rechecks the
+maintained coefficient-inference outputs so Stage-B integration cannot regress
+the Stage-A bse/t/p/CI/df contracts.
 """
 
 from __future__ import annotations
@@ -133,6 +135,12 @@ def _test_result(result):
 def _model_snapshot(model):
     payload = {
         "coef": _array(model.coef_).ravel(),
+        "bse": _array(model.bse_).ravel(),
+        "tvalues": _array(model.tvalues_).ravel(),
+        "pvalues": _array(model.pvalues_).ravel(),
+        "conf_int": _array(model.conf_int_),
+        "nobs": int(model.nobs),
+        "df_resid": int(model.df_resid),
         "fit_statistics": _fit_stats(model),
     }
     covariance = getattr(model, "_panel_cov_params", None)
@@ -258,15 +266,32 @@ def _compare_test_result(reference, candidate, *, rtol, atol, label):
     return differences
 
 
+def _max_abs_difference(actual, expected):
+    if actual.size == 0:
+        return 0.0
+    return float(np.max(np.abs(actual - expected)))
+
+
 def _compare_model(reference, candidate, *, rtol, atol, label):
     differences = {}
-    np.testing.assert_allclose(
-        candidate["coef"], reference["coef"], rtol=rtol, atol=atol,
-        err_msg=f"{label}.coef",
-    )
-    differences["coef"] = float(
-        np.max(np.abs(candidate["coef"] - reference["coef"]))
-    )
+    for field in ("coef", "bse", "tvalues", "pvalues", "conf_int"):
+        np.testing.assert_allclose(
+            candidate[field],
+            reference[field],
+            rtol=rtol,
+            atol=atol,
+            err_msg=f"{label}.{field}",
+        )
+        differences[field] = _max_abs_difference(
+            candidate[field], reference[field]
+        )
+
+    for field in ("nobs", "df_resid"):
+        if int(candidate[field]) != int(reference[field]):
+            raise AssertionError(
+                f"{label}.{field}: {candidate[field]} != {reference[field]}"
+            )
+        differences[field] = 0.0
 
     for field, expected in reference["fit_statistics"].items():
         actual = candidate["fit_statistics"][field]
@@ -293,13 +318,9 @@ def _compare_model(reference, candidate, *, rtol, atol, label):
             atol=atol,
             err_msg=f"{label}.diagnostic_covariance",
         )
-        differences["diagnostic_covariance"] = float(
-            np.max(
-                np.abs(
-                    candidate["diagnostic_covariance"]
-                    - reference["diagnostic_covariance"]
-                )
-            )
+        differences["diagnostic_covariance"] = _max_abs_difference(
+            candidate["diagnostic_covariance"],
+            reference["diagnostic_covariance"],
         )
 
     for test_name in ("pooling_f", "bp_lm"):
@@ -424,7 +445,7 @@ def main():
         results[backend] = backend_payload
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": sha,
         "working_tree_clean": True,
