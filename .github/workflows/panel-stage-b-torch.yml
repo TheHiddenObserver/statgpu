@@ -1,0 +1,39 @@
+name: Panel Stage B Torch CPU
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  panel-stage-b-torch-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install Torch 2.0 CPU regression environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" pytest
+          python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+      - name: Confirm Torch regression environment
+        run: |
+          python - <<'PY'
+          import torch
+          assert torch.__version__.startswith("2.0.1")
+          assert not torch.cuda.is_available()
+          print("torch", torch.__version__, "device=cpu")
+          PY
+      - name: Run Panel Stage B Torch CPU regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            -q --tb=short
