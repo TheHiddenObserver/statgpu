@@ -132,9 +132,13 @@ def main():
             "python": platform.python_version(),
             "platform": platform.platform(),
             "gpu": gpu_name,
+            "cuda_runtime_version": int(cp.cuda.runtime.runtimeGetVersion()),
+            "cuda_driver_version": int(cp.cuda.runtime.driverGetVersion()),
             "packages": {
-                name: _version(name)
-                for name in ("statgpu", "numpy", "scipy", "cupy")
+                "statgpu": _version("statgpu"),
+                "numpy": _version("numpy"),
+                "scipy": _version("scipy"),
+                "cupy": cp.__version__,
             },
         },
         "tolerances": {"rtol": args.rtol, "atol": args.atol},
