@@ -118,7 +118,7 @@ class CuPySpecialFunctions:
         if key not in self._betaincinv_lut:
             x_grid, y_grid = self._build_betaincinv_lut(af, bf, 20000)
             self._betaincinv_lut[key] = (cp.asarray(x_grid), cp.asarray(y_grid))
-        yg, xg = self._betaincinv_lut[key]
+        xg, yg = self._betaincinv_lut[key]
         idx = cp.searchsorted(yg, cp.clip(yt, 1e-15, 1.0 - 1e-15)).clip(1, len(yg) - 1)
         y0, y1 = yg[idx - 1], yg[idx]
         x0, x1 = xg[idx - 1], xg[idx]
@@ -182,7 +182,7 @@ class CuPySpecialFunctions:
         if key not in self._gammaincinv_lut:
             x_grid, y_grid = self._build_gammaincinv_lut(af, 20000)
             self._gammaincinv_lut[key] = (cp.asarray(x_grid), cp.asarray(y_grid))
-        yg, xg = self._gammaincinv_lut[key]
+        xg, yg = self._gammaincinv_lut[key]
         idx = cp.searchsorted(yg, cp.clip(qt, 1e-15, 1.0 - 1e-15)).clip(1, len(yg) - 1)
         y0, y1 = yg[idx - 1], yg[idx]
         x0, x1 = xg[idx - 1], xg[idx]
