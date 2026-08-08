@@ -163,8 +163,14 @@ def explicit_constant_column(X, *, xp):
     """Return an identified explicit constant-column index, if one is present."""
     if int(X.shape[1]) == 0:
         return None
-    col_min = np.asarray(_to_numpy(xp.min(X, axis=0)), dtype=np.float64).ravel()
-    col_max = np.asarray(_to_numpy(xp.max(X, axis=0)), dtype=np.float64).ravel()
+    if getattr(xp, "__name__", "") == "torch":
+        min_native = xp.amin(X, dim=0)
+        max_native = xp.amax(X, dim=0)
+    else:
+        min_native = xp.min(X, axis=0)
+        max_native = xp.max(X, axis=0)
+    col_min = np.asarray(_to_numpy(min_native), dtype=np.float64).ravel()
+    col_max = np.asarray(_to_numpy(max_native), dtype=np.float64).ravel()
     scale = np.maximum(1.0, np.maximum(np.abs(col_min), np.abs(col_max)))
     tol = 256.0 * np.finfo(np.float64).eps * scale
     span = np.abs(col_max - col_min)
