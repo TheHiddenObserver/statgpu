@@ -12,7 +12,7 @@ df_resid_legacy = n - k - [(N - 1) entity effects] - [(T - 1) time effects]
 
 for the corresponding included effects. This quantity continues to drive the existing nonrobust/robust covariance, t statistics, p-values, and confidence intervals and **must not change in Stage B**.
 
-The standard poolability/model-F definitions in `linearmodels`/`plm`, however, count the rank of the full fixed-effect nuisance space. With no explicit exogenous constant, a one-way entity FE model has nuisance-effect rank `N`; a two-way entity+time model has effect rank `N + T - 1`. In the ordinary full-rank case this makes the standard diagnostic residual df one lower than statgpu's legacy Stage-A inference df.
+The standard poolability/model-F definitions in `linearmodels`/`plm`, however, count the rank of the full fixed-effect nuisance space. With no explicit exogenous constant, a one-way entity FE model has nuisance-effect rank `N`. For two-way entity+time effects, let `C` denote the number of connected components in the observed bipartite entity-time incidence graph; the full dummy-space rank is `N + T - C`. The familiar `N + T - 1` expression is therefore the connected-panel special case `C = 1`, not a valid formula for every incomplete panel. In the ordinary connected full-rank case this makes the standard diagnostic residual df one lower than statgpu's legacy Stage-A inference df.
 
 Therefore Stage B introduces an internal **standard diagnostic residual df** rather than changing `model.df_resid`.
 
@@ -25,7 +25,7 @@ For current statgpu `PanelOLS`, formula intercepts are stripped before fitting a
 - no effects: `0`;
 - entity only: `N`;
 - time only: `T`;
-- entity + time: `N + T - 1`.
+- entity + time: `N + T - C`, where `C` is the connected-component count of the observed entity-time incidence graph.
 
 Then
 
@@ -34,7 +34,7 @@ df_model_diag = r_x + effect_rank_standard
 df_resid_diag = n - df_model_diag
 ```
 
-The implementation stores these values only in Stage-B diagnostic metadata/internal context. It does not overwrite the Stage-A `df_resid` attribute.
+The implementation stores these values only in Stage-B diagnostic metadata/internal context. It does not overwrite the Stage-A `df_resid` attribute. For two-way FE it also records the incidence-component count so the rank decision is auditable.
 
 The primary transformed FE response lives in the orthogonal complement of the nuisance-effect space, so the corresponding total-variation degrees of freedom for Stage-B adjusted R² are
 
@@ -85,7 +85,7 @@ df_num = df_pool_diag - df_resid_diag_FE
 F = ((RSS_pool - RSS_FE) / df_num) / (RSS_FE / df_resid_diag_FE)
 ```
 
-This is equivalent to the external effect-rank formulation in the ordinary full-rank case and remains auditable under rank deficiency.
+This is equivalent to the external effect-rank formulation in the ordinary full-rank case and remains auditable under rank deficiency and disconnected two-way incidence graphs.
 
 Roundoff/material nesting-failure behavior from the main plan remains unchanged.
 
@@ -95,8 +95,12 @@ For standardized parameter-based **overall** and **between** R², centering depe
 
 The common-constant projection used by the **pooling F test** is a separate nested-test construction and must not be reused as a general R² centering rule.
 
+For `RandomEffects`, an explicit nonzero constant column in the supplied level design is detected directly. The quasi-demeaned transformed version of that same column is retained as the restricted intercept design for adjusted R² and classical model F, including on unbalanced panels where the transformed intercept is not a vector of ones.
+
 ## Review status
 
 - **[HIGH][INFER] fixed in specification** — Stage-B poolability/model-F inference will no longer reuse a legacy FE residual df that differs from the standard nuisance-effect rank convention.
-- **[MEDIUM][INFER] fixed in specification** — FE adjusted R² now uses nuisance-rank-consistent total df rather than provisional `n-1`.
+- **[HIGH][INFER] fixed after review** — two-way FE nuisance rank now uses the observed incidence-graph component count (`N + T - C`) instead of assuming every incomplete panel is connected.
+- **[MEDIUM][INFER] fixed in specification** — FE adjusted R² uses nuisance-rank-consistent total df rather than provisional `n-1`.
 - **[MEDIUM][INFER] fixed in specification** — overall/between R² centering is explicitly separated from the pooling-F common-constant correction.
+- **[MEDIUM][INFER] fixed after review** — RandomEffects explicit-constant diagnostics retain the transformed intercept in the restricted fit-space definition.
