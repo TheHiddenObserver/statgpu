@@ -110,7 +110,16 @@ class RandomEffects(BasePanelModel):
         # new array-interface validation rule for it in this refactor.
         self._panel_set_index_info(n, entity_ids=entity_ids)
 
-        from statgpu.panel._diagnostic_context import build_diagnostic_identity
+        from statgpu.panel._diagnostic_context import (
+            build_diagnostic_identity,
+            explicit_constant_column,
+        )
+
+        # Detect an explicit nonzero constant in the supplied level design.
+        # RandomEffects does not implicitly add an intercept, so this flag must
+        # describe the caller's actual X rather than the model family.
+        constant_index = explicit_constant_column(X_arr, xp=xp)
+        has_constant = constant_index is not None
 
         # Hausman compatibility is checked against aligned level X/y/entity
         # metadata, before any Swamy-Arora transformation is applied.
@@ -120,7 +129,7 @@ class RandomEffects(BasePanelModel):
             xp=xp,
             entity_codes=entity_arr,
             feature_names=self._feature_names,
-            has_constant=False,
+            has_constant=has_constant,
         )
 
         # --- Step 1: Between estimation ---
@@ -259,27 +268,49 @@ class RandomEffects(BasePanelModel):
         rank_star = _matrix_rank(X_star, xp)
         diagnostic_df_resid = n - rank_star
         ss_res_diag = _to_float_scalar(xp.sum(resid_gls * resid_gls))
-        ss_tot_diag = _to_float_scalar(xp.sum(y_star * y_star))
+
+        # In the quasi-demeaned fit space, an explicit level intercept becomes
+        # the transformed intercept column X_star[:, constant_index].  On an
+        # unbalanced panel this is not generally a vector of ones, so both the
+        # adjusted-R² denominator and the restricted model F must retain that
+        # exact transformed column.
+        restricted_X = None
+        restricted_rank = 0
+        if has_constant:
+            restricted_X = X_star[:, constant_index : constant_index + 1]
+            restricted_rank = _matrix_rank(restricted_X, xp)
+            restricted_params = xp.linalg.pinv(restricted_X) @ y_star
+            restricted_resid = y_star - restricted_X @ restricted_params
+            ss_tot_diag = _to_float_scalar(
+                xp.sum(restricted_resid * restricted_resid)
+            )
+        else:
+            ss_tot_diag = _to_float_scalar(xp.sum(y_star * y_star))
+
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
             X_arr,
             beta_gls,
             xp=xp,
             entity_codes=entity_arr,
-            has_constant=False,
+            has_constant=has_constant,
             rss_fit=ss_res_diag,
             tss_fit=ss_tot_diag,
             df_resid=diagnostic_df_resid,
-            df_total=n,
+            df_total=n - restricted_rank,
             f_y=y_star,
             f_X=X_star,
             f_params=beta_gls,
-            f_has_constant=False,
+            f_has_constant=has_constant,
+            f_restricted_X=restricted_X,
             metadata={
                 "fit_space": "Swamy-Arora quasi-demeaned GLS regression",
                 "legacy_df_resid": int(self.df_resid),
                 "diagnostic_df_resid": int(diagnostic_df_resid),
                 "diagnostic_rank": int(rank_star),
+                "has_explicit_constant": bool(has_constant),
+                "constant_column_index": constant_index,
+                "restricted_rank": int(restricted_rank),
             },
         )
 
