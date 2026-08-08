@@ -1,9 +1,21 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-07<br>
+> Last updated: 2026-08-08<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## 2026-08-08
+
+### PR #121 — CuPy inverse-quantile LUT correctness
+
+- Corrected the CuPy LUT cache tuple order used by `betaincinv()` and `gammaincinv()`. The LUT builders already stored `(x_grid, y_grid)`, but the cached values were unpacked in reverse, so inverse lookup searched the wrong axis and could collapse quantiles to clipped boundary values.
+- The original failure was exposed by Panel Stage A physical validation: on Tesla P100, the CuPy `t.isf(0.025, 45)` path produced an almost-zero critical value and zero-width confidence intervals. The corrected two-line numerical implementation now returns `2.014103388876289`, within `4.04e-09` absolute error of the SciPy reference.
+- Added maintained regression coverage for raw inverse-beta/inverse-gamma cache reuse; public CuPy Student-t, Beta, F, Gamma, and chi-square PPF/ISF plus round trips; Student-t LUT/native-fallback boundaries at df 1, 10, 45, 60, and 80; module-level distribution proxies; legacy inverse-quantile aliases; and representative Panel inference consumers.
+- Expanded physical validation on exact numerical head `f768b312d05f47debdb8fa13ae4da09b27d00239` used Tesla P100, Python 3.9.16, and CuPy 13.6.0 with a clean working tree. Maximum PPF/ISF absolute errors were `4.04e-09` for Student-t, `5.49e-13`/`1.68e-13` for Beta, `4.51e-12` for F, `1.45e-08` for Gamma, and `2.90e-08` for chi-square, all well inside the maintained inverse-quantile accuracy contract.
+- The reconstructed Panel CI and actual shared Panel inference consumer now match their references within `3.42e-10` and `1.96e-10`, respectively; the formerly zero-width intervals are non-degenerate and agree with the Torch/reference result.
+
+Related: Issue #120 and pull request #121.
 
 ## 2026-08-07
 
