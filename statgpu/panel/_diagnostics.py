@@ -4,8 +4,9 @@ Stage B of Issue #93 adds structured specification tests and parameter-based
 fit statistics without changing the Stage-A estimator transformations or
 covariance definitions. Observation-scale statistical accumulation stays on the
 selected NumPy/CuPy/Torch backend. Hausman sample identity additionally uses a
-chunked full-content SHA-256 over normalized float64 X/y values so different
-aligned samples cannot be accepted merely because low-order moments collide.
+chunked full-content SHA-256 over normalized float64 y/common-slope values so
+different aligned samples cannot be accepted merely because low-order moments
+collide, while an RE-only explicit intercept may be absorbed by FE.
 """
 
 from __future__ import annotations
@@ -80,10 +81,9 @@ def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
     """Return a float64 roundoff tolerance that preserves scale equivariance.
 
     Statistical quantities such as RSS and covariance matrices have physical
-    scale.  Using an absolute ``max(1, scale)`` floor makes F/Hausman decisions
-    depend on the arbitrary units of y or beta.  A zero scale therefore maps to
-    an exact zero tolerance; otherwise the tolerance scales linearly with the
-    compared quantity.
+    scale. Using an absolute ``max(1, scale)`` floor makes F/Hausman decisions
+    depend on arbitrary units. A zero scale therefore maps to an exact zero
+    tolerance; otherwise the tolerance scales linearly with the compared value.
     """
     scale = max((abs(float(value)) for value in values), default=0.0)
     return float(factor) * np.finfo(np.float64).eps * scale
@@ -579,9 +579,9 @@ def _row_weights(n: int, xp, ref_arr):
 
 
 def _full_content_digest(X, y) -> str:
-    """Hash every aligned X/y value with bounded chunked host transfers."""
+    """Hash every aligned canonical slope-X/y value with bounded host transfers."""
     h = hashlib.sha256()
-    h.update(b"statgpu-panel-diagnostic-identity-v2")
+    h.update(b"statgpu-panel-diagnostic-identity-v3")
 
     for label, array, shape in (
         (b"X", X, (int(X.shape[0]), int(X.shape[1]))),
@@ -599,9 +599,6 @@ def _full_content_digest(X, y) -> str:
                 copy=True,
                 order="C",
             )
-            # Numerical identity treats signed zero as the same value.  Panel
-            # input validation excludes missing values, so no NaN payload
-            # canonicalization is required here.
             chunk[chunk == 0.0] = 0.0
             chunk = np.ascontiguousarray(chunk.astype("<f8", copy=False))
             h.update(chunk.tobytes())
@@ -641,6 +638,25 @@ def _metadata_signature(codes) -> Optional[str]:
     return hashlib.sha256(arr.tobytes()).hexdigest()
 
 
+def _identity_constant_index(X, *, xp, has_constant: bool) -> Optional[int]:
+    """Locate the constant column for canonical Hausman slope identity."""
+    if not has_constant or int(X.shape[1]) == 0:
+        return None
+    if getattr(xp, "__name__", "") == "torch":
+        col_min_native = xp.amin(X, dim=0)
+        col_max_native = xp.amax(X, dim=0)
+    else:
+        col_min_native = xp.min(X, axis=0)
+        col_max_native = xp.max(X, axis=0)
+    col_min = np.asarray(_to_numpy(col_min_native), dtype=np.float64).ravel()
+    col_max = np.asarray(_to_numpy(col_max_native), dtype=np.float64).ravel()
+    magnitude = np.maximum(np.abs(col_min), np.abs(col_max))
+    span = np.abs(col_max - col_min)
+    tol = 256.0 * np.finfo(np.float64).eps * magnitude
+    candidates = np.flatnonzero((span <= tol) & (magnitude > 0.0))
+    return None if candidates.size == 0 else int(candidates[0])
+
+
 def _diagnostic_identity(
     X,
     y,
@@ -649,23 +665,68 @@ def _diagnostic_identity(
     entity_codes=None,
     feature_names: Optional[Sequence[str]] = None,
     has_constant: bool = False,
+    constant_column_index: Optional[int] = None,
 ) -> Dict[str, Any]:
-    k = int(X.shape[1])
-    names = tuple(feature_names) if feature_names is not None else tuple(
-        f"x{i + 1}" for i in range(k)
+    """Build canonical sample/design identity for a Hausman slope comparison.
+
+    FE absorbs a common intercept, while RE may estimate the same intercept as an
+    explicit design column. Identity therefore hashes y and only the slope
+    design. ``coefficient_indices`` maps canonical slope positions back to each
+    fitted model's original coefficient/covariance positions.
+    """
+    k_raw = int(X.shape[1])
+    constant_index = constant_column_index
+    if constant_index is None:
+        constant_index = _identity_constant_index(
+            X, xp=xp, has_constant=bool(has_constant)
+        )
+    if constant_index is not None and not (0 <= int(constant_index) < k_raw):
+        raise ValueError("constant_column_index is out of range")
+
+    coefficient_indices = tuple(
+        index for index in range(k_raw) if index != constant_index
     )
+    if len(coefficient_indices) == k_raw:
+        X_slopes = X
+    else:
+        index_dev = xp_asarray(
+            np.asarray(coefficient_indices, dtype=np.int64),
+            dtype=xp.int64,
+            xp=xp,
+            ref_arr=X,
+        )
+        X_slopes = X[:, index_dev]
+
+    if feature_names is None:
+        names = tuple(f"x{i + 1}" for i in range(len(coefficient_indices)))
+    else:
+        raw_names = tuple(feature_names)
+        if len(raw_names) == k_raw:
+            names = tuple(raw_names[index] for index in coefficient_indices)
+        elif len(raw_names) == len(coefficient_indices):
+            names = raw_names
+        else:
+            raise ValueError(
+                "feature_names must match the raw or canonical slope feature count"
+            )
+
     return {
         "nobs": int(X.shape[0]),
-        "n_features": k,
+        "n_features": int(len(coefficient_indices)),
         "feature_names": names,
+        "coefficient_indices": coefficient_indices,
         "has_constant": bool(has_constant),
+        "constant_column_index": constant_index,
         "entity_signature": _metadata_signature(entity_codes),
-        "fingerprint": _numerical_fingerprint(X, y, xp=xp),
+        "fingerprint": _numerical_fingerprint(X_slopes, y, xp=xp),
     }
 
 
 def _fingerprints_match(left: Dict[str, Any], right: Dict[str, Any]) -> Tuple[bool, str]:
-    scalar_keys = ("nobs", "n_features", "feature_names", "has_constant", "entity_signature")
+    # ``has_constant`` deliberately is not compared: FE may absorb the common
+    # intercept while RE estimates it explicitly. Canonical slope X/y identity
+    # plus entity and feature metadata is authoritative.
+    scalar_keys = ("nobs", "n_features", "feature_names", "entity_signature")
     for key in scalar_keys:
         if left.get(key) != right.get(key):
             return False, f"diagnostic identity mismatch: {key}"
@@ -793,8 +854,24 @@ def hausman_test(fe_model, re_model) -> PanelTestResult:
             distribution="chi2",
             reason="Hausman test has no common estimable slope coefficients",
         )
-    fe_lookup = {name: i for i, name in enumerate(fe_names)}
-    re_lookup = {name: i for i, name in enumerate(re_names)}
+
+    fe_positions = tuple(
+        int(value)
+        for value in left_id.get("coefficient_indices", range(len(fe_names)))
+    )
+    re_positions = tuple(
+        int(value)
+        for value in right_id.get("coefficient_indices", range(len(re_names)))
+    )
+    if len(fe_positions) != len(fe_names) or len(re_positions) != len(re_names):
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason="diagnostic identity has inconsistent coefficient-index metadata",
+        )
+    fe_lookup = dict(zip(fe_names, fe_positions))
+    re_lookup = dict(zip(re_names, re_positions))
     fe_idx = np.asarray([fe_lookup[name] for name in common], dtype=np.int64)
     re_idx = np.asarray([re_lookup[name] for name in common], dtype=np.int64)
     fe_coef = np.asarray(fe_model.coef_, dtype=np.float64).ravel()[fe_idx]
@@ -804,6 +881,11 @@ def hausman_test(fe_model, re_model) -> PanelTestResult:
     result = _hausman_quadratic(fe_coef - re_coef, fe_cov - re_cov)
     meta = dict(result.metadata)
     meta["common_features"] = tuple(common)
+    meta["fe_coefficient_indices"] = tuple(int(value) for value in fe_idx)
+    meta["re_coefficient_indices"] = tuple(int(value) for value in re_idx)
+    meta["re_explicit_constant_excluded"] = bool(
+        right_id.get("constant_column_index") is not None
+    )
     return PanelTestResult(
         statistic=result.statistic,
         pvalue=result.pvalue,
