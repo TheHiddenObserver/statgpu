@@ -12,6 +12,13 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## 2026-08-07
 
+### PR #119 — Panel Tier-1 shared framework Stage A
+
+- Added an internal `BasePanelModel`, shared panel index/balance metadata, and structured diagnostic/fit-stat result substrate for the later Tier-1 diagnostics stages without adding new public diagnostics.
+- Centralized the existing residual-based panel OLS covariance dispatch while preserving each estimator's current nonrobust, HC1, clustered, and HAC normalization/df conventions; Fama-MacBeth keeps its distinct beta-series covariance.
+- Migrated `PanelOLS`, `RandomEffects`, `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, and `FamaMacBeth` to the shared lifecycle where statistically valid, while preserving formula behavior, prediction/summary contracts, fixed-effect recovery, Swamy-Arora GLS, and backend-specific output semantics.
+- Added pre-refactor golden regression coverage plus maintained Torch 2.0 CPU coverage for shared panel metadata/covariance/inference paths. Stage B diagnostics and Stage C covariance expansion remain pending under Issue #93.
+
 ### PR #116 — Torch LogisticRegressionCV strict-CUDA repair
 
 - Fixed the mixed-precision Torch strict-CUDA `LogisticRegressionCV` failure by allocating batched IRLS parameters and ridge diagonals in the active CV working dtype and keeping candidate path outputs backend-native through validation scoring.
@@ -47,7 +54,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Corrected the executable loss/penalty/solver matrix so Newton, L-BFGS, and L-BFGS-B reject unsupported non-smooth penalties rather than optimizing only the smooth component.
 - Removed the incorrect Euclidean-prox Newton shortcut. Smooth L2/no-penalty objectives retain Newton updates; non-smooth proximal-Newton requests delegate visibly to backend-native FISTA until a Hessian-metric proximal solver exists.
 - Narrowed Armijo, linear-solve, alpha-grid, and inference fallbacks to recognized numeric or rank failures; CUDA OOM, device, index, contract, and unrelated runtime failures propagate.
-- Normalized warm starts for FISTA, Newton-family, L-BFGS-family, and ADMM solvers to the preprocessed design backend, device, and dtype.
+- Normalized warm starts for FISTA, Newton-family, L-BFGS-family, L-BFGS-B, and ADMM solvers to the preprocessed design backend, device, and dtype.
 - Completed ADMM's legitimate Cholesky fallback and hardened L-BFGS-B feasible directions, backend-native bounds, and NaN-bound validation.
 - Added centralized, observable Torch compilation policy: eager remains the default for unset, `auto`, and `disable`; `default` and `reduce-overhead` are explicit opt-ins, and only the known CUDA Graph output-lifecycle failure becomes a permanent eager fallback.
 - Removed the package-initialization cycle between `statgpu.glm_core` and the Cox loss export by lazily exposing `CoxPartialLikelihoodLoss`; fresh-interpreter imports no longer depend on importing `LogisticRegression` first.

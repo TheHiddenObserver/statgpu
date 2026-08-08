@@ -19,6 +19,16 @@ Related: Issue #120 and pull request #121.
 
 ## 2026-08-07
 
+### PR #119 — Panel Tier-1 shared framework Stage A
+
+- Added an internal `BasePanelModel`, `PanelIndexInfo`, `PanelTestResult`, and `PanelFitStatistics` substrate for Issue #93. Stage A establishes shared lifecycle and panel-structure contracts only; Hausman/pooling-F/Breusch-Pagan LM tests and expanded fit statistics remain Stage B work.
+- Centralized dispatch for the covariance definitions that already existed in the panel estimators. Nonrobust scaling, HC1 corrections, one-/two-way clustering, HAC behavior, rank/df conventions, and unsupported-name errors remain estimator-equivalent to the pre-refactor implementation. No HC0/HC2/HC3 or Driscoll-Kraay support is added in this stage.
+- Migrated `PanelOLS`, `RandomEffects`, `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, and `FamaMacBeth` to statistically neutral shared lifecycle helpers where valid. Fixed-effect recovery/prediction, Swamy-Arora variance components and quasi-demeaning, and Fama-MacBeth beta-series covariance remain model-specific.
+- Preserved the existing formula, missing-row alignment, intercept/effect-token behavior, prediction output contracts, summary schemas/printing behavior, balanced/unbalanced semantics, residual-df definitions, and strict explicit-device/no-fallback rules.
+- Added a pre-refactor golden suite before any panel source migration and kept it active after the refactor. Dedicated Python 3.9 + Torch 2.0 CPU CI now also executes the shared panel metadata/covariance/inference regression tests so optional Torch coverage cannot silently skip.
+
+Stage B diagnostics and Stage C covariance expansion remain pending under Issue #93; this Stage-A refactor does not advertise them as public capabilities.
+
 ### PR #116 — Torch LogisticRegressionCV strict-CUDA repair
 
 - Fixed the maintained Torch strict-CUDA `LogisticRegressionCV` failure in the batched GPU IRLS path. Mixed-precision CV now allocates parameters and ridge diagonals in the active working dtype, and coefficient/intercept paths remain backend-native through validation scoring.
