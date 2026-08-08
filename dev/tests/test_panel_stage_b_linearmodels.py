@@ -1,9 +1,10 @@
 """Executable external-definition alignment against linearmodels 7.0.
 
 This file is run in a dedicated CI job that installs linearmodels==7.0. It
-compares only quantities whose estimator parameterizations are intentionally
-aligned in Stage B. RandomEffects coefficients are excluded because statgpu's
-existing Swamy-Arora path is a preserved model-specific contract.
+compares only quantities whose estimator parameterizations and transformed
+samples are intentionally aligned in Stage B. RandomEffects coefficients are
+excluded because statgpu's existing Swamy-Arora path is a preserved
+model-specific contract.
 """
 
 from __future__ import annotations
@@ -40,10 +41,28 @@ def _panel(seed=1260, *, unbalanced=False):
         scale=0.2, size=entity.size
     )
     if unbalanced:
+        # Deliberately contains internal gaps. This is appropriate for pooled,
+        # between and FE comparisons, but it is not used for FirstDifference
+        # because Stage A preserves statgpu's adjacent-observed-row differencing
+        # contract while linearmodels constructs first differences on its panel
+        # time grid. Stage B must not use an external gate to change that
+        # estimator transformation implicitly.
         keep = np.ones(entity.size, dtype=bool)
         keep[[1, 8, 17, 31, 44]] = False
         X, y, entity, time = X[keep], y[keep], entity[keep], time[keep]
     return X, y, entity, time
+
+
+def _gap_free_unbalanced_panel(seed=1263):
+    """Return an unbalanced panel with contiguous time support per entity."""
+    X, y, entity, time = _panel(seed=seed, unbalanced=False)
+    keep = np.ones(len(y), dtype=bool)
+    # Remove only trailing observations from selected entities, so every
+    # retained entity still has contiguous time indices starting at zero.
+    keep[(entity == 1) & (time >= 5)] = False
+    keep[(entity == 3) & (time >= 4)] = False
+    keep[(entity == 7) & (time >= 3)] = False
+    return X[keep], y[keep], entity[keep], time[keep]
 
 
 def _lm_data(X, y, entity, time, *, constant=False):
@@ -56,15 +75,40 @@ def _lm_data(X, y, entity, time, *, constant=False):
 
 
 def _assert_r2(actual, expected):
-    assert_allclose(actual.rsquared_within, expected.rsquared_within, rtol=2e-10, atol=2e-11)
-    assert_allclose(actual.rsquared_between, expected.rsquared_between, rtol=2e-10, atol=2e-11)
-    assert_allclose(actual.rsquared_overall, expected.rsquared_overall, rtol=2e-10, atol=2e-11)
+    assert_allclose(
+        actual.rsquared_within,
+        expected.rsquared_within,
+        rtol=2e-10,
+        atol=2e-11,
+    )
+    assert_allclose(
+        actual.rsquared_between,
+        expected.rsquared_between,
+        rtol=2e-10,
+        atol=2e-11,
+    )
+    assert_allclose(
+        actual.rsquared_overall,
+        expected.rsquared_overall,
+        rtol=2e-10,
+        atol=2e-11,
+    )
 
 
 def _assert_model_f(actual, expected):
     assert actual.f_statistic is not None
-    assert_allclose(actual.f_statistic, expected.f_statistic.stat, rtol=2e-9, atol=2e-11)
-    assert_allclose(actual.f_pvalue, expected.f_statistic.pval, rtol=2e-8, atol=1e-14)
+    assert_allclose(
+        actual.f_statistic,
+        expected.f_statistic.stat,
+        rtol=2e-9,
+        atol=2e-11,
+    )
+    assert_allclose(
+        actual.f_pvalue,
+        expected.f_statistic.pval,
+        rtol=2e-8,
+        atol=1e-14,
+    )
     assert actual.f_df == (
         float(expected.f_statistic.df),
         float(expected.f_statistic.df_denom),
@@ -128,24 +172,33 @@ def test_two_way_panelols_matches_linearmodels_standard_diagnostics():
     assert_allclose(sg._panel_cov_params, lm.cov.to_numpy(), rtol=5e-9, atol=5e-11)
 
 
-def test_pooled_between_and_first_difference_match_linearmodels_fit_statistics():
+def test_pooled_and_between_match_linearmodels_on_general_unbalanced_panel():
     X, y, entity, time = _panel(seed=1262, unbalanced=True)
-
     y_lm, X_lm_const = _lm_data(X, y, entity, time, constant=True)
-    lm_pool = LMPooledOLS(y_lm, X_lm_const).fit(cov_type="unadjusted", debiased=True)
+
+    lm_pool = LMPooledOLS(y_lm, X_lm_const).fit(
+        cov_type="unadjusted", debiased=True
+    )
     sg_pool = PooledOLS().fit(X, y, entity_ids=entity)
     assert_allclose(sg_pool.coef_, lm_pool.params.to_numpy(), rtol=2e-10, atol=2e-11)
     _assert_r2(sg_pool.fit_statistics_, lm_pool)
     _assert_model_f(sg_pool.fit_statistics_, lm_pool)
 
-    lm_between = LMBetweenOLS(y_lm, X_lm_const).fit(cov_type="unadjusted", debiased=True)
+    lm_between = LMBetweenOLS(y_lm, X_lm_const).fit(
+        cov_type="unadjusted", debiased=True
+    )
     sg_between = BetweenOLS().fit(X, y, entity_ids=entity)
-    assert_allclose(sg_between.coef_, lm_between.params.to_numpy(), rtol=2e-10, atol=2e-11)
+    assert_allclose(
+        sg_between.coef_, lm_between.params.to_numpy(), rtol=2e-10, atol=2e-11
+    )
     _assert_r2(sg_between.fit_statistics_, lm_between)
     _assert_model_f(sg_between.fit_statistics_, lm_between)
 
-    y_lm_fd, X_lm_fd = _lm_data(X, y, entity, time, constant=False)
-    lm_fd = LMFirstDifferenceOLS(y_lm_fd, X_lm_fd).fit(
+
+def test_first_difference_matches_linearmodels_when_transformed_sample_is_common():
+    X, y, entity, time = _gap_free_unbalanced_panel()
+    y_lm, X_lm = _lm_data(X, y, entity, time, constant=False)
+    lm_fd = LMFirstDifferenceOLS(y_lm, X_lm).fit(
         cov_type="unadjusted", debiased=True
     )
     sg_fd = FirstDifferenceOLS().fit(
