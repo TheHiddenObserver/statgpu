@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Physical CuPy validation for Issue #120.
 
-This is a correctness/provenance gate, not a performance benchmark.  It checks
-the inverse-beta/inverse-gamma LUT paths on a real CuPy CUDA backend and
-reproduces the confidence-interval calculation that blocked PR #119.
+This is a correctness/provenance gate, not a performance benchmark. It checks:
+
+- raw inverse-beta/inverse-gamma LUT paths;
+- public CuPy PPF/ISF surfaces that consume those inverse primitives;
+- LUT and native-fallback regions for Student-t quantiles;
+- backward-compatible R-style inverse-quantile aliases;
+- the shared panel-inference consumer that originally exposed the defect.
+
+The script requires an exact source SHA and a clean working tree.
 """
 
 from __future__ import annotations
@@ -15,6 +21,7 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 from scipy import special, stats
@@ -46,6 +53,31 @@ def _max_abs(actual, expected) -> float:
     return float(np.max(np.abs(np.asarray(actual) - np.asarray(expected))))
 
 
+def _public_inverse_check(cp, name, kwargs, scipy_dist, probability, rtol, atol):
+    dist = get_distribution(name, backend="cupy", use_lut=True)
+
+    actual_ppf = cp.asnumpy(dist.ppf(probability, **kwargs))
+    expected_ppf = np.asarray(scipy_dist.ppf(cp.asnumpy(probability), **kwargs))
+    actual_isf = cp.asnumpy(dist.isf(probability, **kwargs))
+    expected_isf = np.asarray(scipy_dist.isf(cp.asnumpy(probability), **kwargs))
+
+    np.testing.assert_allclose(actual_ppf, expected_ppf, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(actual_isf, expected_isf, rtol=rtol, atol=atol)
+
+    cdf_roundtrip = cp.asnumpy(dist.cdf(cp.asarray(actual_ppf), **kwargs))
+    sf_roundtrip = cp.asnumpy(dist.sf(cp.asarray(actual_isf), **kwargs))
+    probability_np = cp.asnumpy(probability)
+    np.testing.assert_allclose(cdf_roundtrip, probability_np, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(sf_roundtrip, probability_np, rtol=rtol, atol=atol)
+
+    return {
+        "ppf_max_abs": _max_abs(actual_ppf, expected_ppf),
+        "isf_max_abs": _max_abs(actual_isf, expected_isf),
+        "cdf_ppf_roundtrip_max_abs": _max_abs(cdf_roundtrip, probability_np),
+        "sf_isf_roundtrip_max_abs": _max_abs(sf_roundtrip, probability_np),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
@@ -73,9 +105,16 @@ def main():
 
     sf = CuPySpecialFunctions(use_lut=True)
 
-    beta_probability = cp.asarray([0.01, 0.05, 0.25, 0.50, 0.90], dtype=cp.float64)
+    # ------------------------------------------------------------------
+    # Raw inverse-special-function regression checks.
+    # ------------------------------------------------------------------
+    beta_probability = cp.asarray(
+        [0.01, 0.05, 0.25, 0.50, 0.90], dtype=cp.float64
+    )
     beta_actual = cp.asnumpy(sf.betaincinv(22.5, 0.5, beta_probability))
-    beta_expected = special.betaincinv(22.5, 0.5, cp.asnumpy(beta_probability))
+    beta_expected = special.betaincinv(
+        22.5, 0.5, cp.asnumpy(beta_probability)
+    )
     np.testing.assert_allclose(
         beta_actual, beta_expected, rtol=args.rtol, atol=args.atol
     )
@@ -86,9 +125,13 @@ def main():
         beta_cached, beta_expected, rtol=args.rtol, atol=args.atol
     )
 
-    gamma_probability = cp.asarray([0.01, 0.20, 0.50, 0.95], dtype=cp.float64)
+    gamma_probability = cp.asarray(
+        [0.01, 0.20, 0.50, 0.95], dtype=cp.float64
+    )
     gamma_actual = cp.asnumpy(sf.gammaincinv(4.0, gamma_probability))
-    gamma_expected = special.gammaincinv(4.0, cp.asnumpy(gamma_probability))
+    gamma_expected = special.gammaincinv(
+        4.0, cp.asnumpy(gamma_probability)
+    )
     np.testing.assert_allclose(
         gamma_actual, gamma_expected, rtol=args.rtol, atol=args.atol
     )
@@ -97,7 +140,10 @@ def main():
         gamma_cached, gamma_expected, rtol=args.rtol, atol=args.atol
     )
 
-    t_dist = get_distribution("t", backend="cupy")
+    # ------------------------------------------------------------------
+    # Exact PR119 failure case.
+    # ------------------------------------------------------------------
+    t_dist = get_distribution("t", backend="cupy", use_lut=True)
     critical_actual = float(cp.asnumpy(t_dist.isf(cp.asarray(0.025), 45)))
     critical_expected = float(stats.t.isf(0.025, 45))
     np.testing.assert_allclose(
@@ -105,7 +151,8 @@ def main():
     )
     if critical_actual <= 1.9:
         raise AssertionError(
-            f"collapsed t critical value: {critical_actual} (expected {critical_expected})"
+            f"collapsed t critical value: {critical_actual} "
+            f"(expected {critical_expected})"
         )
 
     coef = np.asarray([0.36067077, 1.06308319, -0.61715928])
@@ -122,8 +169,148 @@ def main():
         ci_actual, ci_expected, rtol=args.rtol, atol=args.atol
     )
 
+    # ------------------------------------------------------------------
+    # Public inverse-distribution blast radius.
+    # ------------------------------------------------------------------
+    probability = cp.asarray(
+        [0.01, 0.025, 0.20, 0.50, 0.95, 0.975], dtype=cp.float64
+    )
+    public_checks = {
+        "t": _public_inverse_check(
+            cp, "t", {"df": 45}, stats.t, probability, args.rtol, args.atol
+        ),
+        "beta": _public_inverse_check(
+            cp,
+            "beta",
+            {"a": 2.5, "b": 5.5},
+            stats.beta,
+            probability,
+            args.rtol,
+            args.atol,
+        ),
+        "f": _public_inverse_check(
+            cp,
+            "f",
+            {"dfn": 5, "dfd": 24},
+            stats.f,
+            probability,
+            args.rtol,
+            args.atol,
+        ),
+        "gamma": _public_inverse_check(
+            cp,
+            "gamma",
+            {"a": 4.0},
+            stats.gamma,
+            probability,
+            args.rtol,
+            args.atol,
+        ),
+        "chi2": _public_inverse_check(
+            cp,
+            "chi2",
+            {"df": 8},
+            stats.chi2,
+            probability,
+            args.rtol,
+            args.atol,
+        ),
+    }
+
+    # Student-t values on both sides of the inverse-beta LUT eligibility region.
+    t_boundary_checks = {}
+    t_probability = cp.asarray([0.025, 0.50, 0.975], dtype=cp.float64)
+    for df in (1.0, 10.0, 45.0, 60.0, 80.0):
+        actual_ppf = cp.asnumpy(t_dist.ppf(t_probability, df))
+        expected_ppf = stats.t.ppf(cp.asnumpy(t_probability), df)
+        actual_isf = cp.asnumpy(t_dist.isf(t_probability, df))
+        expected_isf = stats.t.isf(cp.asnumpy(t_probability), df)
+        np.testing.assert_allclose(
+            actual_ppf, expected_ppf, rtol=args.rtol, atol=args.atol
+        )
+        np.testing.assert_allclose(
+            actual_isf, expected_isf, rtol=args.rtol, atol=args.atol
+        )
+        t_boundary_checks[str(df)] = {
+            "ppf_max_abs": _max_abs(actual_ppf, expected_ppf),
+            "isf_max_abs": _max_abs(actual_isf, expected_isf),
+        }
+
+    # ------------------------------------------------------------------
+    # Backward-compatible inverse-quantile aliases. A CuPy q array forces
+    # the module-level DistributionProxy to resolve the CuPy backend.
+    # ------------------------------------------------------------------
+    from statgpu.linear_model.legacy import _distributions_legacy_gpu as legacy
+
+    legacy_probability = cp.asarray([0.025, 0.50, 0.975], dtype=cp.float64)
+    legacy_checks = {}
+    legacy_specs = [
+        ("qt_gpu", legacy.qt_gpu, (45,), stats.t, {"df": 45}),
+        (
+            "qbeta_gpu",
+            legacy.qbeta_gpu,
+            (2.5, 5.5),
+            stats.beta,
+            {"a": 2.5, "b": 5.5},
+        ),
+        ("qf_gpu", legacy.qf_gpu, (5, 24), stats.f, {"dfn": 5, "dfd": 24}),
+        ("qgamma_gpu", legacy.qgamma_gpu, (4.0,), stats.gamma, {"a": 4.0}),
+        ("qchisq_gpu", legacy.qchisq_gpu, (8,), stats.chi2, {"df": 8}),
+    ]
+    legacy_probability_np = cp.asnumpy(legacy_probability)
+    for label, func, shape_args, scipy_dist, scipy_kwargs in legacy_specs:
+        actual = cp.asnumpy(func(legacy_probability, *shape_args))
+        expected = scipy_dist.ppf(legacy_probability_np, **scipy_kwargs)
+        np.testing.assert_allclose(
+            actual, expected, rtol=args.rtol, atol=args.atol
+        )
+        legacy_checks[label] = {"max_abs": _max_abs(actual, expected)}
+
+    # ------------------------------------------------------------------
+    # Actual shared panel-inference consumer using real CuPy arrays.
+    # ------------------------------------------------------------------
+    from statgpu.panel._utils import compute_panel_inference
+
+    rng = np.random.default_rng(120)
+    n, k = 48, 3
+    X_np = rng.normal(size=(n, k))
+    params_np = np.asarray([0.35, 1.05, -0.60], dtype=np.float64)
+    resid_np = rng.normal(scale=0.25, size=n)
+    scale = float(np.sum(resid_np ** 2) / 45.0)
+    panel_model = SimpleNamespace()
+    compute_panel_inference(
+        panel_model,
+        cp.asarray(X_np),
+        cp.asarray(resid_np),
+        cp.asarray(params_np),
+        scale,
+        n,
+        k,
+        cp,
+        "cupy",
+        "nonrobust",
+        0.05,
+        dist_df=45,
+    )
+    panel_expected_ci = np.column_stack(
+        [
+            panel_model.coef_ - critical_expected * panel_model.bse_,
+            panel_model.coef_ + critical_expected * panel_model.bse_,
+        ]
+    )
+    if not np.all(panel_model.conf_int_[:, 1] > panel_model.conf_int_[:, 0]):
+        raise AssertionError(
+            f"shared panel inference produced invalid CI: {panel_model.conf_int_}"
+        )
+    np.testing.assert_allclose(
+        panel_model.conf_int_,
+        panel_expected_ci,
+        rtol=args.rtol,
+        atol=args.atol,
+    )
+
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": sha,
         "working_tree_clean": True,
@@ -152,6 +339,13 @@ def main():
             "t_critical_abs_diff": abs(critical_actual - critical_expected),
             "panel_ci_max_abs": _max_abs(ci_actual, ci_expected),
             "panel_ci": ci_actual.tolist(),
+            "public_inverse_distributions": public_checks,
+            "t_lut_fallback_boundary": t_boundary_checks,
+            "legacy_inverse_aliases": legacy_checks,
+            "shared_panel_ci_max_abs": _max_abs(
+                panel_model.conf_int_, panel_expected_ci
+            ),
+            "shared_panel_ci": panel_model.conf_int_.tolist(),
         },
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
