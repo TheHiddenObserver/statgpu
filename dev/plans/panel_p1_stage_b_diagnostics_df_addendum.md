@@ -1,6 +1,6 @@
 # Panel Stage B diagnostic-df addendum
 
-This addendum is normative for `panel_p1_stage_b_diagnostics_plan.md` and closes a second-round definition issue discovered immediately before estimator integration.
+This addendum is normative for `panel_p1_stage_b_diagnostics_plan.md` and closes second-round definition issues discovered immediately before estimator integration.
 
 ## Why a separate diagnostic df is required
 
@@ -36,6 +36,20 @@ df_resid_diag = n - df_model_diag
 
 The implementation stores these values only in Stage-B diagnostic metadata/internal context. It does not overwrite the Stage-A `df_resid` attribute.
 
+The primary transformed FE response lives in the orthogonal complement of the nuisance-effect space, so the corresponding total-variation degrees of freedom for Stage-B adjusted R² are
+
+```text
+df_total_diag = n - effect_rank_standard
+```
+
+and hence
+
+```text
+R2_adj = 1 - (RSS / df_resid_diag) / (TSS_transformed / df_total_diag).
+```
+
+This replaces the earlier provisional `n-1` wording in the main plan for FE adjusted R². It is the rank-consistent definition: the restricted zero-slope model has exactly the nuisance effects removed before the transformed total sum of squares is formed.
+
 If a future PanelOLS path contains a retained identified exogenous constant, the effect-rank accounting must switch to the equivalent constant-present parameterization rather than double counting the common mean.
 
 ## Which Stage-B quantities use which df
@@ -45,7 +59,7 @@ Use **standard diagnostic df** for new standardized diagnostics whose external d
 - pooling F denominator df;
 - pooling F numerator df through nested-model rank difference;
 - `PanelFitStatistics.f_statistic` denominator df for `PanelOLS`;
-- `PanelFitStatistics.rsquared_adj` residual df for `PanelOLS`.
+- `PanelFitStatistics.rsquared_adj` residual and total df for `PanelOLS`.
 
 Use the existing **legacy Stage-A df** unchanged for:
 
@@ -84,4 +98,5 @@ The common-constant projection used by the **pooling F test** is a separate nest
 ## Review status
 
 - **[HIGH][INFER] fixed in specification** — Stage-B poolability/model-F inference will no longer reuse a legacy FE residual df that differs from the standard nuisance-effect rank convention.
+- **[MEDIUM][INFER] fixed in specification** — FE adjusted R² now uses nuisance-rank-consistent total df rather than provisional `n-1`.
 - **[MEDIUM][INFER] fixed in specification** — overall/between R² centering is explicitly separated from the pooling-F common-constant correction.
