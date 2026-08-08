@@ -22,6 +22,66 @@ from statgpu.panel._diagnostics import (
 from statgpu.panel._utils import group_means, group_sizes
 
 
+def _two_way_incidence_components(
+    entity_codes,
+    time_codes,
+    *,
+    n_entities: int,
+    n_times: int,
+) -> int:
+    """Count connected components in the observed entity-time incidence graph."""
+    if entity_codes is None or time_codes is None:
+        raise ValueError(
+            "two-way fixed-effect diagnostic rank requires entity and time codes"
+        )
+
+    entity = np.asarray(_to_numpy(entity_codes), dtype=np.int64).ravel()
+    time = np.asarray(_to_numpy(time_codes), dtype=np.int64).ravel()
+    if entity.shape != time.shape:
+        raise ValueError("entity and time codes must have the same length")
+
+    n_entities = int(n_entities)
+    n_times = int(n_times)
+    total = n_entities + n_times
+    parent = np.arange(total, dtype=np.int64)
+    rank = np.zeros(total, dtype=np.int8)
+
+    def find(node: int) -> int:
+        root = int(node)
+        while parent[root] != root:
+            root = int(parent[root])
+        while parent[node] != node:
+            nxt = int(parent[node])
+            parent[node] = root
+            node = nxt
+        return root
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if rank[left_root] < rank[right_root]:
+            left_root, right_root = right_root, left_root
+        parent[right_root] = left_root
+        if rank[left_root] == rank[right_root]:
+            rank[left_root] += 1
+
+    for entity_code, time_code in zip(entity, time):
+        entity_code = int(entity_code)
+        time_code = int(time_code)
+        if not (0 <= entity_code < n_entities):
+            raise ValueError("entity diagnostic code is out of range")
+        if not (0 <= time_code < n_times):
+            raise ValueError("time diagnostic code is out of range")
+        union(entity_code, n_entities + time_code)
+
+    active = np.zeros(total, dtype=bool)
+    active[entity] = True
+    active[n_entities + time] = True
+    return len({find(int(node)) for node in np.flatnonzero(active)})
+
+
 def effect_rank_standard(
     *,
     n_entities: int,
@@ -29,23 +89,28 @@ def effect_rank_standard(
     entity_effects: bool,
     time_effects: bool,
     has_constant: bool = False,
+    n_components: int = 1,
 ) -> int:
     """Return the nuisance-effect rank under the standard FE parameterization."""
     n_entities = int(n_entities)
     n_times = int(n_times)
+    n_components = int(n_components)
     if not entity_effects and not time_effects:
         return 0
 
-    if has_constant:
-        rank = 0
-        if entity_effects:
-            rank += max(n_entities - 1, 0)
-        if time_effects:
-            rank += max(n_times - 1, 0)
-        return int(rank)
-
     if entity_effects and time_effects:
-        return int(max(n_entities + n_times - 1, 0))
+        if n_components <= 0:
+            raise ValueError("two-way incidence component count must be positive")
+        full_dummy_rank = max(n_entities + n_times - n_components, 0)
+        if has_constant:
+            return int(max(full_dummy_rank - 1, 0))
+        return int(full_dummy_rank)
+
+    if has_constant:
+        if entity_effects:
+            return int(max(n_entities - 1, 0))
+        return int(max(n_times - 1, 0))
+
     if entity_effects:
         return int(max(n_entities, 0))
     return int(max(n_times, 0))
@@ -61,15 +126,26 @@ def fixed_effect_diagnostic_df(
     entity_effects: bool,
     time_effects: bool,
     has_constant: bool = False,
+    entity_codes=None,
+    time_codes=None,
 ):
     """Return rank-consistent Stage-B FE diagnostic df without changing legacy df."""
     rank_x = _matrix_rank(X_transformed, xp)
+    n_components = 1
+    if entity_effects and time_effects:
+        n_components = _two_way_incidence_components(
+            entity_codes,
+            time_codes,
+            n_entities=n_entities,
+            n_times=n_times,
+        )
     effect_rank = effect_rank_standard(
         n_entities=n_entities,
         n_times=n_times,
         entity_effects=entity_effects,
         time_effects=time_effects,
         has_constant=has_constant,
+        n_components=n_components,
     )
     df_resid = int(nobs) - int(rank_x) - int(effect_rank)
     df_total = int(nobs) - int(effect_rank)
@@ -78,8 +154,25 @@ def fixed_effect_diagnostic_df(
         "effect_rank": int(effect_rank),
         "df_resid": int(df_resid),
         "df_total": int(df_total),
+        "incidence_components": int(n_components),
         "legacy_df_unchanged": True,
     }
+
+
+def explicit_constant_column(X, *, xp):
+    """Return an identified explicit constant-column index, if one is present."""
+    if int(X.shape[1]) == 0:
+        return None
+    col_min = np.asarray(_to_numpy(xp.min(X, axis=0)), dtype=np.float64).ravel()
+    col_max = np.asarray(_to_numpy(xp.max(X, axis=0)), dtype=np.float64).ravel()
+    scale = np.maximum(1.0, np.maximum(np.abs(col_min), np.abs(col_max)))
+    tol = 256.0 * np.finfo(np.float64).eps * scale
+    span = np.abs(col_max - col_min)
+    magnitude = np.maximum(np.abs(col_min), np.abs(col_max))
+    candidates = np.flatnonzero((span <= tol) & (magnitude > tol))
+    if candidates.size == 0:
+        return None
+    return int(candidates[0])
 
 
 def pooling_f_from_level_arrays(
