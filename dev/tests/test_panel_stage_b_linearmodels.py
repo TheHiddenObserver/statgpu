@@ -49,12 +49,6 @@ def _panel(seed=1260, *, unbalanced=False):
         scale=0.2, size=entity.size
     )
     if unbalanced:
-        # Deliberately contains internal gaps. This is appropriate for pooled,
-        # between and FE comparisons, but it is not used for FirstDifference
-        # because Stage A preserves statgpu's adjacent-observed-row differencing
-        # contract while linearmodels constructs first differences on its panel
-        # time grid. Stage B must not use an external gate to change that
-        # estimator transformation implicitly.
         keep = np.ones(entity.size, dtype=bool)
         keep[[1, 8, 17, 31, 44]] = False
         X, y, entity, time = X[keep], y[keep], entity[keep], time[keep]
@@ -65,8 +59,6 @@ def _gap_free_unbalanced_panel(seed=1263):
     """Return an unbalanced panel with contiguous time support per entity."""
     X, y, entity, time = _panel(seed=seed, unbalanced=False)
     keep = np.ones(len(y), dtype=bool)
-    # Remove only trailing observations from selected entities, so every
-    # retained entity still has contiguous time indices starting at zero.
     keep[(entity == 1) & (time >= 5)] = False
     keep[(entity == 3) & (time >= 4)] = False
     keep[(entity == 7) & (time >= 3)] = False
@@ -142,10 +134,6 @@ def test_one_way_panelols_matches_linearmodels_parameter_r2_f_pooling_and_diagno
     assert_allclose(pooled.statistic, lm.f_pooled.stat, rtol=2e-9, atol=2e-11)
     assert_allclose(pooled.pvalue, lm.f_pooled.pval, rtol=2e-8, atol=1e-14)
     assert pooled.df == (float(lm.f_pooled.df), float(lm.f_pooled.df_denom))
-
-    # Stage-A public FE bse intentionally preserves its historical df. Stage-B
-    # Hausman uses a separate small covariance rescaled to the standard full
-    # nuisance-effect rank; this matrix should align with linearmodels.
     assert_allclose(
         sg._panel_cov_params,
         lm.cov.to_numpy(),
@@ -220,6 +208,38 @@ def test_random_effects_explicit_constant_matches_linearmodels_f_df_structure():
         float(lm.f_statistic.df),
         float(lm.f_statistic.df_denom),
     )
+
+
+def test_hausman_absorbed_intercept_matches_linearmodels_parameter_structure():
+    X, y, entity, time = _panel(seed=1265, unbalanced=True)
+    y_lm, X_lm = _lm_data(X, y, entity, time, constant=False)
+    _, X_lm_const = _lm_data(X, y, entity, time, constant=True)
+
+    lm_fe = LMPanelOLS(y_lm, X_lm, entity_effects=True).fit(
+        cov_type="unadjusted", debiased=True
+    )
+    lm_re = LMRandomEffects(y_lm, X_lm_const).fit(
+        cov_type="unadjusted", debiased=True
+    )
+    assert tuple(lm_fe.params.index) == ("x1", "x2")
+    assert tuple(lm_re.params.index) == ("const", "x1", "x2")
+
+    sg_fe = PanelOLS(entity_effects=True, cov_type="nonrobust").fit(
+        X, y, entity_ids=entity
+    )
+    sg_re = RandomEffects().fit(
+        np.column_stack([np.ones(X.shape[0]), X]),
+        y,
+        entity_ids=entity,
+    )
+    result = sg_fe.hausman_test(sg_re)
+
+    assert "identity mismatch" not in (result.reason or "")
+    assert "no common estimable slope" not in (result.reason or "")
+    assert result.metadata["common_features"] == ("x1", "x2")
+    assert result.metadata["fe_coefficient_indices"] == (0, 1)
+    assert result.metadata["re_coefficient_indices"] == (1, 2)
+    assert result.metadata["re_explicit_constant_excluded"] is True
 
 
 def test_first_difference_matches_linearmodels_when_transformed_sample_is_common():
