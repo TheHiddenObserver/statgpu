@@ -57,6 +57,7 @@ class PanelOLS(BasePanelModel):
         self.pvalues_ = None
         self.conf_int_ = None
         self.rsquared_within = None
+        self.fit_statistics_ = None
         self.nobs = None
         self.df_resid = None
 
@@ -64,6 +65,8 @@ class PanelOLS(BasePanelModel):
         self._scale = None
         self._entity_effects_map = {}
         self._time_effects_map = {}
+        self._pooling_f_result = None
+        self._panel_diagnostic_identity = None
 
     def fit(
         self,
@@ -257,15 +260,92 @@ class PanelOLS(BasePanelModel):
             diag_floor=0.0,
         )
 
+        # Preserve the legacy Stage-A transformed-fit R² exactly.
         ss_res = _to_float_scalar(xp.sum(resid ** 2))
         y_d_mean = _to_float_scalar(xp.mean(y_d))
         ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
+        from statgpu.panel._diagnostic_context import (
+            build_diagnostic_identity,
+            build_model_fit_statistics,
+            fixed_effect_diagnostic_df,
+            pooling_f_from_level_arrays,
+        )
+
+        # New standardized diagnostics use the full nuisance-effect rank.  This
+        # is intentionally separate from the historical self.df_resid used by
+        # covariance/t inference above.
+        diagnostic_df = fixed_effect_diagnostic_df(
+            X_d,
+            xp=xp,
+            nobs=n,
+            n_entities=n_entities,
+            n_times=n_times,
+            entity_effects=self.entity_effects,
+            time_effects=self.time_effects,
+            has_constant=False,
+        )
+        ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
+        self.fit_statistics_ = build_model_fit_statistics(
+            y_arr,
+            X_arr,
+            coef,
+            xp=xp,
+            entity_codes=entity_arr,
+            has_constant=False,
+            rss_fit=ss_res,
+            tss_fit=ss_tot_diag,
+            df_resid=diagnostic_df["df_resid"],
+            df_total=diagnostic_df["df_total"],
+            f_y=y_d,
+            f_X=X_d,
+            f_params=coef,
+            f_has_constant=False,
+            metadata={
+                "fit_space": "fixed-effect transformed regression",
+                "legacy_df_resid": int(self.df_resid),
+                "diagnostic_df": dict(diagnostic_df),
+                "legacy_rsquared_within": float(self.rsquared_within),
+            },
+        )
+        self._panel_diagnostic_identity = build_diagnostic_identity(
+            X_arr,
+            y_arr,
+            xp=xp,
+            entity_codes=entity_arr,
+            feature_names=self._feature_names,
+            has_constant=False,
+        )
+        self._pooling_f_result = (
+            pooling_f_from_level_arrays(
+                y_arr,
+                X_arr,
+                xp=xp,
+                rss_effects=ss_res,
+                df_resid_effects=diagnostic_df["df_resid"],
+                has_constant=False,
+            )
+            if self.entity_effects or self.time_effects
+            else None
+        )
+
         self._params = np.asarray(self.coef_).ravel()
         self.coef_ = self._params
         self._fitted = True
         return self
+
+    def pooling_f_test(self):
+        """Return the classical test that included fixed effects are jointly zero."""
+        from statgpu.panel._diagnostics import pooling_f_test
+
+        return pooling_f_test(self)
+
+    def hausman_test(self, random_effects_model):
+        """Compare one-way entity FE with a matched classical RandomEffects fit."""
+        from statgpu.panel._diagnostics import hausman_test
+
+        return hausman_test(self, random_effects_model)
 
     def predict(self, X, entity_ids=None, time_ids=None):
         """Predict using the fitted model, preserving existing effect semantics."""
