@@ -73,6 +73,84 @@ def test_hausman_identity_rejects_low_order_moment_collision():
     )
 
 
+def test_hausman_identity_allows_re_only_explicit_constant():
+    rng = np.random.default_rng(20260811)
+    entity = np.repeat(np.arange(4), 5)
+    X_slopes = rng.normal(size=(entity.size, 2))
+    y = X_slopes @ np.asarray([0.7, -0.25]) + rng.normal(scale=0.1, size=entity.size)
+    X_re = np.column_stack([np.ones(entity.size), X_slopes])
+
+    fe_identity = _diagnostic_identity(
+        X_slopes,
+        y,
+        xp=np,
+        entity_codes=entity,
+        has_constant=False,
+    )
+    re_identity = _diagnostic_identity(
+        X_re,
+        y,
+        xp=np,
+        entity_codes=entity,
+        has_constant=True,
+    )
+    matched, reason = _fingerprints_match(fe_identity, re_identity)
+
+    assert matched, reason
+    assert fe_identity["feature_names"] == ("x1", "x2")
+    assert re_identity["feature_names"] == ("x1", "x2")
+    assert fe_identity["coefficient_indices"] == (0, 1)
+    assert re_identity["coefficient_indices"] == (1, 2)
+    assert re_identity["constant_column_index"] == 0
+    assert (
+        fe_identity["fingerprint"]["content_digest"]
+        == re_identity["fingerprint"]["content_digest"]
+    )
+
+    X_re_changed = X_re.copy()
+    X_re_changed[0, 2] += 0.5
+    changed_identity = _diagnostic_identity(
+        X_re_changed,
+        y,
+        xp=np,
+        entity_codes=entity,
+        has_constant=True,
+    )
+    changed_match, changed_reason = _fingerprints_match(
+        fe_identity, changed_identity
+    )
+    assert not changed_match
+    assert "content_digest" in changed_reason
+
+
+def test_hausman_end_to_end_excludes_re_only_explicit_constant():
+    rng = np.random.default_rng(20260812)
+    counts = np.asarray([5, 4, 5, 4, 5, 4])
+    entity = np.repeat(np.arange(counts.size), counts)
+    X_slopes = rng.normal(size=(entity.size, 2))
+    alpha = np.repeat(np.linspace(-0.35, 0.45, counts.size), counts)
+    y = 1.25 + X_slopes @ np.asarray([0.65, -0.3]) + alpha + rng.normal(
+        scale=0.16, size=entity.size
+    )
+
+    fe = PanelOLS(entity_effects=True, cov_type="nonrobust").fit(
+        X_slopes, y, entity_ids=entity
+    )
+    re = RandomEffects().fit(
+        np.column_stack([np.ones(entity.size), X_slopes]),
+        y,
+        entity_ids=entity,
+    )
+    result = fe.hausman_test(re)
+
+    assert "identity mismatch" not in (result.reason or "")
+    assert "no common estimable slope" not in (result.reason or "")
+    assert result.metadata["common_features"] == ("x1", "x2")
+    assert result.metadata["fe_coefficient_indices"] == (0, 1)
+    assert result.metadata["re_coefficient_indices"] == (1, 2)
+    assert result.metadata["re_explicit_constant_excluded"] is True
+
+
 def test_classical_model_f_reports_infinite_statistic_for_exact_fit():
     x = np.linspace(-1.0, 1.0, 8)
     X = np.column_stack([np.ones(x.size), x])
