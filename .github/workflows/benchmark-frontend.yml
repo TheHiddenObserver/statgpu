@@ -39,6 +39,9 @@ on:
       - 'results/benchmark_frontend_sources/**'
       - 'pyproject.toml'
 
+permissions:
+  contents: write
+
 concurrency:
   group: benchmark-frontend-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -180,3 +183,43 @@ jobs:
           name: playwright-production-report
           path: frontend/playwright-report/
           retention-days: 30
+
+  refresh-generated-assets:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/panel-p1-stage-b-diagnostics'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install schema validation dependency
+        run: python -m pip install 'jsonschema[format]'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Refresh deterministic benchmark assets
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+          cd frontend
+          npm ci
+          npm run build
+      - name: Commit refreshed generated assets
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/public/data docs/assets/benchmarks
+          if git diff --cached --quiet; then
+            echo 'Generated assets already current.'
+            exit 0
+          fi
+          git commit -m 'chore: refresh PR122 benchmark frontend assets'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
