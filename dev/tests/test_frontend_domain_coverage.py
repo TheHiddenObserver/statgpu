@@ -303,9 +303,9 @@ def test_panel_stage_b_physical_validation_is_published_without_timing(canonical
         run
         for run in output["runs"]
         if run["source"]["source_id"]
-        == "panel-stage-b-pr122-20260808-882892c6e307"
+        == "panel-stage-b-pr122-20260808-b8caffa6f915"
     ]
-    assert len(rows) == 34
+    assert len(rows) == 42
     assert {run["backend"] for run in rows} == {"cupy", "torch"}
     assert {run["model_id"] for run in rows} == {
         "PooledOLS",
@@ -320,13 +320,17 @@ def test_panel_stage_b_physical_validation_is_published_without_timing(canonical
     assert all("speedup" not in run["metrics"] for run in rows)
     assert all(
         run["parameters"]["measurement_git_sha"]
-        == "636988751bcbfad3442d24d3073cdfcd2b3ac637"
+        == "faa95ce7fb5cb204088957fbda5544c20a06fbfc"
         for run in rows
     )
 
     hausman = [run for run in rows if run["parameters"].get("diagnostic") == "hausman"]
-    assert len(hausman) == 4
+    assert len(hausman) == 8
     assert all(run["parameters"]["applicable"] is False for run in hausman)
+    assert {run["parameters"]["parameterization"] for run in hausman} == {
+        "standard",
+        "re-explicit-constant",
+    }
 
 
 def test_unsupervised_exposes_complete_source_matrix(canonical_output):
@@ -385,8 +389,8 @@ def test_unsupervised_exposes_complete_source_matrix(canonical_output):
 
 def test_generated_bundle_has_expected_complete_run_count(canonical_output):
     output, report, _, _ = canonical_output
-    assert len(output["runs"]) == 1852
-    assert report["runs_generated"] == 1852
+    assert len(output["runs"]) == 1860
+    assert report["runs_generated"] == 1860
 
 
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
