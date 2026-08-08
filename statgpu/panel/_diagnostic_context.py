@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends import _to_float_scalar
+from statgpu.backends import _to_float_scalar, _to_numpy
 from statgpu.inference._distributions_backend import get_distribution
 from statgpu.panel._diagnostics import (
     _applicable,
@@ -137,7 +137,9 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
         )
 
     nobs = int(resid.shape[0])
-    codes_np = np.asarray(entity_codes if xp is np else entity_codes.get() if getattr(xp, "__name__", "") == "cupy" else entity_codes.detach().cpu().numpy()).ravel()
+    # Entity codes are diagnostic metadata, so the common explicit metadata
+    # conversion is allowed. Observation-scale residuals remain backend-native.
+    codes_np = np.asarray(_to_numpy(entity_codes), dtype=np.int64).ravel()
     n_entities = int(np.unique(codes_np).size)
     meta = {
         "n_entities": n_entities,
@@ -169,7 +171,7 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
     mean_aligned = group_means(resid, entity_codes, xp=xp)
     sizes_aligned = group_sizes(entity_codes, xp=xp)
     # Repeated aligned values allow scalar reductions without transferring the
-    # entity-level residual-sum vector to CPU.  sum_i s_i^2 equals
+    # entity-level residual-sum vector to CPU. sum_i s_i^2 equals
     # sum_obs mean_i^2 * T_i because each group contributes T_i copies.
     sum_group_sums_sq = _to_float_scalar(
         xp.sum(mean_aligned * mean_aligned * sizes_aligned)
