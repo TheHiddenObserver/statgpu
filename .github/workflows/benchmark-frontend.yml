@@ -12,6 +12,7 @@ on:
       - 'dev/tests/test_benchmark_cv_source.py'
       - 'dev/tests/test_cv_runner_instrumentation.py'
       - 'dev/tests/test_frontend_contracts.py'
+      - 'dev/tests/test_frontend_cv_determinism.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/test_panel_stage_b_frontend_source.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
@@ -29,6 +30,7 @@ on:
       - 'dev/tests/test_benchmark_cv_source.py'
       - 'dev/tests/test_cv_runner_instrumentation.py'
       - 'dev/tests/test_frontend_contracts.py'
+      - 'dev/tests/test_frontend_cv_determinism.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/test_panel_stage_b_frontend_source.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
@@ -63,6 +65,7 @@ jobs:
             dev/tests/test_benchmark_cv_source.py \
             dev/tests/test_cv_runner_instrumentation.py \
             dev/tests/test_frontend_contracts.py \
+            dev/tests/test_frontend_cv_determinism.py \
             dev/tests/test_frontend_domain_coverage.py \
             dev/tests/test_panel_stage_b_frontend_source.py -v
       - name: Validate generator output
