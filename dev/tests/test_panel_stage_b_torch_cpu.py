@@ -8,6 +8,7 @@ from numpy.testing import assert_allclose
 
 from statgpu.panel import FamaMacBeth, PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._diagnostic_context import explicit_constant_column
+from statgpu.panel._diagnostics import _diagnostic_identity, _fingerprints_match
 
 
 torch = pytest.importorskip("torch")
@@ -84,7 +85,6 @@ def test_stage_b_pooled_torch_cpu_matches_numpy():
     assert_allclose(bp_actual.statistic, bp_expected.statistic, rtol=5e-9, atol=5e-10)
     assert_allclose(bp_actual.pvalue, bp_expected.pvalue, rtol=1e-8, atol=1e-14)
 
-    # Exercise the metadata-permutation contract on Torch CPU as well.
     scrambled = torch.as_tensor((3 - time + 2 * entity) % 5, dtype=torch.int64)
     hac = PooledOLS(cov_type="hac", bandwidth=1).fit(
         X_t,
@@ -114,7 +114,6 @@ def test_stage_b_panel_fe_torch_cpu_pooling_and_fit_stats_match_numpy():
     assert_allclose(pool_actual.statistic, pool_expected.statistic, rtol=5e-9, atol=5e-10)
     assert_allclose(pool_actual.pvalue, pool_expected.pvalue, rtol=1e-8, atol=1e-14)
     assert pool_actual.df == pool_expected.df
-    # Existing Stage-A df remains the compatibility value on both backends.
     assert actual.df_resid == expected.df_resid
     assert actual.fit_statistics_.metadata["diagnostic_df"] == expected.fit_statistics_.metadata["diagnostic_df"]
 
@@ -138,9 +137,6 @@ def test_stage_b_random_effects_torch_cpu_fit_stats_and_identity_match_numpy():
         assert_allclose(h_actual.pvalue, h_expected.pvalue, rtol=1e-7, atol=1e-12)
         assert h_actual.df == h_expected.df
     else:
-        # A finite-sample covariance difference may be indefinite. The important
-        # parity contract is that this is reported structurally on both backends,
-        # not converted into a solve error or a silent fallback.
         assert h_actual.reason == h_expected.reason
 
 
@@ -168,6 +164,40 @@ def test_stage_b_random_effects_explicit_constant_torch_cpu_matches_numpy():
         actual._panel_diagnostic_identity["fingerprint"]["content_digest"]
         == expected._panel_diagnostic_identity["fingerprint"]["content_digest"]
     )
+
+
+def test_stage_b_absorbed_intercept_identity_matches_on_torch_cpu():
+    rng = np.random.default_rng(1225)
+    entity = np.repeat(np.arange(5), 4)
+    slopes = rng.normal(size=(entity.size, 2))
+    y = slopes @ np.asarray([0.55, -0.2]) + rng.normal(scale=0.1, size=entity.size)
+    slopes_t = torch.as_tensor(slopes, dtype=torch.float64)
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    re_t = torch.cat(
+        [torch.ones((entity.size, 1), dtype=torch.float64), slopes_t], dim=1
+    )
+
+    fe_identity = _diagnostic_identity(
+        slopes_t,
+        y_t,
+        xp=torch,
+        entity_codes=entity_t,
+        has_constant=False,
+    )
+    re_identity = _diagnostic_identity(
+        re_t,
+        y_t,
+        xp=torch,
+        entity_codes=entity_t,
+        has_constant=True,
+    )
+    matched, reason = _fingerprints_match(fe_identity, re_identity)
+
+    assert matched, reason
+    assert fe_identity["coefficient_indices"] == (0, 1)
+    assert re_identity["coefficient_indices"] == (1, 2)
+    assert fe_identity["feature_names"] == re_identity["feature_names"] == ("x1", "x2")
 
 
 def test_stage_b_torch_constant_detection_is_scale_invariant():
