@@ -7,6 +7,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from statgpu.panel import FamaMacBeth, PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel._diagnostic_context import explicit_constant_column
 
 
 torch = pytest.importorskip("torch")
@@ -167,6 +168,16 @@ def test_stage_b_random_effects_explicit_constant_torch_cpu_matches_numpy():
         actual._panel_diagnostic_identity["fingerprint"]["content_digest"]
         == expected._panel_diagnostic_identity["fingerprint"]["content_digest"]
     )
+
+
+def test_stage_b_torch_constant_detection_is_scale_invariant():
+    slope = torch.linspace(-1.0, 1.0, 9, dtype=torch.float64)
+    for scale in (1.0, 1e-8, 1e-12):
+        X = torch.stack(
+            [torch.full_like(slope, scale), slope],
+            dim=1,
+        )
+        assert explicit_constant_column(X, xp=torch) == 0
 
 
 def test_stage_b_fama_macbeth_torch_cpu_r2_matches_numpy_without_ols_f():
