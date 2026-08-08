@@ -4,6 +4,12 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## 2026-08-08
 
+### PR #122 — Panel Tier-1 diagnostics Stage B
+
+- Added structured Panel `fit_statistics_` with parameter-based within/between/overall R², adjusted R², and classical model F statistics while preserving Stage-A inference and legacy df/R² attributes.
+- Added classical pooling F, one-way entity Breusch-Pagan LM (including Baltagi-Li unbalanced panels), and one-way classical FE-vs-RE Hausman with explicit applicability diagnostics.
+- Added NumPy/CuPy/Torch coverage, formula-row alignment, maintained Torch 2.0 CPU tests, executable linearmodels 7.0 definition alignment, and an exact-head physical GPU acceptance runner that rechecks coefficient inference as well as Stage-B diagnostics.
+
 ### PR #121 — CuPy inverse-quantile LUT correctness
 
 - Fixed CuPy `betaincinv` and `gammaincinv` LUT cache tuple ordering so inverse quantiles no longer collapse to boundary values and downstream confidence intervals retain their correct width.
