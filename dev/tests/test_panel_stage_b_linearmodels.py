@@ -4,7 +4,8 @@ This file is run in a dedicated CI job that installs linearmodels==7.0. It
 compares only quantities whose estimator parameterizations and transformed
 samples are intentionally aligned in Stage B. RandomEffects coefficients are
 excluded because statgpu's existing Swamy-Arora path is a preserved
-model-specific contract.
+model-specific contract; for RandomEffects we compare only structural
+diagnostic contracts that do not require coefficient equality.
 """
 
 from __future__ import annotations
@@ -24,9 +25,16 @@ from linearmodels.panel import (
     FirstDifferenceOLS as LMFirstDifferenceOLS,
     PanelOLS as LMPanelOLS,
     PooledOLS as LMPooledOLS,
+    RandomEffects as LMRandomEffects,
 )
 
-from statgpu.panel import BetweenOLS, FirstDifferenceOLS, PanelOLS, PooledOLS
+from statgpu.panel import (
+    BetweenOLS,
+    FirstDifferenceOLS,
+    PanelOLS,
+    PooledOLS,
+    RandomEffects,
+)
 
 
 def _panel(seed=1260, *, unbalanced=False):
@@ -193,6 +201,25 @@ def test_pooled_and_between_match_linearmodels_on_general_unbalanced_panel():
     )
     _assert_r2(sg_between.fit_statistics_, lm_between)
     _assert_model_f(sg_between.fit_statistics_, lm_between)
+
+
+def test_random_effects_explicit_constant_matches_linearmodels_f_df_structure():
+    X, y, entity, time = _panel(seed=1264, unbalanced=True)
+    y_lm, X_lm_const = _lm_data(X, y, entity, time, constant=True)
+    lm = LMRandomEffects(y_lm, X_lm_const).fit(
+        cov_type="unadjusted", debiased=True
+    )
+
+    X_const = np.column_stack([np.ones(X.shape[0]), X])
+    sg = RandomEffects().fit(X_const, y, entity_ids=entity)
+
+    assert sg.fit_statistics_.metadata["has_explicit_constant"] is True
+    assert sg.fit_statistics_.metadata["model_f"]["rank_restricted"] == 1
+    assert sg.fit_statistics_.metadata["model_f"]["restricted_design_supplied"] is True
+    assert sg.fit_statistics_.f_df == (
+        float(lm.f_statistic.df),
+        float(lm.f_statistic.df_denom),
+    )
 
 
 def test_first_difference_matches_linearmodels_when_transformed_sample_is_common():
