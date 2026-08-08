@@ -1,6 +1,6 @@
 """Executable external-definition alignment against linearmodels 7.0.
 
-This file is run in a dedicated CI job that installs linearmodels==7.0.  It
+This file is run in a dedicated CI job that installs linearmodels==7.0. It
 compares only quantities whose estimator parameterizations are intentionally
 aligned in Stage B. RandomEffects coefficients are excluded because statgpu's
 existing Swamy-Arora path is a preserved model-specific contract.
@@ -10,7 +10,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from numpy.testing import assert_allclose
+
+pytest.importorskip(
+    "linearmodels",
+    reason="linearmodels is an external Stage-B definition gate, not a base dependency",
+)
 
 from linearmodels.panel import (
     BetweenOLS as LMBetweenOLS,
