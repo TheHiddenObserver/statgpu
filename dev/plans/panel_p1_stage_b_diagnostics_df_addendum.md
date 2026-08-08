@@ -87,7 +87,11 @@ F = ((RSS_pool - RSS_FE) / df_num) / (RSS_FE / df_resid_diag_FE)
 
 This is equivalent to the external effect-rank formulation in the ordinary full-rank case and remains auditable under rank deficiency and disconnected two-way incidence graphs.
 
-Roundoff/material nesting-failure behavior from the main plan remains unchanged.
+The exact-fit boundary matches the classical model-F rule:
+
+- if `RSS_FE` is numerically zero while `RSS_pool - RSS_FE` is materially positive, report the limiting result `F = inf`, `p = 0` with the ordinary numerator/denominator df;
+- if both pooled and FE RSS are numerically zero, the ratio is indeterminate and the structured result remains inapplicable;
+- a materially negative nested-model RSS difference remains inapplicable rather than being clipped.
 
 ## R² constant convention clarification
 
@@ -96,6 +100,8 @@ For standardized parameter-based **overall** and **between** R², centering depe
 The common-constant projection used by the **pooling F test** is a separate nested-test construction and must not be reused as a general R² centering rule.
 
 For `RandomEffects`, an explicit nonzero constant column in the supplied level design is detected directly. The quasi-demeaned transformed version of that same column is retained as the restricted intercept design for adjusted R² and classical model F, including on unbalanced panels where the transformed intercept is not a vector of ones.
+
+Constant detection is **scale equivariant**: multiplying an identified nonzero constant column by any nonzero unit-conversion factor must not change whether it is classified as a constant. The tolerance is therefore relative to that column's own magnitude; there is no `max(1, scale)` absolute floor. An exactly zero column is not treated as an intercept.
 
 ## Normative post-review overrides
 
@@ -115,6 +121,18 @@ The authoritative Stage-B identity contract is:
 
 This bounded hashing transfer is an explicit exception to the early-plan statement that Hausman may transfer only O(k) fingerprint scalars. The statistical estimation, covariance construction, and fit-statistic reductions remain backend-native; the exception exists only to make the identity check collision-resistant.
 
+The full-content digest is constructed only when the fitted FE model is actually in the Stage-B Hausman domain: one-way entity FE with nonrobust covariance. Robust/clustered, time-only, and two-way FE are rejected before identity comparison and must not pay the full X/y host-hash cost. `RandomEffects` remains a potential Hausman input and therefore retains the identity contract.
+
+### Scale-equivariant numerical tolerances
+
+RSS, covariance matrices, and coefficient differences carry units. Numerical applicability/rank decisions must therefore be invariant to a change of units. In particular:
+
+- model-F and pooling-F RSS tolerances scale with the compared RSS values and do not use an absolute `max(1, RSS)` floor;
+- Hausman eigenvalue/range tolerances scale with the covariance/difference norms and do not impose a unit-sized absolute floor;
+- multiplying `y` and fitted coefficients by `c`, or multiplying a Hausman coefficient difference by `c` and its covariance difference by `c^2`, must leave the dimensionless test statistic/applicability unchanged up to floating-point roundoff.
+
+The ordinary dimensionless post-computation guard on a near-zero negative test statistic may retain a unit floor because the statistic itself is dimensionless.
+
 ### Classical model-F exact-fit boundary
 
 The early generic “unavailable when unrestricted RSS is zero” wording is too coarse. The final Stage-B contract is:
@@ -127,11 +145,17 @@ The early generic “unavailable when unrestricted RSS is zero” wording is too
 
 `RandomEffects` must detect an actual nonzero constant column in the supplied level design. Because Swamy-Arora quasi-demeaning transforms that column and an unbalanced panel generally does not leave a vector of ones, the transformed constant column itself is the restricted design for adjusted R²/model-F accounting. No implicit intercept is invented when the level design has none.
 
+Physical CUDA validation must include balanced and unbalanced explicit-constant RandomEffects cases, in addition to the ordinary no-explicit-constant cases, and must compare the constant/restricted-design metadata as well as numerical fit statistics.
+
 ## Review status
 
 - **[HIGH][INFER] fixed in specification** — Stage-B poolability/model-F inference no longer reuses a legacy FE residual df that differs from the standard nuisance-effect rank convention.
 - **[HIGH][INFER] fixed after review** — two-way FE nuisance rank uses the observed incidence-graph component count (`N + T - C`) instead of assuming every incomplete panel is connected.
 - **[HIGH][API/INFER] fixed after review** — Hausman identity uses a collision-resistant full-content digest; low-order moments alone are no longer accepted as proof of sample identity.
+- **[CRITICAL][INFER] fixed after fresh review** — F/Hausman applicability tolerances and explicit-constant detection are scale equivariant instead of imposing a unit-sized absolute floor.
+- **[HIGH][INFER] fixed after fresh review** — an exact FE fit with positive pooled RSS reports the limiting pooling `F=inf, p=0`; the both-zero case remains explicitly inapplicable.
+- **[HIGH][TEST/BACKEND] fixed locally after fresh review** — the physical runner includes balanced/unbalanced explicit-constant RandomEffects cases and checks the restricted-design contract; exact-head P100 execution is still required after the final code head is fixed.
+- **[MEDIUM][PERF] fixed/measurement pending** — FE fits outside the Hausman domain no longer build the full-content digest; a dedicated physical benchmark measures the remaining digest overhead for Hausman-compatible one-way FE/RE fits.
 - **[MEDIUM][INFER] fixed in specification** — FE adjusted R² uses nuisance-rank-consistent total df rather than provisional `n-1`.
 - **[MEDIUM][INFER] fixed in specification** — overall/between R² centering is explicitly separated from the pooling-F common-constant correction.
 - **[MEDIUM][INFER] fixed after review** — RandomEffects explicit-constant diagnostics retain the transformed intercept in the restricted fit-space definition.
