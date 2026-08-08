@@ -24,7 +24,10 @@ def test_physical_runner_covers_explicit_constant_re_balanced_and_unbalanced():
         )
 
         assert len(models) == expected_counts[name]
-        assert set(diagnostics) == {f"hausman_{name}"}
+        assert set(diagnostics) == {
+            f"hausman_{name}",
+            f"hausman_explicit_re_constant_{name}",
+        }
 
         case = f"random_effects_explicit_constant_{name}"
         assert case in models
@@ -37,14 +40,26 @@ def test_physical_runner_covers_explicit_constant_re_balanced_and_unbalanced():
             "model_f_restricted_design_supplied": True,
         }
 
+        absorbed = diagnostics[f"hausman_explicit_re_constant_{name}"]
+        assert "identity mismatch" not in (absorbed["reason"] or "")
+        assert "no common estimable slope" not in (absorbed["reason"] or "")
+
 
 def test_physical_runner_total_model_case_contract_is_seventeen():
     balanced = _dataset(20260808, unbalanced=False)
     unbalanced = _dataset(20260809, unbalanced=True)
-    balanced_models, _ = _fit_cases(*balanced, "numpy", unbalanced=False)
-    unbalanced_models, _ = _fit_cases(*unbalanced, "numpy", unbalanced=True)
+    balanced_models, balanced_diagnostics = _fit_cases(
+        *balanced, "numpy", unbalanced=False
+    )
+    unbalanced_models, unbalanced_diagnostics = _fit_cases(
+        *unbalanced, "numpy", unbalanced=True
+    )
 
     case_ids = set(balanced_models) | set(unbalanced_models)
+    diagnostic_ids = set(balanced_diagnostics) | set(unbalanced_diagnostics)
     assert len(case_ids) == 17
+    assert len(diagnostic_ids) == 4
     assert "random_effects_explicit_constant_balanced" in case_ids
     assert "random_effects_explicit_constant_unbalanced" in case_ids
+    assert "hausman_explicit_re_constant_balanced" in diagnostic_ids
+    assert "hausman_explicit_re_constant_unbalanced" in diagnostic_ids
