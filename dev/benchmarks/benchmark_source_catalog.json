@@ -132,6 +132,18 @@
       "reason": "Exact-head P100 focused correctness evidence for PR #116 is retained for audit but is intentionally not a dashboard timing source."
     },
     {
+      "rule_id": "pr122-panel-stage-b-physical-validation",
+      "priority": 20,
+      "path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
+      "classification": "not_canonical_ready",
+      "canonical_eligible": false,
+      "provenance_status": "validation_evidence",
+      "timing_protocol_status": "not_applicable",
+      "statistical_alignment_status": "accepted",
+      "issue": "#93",
+      "reason": "Exact-head P100 Stage-B correctness/backend-provenance evidence for PR #122 is retained as the immutable raw artifact; its normalized SHA-protected canonical validation-only source is registered separately in frontend_sources.json."
+    },
+    {
       "rule_id": "distribution-current-needs-audit",
       "priority": 30,
       "path": "results/distribution_bench_2026-06-21.json",
