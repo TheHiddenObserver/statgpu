@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.testing import assert_allclose
 
-from statgpu.panel import RandomEffects
+from statgpu.panel import PanelOLS, RandomEffects
 from statgpu.panel._diagnostic_context import (
     explicit_constant_column,
     fixed_effect_diagnostic_df,
@@ -20,8 +20,6 @@ from statgpu.panel._diagnostics import (
 
 
 def test_two_way_effect_rank_counts_disconnected_incidence_components():
-    # Two disconnected incidence components:
-    # {entities 0,1} x {times 0,1} and {entities 2,3} x {times 2,3}.
     entity = np.asarray([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
     time = np.asarray([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
     X_transformed = np.arange(1.0, 9.0).reshape(-1, 1)
@@ -46,8 +44,6 @@ def test_two_way_effect_rank_counts_disconnected_incidence_components():
 
 
 def test_hausman_identity_rejects_low_order_moment_collision():
-    # These response vectors have the same sum, sum of squares, and
-    # row-weighted sum.  The previous low-order fingerprint therefore collided.
     y_left = np.asarray([0.0, 1.0, 3.0, 2.0])
     y_right = np.asarray([0.0, 2.0, 1.0, 3.0])
     X = np.asarray(
@@ -232,3 +228,29 @@ def test_random_effects_without_constant_preserves_uncentered_diagnostic_basis()
     assert result.metadata["restricted_rank"] == 0
     assert result.metadata["model_f"].get("restricted_design_supplied") is None
     assert result.metadata["model_f"]["rank_restricted"] == 0
+
+
+def test_fe_full_content_identity_only_for_hausman_compatible_fits():
+    rng = np.random.default_rng(20260810)
+    entity = np.repeat(np.arange(6), 4)
+    time = np.tile(np.arange(4), 6)
+    X = rng.normal(size=(entity.size, 2))
+    y = X @ np.asarray([0.6, -0.25]) + np.repeat(
+        np.linspace(-0.4, 0.5, 6), 4
+    ) + rng.normal(scale=0.1, size=entity.size)
+
+    classical = PanelOLS(entity_effects=True, cov_type="nonrobust").fit(
+        X, y, entity_ids=entity
+    )
+    robust = PanelOLS(entity_effects=True, cov_type="robust").fit(
+        X, y, entity_ids=entity
+    )
+    two_way = PanelOLS(
+        entity_effects=True,
+        time_effects=True,
+        cov_type="nonrobust",
+    ).fit(X, y, entity_ids=entity, time_ids=time)
+
+    assert isinstance(classical._panel_diagnostic_identity, dict)
+    assert robust._panel_diagnostic_identity is None
+    assert two_way._panel_diagnostic_identity is None
