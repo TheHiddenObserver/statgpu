@@ -174,6 +174,12 @@ class BasePanelModel(BaseEstimator):
             allowed=allowed,
             hc1_correction=hc1_correction,
         )
+        # Stage B diagnostics (notably classical Hausman) need only the final
+        # small k x k covariance matrix. Persisting this host copy does not move
+        # observation-scale X/residual arrays off the selected backend and does
+        # not change any existing inference value or public covariance contract.
+        self._panel_cov_params = np.asarray(_to_numpy(cov_params), dtype=np.float64)
+
         diag = xp.diag(cov_params)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)
