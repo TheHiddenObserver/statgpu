@@ -19,6 +19,7 @@ from statgpu.backends import (
 )
 from statgpu.covariance._empirical import _detect_backend
 from statgpu.panel._base import BasePanelModel
+from statgpu.panel._utils import factorize_panel_labels
 
 
 def _stack(values, xp, axis=0):
@@ -38,9 +39,9 @@ def _finite_all(x, xp):
 class FamaMacBeth(BasePanelModel):
     """Fama-MacBeth two-pass regression estimator.
 
-    The beta-series covariance remains estimator-specific. Stage A only shares
-    neutral formula/index/summary lifecycle; it deliberately does not route this
-    estimator through the residual-based OLS covariance registry.
+    The beta-series covariance remains estimator-specific. Stage B adds only
+    parameter-based panel R-squared summaries; it deliberately does not route
+    this estimator through residual-based OLS covariance or model-F machinery.
     """
 
     def __init__(
@@ -59,6 +60,7 @@ class FamaMacBeth(BasePanelModel):
         self.min_obs_per_period = min_obs_per_period
         if self.cov_type not in ("nonrobust", "newey-west"):
             raise ValueError("cov_type must be 'nonrobust' or 'newey-west'")
+        self.fit_statistics_ = None
 
     def _validate_parameters(self):
         if self._cov_type not in ("nonrobust", "newey-west"):
@@ -80,8 +82,6 @@ class FamaMacBeth(BasePanelModel):
             raise ValueError("min_obs_per_period must be a positive integer")
 
     def _prepare_backend_arrays(self, X, y):
-        # Keep the established Fama-MacBeth backend selection because it also
-        # controls the backend-native prediction contract.
         backend_name = _detect_backend(X, self._get_compute_device())
         xp = _get_xp(backend_name)
         ref = None
@@ -106,10 +106,18 @@ class FamaMacBeth(BasePanelModel):
             raise ValueError("X and y must contain only finite values")
         return backend_name, xp, X_arr, y_arr
 
-    def fit(self, X=None, y=None, time_ids=None, formula=None, data=None):
+    def fit(
+        self,
+        X=None,
+        y=None,
+        time_ids=None,
+        formula=None,
+        data=None,
+        entity_ids=None,
+    ):
         self._validate_parameters()
         # Preserve current public behavior: time_ids must be explicitly supplied;
-        # FamaMacBeth does not infer it from formula tokens in Stage A.
+        # FamaMacBeth does not infer it from formula tokens in Stage B.
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
@@ -127,9 +135,10 @@ class FamaMacBeth(BasePanelModel):
             X,
             y,
             model_has_intercept=True,
-            side_arrays={"time_ids": time_ids},
+            side_arrays={"time_ids": time_ids, "entity_ids": entity_ids},
         )
         time_ids = aligned["time_ids"]
+        entity_ids = aligned["entity_ids"]
 
         backend_name, xp, X_arr, y_arr = self._prepare_backend_arrays(X_data, y_data)
         n_orig = int(X_arr.shape[0])
@@ -138,7 +147,19 @@ class FamaMacBeth(BasePanelModel):
             raise ValueError("time_ids must have one entry per observation")
         if np.any(np.asarray([x is None for x in tids_np], dtype=bool)):
             raise ValueError("time_ids must not contain missing values")
-        self._panel_set_index_info(n_orig, time_ids=tids_np)
+
+        entity_codes = None
+        if entity_ids is not None:
+            entity_codes, _ = factorize_panel_labels(
+                entity_ids,
+                xp,
+                ref_arr=X_arr,
+                name="entity_ids",
+                expected_n=n_orig,
+            )
+        self._panel_set_index_info(
+            n_orig, entity_ids=entity_ids, time_ids=tids_np
+        )
 
         _, time_codes = np.unique(tids_np, return_inverse=True)
         counts = np.bincount(time_codes)
@@ -225,6 +246,45 @@ class FamaMacBeth(BasePanelModel):
         self._backend_name = backend_name
         self._xp = xp
         self._fit_ref_ = X_arr
+
+        from statgpu.panel._diagnostics import _parameter_r2_components
+        from statgpu.panel._results import PanelFitStatistics
+
+        within, between, overall, degenerate = _parameter_r2_components(
+            y_arr,
+            X_design,
+            avg_beta,
+            xp=xp,
+            entity_codes=entity_codes,
+            has_constant=True,
+        )
+        unavailable = {
+            "rsquared_adj": (
+                "FamaMacBeth average-period adjusted R-squared is a distinct statistic "
+                "and is not defined in Stage B"
+            ),
+            "model_f": (
+                "FamaMacBeth beta-series joint inference is not a residual-OLS model F statistic"
+            ),
+        }
+        if entity_codes is None:
+            unavailable["within_between_r2"] = "entity_ids were not supplied"
+        self.fit_statistics_ = PanelFitStatistics(
+            rsquared_within=within,
+            rsquared_between=between,
+            rsquared_overall=overall,
+            rsquared_adj=None,
+            f_statistic=None,
+            f_pvalue=None,
+            f_df=None,
+            metadata={
+                "r2_definition": "parameter-based",
+                "fit_space": "average FamaMacBeth coefficient on level panel",
+                "degenerate_total_ss": degenerate,
+                "unavailable": unavailable,
+            },
+        )
+
         self._fitted = True
         return self
 
