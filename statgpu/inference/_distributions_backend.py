@@ -118,7 +118,7 @@ class CuPySpecialFunctions:
         if key not in self._betaincinv_lut:
             x_grid, y_grid = self._build_betaincinv_lut(af, bf, 20000)
             self._betaincinv_lut[key] = (cp.asarray(x_grid), cp.asarray(y_grid))
-        yg, xg = self._betaincinv_lut[key]
+        xg, yg = self._betaincinv_lut[key]
         idx = cp.searchsorted(yg, cp.clip(yt, 1e-15, 1.0 - 1e-15)).clip(1, len(yg) - 1)
         y0, y1 = yg[idx - 1], yg[idx]
         x0, x1 = xg[idx - 1], xg[idx]
@@ -182,7 +182,7 @@ class CuPySpecialFunctions:
         if key not in self._gammaincinv_lut:
             x_grid, y_grid = self._build_gammaincinv_lut(af, 20000)
             self._gammaincinv_lut[key] = (cp.asarray(x_grid), cp.asarray(y_grid))
-        yg, xg = self._gammaincinv_lut[key]
+        xg, yg = self._gammaincinv_lut[key]
         idx = cp.searchsorted(yg, cp.clip(qt, 1e-15, 1.0 - 1e-15)).clip(1, len(yg) - 1)
         y0, y1 = yg[idx - 1], yg[idx]
         x0, x1 = xg[idx - 1], xg[idx]
@@ -1784,7 +1784,7 @@ class BinomDistributionBase:
         valid = (k_floor >= 0.0) & (k_floor <= float(n_i)) & is_int
         k_safe = sf.clip(k_floor, 0.0, float(n_i))
         logcoef = sf.gammaln(n_i + 1.0) - sf.gammaln(k_safe + 1.0) - sf.gammaln(n_i - k_safe + 1.0)
-        logpmf = logcoef + k_safe * sf.log(sf.maximum(p_f, 1e-300)) + (n_i - k_safe) * sf.log(sf.maximum(1.0 - p_f, 1e-300))
+        logpmf = k_safe * sf.log(sf.maximum(p_f, 1e-300)) + (n_i - k_safe) * sf.log(sf.maximum(1.0 - p_f, 1e-300))
         return sf.where(valid, sf.exp(logpmf), 0.0)
 
     def cdf(self, k, n, p, *, loc=0):
