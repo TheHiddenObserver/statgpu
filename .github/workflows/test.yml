@@ -183,6 +183,7 @@ jobs:
           python -m pytest \
             dev/tests/test_logistic_cv_torch_dtype.py \
             dev/tests/test_panel_stage_a_torch_cpu.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
             -q --tb=short
 
   static-contracts:
