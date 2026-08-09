@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -12,28 +13,46 @@ SOURCE_PATH = (
     REPO_ROOT
     / "results"
     / "benchmark_frontend_sources"
-    / "panel_stage_b_pr122_p100_20260808.json"
+    / "panel_stage_b_pr122_p100_20260809.json"
 )
 RAW_SOURCE_PATH = (
     REPO_ROOT
     / "results"
     / "pr122_p100"
-    / "panel_stage_b_gpu_validation_faa95ce7.json"
+    / "panel_stage_b_gpu_validation_a57efcea.json"
 )
-EXPECTED_SHA256 = "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
-RAW_EXPECTED_SHA256 = "c1ba014a3b9bb0d32cbc0ca3d844ccfe767e7149189efb9ba2969f5bc1b94b31"
-SOURCE_ID = "panel-stage-b-pr122-20260808-b8caffa6f915"
-MEASUREMENT_SHA = "faa95ce7fb5cb204088957fbda5544c20a06fbfc"
+FOCUSED_SOURCE_PATH = (
+    REPO_ROOT
+    / "results"
+    / "pr122_p100"
+    / "panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json"
+)
+EXPECTED_SHA256 = "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
+RAW_EXPECTED_BLOB_SHA = "254b64776bff4e3b2b642bb4a2ae1eea25f4751c"
+FOCUSED_EXPECTED_BLOB_SHA = "3bda0b2040479ba8201e2722eb990ba086c3f3b9"
+SOURCE_ID = "panel-stage-b-pr122-20260809-a6e47b9dec9c"
+MEASUREMENT_SHA = "a57efcea29b0e87ecb89865c5a6902d5773812c6"
+ARTIFACT_COMMIT = "72b3279d2028e8ec2af30e138e123aceb611ae8c"
+ENV_ID = "remote-p100-pr122-20260809"
+
+
+def _git_blob_sha(path: Path) -> str:
+    raw = path.read_bytes()
+    header = f"blob {len(raw)}\0".encode("ascii")
+    return hashlib.sha1(header + raw).hexdigest()
 
 
 def test_pr122_physical_source_contract_and_hash() -> None:
     from dev.benchmarks.frontend_data.canonical import source_sha256
 
     data = json.loads(SOURCE_PATH.read_text(encoding="utf-8"))
+    focused = json.loads(FOCUSED_SOURCE_PATH.read_text(encoding="utf-8"))
+
     assert source_sha256(SOURCE_PATH) == EXPECTED_SHA256
-    assert source_sha256(RAW_SOURCE_PATH) == RAW_EXPECTED_SHA256
+    assert _git_blob_sha(RAW_SOURCE_PATH) == RAW_EXPECTED_BLOB_SHA
+    assert _git_blob_sha(FOCUSED_SOURCE_PATH) == FOCUSED_EXPECTED_BLOB_SHA
     assert data["source_schema_version"] == "1.0"
-    assert data["source_date"] == "2026-08-08"
+    assert data["source_date"] == "2026-08-09"
     assert data["git_sha"] == MEASUREMENT_SHA
     assert data["working_tree_clean"] is True
     assert data["status"] == "success"
@@ -47,8 +66,32 @@ def test_pr122_physical_source_contract_and_hash() -> None:
     assert data["compatibility_matrix"]["torch"]["diagnostics"] == "4/4"
     assert data["compatibility_matrix"]["cupy"]["cpu_fallback"] is False
     assert data["compatibility_matrix"]["torch"]["cpu_fallback"] is False
-    assert data["raw_artifact"]["path"] == str(RAW_SOURCE_PATH.relative_to(REPO_ROOT))
-    assert data["raw_artifact"]["sha256"] == RAW_EXPECTED_SHA256
+    assert data["compatibility_matrix"]["cupy"]["disconnected_fe"] == "pass"
+    assert data["compatibility_matrix"]["torch"]["disconnected_fe"] == "pass"
+
+    raw = data["raw_artifact"]
+    assert raw["path"] == str(RAW_SOURCE_PATH.relative_to(REPO_ROOT))
+    assert raw["repository_commit"] == ARTIFACT_COMMIT
+    assert raw["git_blob_sha"] == RAW_EXPECTED_BLOB_SHA
+
+    focused_meta = data["focused_artifact"]
+    assert focused_meta["path"] == str(FOCUSED_SOURCE_PATH.relative_to(REPO_ROOT))
+    assert focused_meta["repository_commit"] == ARTIFACT_COMMIT
+    assert focused_meta["git_blob_sha"] == FOCUSED_EXPECTED_BLOB_SHA
+    assert focused_meta["status"] == "success"
+
+    assert focused["git_sha"] == MEASUREMENT_SHA
+    assert focused["working_tree_clean"] is True
+    assert focused["status"] == "success"
+    assert focused["reference"]["legacy_df_resid"] == 0
+    assert focused["reference"]["df_resid"] == 1
+    assert focused["reference"]["diagnostic_df"]["effect_rank"] == 7
+    assert focused["reference"]["diagnostic_df"]["incidence_components"] == 3
+    assert focused["backend_results"]["cupy"]["executed_backend"] == "cupy"
+    assert focused["backend_results"]["torch"]["executed_backend"] == "torch"
+    assert focused["backend_results"]["cupy"]["status"] == "success"
+    assert focused["backend_results"]["torch"]["status"] == "success"
+    assert focused["backend_results"]["torch"]["differences_vs_numpy"]["conf_int"] < 1e-12
     assert data["environment"]["gpu"] == "Tesla P100-SXM2-16GB"
     assert data["environment"]["packages"]["cupy"] is None
 
@@ -59,7 +102,7 @@ def test_pr122_parser_emits_validation_only_frontend_runs() -> None:
     )
 
     runs, models, warnings = parse_panel_stage_b_physical_validation(
-        SOURCE_PATH, "remote-p100-pr122-20260808"
+        SOURCE_PATH, ENV_ID
     )
 
     assert warnings == []
@@ -124,13 +167,14 @@ def test_pr122_parser_is_registered_in_manifest() -> None:
     manifest = load_manifest(REPO_ROOT)
     assert manifest is not None
     entry = next(source for source in manifest["sources"] if source["source_id"] == SOURCE_ID)
-    assert entry["path"] == (
-        "results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260808.json"
-    )
+    assert entry["path"] == str(SOURCE_PATH.relative_to(REPO_ROOT))
     assert entry["original_path"] == str(RAW_SOURCE_PATH.relative_to(REPO_ROOT))
     assert entry["sha256"] == EXPECTED_SHA256
     assert entry["parser"] == "panel_stage_b_physical_validation"
     assert entry["parser_version"] == "1.0"
+    assert entry["env_id"] == ENV_ID
+    assert entry["source_date"] == "2026-08-09"
     assert entry["measurement_git_sha"] == MEASUREMENT_SHA
     assert entry["raw_git_sha"] == MEASUREMENT_SHA
-    assert RAW_EXPECTED_SHA256 in entry["provenance_note"]
+    assert RAW_EXPECTED_BLOB_SHA in entry["provenance_note"]
+    assert FOCUSED_EXPECTED_BLOB_SHA in entry["provenance_note"]
