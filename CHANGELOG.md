@@ -2,6 +2,13 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## 2026-08-09
+
+### PR #126 — Complete Panel Tier-1 Stage C covariance
+- Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance with NumPy/CuPy/Torch-native accumulation.
+- Preserved historical HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient estimates, and Stage-B diagnostics.
+- Added pinned statsmodels/linearmodels covariance checks plus exact-head physical GPU and performance validators; final P100 acceptance remains pending.
+
 ## 2026-08-08
 
 ### PR #122 — Panel Tier-1 diagnostics Stage B

@@ -5,6 +5,14 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）
+
+Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的前提下扩展 Panel Tier-1 inference。`robust` 继续表示历史 HC1；新增 `hc0`、`hc2`、`hc3` 按各 estimator 的实际 transformed fit space 计算。`RandomEffects` 在 quasi-demeaned GLS score 上新增 robust/HC、clustered 与 Driscoll-Kraay covariance。one-/two-way cluster 新增显式 `group_debias=True`；默认 clustered result 保持不变。`PooledOLS(cov_type="hac")` 仍是 legacy row-order Bartlett/Newey-West，不会被重解释为 Driscoll-Kraay。
+
+Driscoll-Kraay 的 full-rank scale 与 time-score aggregation 固定对齐 `linearmodels==7.0`，并支持 Bartlett、Parzen 与 Quadratic Spectral；QS 在 bandwidth 为正时对所有 observed lag 赋权。HC2/HC3 通过 analytic/statsmodels fit-space 结果检查，cluster/DK definition 通过 `linearmodels==7.0` 检查；另有 maintained Torch 2.0 CPU gate 覆盖 Stage-C covariance primitive 与 estimator integration。
+
+physical CUDA gate 与 hosted definition gate 明确分离：`dev/benchmarks/validate_panel_stage_c_gpu.py` 与 `dev/benchmarks/benchmark_panel_stage_c_covariance.py` 仍需在最终 exact clean implementation head 上执行。当前不宣称 GPU speedup，也不宣称最终 physical acceptance 已完成。
+
 ## 2026-08-08
 
 ### PR #122 — Panel Tier-1 diagnostics Stage B

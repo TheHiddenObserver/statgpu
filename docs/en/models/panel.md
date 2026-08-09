@@ -1,7 +1,7 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-08-08  
+> Last updated: 2026-08-09
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/panel.md)
 
@@ -18,7 +18,7 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-Stage B of the Tier-1 panel roadmap adds parameter-based fit statistics and three structured specification tests without changing the Stage-A coefficient, prediction, covariance-normalization, or legacy inference contracts.
+Stage C of the Tier-1 panel roadmap completes the residual-sandwich covariance layer on top of the Stage-B diagnostics: historical defaults remain unchanged, while HC0/HC2/HC3, robust RandomEffects inference, explicit cluster group debiasing, and Driscoll-Kraay covariance are added with NumPy/CuPy/Torch-native accumulation. Final physical CUDA acceptance for this PR remains a separate evidence gate until the exact-head artifact is recorded.
 
 ## Paths
 
@@ -38,6 +38,7 @@ from statgpu.panel import (
     clustered_covariance,
     two_way_clustered_covariance,
     hac_covariance,
+    driscoll_kraay_covariance,
 )
 ```
 
@@ -45,13 +46,13 @@ The diagnostic result classes and functions are also exported from top-level `st
 
 ## Model Summary
 
-| Model | Transformation | Main inference choices | Stage-B fit statistics |
+| Model | Transformation | Main inference choices | Standardized fit statistics |
 |---|---|---|---|
-| `PanelOLS` | Entity/time within transformation | nonrobust, HC1 robust, clustered | within/between/overall R², adjusted R², classical model F, pooling F |
-| `RandomEffects` | Swamy-Arora feasible GLS | nonrobust | within/between/overall R², adjusted R², classical model F, Hausman input |
-| `PooledOLS` | Stacked OLS | nonrobust, robust, clustered, HAC | overall R² always; within/between R² and BP-LM when `entity_ids` is supplied; adjusted R² and classical model F |
-| `BetweenOLS` | Entity means | nonrobust, robust | within/between/overall R², adjusted R², classical model F |
-| `FirstDifferenceOLS` | Within-entity first differences | nonrobust, robust | within/between/overall R², adjusted R² on the differenced fit space, classical model F |
+| `PanelOLS` | Entity/time within transformation | nonrobust; HC0/HC1/HC2/HC3; one-/two-way clustered; Driscoll-Kraay | within/between/overall R², adjusted R², classical model F, pooling F |
+| `RandomEffects` | Swamy-Arora feasible GLS | nonrobust; HC0/HC1/HC2/HC3; one-/two-way clustered; Driscoll-Kraay | within/between/overall R², adjusted R², classical model F, Hausman input when nonrobust |
+| `PooledOLS` | Stacked OLS | nonrobust; HC0/HC1/HC2/HC3; clustered; legacy row-HAC; Driscoll-Kraay | overall R² always; within/between R² and BP-LM with `entity_ids`; adjusted R² and classical model F |
+| `BetweenOLS` | Entity means | nonrobust; HC0/HC1/HC2/HC3 | within/between/overall R², adjusted R², classical model F |
+| `FirstDifferenceOLS` | Within-entity first differences | nonrobust; HC0/HC1/HC2/HC3 | within/between/overall R², adjusted R² on the differenced fit space, classical model F |
 | `FamaMacBeth` | Cross-sectional regressions by period | nonrobust, Newey-West | parameter-based within/between/overall R²; no residual-OLS adjusted R² or model F |
 
 ## Core Estimating Equations
@@ -74,17 +75,72 @@ $$
 
 where \(X^+\) denotes the inverse or Moore-Penrose pseudoinverse as required. `BetweenOLS` applies OLS to entity means, `FirstDifferenceOLS` applies OLS to Δ\(X\) and Δ\(y\), and `FamaMacBeth` averages period-specific coefficient vectors.
 
-## Covariance and Existing Inference
+## Stage-C Covariance and Inference
+
+Stage C is additive: coefficient estimation, Stage-B fit statistics, and the historical default inference remain unchanged. Covariance names are normalized as follows.
 
 | `cov_type` | Behavior |
 |---|---|
-| `"nonrobust"` | Classical OLS covariance and t-based inference |
-| `"robust"` | HC1 sandwich covariance and asymptotic normal inference |
-| `"clustered"` | Cluster-robust covariance where supported by the estimator |
-| `"hac"` | Bartlett/Newey-West HAC for `PooledOLS` |
-| `"newey-west"` | HAC applied to the `FamaMacBeth` coefficient path |
+| `"nonrobust"` | Classical fit-space OLS covariance with Student-t inference |
+| `"robust"`, `"hc1"` | The historical statgpu HC1 sandwich with asymptotic normal inference; `hc1` normalizes to canonical `robust` |
+| `"hc0"` | Unscaled Eicker-White sandwich on the estimator's actual fit-space regression |
+| `"hc2"`, `"hc3"` | Leverage-adjusted sandwich on the estimator's actual fit-space regression |
+| `"clustered"` | One- or two-way clustered sandwich; `group_debias=True` opt-in correction where supported |
+| `"driscoll-kraay"`, `"dk"`, `"kernel"` | Time-aggregated Driscoll-Kraay covariance with Bartlett, Parzen, or quadratic-spectral kernels |
+| `"hac"` | Historical row-order Bartlett/Newey-West covariance for `PooledOLS`; deliberately distinct from Driscoll-Kraay |
+| `"newey-west"` | Existing HAC on the `FamaMacBeth` coefficient path; not routed through the residual-OLS Stage-C layer |
 
-Stage B does not change existing `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, or estimator-specific covariance definitions. RandomEffects robust covariance, HC0/HC2/HC3, Driscoll-Kraay, and expanded cluster corrections remain later Stage-C work.
+### HC0/HC2/HC3 fit-space definition
+
+For the numerical regression actually used by an estimator, let `Z` be the fit-space design, `e` the fit-space residual vector, and `B=(Z'Z)^+`. The leverage is
+
+$$
+h_i=z_i^\top Bz_i.
+$$
+
+HC0 uses the meat $\sum_i z_i z_i^\top e_i^2$; HC2 divides each squared residual by $1-h_i$; HC3 divides by $(1-h_i)^2$. The implementation computes leverage rowwise and never materializes an `n x n` hat matrix. A numerically unit leverage makes HC2/HC3 undefined and raises rather than being clipped into a valid-looking covariance.
+
+The fit space is model-specific: pooled level design for `PooledOLS`, fixed-effect transformed slopes for `PanelOLS`, quasi-demeaned `X_star` for `RandomEffects`, entity means for `BetweenOLS`, and retained first differences for `FirstDifferenceOLS`. Consequently Panel HC2/HC3 is documented as **transformed-fit-space HC2/HC3**; it is not silently redefined as HC2/HC3 from a literal full dummy regression.
+
+### Cluster covariance and `group_debias`
+
+One-way clustering aggregates score vectors within a cluster. Two-way clustering uses inclusion-exclusion of cluster 1, cluster 2, and the exact paired-label intersection. The default `group_debias=False` preserves the historical statgpu clustered covariance. With `group_debias=True`, each component's meat is multiplied by
+
+$$
+\frac{G}{G-1}\frac{n-1}{n},
+$$
+
+using that component's own group count before two-way inclusion-exclusion. This changes covariance magnitude only; Stage C does not silently switch coefficient tests to a finite-group t reference. String/categorical cluster labels are metadata and are factorized without moving the numerical score matrix to CPU.
+
+### Driscoll-Kraay covariance
+
+Driscoll-Kraay first aggregates fit-space scores by observed time,
+
+$$
+g_t=\sum_i z_{it}e_{it},
+$$
+
+then applies a kernel HAC to the ordered `g_t` series. `PooledOLS` uses `time_index=`, while `PanelOLS` and `RandomEffects` use aligned `time_ids=`. Unbalanced panels are supported because each time aggregate contains only observed rows.
+
+For a full-rank fit-space design with `k` columns, Stage C uses the `linearmodels==7.0`-compatible debiased scale
+
+$$
+\mathrm{scale}_{DK}=\frac{n}{n-\mathrm{extra\_df}-k}.
+$$
+
+`PooledOLS` and `RandomEffects` use `extra_df=0`. `PanelOLS` uses the Stage-B standard fixed-effect nuisance rank (`N`, `T`, or `N+T-C`). If statgpu validly reaches a rank-deficient fit, the documented extension replaces `k` by the numerical rank and uses a pseudoinverse; this corner is not claimed to be a `linearmodels` equality case.
+
+`bandwidth=None` uses `floor(4*(T/100)^(2/9))`, where `T` is the number of distinct observed periods. Bartlett/Newey-West and Parzen/Gallant are truncated at the bandwidth. Quadratic Spectral (`qs`, Andrews) treats bandwidth as a smoothing scale and applies weights to **all observed lags** when bandwidth is positive; it is not truncated at `bw`.
+
+### RandomEffects covariance
+
+Stage C does not alter Swamy-Arora variance-component or coefficient estimation. Robust, HC, cluster, and Driscoll-Kraay covariance are computed from the quasi-demeaned GLS design `X_star` and residuals. Therefore changing `cov_type` changes only inference. The classical Stage-B Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman remains out of scope and returns a structured inapplicable result.
+
+### Backend and validation status
+
+HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
+
+Hosted Stage-C tests pin HC2/HC3 against analytic/statsmodels fit-space calculations and cluster/Driscoll-Kraay definitions against `linearmodels==7.0`. The exact-head CuPy/Torch physical correctness and performance artifacts are a separate acceptance gate and must be recorded before PR #126 is promoted from Draft.
 
 ### PooledOLS HAC ordering
 
@@ -238,6 +294,7 @@ Applicability rules are explicit:
 
 - FE must be one-way entity effects only;
 - the FE coefficient covariance must be classical/nonrobust;
+- the RE coefficient covariance must also be classical/nonrobust; Stage-C robust/HC/cluster/DK RE fits are not inputs to this classical test;
 - FE and RE must be fitted to the same aligned y/entity sample and the same canonical slope design;
 - an RE-only explicit constant is allowed because entity FE absorbs the common intercept; that constant is excluded from the Hausman coefficient vector;
 - row/sample compatibility uses a collision-resistant SHA-256 digest of every aligned float64 **slope-X/y** value plus the entity-code signature and canonical feature metadata, not only matching shapes or low-order moments;
@@ -258,7 +315,10 @@ If the covariance difference is positive semidefinite but rank-deficient, statgp
 PanelOLS(
     entity_effects=False,
     time_effects=False,
-    cov_type="nonrobust",
+    cov_type="nonrobust",  # robust/hc0/hc1/hc2/hc3/clustered/dk also supported
+    bandwidth=None,
+    kernel="bartlett",
+    group_debias=False,
     device="auto",
 )
 ```
@@ -273,10 +333,11 @@ Formula input can also request effects through the existing pipe syntax, for exa
 
 ```python
 PooledOLS(
-    cov_type="nonrobust",
+    cov_type="nonrobust",  # includes HC, clustered, legacy hac, and dk
     alpha=0.05,
     bandwidth=None,
     kernel="bartlett",
+    group_debias=False,
     device="auto",
 )
 ```
@@ -296,9 +357,15 @@ model.fit(
 ### Other models
 
 ```python
-RandomEffects(device="auto")
-BetweenOLS(cov_type="nonrobust", alpha=0.05, device="auto")
-FirstDifferenceOLS(cov_type="nonrobust", alpha=0.05, device="auto")
+RandomEffects(
+    device="auto",
+    cov_type="nonrobust",  # robust/hc0/hc1/hc2/hc3/clustered/dk
+    bandwidth=None,
+    kernel="bartlett",
+    group_debias=False,
+)
+BetweenOLS(cov_type="nonrobust", alpha=0.05, device="auto")  # HC0/1/2/3 supported
+FirstDifferenceOLS(cov_type="nonrobust", alpha=0.05, device="auto")  # HC0/1/2/3 supported
 FamaMacBeth(
     cov_type="newey-west",
     bandwidth=None,

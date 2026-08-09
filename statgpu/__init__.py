@@ -60,6 +60,7 @@ from .panel import (
     pooling_f_test,
     breusch_pagan_lm_test,
     hac_covariance,
+    driscoll_kraay_covariance,
 )
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .metrics import evaluate_binary_classification
@@ -191,6 +192,7 @@ __all__ = [
     "pooling_f_test",
     "breusch_pagan_lm_test",
     "hac_covariance",
+    "driscoll_kraay_covariance",
     # Backends
     "get_backend",
     "NumpyBackend",

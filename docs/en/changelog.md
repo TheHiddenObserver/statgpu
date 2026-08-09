@@ -5,6 +5,14 @@
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
+## 2026-08-09 — Panel Stage C covariance completion (PR #126)
+
+Stage C extends the Panel Tier-1 inference layer without changing estimator coefficients or the Stage-B diagnostic definitions. `robust` remains the historical HC1 contract; new `hc0`, `hc2`, and `hc3` use each estimator's actual transformed fit space. `RandomEffects` now supports robust/HC, clustered, and Driscoll-Kraay covariance on the quasi-demeaned GLS scores. One-/two-way clustering gains opt-in `group_debias=True`; the default clustered result is unchanged. `PooledOLS(cov_type="hac")` remains the legacy row-order Bartlett/Newey-West path and is not reinterpreted as Driscoll-Kraay.
+
+Driscoll-Kraay follows the pinned `linearmodels==7.0` full-rank scaling and time-score aggregation, with Bartlett, Parzen, and quadratic-spectral kernels. QS uses all observed lags when bandwidth is positive. HC2/HC3 are checked against analytic/statsmodels fit-space calculations, and cluster/DK definitions are checked against `linearmodels==7.0`. A separate maintained Torch 2.0 CPU gate covers Stage-C covariance primitives and estimator integrations.
+
+The physical CUDA gate is intentionally separate: `dev/benchmarks/validate_panel_stage_c_gpu.py` and `dev/benchmarks/benchmark_panel_stage_c_covariance.py` must be run on the final exact clean implementation head before PR #126 can leave Draft. No GPU speedup or final physical-acceptance claim is made here yet.
+
 ## 2026-08-08
 
 ### PR #122 — Panel Tier-1 diagnostics Stage B
