@@ -303,9 +303,9 @@ def test_panel_stage_b_physical_validation_is_published_without_timing(canonical
         run
         for run in output["runs"]
         if run["source"]["source_id"]
-        == "panel-stage-b-pr122-20260809-a6e47b9dec9c"
+        == "panel-stage-b-pr122-20260809-2056f836bfe2"
     ]
-    assert len(rows) == 42
+    assert len(rows) == 44
     assert {run["backend"] for run in rows} == {"cupy", "torch"}
     assert {run["model_id"] for run in rows} == {
         "PooledOLS",
@@ -320,16 +320,37 @@ def test_panel_stage_b_physical_validation_is_published_without_timing(canonical
     assert all("speedup" not in run["metrics"] for run in rows)
     assert all(
         run["parameters"]["measurement_git_sha"]
-        == "a57efcea29b0e87ecb89865c5a6902d5773812c6"
+        == "2701aa9feb3796c33c94e6480fcb78c80c6a809c"
         for run in rows
     )
 
     hausman = [run for run in rows if run["parameters"].get("diagnostic") == "hausman"]
-    assert len(hausman) == 8
-    assert all(run["parameters"]["applicable"] is False for run in hausman)
+    assert len(hausman) == 10
+    applicable = [
+        run
+        for run in hausman
+        if run["parameters"].get("diagnostic_fixture") == "nonzero-effect-applicable"
+    ]
+    assert len(applicable) == 2
+    assert {run["backend"] for run in applicable} == {"cupy", "torch"}
+    assert all(run["parameters"]["applicable"] is True for run in applicable)
+    assert {run["parameters"]["df"] for run in applicable} == {1.0}
+    assert all(run["parameters"]["statistic"] >= 0.0 for run in applicable)
+    assert all(0.0 <= run["parameters"]["pvalue"] <= 1.0 for run in applicable)
+
+    inapplicable = [run for run in hausman if run not in applicable]
+    assert len(inapplicable) == 8
+    assert all(run["parameters"]["applicable"] is False for run in inapplicable)
     assert {run["parameters"]["parameterization"] for run in hausman} == {
         "standard",
         "re-explicit-constant",
+    }
+    assert {run["variant"] for run in hausman} == {
+        "hausman-balanced",
+        "hausman-unbalanced",
+        "hausman-re-explicit-constant-balanced",
+        "hausman-re-explicit-constant-unbalanced",
+        "hausman-applicable-nonzero-effect",
     }
 
 
@@ -389,8 +410,8 @@ def test_unsupervised_exposes_complete_source_matrix(canonical_output):
 
 def test_generated_bundle_has_expected_complete_run_count(canonical_output):
     output, report, _, _ = canonical_output
-    assert len(output["runs"]) == 1860
-    assert report["runs_generated"] == 1860
+    assert len(output["runs"]) == 1862
+    assert report["runs_generated"] == 1862
 
 
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
