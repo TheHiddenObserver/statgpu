@@ -1,0 +1,22 @@
+{
+  "test_pooled_dk_estimator_matches_linearmodels_full_integration": {
+    "returncode": 0,
+    "stdout_tail": ".                                                                        [100%]\n1 passed in 2.24s\n",
+    "stderr_tail": ""
+  },
+  "test_pooled_group_debiased_cluster_estimator_matches_linearmodels": {
+    "returncode": 0,
+    "stdout_tail": ".                                                                        [100%]\n1 passed in 1.20s\n",
+    "stderr_tail": ""
+  },
+  "test_one_way_panel_dk_matches_linearmodels_effect_df_integration": {
+    "returncode": 0,
+    "stdout_tail": ".                                                                        [100%]\n1 passed in 1.25s\n",
+    "stderr_tail": ""
+  },
+  "test_two_way_panel_dk_matches_linearmodels_effect_df_integration": {
+    "returncode": 0,
+    "stdout_tail": ".                                                                        [100%]\n1 passed in 1.28s\n",
+    "stderr_tail": ""
+  }
+}
