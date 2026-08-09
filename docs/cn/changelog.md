@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-08<br>
+> 最后更新：2026-08-09<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -14,8 +14,8 @@
 - 新增 fixed-effects classical pooling F、one-way entity error-components Breusch-Pagan LM（包含 Baltagi-Li unbalanced-panel 公式）以及 classical one-way entity FE-vs-RE Hausman。计量上不适用的情况返回结构化 reason；Hausman covariance difference 若为奇异 PSD，则使用明确记录的 generalized-inverse/rank extension；若实质 indefinite，则直接报告不可用。
 - `PooledOLS.fit()` 与 `FamaMacBeth.fit()` 的可选 `entity_ids` 只用于 Stage-B within/between fit statistics 和 panel BP-LM。Pooled HAC 稳定排序现在让 entity diagnostic metadata 与 X/y 使用完全相同的 permutation；formula missing-row filtering 也会在形成 diagnostics 前对齐 observation-level side arrays。
 - 增加 analytic/fitted regression、维护中的 Python 3.9 + Torch 2.0 CPU parity，以及可执行的 `linearmodels==7.0` definition-alignment job。FirstDifference 的外部比较只在两边 transformed sample 定义一致的 panel 上执行；Stage B 不会为了 external gate 静默改变 Stage-A 对内部缺期采用 adjacent-observed-row differencing 的既有契约。
-- 新增 `dev/benchmarks/validate_panel_stage_b_gpu.py` 作为 exact-head physical correctness/provenance gate。最终 schema-2 物理运行已在精确 clean implementation head `faa95ce7fb5cb204088957fbda5544c20a06fbfc` 上通过，环境为 Tesla P100-SXM2-16GB 与 Python 3.9.16：CuPy 与 Torch CUDA 各自通过全部 17 个 estimator case 和 4 个 Hausman diagnostic，无 CPU fallback。explicit-constant RandomEffects 相对 NumPy 的最大 coefficient difference 为 `2.22e-16`，所有 RandomEffects diagnostic contract 都与 NumPy 完全一致。raw metadata 报告 PyTorch 2.0.0；CuPy package-version lookup 为 `null`，因此不再沿用旧运行中的 CuPy 版本信息。
-- 已将 exact-head raw artifact `results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json`（SHA-256 `c1ba014a3b9bb0d32cbc0ca3d844ccfe767e7149189efb9ba2969f5bc1b94b31`）提升为受 SHA 保护的 canonical validation-only frontend source。dashboard 现在发布 42 条 Stage-B validation row：34 条 estimator/backend row 与 8 条 Hausman/backend row；不伪造 timing 或 speedup 字段，并区分 standard Hausman 与 RE-explicit-constant Hausman parameterization。
+- 新增 `dev/benchmarks/validate_panel_stage_b_gpu.py` 作为 exact-head physical correctness/provenance gate。此前在数值实现 `a57efcea29b0e87ecb89865c5a6902d5773812c6` 上接受的 P100 artifact 继续作为不可变的历史证据保留：CuPy 与 Torch 各自通过全部 17 个 estimator case，requested/executed backend 一致且无 fallback；focused disconnected two-way FE artifact 也把 df=1 inference boundary 验证到机器精度。该运行中每个 backend 的 4 个 Hausman parameterization 都是正确的结构化 `applicable=false` case，因此它们验证了 applicability/reason parity，但没有在物理 GPU 上执行 applicable Hausman 的 statistic/p-value/df 路径。
+- Ready-for-review 审计因此重新打开 physical gate。当前 runner 新增一个确定性的 48-observation、one-slope、nonzero-entity-effect fitted FE/RE fixture；它在 hosted NumPy reference 上稳定为 Hausman applicable，并要求每个 CuPy/Torch 物理 backend 对 FE/RE coefficient、diagnostic covariance、Hausman statistic、p-value 和 df 与 NumPy 做一致性验证。历史 `panel_stage_b_pr122_p100_20260809.json` 继续作为此前运行的不可变 42-row 记录；PR #122 的最终接受现在要求新的 exact-head P100 run，随后生成新的 44-row canonical source 并刷新 frontend assets。当前 hard exit：`PARTIAL_REMOTE_PENDING`。
 
 关联：Issue #93 与 pull request #122。
 
