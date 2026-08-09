@@ -39,6 +39,9 @@ on:
       - 'results/benchmark_frontend_sources/**'
       - 'pyproject.toml'
 
+permissions:
+  contents: write
+
 concurrency:
   group: benchmark-frontend-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -98,6 +101,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -118,6 +124,37 @@ jobs:
           cd frontend
           npm ci
           npm run build
+      - name: Commit PR122 generated benchmark assets
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.number == 122 &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
+          printf '%s\n' "$status"
+          unexpected="$(printf '%s\n' "$status" | grep -Ev '^( M|M |\?\?) (frontend/public/data/(benchmark_data|parse_report|source_inventory)\.json|docs/assets/benchmarks/data/(benchmark_data|parse_report|source_inventory)\.json)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected generated changes:"
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+          git add \
+            frontend/public/data/benchmark_data.json \
+            frontend/public/data/parse_report.json \
+            frontend/public/data/source_inventory.json \
+            docs/assets/benchmarks/data/benchmark_data.json \
+            docs/assets/benchmarks/data/parse_report.json \
+            docs/assets/benchmarks/data/source_inventory.json
+          if git diff --cached --quiet; then
+            echo "Generated assets already current."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'benchmark: refresh PR122 frontend evidence assets'
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
       - name: Check staleness
         run: |
           changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
