@@ -96,6 +96,23 @@ class BasePanelModel(BaseEstimator):
         self._panel_index_info = info
         return info
 
+    def set_params(self, **params):
+        """Set estimator parameters and refresh panel covariance aliases.
+
+        ``BaseEstimator`` deliberately preserves the exact user-supplied public
+        constructor value for sklearn constructor identity.  Panel covariance
+        dispatch, however, uses the normalized private ``_cov_type`` runtime
+        value.  Refresh only that private value after sklearn-style parameter
+        updates so ``hc1``/``dk``/``kernel`` behave exactly like direct
+        construction without changing the public raw parameter.
+        """
+        result = super().set_params(**params)
+        if "cov_type" in params and hasattr(self, "cov_type"):
+            from statgpu.panel._covariance import normalize_covariance_type
+
+            self._cov_type = normalize_covariance_type(self.cov_type)
+        return result
+
     @property
     def _panel_cov_params(self):
         """Return the small covariance matrix used by Stage-B diagnostics.
