@@ -180,35 +180,48 @@ class BasePanelModel(BaseEstimator):
         backend,
         cov_type,
         cluster=None,
+        time_ids=None,
         bandwidth=None,
         kernel="bartlett",
+        group_debias: bool = False,
+        extra_df: int = 0,
         allowed=None,
         hc1_correction=None,
         distribution_df=None,
         diag_floor=1e-30,
     ):
-        """Store existing residual-based OLS inference from the shared registry."""
+        """Store residual-based OLS inference from the shared covariance registry."""
         from statgpu.inference._distributions_backend import get_distribution
-        from statgpu.panel._covariance import ols_covariance
+        from statgpu.panel._covariance import (
+            normalize_covariance_type,
+            ols_covariance,
+        )
 
         xp = backend.xp
+        canonical_cov_type = normalize_covariance_type(cov_type)
+        covariance_metadata: dict = {}
         cov_params = ols_covariance(
             X,
             resid,
-            cov_type=cov_type,
+            cov_type=canonical_cov_type,
             scale=scale,
             df_resid=df_resid,
             cluster=cluster,
+            time_ids=time_ids,
             bandwidth=bandwidth,
             kernel=kernel,
+            group_debias=group_debias,
+            extra_df=extra_df,
             xp=xp,
             allowed=allowed,
             hc1_correction=hc1_correction,
+            metadata=covariance_metadata,
         )
+        self._covariance_metadata = covariance_metadata
         # Persist only the final k x k matrix. Observation-scale X/residual arrays
         # remain on the selected backend. `_panel_cov_params` exposes the
         # diagnostic version and may rescale this raw copy after fit metadata is
-        # available; public Stage-A inference values below always use cov_params.
+        # available; public inference values below always use cov_params.
         self._panel_cov_params_raw = np.asarray(
             _to_numpy(cov_params), dtype=np.float64
         )
@@ -223,7 +236,7 @@ class BasePanelModel(BaseEstimator):
             denominator = xp_maximum(bse_dev, np.finfo(np.float64).tiny, xp)
             tvalues_dev = params / denominator
 
-        dist_name = "t" if str(cov_type).lower() == "nonrobust" else "norm"
+        dist_name = "t" if canonical_cov_type == "nonrobust" else "norm"
         df = int(df_resid if distribution_df is None else distribution_df)
         if dist_name == "t" and df == 1:
             # Student-t with one residual degree of freedom is exactly a
