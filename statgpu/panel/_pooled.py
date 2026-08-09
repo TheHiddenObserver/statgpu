@@ -34,9 +34,9 @@ def _panel_lstsq(X, y, xp):
 class PooledOLS(BasePanelModel):
     """Pooled OLS estimator for panel data.
 
-    Runs OLS on the pooled (stacked) panel data without any demeaning
-    or transformation. Supports the existing nonrobust, HC1 robust,
-    clustered, and HAC covariance estimators.
+    Runs OLS on the pooled stacked panel. ``robust`` preserves the historical
+    HC1 contract, while Stage C adds HC0/HC2/HC3 and Driscoll-Kraay. ``hac``
+    remains the legacy row-order Newey-West covariance.
     """
 
     def __init__(
@@ -47,16 +47,34 @@ class PooledOLS(BasePanelModel):
         kernel: str = "bartlett",
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
+        *,
+        group_debias: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
-        self.cov_type = cov_type.lower()
+        from statgpu.panel._covariance import normalize_covariance_type
+
+        self.cov_type = normalize_covariance_type(cov_type)
         self.alpha = alpha
         self.bandwidth = bandwidth
         self.kernel = kernel
-        if self.cov_type not in ("nonrobust", "robust", "clustered", "hac"):
+        self.group_debias = group_debias
+        allowed = {
+            "nonrobust",
+            "robust",
+            "hc0",
+            "hc2",
+            "hc3",
+            "clustered",
+            "hac",
+            "driscoll-kraay",
+        }
+        if self.cov_type not in allowed:
             raise ValueError(
-                "cov_type must be 'nonrobust', 'robust', 'clustered', or 'hac'"
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', "
+                "'hc2', 'hc3', 'clustered', 'hac', 'driscoll-kraay', 'dk', or 'kernel'"
             )
+        if not isinstance(group_debias, (bool, np.bool_)):
+            raise ValueError("group_debias must be boolean")
         self.fit_statistics_ = None
 
     def fit(
@@ -71,9 +89,10 @@ class PooledOLS(BasePanelModel):
     ):
         """Fit the pooled OLS model.
 
-        ``entity_ids`` is optional and does not affect coefficients.  When
+        ``entity_ids`` is optional and does not affect coefficients. When
         supplied it enables Stage-B within/between R² and the one-way panel
-        Breusch-Pagan random-effects LM diagnostic.
+        Breusch-Pagan random-effects LM diagnostic. ``time_index`` supplies the
+        legacy row-HAC order and the Stage-C Driscoll-Kraay time grouping.
         """
         (
             y_data,
@@ -110,10 +129,15 @@ class PooledOLS(BasePanelModel):
                 expected_n=X_arr.shape[0],
             )
 
-        # HAC depends on temporal ordering. Metadata may remain on CPU, while
-        # the numerical arrays are reordered on their selected backend. Stage B
-        # carries entity diagnostic codes through the identical permutation so
-        # BP/R² sufficient statistics cannot become misaligned with residuals.
+        if self._cov_type == "clustered" and cluster is None:
+            raise ValueError("cluster is required for cov_type='clustered'")
+        if self._cov_type == "driscoll-kraay" and time_index is None:
+            raise ValueError("time_index is required for Driscoll-Kraay covariance")
+        if bool(self.group_debias) and self._cov_type != "clustered":
+            raise ValueError("group_debias=True requires cov_type='clustered'")
+
+        # Preserve the legacy HAC ordering exactly. Driscoll-Kraay deliberately
+        # does not use this row-order path: it aggregates scores by time label.
         if self._cov_type == "hac" and time_index is not None:
             time_values = np.asarray(_to_numpy(time_index))
             if time_values.ndim != 1 or time_values.shape[0] != X_arr.shape[0]:
@@ -145,17 +169,14 @@ class PooledOLS(BasePanelModel):
 
         cluster_for_cov = cluster
         if self._cov_type == "clustered":
-            if cluster is None:
-                raise ValueError("cluster is required for cov_type='clustered'")
-            # Preserve the existing validation/factorization behavior before
-            # delegating to the shared covariance registry.
-            cluster_for_cov, _ = factorize_panel_labels(
-                cluster,
-                xp,
-                ref_arr=X_arr,
-                name="cluster",
-                expected_n=n,
-            )
+            cluster_np = np.asarray(_to_numpy(cluster))
+            if cluster_np.ndim not in (1, 2) or cluster_np.shape[0] != n:
+                raise ValueError(
+                    "cluster must have n_samples rows and one or two cluster dimensions"
+                )
+            if cluster_np.ndim == 2 and cluster_np.shape[1] not in (1, 2):
+                raise ValueError("cluster must contain one or two cluster dimensions")
+            cluster_for_cov = cluster_np
 
         self._panel_store_ols_inference(
             X_arr,
@@ -166,9 +187,21 @@ class PooledOLS(BasePanelModel):
             backend=backend,
             cov_type=self._cov_type,
             cluster=cluster_for_cov,
+            time_ids=time_index,
             bandwidth=self.bandwidth,
             kernel=self.kernel,
-            allowed=("nonrobust", "robust", "clustered", "hac"),
+            group_debias=bool(self.group_debias),
+            extra_df=0,
+            allowed=(
+                "nonrobust",
+                "robust",
+                "hc0",
+                "hc2",
+                "hc3",
+                "clustered",
+                "hac",
+                "driscoll-kraay",
+            ),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
             # PooledOLS historically used sqrt(diag(V)) without clipping.
