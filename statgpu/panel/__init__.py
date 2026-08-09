@@ -8,7 +8,12 @@ fit/test results, and panel covariance estimators.
 
 from ._fixed_effects import PanelOLS, FixedEffects
 from ._random_effects import RandomEffects, RandomEffectsOLS
-from ._covariance import clustered_covariance, two_way_clustered_covariance, hac_covariance
+from ._covariance import (
+    clustered_covariance,
+    two_way_clustered_covariance,
+    hac_covariance,
+    driscoll_kraay_covariance,
+)
 from ._utils import PanelSummary
 from ._results import PanelTestResult, PanelFitStatistics
 from ._diagnostics import hausman_test, pooling_f_test, breusch_pagan_lm_test
@@ -35,4 +40,5 @@ __all__ = [
     'clustered_covariance',
     'two_way_clustered_covariance',
     'hac_covariance',
+    'driscoll_kraay_covariance',
 ]
