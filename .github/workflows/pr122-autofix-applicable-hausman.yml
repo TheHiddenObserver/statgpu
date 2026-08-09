@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  autofix:
+  scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,31 +23,63 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Patch physical Hausman coverage gate
-        run: python -c "import base64; exec(base64.b64decode('CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKcnVubmVyX3BhdGggPSBQYXRoKCJkZXYvYmVuY2htYXJrcy92YWxpZGF0ZV9wYW5lbF9zdGFnZV9iX2dwdS5weSIpCnJ1bm5lciA9IHJ1bm5lcl9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKQoKYW5jaG9yID0gIiAgICByZXR1cm4gY2FzZXMsIGRpYWdub3N0aWNzXG5cblxuZGVmIF9zY2FsYXJfZGlmZihhY3R1YWwsIGV4cGVjdGVkLCAqLCBydG9sLCBhdG9sLCBsYWJlbCk6XG4iCnJlcGxhY2VtZW50ID0gJycnICAgIHJldHVybiBjYXNlcywgZGlhZ25vc3RpY3MKCgpkZWYgX2hhdXNtYW5fYXBwbGljYWJsZV9kYXRhc2V0KHNlZWQ6IGludCk6CiAgICBcJ1wnXCdSZXR1cm4gYSBkZXRlcm1pbmlzdGljIG9uZS1zbG9wZSBwYW5lbCBmb3IgdGhlIGFwcGxpY2FibGUgSGF1c21hbiBnYXRlLlwnXCdcJwogICAgcm5nID0gbnAucmFuZG9tLmRlZmF1bHRfcm5nKHNlZWQpCiAgICBuX2VudGl0aWVzLCBuX3RpbWVzID0gMzIsIDgKICAgIGVudGl0eSA9IG5wLnJlcGVhdChucC5hcmFuZ2Uobl9lbnRpdGllcyksIG5fdGltZXMpCiAgICB0aW1lID0gbnAudGlsZShucC5hcmFuZ2Uobl90aW1lcyksIG5fZW50aXRpZXMpCiAgICBYID0gcm5nLm5vcm1hbChzaXplPShlbnRpdHkuc2l6ZSwgMSkpCiAgICByYW5kb21fZWZmZWN0ID0gbnAucmVwZWF0KHJuZy5ub3JtYWwoc2NhbGU9MC42NSwgc2l6ZT1uX2VudGl0aWVzKSwgbl90aW1lcykKICAgIHkgPSAoCiAgICAgICAgMC44ICogWFs6LCAwXQogICAgICAgICsgcmFuZG9tX2VmZmVjdAogICAgICAgICsgcm5nLm5vcm1hbChzY2FsZT0wLjIsIHNpemU9ZW50aXR5LnNpemUpCiAgICApCiAgICByZXR1cm4gWC5hc3R5cGUobnAuZmxvYXQ2NCksIHkuYXN0eXBlKG5wLmZsb2F0NjQpLCBlbnRpdHksIHRpbWUKCgpkZWYgX2ZpbmRfYXBwbGljYWJsZV9oYXVzbWFuX2ZpeHR1cmUoKiwgc3RhcnRfc2VlZD0yMDI2MDgxMCwgbWF4X2F0dGVtcHRzPTI1Nik6CiAgICBcJ1wnXCdGaW5kIGEgYm91bmRlZCBkZXRlcm1pbmlzdGljIGZpdHRlZCBGRS9SRSBmaXh0dXJlIHdpdGggYXBwbGljYWJsZSBIYXVzbWFuLlwnXCdcJwogICAgYmVzdCA9IE5vbmUKICAgIGZvciBzZWVkIGluIHJhbmdlKGludChzdGFydF9zZWVkKSwgaW50KHN0YXJ0X3NlZWQpICsgaW50KG1heF9hdHRlbXB0cykpOgogICAgICAgIFgsIHksIGVudGl0eSwgdGltZSA9IF9oYXVzbWFuX2FwcGxpY2FibGVfZGF0YXNldChzZWVkKQogICAgICAgIGZlID0gUGFuZWxPTFMoZW50aXR5X2VmZmVjdHM9VHJ1ZSwgY292X3R5cGU9Im5vbnJvYnVzdCIsIGRldmljZT0iY3B1IikuZml0KAogICAgICAgICAgICBYLCB5LCBlbnRpdHlfaWRzPWVudGl0eQogICAgICAgICkKICAgICAgICByZSA9IFJhbmRvbUVmZmVjdHMoZGV2aWNlPSJjcHUiKS5maXQoWCwgeSwgZW50aXR5X2lkcz1lbnRpdHkpCiAgICAgICAgcmVzdWx0ID0gX3Rlc3RfcmVzdWx0KGZlLmhhdXNtYW5fdGVzdChyZSkpCiAgICAgICAgdmFyaWFuY2VfZGlmZmVyZW5jZSA9IGZsb2F0KAogICAgICAgICAgICBucC5hc2FycmF5KGZlLl9wYW5lbF9jb3ZfcGFyYW1zLCBkdHlwZT1ucC5mbG9hdDY0KVswLCAwXQogICAgICAgICAgICAtIG5wLmFzYXJyYXkocmUuX3BhbmVsX2Nvdl9wYXJhbXMsIGR0eXBlPW5wLmZsb2F0NjQpWzAsIDBdCiAgICAgICAgKQogICAgICAgIGlmIGJlc3QgaXMgTm9uZSBvciB2YXJpYW5jZV9kaWZmZXJlbmNlID4gYmVzdFsidmFyaWFuY2VfZGlmZmVyZW5jZSJdOgogICAgICAgICAgICBiZXN0ID0gewogICAgICAgICAgICAgICAgInNlZWQiOiBpbnQoc2VlZCksCiAgICAgICAgICAgICAgICAidmFyaWFuY2VfZGlmZmVyZW5jZSI6IHZhcmlhbmNlX2RpZmZlcmVuY2UsCiAgICAgICAgICAgICAgICAicmVhc29uIjogcmVzdWx0WyJyZWFzb24iXSwKICAgICAgICAgICAgfQogICAgICAgIGlmICgKICAgICAgICAgICAgcmVzdWx0WyJhcHBsaWNhYmxlIl0KICAgICAgICAgICAgYW5kIHJlc3VsdFsic3RhdGlzdGljIl0gaXMgbm90IE5vbmUKICAgICAgICAgICAgYW5kIHJlc3VsdFsicHZhbHVlIl0gaXMgbm90IE5vbmUKICAgICAgICAgICAgYW5kIHJlc3VsdFsiZGYiXSBpcyBub3QgTm9uZQogICAgICAgICAgICBhbmQgbnAuaXNmaW5pdGUoZmxvYXQocmVzdWx0WyJzdGF0aXN0aWMiXSkpCiAgICAgICAgICAgIGFuZCBucC5pc2Zpbml0ZShmbG9hdChyZXN1bHRbInB2YWx1ZSJdKSkKICAgICAgICAgICAgYW5kIGZsb2F0KHJlc3VsdFsiZGYiXSkgPiAwLjAKICAgICAgICApOgogICAgICAgICAgICByZXR1cm4gewogICAgICAgICAgICAgICAgInNlZWQiOiBpbnQoc2VlZCksCiAgICAgICAgICAgICAgICAiWCI6IFgsCiAgICAgICAgICAgICAgICAieSI6IHksCiAgICAgICAgICAgICAgICAiZW50aXR5IjogZW50aXR5LAogICAgICAgICAgICAgICAgInRpbWUiOiB0aW1lLAogICAgICAgICAgICAgICAgInJlZmVyZW5jZSI6IHJlc3VsdCwKICAgICAgICAgICAgICAgICJ2YXJpYW5jZV9kaWZmZXJlbmNlIjogdmFyaWFuY2VfZGlmZmVyZW5jZSwKICAgICAgICAgICAgfQogICAgcmFpc2UgUnVudGltZUVycm9yKAogICAgICAgICJ1bmFibGUgdG8gZmluZCBhbiBhcHBsaWNhYmxlIEhhdXNtYW4gZml4dHVyZSB3aXRoaW4gdGhlIGJvdW5kZWQgc2VlZCBzZWFyY2g7ICIKICAgICAgICBmImJlc3Q9e2Jlc3R9IgogICAgKQoKCmRlZiBfcmVxdWlyZV9hcHBsaWNhYmxlX2hhdXNtYW5fY292ZXJhZ2UoZGlhZ25vc3RpY3MsICosIGJhY2tlbmQpOgogICAgXCdcJ1wnUmVxdWlyZSBhdCBsZWFzdCBvbmUgcGh5c2ljYWxseSBleGVjdXRlZCBhcHBsaWNhYmxlIEhhdXNtYW4gZGlhZ25vc3RpYy5cJ1wnXCcKICAgIGFwcGxpY2FibGUgPSBzb3J0ZWQoCiAgICAgICAgbmFtZQogICAgICAgIGZvciBuYW1lLCBwYXlsb2FkIGluIGRpYWdub3N0aWNzLml0ZW1zKCkKICAgICAgICBpZiBwYXlsb2FkLmdldCgiYXBwbGljYWJsZSIpIGlzIFRydWUKICAgICkKICAgIGlmIG5vdCBhcHBsaWNhYmxlOgogICAgICAgIHJhaXNlIEFzc2VydGlvbkVycm9yKAogICAgICAgICAgICBmIntiYWNrZW5kfTogcGh5c2ljYWwgSGF1c21hbiBnYXRlIHJlcXVpcmVzIGF0IGxlYXN0IG9uZSBhcHBsaWNhYmxlIGNhc2UiCiAgICAgICAgKQogICAgcmV0dXJuIGFwcGxpY2FibGUKCgpkZWYgX3NjYWxhcl9kaWZmKGFjdHVhbCwgZXhwZWN0ZWQsICosIHJ0b2wsIGF0b2wsIGxhYmVsKToKJycnCmlmIGFuY2hvciBub3QgaW4gcnVubmVyOgogICAgcmFpc2UgU3lzdGVtRXhpdCgicnVubmVyIGhlbHBlciBhbmNob3Igbm90IGZvdW5kIikKcnVubmVyID0gcnVubmVyLnJlcGxhY2UoYW5jaG9yLCByZXBsYWNlbWVudCwgMSkKCmFuY2hvciA9ICIgICAgICAgIHJlZmVyZW5jZV9kaWFnbm9zdGljcy51cGRhdGUoZGlhZ25vc3RpY3MpXG5cbiAgICByZXN1bHRzID0ge31cbiIKcmVwbGFjZW1lbnQgPSAnJycgICAgICAgIHJlZmVyZW5jZV9kaWFnbm9zdGljcy51cGRhdGUoZGlhZ25vc3RpY3MpCgogICAgYXBwbGljYWJsZV9maXh0dXJlID0gX2ZpbmRfYXBwbGljYWJsZV9oYXVzbWFuX2ZpeHR1cmUoKQogICAgcmVmZXJlbmNlX2RpYWdub3N0aWNzWyJoYXVzbWFuX2FwcGxpY2FibGVfcGh5c2ljYWwiXSA9IGFwcGxpY2FibGVfZml4dHVyZVsKICAgICAgICAicmVmZXJlbmNlIgogICAgXQoKICAgIHJlc3VsdHMgPSB7fQonJycKaWYgYW5jaG9yIG5vdCBpbiBydW5uZXI6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJyZWZlcmVuY2UgZml4dHVyZSBhbmNob3Igbm90IGZvdW5kIikKcnVubmVyID0gcnVubmVyLnJlcGxhY2UoYW5jaG9yLCByZXBsYWNlbWVudCwgMSkKCmFuY2hvciA9ICIgICAgICAgIHJlc3VsdHNbYmFja2VuZF0gPSBiYWNrZW5kX3BheWxvYWRcblxuICAgIHBheWxvYWQgPSB7XG4iCnJlcGxhY2VtZW50ID0gJycnICAgICAgICBYZiA9IGFwcGxpY2FibGVfZml4dHVyZVsiWCJdCiAgICAgICAgeWYgPSBhcHBsaWNhYmxlX2ZpeHR1cmVbInkiXQogICAgICAgIGVmID0gYXBwbGljYWJsZV9maXh0dXJlWyJlbnRpdHkiXQogICAgICAgIHRmID0gYXBwbGljYWJsZV9maXh0dXJlWyJ0aW1lIl0KICAgICAgICBYZmIsIHlmYiwgZWZiLCBfID0gX3RvX2JhY2tlbmRfYXJyYXlzKFhmLCB5ZiwgZWYsIHRmLCBiYWNrZW5kKQogICAgICAgIGRldmljZSA9IF9kZXZpY2VfYXJnKGJhY2tlbmQpCiAgICAgICAgZmVfYXBwbGljYWJsZSA9IFBhbmVsT0xTKAogICAgICAgICAgICBlbnRpdHlfZWZmZWN0cz1UcnVlLAogICAgICAgICAgICBjb3ZfdHlwZT0ibm9ucm9idXN0IiwKICAgICAgICAgICAgZGV2aWNlPWRldmljZSwKICAgICAgICApLmZpdChYZmIsIHlmYiwgZW50aXR5X2lkcz1lZmIpCiAgICAgICAgcmVfYXBwbGljYWJsZSA9IFJhbmRvbUVmZmVjdHMoZGV2aWNlPWRldmljZSkuZml0KFhmYiwgeWZiLCBlbnRpdHlfaWRzPWVmYikKICAgICAgICBmb3IgbW9kZWxfbmFtZSwgbW9kZWwgaW4gKAogICAgICAgICAgICAoImhhdXNtYW5fYXBwbGljYWJsZV9mZSIsIGZlX2FwcGxpY2FibGUpLAogICAgICAgICAgICAoImhhdXNtYW5fYXBwbGljYWJsZV9yZSIsIHJlX2FwcGxpY2FibGUpLAogICAgICAgICk6CiAgICAgICAgICAgIGFjdHVhbF9iYWNrZW5kID0gX2JhY2tlbmRfbmFtZShtb2RlbCkKICAgICAgICAgICAgaWYgYWN0dWFsX2JhY2tlbmQgIT0gYmFja2VuZDoKICAgICAgICAgICAgICAgIHJhaXNlIEFzc2VydGlvbkVycm9yKAogICAgICAgICAgICAgICAgICAgIGYie21vZGVsX25hbWV9OiByZXF1ZXN0ZWQge2JhY2tlbmR9LCBleGVjdXRlZCB7YWN0dWFsX2JhY2tlbmR9IgogICAgICAgICAgICAgICAgKQoKICAgICAgICBhcHBsaWNhYmxlX3Jlc3VsdCA9IF90ZXN0X3Jlc3VsdCgKICAgICAgICAgICAgZmVfYXBwbGljYWJsZS5oYXVzbWFuX3Rlc3QocmVfYXBwbGljYWJsZSkKICAgICAgICApCiAgICAgICAgaWYgbm90IGFwcGxpY2FibGVfcmVzdWx0WyJhcHBsaWNhYmxlIl06CiAgICAgICAgICAgIHJhaXNlIEFzc2VydGlvbkVycm9yKAogICAgICAgICAgICAgICAgZiJoYXVzbWFuX2FwcGxpY2FibGVfcGh5c2ljYWwgdW5leHBlY3RlZGx5IGluYXBwbGljYWJsZSBvbiB7YmFja2VuZH06ICIKICAgICAgICAgICAgICAgIGYie2FwcGxpY2FibGVfcmVzdWx0WydyZWFzb24nXX0iCiAgICAgICAgICAgICkKICAgICAgICBkaWZmZXJlbmNlcyA9IF9jb21wYXJlX3Rlc3RfcmVzdWx0KAogICAgICAgICAgICByZWZlcmVuY2VfZGlhZ25vc3RpY3NbImhhdXNtYW5fYXBwbGljYWJsZV9waHlzaWNhbCJdLAogICAgICAgICAgICBhcHBsaWNhYmxlX3Jlc3VsdCwKICAgICAgICAgICAgcnRvbD1hcmdzLnJ0b2wsCiAgICAgICAgICAgIGF0b2w9YXJncy5hdG9sLAogICAgICAgICAgICBsYWJlbD0iaGF1c21hbl9hcHBsaWNhYmxlX3BoeXNpY2FsIiwKICAgICAgICApCiAgICAgICAgYmFja2VuZF9wYXlsb2FkWyJkaWFnbm9zdGljcyJdWyJoYXVzbWFuX2FwcGxpY2FibGVfcGh5c2ljYWwiXSA9IHsKICAgICAgICAgICAgInN0YXR1cyI6ICJzdWNjZXNzIiwKICAgICAgICAgICAgIm1heF9hYnNfZGlmZmVyZW5jZXMiOiBkaWZmZXJlbmNlcywKICAgICAgICAgICAgImFwcGxpY2FibGUiOiBUcnVlLAogICAgICAgICAgICAicmVhc29uIjogYXBwbGljYWJsZV9yZXN1bHRbInJlYXNvbiJdLAogICAgICAgICAgICAiZml4dHVyZV9zZWVkIjogYXBwbGljYWJsZV9maXh0dXJlWyJzZWVkIl0sCiAgICAgICAgICAgICJub2JzIjogaW50KGxlbih5ZikpLAogICAgICAgICAgICAidmFyaWFuY2VfZGlmZmVyZW5jZSI6IGFwcGxpY2FibGVfZml4dHVyZVsidmFyaWFuY2VfZGlmZmVyZW5jZSJdLAogICAgICAgIH0KICAgICAgICBfcmVxdWlyZV9hcHBsaWNhYmxlX2hhdXNtYW5fY292ZXJhZ2UoCiAgICAgICAgICAgIGJhY2tlbmRfcGF5bG9hZFsiZGlhZ25vc3RpY3MiXSwgYmFja2VuZD1iYWNrZW5kCiAgICAgICAgKQogICAgICAgIHJlc3VsdHNbYmFja2VuZF0gPSBiYWNrZW5kX3BheWxvYWQKCiAgICBwYXlsb2FkID0gewonJycKaWYgYW5jaG9yIG5vdCBpbiBydW5uZXI6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJiYWNrZW5kIGNvdmVyYWdlIGFuY2hvciBub3QgZm91bmQiKQpydW5uZXIgPSBydW5uZXIucmVwbGFjZShhbmNob3IsIHJlcGxhY2VtZW50LCAxKQoKYW5jaG9yID0gJycnICAgICAgICAiZGF0YXNldHMiOiB7CiAgICAgICAgICAgIG5hbWU6IHsibm9icyI6IGludChsZW4odmFsdWVzWzFdKSl9CiAgICAgICAgICAgIGZvciBuYW1lLCB2YWx1ZXMgaW4gZGF0YXNldHMuaXRlbXMoKQogICAgICAgIH0sCicnJwpyZXBsYWNlbWVudCA9ICcnJyAgICAgICAgImRhdGFzZXRzIjogewogICAgICAgICAgICAqKnsKICAgICAgICAgICAgICAgIG5hbWU6IHsibm9icyI6IGludChsZW4odmFsdWVzWzFdKSl9CiAgICAgICAgICAgICAgICBmb3IgbmFtZSwgdmFsdWVzIGluIGRhdGFzZXRzLml0ZW1zKCkKICAgICAgICAgICAgfSwKICAgICAgICAgICAgImhhdXNtYW5fYXBwbGljYWJsZSI6IHsKICAgICAgICAgICAgICAgICJub2JzIjogaW50KGxlbihhcHBsaWNhYmxlX2ZpeHR1cmVbInkiXSkpLAogICAgICAgICAgICAgICAgInNlZWQiOiBhcHBsaWNhYmxlX2ZpeHR1cmVbInNlZWQiXSwKICAgICAgICAgICAgICAgICJ2YXJpYW5jZV9kaWZmZXJlbmNlIjogYXBwbGljYWJsZV9maXh0dXJlWyJ2YXJpYW5jZV9kaWZmZXJlbmNlIl0sCiAgICAgICAgICAgIH0sCiAgICAgICAgfSwKJycnCmlmIGFuY2hvciBub3QgaW4gcnVubmVyOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiZGF0YXNldCBtZXRhZGF0YSBhbmNob3Igbm90IGZvdW5kIikKcnVubmVyID0gcnVubmVyLnJlcGxhY2UoYW5jaG9yLCByZXBsYWNlbWVudCwgMSkKcnVubmVyX3BhdGgud3JpdGVfdGV4dChydW5uZXIsIGVuY29kaW5nPSJ1dGYtOCIpCgp0ZXN0X3BhdGggPSBQYXRoKCJkZXYvdGVzdHMvdGVzdF9wYW5lbF9zdGFnZV9iX3BoeXNpY2FsX3J1bm5lcl9jb250cmFjdC5weSIpCnRlc3QgPSB0ZXN0X3BhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCnRlc3QgPSB0ZXN0LnJlcGxhY2UoCiAgICAiZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9uc1xuXG5mcm9tIGRldi5iZW5jaG1hcmtzLnZhbGlkYXRlX3BhbmVsX3N0YWdlX2JfZ3B1IGltcG9ydCAoXG4iLAogICAgImZyb20gX19mdXR1cmVfXyBpbXBvcnQgYW5ub3RhdGlvbnNcblxuaW1wb3J0IG51bXB5IGFzIG5wXG5pbXBvcnQgcHl0ZXN0XG5cbmZyb20gZGV2LmJlbmNobWFya3MudmFsaWRhdGVfcGFuZWxfc3RhZ2VfYl9ncHUgaW1wb3J0IChcbiIsCiAgICAxLAopCnRlc3QgPSB0ZXN0LnJlcGxhY2UoCiAgICAiICAgIF9kYXRhc2V0LFxuICAgIF9maXRfY2FzZXMsXG4gICAgX21vZGVsX3NuYXBzaG90LFxuIiwKICAgICIgICAgX2RhdGFzZXQsXG4gICAgX2ZpbmRfYXBwbGljYWJsZV9oYXVzbWFuX2ZpeHR1cmUsXG4gICAgX2ZpdF9jYXNlcyxcbiAgICBfbW9kZWxfc25hcHNob3QsXG4gICAgX3JlcXVpcmVfYXBwbGljYWJsZV9oYXVzbWFuX2NvdmVyYWdlLFxuIiwKICAgIDEsCikKdGVzdCArPSAnJycKCgpkZWYgdGVzdF9waHlzaWNhbF9ydW5uZXJfZmluZHNfYXBwbGljYWJsZV9oYXVzbWFuX3JlZmVyZW5jZV9maXh0dXJlKCk6CiAgICBmaXh0dXJlID0gX2ZpbmRfYXBwbGljYWJsZV9oYXVzbWFuX2ZpeHR1cmUoKQogICAgcmVzdWx0ID0gZml4dHVyZVsicmVmZXJlbmNlIl0KCiAgICBhc3NlcnQgcmVzdWx0WyJhcHBsaWNhYmxlIl0gaXMgVHJ1ZQogICAgYXNzZXJ0IHJlc3VsdFsicmVhc29uIl0gaXMgTm9uZQogICAgYXNzZXJ0IHJlc3VsdFsiZGYiXSA9PSAxLjAKICAgIGFzc2VydCBucC5pc2Zpbml0ZShmbG9hdChyZXN1bHRbInN0YXRpc3RpYyJdKSkKICAgIGFzc2VydCBucC5pc2Zpbml0ZShmbG9hdChyZXN1bHRbInB2YWx1ZSJdKSkKICAgIGFzc2VydCBmaXh0dXJlWyJ2YXJpYW5jZV9kaWZmZXJlbmNlIl0gPiAwLjAKICAgIGFzc2VydCBmaXh0dXJlWyJYIl0uc2hhcGVbMV0gPT0gMQogICAgYXNzZXJ0IGZpeHR1cmVbIlgiXS5zaGFwZVswXSA9PSBmaXh0dXJlWyJ5Il0uc2hhcGVbMF0KICAgIGFzc2VydCBmaXh0dXJlWyJlbnRpdHkiXS5zaGFwZVswXSA9PSBmaXh0dXJlWyJ5Il0uc2hhcGVbMF0KCgpkZWYgdGVzdF9waHlzaWNhbF9ydW5uZXJfcmVxdWlyZXNfYXBwbGljYWJsZV9oYXVzbWFuX3Blcl9iYWNrZW5kKCk6CiAgICB3aXRoIHB5dGVzdC5yYWlzZXMoQXNzZXJ0aW9uRXJyb3IsIG1hdGNoPSJyZXF1aXJlcyBhdCBsZWFzdCBvbmUgYXBwbGljYWJsZSIpOgogICAgICAgIF9yZXF1aXJlX2FwcGxpY2FibGVfaGF1c21hbl9jb3ZlcmFnZSgKICAgICAgICAgICAgewogICAgICAgICAgICAgICAgImhhdXNtYW5fYmFsYW5jZWQiOiB7ImFwcGxpY2FibGUiOiBGYWxzZX0sCiAgICAgICAgICAgICAgICAiaGF1c21hbl91bmJhbGFuY2VkIjogeyJhcHBsaWNhYmxlIjogRmFsc2V9LAogICAgICAgICAgICB9LAogICAgICAgICAgICBiYWNrZW5kPSJ0b3JjaCIsCiAgICAgICAgKQoKICAgIGFwcGxpY2FibGUgPSBfcmVxdWlyZV9hcHBsaWNhYmxlX2hhdXNtYW5fY292ZXJhZ2UoCiAgICAgICAgewogICAgICAgICAgICAiaGF1c21hbl9iYWxhbmNlZCI6IHsiYXBwbGljYWJsZSI6IEZhbHNlfSwKICAgICAgICAgICAgImhhdXNtYW5fYXBwbGljYWJsZV9waHlzaWNhbCI6IHsiYXBwbGljYWJsZSI6IFRydWV9LAogICAgICAgIH0sCiAgICAgICAgYmFja2VuZD0iY3VweSIsCiAgICApCiAgICBhc3NlcnQgYXBwbGljYWJsZSA9PSBbImhhdXNtYW5fYXBwbGljYWJsZV9waHlzaWNhbCJdCicnJwp0ZXN0X3BhdGgud3JpdGVfdGV4dCh0ZXN0LCBlbmNvZGluZz0idXRmLTgiKQo='))"
-
-      - name: Install targeted test dependencies
+      - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+          python -m pip install -e .
 
-      - name: Run targeted Stage-B review gates
+      - name: Scan fitted Hausman regimes
         run: |
-          python -m pytest -q \
-            dev/tests/test_panel_stage_b_physical_runner_contract.py \
-            dev/tests/test_panel_stage_b_diagnostics.py \
-            dev/tests/test_panel_stage_b_hausman_covariance.py \
-            dev/tests/test_panel_stage_b_review_regressions.py
-          git diff --check
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel import PanelOLS, RandomEffects
 
-      - name: Commit focused fix and remove temporary workflow
-        run: |
-          rm .github/workflows/pr122-autofix-applicable-hausman.yml
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add dev/benchmarks/validate_panel_stage_b_gpu.py \
-                  dev/tests/test_panel_stage_b_physical_runner_contract.py \
-                  .github/workflows/pr122-autofix-applicable-hausman.yml
-          git commit -m 'test: require applicable Hausman GPU coverage'
-          git push origin HEAD:agent/panel-p1-stage-b-diagnostics
+          best = None
+          for n_entities in (12, 24, 32, 48):
+              for n_times in (4, 6, 8, 12):
+                  entity = np.repeat(np.arange(n_entities), n_times)
+                  for effect_scale in (0.0, 0.01, 0.03, 0.08, 0.2, 0.5):
+                      for noise_scale in (0.1, 0.2, 0.5, 1.0):
+                          for seed in range(20260810, 20260850):
+                              rng = np.random.default_rng(seed)
+                              X = rng.normal(size=(entity.size, 1))
+                              alpha = np.repeat(
+                                  rng.normal(scale=effect_scale, size=n_entities),
+                                  n_times,
+                              )
+                              y = 0.8 * X[:, 0] + alpha + rng.normal(
+                                  scale=noise_scale, size=entity.size
+                              )
+                              fe = PanelOLS(
+                                  entity_effects=True,
+                                  cov_type='nonrobust',
+                                  device='cpu',
+                              ).fit(X, y, entity_ids=entity)
+                              re = RandomEffects(device='cpu').fit(
+                                  X, y, entity_ids=entity
+                              )
+                              result = fe.hausman_test(re)
+                              dvar = float(
+                                  np.asarray(fe._panel_cov_params)[0, 0]
+                                  - np.asarray(re._panel_cov_params)[0, 0]
+                              )
+                              candidate = (
+                                  dvar,
+                                  n_entities,
+                                  n_times,
+                                  effect_scale,
+                                  noise_scale,
+                                  seed,
+                                  result.applicable,
+                                  result.statistic,
+                                  result.pvalue,
+                                  result.df,
+                                  result.reason,
+                              )
+                              if best is None or dvar > best[0]:
+                                  best = candidate
+                              if result.applicable:
+                                  print('FOUND', candidate)
+                                  raise SystemExit(0)
+          print('BEST', best)
+          raise SystemExit('no applicable fitted Hausman fixture found')
+          PY
