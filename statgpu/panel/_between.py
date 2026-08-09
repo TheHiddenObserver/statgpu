@@ -20,6 +20,39 @@ class BetweenOLS(BasePanelModel):
     Collapses the data to entity means and runs OLS on the collapsed data.
     An intercept is added automatically. Stage C adds transformed-fit-space
     HC0/HC2/HC3 covariance while preserving the historical HC1 ``robust`` path.
+
+    Parameters
+    ----------
+    cov_type : {'nonrobust', 'robust', 'hc0', 'hc1', 'hc2', 'hc3'}, default='nonrobust'
+        Covariance estimator. ``robust`` and ``hc1`` are the same historical
+        HC1 contract; HC2/HC3 use leverage from the entity-mean fit-space design.
+    alpha : float, default=0.05
+        Significance level for confidence intervals.
+    device : str or Device, default='auto'
+        Computation device.
+    n_jobs : int or None, default=None
+        Optional parallelism hint retained by the shared estimator contract.
+
+    Attributes
+    ----------
+    coef_ : ndarray, shape (k,)
+        Estimated coefficients, including the automatically added intercept.
+    bse_ : ndarray, shape (k,)
+        Standard errors.
+    tvalues_ : ndarray, shape (k,)
+        Coefficient test statistics.
+    pvalues_ : ndarray, shape (k,)
+        Coefficient p-values.
+    conf_int_ : ndarray, shape (k, 2)
+        Confidence intervals.
+    rsquared : float
+        R-squared of the entity-mean regression.
+    nobs : int
+        Number of entity-mean observations (groups).
+    df_resid : int
+        Residual degrees of freedom of the legacy between regression.
+    fit_statistics_ : PanelFitStatistics or None
+        Standardized Stage-B panel fit statistics populated after ``fit``.
     """
 
     def __init__(
