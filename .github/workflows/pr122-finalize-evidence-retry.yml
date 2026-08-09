@@ -17,70 +17,18 @@ jobs:
         with:
           fetch-depth: 0
       - name: Update Stage-B domain coverage contract
+        env:
+          REPLACEMENT_B64: ZGVmIHRlc3RfcGFuZWxfc3RhZ2VfYl9waHlzaWNhbF92YWxpZGF0aW9uX2lzX3B1Ymxpc2hlZF93aXRob3V0X3RpbWluZyhjYW5vbmljYWxfb3V0cHV0KToKICAgIG91dHB1dCwgXywgXywgXyA9IGNhbm9uaWNhbF9vdXRwdXQKICAgIHJvd3MgPSBbCiAgICAgICAgcnVuCiAgICAgICAgZm9yIHJ1biBpbiBvdXRwdXRbInJ1bnMiXQogICAgICAgIGlmIHJ1blsic291cmNlIl1bInNvdXJjZV9pZCJdCiAgICAgICAgPT0gInBhbmVsLXN0YWdlLWItcHIxMjItMjAyNjA4MDktMjA1NmY4MzZiZmUyIgogICAgXQogICAgYXNzZXJ0IGxlbihyb3dzKSA9PSA0NAogICAgYXNzZXJ0IHtydW5bImJhY2tlbmQiXSBmb3IgcnVuIGluIHJvd3N9ID09IHsiY3VweSIsICJ0b3JjaCJ9CiAgICBhc3NlcnQge3J1blsibW9kZWxfaWQiXSBmb3IgcnVuIGluIHJvd3N9ID09IHsKICAgICAgICAiUG9vbGVkT0xTIiwKICAgICAgICAiQmV0d2Vlbk9MUyIsCiAgICAgICAgIkZpcnN0RGlmZmVyZW5jZU9MUyIsCiAgICAgICAgIlBhbmVsT0xTIiwKICAgICAgICAiUmFuZG9tRWZmZWN0cyIsCiAgICAgICAgIkZhbWFNYWNCZXRoIiwKICAgIH0KICAgIGFzc2VydCBhbGwocnVuWyJtZXRyaWNzIl1bInZhbGlkYXRpb24iXVsic3RhdHVzIl0gPT0gInBhc3MiIGZvciBydW4gaW4gcm93cykKICAgIGFzc2VydCBhbGwoInRpbWluZyIgbm90IGluIHJ1blsibWV0cmljcyJdIGZvciBydW4gaW4gcm93cykKICAgIGFzc2VydCBhbGwoInNwZWVkdXAiIG5vdCBpbiBydW5bIm1ldHJpY3MiXSBmb3IgcnVuIGluIHJvd3MpCiAgICBhc3NlcnQgYWxsKAogICAgICAgIHJ1blsicGFyYW1ldGVycyJdWyJtZWFzdXJlbWVudF9naXRfc2hhIl0KICAgICAgICA9PSAiMjcwMWFhOWZlYjM3OTZjMzNjOTRlNjQ4MGZjYjc4YzgwYzZhODA5YyIKICAgICAgICBmb3IgcnVuIGluIHJvd3MKICAgICkKCiAgICBoYXVzbWFuID0gW3J1biBmb3IgcnVuIGluIHJvd3MgaWYgcnVuWyJwYXJhbWV0ZXJzIl0uZ2V0KCJkaWFnbm9zdGljIikgPT0gImhhdXNtYW4iXQogICAgYXNzZXJ0IGxlbihoYXVzbWFuKSA9PSAxMAogICAgYXBwbGljYWJsZSA9IFsKICAgICAgICBydW4KICAgICAgICBmb3IgcnVuIGluIGhhdXNtYW4KICAgICAgICBpZiBydW5bInBhcmFtZXRlcnMiXS5nZXQoImRpYWdub3N0aWNfZml4dHVyZSIpID09ICJub256ZXJvLWVmZmVjdC1hcHBsaWNhYmxlIgogICAgXQogICAgYXNzZXJ0IGxlbihhcHBsaWNhYmxlKSA9PSAyCiAgICBhc3NlcnQge3J1blsiYmFja2VuZCJdIGZvciBydW4gaW4gYXBwbGljYWJsZX0gPT0geyJjdXB5IiwgInRvcmNoIn0KICAgIGFzc2VydCBhbGwocnVuWyJwYXJhbWV0ZXJzIl1bImFwcGxpY2FibGUiXSBpcyBUcnVlIGZvciBydW4gaW4gYXBwbGljYWJsZSkKICAgIGFzc2VydCB7cnVuWyJwYXJhbWV0ZXJzIl1bImRmIl0gZm9yIHJ1biBpbiBhcHBsaWNhYmxlfSA9PSB7MS4wfQogICAgYXNzZXJ0IGFsbChydW5bInBhcmFtZXRlcnMiXVsic3RhdGlzdGljIl0gPj0gMC4wIGZvciBydW4gaW4gYXBwbGljYWJsZSkKICAgIGFzc2VydCBhbGwoMC4wIDw9IHJ1blsicGFyYW1ldGVycyJdWyJwdmFsdWUiXSA8PSAxLjAgZm9yIHJ1biBpbiBhcHBsaWNhYmxlKQoKICAgIGluYXBwbGljYWJsZSA9IFtydW4gZm9yIHJ1biBpbiBoYXVzbWFuIGlmIHJ1biBub3QgaW4gYXBwbGljYWJsZV0KICAgIGFzc2VydCBsZW4oaW5hcHBsaWNhYmxlKSA9PSA4CiAgICBhc3NlcnQgYWxsKHJ1blsicGFyYW1ldGVycyJdWyJhcHBsaWNhYmxlIl0gaXMgRmFsc2UgZm9yIHJ1biBpbiBpbmFwcGxpY2FibGUpCiAgICBhc3NlcnQge3J1blsicGFyYW1ldGVycyJdWyJwYXJhbWV0ZXJpemF0aW9uIl0gZm9yIHJ1biBpbiBoYXVzbWFufSA9PSB7CiAgICAgICAgInN0YW5kYXJkIiwKICAgICAgICAicmUtZXhwbGljaXQtY29uc3RhbnQiLAogICAgfQogICAgYXNzZXJ0IHtydW5bInZhcmlhbnQiXSBmb3IgcnVuIGluIGhhdXNtYW59ID09IHsKICAgICAgICAiaGF1c21hbi1iYWxhbmNlZCIsCiAgICAgICAgImhhdXNtYW4tdW5iYWxhbmNlZCIsCiAgICAgICAgImhhdXNtYW4tcmUtZXhwbGljaXQtY29uc3RhbnQtYmFsYW5jZWQiLAogICAgICAgICJoYXVzbWFuLXJlLWV4cGxpY2l0LWNvbnN0YW50LXVuYmFsYW5jZWQiLAogICAgICAgICJoYXVzbWFuLWFwcGxpY2FibGUtbm9uemVyby1lZmZlY3QiLAogICAgfQoK
         run: |
           python - <<'PY'
-          from pathlib import Path
+          import base64
+          import os
           import re
+          from pathlib import Path
 
           path = Path('dev/tests/test_frontend_domain_coverage.py')
           text = path.read_text(encoding='utf-8')
-          replacement = '''def test_panel_stage_b_physical_validation_is_published_without_timing(canonical_output):
-    output, _, _, _ = canonical_output
-    rows = [
-        run
-        for run in output["runs"]
-        if run["source"]["source_id"]
-        == "panel-stage-b-pr122-20260809-2056f836bfe2"
-    ]
-    assert len(rows) == 44
-    assert {run["backend"] for run in rows} == {"cupy", "torch"}
-    assert {run["model_id"] for run in rows} == {
-        "PooledOLS",
-        "BetweenOLS",
-        "FirstDifferenceOLS",
-        "PanelOLS",
-        "RandomEffects",
-        "FamaMacBeth",
-    }
-    assert all(run["metrics"]["validation"]["status"] == "pass" for run in rows)
-    assert all("timing" not in run["metrics"] for run in rows)
-    assert all("speedup" not in run["metrics"] for run in rows)
-    assert all(
-        run["parameters"]["measurement_git_sha"]
-        == "2701aa9feb3796c33c94e6480fcb78c80c6a809c"
-        for run in rows
-    )
-
-    hausman = [run for run in rows if run["parameters"].get("diagnostic") == "hausman"]
-    assert len(hausman) == 10
-    applicable = [
-        run
-        for run in hausman
-        if run["parameters"].get("diagnostic_fixture") == "nonzero-effect-applicable"
-    ]
-    assert len(applicable) == 2
-    assert {run["backend"] for run in applicable} == {"cupy", "torch"}
-    assert all(run["parameters"]["applicable"] is True for run in applicable)
-    assert {run["parameters"]["df"] for run in applicable} == {1.0}
-    assert all(run["parameters"]["statistic"] >= 0.0 for run in applicable)
-    assert all(0.0 <= run["parameters"]["pvalue"] <= 1.0 for run in applicable)
-
-    inapplicable = [run for run in hausman if run not in applicable]
-    assert len(inapplicable) == 8
-    assert all(run["parameters"]["applicable"] is False for run in inapplicable)
-    assert {run["parameters"]["parameterization"] for run in hausman} == {
-        "standard",
-        "re-explicit-constant",
-    }
-    assert {run["variant"] for run in hausman} == {
-        "hausman-balanced",
-        "hausman-unbalanced",
-        "hausman-re-explicit-constant-balanced",
-        "hausman-re-explicit-constant-unbalanced",
-        "hausman-applicable-nonzero-effect",
-    }
-
-'''
+          replacement = base64.b64decode(os.environ['REPLACEMENT_B64']).decode('utf-8')
           text, count = re.subn(
               r'def test_panel_stage_b_physical_validation_is_published_without_timing\(canonical_output\):\n.*?(?=\ndef test_unsupervised_exposes_complete_source_matrix)',
               replacement,
@@ -88,10 +36,10 @@ jobs:
               flags=re.S,
           )
           assert count == 1, count
-          text = text.replace(
-              'assert len(output["runs"]) == 1860\n    assert report["runs_generated"] == 1860',
-              'assert len(output["runs"]) == 1862\n    assert report["runs_generated"] == 1862',
-          )
+          old_count = 'assert len(output["runs"]) == 1860\n    assert report["runs_generated"] == 1860'
+          new_count = 'assert len(output["runs"]) == 1862\n    assert report["runs_generated"] == 1862'
+          assert old_count in text
+          text = text.replace(old_count, new_count)
           path.write_text(text, encoding='utf-8')
 
           workflow = Path('.github/workflows/pr122-finalize-evidence.yml')
