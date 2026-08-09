@@ -47,12 +47,12 @@ def test_random_effects_stage_c_options_do_not_shift_old_positional_arguments():
     assert params["group_debias"] is False
 
 
-def test_random_effects_hc1_alias_preserves_constructor_and_internal_contract():
+def test_random_effects_hc1_alias_normalizes_to_historical_robust_contract():
     model = RandomEffects(cov_type="hc1")
-    assert model.cov_type == "hc1"
+    assert model.cov_type == "robust"
     assert model._cov_type == "robust"
     params = model.get_params()
-    assert params["cov_type"] == "hc1"
+    assert params["cov_type"] == "robust"
 
 
 def test_panel_dk_formula_missing_rows_matches_explicit_filtered_array_fit():
