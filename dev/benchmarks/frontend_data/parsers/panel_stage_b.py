@@ -167,44 +167,65 @@ def parse_panel_stage_b_physical_validation(
             )
 
         for diagnostic_id, diagnostic in backend_result.get("diagnostics", {}).items():
-            balance = "unbalanced" if diagnostic_id.endswith("unbalanced") else "balanced"
+            applicable_fixture = diagnostic_id == "hausman_applicable_nonzero_effect"
             explicit_re_constant = diagnostic_id.startswith(
                 "hausman_explicit_re_constant_"
             )
             parameterization = (
                 "re-explicit-constant" if explicit_re_constant else "standard"
             )
-            variant = (
-                f"hausman-re-explicit-constant-{balance}"
-                if explicit_re_constant
-                else f"hausman-{balance}"
-            )
-            n_samples = 49 if balance == "unbalanced" else 54
+
+            if applicable_fixture:
+                balance = "dedicated"
+                variant = "hausman-applicable-nonzero-effect"
+                n_samples, n_features = 48, 1
+                validation_checks = [
+                    "hausman_backend_consistency",
+                    "hausman_applicable_statistic_pvalue_df",
+                    "backend_provenance",
+                ]
+                method_parts: list[object] = [
+                    "panel-stage-b-physical-validation",
+                    "hausman",
+                    "applicable-nonzero-effect",
+                ]
+            else:
+                balance = (
+                    "unbalanced" if diagnostic_id.endswith("unbalanced") else "balanced"
+                )
+                variant = (
+                    f"hausman-re-explicit-constant-{balance}"
+                    if explicit_re_constant
+                    else f"hausman-{balance}"
+                )
+                n_samples = 49 if balance == "unbalanced" else 54
+                n_features = 2
+                validation_checks = [
+                    "hausman_backend_consistency",
+                    "backend_provenance",
+                ]
+                method_parts = [
+                    "panel-stage-b-physical-validation",
+                    "hausman",
+                    balance,
+                ]
+                if explicit_re_constant:
+                    method_parts.append(parameterization)
+
             scale = {
-                "scale_key": make_scale_key(n_samples, 2),
+                "scale_key": make_scale_key(n_samples, n_features),
                 "n_samples": n_samples,
-                "n_features": 2,
-                "label": make_scale_label(n_samples, 2),
+                "n_features": n_features,
+                "label": make_scale_label(n_samples, n_features),
             }
             status = str(diagnostic.get("status", "failed"))
             validation = _apply_aggregate_validation_contract(
-                _validation(
-                    ["hausman_backend_consistency", "backend_provenance"],
-                    status,
-                    filepath,
-                ),
+                _validation(validation_checks, status, filepath),
                 schema_ok=schema_ok,
                 source_ok=source_ok,
                 backend_ok=backend_ok,
                 executed_backend_ok=executed_backend_ok,
             )
-            method_parts: list[object] = [
-                "panel-stage-b-physical-validation",
-                "hausman",
-                balance,
-            ]
-            if explicit_re_constant:
-                method_parts.append(parameterization)
             model_ids.add("PanelOLS")
             runs.append(
                 {
@@ -228,6 +249,11 @@ def parse_panel_stage_b_physical_validation(
                         "diagnostic": "hausman",
                         "parameterization": parameterization,
                         "applicable": bool(diagnostic.get("applicable")),
+                        **(
+                            {"diagnostic_fixture": "nonzero-effect-applicable"}
+                            if applicable_fixture
+                            else {}
+                        ),
                         "measurement_git_sha": data.get("git_sha"),
                         "working_tree_clean": bool(data.get("working_tree_clean")),
                     },
