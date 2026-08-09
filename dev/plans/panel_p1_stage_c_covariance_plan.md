@@ -46,9 +46,9 @@ Stage C is additive.
 
 1. Existing `cov_type='nonrobust'` behavior remains unchanged.
 2. Existing `cov_type='robust'` remains the historical **HC1** contract. It is not silently redefined.
-3. `hc1` may be accepted as an explicit alias for `robust`; the canonical stored/displayed name may remain `robust` for backward compatibility.
+3. `hc1` is accepted as an explicit alias for `robust`; internal normalization maps `hc1 -> robust`, so summaries/metadata retain the historical canonical name.
 4. Existing `PooledOLS(cov_type='hac')` remains the current row-order Newey–West/Bartlett estimator. It is **not** renamed or reinterpreted as Driscoll–Kraay.
-5. Existing one-way/two-way `clustered` covariance remains un-debiased by default. Any finite-group correction is opt-in so old numerical output does not change.
+5. Existing one-way/two-way `clustered` covariance remains un-debiased by default. The new finite-group correction is opt-in through `group_debias=True`, so old numerical output does not change.
 6. Stage-B classical Hausman remains restricted to the matched nonrobust FE/RE covariance pair. Adding robust covariance to `RandomEffects` does not relabel robust/clustered/DK pairs as a valid classical Hausman test.
 7. Existing `PanelOLS` legacy public residual-df/t-inference convention remains frozen where Stage B froze it. New covariance modes document their own correction basis without rewriting old default outputs.
 8. Coefficients, fitted values, variance-component estimates, theta, R² definitions, specification-test definitions, formula parsing, and prediction semantics do not change solely because Stage C exists.
@@ -59,12 +59,12 @@ A regression test must compare pre-Stage-C default covariance/inference outputs 
 
 ### 4.1 Covariance names
 
-The common residual-OLS covariance dispatcher will recognize, where the estimator capability matrix permits:
+The common residual-OLS covariance dispatcher recognizes, where the estimator capability matrix permits:
 
 - `nonrobust`
 - `robust` (historical HC1)
 - `hc0`
-- `hc1` (alias of `robust`)
+- `hc1` (alias normalized to `robust`)
 - `hc2`
 - `hc3`
 - `clustered`
@@ -81,38 +81,48 @@ Use shared names where meaningful:
 - `kernel: str = 'bartlett'`
 - `group_debias: bool = False`
 
-`group_debias` affects only clustered covariance. Supplying it for another covariance is permitted as inert constructor state only if required for exact sklearn-style parameter identity; otherwise the estimator should reject semantically incompatible fit-time use rather than silently changing another covariance.
+`group_debias` affects only clustered covariance. When `group_debias=True` is supplied on an estimator whose selected covariance is not clustered, fitting raises a precise `ValueError`; it is not silently reused as another small-sample correction.
 
-For `RandomEffects`, constructor support expands from
+`bandwidth` and non-default `kernel` affect only covariance types that consume them (`hac` where historically supported, or Driscoll–Kraay). Existing constructor defaults remain inert for covariance types that historically ignored them; Stage C must not introduce a failure in old calls that merely retained these default-valued parameters.
+
+### 4.3 RandomEffects positional compatibility
+
+The current positional constructor contract is
 
 ```python
 RandomEffects(alpha=0.05, device='auto', n_jobs=None)
 ```
 
-to a backward-compatible form containing at least:
+and must remain intact. New covariance parameters are therefore **keyword-only after the existing parameters**, e.g.
 
 ```python
 RandomEffects(
-    cov_type='nonrobust',
     alpha=0.05,
+    device='auto',
+    n_jobs=None,
+    *,
+    cov_type='nonrobust',
     bandwidth=None,
     kernel='bartlett',
     group_debias=False,
-    device='auto',
-    n_jobs=None,
 )
 ```
 
-The old positional meaning of existing parameters must not be broken. New parameters should therefore be inserted only in a way compatible with the repository's constructor/clone policy; if positional compatibility cannot be preserved, make new covariance options keyword-only rather than shifting existing positional slots.
+The exact final signature must continue to satisfy `get_params`, `set_params`, clone, and constructor-identity tests. Stage C must not shift the meaning of the old second/third positional arguments.
 
-### 4.3 Fit metadata
+`PanelOLS`, `PooledOLS`, `BetweenOLS`, and `FirstDifferenceOLS` likewise preserve the positional meaning of all pre-Stage-C parameters. New options are appended or keyword-only rather than inserted before existing positional parameters.
+
+### 4.4 Fit-time metadata
 
 Cluster/time side arrays remain fit-time data arguments. API rules:
 
 - one-way clustering accepts an aligned 1-D label vector (and the historical `(n,1)` form where already accepted);
 - two-way clustering accepts exactly two aligned cluster dimensions;
 - Driscoll–Kraay requires aligned time identifiers after formula missing-row filtering;
-- `RandomEffects` may begin validating/storing `time_ids` only when the selected covariance needs time ordering/grouping; old nonrobust calls with unused `time_ids` must not acquire a new failure mode unless the metadata is malformed in a path that actually consumes it;
+- `PanelOLS` uses its existing `time_ids` for DK;
+- `PooledOLS` uses its existing `time_index` for DK; the legacy row-HAC and DK code paths share metadata validation where safe but not their statistical formula;
+- `RandomEffects.fit(...)` adds optional `cluster=None`; `time_ids` already exists and is consumed only when DK needs it;
+- old `RandomEffects` nonrobust/HC calls with otherwise-unused `time_ids` do not acquire a new rejection solely because Stage C exists;
 - full numerical X/y/residual/score arrays are never copied to CPU merely to compute covariance; label factorization/order metadata may be represented on CPU.
 
 ## 5. HC0 / HC1 / HC2 / HC3 definitions
@@ -152,7 +162,7 @@ Implementation requirements:
 - use pseudoinverse semantics consistently when the fit-space Gram matrix is rank deficient;
 - preserve backend dtype/device;
 - reject materially invalid `1-h_i <= 0` for HC2/HC3 with a precise error rather than clipping leverage into a valid-looking answer;
-- normalize only tiny dimensionless roundoff excursions around the `[0,1]` leverage boundary using a scale-independent machine-epsilon tolerance;
+- normalize only tiny dimensionless roundoff excursions around the `[0,1]` leverage boundary using a machine-epsilon tolerance;
 - tests cover high leverage, rank deficiency, rescaling, and exact/near-unit leverage boundaries.
 
 Existing `robust` continues to use its historical HC1 correction (`n / df_resid` or the estimator's pre-existing explicit correction). New HC0/HC2/HC3 do not modify that path.
@@ -192,28 +202,34 @@ Two-way covariance uses inclusion-exclusion:
 V = V(cluster_1) + V(cluster_2) - V(intersection).
 ```
 
-### 7.1 Group debias correction
+### 7.1 Group-debias correction
 
-When `group_debias=True`, each one-way covariance component is multiplied by
+When `group_debias=True`, each one-way meat component is multiplied by
 
 ```text
 c(G,n) = [G / (G - 1)] * [(n - 1) / n].
 ```
 
-For two-way clustering, apply the correction separately to cluster 1, cluster 2, and the intersection component using each component's own number of groups before inclusion-exclusion. This follows the maintained `linearmodels` contract.
+For two-way clustering, apply the correction separately to cluster 1, cluster 2, and the intersection component using each component's own number of groups before inclusion-exclusion. This matches the maintained `linearmodels 7.0` group correction.
 
 Requirements:
 
-- `group_debias=False` is default and reproduces existing statgpu cluster output;
-- requesting group debias with fewer than two groups in a required component raises a precise `ValueError`;
+- `group_debias=False` is default and reproduces existing statgpu cluster output exactly;
+- Stage C does **not** additionally insert the linearmodels model/effect `extra_df` scale into the legacy default cluster path; doing so would change established `PanelOLS` cluster output;
+- requesting group debias with fewer than two groups in any required component raises a precise `ValueError`;
 - cluster labels may be strings/objects on CPU input; factorization produces integer metadata without moving numerical score arrays off device;
 - malformed cluster dimensions and post-formula length mismatches fail explicitly;
-- two-way cluster identity uses collision-free paired-label factorization, not an arithmetic encoding that can alias distinct pairs;
+- two-way intersection groups use `np.unique(..., axis=0)`/equivalent exact pair factorization (or another demonstrably collision-free pair mapping), not an overflow-prone ad-hoc arithmetic code;
 - tests cover one-way, two-way, intersection, one-group invalidity, unbalanced panels, and formula row filtering.
+
+For external alignment of the preserved uncorrected PanelOLS cluster path, compare the shared covariance primitive on the same transformed design rather than forcing the estimator to adopt a different full-effect small-sample scale.
 
 ## 8. Driscoll–Kraay covariance
 
-Primary definition/alignment: `linearmodels==7.0` `DriscollKraay`.
+Primary definition/alignment: official `linearmodels==7.0` `DriscollKraay` source and documentation:
+
+- `https://bashtage.github.io/linearmodels/_modules/linearmodels/panel/covariance.html`
+- `https://bashtage.github.io/linearmodels/panel/panel/linearmodels.panel.covariance.DriscollKraay.html`
 
 For fit-space scores `s_it = z_it e_it`, aggregate by time:
 
@@ -221,30 +237,47 @@ For fit-space scores `s_it = z_it e_it`, aggregate by time:
 g_t = sum_i s_it.
 ```
 
-Let `T` be the number of distinct observed time periods after alignment. Form the kernel HAC covariance of the ordered `g_t` series:
+Let ordered distinct observed times be `t=1,...,T`. Define
 
 ```text
-Gamma_0 = sum_t g_t g_t'
-Gamma_l = sum_{t=l+1}^T g_t g_{t-l}'
-M_DK = Gamma_0 + sum_{l=1}^L w_l (Gamma_l + Gamma_l').
+M_DK = sum_t g_t g_t'
+     + sum_{l=1}^L w_l * sum_{t=l+1}^T (g_t g_{t-l}' + g_{t-l} g_t').
 ```
 
-The final normalization/scaling must be algebraically matched to `linearmodels 7.0` for the aligned unweighted case rather than guessed from the existing row-HAC implementation. Tests pin the exact scale.
+Let `B = (Z'Z)^+`, `n` be fit-space observation count, `k = rank(Z)`, and `extra_df` be nuisance parameters consumed outside the columns of `Z`.
+
+Stage C pins the **debiased linearmodels-compatible scaling** for the new DK path:
+
+```text
+scale_DK = n / (n - extra_df - k)
+V_DK = scale_DK * B * M_DK * B.
+```
+
+This is algebraically equivalent to linearmodels 7.0's implementation using `xpxi = inv(Z'Z/n)`, time-aggregated `cov_kernel`, `T/n`, and `_scale = n/(n-extra_df-k)` when `debiased=True`. The implementation test must compare the final covariance, not an intermediate whose normalization differs.
+
+Estimator-specific `extra_df`:
+
+- `PooledOLS`: `0`; its fitted intercept is a column of `Z` and is included in `k`.
+- `RandomEffects`: `0`; an explicit transformed intercept, when supplied, remains a column of `X_star` and is included in `k`.
+- `PanelOLS`: the Stage-B **standard fixed-effect nuisance rank** (`N`, `T`, or `N+T-C` as applicable), while `k` is the numerical rank of the transformed slope design. This deliberately uses the standard rank contract for this new covariance and does not redefine the legacy Stage-A `robust` output.
+
+If `n - extra_df - k <= 0`, DK is undefined and fitting raises a precise error before covariance is returned.
 
 ### 8.1 Time contract
 
 - DK requires at least two distinct observed time periods.
 - Scores are grouped by time label; input row order within a time period is irrelevant.
-- Distinct time groups are ordered by the canonical/factorized time ordering used by the model metadata. Numeric/datetime naturally ordered values should follow sorted temporal order. For non-orderable arbitrary labels, require an explicit deterministic order contract rather than silently using hash/set order.
+- Distinct time labels are ordered by sorted unique value, matching the external grouped-then-sort contract. Numeric, datetime, and homogeneous strings therefore have deterministic order.
+- mixed/non-orderable labels that cannot establish a deterministic total order are rejected for DK with a precise error; arbitrary hash/set iteration order is never used as temporal order.
 - Unbalanced panels are supported: each time aggregate uses only observed rows.
 - Missing formula rows remove the corresponding time metadata before grouping.
 
 ### 8.2 Bandwidth
 
-- explicit bandwidth must be a non-negative integer;
-- cap effective bandwidth at `T-1`;
-- `bandwidth=None` follows the pinned `linearmodels` default `floor(4 * (T / 100)^(2/9))`, where `T` is the number of distinct time periods, not number of observations;
-- effective bandwidth is retained in covariance metadata or an auditable fitted inference field/test fixture.
+- explicit bandwidth must be a non-negative integer (boolean is rejected);
+- effective bandwidth is capped at `T-1`;
+- `bandwidth=None` follows the pinned linearmodels default `floor(4 * (T / 100)^(2/9))`, where `T` is number of distinct observed time periods, not number of observations;
+- effective bandwidth is retained in auditable covariance metadata/test output.
 
 ### 8.3 Kernels and aliases
 
@@ -252,22 +285,23 @@ Stage C supports linearmodels-compatible aliases for:
 
 - Bartlett / Newey–West;
 - Parzen / Gallant;
-- Quadratic Spectral (`qs`) / Andrews.
+- Quadratic Spectral (`quadratic-spectral`, `qs`) / Andrews.
 
-Kernel weights are implemented in a small shared helper with analytic unit tests. Invalid kernel names fail explicitly. The legacy row-HAC path may remain Bartlett-only to preserve its historical API; adding DK kernel aliases does not silently broaden/change legacy HAC semantics unless explicitly tested and documented.
+Kernel weights are implemented in a small shared helper with analytic unit tests. Invalid kernel names fail explicitly. The legacy row-HAC path remains Bartlett-only unless a separate compatibility review explicitly broadens it; adding DK kernel aliases does not silently change legacy HAC semantics.
 
 ## 9. Small-sample and inference-distribution conventions
 
-The covariance correction and the reference distribution are separate contracts.
+The covariance correction and reference distribution are separate contracts.
 
 - existing `nonrobust` inference keeps the existing Student-t behavior;
-- existing `robust` keeps its existing HC1 scale and normal-reference inference;
-- new `hc0/hc1/hc2/hc3`, clustered, and DK use the existing sandwich-covariance normal-reference inference unless a separately named finite-sample t/F contract is introduced (not planned in Stage C);
-- `group_debias` changes the clustered covariance magnitude only; it does not silently switch p-values to a `t_{G-1}` reference;
-- DK finite-model df correction must match the pinned linearmodels definition for the aligned fit-space rank/effect count and be documented per estimator;
-- for `PanelOLS`, DK/HC additions do not rewrite the historical Stage-A `robust` output. Where a new correction needs effect-rank accounting, use the Stage-B standard diagnostic/effect rank as explicit metadata rather than silently borrowing legacy df.
+- existing `robust`/explicit `hc1` keeps the historical HC1 scale and normal-reference inference;
+- new `hc0/hc2/hc3`, clustered, and DK use the existing sandwich-covariance normal-reference inference;
+- `group_debias` changes clustered covariance magnitude only; it does not silently switch p-values to a `t_{G-1}` reference;
+- the new DK path always uses the explicit `scale_DK = n/(n-extra_df-k)` correction in Section 8; there is no hidden per-estimator default;
+- the preserved cluster path does not gain an additional model-df scale by default;
+- for `PanelOLS`, new DK effect df comes from the Stage-B standard effect-rank contract, while historical `robust` remains frozen.
 
-External tests must assert covariance/SE and record the correction/reference-distribution convention; a p-value mismatch caused solely by different documented reference distributions is not fixed by corrupting covariance scaling.
+External tests assert covariance/SE and record the correction/reference-distribution convention. A p-value mismatch caused solely by a deliberately different documented reference distribution is not fixed by corrupting covariance scaling.
 
 ## 10. Backend-native algorithm contract
 
@@ -294,11 +328,11 @@ The following may be represented/factorized on CPU:
 - integer group-code metadata;
 - small final scalar counts/configuration.
 
-Codes are transferred back to the active device for scatter/reduce. GPU implementation should reuse the project’s existing scatter-add/group helpers rather than Python loops over observations.
+Codes are transferred back to the active device for scatter/reduce. GPU implementation should reuse the project's existing scatter-add/group helpers rather than Python loops over observations.
 
-### 10.3 Grouped score primitive
+### 10.3 Grouped-score primitive
 
-Add/reuse one backend-neutral primitive that computes grouped sums of an `n x k` score matrix from integer group codes. It must support NumPy, CuPy, and Torch without fallback. Cluster and DK code should reuse this primitive instead of implementing separate grouping semantics.
+Add/reuse one backend-neutral primitive that computes grouped sums of an `n x k` score matrix from integer group codes. It must support NumPy, CuPy, and Torch without fallback. Cluster and DK code reuse this primitive rather than implementing separate grouping semantics.
 
 ## 11. Estimator integration details
 
@@ -307,20 +341,21 @@ Add/reuse one backend-neutral primitive that computes grouped sums of an `n x k`
 - Extend allowed covariance names without changing current defaults.
 - HC2/HC3 use the transformed estimation design.
 - Cluster side-array semantics retain one-/two-way support and gain `group_debias`.
-- DK requires aligned `time_ids`; entity-only and two-way FE are both allowed if the transformed score process and effect-rank correction are well-defined.
-- Robust/cluster/DK fits remain inapplicable to classical Stage-B Hausman.
+- DK requires aligned `time_ids`; entity-only, time-only, and two-way FE are allowed when the Stage-B standard effect-rank/metadata are available.
+- Robust/HC/cluster/DK fits remain inapplicable to classical Stage-B Hausman; only canonical nonrobust is eligible.
 
 ### `RandomEffects`
 
-- Add covariance constructor configuration without breaking old positional calls.
+- Add keyword-only covariance constructor configuration without breaking old positional calls.
+- Add `cluster=None` to `fit` side-array alignment.
 - Pass `X_star` / `resid_gls` to shared covariance inference.
-- Accept aligned cluster metadata and consume `time_ids` for DK.
-- Add formula/array tests for explicit constants, balanced/unbalanced panels, robust/DK inference, and no coefficient drift.
+- Consume aligned `time_ids` only for DK.
+- Add formula/array tests for explicit constants, balanced/unbalanced panels, robust/cluster/DK inference, and no coefficient drift.
 
 ### `PooledOLS`
 
 - Extend HC types and DK while preserving legacy `hac`.
-- DK groups by time and therefore must not reuse the legacy HAC pre-sort/reorder branch as its statistical definition.
+- DK consumes `time_index` and groups scores by time; it does not reuse the legacy row-HAC estimator merely because both are kernel covariances.
 - Existing BP-LM/entity diagnostics remain aligned regardless of covariance path.
 
 ### `BetweenOLS` / `FirstDifferenceOLS`
@@ -343,11 +378,12 @@ Pin external packages/definitions rather than relying on version-floating behavi
 Executable CI comparisons for aligned unweighted data:
 
 - `PooledOLS`: robust/clustered/DK where definitions align;
-- `PanelOLS`: HC1/cluster/DK and correction/rank structure; HC0/HC2/HC3 only where linearmodels exposes an equivalent definition;
+- `PanelOLS`: HC1 structure, cluster/group-debias primitive on the same transformed design, and DK with standard effect-rank scaling;
 - `RandomEffects`: robust/clustered/DK covariance and SE, including explicit constant and unbalanced cases;
-- DK bandwidth/kernel aliases and group-debias scaling.
+- DK default/explicit bandwidth, kernel aliases, and scale;
+- cluster group-debias coefficient and two-way inclusion-exclusion.
 
-Every test states `debiased`, `group_debias`, effect count, cluster dimensions, kernel, bandwidth, and intercept/effect specification.
+Every test states the linearmodels `debiased`, `group_debias`, effect/extra-df, cluster dimensions, kernel, bandwidth, and intercept/effect specification. When estimator-level legacy corrections intentionally differ, compare the shared transformed-design primitive or the documented ratio rather than changing statgpu's backward-compatible result.
 
 ### 12.2 HC2/HC3 analytic/Python baseline
 
@@ -375,8 +411,8 @@ Add focused tests for:
 - one-way cluster grouped meat;
 - two-way inclusion-exclusion;
 - group-debias factors including intersection;
-- collision-free paired cluster labels;
-- DK time-score aggregation;
+- exact paired cluster factorization;
+- DK time-score aggregation and exact linearmodels-compatible normalization;
 - Bartlett/Parzen/QS kernel weights;
 - bandwidth default/cap/validation;
 - unsorted labels, repeated time periods, and unbalanced panels.
@@ -386,7 +422,7 @@ Add focused tests for:
 For supported estimator/covariance combinations verify:
 
 - coefficients unchanged across covariance choices;
-- `_panel_cov_params_raw`/public BSE/t-or-z/p/CI consistency;
+- covariance/BSE/t-or-z/p/CI consistency;
 - NumPy reference precision;
 - Torch CPU maintained regression where the project uses it as a compatibility gate;
 - CuPy/Torch CUDA physical parity;
@@ -397,7 +433,7 @@ For supported estimator/covariance combinations verify:
 ### 13.3 Compatibility/golden tests
 
 - freeze Stage-B default covariance outputs before changing dispatch;
-- verify `robust` equals prior HC1 behavior;
+- verify `robust` equals prior HC1 behavior and explicit `hc1` alias;
 - verify `PooledOLS.hac` remains prior row-HAC behavior;
 - verify FamaMacBeth covariance is untouched;
 - verify Stage-B Hausman/pooling/BP/fit-statistics results do not change for equivalent fits solely because covariance options were added.
@@ -407,11 +443,13 @@ For supported estimator/covariance combinations verify:
 Test precise failures for:
 
 - unsupported covariance per estimator;
-- DK without time IDs;
+- DK without required time metadata;
 - fewer than two time periods;
+- invalid/mixed non-orderable time labels;
 - invalid bandwidth/kernel;
 - malformed one-/two-way clusters;
 - group debias with too few groups;
+- group debias requested for a non-cluster covariance;
 - HC2/HC3 undefined leverage;
 - explicit `device='cuda'/'torch'` without the requested backend.
 
@@ -452,7 +490,7 @@ Primary questions:
 
 No speedup promise is part of Stage C. Performance is blocking only if review/benchmark shows a material regression, pathological complexity, or transfer-dominated implementation. If optimization is needed, follow the workflow budget: one profiling pass, at most two algorithmic/kernel attempts, and one re-benchmark per attempt.
 
-Machine-readable timing output belongs under `results/` and must remain separate from correctness-only validation evidence.
+Machine-readable timing output belongs under `results/` and remains separate from correctness-only validation evidence.
 
 ## 16. Documentation and artifacts
 
@@ -469,7 +507,7 @@ Docs must state:
 - `robust == historical HC1`;
 - transformed-fit-space HC2/HC3 definition and limitation;
 - legacy row-HAC vs Driscoll–Kraay distinction;
-- DK time/bandwidth/kernel semantics;
+- DK time/bandwidth/kernel/exact df scaling semantics;
 - cluster one-/two-way and `group_debias` semantics;
 - covariance reference distribution and small-sample correction choices;
 - RandomEffects covariance uses quasi-demeaned GLS scores;
@@ -479,10 +517,10 @@ Docs must state:
 ## 17. Implementation sequence
 
 1. Freeze Stage-B default covariance/inference regression fixtures.
-2. Add shared covariance config normalization, grouped-score primitive, kernel weights, HC leverage/meat helpers.
+2. Add shared covariance-name normalization, grouped-score primitive, kernel weights, HC leverage/meat helpers.
 3. Implement HC0/HC2/HC3 in shared dispatcher while preserving `robust` HC1.
 4. Harden cluster 1-/2-way metadata and optional group-debias correction.
-5. Implement Driscoll–Kraay and its time/kernel/bandwidth contract.
+5. Implement Driscoll–Kraay with the exact Section-8 time/kernel/bandwidth/df contract.
 6. Integrate PooledOLS and PanelOLS.
 7. Integrate RandomEffects on quasi-demeaned fit space.
 8. Integrate HC extensions for BetweenOLS and FirstDifferenceOLS; explicitly preserve FamaMacBeth.
@@ -521,6 +559,7 @@ Stage C does not add:
 
 - robust/auxiliary-regression Hausman variants;
 - cluster-robust finite-group t/F reference distributions;
+- a second generic covariance-debias API beyond the explicit HC1, DK, and cluster-group corrections frozen above;
 - weighted panel estimation;
 - Panel IV/2SLS/GMM;
 - high-dimensional fixed-effect absorption;
