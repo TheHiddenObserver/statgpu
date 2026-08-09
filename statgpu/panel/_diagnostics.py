@@ -815,6 +815,13 @@ def hausman_test(fe_model, re_model) -> PanelTestResult:
             distribution="chi2",
             reason="classical Hausman requires nonrobust FE covariance; robust auxiliary Hausman is not implemented in Stage B",
         )
+    if str(getattr(re_model, "_cov_type", "nonrobust")).lower() != "nonrobust":
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason="classical Hausman requires nonrobust RE covariance; robust auxiliary Hausman is not implemented in Stage C",
+        )
 
     left_id = getattr(fe_model, "_panel_diagnostic_identity", None)
     right_id = getattr(re_model, "_panel_diagnostic_identity", None)
