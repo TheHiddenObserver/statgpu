@@ -134,6 +134,9 @@ def test_stage_b_disconnected_two_way_fe_torch_cpu_uses_component_df():
 
     assert_allclose(actual.coef_, expected.coef_, rtol=1e-10, atol=1e-11)
     assert_allclose(actual.bse_, expected.bse_, rtol=1e-10, atol=1e-11)
+    assert_allclose(actual.tvalues_, expected.tvalues_, rtol=1e-10, atol=1e-11)
+    assert_allclose(actual.pvalues_, expected.pvalues_, rtol=1e-10, atol=1e-12)
+    assert_allclose(actual.conf_int_, expected.conf_int_, rtol=1e-10, atol=1e-10)
     assert actual.df_resid == expected.df_resid == 1
     assert actual.fit_statistics_.metadata["legacy_df_resid"] == 0
     assert actual.fit_statistics_.metadata["public_df_resid_basis"] == "component-aware"
