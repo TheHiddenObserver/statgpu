@@ -85,6 +85,9 @@ def test_parser_distinguishes_dedicated_applicable_hausman_fixture(tmp_path) -> 
     dedicated_methods = {run["method_config_id"] for run in dedicated}
     standard_methods = {run["method_config_id"] for run in standard_balanced}
     assert dedicated_methods.isdisjoint(standard_methods)
+    dedicated_cases = {run["case_id"] for run in dedicated}
+    standard_cases = {run["case_id"] for run in standard_balanced}
+    assert dedicated_cases.isdisjoint(standard_cases)
 
 
 def test_parser_fails_closed_when_applicable_numeric_evidence_is_missing(tmp_path) -> None:
