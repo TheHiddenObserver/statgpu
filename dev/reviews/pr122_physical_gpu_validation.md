@@ -97,6 +97,23 @@ The currently committed canonical source remains the historical `a57efcea...` me
 
 It remains an immutable description of that historical physical run, but it must not be treated as final acceptance for the current runner. After the new exact-clean-head P100 run succeeds, a new canonical source must replace it and the frontend generated assets/contracts must be regenerated. With the new applicable Hausman diagnostic, the expected Stage-B validation row count is 44: 17 estimator cases x 2 backends plus 5 Hausman diagnostics x 2 backends.
 
+The PR122 evidence promotion step is an explicit source-registration action rather than a separate automatic normalizer. The current parser contract therefore requires the future canonical source to preserve the dedicated applicable Hausman `statistic`, `pvalue`, and `df`; if any are missing or invalid, the emitted validation row fails closed instead of publishing a passing result.
+
+## Local review/fix closure
+
+The review/fix cycle was re-run against the changed and adjacent files under `.claude/skills/code-review.md`. Local fixes now cover:
+
+- a deterministic, nonzero-entity-effect, fitted Hausman-applicable physical fixture;
+- per-backend fail-closed enforcement requiring a successful applicable Hausman statistic/p-value/df result;
+- FE/RE coefficient and diagnostic-covariance comparison for the dedicated physical fixture;
+- hosted physical-runner regression coverage under the Python 3.9 / NumPy 1.24.2 / SciPy 1.10.1 stack;
+- a dedicated 48 x 1 frontend identity and method/variant separation for the new fixture;
+- canonical numeric-evidence fail-closed parsing for statistic/pvalue/df;
+- explicit execution of the new parser regression in the maintained Benchmark Frontend Python 3.9/3.11 matrix;
+- EN/CN changelog synchronization marking the older 42-row source as historical rather than final acceptance.
+
+No further locally actionable CRITICAL, HIGH, or in-scope MEDIUM finding was identified in the final changed+adjacent review. Exact-head hosted CI must still pass before this local closure is treated as complete.
+
 ## Required remote closure
 
 Final physical acceptance now requires a fresh exact-clean-head P100 execution of `dev/benchmarks/validate_panel_stage_b_gpu.py` on the final runner head, with both CuPy and Torch requested.
@@ -114,7 +131,7 @@ The new artifact must demonstrate, for each backend:
 After that run is accepted, the lifecycle must:
 
 - commit the immutable raw result;
-- promote a new canonical Stage-B source;
+- promote a new canonical Stage-B source preserving statistic/pvalue/df for the dedicated applicable Hausman fixture;
 - update source/coverage contracts for five Hausman diagnostics per backend and 44 validation rows;
 - regenerate the six tracked frontend/docs JSON assets;
 - rerun exact-final-head hosted CI;
@@ -123,7 +140,7 @@ After that run is accepted, the lifecycle must:
 
 ## Hard-exit conclusion
 
-Local fix status: the current review finding is fixed in runner/test code and targeted local/hosted checks pass.
+Local fix status: the current review finding and all locally discovered adjacent coverage/documentation findings are fixed in runner/test/parser/CI/docs code. Targeted local/hosted checks passed before the closure commit; exact-head full hosted CI remains required.
 
 Remote status: a fresh P100 CuPy/Torch artifact is required because the physical validation runner changed.
 
