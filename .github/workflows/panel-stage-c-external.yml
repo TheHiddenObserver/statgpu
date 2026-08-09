@@ -6,12 +6,14 @@ on:
     paths:
       - 'statgpu/panel/**'
       - 'dev/tests/test_panel_stage_c_external.py'
+      - 'dev/tests/test_panel_stage_c_external_defaults.py'
       - '.github/workflows/panel-stage-c-external.yml'
   push:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
       - 'dev/tests/test_panel_stage_c_external.py'
+      - 'dev/tests/test_panel_stage_c_external_defaults.py'
       - '.github/workflows/panel-stage-c-external.yml'
 
 permissions:
@@ -40,4 +42,8 @@ jobs:
           print('statsmodels', statsmodels.__version__)
           PY
       - name: Run Stage C external covariance alignment
-        run: python -m pytest dev/tests/test_panel_stage_c_external.py -q --tb=short
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            -q --tb=short
