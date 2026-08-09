@@ -251,6 +251,61 @@ def _fit_cases(X, y, entity, time, backend, *, unbalanced):
     return cases, diagnostics
 
 
+def _hausman_applicable_dataset():
+    '''Deterministic nonzero-effect panel with an applicable fitted Hausman test.'''
+    seed = 20260810
+    n_entities, n_times = 12, 4
+    effect_scale, noise_scale = 0.005, 0.1
+    rng = np.random.default_rng(seed)
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    X = rng.normal(size=(entity.size, 1))
+    entity_effect = np.repeat(
+        rng.normal(scale=effect_scale, size=n_entities),
+        n_times,
+    )
+    y = (
+        0.8 * X[:, 0]
+        + entity_effect
+        + rng.normal(scale=noise_scale, size=entity.size)
+    )
+    metadata = {
+        "seed": seed,
+        "n_entities": n_entities,
+        "n_times": n_times,
+        "entity_effect_scale": effect_scale,
+        "noise_scale": noise_scale,
+    }
+    return X.astype(np.float64), y.astype(np.float64), entity, time, metadata
+
+
+def _require_applicable_hausman_coverage(diagnostics, *, backend):
+    '''Require a successful applicable Hausman statistic/p-value per backend.'''
+    applicable = []
+    for name, payload in diagnostics.items():
+        if payload.get("status") != "success" or payload.get("applicable") is not True:
+            continue
+        statistic = payload.get("statistic")
+        pvalue = payload.get("pvalue")
+        df = payload.get("df")
+        if statistic is None or pvalue is None or df is None:
+            continue
+        if not (
+            np.isfinite(float(statistic))
+            and np.isfinite(float(pvalue))
+            and np.isfinite(float(df))
+            and float(df) > 0.0
+        ):
+            continue
+        applicable.append(name)
+    if not applicable:
+        raise AssertionError(
+            f"{backend}: physical Hausman gate requires at least one successful "
+            "applicable statistic/pvalue/df case"
+        )
+    return sorted(applicable)
+
+
 def _scalar_diff(actual, expected, *, rtol, atol, label):
     if expected is None:
         if actual is not None:
@@ -439,6 +494,40 @@ def main():
         )
         reference_diagnostics.update(diagnostics)
 
+    (
+        hausman_X,
+        hausman_y,
+        hausman_entity,
+        hausman_time,
+        hausman_fixture_metadata,
+    ) = _hausman_applicable_dataset()
+    hausman_fe_reference = PanelOLS(
+        entity_effects=True,
+        cov_type="nonrobust",
+        device="cpu",
+    ).fit(hausman_X, hausman_y, entity_ids=hausman_entity)
+    hausman_re_reference = RandomEffects(device="cpu").fit(
+        hausman_X, hausman_y, entity_ids=hausman_entity
+    )
+    hausman_reference = _test_result(
+        hausman_fe_reference.hausman_test(hausman_re_reference)
+    )
+    hausman_variance_difference = float(
+        np.asarray(hausman_fe_reference._panel_cov_params, dtype=np.float64)[0, 0]
+        - np.asarray(hausman_re_reference._panel_cov_params, dtype=np.float64)[0, 0]
+    )
+    if not hausman_reference["applicable"]:
+        raise AssertionError(
+            "hosted reference Hausman fixture must remain applicable: "
+            f"{hausman_reference['reason']}"
+        )
+    if hausman_variance_difference <= 1e-6:
+        raise AssertionError(
+            "hosted reference Hausman covariance-difference margin is too small: "
+            f"{hausman_variance_difference}"
+        )
+    reference_diagnostics["hausman_applicable_nonzero_effect"] = hausman_reference
+
     results = {}
     for backend in backends:
         backend_payload = {"models": {}, "diagnostics": {}}
@@ -479,6 +568,106 @@ def main():
                     "applicable": result["applicable"],
                     "reason": result["reason"],
                 }
+        Xhb, yhb, ehb, _ = _to_backend_arrays(
+            hausman_X,
+            hausman_y,
+            hausman_entity,
+            hausman_time,
+            backend,
+        )
+        device = _device_arg(backend)
+        hausman_fe = PanelOLS(
+            entity_effects=True,
+            cov_type="nonrobust",
+            device=device,
+        ).fit(Xhb, yhb, entity_ids=ehb)
+        hausman_re = RandomEffects(device=device).fit(Xhb, yhb, entity_ids=ehb)
+        for model_name, model in (
+            ("hausman_applicable_fe", hausman_fe),
+            ("hausman_applicable_re", hausman_re),
+        ):
+            actual_backend = _backend_name(model)
+            if actual_backend != backend:
+                raise AssertionError(
+                    f"{model_name}: requested {backend}, executed {actual_backend}"
+                )
+
+        hausman_result = _test_result(hausman_fe.hausman_test(hausman_re))
+        if not hausman_result["applicable"]:
+            raise AssertionError(
+                f"hausman_applicable_nonzero_effect unexpectedly inapplicable on "
+                f"{backend}: {hausman_result['reason']}"
+            )
+        hausman_differences = _compare_test_result(
+            reference_diagnostics["hausman_applicable_nonzero_effect"],
+            hausman_result,
+            rtol=args.rtol,
+            atol=args.atol,
+            label="hausman_applicable_nonzero_effect",
+        )
+        fe_coef = _array(hausman_fe.coef_).ravel()
+        re_coef = _array(hausman_re.coef_).ravel()
+        fe_cov = _array(hausman_fe._panel_cov_params)
+        re_cov = _array(hausman_re._panel_cov_params)
+        np.testing.assert_allclose(
+            fe_coef,
+            _array(hausman_fe_reference.coef_).ravel(),
+            rtol=args.rtol,
+            atol=args.atol,
+            err_msg="hausman_applicable_nonzero_effect.fe_coef",
+        )
+        np.testing.assert_allclose(
+            re_coef,
+            _array(hausman_re_reference.coef_).ravel(),
+            rtol=args.rtol,
+            atol=args.atol,
+            err_msg="hausman_applicable_nonzero_effect.re_coef",
+        )
+        np.testing.assert_allclose(
+            fe_cov,
+            _array(hausman_fe_reference._panel_cov_params),
+            rtol=args.rtol,
+            atol=args.atol,
+            err_msg="hausman_applicable_nonzero_effect.fe_covariance",
+        )
+        np.testing.assert_allclose(
+            re_cov,
+            _array(hausman_re_reference._panel_cov_params),
+            rtol=args.rtol,
+            atol=args.atol,
+            err_msg="hausman_applicable_nonzero_effect.re_covariance",
+        )
+        backend_payload["diagnostics"]["hausman_applicable_nonzero_effect"] = {
+            "status": "success",
+            "max_abs_differences": hausman_differences,
+            "fit_max_abs_differences": {
+                "fe_coef": _max_abs_difference(
+                    fe_coef, _array(hausman_fe_reference.coef_).ravel()
+                ),
+                "re_coef": _max_abs_difference(
+                    re_coef, _array(hausman_re_reference.coef_).ravel()
+                ),
+                "fe_covariance": _max_abs_difference(
+                    fe_cov, _array(hausman_fe_reference._panel_cov_params)
+                ),
+                "re_covariance": _max_abs_difference(
+                    re_cov, _array(hausman_re_reference._panel_cov_params)
+                ),
+            },
+            "applicable": True,
+            "reason": hausman_result["reason"],
+            "statistic": hausman_result["statistic"],
+            "pvalue": hausman_result["pvalue"],
+            "df": hausman_result["df"],
+            "reference_statistic": hausman_reference["statistic"],
+            "reference_pvalue": hausman_reference["pvalue"],
+            "reference_df": hausman_reference["df"],
+            "reference_variance_difference": hausman_variance_difference,
+            "fixture": dict(hausman_fixture_metadata),
+        }
+        _require_applicable_hausman_coverage(
+            backend_payload["diagnostics"], backend=backend
+        )
         results[backend] = backend_payload
 
     payload = {
@@ -490,8 +679,15 @@ def main():
         "environment": _environment(backends),
         "tolerances": {"rtol": args.rtol, "atol": args.atol},
         "datasets": {
-            name: {"nobs": int(len(values[1]))}
-            for name, values in datasets.items()
+            **{
+                name: {"nobs": int(len(values[1]))}
+                for name, values in datasets.items()
+            },
+            "hausman_applicable_nonzero_effect": {
+                "nobs": int(len(hausman_y)),
+                **dict(hausman_fixture_metadata),
+                "reference_variance_difference": hausman_variance_difference,
+            },
         },
         "backends": results,
     }
