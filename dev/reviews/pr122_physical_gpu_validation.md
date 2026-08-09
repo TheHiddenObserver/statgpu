@@ -1,5 +1,18 @@
 # PR #122 Panel Stage B physical GPU validation
 
+## Current applicability status
+
+The physical artifact documented below remains an immutable, successful record for exact implementation head `faa95ce7fb5cb204088957fbda5544c20a06fbfc`. It is **not** current exact-head acceptance for the latest PR implementation.
+
+After the PR was promoted to Ready for review, a fresh review identified that disconnected two-way `PanelOLS` fits could still be rejected by the legacy residual-df feasibility gate before the already-correct `N + T - C` diagnostic rank was applied. Commit `ac2f04a15c67d0b5db31b521a2a7581759abb9e8` changes `statgpu/panel/_fixed_effects.py` so component-aware rank is computed before fit feasibility and is used when the legacy df is nonpositive but the rank-consistent df remains positive. Because this is a statistical implementation change after the physically validated head, repository policy requires a new exact-head CuPy/Torch physical validation before PR #122 can return to merge-ready status.
+
+Accordingly:
+
+- the `faa95ce7...` artifact remains valid historical evidence for that exact implementation;
+- the canonical frontend source derived from it remains provenance-correct for measurement SHA `faa95ce7...`, but must not be interpreted as validation of the newer FE implementation;
+- current PR status is `PARTIAL_REMOTE_PENDING` until a clean exact-head physical run passes and its evidence is audited/promoted;
+- PR #122 is intentionally kept Draft while that gate is pending.
+
 Validated implementation head: `faa95ce7fb5cb204088957fbda5544c20a06fbfc`.
 
 Raw machine-readable evidence:
@@ -73,4 +86,4 @@ The canonical frontend source represents 42 validation-only runs: 34 estimator/b
 
 The dedicated identity-overhead benchmark remains accepted from the immediately preceding implementation candidate because the `faa95ce7...` repair only changes the explicit-constant RandomEffects auxiliary-within branch, while the benchmark exercises PanelOLS and no-explicit-constant RandomEffects. Its measured digest/no-digest ratios remained approximately 1.04x-1.29x over the maintained target scales.
 
-This exact-head raw artifact supersedes the earlier `636988...` canonical physical record and the failed `9c78bf66...` correctness attempt. Canonical promotion is complete: generated frontend assets were refreshed, exact-head hosted staleness/e2e/production QA passed on the evidence head, and the stale-evidence review thread was resolved.
+For the validated `faa95ce7...` implementation, this exact-head raw artifact superseded the earlier `636988...` canonical physical record and the failed `9c78bf66...` correctness attempt. Canonical promotion for that measurement was complete: generated frontend assets were refreshed, exact-head hosted staleness/e2e/production QA passed on the evidence head, and the stale-evidence review thread was resolved. The later disconnected-FE feasibility repair now requires a new exact-head physical validation before current-code acceptance can be promoted again.
