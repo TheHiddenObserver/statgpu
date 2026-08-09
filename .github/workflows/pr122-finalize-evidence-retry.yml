@@ -1,4 +1,4 @@
-name: PR122 retry evidence finalization
+name: PR122 retry evidence contract
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  prepare-retry:
+  update-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +25,6 @@ jobs:
           import os
           import re
           from pathlib import Path
-
           path = Path('dev/tests/test_frontend_domain_coverage.py')
           text = path.read_text(encoding='utf-8')
           replacement = base64.b64decode(os.environ['REPLACEMENT_B64']).decode('utf-8')
@@ -41,20 +40,12 @@ jobs:
           assert old_count in text
           text = text.replace(old_count, new_count)
           path.write_text(text, encoding='utf-8')
-
-          workflow = Path('.github/workflows/pr122-finalize-evidence.yml')
-          workflow.write_text(
-              workflow.read_text(encoding='utf-8')
-              + '\n# retry after final Stage-B domain coverage contract update\n',
-              encoding='utf-8',
-          )
           PY
-      - name: Commit retry preparation and remove helper
+      - name: Commit only the domain contract
         run: |
-          rm .github/workflows/pr122-finalize-evidence-retry.yml
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add dev/tests/test_frontend_domain_coverage.py
           git commit -m 'test: align PR122 final frontend coverage'
           git push origin HEAD:agent/panel-p1-stage-b-diagnostics
