@@ -224,12 +224,21 @@ class BasePanelModel(BaseEstimator):
             tvalues_dev = params / denominator
 
         dist_name = "t" if str(cov_type).lower() == "nonrobust" else "norm"
-        distribution = get_distribution(dist_name, backend=backend.name)
         df = int(df_resid if distribution_df is None else distribution_df)
-        if dist_name == "t":
+        if dist_name == "t" and df == 1:
+            # Student-t with one residual degree of freedom is exactly a
+            # standard Cauchy distribution.  Using this closed-form boundary
+            # avoids inverse-beta endpoint singularities in backend fallbacks
+            # while keeping the computation backend-native on NumPy/CuPy/Torch.
+            distribution = get_distribution("cauchy", backend=backend.name)
+            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
+            critical = distribution.isf(float(self.alpha) / 2)
+        elif dist_name == "t":
+            distribution = get_distribution("t", backend=backend.name)
             pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev), df)
             critical = distribution.isf(float(self.alpha) / 2, df)
         else:
+            distribution = get_distribution("norm", backend=backend.name)
             pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
             critical = distribution.isf(float(self.alpha) / 2)
         critical = xp_asarray(
