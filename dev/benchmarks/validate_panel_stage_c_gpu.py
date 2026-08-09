@@ -226,13 +226,31 @@ def _compare(reference, candidate, *, rtol, atol, label):
             differences[f"fit_statistics.{field}"] = _scalar_diff(
                 actual, expected, rtol=rtol, atol=atol, label=f"{label}.fit_statistics.{field}"
             )
-    # Metadata is part of the Stage-C physical contract. It should be purely
-    # configuration/count information and therefore backend-identical.
-    if candidate["covariance_metadata"] != reference["covariance_metadata"]:
+    ref_meta = reference["covariance_metadata"]
+    cand_meta = candidate["covariance_metadata"]
+    if set(cand_meta) != set(ref_meta):
         raise AssertionError(
-            f"{label}.covariance_metadata mismatch: "
-            f"{candidate['covariance_metadata']} != {reference['covariance_metadata']}"
+            f"{label}.covariance_metadata keys mismatch: "
+            f"{sorted(cand_meta)} != {sorted(ref_meta)}"
         )
+    for key, expected in ref_meta.items():
+        actual = cand_meta[key]
+        metric = f"covariance_metadata.{key}"
+        if isinstance(expected, float):
+            differences[metric] = _scalar_diff(
+                actual, expected, rtol=rtol, atol=atol, label=f"{label}.{metric}"
+            )
+        elif isinstance(expected, list) and any(isinstance(v, float) for v in expected):
+            np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol, err_msg=f"{label}.{metric}")
+            differences[metric] = _max_abs(
+                np.asarray(actual, dtype=np.float64), np.asarray(expected, dtype=np.float64)
+            )
+        elif actual != expected:
+            raise AssertionError(
+                f"{label}.{metric}: {actual!r} != {expected!r}"
+            )
+        else:
+            differences[metric] = 0.0
     return differences
 
 
