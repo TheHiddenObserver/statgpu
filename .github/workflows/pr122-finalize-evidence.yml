@@ -1,0 +1,389 @@
+name: PR122 finalize physical evidence
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-b-diagnostics]
+    paths:
+      - '.github/workflows/pr122-finalize-evidence.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python validation dependencies
+        run: python -m pip install -U pip pytest 'jsonschema[format]'
+      - name: Promote exact-head P100 evidence and contracts
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import math
+          import re
+          import subprocess
+          from copy import deepcopy
+          from pathlib import Path
+
+          root = Path.cwd()
+          measurement_sha = '2701aa9feb3796c33c94e6480fcb78c80c6a809c'
+          artifact_commit = '0d0d654d825cea872672f27d02107a58048b345f'
+          historical_measurement_sha = 'a57efcea29b0e87ecb89865c5a6902d5773812c6'
+          historical_artifact_commit = '72b3279d2028e8ec2af30e138e123aceb611ae8c'
+
+          raw_rel = 'results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json'
+          focused_rel = 'results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json'
+          old_source_rel = 'results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809.json'
+          new_source_rel = 'results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809_2701aa9f.json'
+          raw_path = root / raw_rel
+          focused_path = root / focused_rel
+          old_source_path = root / old_source_rel
+          new_source_path = root / new_source_rel
+
+          raw = json.loads(raw_path.read_text(encoding='utf-8'))
+          focused = json.loads(focused_path.read_text(encoding='utf-8'))
+          old = json.loads(old_source_path.read_text(encoding='utf-8'))
+
+          assert raw['schema_version'] == 2
+          assert raw['git_sha'] == measurement_sha
+          assert raw['working_tree_clean'] is True
+          assert raw['status'] == 'success'
+          assert raw['environment']['gpu'] == 'Tesla P100-SXM2-16GB'
+          assert raw['environment']['python'] == '3.9.16'
+          assert raw['environment']['packages']['numpy'] == '1.24.2'
+          assert raw['environment']['packages']['scipy'] == '1.10.1'
+          assert raw['environment']['packages']['torch'] == '2.0.0'
+
+          expected_diagnostics = {
+              'hausman_balanced',
+              'hausman_explicit_re_constant_balanced',
+              'hausman_unbalanced',
+              'hausman_explicit_re_constant_unbalanced',
+              'hausman_applicable_nonzero_effect',
+          }
+          for backend in ('cupy', 'torch'):
+              backend_raw = raw['backends'][backend]
+              models = backend_raw['models']
+              assert len(models) == 17
+              assert all(case['status'] == 'success' for case in models.values())
+              assert all(case['executed_backend'] == backend for case in models.values())
+              diagnostics = backend_raw['diagnostics']
+              assert set(diagnostics) == expected_diagnostics
+              for diagnostic_id in expected_diagnostics - {'hausman_applicable_nonzero_effect'}:
+                  diagnostic = diagnostics[diagnostic_id]
+                  assert diagnostic['status'] == 'success'
+                  assert diagnostic['applicable'] is False
+                  assert diagnostic['reason'] == 'covariance difference is not positive semidefinite'
+              applicable = diagnostics['hausman_applicable_nonzero_effect']
+              assert applicable['status'] == 'success'
+              assert applicable['applicable'] is True
+              assert applicable['reason'] is None
+              assert math.isfinite(float(applicable['statistic']))
+              assert math.isfinite(float(applicable['pvalue']))
+              assert float(applicable['df']) == 1.0
+              assert float(applicable['max_abs_differences']['statistic']) < 2e-13
+              assert float(applicable['max_abs_differences']['pvalue']) < 5e-14
+              assert max(float(v) for v in applicable['fit_max_abs_differences'].values()) < 1e-12
+              assert float(applicable['reference_variance_difference']) > 1e-6
+
+          raw_blob = subprocess.check_output(['git', 'hash-object', raw_rel], text=True).strip()
+          focused_blob = subprocess.check_output(['git', 'hash-object', focused_rel], text=True).strip()
+          assert raw_blob == 'fa3a253e6d882a4e69be29e7e3b1dce7b223b9a9'
+          assert focused_blob == '3bda0b2040479ba8201e2722eb990ba086c3f3b9'
+          assert focused['git_sha'] == historical_measurement_sha
+          assert focused['working_tree_clean'] is True
+          assert focused['status'] == 'success'
+
+          promoted = deepcopy(old)
+          promoted['source_date'] = '2026-08-09'
+          promoted['git_sha'] = measurement_sha
+          promoted['working_tree_clean'] = True
+          promoted['status'] = 'success'
+          promoted['schema_status'] = 'ok'
+          promoted['raw_artifact'] = {
+              'path': raw_rel,
+              'repository_commit': artifact_commit,
+              'git_blob_sha': raw_blob,
+              'generated_at': raw['generated_at'],
+              'schema_version': raw['schema_version'],
+          }
+          promoted['focused_artifact'] = {
+              'path': focused_rel,
+              'repository_commit': historical_artifact_commit,
+              'git_blob_sha': focused_blob,
+              'generated_at': focused.get('generated_at'),
+              'schema_version': focused['schema_version'],
+              'validation': 'panel_stage_b_disconnected_two_way_fe',
+              'status': focused['status'],
+              'measurement_git_sha': historical_measurement_sha,
+              'role': 'historical supplementary evidence for unchanged disconnected-FE numerical path',
+          }
+          promoted['environment']['gpu'] = raw['environment']['gpu']
+          promoted['environment']['platform'] = raw['environment']['platform']
+          promoted['environment']['python'] = raw['environment']['python']
+          promoted['environment']['packages'] = deepcopy(raw['environment']['packages'])
+          promoted['protocol']['runner_schema_version'] = raw['schema_version']
+          promoted['protocol']['rtol'] = raw['tolerances']['rtol']
+          promoted['protocol']['atol'] = raw['tolerances']['atol']
+          promoted['backend_precision'] = {'cupy': 'pass', 'torch': 'pass'}
+          for backend in ('cupy', 'torch'):
+              promoted['compatibility_matrix'][backend]['model_cases'] = '17/17'
+              promoted['compatibility_matrix'][backend]['diagnostics'] = '5/5'
+              promoted['compatibility_matrix'][backend]['executed_backend'] = backend
+              promoted['compatibility_matrix'][backend]['cpu_fallback'] = False
+              promoted['compatibility_matrix'][backend]['disconnected_fe'] = 'pass'
+          promoted['inference_matrix']['status'] = 'pass'
+          promoted['inference_matrix']['reported_precision'] = (
+              'Exact clean-head P100 Stage-B matrix passed validator tolerances on CuPy/Torch. '
+              'The dedicated nonzero-effect Hausman fixture was applicable on both physical GPU backends '
+              'with df=1 and statistic/p-value differences versus NumPy below 1.1e-13 and 2.2e-14, respectively. '
+              'The historical focused disconnected two-way FE artifact remains supplementary evidence for the '
+              'unchanged df_resid=1/effect_rank=7/incidence_components=3 inference boundary.'
+          )
+          promoted['validation_tier'] = 'remote-full'
+          promoted['timing_scope'] = {
+              'collected': False,
+              'reason': 'Correctness/backend-provenance validation only; no benchmark timing was measured.',
+          }
+          promoted['reproducibility'] = {
+              'exact_git_sha': measurement_sha,
+              'working_tree_clean': True,
+              'runner': 'dev/benchmarks/validate_panel_stage_b_gpu.py',
+              'focused_runner': 'dev/benchmarks/validate_panel_stage_b_disconnected_fe_gpu.py',
+              'raw_artifact_path': raw_rel,
+              'raw_artifact_git_blob_sha': raw_blob,
+              'repository_commit': artifact_commit,
+              'focused_artifact_path': focused_rel,
+              'focused_artifact_git_blob_sha': focused_blob,
+              'focused_measurement_git_sha': historical_measurement_sha,
+              'focused_repository_commit': historical_artifact_commit,
+          }
+          promoted['uncovered_reasons'] = [
+              'Performance timing was not collected by this correctness-only physical validation and must not be inferred from this source.',
+              'The four standard/explicit-RE-constant Hausman datasets remain structured inapplicable because their covariance differences are materially indefinite; a separate nonzero-effect fitted fixture physically exercises the applicable statistic/p-value/df branch on both GPU backends.',
+              "The runner could not resolve an installed CuPy distribution version through importlib.metadata, so the source records the CuPy package version as null while executed_backend='cupy' proves physical backend execution.",
+              'The focused disconnected-FE artifact was measured earlier at a57efcea and is retained only as supplementary validation evidence for an unchanged numerical path; it is not represented as a 2701aa9f measurement or expanded into timing rows.',
+          ]
+          promoted['backend_results'] = {}
+          for backend in ('cupy', 'torch'):
+              backend_raw = raw['backends'][backend]
+              promoted['backend_results'][backend] = {
+                  'status': 'success',
+                  'executed_backend': backend,
+                  'model_cases': {
+                      case_id: case['status'] for case_id, case in backend_raw['models'].items()
+                  },
+                  'diagnostics': deepcopy(backend_raw['diagnostics']),
+              }
+
+          new_source_path.write_text(
+              json.dumps(promoted, indent=2, ensure_ascii=False) + '\n', encoding='utf-8'
+          )
+
+          from dev.benchmarks.frontend_data.canonical import source_sha256
+          promoted_sha256 = source_sha256(new_source_path)
+          source_id = f'panel-stage-b-pr122-20260809-{promoted_sha256[:12]}'
+
+          manifest_path = root / 'dev/benchmarks/frontend_sources.json'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          entries = [
+              entry for entry in manifest['sources']
+              if entry.get('comparison_id') == 'panel-stage-b-pr122-20260809'
+          ]
+          assert len(entries) == 1
+          entry = entries[0]
+          entry.update({
+              'source_id': source_id,
+              'path': new_source_rel,
+              'original_path': raw_rel,
+              'sha256': promoted_sha256,
+              'parser': 'panel_stage_b_physical_validation',
+              'parser_version': '1.0',
+              'env_id': 'remote-p100-pr122-20260809',
+              'required': True,
+              'allowed_issue_codes': [],
+              'source_date': '2026-08-09',
+              'measurement_git_sha': measurement_sha,
+              'raw_git_sha': measurement_sha,
+              'provenance_note': (
+                  'Final PR #122 Stage-B correctness/backend-provenance source. Exact clean P100 measurement '
+                  f'{measurement_sha} passed all 17 estimator cases and five Hausman diagnostics on each of CuPy and Torch, '
+                  'with requested/executed backend identity and no CPU fallback. The dedicated '
+                  'hausman_applicable_nonzero_effect fixture is applicable on both GPU backends with df=1 and '
+                  'statistic/p-value agreement versus NumPy at floating-point noise. Raw artifact '
+                  f'{raw_rel} has Git blob {raw_blob} and was committed by {artifact_commit}. '
+                  f'The older focused disconnected-FE artifact {focused_rel} (Git blob {focused_blob}, '
+                  f'measurement {historical_measurement_sha}) is retained only as supplementary evidence for the unchanged df=1 path. '
+                  'No timing was collected.'
+              ),
+          })
+          manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+
+          coverage_path = root / 'dev/benchmarks/benchmark_coverage_matrix.json'
+          coverage = json.loads(coverage_path.read_text(encoding='utf-8'))
+          panel_rows = [c for c in coverage['capabilities'] if c['capability_id'] == 'panel-estimation']
+          assert len(panel_rows) == 1
+          panel_row = panel_rows[0]
+          panel_row['source_ids'] = [
+              source_id if sid.startswith('panel-stage-b-pr122-20260809-') else sid
+              for sid in panel_row['source_ids']
+          ]
+          panel_row['disposition'] = (
+              'June timing rows cover aligned PanelOLS and RandomEffects. PR #122 adds canonical validation-only '
+              'CuPy/Torch evidence for the 17-case Stage-B estimator matrix, five Hausman diagnostics per backend '
+              '(including a physically applicable nonzero-effect statistic/p-value/df path), backend provenance, '
+              'Stage-A inference regression, and the disconnected two-way FE df=1 physical boundary; broader '
+              'performance/covariance timing remains open.'
+          )
+          coverage_path.write_text(json.dumps(coverage, indent=2) + '\n', encoding='utf-8')
+
+          catalog_path = root / 'dev/benchmarks/benchmark_source_catalog.json'
+          catalog = json.loads(catalog_path.read_text(encoding='utf-8'))
+          raw_rules = [r for r in catalog['rules'] if r['rule_id'] == 'pr122-panel-stage-b-physical-validation']
+          assert len(raw_rules) == 1
+          raw_rule = raw_rules[0]
+          raw_rule.pop('path', None)
+          raw_rule['path_regex'] = r'^results/pr122_p100/panel_stage_b_gpu_validation_.*[.]json$'
+          raw_rule['reason'] = (
+              'Immutable full Stage-B physical correctness/backend-provenance artifacts for PR #122 are retained '
+              'for audit; only the currently SHA-protected normalized canonical source is registered in frontend_sources.json.'
+          )
+          historical_rule_id = 'superseded-pr122-panel-stage-b-canonical-a57efcea'
+          if not any(r['rule_id'] == historical_rule_id for r in catalog['rules']):
+              insert_at = catalog['rules'].index(raw_rule) + 1
+              catalog['rules'].insert(insert_at, {
+                  'rule_id': historical_rule_id,
+                  'priority': 21,
+                  'path': old_source_rel,
+                  'classification': 'superseded_or_duplicate',
+                  'canonical_eligible': False,
+                  'provenance_status': 'complete',
+                  'timing_protocol_status': 'not_applicable',
+                  'statistical_alignment_status': 'accepted',
+                  'superseded_by': new_source_rel,
+                  'issue': '#93',
+                  'reason': (
+                      'The 42-row a57efcea Stage-B canonical validation source is retained immutably for audit but '
+                      'is superseded by the exact-clean-head 2701aa9f P100 source that also physically validates an applicable Hausman branch.'
+                  ),
+              })
+          catalog_path.write_text(json.dumps(catalog, indent=2) + '\n', encoding='utf-8')
+
+          test_path = root / 'dev/tests/test_panel_stage_b_frontend_source.py'
+          text = test_path.read_text(encoding='utf-8')
+          text = text.replace('panel_stage_b_pr122_p100_20260809.json', 'panel_stage_b_pr122_p100_20260809_2701aa9f.json')
+          text = text.replace('panel_stage_b_gpu_validation_a57efcea.json', 'panel_stage_b_gpu_validation_2701aa9f.json')
+          text = re.sub(r'EXPECTED_SHA256 = "[0-9a-f]+"', f'EXPECTED_SHA256 = "{promoted_sha256}"', text)
+          text = re.sub(r'RAW_EXPECTED_BLOB_SHA = "[0-9a-f]+"', f'RAW_EXPECTED_BLOB_SHA = "{raw_blob}"', text)
+          text = re.sub(r'SOURCE_ID = "[^"]+"', f'SOURCE_ID = "{source_id}"', text)
+          text = re.sub(r'MEASUREMENT_SHA = "[0-9a-f]+"', f'MEASUREMENT_SHA = "{measurement_sha}"', text)
+          text = re.sub(
+              r'ARTIFACT_COMMIT = "[0-9a-f]+"',
+              f'ARTIFACT_COMMIT = "{artifact_commit}"\nFOCUSED_MEASUREMENT_SHA = "{historical_measurement_sha}"\nFOCUSED_ARTIFACT_COMMIT = "{historical_artifact_commit}"',
+              text,
+              count=1,
+          )
+          text = text.replace('assert data["compatibility_matrix"]["cupy"]["diagnostics"] == "4/4"', 'assert data["compatibility_matrix"]["cupy"]["diagnostics"] == "5/5"')
+          text = text.replace('assert data["compatibility_matrix"]["torch"]["diagnostics"] == "4/4"', 'assert data["compatibility_matrix"]["torch"]["diagnostics"] == "5/5"')
+          text = text.replace('assert focused_meta["repository_commit"] == ARTIFACT_COMMIT', 'assert focused_meta["repository_commit"] == FOCUSED_ARTIFACT_COMMIT')
+          text = text.replace('assert focused["git_sha"] == MEASUREMENT_SHA', 'assert focused["git_sha"] == FOCUSED_MEASUREMENT_SHA')
+          marker = '    assert data["environment"]["gpu"] == "Tesla P100-SXM2-16GB"\n'
+          assert marker in text
+          diagnostic_contract = '''    for backend in ("cupy", "torch"):\n        diagnostic = data["backend_results"][backend]["diagnostics"][\n            "hausman_applicable_nonzero_effect"\n        ]\n        assert diagnostic["status"] == "success"\n        assert diagnostic["applicable"] is True\n        assert diagnostic["reason"] is None\n        assert diagnostic["df"] == 1.0\n        assert 0.0 <= diagnostic["pvalue"] <= 1.0\n        assert diagnostic["statistic"] >= 0.0\n        assert diagnostic["max_abs_differences"]["statistic"] < 2e-13\n        assert diagnostic["max_abs_differences"]["pvalue"] < 5e-14\n\n'''
+          text = text.replace(marker, diagnostic_contract + marker, 1)
+
+          new_parser_test = '''def test_pr122_parser_emits_validation_only_frontend_runs() -> None:\n    from dev.benchmarks.frontend_data.parsers import (\n        parse_panel_stage_b_physical_validation,\n    )\n\n    runs, models, warnings = parse_panel_stage_b_physical_validation(\n        SOURCE_PATH, ENV_ID\n    )\n\n    assert warnings == []\n    assert len(runs) == 44\n    assert len(models) == 6\n    assert {run["backend"] for run in runs} == {"cupy", "torch"}\n    assert {model["model_id"] for model in models} == {\n        "PooledOLS",\n        "BetweenOLS",\n        "FirstDifferenceOLS",\n        "PanelOLS",\n        "RandomEffects",\n        "FamaMacBeth",\n    }\n    assert all("timing" not in run["metrics"] for run in runs)\n    assert all("speedup" not in run["metrics"] for run in runs)\n    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)\n    assert all(\n        run["parameters"]["measurement_git_sha"] == MEASUREMENT_SHA for run in runs\n    )\n    assert all(run["parameters"]["working_tree_clean"] is True for run in runs)\n\n    hausman = [run for run in runs if run["parameters"].get("diagnostic") == "hausman"]\n    assert len(hausman) == 10\n    assert all("inference" not in run["metrics"] for run in hausman)\n    applicable = [\n        run for run in hausman\n        if run["parameters"].get("diagnostic_fixture") == "nonzero-effect-applicable"\n    ]\n    assert len(applicable) == 2\n    assert {run["backend"] for run in applicable} == {"cupy", "torch"}\n    assert all(run["parameters"]["applicable"] is True for run in applicable)\n    assert {run["parameters"]["df"] for run in applicable} == {1.0}\n    assert all(run["parameters"]["statistic"] >= 0.0 for run in applicable)\n    assert all(0.0 <= run["parameters"]["pvalue"] <= 1.0 for run in applicable)\n    structured_inapplicable = [run for run in hausman if run not in applicable]\n    assert len(structured_inapplicable) == 8\n    assert all(run["parameters"]["applicable"] is False for run in structured_inapplicable)\n    assert {run["parameters"]["parameterization"] for run in hausman} == {\n        "standard",\n        "re-explicit-constant",\n    }\n    assert {run["variant"] for run in hausman} == {\n        "hausman-balanced",\n        "hausman-unbalanced",\n        "hausman-re-explicit-constant-balanced",\n        "hausman-re-explicit-constant-unbalanced",\n        "hausman-applicable-nonzero-effect",\n    }\n\n    estimator_runs = [run for run in runs if run not in hausman]\n    assert len(estimator_runs) == 34\n    assert all(run["metrics"]["inference"]["ok"] is True for run in estimator_runs)\n\n    explicit_re = [\n        run\n        for run in estimator_runs\n        if run["model_id"] == "RandomEffects"\n        and run["variant"].startswith("explicit-constant-")\n    ]\n    assert len(explicit_re) == 4\n    assert {run["scale"]["n_features"] for run in explicit_re} == {3}\n\n'''
+          text, count = re.subn(
+              r'def test_pr122_parser_emits_validation_only_frontend_runs\(\) -> None:\n.*?(?=\ndef test_pr122_parser_is_registered_in_manifest)',
+              new_parser_test,
+              text,
+              flags=re.S,
+          )
+          assert count == 1
+          test_path.write_text(text, encoding='utf-8')
+
+          applicable_test_path = root / 'dev/tests/test_panel_stage_b_applicable_hausman_parser.py'
+          applicable_text = applicable_test_path.read_text(encoding='utf-8')
+          applicable_text = applicable_text.replace(
+              'panel_stage_b_pr122_p100_20260809.json',
+              'panel_stage_b_pr122_p100_20260809_2701aa9f.json',
+          )
+          applicable_test_path.write_text(applicable_text, encoding='utf-8')
+
+          en_path = root / 'docs/en/changelog.md'
+          en_lines = en_path.read_text(encoding='utf-8').splitlines()
+          en_idx = [i for i, line in enumerate(en_lines) if line.startswith('- A Ready-for-review audit reopened the physical gate')]
+          assert len(en_idx) == 1
+          en_lines[en_idx[0]] = (
+              '- The reopened physical gate is now closed on exact clean measurement head '
+              '`2701aa9feb3796c33c94e6480fcb78c80c6a809c`: Tesla P100 CuPy and Torch each passed all 17 estimator cases and all five Hausman diagnostics with requested/executed backend identity and no CPU fallback. '
+              'The dedicated 48-observation nonzero-effect fixture is `applicable=true` on both backends with df=1; its Hausman statistic differs from NumPy by at most `1.10e-13` and p-value by at most `2.19e-14`. '
+              'The promoted 44-row canonical validation source preserves statistic/pvalue/df for that branch, while the older 42-row a57efcea source remains historical audit evidence. No timing or speedup claim is made.'
+          )
+          en_path.write_text('\n'.join(en_lines) + '\n', encoding='utf-8')
+
+          cn_path = root / 'docs/cn/changelog.md'
+          cn_lines = cn_path.read_text(encoding='utf-8').splitlines()
+          cn_idx = [i for i, line in enumerate(cn_lines) if line.startswith('- Ready-for-review 审计因此重新打开 physical gate')]
+          assert len(cn_idx) == 1
+          cn_lines[cn_idx[0]] = (
+              '- 重新打开的 physical gate 已在精确 clean measurement head '
+              '`2701aa9feb3796c33c94e6480fcb78c80c6a809c` 上闭合：Tesla P100 的 CuPy 与 Torch 各自通过全部 17 个 estimator case 和 5 个 Hausman diagnostic，requested/executed backend 一致且没有 CPU fallback。'
+              '新增的 48-observation nonzero-effect fixture 在两个 backend 上均为 `applicable=true`、df=1；Hausman statistic 相对 NumPy 的最大差异不超过 `1.10e-13`，p-value 不超过 `2.19e-14`。'
+              '新的 44-row canonical validation source 保留该分支的 statistic/pvalue/df；旧的 42-row a57efcea source 继续作为历史审计证据保留。本次证据不包含 timing 或 speedup 声明。'
+          )
+          cn_path.write_text('\n'.join(cn_lines) + '\n', encoding='utf-8')
+
+          review_path = root / 'dev/reviews/pr122_physical_gpu_validation.md'
+          review_path.write_text(f'''# PR #122 Panel Stage B physical GPU validation\n\n## Physical acceptance status\n\n**PHYSICAL_GPU_ACCEPTED** for the Stage-B runner measured at exact clean implementation head `{measurement_sha}`.\n\nThis status covers the active physical correctness/backend-provenance gate only. Exact-final-head hosted CI and a fresh `.claude/skills/code-review.md` review remain lifecycle gates after evidence promotion; the physical runner itself must not change without another P100 rerun.\n\n## Accepted full P100 artifact\n\n- path: `{raw_rel}`\n- measurement SHA: `{measurement_sha}`\n- artifact repository commit: `{artifact_commit}`\n- Git blob: `{raw_blob}`\n- schema version: 2\n- working tree clean: true\n- top-level status: success\n- GPU: Tesla P100-SXM2-16GB\n- Python: 3.9.16\n- NumPy: 1.24.2\n- SciPy: 1.10.1\n- Torch: 2.0.0\n- timing collected: false\n\nFor both CuPy and Torch, all 17 estimator cases passed with the requested backend actually executed and no CPU fallback.\n\n## Hausman branch coverage\n\nEach backend passed five Hausman diagnostics:\n\n1. `hausman_balanced` — structured `applicable=false` / non-PSD covariance difference;\n2. `hausman_explicit_re_constant_balanced` — structured `applicable=false`;\n3. `hausman_unbalanced` — structured `applicable=false`;\n4. `hausman_explicit_re_constant_unbalanced` — structured `applicable=false`;\n5. `hausman_applicable_nonzero_effect` — **`applicable=true`**, df=1.\n\nFor the dedicated applicable fixture, CuPy recorded statistic `1.1965942530851057` and p-value `0.27400344142676447`; Torch recorded statistic `1.1965942530849238` and p-value `0.2740034414268009`; the NumPy reference is statistic `1.196594253085033`, p-value `0.274003441426779`, df=1. Maximum statistic differences are `7.26e-14` (CuPy) and `1.09e-13` (Torch), and all FE/RE coefficient/covariance differences are below `1e-12`.\n\nThe fixture uses seed 20260810, 12 entities, 4 observations per entity, one slope, entity-effect scale 0.005, and noise scale 0.1. Its NumPy FE-minus-RE diagnostic covariance margin is `4.6413153162319366e-05`, safely above the hosted stability guard.\n\n## Supplementary disconnected-FE evidence\n\nThe focused disconnected two-way FE artifact remains valid supplementary evidence for an unchanged numerical path:\n\n- path: `{focused_rel}`\n- measurement SHA: `{historical_measurement_sha}`\n- artifact repository commit: `{historical_artifact_commit}`\n- Git blob: `{focused_blob}`\n- legacy residual df: 0\n- component-aware/public residual df: 1\n- effect rank: 7\n- incidence components: 3\n- CuPy/Torch confidence intervals agree with NumPy at floating-point noise.\n\nIt is deliberately identified as historical supplementary evidence rather than relabeled as a `{measurement_sha}` measurement.\n\n## Promoted canonical evidence\n\n- canonical path: `{new_source_rel}`\n- canonical SHA-256: `{promoted_sha256}`\n- source id: `{source_id}`\n- validation rows: 44 = 17 estimator cases x 2 backends + 5 Hausman diagnostics x 2 backends\n- timing/speedup: absent by contract\n\nThe parser requires the dedicated applicable row to preserve finite nonnegative statistic, p-value in [0,1], and positive df; missing or invalid numeric evidence fails closed. The older 42-row canonical source remains in the repository as explicitly superseded historical audit evidence and is no longer the registered source.\n\n## Physical conclusion\n\nThe P2 finding “Require an applicable Hausman case in the GPU gate” is physically closed. Both physical backends now exercise the applicable statistic/p-value/df path and the structured-inapplicable path without fallback.\n\n**Physical gate: ACCEPTED.**\n''', encoding='utf-8')
+
+          print('promoted source:', new_source_rel)
+          print('source sha256:', promoted_sha256)
+          print('source id:', source_id)
+          print('raw blob:', raw_blob)
+          PY
+      - name: Generate canonical frontend assets
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build docs mirror
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Run focused canonical and catalog gates
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_b_frontend_source.py \
+            dev/tests/test_panel_stage_b_applicable_hausman_parser.py \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_benchmark_catalog.py \
+            dev/tests/test_benchmark_inventory_v2.py \
+            dev/tests/test_frontend_contracts.py \
+            dev/tests/test_frontend_domain_coverage.py -q
+          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+          git diff --check
+      - name: Commit promoted evidence and remove one-shot workflow
+        run: |
+          rm .github/workflows/pr122-finalize-evidence.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          echo 'Final changed paths:'
+          git status --short
+          git add -A
+          git commit -m 'benchmark: finalize PR122 Stage B physical evidence'
+          git push origin HEAD:agent/panel-p1-stage-b-diagnostics
