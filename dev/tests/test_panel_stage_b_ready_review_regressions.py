@@ -19,7 +19,7 @@ SOURCE_PATH = (
     REPO_ROOT
     / "results"
     / "benchmark_frontend_sources"
-    / "panel_stage_b_pr122_p100_20260808.json"
+    / "panel_stage_b_pr122_p100_20260809.json"
 )
 
 
