@@ -121,45 +121,330 @@
     "The focused disconnected-FE artifact is retained as validation evidence and is not expanded into separate dashboard timing rows."
   ],
   "case_catalog": [
-    {"case_id":"pooled_balanced","model_id":"PooledOLS","variant":"balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","bp_lm","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"pooled_hac_unsorted_balanced","model_id":"PooledOLS","variant":"balanced-hac-unsorted","n_samples":54,"n_features":2,"checks":["fit_statistics","bp_lm","diagnostic_covariance","stage_a_inference","metadata_sort_alignment","backend_provenance"]},
-    {"case_id":"between_balanced","model_id":"BetweenOLS","variant":"balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"first_difference_balanced","model_id":"FirstDifferenceOLS","variant":"balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"panel_entity_balanced","model_id":"PanelOLS","variant":"entity-fe-balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","pooling_f","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"random_effects_balanced","model_id":"RandomEffects","variant":"balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","random_effects_diagnostic_contract","backend_provenance"]},
-    {"case_id":"random_effects_explicit_constant_balanced","model_id":"RandomEffects","variant":"explicit-constant-balanced","n_samples":54,"n_features":3,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","random_effects_diagnostic_contract","backend_provenance"]},
-    {"case_id":"fama_macbeth_balanced","model_id":"FamaMacBeth","variant":"balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"panel_two_way_balanced","model_id":"PanelOLS","variant":"two-way-fe-balanced","n_samples":54,"n_features":2,"checks":["fit_statistics","pooling_f","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"pooled_unbalanced","model_id":"PooledOLS","variant":"unbalanced","n_samples":49,"n_features":2,"checks":["fit_statistics","bp_lm","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"pooled_hac_unsorted_unbalanced","model_id":"PooledOLS","variant":"unbalanced-hac-unsorted","n_samples":49,"n_features":2,"checks":["fit_statistics","bp_lm","diagnostic_covariance","stage_a_inference","metadata_sort_alignment","backend_provenance"]},
-    {"case_id":"between_unbalanced","model_id":"BetweenOLS","variant":"unbalanced","n_samples":49,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"first_difference_unbalanced","model_id":"FirstDifferenceOLS","variant":"unbalanced","n_samples":49,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"panel_entity_unbalanced","model_id":"PanelOLS","variant":"entity-fe-unbalanced","n_samples":49,"n_features":2,"checks":["fit_statistics","pooling_f","diagnostic_covariance","stage_a_inference","backend_provenance"]},
-    {"case_id":"random_effects_unbalanced","model_id":"RandomEffects","variant":"unbalanced","n_samples":49,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","random_effects_diagnostic_contract","backend_provenance"]},
-    {"case_id":"random_effects_explicit_constant_unbalanced","model_id":"RandomEffects","variant":"explicit-constant-unbalanced","n_samples":49,"n_features":3,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","random_effects_diagnostic_contract","backend_provenance"]},
-    {"case_id":"fama_macbeth_unbalanced","model_id":"FamaMacBeth","variant":"unbalanced","n_samples":49,"n_features":2,"checks":["fit_statistics","diagnostic_covariance","stage_a_inference","backend_provenance"]}
+    {
+      "case_id": "pooled_balanced",
+      "model_id": "PooledOLS",
+      "variant": "balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "bp_lm",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "pooled_hac_unsorted_balanced",
+      "model_id": "PooledOLS",
+      "variant": "balanced-hac-unsorted",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "bp_lm",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "metadata_sort_alignment",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "between_balanced",
+      "model_id": "BetweenOLS",
+      "variant": "balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "first_difference_balanced",
+      "model_id": "FirstDifferenceOLS",
+      "variant": "balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "panel_entity_balanced",
+      "model_id": "PanelOLS",
+      "variant": "entity-fe-balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "pooling_f",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "random_effects_balanced",
+      "model_id": "RandomEffects",
+      "variant": "balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "random_effects_diagnostic_contract",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "random_effects_explicit_constant_balanced",
+      "model_id": "RandomEffects",
+      "variant": "explicit-constant-balanced",
+      "n_samples": 54,
+      "n_features": 3,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "random_effects_diagnostic_contract",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "fama_macbeth_balanced",
+      "model_id": "FamaMacBeth",
+      "variant": "balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "panel_two_way_balanced",
+      "model_id": "PanelOLS",
+      "variant": "two-way-fe-balanced",
+      "n_samples": 54,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "pooling_f",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "pooled_unbalanced",
+      "model_id": "PooledOLS",
+      "variant": "unbalanced",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "bp_lm",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "pooled_hac_unsorted_unbalanced",
+      "model_id": "PooledOLS",
+      "variant": "unbalanced-hac-unsorted",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "bp_lm",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "metadata_sort_alignment",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "between_unbalanced",
+      "model_id": "BetweenOLS",
+      "variant": "unbalanced",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "first_difference_unbalanced",
+      "model_id": "FirstDifferenceOLS",
+      "variant": "unbalanced",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "panel_entity_unbalanced",
+      "model_id": "PanelOLS",
+      "variant": "entity-fe-unbalanced",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "pooling_f",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "random_effects_unbalanced",
+      "model_id": "RandomEffects",
+      "variant": "unbalanced",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "random_effects_diagnostic_contract",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "random_effects_explicit_constant_unbalanced",
+      "model_id": "RandomEffects",
+      "variant": "explicit-constant-unbalanced",
+      "n_samples": 49,
+      "n_features": 3,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "random_effects_diagnostic_contract",
+        "backend_provenance"
+      ]
+    },
+    {
+      "case_id": "fama_macbeth_unbalanced",
+      "model_id": "FamaMacBeth",
+      "variant": "unbalanced",
+      "n_samples": 49,
+      "n_features": 2,
+      "checks": [
+        "fit_statistics",
+        "diagnostic_covariance",
+        "stage_a_inference",
+        "backend_provenance"
+      ]
+    }
   ],
   "backend_results": {
     "cupy": {
       "status": "success",
       "executed_backend": "cupy",
-      "model_cases": {"pooled_balanced":"success","pooled_hac_unsorted_balanced":"success","between_balanced":"success","first_difference_balanced":"success","panel_entity_balanced":"success","random_effects_balanced":"success","random_effects_explicit_constant_balanced":"success","fama_macbeth_balanced":"success","panel_two_way_balanced":"success","pooled_unbalanced":"success","pooled_hac_unsorted_unbalanced":"success","between_unbalanced":"success","first_difference_unbalanced":"success","panel_entity_unbalanced":"success","random_effects_unbalanced":"success","random_effects_explicit_constant_unbalanced":"success","fama_macbeth_unbalanced":"success"},
+      "model_cases": {
+        "pooled_balanced": "success",
+        "pooled_hac_unsorted_balanced": "success",
+        "between_balanced": "success",
+        "first_difference_balanced": "success",
+        "panel_entity_balanced": "success",
+        "random_effects_balanced": "success",
+        "random_effects_explicit_constant_balanced": "success",
+        "fama_macbeth_balanced": "success",
+        "panel_two_way_balanced": "success",
+        "pooled_unbalanced": "success",
+        "pooled_hac_unsorted_unbalanced": "success",
+        "between_unbalanced": "success",
+        "first_difference_unbalanced": "success",
+        "panel_entity_unbalanced": "success",
+        "random_effects_unbalanced": "success",
+        "random_effects_explicit_constant_unbalanced": "success",
+        "fama_macbeth_unbalanced": "success"
+      },
       "diagnostics": {
-        "hausman_balanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"},
-        "hausman_explicit_re_constant_balanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"},
-        "hausman_unbalanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"},
-        "hausman_explicit_re_constant_unbalanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"}
+        "hausman_balanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        },
+        "hausman_explicit_re_constant_balanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        },
+        "hausman_unbalanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        },
+        "hausman_explicit_re_constant_unbalanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        }
       }
     },
     "torch": {
       "status": "success",
       "executed_backend": "torch",
-      "model_cases": {"pooled_balanced":"success","pooled_hac_unsorted_balanced":"success","between_balanced":"success","first_difference_balanced":"success","panel_entity_balanced":"success","random_effects_balanced":"success","random_effects_explicit_constant_balanced":"success","fama_macbeth_balanced":"success","panel_two_way_balanced":"success","pooled_unbalanced":"success","pooled_hac_unsorted_unbalanced":"success","between_unbalanced":"success","first_difference_unbalanced":"success","panel_entity_unbalanced":"success","random_effects_unbalanced":"success","random_effects_explicit_constant_unbalanced":"success","fama_macbeth_unbalanced":"success"},
+      "model_cases": {
+        "pooled_balanced": "success",
+        "pooled_hac_unsorted_balanced": "success",
+        "between_balanced": "success",
+        "first_difference_balanced": "success",
+        "panel_entity_balanced": "success",
+        "random_effects_balanced": "success",
+        "random_effects_explicit_constant_balanced": "success",
+        "fama_macbeth_balanced": "success",
+        "panel_two_way_balanced": "success",
+        "pooled_unbalanced": "success",
+        "pooled_hac_unsorted_unbalanced": "success",
+        "between_unbalanced": "success",
+        "first_difference_unbalanced": "success",
+        "panel_entity_unbalanced": "success",
+        "random_effects_unbalanced": "success",
+        "random_effects_explicit_constant_unbalanced": "success",
+        "fama_macbeth_unbalanced": "success"
+      },
       "diagnostics": {
-        "hausman_balanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"},
-        "hausman_explicit_re_constant_balanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"},
-        "hausman_unbalanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"},
-        "hausman_explicit_re_constant_unbalanced":{"status":"success","applicable":false,"reason":"covariance difference is not positive semidefinite"}
+        "hausman_balanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        },
+        "hausman_explicit_re_constant_balanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        },
+        "hausman_unbalanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        },
+        "hausman_explicit_re_constant_unbalanced": {
+          "status": "success",
+          "applicable": false,
+          "reason": "covariance difference is not positive semidefinite"
+        }
       }
     }
   }
