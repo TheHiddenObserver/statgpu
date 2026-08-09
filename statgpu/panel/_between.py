@@ -15,7 +15,43 @@ from statgpu.panel._utils import factorize_panel_labels, group_means
 
 
 class BetweenOLS(BasePanelModel):
-    """Between-entity OLS estimator for panel data."""
+    """Between-entity OLS estimator for panel data.
+
+    Collapses the data to entity means and runs OLS on the collapsed data.
+    An intercept is added automatically.
+
+    Parameters
+    ----------
+    cov_type : str, default='nonrobust'
+        Covariance estimator: ``'nonrobust'`` or ``'robust'`` (HC1).
+    alpha : float, default=0.05
+        Significance level for confidence intervals.
+    device : str or Device, default='auto'
+        Computation device.
+    n_jobs : int or None, default=None
+        Optional parallelism hint retained by the shared estimator contract.
+
+    Attributes
+    ----------
+    coef_ : ndarray, shape (k,)
+        Estimated coefficients, including the automatically added intercept.
+    bse_ : ndarray, shape (k,)
+        Standard errors.
+    tvalues_ : ndarray, shape (k,)
+        t-statistics.
+    pvalues_ : ndarray, shape (k,)
+        Two-sided p-values.
+    conf_int_ : ndarray, shape (k, 2)
+        Confidence intervals.
+    rsquared : float
+        R-squared of the entity-mean regression.
+    nobs : int
+        Number of entity-mean observations (groups).
+    df_resid : int
+        Residual degrees of freedom of the legacy between regression.
+    fit_statistics_ : PanelFitStatistics or None
+        Standardized Stage-B panel fit statistics populated after ``fit``.
+    """
 
     def __init__(
         self,
@@ -33,6 +69,8 @@ class BetweenOLS(BasePanelModel):
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the between OLS model."""
+        # Preserve the pre-Stage-A requirement: BetweenOLS always requires an
+        # explicit entity_ids side array, including for formula-based fitting.
         if entity_ids is None:
             raise ValueError("entity_ids is required for BetweenOLS")
 
@@ -65,6 +103,7 @@ class BetweenOLS(BasePanelModel):
         )
 
         n_orig = X_arr.shape[0]
+        # Add intercept exactly as before.
         ones = xp.ones((n_orig, 1), dtype=xp.float64)
         if hasattr(X_arr, "is_cuda"):
             ones = ones.to(device=X_arr.device)
