@@ -1,87 +1,130 @@
 # PR #122 Panel Stage B physical GPU validation
 
-## Final acceptance status
+## Current acceptance status
 
-Panel Tier-1 Stage B has current physical GPU acceptance for exact numerical implementation head `a57efcea29b0e87ecb89865c5a6902d5773812c6`.
+**PARTIAL_REMOTE_PENDING**.
 
-Both maintained P100 gates were executed from that exact implementation with a clean working tree and completed successfully on CuPy and Torch CUDA:
+The previously accepted Panel Tier-1 Stage B numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6` remains useful historical physical evidence, but it is no longer sufficient for final PR #122 acceptance because `dev/benchmarks/validate_panel_stage_b_gpu.py` changed after that measurement.
 
-1. `dev/benchmarks/validate_panel_stage_b_gpu.py`
-2. `dev/benchmarks/validate_panel_stage_b_disconnected_fe_gpu.py`
+A Ready-for-review Codex pass identified a physical-coverage gap: all four Hausman diagnostics per CUDA backend in the `a57efcea...` artifact are structured `applicable = false` results because the fitted covariance difference is not positive semidefinite. Those results correctly validate applicability/reason parity against NumPy, but they do not execute an applicable Hausman statistic, p-value, and degrees-of-freedom path on either physical GPU backend.
 
-The raw outputs were committed unchanged in repository commit `72b3279d2028e8ec2af30e138e123aceb611ae8c`. The compare from `a57efcea...` to `72b3279d...` contains only those two JSON evidence files; no numerical implementation or validation-runner code changed.
+The review/fix loop therefore reopened the physical gate and returned PR #122 to Draft.
 
-## Raw evidence
+## Current runner fix
 
-Full Stage-B matrix:
+The current physical runner now contains a dedicated deterministic fitted FE/RE Hausman fixture with:
+
+- seed `20260810`;
+- 12 entities and 4 observations per entity;
+- one slope;
+- nonzero entity-effect scale `0.005`;
+- noise scale `0.1`;
+- 48 observations total.
+
+On the hosted NumPy reference under the physical-like Python 3.9 / NumPy 1.24.2 / SciPy 1.10.1 stack, this fixture is stably applicable with:
+
+- Hausman df `1`;
+- finite statistic and p-value;
+- a positive FE-minus-RE diagnostic covariance margin greater than `1e-6`.
+
+The runner now requires each requested physical backend to provide at least one diagnostic that simultaneously has:
+
+- `status = "success"`;
+- `applicable = true`;
+- finite `statistic`;
+- finite `pvalue`;
+- finite positive `df`.
+
+For the dedicated applicable fixture the runner also checks requested/executed backend identity and compares FE/RE coefficients, FE/RE diagnostic covariance, Hausman statistic, p-value, and df against the NumPy reference. The original four structured-inapplicable Hausman parameterizations remain in the matrix, so the eventual physical run must cover both applicability branches rather than replacing one with the other.
+
+Hosted regression coverage also locks the nonzero-effect fixture and verifies that the aggregate physical gate fails closed when every Hausman result is inapplicable or when an `applicable=true` payload omits statistic/p-value/df.
+
+The targeted review gate passed under Python 3.9 with NumPy 1.24.2 and SciPy 1.10.1 before the focused runner/test fix was committed.
+
+## Historical raw evidence
+
+The last accepted full Stage-B physical artifact is retained unchanged:
 
 - path: `results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json`
 - Git blob: `254b64776bff4e3b2b642bb4a2ae1eea25f4751c`
 - schema version: 2
-- top-level `git_sha`: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
-- `working_tree_clean = true`
-- `status = success`
-- CuPy: all 17 estimator cases and all four Hausman diagnostics succeeded with the requested CuPy backend
-- Torch: all 17 estimator cases and all four Hausman diagnostics succeeded with the requested Torch backend
-- no timing or speedup measurement was collected
+- measured implementation SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
+- clean working tree: true
+- overall status: success
+- CuPy: 17/17 estimator cases, requested backend `cupy`, no fallback
+- Torch: 17/17 estimator cases, requested backend `torch`, no fallback
+- four Hausman diagnostics per backend, all matching NumPy as structured inapplicable results
+- no timing or speedup measurement collected.
 
-Focused disconnected two-way FE gate:
+The focused disconnected two-way FE artifact is also retained unchanged:
 
 - path: `results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json`
 - Git blob: `3bda0b2040479ba8201e2722eb990ba086c3f3b9`
-- schema version: 1
-- top-level `git_sha`: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
-- `working_tree_clean = true`
-- `status = success`
-- fixture: two disconnected 2x2 incidence blocks plus one singleton
+- measured implementation SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
+- clean working tree: true
 - `nobs = 9`
-- legacy residual df = 0
-- component-aware/public residual df = 1
-- effect rank = 7
+- legacy residual df `0`
+- component-aware/public residual df `1`
+- effect rank `7`
 - `rank_x = 1`
-- incidence components = 3
-- CuPy and Torch both executed on the requested backend and matched NumPy within the validator tolerances
+- incidence components `3`
+- CuPy and Torch requested/executed backend provenance verified
+- corrected df=1 confidence intervals agree with NumPy to machine precision.
 
-The NumPy reference confidence interval for the one-slope fixture is approximately `[-4.853102368087349, 7.853102368087349]`. CuPy and Torch both return approximately `[-4.853102368087348, 7.853102368087348]`; the recorded maximum absolute CI difference is `8.881784197001252e-16` for each GPU backend.
+These artifacts continue to establish the previously reviewed estimator, inference, disconnected-FE, and structured-inapplicability behavior. They do **not** establish the newly required applicable-Hausman physical branch.
 
-This focused result closes the physical regression that previously produced a Torch interval of roughly `[-49998.5, 50001.5]` at residual df 1. The repaired panel inference uses the exact identity `Student-t(df=1) == standard Cauchy`; the successful P100 rerun confirms the corrected boundary on physical Torch CUDA as well as CuPy.
+## Historical environment
 
-## Environment
+The `a57efcea...` artifacts report:
 
-Both artifacts report:
+- Tesla P100-SXM2-16GB;
+- Python 3.9.16;
+- statgpu 0.2.4;
+- NumPy 1.24.2;
+- SciPy 1.10.1;
+- PyTorch 2.0.0.
 
-- GPU: Tesla P100-SXM2-16GB
-- Python: 3.9.16
-- statgpu: 0.2.4
-- NumPy: 1.24.2
-- SciPy: 1.10.1
-- PyTorch: 2.0.0
+The raw artifact records the CuPy package metadata field as `null`, but physical CuPy execution is independently established by the per-case `executed_backend = "cupy"` checks.
 
-The runner could not resolve the installed CuPy distribution version through `importlib.metadata`, so the artifact records that package field as `null`. Physical CuPy execution is instead established by the per-backend `executed_backend = "cupy"` provenance checks.
+## Existing canonical frontend evidence
 
-## Canonical frontend evidence
+The currently committed canonical source remains the historical `a57efcea...` measurement:
 
-Current canonical validation source:
+- `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809.json`
+- SHA-256 `a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9`
+- source id `panel-stage-b-pr122-20260809-a6e47b9dec9c`
+- 42 validation-only rows.
 
-- path: `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809.json`
-- canonical SHA-256: `a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9`
-- source id: `panel-stage-b-pr122-20260809-a6e47b9dec9c`
-- measurement implementation SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
-- parser: `panel_stage_b_physical_validation` v1.0
-- validation-only evidence; no timing or speedup is inferred
+It remains an immutable description of that historical physical run, but it must not be treated as final acceptance for the current runner. After the new exact-clean-head P100 run succeeds, a new canonical source must replace it and the frontend generated assets/contracts must be regenerated. With the new applicable Hausman diagnostic, the expected Stage-B validation row count is 44: 17 estimator cases x 2 backends plus 5 Hausman diagnostics x 2 backends.
 
-The source registers the full 17-case matrix and four Hausman parameterizations per backend, producing 42 validation rows. It also records the focused disconnected-FE gate as supporting provenance rather than inventing timing rows for it.
+## Required remote closure
 
-The earlier canonical source measured at `faa95ce7fb5cb204088957fbda5544c20a06fbfc` is historical evidence for that older implementation and is no longer the current dashboard source. Its immutable raw artifact remains preserved in `results/pr122_p100/`.
+Final physical acceptance now requires a fresh exact-clean-head P100 execution of `dev/benchmarks/validate_panel_stage_b_gpu.py` on the final runner head, with both CuPy and Torch requested.
 
-## Applicability after evidence-only commits
+The new artifact must demonstrate, for each backend:
 
-The physical acceptance is anchored to the exact numerical implementation `a57efcea...`. Subsequent commits may add or promote raw evidence, canonical metadata, frontend contract tests, generated benchmark assets, and review documentation without invalidating the numerical measurement. Physical applicability is preserved provided a repository compare confirms that no numerical production implementation relevant to the measurement and neither physical validation runner changed after `a57efcea...`.
+1. requested backend equals executed backend with no silent fallback;
+2. all 17 estimator cases remain successful against NumPy;
+3. the four existing Hausman parameterizations retain their expected structured applicability behavior;
+4. `hausman_applicable_nonzero_effect` is `applicable = true`;
+5. its Hausman statistic, p-value, and df agree with NumPy within the runner tolerances;
+6. its FE/RE coefficients and diagnostic covariance agree with NumPy within the runner tolerances;
+7. the top-level run reports a clean working tree and exact expected SHA.
 
-Frontend/evidence tests may change to assert the promoted source identity or provenance; those tests do not alter the physically measured numerical implementation. If numerical production code or either physical validation runner changes later, a new exact-head physical validation is required before PR #122 can again be considered physically accepted.
+After that run is accepted, the lifecycle must:
 
-## Acceptance conclusion
+- commit the immutable raw result;
+- promote a new canonical Stage-B source;
+- update source/coverage contracts for five Hausman diagnostics per backend and 44 validation rows;
+- regenerate the six tracked frontend/docs JSON assets;
+- rerun exact-final-head hosted CI;
+- resolve the applicable-Hausman review thread with the new evidence;
+- perform another fresh review under `.claude/skills/code-review.md` before returning the PR to Ready.
 
-**PHYSICAL_GPU_ACCEPTED** for Panel Tier-1 Stage B numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6`.
+## Hard-exit conclusion
 
-The remaining PR lifecycle work is evidence/frontend staleness synchronization, hosted final-head validation, and the normal review-thread/fresh-review process. No additional P100 rerun is required unless numerical production or physical validation-runner code changes.
+Local fix status: the current review finding is fixed in runner/test code and targeted local/hosted checks pass.
+
+Remote status: a fresh P100 CuPy/Torch artifact is required because the physical validation runner changed.
+
+**Hard exit: PARTIAL_REMOTE_PENDING.**
