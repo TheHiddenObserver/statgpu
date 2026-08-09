@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +63,38 @@ def _apply_aggregate_validation_contract(
         validation["checks"].extend(
             {"metric": metric, "status": "fail"} for metric in failed_metrics
         )
+    return validation
+
+
+def _apply_applicable_hausman_contract(
+    validation: dict[str, Any], diagnostic: dict[str, Any]
+) -> dict[str, Any]:
+    """Require numeric evidence for the dedicated applicable Hausman fixture."""
+    ok = diagnostic.get("applicable") is True
+    try:
+        statistic = float(diagnostic.get("statistic"))
+        pvalue = float(diagnostic.get("pvalue"))
+        df = float(diagnostic.get("df"))
+        ok = (
+            ok
+            and math.isfinite(statistic)
+            and statistic >= 0.0
+            and math.isfinite(pvalue)
+            and 0.0 <= pvalue <= 1.0
+            and math.isfinite(df)
+            and df > 0.0
+        )
+    except (TypeError, ValueError):
+        ok = False
+
+    validation["checks"].append(
+        {
+            "metric": "hausman_applicable_statistic_pvalue_df",
+            "status": "pass" if ok else "fail",
+        }
+    )
+    if not ok:
+        validation["status"] = "fail"
     return validation
 
 
@@ -181,7 +214,6 @@ def parse_panel_stage_b_physical_validation(
                 n_samples, n_features = 48, 1
                 validation_checks = [
                     "hausman_backend_consistency",
-                    "hausman_applicable_statistic_pvalue_df",
                     "backend_provenance",
                 ]
                 method_parts: list[object] = [
@@ -226,6 +258,9 @@ def parse_panel_stage_b_physical_validation(
                 backend_ok=backend_ok,
                 executed_backend_ok=executed_backend_ok,
             )
+            if applicable_fixture:
+                validation = _apply_applicable_hausman_contract(validation, diagnostic)
+
             model_ids.add("PanelOLS")
             runs.append(
                 {
@@ -250,7 +285,12 @@ def parse_panel_stage_b_physical_validation(
                         "parameterization": parameterization,
                         "applicable": bool(diagnostic.get("applicable")),
                         **(
-                            {"diagnostic_fixture": "nonzero-effect-applicable"}
+                            {
+                                "diagnostic_fixture": "nonzero-effect-applicable",
+                                "statistic": diagnostic.get("statistic"),
+                                "pvalue": diagnostic.get("pvalue"),
+                                "df": diagnostic.get("df"),
+                            }
                             if applicable_fixture
                             else {}
                         ),
