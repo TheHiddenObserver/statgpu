@@ -110,7 +110,7 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     ]
     assert rows["panel-estimation"]["source_ids"] == [
         "new-modules-20260624-bcbdb676223b",
-        "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "panel-stage-b-pr122-20260809-2056f836bfe2",
     ]
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
