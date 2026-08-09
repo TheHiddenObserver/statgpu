@@ -322,8 +322,10 @@ def main():
             }
         results[backend] = payload
 
-    required_prefixes = {
-        "pooled_hc0", "pooled_hc2", "pooled_hc3", "pooled_dk_bartlett", "pooled_dk_qs",
+    required_cases = {
+        "pooled_hc0", "pooled_hc2", "pooled_hc3",
+        "pooled_cluster_one_way", "pooled_cluster_two_way_group_debias",
+        "pooled_dk_bartlett", "pooled_dk_qs", "pooled_legacy_hac",
         "panel_entity_hc0", "panel_entity_hc2", "panel_entity_hc3", "panel_two_way_hc3",
         "panel_two_way_cluster_group_debias", "panel_two_way_dk",
         "random_effects_explicit_constant_robust", "random_effects_explicit_constant_hc0",
@@ -332,10 +334,23 @@ def main():
         "between_hc0", "between_hc2", "between_hc3",
         "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
     }
+    if set(reference) != required_cases:
+        missing = sorted(required_cases - set(reference))
+        unexpected = sorted(set(reference) - required_cases)
+        raise AssertionError(
+            "NumPy reference Stage-C physical matrix drifted: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    if len(reference) != 26:
+        raise AssertionError(f"expected 26 Stage-C physical cases, got {len(reference)}")
     for backend, payload in results.items():
-        missing = sorted(required_prefixes - set(payload["cases"]))
-        if missing:
-            raise AssertionError(f"{backend}: missing required Stage-C physical cases: {missing}")
+        if set(payload["cases"]) != required_cases:
+            missing = sorted(required_cases - set(payload["cases"]))
+            unexpected = sorted(set(payload["cases"]) - required_cases)
+            raise AssertionError(
+                f"{backend}: Stage-C physical matrix drifted: "
+                f"missing={missing}, unexpected={unexpected}"
+            )
 
     output = {
         "schema_version": 1,
