@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "45a94e710ad14d391e40efb258f904369f3625a55d2b3080f635d98e3677609f"
+    "generation_id": "b086cbafb6408c586ed6e0f22e72b058489450cbbe2b401cee1dfebdf61bbf88"
   },
   "environments": [
     {
@@ -29,8 +29,8 @@
       "host": "wE6lDe"
     },
     {
-      "env_id": "remote-p100-pr122-20260808",
-      "label": "Tesla P100 PR #122 Panel Stage B validation — 2026-08-08",
+      "env_id": "remote-p100-pr122-20260809",
+      "label": "Tesla P100 PR #122 Panel Stage B validation — 2026-08-09",
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64"
     }
@@ -605,9 +605,9 @@
       "env_id": "remote-p100"
     },
     {
-      "comparison_id": "panel-stage-b-pr122-20260808",
-      "label": "Panel Stage B physical validation — PR #122 — 2026-08-08",
-      "env_id": "remote-p100-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809",
+      "label": "Panel Stage B physical validation — PR #122 — 2026-08-09",
+      "env_id": "remote-p100-pr122-20260809"
     },
     {
       "comparison_id": "penalized-glm-perf-20260622",
@@ -91462,9 +91462,9 @@
       "comparison_id": "cv-benchmark-pr116-20260807"
     },
     {
-      "run_id": "8a71ce77d803ed74",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "6fbd213c0e98b871",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91486,17 +91486,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91524,20 +91524,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "0d85b9dd44963867",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "5e656f753d05f842",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91559,17 +91559,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91601,20 +91601,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "d931273510d98478",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "5e2fc37763eb7b2d",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91636,17 +91636,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91670,20 +91670,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "1b776255eaf957b9",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "9f8fd6d0d61957ea",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91705,17 +91705,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91739,20 +91739,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "c7dc0b9be6ea7fae",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "71ea69c6370cd907",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91774,17 +91774,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91812,20 +91812,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "b38fec0f44a85cbd",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "98d002d67524d5a9",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91847,17 +91847,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91885,20 +91885,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "1509019810790eb8",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "c39994c364cbb26b",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91920,17 +91920,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -91958,20 +91958,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "6fe71f02057dde61",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "0547ff5b87d20f6b",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -91993,17 +91993,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92027,20 +92027,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "acefbc894ee85927",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "a2007b6e73b6a9f6",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92062,17 +92062,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92100,20 +92100,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "dd74a3741c06baf1",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "1b69538b7e275d2b",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92135,17 +92135,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92173,20 +92173,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "4d70cd27967389a5",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "c9d8ef5981103295",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92208,17 +92208,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92250,20 +92250,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "f32ab8cd8e2aeedd",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "1423e479796ac0a4",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92285,17 +92285,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92319,20 +92319,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "3d1c833e7d401aef",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "d2b33efec229d231",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92354,17 +92354,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92388,20 +92388,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "660320ec96ec4e4e",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "777bc6b6bb7506dc",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92423,17 +92423,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92461,20 +92461,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "ff70c785429660ae",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "b6443da5a40e9b65",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92496,17 +92496,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92534,20 +92534,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "b96058e6fa248bf3",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "c018668fd1478bea",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92569,17 +92569,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92607,20 +92607,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "1b41ab9b767771d1",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "d1a10fdc01d5978f",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92642,17 +92642,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92676,20 +92676,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "9447826107945e33",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "c00879787a568092",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92714,17 +92714,17 @@
         "diagnostic": "hausman",
         "parameterization": "standard",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92740,15 +92740,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "32e34d5c96930300",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "cdf2bce987b76e0d",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92773,17 +92773,17 @@
         "diagnostic": "hausman",
         "parameterization": "re-explicit-constant",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92799,15 +92799,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "9e2b8c30b55698ab",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "8a49ce80e42c9187",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92832,17 +92832,17 @@
         "diagnostic": "hausman",
         "parameterization": "standard",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92858,15 +92858,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "29bbe1904400dd6a",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "5a064e9cd732a439",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92891,17 +92891,17 @@
         "diagnostic": "hausman",
         "parameterization": "re-explicit-constant",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92917,15 +92917,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "218fb4a5eb609091",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "b4b8ad4fdb357766",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -92947,17 +92947,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -92985,20 +92985,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "9adb6ddf275cfc14",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "cb98913de9c65567",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93020,17 +93020,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93062,20 +93062,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "8bab7ca73de7592f",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "229b94497b7daf39",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93097,17 +93097,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93131,20 +93131,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "12cf689cd1b21c9d",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "2d6ad17269f7590c",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93166,17 +93166,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93200,20 +93200,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "a04f5cb6744c1448",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "cd64e8c60f0d713a",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93235,17 +93235,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93273,20 +93273,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "da8bd2f714ec4f41",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "da676a3aae12e295",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93308,17 +93308,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93346,20 +93346,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "980b1ea5069ec20f",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "736e2e19a439d96e",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93381,17 +93381,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93419,20 +93419,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "0f98b0640c2e6b1a",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "eedb70bdf33cbefa",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93454,17 +93454,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93488,20 +93488,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "67063d8328552d8e",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "e0df29b034722d9c",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93523,17 +93523,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93561,20 +93561,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "2a6e0490de299456",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "de108bf245552035",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93596,17 +93596,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93634,20 +93634,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "3102e0981defbfcc",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "291d0fccf452e187",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93669,17 +93669,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93711,20 +93711,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "8b95ddb25cf6a2b2",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "89061c2c3eb5a5ca",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93746,17 +93746,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93780,20 +93780,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "a5b35d639e6ed1cd",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "d5bed9c1d4672354",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93815,17 +93815,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93849,20 +93849,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "ae4e242f094f74e0",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "ae0bb5e1f6073301",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93884,17 +93884,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93922,20 +93922,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "bdc905873c71e5e7",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "2fa9c8fffed9c95e",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -93957,17 +93957,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -93995,20 +93995,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "38b24f285a69e581",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "ce673d81fe94d27f",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -94030,17 +94030,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -94068,20 +94068,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "ad5190138d1f4299",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "7f84d1c7e0c31439",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -94103,17 +94103,17 @@
       },
       "parameters": {
         "metric_scope": "physical_validation",
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -94137,20 +94137,20 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         },
         "inference": {
           "ok": true,
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "e81dfb4f8062f65e",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "b494d36de68d069f",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -94175,17 +94175,17 @@
         "diagnostic": "hausman",
         "parameterization": "standard",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -94201,15 +94201,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "85f69cd996ebbdab",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "a12a554e89cac8e5",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -94234,17 +94234,17 @@
         "diagnostic": "hausman",
         "parameterization": "re-explicit-constant",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -94260,15 +94260,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "76d711ed53a9060e",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "0f0059bb0eb5389a",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -94293,17 +94293,17 @@
         "diagnostic": "hausman",
         "parameterization": "standard",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -94319,15 +94319,15 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     },
     {
-      "run_id": "261d8f1d1a18f873",
-      "benchmark_session_id": "remote-p100-pr122-20260808-panel-stage-b-pr122",
-      "env_id": "remote-p100-pr122-20260808",
+      "run_id": "cc11ab1d8748ba1e",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
       "category_ids": [
         "panel"
       ],
@@ -94352,17 +94352,17 @@
         "diagnostic": "hausman",
         "parameterization": "re-explicit-constant",
         "applicable": false,
-        "measurement_git_sha": "faa95ce7fb5cb204088957fbda5544c20a06fbfc",
+        "measurement_git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
         "working_tree_clean": true
       },
       "source": {
-        "file": "panel_stage_b_pr122_p100_20260808.json",
-        "date": "2026-08-08",
+        "file": "panel_stage_b_pr122_p100_20260809.json",
+        "date": "2026-08-09",
         "parser": "parse_panel_stage_b_physical_validation_v1",
         "parser_version": "1.0",
-        "source_id": "panel-stage-b-pr122-20260808-b8caffa6f915",
-        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json",
-        "sha256": "b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba"
+        "source_id": "panel-stage-b-pr122-20260809-a6e47b9dec9c",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json",
+        "sha256": "a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9"
       },
       "metrics": {
         "validation": {
@@ -94378,10 +94378,10 @@
             }
           ],
           "quality": "reported",
-          "source_file": "panel_stage_b_pr122_p100_20260808.json"
+          "source_file": "panel_stage_b_pr122_p100_20260809.json"
         }
       },
-      "comparison_id": "panel-stage-b-pr122-20260808"
+      "comparison_id": "panel-stage-b-pr122-20260809"
     }
   ]
 }
