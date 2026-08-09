@@ -118,6 +118,27 @@ def _factorize_1d_labels(values, *, nobs: int, name: str):
         raw = raw[:, 0]
     if raw.ndim != 1 or raw.shape[0] != int(nobs):
         raise ValueError(f"{name} must be one-dimensional with length n_samples")
+
+    invalid = False
+    if np.issubdtype(raw.dtype, np.number):
+        invalid = bool(np.any(~np.isfinite(raw)))
+    elif np.issubdtype(raw.dtype, np.datetime64) or np.issubdtype(raw.dtype, np.timedelta64):
+        invalid = bool(np.any(np.isnat(raw)))
+    elif raw.dtype.kind == "O":
+        for value in raw:
+            if value is None:
+                invalid = True
+                break
+            if isinstance(value, (float, np.floating, complex, np.complexfloating)):
+                if not bool(np.isfinite(value)):
+                    invalid = True
+                    break
+            if isinstance(value, (np.datetime64, np.timedelta64)) and bool(np.isnat(value)):
+                invalid = True
+                break
+    if invalid:
+        raise ValueError(f"{name} must not contain missing or non-finite values")
+
     try:
         labels, codes = np.unique(raw, return_inverse=True)
     except TypeError as exc:
@@ -318,7 +339,11 @@ def _validate_dk_bandwidth(bandwidth, n_periods: int) -> int:
     bandwidth = int(bandwidth)
     if bandwidth < 0:
         raise ValueError("Driscoll-Kraay bandwidth must be a non-negative integer or None")
-    return min(bandwidth, max(int(n_periods) - 1, 0))
+    # Do not silently cap an explicit bandwidth at T-1. Bartlett/Parzen use the
+    # requested bandwidth in their weight denominator even though only observed
+    # lags 1,...,T-1 can contribute; QS uses bandwidth as a smoothing scale over
+    # all observed lags. Silent capping changes the requested covariance.
+    return bandwidth
 
 
 def _dk_kernel_weights(kernel: str, bandwidth: int, max_lag: int) -> tuple[str, np.ndarray]:
