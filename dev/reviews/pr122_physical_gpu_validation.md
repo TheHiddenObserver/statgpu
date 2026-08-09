@@ -1,147 +1,71 @@
 # PR #122 Panel Stage B physical GPU validation
 
-## Current acceptance status
+## Physical acceptance status
 
-**PARTIAL_REMOTE_PENDING**.
+**PHYSICAL_GPU_ACCEPTED** for the Stage-B runner measured at exact clean implementation head `2701aa9feb3796c33c94e6480fcb78c80c6a809c`.
 
-The previously accepted Panel Tier-1 Stage B numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6` remains useful historical physical evidence, but it is no longer sufficient for final PR #122 acceptance because `dev/benchmarks/validate_panel_stage_b_gpu.py` changed after that measurement.
+This status covers the active physical correctness/backend-provenance gate only. Exact-final-head hosted CI and a fresh `.claude/skills/code-review.md` review remain lifecycle gates after evidence promotion; the physical runner itself must not change without another P100 rerun.
 
-A Ready-for-review Codex pass identified a physical-coverage gap: all four Hausman diagnostics per CUDA backend in the `a57efcea...` artifact are structured `applicable = false` results because the fitted covariance difference is not positive semidefinite. Those results correctly validate applicability/reason parity against NumPy, but they do not execute an applicable Hausman statistic, p-value, and degrees-of-freedom path on either physical GPU backend.
+## Accepted full P100 artifact
 
-The review/fix loop therefore reopened the physical gate and returned PR #122 to Draft.
-
-## Current runner fix
-
-The current physical runner now contains a dedicated deterministic fitted FE/RE Hausman fixture with:
-
-- seed `20260810`;
-- 12 entities and 4 observations per entity;
-- one slope;
-- nonzero entity-effect scale `0.005`;
-- noise scale `0.1`;
-- 48 observations total.
-
-On the hosted NumPy reference under the physical-like Python 3.9 / NumPy 1.24.2 / SciPy 1.10.1 stack, this fixture is stably applicable with:
-
-- Hausman df `1`;
-- finite statistic and p-value;
-- a positive FE-minus-RE diagnostic covariance margin greater than `1e-6`.
-
-The runner now requires each requested physical backend to provide at least one diagnostic that simultaneously has:
-
-- `status = "success"`;
-- `applicable = true`;
-- finite `statistic`;
-- finite `pvalue`;
-- finite positive `df`.
-
-For the dedicated applicable fixture the runner also checks requested/executed backend identity and compares FE/RE coefficients, FE/RE diagnostic covariance, Hausman statistic, p-value, and df against the NumPy reference. The original four structured-inapplicable Hausman parameterizations remain in the matrix, so the eventual physical run must cover both applicability branches rather than replacing one with the other.
-
-Hosted regression coverage also locks the nonzero-effect fixture and verifies that the aggregate physical gate fails closed when every Hausman result is inapplicable or when an `applicable=true` payload omits statistic/p-value/df.
-
-The targeted review gate passed under Python 3.9 with NumPy 1.24.2 and SciPy 1.10.1 before the focused runner/test fix was committed.
-
-## Historical raw evidence
-
-The last accepted full Stage-B physical artifact is retained unchanged:
-
-- path: `results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json`
-- Git blob: `254b64776bff4e3b2b642bb4a2ae1eea25f4751c`
+- path: `results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json`
+- measurement SHA: `2701aa9feb3796c33c94e6480fcb78c80c6a809c`
+- artifact repository commit: `0d0d654d825cea872672f27d02107a58048b345f`
+- Git blob: `fa3a253e6d882a4e69be29e7e3b1dce7b223b9a9`
 - schema version: 2
-- measured implementation SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
-- clean working tree: true
-- overall status: success
-- CuPy: 17/17 estimator cases, requested backend `cupy`, no fallback
-- Torch: 17/17 estimator cases, requested backend `torch`, no fallback
-- four Hausman diagnostics per backend, all matching NumPy as structured inapplicable results
-- no timing or speedup measurement collected.
+- working tree clean: true
+- top-level status: success
+- GPU: Tesla P100-SXM2-16GB
+- Python: 3.9.16
+- NumPy: 1.24.2
+- SciPy: 1.10.1
+- Torch: 2.0.0
+- timing collected: false
 
-The focused disconnected two-way FE artifact is also retained unchanged:
+For both CuPy and Torch, all 17 estimator cases passed with the requested backend actually executed and no CPU fallback.
+
+## Hausman branch coverage
+
+Each backend passed five Hausman diagnostics:
+
+1. `hausman_balanced` — structured `applicable=false` / non-PSD covariance difference;
+2. `hausman_explicit_re_constant_balanced` — structured `applicable=false`;
+3. `hausman_unbalanced` — structured `applicable=false`;
+4. `hausman_explicit_re_constant_unbalanced` — structured `applicable=false`;
+5. `hausman_applicable_nonzero_effect` — **`applicable=true`**, df=1.
+
+For the dedicated applicable fixture, CuPy recorded statistic `1.1965942530851057` and p-value `0.27400344142676447`; Torch recorded statistic `1.1965942530849238` and p-value `0.2740034414268009`; the NumPy reference is statistic `1.196594253085033`, p-value `0.274003441426779`, df=1. Maximum statistic differences are `7.26e-14` (CuPy) and `1.09e-13` (Torch), and all FE/RE coefficient/covariance differences are below `1e-12`.
+
+The fixture uses seed 20260810, 12 entities, 4 observations per entity, one slope, entity-effect scale 0.005, and noise scale 0.1. Its NumPy FE-minus-RE diagnostic covariance margin is `4.6413153162319366e-05`, safely above the hosted stability guard.
+
+## Supplementary disconnected-FE evidence
+
+The focused disconnected two-way FE artifact remains valid supplementary evidence for an unchanged numerical path:
 
 - path: `results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json`
+- measurement SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
+- artifact repository commit: `72b3279d2028e8ec2af30e138e123aceb611ae8c`
 - Git blob: `3bda0b2040479ba8201e2722eb990ba086c3f3b9`
-- measured implementation SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
-- clean working tree: true
-- `nobs = 9`
-- legacy residual df `0`
-- component-aware/public residual df `1`
-- effect rank `7`
-- `rank_x = 1`
-- incidence components `3`
-- CuPy and Torch requested/executed backend provenance verified
-- corrected df=1 confidence intervals agree with NumPy to machine precision.
+- legacy residual df: 0
+- component-aware/public residual df: 1
+- effect rank: 7
+- incidence components: 3
+- CuPy/Torch confidence intervals agree with NumPy at floating-point noise.
 
-These artifacts continue to establish the previously reviewed estimator, inference, disconnected-FE, and structured-inapplicability behavior. They do **not** establish the newly required applicable-Hausman physical branch.
+It is deliberately identified as historical supplementary evidence rather than relabeled as a `2701aa9feb3796c33c94e6480fcb78c80c6a809c` measurement.
 
-## Historical environment
+## Promoted canonical evidence
 
-The `a57efcea...` artifacts report:
+- canonical path: `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809_2701aa9f.json`
+- canonical SHA-256: `2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf`
+- source id: `panel-stage-b-pr122-20260809-2056f836bfe2`
+- validation rows: 44 = 17 estimator cases x 2 backends + 5 Hausman diagnostics x 2 backends
+- timing/speedup: absent by contract
 
-- Tesla P100-SXM2-16GB;
-- Python 3.9.16;
-- statgpu 0.2.4;
-- NumPy 1.24.2;
-- SciPy 1.10.1;
-- PyTorch 2.0.0.
+The parser requires the dedicated applicable row to preserve finite nonnegative statistic, p-value in [0,1], and positive df; missing or invalid numeric evidence fails closed. The older 42-row canonical source remains in the repository as explicitly superseded historical audit evidence and is no longer the registered source.
 
-The raw artifact records the CuPy package metadata field as `null`, but physical CuPy execution is independently established by the per-case `executed_backend = "cupy"` checks.
+## Physical conclusion
 
-## Existing canonical frontend evidence
+The P2 finding “Require an applicable Hausman case in the GPU gate” is physically closed. Both physical backends now exercise the applicable statistic/p-value/df path and the structured-inapplicable path without fallback.
 
-The currently committed canonical source remains the historical `a57efcea...` measurement:
-
-- `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809.json`
-- SHA-256 `a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9`
-- source id `panel-stage-b-pr122-20260809-a6e47b9dec9c`
-- 42 validation-only rows.
-
-It remains an immutable description of that historical physical run, but it must not be treated as final acceptance for the current runner. After the new exact-clean-head P100 run succeeds, a new canonical source must replace it and the frontend generated assets/contracts must be regenerated. With the new applicable Hausman diagnostic, the expected Stage-B validation row count is 44: 17 estimator cases x 2 backends plus 5 Hausman diagnostics x 2 backends.
-
-The PR122 evidence promotion step is an explicit source-registration action rather than a separate automatic normalizer. The current parser contract therefore requires the future canonical source to preserve the dedicated applicable Hausman `statistic`, `pvalue`, and `df`; if any are missing or invalid, the emitted validation row fails closed instead of publishing a passing result.
-
-## Local review/fix closure
-
-The review/fix cycle was re-run against the changed and adjacent files under `.claude/skills/code-review.md`. Local fixes now cover:
-
-- a deterministic, nonzero-entity-effect, fitted Hausman-applicable physical fixture;
-- per-backend fail-closed enforcement requiring a successful applicable Hausman statistic/p-value/df result;
-- FE/RE coefficient and diagnostic-covariance comparison for the dedicated physical fixture;
-- hosted physical-runner regression coverage under the Python 3.9 / NumPy 1.24.2 / SciPy 1.10.1 stack;
-- a dedicated 48 x 1 frontend identity and method/variant separation for the new fixture;
-- canonical numeric-evidence fail-closed parsing for statistic/pvalue/df;
-- explicit execution of the new parser regression in the maintained Benchmark Frontend Python 3.9/3.11 matrix;
-- EN/CN changelog synchronization marking the older 42-row source as historical rather than final acceptance.
-
-No further locally actionable CRITICAL, HIGH, or in-scope MEDIUM finding was identified in the final changed+adjacent review. Exact-head hosted CI must still pass before this local closure is treated as complete.
-
-## Required remote closure
-
-Final physical acceptance now requires a fresh exact-clean-head P100 execution of `dev/benchmarks/validate_panel_stage_b_gpu.py` on the final runner head, with both CuPy and Torch requested.
-
-The new artifact must demonstrate, for each backend:
-
-1. requested backend equals executed backend with no silent fallback;
-2. all 17 estimator cases remain successful against NumPy;
-3. the four existing Hausman parameterizations retain their expected structured applicability behavior;
-4. `hausman_applicable_nonzero_effect` is `applicable = true`;
-5. its Hausman statistic, p-value, and df agree with NumPy within the runner tolerances;
-6. its FE/RE coefficients and diagnostic covariance agree with NumPy within the runner tolerances;
-7. the top-level run reports a clean working tree and exact expected SHA.
-
-After that run is accepted, the lifecycle must:
-
-- commit the immutable raw result;
-- promote a new canonical Stage-B source preserving statistic/pvalue/df for the dedicated applicable Hausman fixture;
-- update source/coverage contracts for five Hausman diagnostics per backend and 44 validation rows;
-- regenerate the six tracked frontend/docs JSON assets;
-- rerun exact-final-head hosted CI;
-- resolve the applicable-Hausman review thread with the new evidence;
-- perform another fresh review under `.claude/skills/code-review.md` before returning the PR to Ready.
-
-## Hard-exit conclusion
-
-Local fix status: the current review finding and all locally discovered adjacent coverage/documentation findings are fixed in runner/test/parser/CI/docs code. Targeted local/hosted checks passed before the closure commit; exact-head full hosted CI remains required.
-
-Remote status: a fresh P100 CuPy/Torch artifact is required because the physical validation runner changed.
-
-**Hard exit: PARTIAL_REMOTE_PENDING.**
+**Physical gate: ACCEPTED.**
