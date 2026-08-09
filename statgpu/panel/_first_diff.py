@@ -17,9 +17,9 @@ from statgpu.panel._utils import factorize_panel_labels
 class FirstDifferenceOLS(BasePanelModel):
     """First-difference OLS estimator for panel data.
 
-    Transforms the data by taking first differences within each entity:
-    ``Δy_t = y_t - y_{t-1}``, ``ΔX_t = X_t - X_{t-1}``, then runs OLS
-    on the differenced data.
+    Transforms the data by taking first differences within each entity and runs
+    OLS on the retained differenced sample. Stage C adds transformed-fit-space
+    HC0/HC2/HC3 covariance while preserving historical HC1 ``robust`` behavior.
     """
 
     def __init__(
@@ -30,16 +30,18 @@ class FirstDifferenceOLS(BasePanelModel):
         n_jobs: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
-        self.cov_type = cov_type.lower()
+        from statgpu.panel._covariance import normalize_covariance_type
+
+        self.cov_type = normalize_covariance_type(cov_type)
         self.alpha = alpha
-        if self.cov_type not in ("nonrobust", "robust"):
-            raise ValueError("cov_type must be 'nonrobust' or 'robust'")
+        if self.cov_type not in ("nonrobust", "robust", "hc0", "hc2", "hc3"):
+            raise ValueError(
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', 'hc2', or 'hc3'"
+            )
         self.fit_statistics_ = None
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the first-difference OLS model."""
-        # Preserve the existing contract: an explicit entity side array is
-        # required even when the numerical design is supplied by a formula.
         if entity_ids is None:
             raise ValueError("entity_ids is required for FirstDifferenceOLS")
 
@@ -102,7 +104,7 @@ class FirstDifferenceOLS(BasePanelModel):
             df_resid=df_resid,
             backend=backend,
             cov_type=self._cov_type,
-            allowed=("nonrobust", "robust"),
+            allowed=("nonrobust", "robust", "hc0", "hc2", "hc3"),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
             diag_floor=1e-30,
@@ -120,10 +122,6 @@ class FirstDifferenceOLS(BasePanelModel):
 
         rank_diff = _matrix_rank(X_diff, xp)
         diagnostic_df = n - rank_diff
-        # The primary FD fit has no constant, so its total fit-space df is the
-        # number of retained first differences.  Standard within/between/overall
-        # R² are still evaluated using the level coefficient vector, matching the
-        # parameter-based panel definition rather than redefining them on Δy.
         ss_tot_diag = _to_float_scalar(xp.sum(y_diff * y_diff))
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
