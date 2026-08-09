@@ -38,6 +38,33 @@ def _validation(checks: list[str], status: str, filepath: Path) -> dict[str, Any
     }
 
 
+def _apply_aggregate_validation_contract(
+    validation: dict[str, Any],
+    *,
+    schema_ok: bool,
+    source_ok: bool,
+    backend_ok: bool,
+    executed_backend_ok: bool,
+) -> dict[str, Any]:
+    """Prevent a failed aggregate physical run from emitting passing rows."""
+    failed_metrics: list[str] = []
+    if not schema_ok:
+        failed_metrics.append("source_schema_status_ok")
+    if not source_ok:
+        failed_metrics.append("source_validation_status_success")
+    if not backend_ok:
+        failed_metrics.append("backend_validation_status_success")
+    if not executed_backend_ok:
+        failed_metrics.append("executed_backend_matches_requested")
+
+    if failed_metrics:
+        validation["status"] = "fail"
+        validation["checks"].extend(
+            {"metric": metric, "status": "fail"} for metric in failed_metrics
+        )
+    return validation
+
+
 def parse_panel_stage_b_physical_validation(
     filepath: Path, env_id: str
 ) -> tuple[list[dict], list[dict], list[str]]:
@@ -45,9 +72,11 @@ def parse_panel_stage_b_physical_validation(
     data = json.loads(filepath.read_text(encoding="utf-8"))
     warnings: list[str] = []
 
-    if data.get("schema_status") != "ok":
+    schema_ok = data.get("schema_status") == "ok"
+    source_ok = data.get("status") == "success"
+    if not schema_ok:
         warnings.append(f"{filepath.name}: source schema_status is not ok")
-    if data.get("status") != "success":
+    if not source_ok:
         warnings.append(f"{filepath.name}: physical validation status is not success")
     if data.get("protocol", {}).get("timing_collected") is not False:
         warnings.append(
@@ -68,8 +97,14 @@ def parse_panel_stage_b_physical_validation(
 
     for backend in ("cupy", "torch"):
         backend_result = data.get("backend_results", {}).get(backend, {})
+        backend_ok = backend_result.get("status") == "success"
         executed_backend = backend_result.get("executed_backend")
-        if executed_backend != backend:
+        executed_backend_ok = executed_backend == backend
+        if not backend_ok:
+            warnings.append(
+                f"{filepath.name}: {backend} backend validation status is not success"
+            )
+        if not executed_backend_ok:
             warnings.append(
                 f"{filepath.name}: requested {backend} but executed {executed_backend!r}"
             )
@@ -82,15 +117,13 @@ def parse_panel_stage_b_physical_validation(
             model_id = str(case["model_id"])
             model_ids.add(model_id)
             scale = _scale(case)
-            validation = _validation(case.get("checks", []), str(status), filepath)
-            if executed_backend != backend:
-                validation["status"] = "fail"
-                validation["checks"].append(
-                    {
-                        "metric": "executed_backend_matches_requested",
-                        "status": "fail",
-                    }
-                )
+            validation = _apply_aggregate_validation_contract(
+                _validation(case.get("checks", []), str(status), filepath),
+                schema_ok=schema_ok,
+                source_ok=source_ok,
+                backend_ok=backend_ok,
+                executed_backend_ok=executed_backend_ok,
+            )
 
             runs.append(
                 {
@@ -154,17 +187,17 @@ def parse_panel_stage_b_physical_validation(
                 "label": make_scale_label(n_samples, 2),
             }
             status = str(diagnostic.get("status", "failed"))
-            validation = _validation(
-                ["hausman_backend_consistency", "backend_provenance"], status, filepath
+            validation = _apply_aggregate_validation_contract(
+                _validation(
+                    ["hausman_backend_consistency", "backend_provenance"],
+                    status,
+                    filepath,
+                ),
+                schema_ok=schema_ok,
+                source_ok=source_ok,
+                backend_ok=backend_ok,
+                executed_backend_ok=executed_backend_ok,
             )
-            if executed_backend != backend:
-                validation["status"] = "fail"
-                validation["checks"].append(
-                    {
-                        "metric": "executed_backend_matches_requested",
-                        "status": "fail",
-                    }
-                )
             method_parts: list[object] = [
                 "panel-stage-b-physical-validation",
                 "hausman",
