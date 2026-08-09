@@ -1,0 +1,75 @@
+name: PR122 Applicable Hausman Autofix V2
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-b-diagnostics
+    paths:
+      - .github/workflows/pr122-autofix-applicable-hausman-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-b-diagnostics
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Reuse validated patch and correct carrier typo
+        run: |
+          python - <<'PY'
+          import base64
+          import re
+          from pathlib import Path
+
+          carrier = Path('.github/workflows/pr122-autofix-applicable-hausman.yml').read_text(encoding='utf-8')
+          match = re.search(r"base64\.b64decode\('([^']+)'\)", carrier)
+          if match is None:
+              raise RuntimeError('unable to recover validated patch payload')
+          exec(base64.b64decode(match.group(1)), {})
+
+          test_path = Path('dev/tests/test_panel_stage_b_physical_runner_contract.py')
+          text = test_path.read_text(encoding='utf-8')
+          old = 'np.asarray(fe._panel_cov_param) [0, 0]'
+          if old not in text:
+              old = 'np.asarray(fe._panel_cov_param)[0, 0]'
+          if old not in text:
+              raise RuntimeError('expected carrier typo not found')
+          text = text.replace(old, 'np.asarray(fe._panel_cov_params)[0, 0]', 1)
+          test_path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Install physical-like targeted dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.24.2 scipy==1.10.1 joblib pytest
+          python -m pip install -e . --no-deps
+
+      - name: Run targeted Stage-B review gates
+        run: |
+          python -m pytest -q \
+            dev/tests/test_panel_stage_b_physical_runner_contract.py \
+            dev/tests/test_panel_stage_b_diagnostics.py \
+            dev/tests/test_panel_stage_b_hausman_covariance.py \
+            dev/tests/test_panel_stage_b_review_regressions.py
+          python -m compileall -q dev/benchmarks/validate_panel_stage_b_gpu.py
+          git diff --check
+
+      - name: Commit focused fix and remove temporary carriers
+        run: |
+          rm .github/workflows/pr122-autofix-applicable-hausman.yml
+          rm .github/workflows/pr122-autofix-applicable-hausman-v2.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test: require applicable Hausman GPU coverage'
+          git push origin HEAD:agent/panel-p1-stage-b-diagnostics
