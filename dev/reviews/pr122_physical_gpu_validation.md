@@ -1,89 +1,87 @@
 # PR #122 Panel Stage B physical GPU validation
 
-## Current applicability status
+## Final acceptance status
 
-The physical artifact documented below remains an immutable, successful record for exact implementation head `faa95ce7fb5cb204088957fbda5544c20a06fbfc`. It is **not** current exact-head acceptance for the latest PR implementation.
+Panel Tier-1 Stage B has current physical GPU acceptance for exact numerical implementation head `a57efcea29b0e87ecb89865c5a6902d5773812c6`.
 
-After the PR was promoted to Ready for review, a fresh review identified that disconnected two-way `PanelOLS` fits could still be rejected by the legacy residual-df feasibility gate before the already-correct `N + T - C` diagnostic rank was applied. Commit `ac2f04a15c67d0b5db31b521a2a7581759abb9e8` changes `statgpu/panel/_fixed_effects.py` so component-aware rank is computed before fit feasibility and is used when the legacy df is nonpositive but the rank-consistent df remains positive. Because this is a statistical implementation change after the physically validated head, repository policy requires a new exact-head CuPy/Torch physical validation before PR #122 can return to merge-ready status.
+Both maintained P100 gates were executed from that exact implementation with a clean working tree and completed successfully on CuPy and Torch CUDA:
 
-Accordingly:
+1. `dev/benchmarks/validate_panel_stage_b_gpu.py`
+2. `dev/benchmarks/validate_panel_stage_b_disconnected_fe_gpu.py`
 
-- the `faa95ce7...` artifact remains valid historical evidence for that exact implementation;
-- the canonical frontend source derived from it remains provenance-correct for measurement SHA `faa95ce7...`, but must not be interpreted as validation of the newer FE implementation;
-- current PR status is `PARTIAL_REMOTE_PENDING` until a clean exact-head physical run passes and its evidence is audited/promoted;
-- PR #122 is intentionally kept Draft while that gate is pending.
+The raw outputs were committed unchanged in repository commit `72b3279d2028e8ec2af30e138e123aceb611ae8c`. The compare from `a57efcea...` to `72b3279d...` contains only those two JSON evidence files; no production, test, workflow, or validation-runner code changed.
 
-Validated implementation head: `faa95ce7fb5cb204088957fbda5544c20a06fbfc`.
+## Raw evidence
 
-Raw machine-readable evidence:
+Full Stage-B matrix:
 
-- artifact: `results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json`
-- raw SHA-256: `c1ba014a3b9bb0d32cbc0ca3d844ccfe767e7149189efb9ba2969f5bc1b94b31`
-- repository commit carrying the immutable raw artifact: `806789ac7c1f71d7c91656b86dad91ab0f103582`
-- runner schema: 2
-- top-level `git_sha`: `faa95ce7fb5cb204088957fbda5544c20a06fbfc`
+- path: `results/pr122_p100/panel_stage_b_gpu_validation_a57efcea.json`
+- Git blob: `254b64776bff4e3b2b642bb4a2ae1eea25f4751c`
+- schema version: 2
+- top-level `git_sha`: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
 - `working_tree_clean = true`
 - `status = success`
+- CuPy: all 17 estimator cases and all four Hausman diagnostics succeeded with the requested CuPy backend
+- Torch: all 17 estimator cases and all four Hausman diagnostics succeeded with the requested Torch backend
+- no timing or speedup measurement was collected
 
-Canonical frontend evidence:
+Focused disconnected two-way FE gate:
 
-- source: `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260808.json`
-- canonical SHA-256: `b8caffa6f915facfb74965b6834b06d8aa6480cb0e3822640261a77ddd1ec9ba`
-- frontend source id: `panel-stage-b-pr122-20260808-b8caffa6f915`
+- path: `results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json`
+- Git blob: `3bda0b2040479ba8201e2722eb990ba086c3f3b9`
+- schema version: 1
+- top-level `git_sha`: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
+- `working_tree_clean = true`
+- `status = success`
+- fixture: two disconnected 2x2 incidence blocks plus one singleton
+- `nobs = 9`
+- legacy residual df = 0
+- component-aware/public residual df = 1
+- effect rank = 7
+- `rank_x = 1`
+- incidence components = 3
+- CuPy and Torch both executed on the requested backend and matched NumPy within the validator tolerances
+
+The NumPy reference confidence interval for the one-slope fixture is approximately `[-4.853102368087349, 7.853102368087349]`. CuPy and Torch both return approximately `[-4.853102368087348, 7.853102368087348]`; the recorded maximum absolute CI difference is `8.881784197001252e-16` for each GPU backend.
+
+This focused result closes the physical regression that previously produced a Torch interval of roughly `[-49998.5, 50001.5]` at residual df 1. The repaired panel inference uses the exact identity `Student-t(df=1) == standard Cauchy`; the successful P100 rerun confirms the corrected boundary on physical Torch CUDA as well as CuPy.
+
+## Environment
+
+Both artifacts report:
+
+- GPU: Tesla P100-SXM2-16GB
+- Python: 3.9.16
+- statgpu: 0.2.4
+- NumPy: 1.24.2
+- SciPy: 1.10.1
+- PyTorch: 2.0.0
+
+The runner could not resolve the installed CuPy distribution version through `importlib.metadata`, so the artifact records that package field as `null`. Physical CuPy execution is instead established by the per-backend `executed_backend = "cupy"` provenance checks.
+
+## Canonical frontend evidence
+
+Current canonical validation source:
+
+- path: `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809.json`
+- canonical SHA-256: `a6e47b9dec9c35040d2715b573aa2a93b084d83c574078bdb430861f0a9aa9f9`
+- source id: `panel-stage-b-pr122-20260809-a6e47b9dec9c`
+- measurement implementation SHA: `a57efcea29b0e87ecb89865c5a6902d5773812c6`
 - parser: `panel_stage_b_physical_validation` v1.0
-- evidence type: validation/correctness/backend provenance only; no timing or speedup is inferred from this source.
+- validation-only evidence; no timing or speedup is inferred
 
-Environment reported by the physical run:
+The source registers the full 17-case matrix and four Hausman parameterizations per backend, producing 42 validation rows. It also records the focused disconnected-FE gate as supporting provenance rather than inventing timing rows for it.
 
-- NVIDIA Tesla P100-SXM2-16GB
-- Python 3.9.16
-- statgpu 0.2.4
-- NumPy 1.24.2
-- SciPy 1.10.1
-- PyTorch 2.0.0
-- CuPy CUDA execution is proven by `executed_backend = cupy`; the runner's `importlib.metadata` package-version lookup returned `null`, so the canonical evidence deliberately does not fabricate a CuPy version.
+The earlier canonical source measured at `faa95ce7fb5cb204088957fbda5544c20a06fbfc` is historical evidence for that older implementation and is no longer the current dashboard source. Its immutable raw artifact remains preserved in `results/pr122_p100/`.
 
-CuPy acceptance:
+## Applicability after evidence-only commits
 
-- 17/17 estimator cases succeeded with `executed_backend = cupy`;
-- all four Hausman diagnostic cases succeeded;
-- balanced and unbalanced PooledOLS, unsorted-time HAC PooledOLS, BetweenOLS, FirstDifferenceOLS, one-way PanelOLS, RandomEffects, explicit-constant RandomEffects, and FamaMacBeth succeeded;
-- balanced two-way PanelOLS succeeded;
-- no CPU fallback was observed.
+The physical acceptance is anchored to the exact numerical implementation `a57efcea...`. Subsequent commits may add or promote raw evidence, canonical metadata, generated benchmark assets, and review documentation without invalidating the numerical measurement, provided a repository compare confirms that no production, test, workflow, or physical-runner implementation changed after `a57efcea...`.
 
-Torch acceptance:
+If any such implementation file changes later, a new exact-head physical validation is required before PR #122 can again be considered physically accepted.
 
-- 17/17 estimator cases succeeded with `executed_backend = torch`;
-- all four Hausman diagnostic cases succeeded;
-- no silent CPU fallback was observed.
+## Acceptance conclusion
 
-Explicit-constant RandomEffects repair acceptance:
+**PHYSICAL_GPU_ACCEPTED** for Panel Tier-1 Stage B numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6`.
 
-- `random_effects_explicit_constant_balanced` succeeded on CuPy and Torch;
-- `random_effects_explicit_constant_unbalanced` succeeded on CuPy and Torch;
-- the largest explicit-constant RE coefficient difference versus NumPy was `2.220446049250313e-16`;
-- `random_effects_diagnostic_contract` had zero backend-vs-NumPy difference for every RE case.
-
-Hausman acceptance:
-
-- `hausman_balanced`, `hausman_unbalanced`, `hausman_explicit_re_constant_balanced`, and `hausman_explicit_re_constant_unbalanced` all matched NumPy on both GPU backends;
-- all generated validation datasets produced a materially indefinite covariance difference, so the test was consistently structured-inapplicable with reason `covariance difference is not positive semidefinite` rather than reporting a fabricated statistic;
-- the frontend parser distinguishes standard and RE-explicit-constant Hausman parameterizations so the two cases do not collapse to indistinguishable dashboard variants.
-
-Stage-B checks passed for the maintained model matrix:
-
-- parameter-based within/between/overall/adjusted R-squared;
-- classical model F statistic and p-value where defined;
-- PooledOLS Breusch-Pagan LM statistic/p-value;
-- fixed-effects pooling F statistic/p-value;
-- FE-vs-RE Hausman applicability/reason parity;
-- diagnostic covariance matrices;
-- RandomEffects explicit-constant diagnostic metadata.
-
-Stage-A regression checks also passed for `coef`, `bse`, `tvalues`, `pvalues`, `conf_int`, `nobs`, and `df_resid`. All fields stayed within the runner's `rtol=5e-6`, `atol=5e-7` parity contract; coefficient differences remained at machine-epsilon scale.
-
-The canonical frontend source represents 42 validation-only runs: 34 estimator/backend rows plus eight Hausman/backend rows. It deliberately contains no timing or speedup metrics.
-
-The dedicated identity-overhead benchmark remains accepted from the immediately preceding implementation candidate because the `faa95ce7...` repair only changes the explicit-constant RandomEffects auxiliary-within branch, while the benchmark exercises PanelOLS and no-explicit-constant RandomEffects. Its measured digest/no-digest ratios remained approximately 1.04x-1.29x over the maintained target scales.
-
-For the validated `faa95ce7...` implementation, this exact-head raw artifact superseded the earlier `636988...` canonical physical record and the failed `9c78bf66...` correctness attempt. Canonical promotion for that measurement was complete: generated frontend assets were refreshed, exact-head hosted staleness/e2e/production QA passed on the evidence head, and the stale-evidence review thread was resolved. The later disconnected-FE feasibility repair now requires a new exact-head physical validation before current-code acceptance can be promoted again.
+The remaining PR lifecycle work is evidence/frontend staleness synchronization, hosted final-head validation, and the normal review-thread/fresh-review process. No additional P100 rerun is required unless numerical or validation-runner code changes.
