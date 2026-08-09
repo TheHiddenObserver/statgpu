@@ -18,16 +18,12 @@ jobs:
         with:
           ref: agent/panel-p1-stage-b-diagnostics
           fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
-        run: |
-          python -m pip install -e .
-
-      - name: Scan fitted Hausman regimes
+        run: python -m pip install -e .
+      - name: Scan nonzero-effect fitted Hausman regimes
         run: |
           python - <<'PY'
           import numpy as np
@@ -37,9 +33,9 @@ jobs:
           for n_entities in (12, 24, 32, 48):
               for n_times in (4, 6, 8, 12):
                   entity = np.repeat(np.arange(n_entities), n_times)
-                  for effect_scale in (0.0, 0.01, 0.03, 0.08, 0.2, 0.5):
+                  for effect_scale in (0.005, 0.01, 0.03, 0.08, 0.2, 0.5):
                       for noise_scale in (0.1, 0.2, 0.5, 1.0):
-                          for seed in range(20260810, 20260850):
+                          for seed in range(20260810, 20260870):
                               rng = np.random.default_rng(seed)
                               X = rng.normal(size=(entity.size, 1))
                               alpha = np.repeat(
@@ -63,23 +59,16 @@ jobs:
                                   - np.asarray(re._panel_cov_params)[0, 0]
                               )
                               candidate = (
-                                  dvar,
-                                  n_entities,
-                                  n_times,
-                                  effect_scale,
-                                  noise_scale,
-                                  seed,
-                                  result.applicable,
-                                  result.statistic,
-                                  result.pvalue,
-                                  result.df,
+                                  dvar, n_entities, n_times, effect_scale,
+                                  noise_scale, seed, result.applicable,
+                                  result.statistic, result.pvalue, result.df,
                                   result.reason,
                               )
                               if best is None or dvar > best[0]:
                                   best = candidate
                               if result.applicable:
-                                  print('FOUND', candidate)
+                                  print('FOUND_NONZERO', candidate)
                                   raise SystemExit(0)
-          print('BEST', best)
-          raise SystemExit('no applicable fitted Hausman fixture found')
+          print('BEST_NONZERO', best)
+          raise SystemExit('no nonzero-effect applicable fitted Hausman fixture found')
           PY
