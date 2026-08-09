@@ -173,16 +173,57 @@ class PanelOLS(BasePanelModel):
 
         n_entities = len(entity_labels) if entity_labels is not None else 0
         n_times = len(time_labels) if time_labels is not None else 0
+
+        from statgpu.panel._diagnostic_context import (
+            build_diagnostic_identity,
+            build_model_fit_statistics,
+            fixed_effect_diagnostic_df,
+            pooling_f_from_level_arrays,
+        )
+
+        # Compute the rank-consistent FE degrees of freedom before deciding
+        # whether the fit is feasible.  For disconnected two-way incidence
+        # graphs the nuisance rank is N + T - C, so the historical N/T count can
+        # otherwise reject an identified fit before Stage-B diagnostics run.
+        diagnostic_df = fixed_effect_diagnostic_df(
+            X_d,
+            xp=xp,
+            nobs=n,
+            n_entities=n_entities,
+            n_times=n_times,
+            entity_effects=self.entity_effects,
+            time_effects=self.time_effects,
+            has_constant=False,
+            entity_codes=entity_arr,
+            time_codes=time_arr,
+        )
+
+        # Preserve the legacy public df whenever it is positive.  If the legacy
+        # count is nonpositive solely because a disconnected two-way panel has a
+        # lower nuisance rank, use the component-aware df instead so the valid
+        # fit can proceed.  This keeps established connected-panel inference
+        # unchanged while fixing the false rejection boundary.
         n_effects = 0
         if self.entity_effects:
             n_effects += n_entities - 1
         if self.time_effects:
             n_effects += n_times - 1
-        self.df_resid = n - k - n_effects
-        if self.df_resid <= 0:
+        legacy_df_resid = n - k - n_effects
+        standard_df_resid = int(diagnostic_df["df_resid"])
+        if legacy_df_resid > 0:
+            self.df_resid = legacy_df_resid
+            public_df_basis = "legacy"
+        elif standard_df_resid > 0:
+            self.df_resid = standard_df_resid
+            public_df_basis = "component-aware"
+        else:
             raise ValueError(
-                f"Not enough observations: n={n}, k={k}, n_effects={n_effects}, "
-                f"df_resid={self.df_resid}.  Check that N*T >> k + effects."
+                "Not enough observations after fixed-effect rank adjustment: "
+                f"n={n}, k={k}, legacy_n_effects={n_effects}, "
+                f"legacy_df_resid={legacy_df_resid}, "
+                f"effect_rank={diagnostic_df['effect_rank']}, "
+                f"incidence_components={diagnostic_df['incidence_components']}, "
+                f"df_resid={standard_df_resid}."
             )
 
         y_pred = X_d @ coef
@@ -266,28 +307,10 @@ class PanelOLS(BasePanelModel):
         ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
-        from statgpu.panel._diagnostic_context import (
-            build_diagnostic_identity,
-            build_model_fit_statistics,
-            fixed_effect_diagnostic_df,
-            pooling_f_from_level_arrays,
-        )
-
         # New standardized diagnostics use the full nuisance-effect rank.  This
         # is intentionally separate from the historical self.df_resid used by
-        # covariance/t inference above.
-        diagnostic_df = fixed_effect_diagnostic_df(
-            X_d,
-            xp=xp,
-            nobs=n,
-            n_entities=n_entities,
-            n_times=n_times,
-            entity_effects=self.entity_effects,
-            time_effects=self.time_effects,
-            has_constant=False,
-            entity_codes=entity_arr,
-            time_codes=time_arr,
-        )
+        # covariance/t inference above, except when a disconnected two-way panel
+        # requires the component-aware df to avoid a false fit rejection.
         ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
@@ -306,7 +329,8 @@ class PanelOLS(BasePanelModel):
             f_has_constant=False,
             metadata={
                 "fit_space": "fixed-effect transformed regression",
-                "legacy_df_resid": int(self.df_resid),
+                "legacy_df_resid": int(legacy_df_resid),
+                "public_df_resid_basis": public_df_basis,
                 "diagnostic_df": dict(diagnostic_df),
                 "legacy_rsquared_within": float(self.rsquared_within),
             },
