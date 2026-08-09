@@ -1,0 +1,275 @@
+name: PR122 Applicable Hausman Autofix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-b-diagnostics
+    paths:
+      - .github/workflows/pr122-autofix-applicable-hausman.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-b-diagnostics
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Patch physical Hausman coverage gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runner_path = Path('dev/benchmarks/validate_panel_stage_b_gpu.py')
+          runner = runner_path.read_text(encoding='utf-8')
+
+          anchor = "    return cases, diagnostics\n\n\ndef _scalar_diff(actual, expected, *, rtol, atol, label):\n"
+          replacement = '''    return cases, diagnostics
+
+
+def _hausman_applicable_dataset(seed: int):
+    """Return a deterministic one-way panel suited to an applicable Hausman gate."""
+    rng = np.random.default_rng(seed)
+    n_entities, n_times = 32, 8
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    X = rng.normal(size=(entity.size, 2))
+    random_effect = np.repeat(rng.normal(scale=0.65, size=n_entities), n_times)
+    y = (
+        0.8 * X[:, 0]
+        - 0.35 * X[:, 1]
+        + random_effect
+        + rng.normal(scale=0.2, size=entity.size)
+    )
+    return X.astype(np.float64), y.astype(np.float64), entity, time
+
+
+def _find_applicable_hausman_fixture(*, start_seed=20260810, max_attempts=512):
+    """Find a bounded deterministic NumPy fixture with an applicable Hausman test."""
+    for seed in range(int(start_seed), int(start_seed) + int(max_attempts)):
+        X, y, entity, time = _hausman_applicable_dataset(seed)
+        fe = PanelOLS(entity_effects=True, cov_type="nonrobust", device="cpu").fit(
+            X, y, entity_ids=entity
+        )
+        re = RandomEffects(device="cpu").fit(X, y, entity_ids=entity)
+        result = _test_result(fe.hausman_test(re))
+        if (
+            result["applicable"]
+            and result["statistic"] is not None
+            and result["pvalue"] is not None
+            and result["df"] is not None
+            and np.isfinite(float(result["statistic"]))
+            and np.isfinite(float(result["pvalue"]))
+            and float(result["df"]) > 0.0
+        ):
+            return {
+                "seed": int(seed),
+                "X": X,
+                "y": y,
+                "entity": entity,
+                "time": time,
+                "reference": result,
+            }
+    raise RuntimeError(
+        "unable to find an applicable Hausman fixture within the bounded seed search"
+    )
+
+
+def _require_applicable_hausman_coverage(diagnostics, *, backend):
+    """Require at least one physically executed applicable Hausman diagnostic."""
+    applicable = sorted(
+        name
+        for name, payload in diagnostics.items()
+        if payload.get("applicable") is True
+    )
+    if not applicable:
+        raise AssertionError(
+            f"{backend}: physical Hausman gate requires at least one applicable case"
+        )
+    return applicable
+
+
+def _scalar_diff(actual, expected, *, rtol, atol, label):
+'''
+          if anchor not in runner:
+              raise SystemExit('runner helper anchor not found')
+          runner = runner.replace(anchor, replacement, 1)
+
+          anchor = "        reference_diagnostics.update(diagnostics)\n\n    results = {}\n"
+          replacement = '''        reference_diagnostics.update(diagnostics)
+
+    applicable_fixture = _find_applicable_hausman_fixture()
+    reference_diagnostics["hausman_applicable_physical"] = applicable_fixture[
+        "reference"
+    ]
+
+    results = {}
+'''
+          if anchor not in runner:
+              raise SystemExit('reference fixture anchor not found')
+          runner = runner.replace(anchor, replacement, 1)
+
+          anchor = "        results[backend] = backend_payload\n\n    payload = {\n"
+          replacement = '''        Xf = applicable_fixture["X"]
+        yf = applicable_fixture["y"]
+        ef = applicable_fixture["entity"]
+        tf = applicable_fixture["time"]
+        Xfb, yfb, efb, _ = _to_backend_arrays(Xf, yf, ef, tf, backend)
+        device = _device_arg(backend)
+        fe_applicable = PanelOLS(
+            entity_effects=True,
+            cov_type="nonrobust",
+            device=device,
+        ).fit(Xfb, yfb, entity_ids=efb)
+        re_applicable = RandomEffects(device=device).fit(Xfb, yfb, entity_ids=efb)
+        for model_name, model in (
+            ("hausman_applicable_fe", fe_applicable),
+            ("hausman_applicable_re", re_applicable),
+        ):
+            actual_backend = _backend_name(model)
+            if actual_backend != backend:
+                raise AssertionError(
+                    f"{model_name}: requested {backend}, executed {actual_backend}"
+                )
+
+        applicable_result = _test_result(
+            fe_applicable.hausman_test(re_applicable)
+        )
+        if not applicable_result["applicable"]:
+            raise AssertionError(
+                f"hausman_applicable_physical unexpectedly inapplicable on {backend}: "
+                f"{applicable_result['reason']}"
+            )
+        differences = _compare_test_result(
+            reference_diagnostics["hausman_applicable_physical"],
+            applicable_result,
+            rtol=args.rtol,
+            atol=args.atol,
+            label="hausman_applicable_physical",
+        )
+        backend_payload["diagnostics"]["hausman_applicable_physical"] = {
+            "status": "success",
+            "max_abs_differences": differences,
+            "applicable": True,
+            "reason": applicable_result["reason"],
+            "fixture_seed": applicable_fixture["seed"],
+            "nobs": int(len(yf)),
+        }
+        _require_applicable_hausman_coverage(
+            backend_payload["diagnostics"], backend=backend
+        )
+        results[backend] = backend_payload
+
+    payload = {
+'''
+          if anchor not in runner:
+              raise SystemExit('backend coverage anchor not found')
+          runner = runner.replace(anchor, replacement, 1)
+
+          anchor = '''        "datasets": {
+            name: {"nobs": int(len(values[1]))}
+            for name, values in datasets.items()
+        },
+'''
+          replacement = '''        "datasets": {
+            **{
+                name: {"nobs": int(len(values[1]))}
+                for name, values in datasets.items()
+            },
+            "hausman_applicable": {
+                "nobs": int(len(applicable_fixture["y"])),
+                "seed": applicable_fixture["seed"],
+            },
+        },
+'''
+          if anchor not in runner:
+              raise SystemExit('dataset metadata anchor not found')
+          runner = runner.replace(anchor, replacement, 1)
+          runner_path.write_text(runner, encoding='utf-8')
+
+          test_path = Path('dev/tests/test_panel_stage_b_physical_runner_contract.py')
+          test = test_path.read_text(encoding='utf-8')
+          test = test.replace(
+              'from __future__ import annotations\n\nfrom dev.benchmarks.validate_panel_stage_b_gpu import (\n',
+              'from __future__ import annotations\n\nimport numpy as np\nimport pytest\n\nfrom dev.benchmarks.validate_panel_stage_b_gpu import (\n',
+              1,
+          )
+          test = test.replace(
+              '    _dataset,\n    _fit_cases,\n    _model_snapshot,\n',
+              '    _dataset,\n    _find_applicable_hausman_fixture,\n    _fit_cases,\n    _model_snapshot,\n    _require_applicable_hausman_coverage,\n',
+              1,
+          )
+          test += '''
+
+
+def test_physical_runner_finds_applicable_hausman_reference_fixture():
+    fixture = _find_applicable_hausman_fixture()
+    result = fixture["reference"]
+
+    assert result["applicable"] is True
+    assert result["reason"] is None
+    assert result["df"] is not None and float(result["df"]) > 0.0
+    assert np.isfinite(float(result["statistic"]))
+    assert np.isfinite(float(result["pvalue"]))
+    assert fixture["X"].shape[0] == fixture["y"].shape[0]
+    assert fixture["entity"].shape[0] == fixture["y"].shape[0]
+
+
+def test_physical_runner_requires_applicable_hausman_per_backend():
+    with pytest.raises(AssertionError, match="requires at least one applicable"):
+        _require_applicable_hausman_coverage(
+            {
+                "hausman_balanced": {"applicable": False},
+                "hausman_unbalanced": {"applicable": False},
+            },
+            backend="torch",
+        )
+
+    applicable = _require_applicable_hausman_coverage(
+        {
+            "hausman_balanced": {"applicable": False},
+            "hausman_applicable_physical": {"applicable": True},
+        },
+        backend="cupy",
+    )
+    assert applicable == ["hausman_applicable_physical"]
+'''
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Install targeted test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      - name: Run targeted Stage-B review gates
+        run: |
+          python -m pytest -q \
+            dev/tests/test_panel_stage_b_physical_runner_contract.py \
+            dev/tests/test_panel_stage_b_diagnostics.py \
+            dev/tests/test_panel_stage_b_hausman_covariance.py \
+            dev/tests/test_panel_stage_b_review_regressions.py
+          git diff --check
+
+      - name: Commit focused fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/pr122-autofix-applicable-hausman.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dev/benchmarks/validate_panel_stage_b_gpu.py \
+                  dev/tests/test_panel_stage_b_physical_runner_contract.py \
+                  .github/workflows/pr122-autofix-applicable-hausman.yml
+          git commit -m 'test: require applicable Hausman GPU coverage'
+          git push origin HEAD:agent/panel-p1-stage-b-diagnostics
