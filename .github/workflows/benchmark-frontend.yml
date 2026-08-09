@@ -15,6 +15,7 @@ on:
       - 'dev/tests/test_frontend_cv_determinism.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/test_panel_stage_b_frontend_source.py'
+      - 'dev/tests/test_panel_stage_b_applicable_hausman_parser.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
@@ -33,6 +34,7 @@ on:
       - 'dev/tests/test_frontend_cv_determinism.py'
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/test_panel_stage_b_frontend_source.py'
+      - 'dev/tests/test_panel_stage_b_applicable_hausman_parser.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
@@ -67,7 +69,8 @@ jobs:
             dev/tests/test_frontend_contracts.py \
             dev/tests/test_frontend_cv_determinism.py \
             dev/tests/test_frontend_domain_coverage.py \
-            dev/tests/test_panel_stage_b_frontend_source.py -v
+            dev/tests/test_panel_stage_b_frontend_source.py \
+            dev/tests/test_panel_stage_b_applicable_hausman_parser.py -v
       - name: Validate generator output
         run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 
