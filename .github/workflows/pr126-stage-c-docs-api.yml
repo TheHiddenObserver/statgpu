@@ -22,6 +22,21 @@ jobs:
         with:
           python-version: '3.11'
       - run: python dev/benchmarks/_pr126_patch_stage_c_docs_api.py
+      - name: Normalize changed date lines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          replacements = {
+              'docs/en/models/panel.md': ('> Last updated: 2026-08-09  \n', '> Last updated: 2026-08-09\n'),
+              'docs/cn/models/panel.md': ('> 最后更新：2026-08-09  \n', '> 最后更新：2026-08-09\n'),
+          }
+          for filename, (old, new) in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'expected date line not found in {filename}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - run: python -m compileall -q statgpu
       - run: python dev/validation/fix_docs_links.py --check
       - run: python dev/validation/check_docs_contracts.py
