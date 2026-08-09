@@ -9,7 +9,7 @@ Both maintained P100 gates were executed from that exact implementation with a c
 1. `dev/benchmarks/validate_panel_stage_b_gpu.py`
 2. `dev/benchmarks/validate_panel_stage_b_disconnected_fe_gpu.py`
 
-The raw outputs were committed unchanged in repository commit `72b3279d2028e8ec2af30e138e123aceb611ae8c`. The compare from `a57efcea...` to `72b3279d...` contains only those two JSON evidence files; no production, test, workflow, or validation-runner code changed.
+The raw outputs were committed unchanged in repository commit `72b3279d2028e8ec2af30e138e123aceb611ae8c`. The compare from `a57efcea...` to `72b3279d...` contains only those two JSON evidence files; no numerical implementation or validation-runner code changed.
 
 ## Raw evidence
 
@@ -76,12 +76,12 @@ The earlier canonical source measured at `faa95ce7fb5cb204088957fbda5544c20a06fb
 
 ## Applicability after evidence-only commits
 
-The physical acceptance is anchored to the exact numerical implementation `a57efcea...`. Subsequent commits may add or promote raw evidence, canonical metadata, generated benchmark assets, and review documentation without invalidating the numerical measurement, provided a repository compare confirms that no production, test, workflow, or physical-runner implementation changed after `a57efcea...`.
+The physical acceptance is anchored to the exact numerical implementation `a57efcea...`. Subsequent commits may add or promote raw evidence, canonical metadata, frontend contract tests, generated benchmark assets, and review documentation without invalidating the numerical measurement. Physical applicability is preserved provided a repository compare confirms that no numerical production implementation relevant to the measurement and neither physical validation runner changed after `a57efcea...`.
 
-If any such implementation file changes later, a new exact-head physical validation is required before PR #122 can again be considered physically accepted.
+Frontend/evidence tests may change to assert the promoted source identity or provenance; those tests do not alter the physically measured numerical implementation. If numerical production code or either physical validation runner changes later, a new exact-head physical validation is required before PR #122 can again be considered physically accepted.
 
 ## Acceptance conclusion
 
 **PHYSICAL_GPU_ACCEPTED** for Panel Tier-1 Stage B numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6`.
 
-The remaining PR lifecycle work is evidence/frontend staleness synchronization, hosted final-head validation, and the normal review-thread/fresh-review process. No additional P100 rerun is required unless numerical or validation-runner code changes.
+The remaining PR lifecycle work is evidence/frontend staleness synchronization, hosted final-head validation, and the normal review-thread/fresh-review process. No additional P100 rerun is required unless numerical production or physical validation-runner code changes.
