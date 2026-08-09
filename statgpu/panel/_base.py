@@ -106,6 +106,10 @@ class BasePanelModel(BaseEstimator):
         updates so ``hc1``/``dk``/``kernel`` behave exactly like direct
         construction without changing the public raw parameter.
         """
+        if "group_debias" in params and not isinstance(
+            params["group_debias"], (bool, np.bool_)
+        ):
+            raise ValueError("group_debias must be boolean")
         result = super().set_params(**params)
         if "cov_type" in params and hasattr(self, "cov_type"):
             from statgpu.panel._covariance import normalize_covariance_type
