@@ -102,11 +102,18 @@ def test_two_way_group_debiased_cluster_matches_linearmodels_primitive():
 )
 def test_dk_kernel_weights_match_linearmodels(kernel, lm_kernel):
     canonical, actual = _dk_kernel_weights(kernel, bandwidth=2, max_lag=8)
-    expected = np.asarray(KERNEL_LOOKUP[lm_kernel](2.0, 8), dtype=np.float64)
-    assert actual.shape == expected.shape
+    reference = np.asarray(KERNEL_LOOKUP[lm_kernel](2.0, 8), dtype=np.float64)
+    # linearmodels returns only the supported Bartlett/Parzen prefix, while the
+    # statgpu helper returns one value per observed lag and explicitly pads the
+    # truncated tail with zeros so a single lag loop can serve all kernels.
+    expected = np.zeros_like(actual)
+    expected[: reference.size] = reference
     assert_allclose(actual, expected, rtol=5e-14, atol=5e-15)
     if canonical == "qs":
+        assert reference.size == actual.size
         assert np.count_nonzero(actual[1:]) == 8
+    else:
+        assert np.all(actual[reference.size :] == 0.0)
 
 
 @pytest.mark.parametrize("kernel", ["bartlett", "parzen", "qs"])
