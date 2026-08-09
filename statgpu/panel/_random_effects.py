@@ -29,9 +29,9 @@ from statgpu.panel._utils import (
 class RandomEffects(BasePanelModel):
     """Random effects estimator for panel data.
 
-    The Swamy-Arora variance-component and quasi-demeaning calculations remain
-    model-specific; Stage A only shares neutral lifecycle and nonrobust
-    inference infrastructure.
+    Swamy-Arora variance components and coefficients are covariance-invariant.
+    Stage C adds HC, clustered and Driscoll-Kraay inference on the quasi-demeaned
+    GLS fit space.
     """
 
     def __init__(
@@ -39,9 +39,36 @@ class RandomEffects(BasePanelModel):
         alpha: float = 0.05,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
+        *,
+        cov_type: str = "nonrobust",
+        bandwidth: Optional[int] = None,
+        kernel: str = "bartlett",
+        group_debias: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
+        from statgpu.panel._covariance import normalize_covariance_type
+
         self.alpha = alpha
+        self.cov_type = normalize_covariance_type(cov_type)
+        self.bandwidth = bandwidth
+        self.kernel = kernel
+        self.group_debias = group_debias
+        allowed = {
+            "nonrobust",
+            "robust",
+            "hc0",
+            "hc2",
+            "hc3",
+            "clustered",
+            "driscoll-kraay",
+        }
+        if self.cov_type not in allowed:
+            raise ValueError(
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', "
+                "'hc2', 'hc3', 'clustered', 'driscoll-kraay', 'dk', or 'kernel'"
+            )
+        if not isinstance(group_debias, (bool, np.bool_)):
+            raise ValueError("group_debias must be boolean")
         self.coef_ = None
         self.bse_ = None
         self.tvalues_ = None
@@ -64,6 +91,7 @@ class RandomEffects(BasePanelModel):
         time_ids=None,
         formula=None,
         data=None,
+        cluster=None,
     ):
         """Fit the random effects model."""
         (
@@ -81,22 +109,31 @@ class RandomEffects(BasePanelModel):
             y,
             model_has_intercept=False,
             support_pipe=True,
-            side_arrays={"entity_ids": entity_ids, "time_ids": time_ids},
+            side_arrays={
+                "entity_ids": entity_ids,
+                "time_ids": time_ids,
+                "cluster": cluster,
+            },
         )
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
+        cluster = aligned["cluster"]
         if entity_ids is None and fe_entity_ids is not None:
             entity_ids = fe_entity_ids
         if time_ids is None and fe_time_ids is not None:
             time_ids = fe_time_ids
         if entity_ids is None:
             raise ValueError("entity_ids is required for RandomEffects")
+        if self._cov_type == "clustered" and cluster is None:
+            raise ValueError("cluster is required when cov_type='clustered'")
+        if self._cov_type == "driscoll-kraay" and time_ids is None:
+            raise ValueError("time_ids is required for Driscoll-Kraay covariance")
+        if bool(self.group_debias) and self._cov_type != "clustered":
+            raise ValueError("group_debias=True requires cov_type='clustered'")
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
         self._backend_name = backend.name
 
-        # Preserve the old validation order/message for entity_ids rather than
-        # letting the new metadata substrate introduce a different rejection.
         entity_arr, _entity_labels = factorize_panel_labels(
             entity_ids, xp, ref_arr=X_arr, name="entity_ids"
         )
@@ -106,30 +143,36 @@ class RandomEffects(BasePanelModel):
             raise ValueError(
                 f"entity_ids has {entity_arr.shape[0]} observations but X has {n} rows"
             )
-        # time_ids is currently reserved/unused by RandomEffects; do not add a
-        # new array-interface validation rule for it in this refactor.
-        self._panel_set_index_info(n, entity_ids=entity_ids)
+        # Preserve the Stage-B behavior for otherwise-unused time_ids. Only DK
+        # promotes time metadata into a validated model-index contract.
+        self._panel_set_index_info(
+            n,
+            entity_ids=entity_ids,
+            time_ids=time_ids if self._cov_type == "driscoll-kraay" else None,
+        )
 
         from statgpu.panel._diagnostic_context import (
             build_diagnostic_identity,
             explicit_constant_column,
         )
 
-        # Detect an explicit nonzero constant in the supplied level design.
-        # RandomEffects does not implicitly add an intercept, so this flag must
-        # describe the caller's actual X rather than the model family.
         constant_index = explicit_constant_column(X_arr, xp=xp)
         has_constant = constant_index is not None
 
-        # Hausman compatibility is checked against aligned level X/y/entity
-        # metadata, before any Swamy-Arora transformation is applied.
-        self._panel_diagnostic_identity = build_diagnostic_identity(
-            X_arr,
-            y_arr,
-            xp=xp,
-            entity_codes=entity_arr,
-            feature_names=self._feature_names,
-            has_constant=has_constant,
+        # Classical Hausman is only available for nonrobust RE. Robust RE fits
+        # do not pay the full-content identity hashing cost because the test
+        # rejects their covariance contract before sample identity comparison.
+        self._panel_diagnostic_identity = (
+            build_diagnostic_identity(
+                X_arr,
+                y_arr,
+                xp=xp,
+                entity_codes=entity_arr,
+                feature_names=self._feature_names,
+                has_constant=has_constant,
+            )
+            if self._cov_type == "nonrobust"
+            else None
         )
 
         # --- Step 1: Between estimation ---
@@ -162,15 +205,6 @@ class RandomEffects(BasePanelModel):
         for j in range(k):
             X_within[:, j] = within_transform(X_arr[:, j], entity_arr, xp=xp)
 
-        # An explicit level constant is annihilated exactly by the within
-        # transform. Passing that structural zero column into a normal-equation
-        # solve makes XtX singular. NumPy reliably raises LinAlgError here, while
-        # GPU linalg stacks may return a value or warning instead, which can make
-        # sigma2_e/theta/backend coefficients diverge. Remove the known null
-        # column and compute the same auxiliary least-squares RSS on the slope
-        # subspace. The df formula below is unchanged: k includes the explicit
-        # constant while the (N - 1) nuisance count uses the equivalent
-        # parameterization, so n - k - (N - 1) = n - n_slopes - N.
         if constant_index is not None:
             slope_indices = np.asarray(
                 [j for j in range(k) if j != int(constant_index)],
@@ -188,9 +222,6 @@ class RandomEffects(BasePanelModel):
                 X_within_fit = X_within[:, slope_idx_dev]
                 XtX_w = X_within_fit.T @ X_within_fit
                 Xty_w = X_within_fit.T @ y_within
-                # Use the small-matrix pseudoinverse deliberately in this
-                # structural-rank branch so correctness does not depend on
-                # backend-specific singular-solve exception semantics.
                 beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
                 resid_within = y_within - X_within_fit @ beta_within
         else:
@@ -278,9 +309,17 @@ class RandomEffects(BasePanelModel):
         self.df_resid = df_resid
         self._scale = _to_float_scalar(xp.sum(resid_gls ** 2)) / df_resid
 
-        # Existing RandomEffects inference is nonrobust OLS inference on the
-        # quasi-demeaned design. Reuse exactly that residual-sandwich context;
-        # robust RE covariance remains Stage C.
+        cluster_for_cov = cluster
+        if self._cov_type == "clustered":
+            cluster_np = np.asarray(_to_numpy(cluster))
+            if cluster_np.ndim not in (1, 2) or cluster_np.shape[0] != n:
+                raise ValueError(
+                    "cluster must have n_samples rows and one or two cluster dimensions"
+                )
+            if cluster_np.ndim == 2 and cluster_np.shape[1] not in (1, 2):
+                raise ValueError("cluster must contain one or two cluster dimensions")
+            cluster_for_cov = cluster_np
+
         self._panel_store_ols_inference(
             X_star,
             resid_gls,
@@ -288,8 +327,23 @@ class RandomEffects(BasePanelModel):
             scale=self._scale,
             df_resid=df_resid,
             backend=backend,
-            cov_type="nonrobust",
-            allowed=("nonrobust",),
+            cov_type=self._cov_type,
+            cluster=cluster_for_cov,
+            time_ids=time_ids,
+            bandwidth=self.bandwidth,
+            kernel=self.kernel,
+            group_debias=bool(self.group_debias),
+            extra_df=0,
+            allowed=(
+                "nonrobust",
+                "robust",
+                "hc0",
+                "hc2",
+                "hc3",
+                "clustered",
+                "driscoll-kraay",
+            ),
+            hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
             diag_floor=0.0,
         )
@@ -301,11 +355,6 @@ class RandomEffects(BasePanelModel):
         diagnostic_df_resid = n - rank_star
         ss_res_diag = _to_float_scalar(xp.sum(resid_gls * resid_gls))
 
-        # In the quasi-demeaned fit space, an explicit level intercept becomes
-        # the transformed intercept column X_star[:, constant_index].  On an
-        # unbalanced panel this is not generally a vector of ones, so both the
-        # adjusted-R² denominator and the restricted model F must retain that
-        # exact transformed column.
         restricted_X = None
         restricted_rank = 0
         if has_constant:
@@ -378,10 +427,11 @@ class RandomEffects(BasePanelModel):
         return X_arr @ self.coef_
 
     def summary(self):
-        """Print and return the existing structured coefficient summary."""
+        """Print and return the structured coefficient summary."""
         k = len(self._params)
         return self._panel_summary(
             model_type="RandomEffects",
+            cov_type=self._cov_type,
             variance_components=self.variance_components_,
             theta=self.theta_,
             feature_names_override=[f"x{i + 1}" for i in range(k)],
