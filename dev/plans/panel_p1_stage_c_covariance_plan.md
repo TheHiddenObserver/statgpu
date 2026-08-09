@@ -219,7 +219,7 @@ Requirements:
 - requesting group debias with fewer than two groups in any required component raises a precise `ValueError`;
 - cluster labels may be strings/objects on CPU input; factorization produces integer metadata without moving numerical score arrays off device;
 - malformed cluster dimensions and post-formula length mismatches fail explicitly;
-- two-way intersection groups use `np.unique(..., axis=0)`/equivalent exact pair factorization (or another demonstrably collision-free pair mapping), not an overflow-prone ad-hoc arithmetic code;
+- two-way intersection groups use exact paired-label factorization (`np.unique(..., axis=0)`/equivalent) or another demonstrably collision-free mapping; overflow-prone ad-hoc arithmetic encoding is not accepted;
 - tests cover one-way, two-way, intersection, one-group invalidity, unbalanced panels, and formula row filtering.
 
 For external alignment of the preserved uncorrected PanelOLS cluster path, compare the shared covariance primitive on the same transformed design rather than forcing the estimator to adopt a different full-effect small-sample scale.
@@ -244,26 +244,33 @@ M_DK = sum_t g_t g_t'
      + sum_{l=1}^L w_l * sum_{t=l+1}^T (g_t g_{t-l}' + g_{t-l} g_t').
 ```
 
-Let `B = (Z'Z)^+`, `n` be fit-space observation count, `k = rank(Z)`, and `extra_df` be nuisance parameters consumed outside the columns of `Z`.
+Let `B = (Z'Z)^+`, `n` be fit-space observation count, `r = rank(Z)`, and `extra_df` be nuisance parameters consumed outside the columns of `Z`.
 
-Stage C pins the **debiased linearmodels-compatible scaling** for the new DK path:
+For the ordinary full-column-rank case, Stage C pins the **debiased linearmodels-compatible scaling**
 
 ```text
-scale_DK = n / (n - extra_df - k)
-V_DK = scale_DK * B * M_DK * B.
+scale_DK = n / (n - extra_df - k_columns)
+V_DK = scale_DK * B * M_DK * B,
 ```
 
-This is algebraically equivalent to linearmodels 7.0's implementation using `xpxi = inv(Z'Z/n)`, time-aggregated `cov_kernel`, `T/n`, and `_scale = n/(n-extra_df-k)` when `debiased=True`. The implementation test must compare the final covariance, not an intermediate whose normalization differs.
+where `k_columns` is the number of fit-space regressor columns. This is algebraically equivalent to linearmodels 7.0's implementation using `xpxi = inv(Z'Z/n)`, time-aggregated `cov_kernel`, `T/n`, and `_scale = n/(n-extra_df-k_columns)` when `debiased=True`.
+
+### 8.1 Rank-deficient statgpu extension
+
+statgpu estimators already use pseudoinverse/rank-aware behavior in some rank-deficient corners where linearmodels' DK class assumes an invertible fit-space Gram matrix. Stage C therefore defines a documented extension:
+
+- full-rank cases use `k_columns` and must match linearmodels 7.0 exactly;
+- if a supported statgpu fit reaches DK with `rank(Z)=r<k_columns`, use `r` in the residual-df correction, i.e. `scale_DK = n/(n-extra_df-r)`, together with `B=(Z'Z)^+`;
+- mark this as a statgpu rank-deficient extension in fitted covariance metadata/tests; do not claim external equality for this corner;
+- if `n-extra_df-r <= 0`, DK is undefined and fitting raises a precise error.
 
 Estimator-specific `extra_df`:
 
-- `PooledOLS`: `0`; its fitted intercept is a column of `Z` and is included in `k`.
-- `RandomEffects`: `0`; an explicit transformed intercept, when supplied, remains a column of `X_star` and is included in `k`.
-- `PanelOLS`: the Stage-B **standard fixed-effect nuisance rank** (`N`, `T`, or `N+T-C` as applicable), while `k` is the numerical rank of the transformed slope design. This deliberately uses the standard rank contract for this new covariance and does not redefine the legacy Stage-A `robust` output.
+- `PooledOLS`: `0`; its fitted intercept is a column of `Z`.
+- `RandomEffects`: `0`; an explicit transformed intercept, when supplied, remains a column of `X_star`.
+- `PanelOLS`: the Stage-B **standard fixed-effect nuisance rank** (`N`, `T`, or `N+T-C` as applicable), while `r` is the numerical rank of the transformed slope design. This deliberately uses the standard rank contract for this new covariance and does not redefine the legacy Stage-A `robust` output.
 
-If `n - extra_df - k <= 0`, DK is undefined and fitting raises a precise error before covariance is returned.
-
-### 8.1 Time contract
+### 8.2 Time contract
 
 - DK requires at least two distinct observed time periods.
 - Scores are grouped by time label; input row order within a time period is irrelevant.
@@ -272,14 +279,14 @@ If `n - extra_df - k <= 0`, DK is undefined and fitting raises a precise error b
 - Unbalanced panels are supported: each time aggregate uses only observed rows.
 - Missing formula rows remove the corresponding time metadata before grouping.
 
-### 8.2 Bandwidth
+### 8.3 Bandwidth
 
 - explicit bandwidth must be a non-negative integer (boolean is rejected);
 - effective bandwidth is capped at `T-1`;
 - `bandwidth=None` follows the pinned linearmodels default `floor(4 * (T / 100)^(2/9))`, where `T` is number of distinct observed time periods, not number of observations;
 - effective bandwidth is retained in auditable covariance metadata/test output.
 
-### 8.3 Kernels and aliases
+### 8.4 Kernels and aliases
 
 Stage C supports linearmodels-compatible aliases for:
 
@@ -297,7 +304,7 @@ The covariance correction and reference distribution are separate contracts.
 - existing `robust`/explicit `hc1` keeps the historical HC1 scale and normal-reference inference;
 - new `hc0/hc2/hc3`, clustered, and DK use the existing sandwich-covariance normal-reference inference;
 - `group_debias` changes clustered covariance magnitude only; it does not silently switch p-values to a `t_{G-1}` reference;
-- the new DK path always uses the explicit `scale_DK = n/(n-extra_df-k)` correction in Section 8; there is no hidden per-estimator default;
+- the new DK path always uses the explicit correction in Section 8; there is no hidden per-estimator default;
 - the preserved cluster path does not gain an additional model-df scale by default;
 - for `PanelOLS`, new DK effect df comes from the Stage-B standard effect-rank contract, while historical `robust` remains frozen.
 
@@ -383,7 +390,7 @@ Executable CI comparisons for aligned unweighted data:
 - DK default/explicit bandwidth, kernel aliases, and scale;
 - cluster group-debias coefficient and two-way inclusion-exclusion.
 
-Every test states the linearmodels `debiased`, `group_debias`, effect/extra-df, cluster dimensions, kernel, bandwidth, and intercept/effect specification. When estimator-level legacy corrections intentionally differ, compare the shared transformed-design primitive or the documented ratio rather than changing statgpu's backward-compatible result.
+Every test states the linearmodels `debiased`, `group_debias`, effect/extra-df, cluster dimensions, kernel, bandwidth, and intercept/effect specification. When estimator-level legacy corrections intentionally differ, compare the shared transformed-design primitive or documented ratio rather than changing statgpu's backward-compatible result.
 
 ### 12.2 HC2/HC3 analytic/Python baseline
 
@@ -413,6 +420,7 @@ Add focused tests for:
 - group-debias factors including intersection;
 - exact paired cluster factorization;
 - DK time-score aggregation and exact linearmodels-compatible normalization;
+- DK rank-deficient statgpu extension;
 - Bartlett/Parzen/QS kernel weights;
 - bandwidth default/cap/validation;
 - unsorted labels, repeated time periods, and unbalanced panels.
@@ -457,23 +465,25 @@ Test precise failures for:
 
 Create `dev/benchmarks/validate_panel_stage_c_gpu.py` as a correctness/provenance gate, not a timing benchmark.
 
-At minimum, per CuPy and Torch CUDA cover:
+Every **new public covariance family** must reach CuPy and Torch CUDA at least once; shared primitive coverage alone is not enough when an estimator integration has its own transformation/metadata path.
 
-- Pooled HC0/HC2/HC3;
-- PanelOLS one-way and two-way FE HC2/HC3;
-- RandomEffects HC1/HC2/HC3, including explicit constant and unbalanced data;
-- one-way cluster and two-way cluster, uncorrected and `group_debias=True`;
-- DK Bartlett default bandwidth plus explicit non-Bartlett kernel case;
-- Pooled legacy HAC regression;
-- formula-aligned or equivalent side-array ordering contract where feasible.
+Minimum per-backend matrix:
+
+- `PooledOLS`: HC0, HC2, HC3; one-way cluster; DK Bartlett; legacy HAC regression.
+- `PanelOLS`: one-way FE HC0/HC2/HC3; two-way FE HC2 or HC3; two-way cluster with `group_debias=True`; DK Bartlett with standard effect-rank scaling.
+- `RandomEffects`: HC0/HC1/HC2/HC3 on balanced/unbalanced data including an explicit-constant case; one-way or two-way cluster; DK on quasi-demeaned scores.
+- `BetweenOLS`: HC0/HC2/HC3 on the entity-mean fit space.
+- `FirstDifferenceOLS`: HC0/HC2/HC3 on the retained first-difference fit space.
+- DK kernel breadth: at least one of the Pooled/Panel/RE cases additionally uses Parzen or QS with explicit bandwidth, so non-Bartlett kernel execution is physically covered.
+- formula-aligned or an equivalent deliberately permuted metadata-order fixture exercises side-array alignment where feasible.
 
 For every case record:
 
 - requested backend and executed backend;
 - exact git SHA and clean tree;
 - covariance/SE/t-or-z/p/CI differences vs NumPy;
-- coefficients and Stage-B fit-statistics invariance;
-- covariance configuration, effective bandwidth/group counts where applicable;
+- coefficients and Stage-B fit-statistics invariance where the estimator exposes them;
+- covariance configuration, effective bandwidth/group counts/rank extension metadata where applicable;
 - environment/package/GPU metadata.
 
 Any runner change after physical acceptance invalidates final acceptance of the old artifact for the changed runner contract, per `RELEASING.md`.
@@ -507,7 +517,7 @@ Docs must state:
 - `robust == historical HC1`;
 - transformed-fit-space HC2/HC3 definition and limitation;
 - legacy row-HAC vs Driscoll–Kraay distinction;
-- DK time/bandwidth/kernel/exact df scaling semantics;
+- DK time/bandwidth/kernel/exact df scaling semantics and rank-deficient extension;
 - cluster one-/two-way and `group_debias` semantics;
 - covariance reference distribution and small-sample correction choices;
 - RandomEffects covariance uses quasi-demeaned GLS scores;
@@ -525,7 +535,7 @@ Docs must state:
 7. Integrate RandomEffects on quasi-demeaned fit space.
 8. Integrate HC extensions for BetweenOLS and FirstDifferenceOLS; explicitly preserve FamaMacBeth.
 9. Add analytic/statsmodels and pinned linearmodels 7.0 external tests.
-10. Add maintained Torch regression and physical CuPy/Torch runner contract.
+10. Add maintained Torch regression and the full physical CuPy/Torch matrix in Section 14.
 11. Add performance benchmark and machine-readable schema checks.
 12. Run targeted/full hosted gates.
 13. Run `.claude/skills/code-review.md` in auto-fix mode; fix and repeat until no CRITICAL/HIGH/relevant MEDIUM finding remains locally.
@@ -539,10 +549,11 @@ Stage C is complete only when all applicable items are true:
 - [ ] Existing Stage-B default covariance/inference numerical behavior is preserved.
 - [ ] HC0/HC1/HC2/HC3 definitions and transformed-fit-space leverage semantics are explicit and tested.
 - [ ] RandomEffects robust/HC/cluster/DK covariance works without changing coefficient/variance-component estimates.
-- [ ] Driscoll–Kraay matches the pinned linearmodels 7.0 scale/bandwidth/kernel contract on aligned cases.
+- [ ] Driscoll–Kraay matches the pinned linearmodels 7.0 scale/bandwidth/kernel contract on aligned full-rank cases; rank-deficient behavior is explicitly a statgpu extension.
 - [ ] Legacy Pooled row-HAC remains distinct and unchanged.
 - [ ] One-way/two-way clustering has explicit, backward-compatible `group_debias` semantics.
 - [ ] Every supported new covariance path works on NumPy/CuPy/Torch without silent fallback.
+- [ ] Physical CUDA coverage includes new HC paths for Pooled/Panel/RE/Between/FirstDifference plus representative cluster and DK integrations on both CuPy and Torch.
 - [ ] No full GPU numerical design/residual/score/leverage copy is required for covariance accumulation.
 - [ ] Formula missing-row and panel metadata alignment is tested.
 - [ ] HC2/HC3 analytic/statsmodels and linearmodels covariance alignments pass where definitionally comparable.
