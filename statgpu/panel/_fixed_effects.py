@@ -1,8 +1,9 @@
 """
 Fixed effects panel data model (PanelOLS).
 
-Implements one-way and two-way fixed effects estimation with support for the
-existing non-robust, HC1 robust, and clustered covariance estimators.
+Implements one-way and two-way fixed effects estimation with Stage-C covariance
+support while preserving the historical nonrobust, HC1 robust, and clustered
+contracts.
 """
 
 from __future__ import annotations
@@ -40,16 +41,37 @@ class PanelOLS(BasePanelModel):
         alpha: float = 0.05,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
+        *,
+        bandwidth: Optional[int] = None,
+        kernel: str = "bartlett",
+        group_debias: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
+        from statgpu.panel._covariance import normalize_covariance_type
+
         self.entity_effects = entity_effects
         self.time_effects = time_effects
-        self.cov_type = cov_type.lower()
+        self.cov_type = normalize_covariance_type(cov_type)
         self.alpha = alpha
-        if self.cov_type not in ("nonrobust", "robust", "clustered"):
+        self.bandwidth = bandwidth
+        self.kernel = kernel
+        self.group_debias = group_debias
+        allowed = {
+            "nonrobust",
+            "robust",
+            "hc0",
+            "hc2",
+            "hc3",
+            "clustered",
+            "driscoll-kraay",
+        }
+        if self.cov_type not in allowed:
             raise ValueError(
-                "cov_type must be 'nonrobust', 'robust', or 'clustered'"
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', "
+                "'hc2', 'hc3', 'clustered', 'driscoll-kraay', 'dk', or 'kernel'"
             )
+        if not isinstance(group_debias, (bool, np.bool_)):
+            raise ValueError("group_debias must be boolean")
 
         self.coef_ = None
         self.bse_ = None
@@ -101,9 +123,6 @@ class PanelOLS(BasePanelModel):
             },
         )
 
-        # Preserve the existing formula contract: formula-extracted effects
-        # enable constructor flags, and formula identifiers fill only missing
-        # explicit side arrays.
         if fe_entity_effects:
             self.entity_effects = True
         if fe_time_effects:
@@ -126,6 +145,10 @@ class PanelOLS(BasePanelModel):
             raise ValueError("time_ids is required when time_effects=True")
         if self._cov_type == "clustered" and cluster is None:
             raise ValueError("cluster is required when cov_type='clustered'")
+        if self._cov_type == "driscoll-kraay" and time_ids is None:
+            raise ValueError("time_ids is required for Driscoll-Kraay covariance")
+        if bool(self.group_debias) and self._cov_type != "clustered":
+            raise ValueError("group_debias=True requires cov_type='clustered'")
 
         self._panel_set_index_info(
             n, entity_ids=entity_ids, time_ids=time_ids
@@ -181,10 +204,6 @@ class PanelOLS(BasePanelModel):
             pooling_f_from_level_arrays,
         )
 
-        # Compute the rank-consistent FE degrees of freedom before deciding
-        # whether the fit is feasible.  For disconnected two-way incidence
-        # graphs the nuisance rank is N + T - C, so the historical N/T count can
-        # otherwise reject an identified fit before Stage-B diagnostics run.
         diagnostic_df = fixed_effect_diagnostic_df(
             X_d,
             xp=xp,
@@ -198,11 +217,6 @@ class PanelOLS(BasePanelModel):
             time_codes=time_arr,
         )
 
-        # Preserve the legacy public df whenever it is positive.  If the legacy
-        # count is nonpositive solely because a disconnected two-way panel has a
-        # lower nuisance rank, use the component-aware df instead so the valid
-        # fit can proceed.  This keeps established connected-panel inference
-        # unchanged while fixing the false rejection boundary.
         n_effects = 0
         if self.entity_effects:
             n_effects += n_entities - 1
@@ -231,10 +245,6 @@ class PanelOLS(BasePanelModel):
         scale = _to_float_scalar(xp.sum(resid ** 2)) / self.df_resid
         self._scale = scale
 
-        # Effect recovery remains model-specific and byte-for-byte equivalent in
-        # meaning to the pre-Stage-A implementation. The stored grand mean is
-        # intentionally not added by predict(); that historical behavior is
-        # frozen by test_panel_stage_a_golden.py.
         self._entity_effects_map = {}
         self._time_effects_map = {}
         resid_orig = y_arr - X_arr @ coef
@@ -293,7 +303,20 @@ class PanelOLS(BasePanelModel):
             backend=backend,
             cov_type=self._cov_type,
             cluster=cluster_for_cov,
-            allowed=("nonrobust", "robust", "clustered"),
+            time_ids=time_ids,
+            bandwidth=self.bandwidth,
+            kernel=self.kernel,
+            group_debias=bool(self.group_debias),
+            extra_df=int(diagnostic_df["effect_rank"]),
+            allowed=(
+                "nonrobust",
+                "robust",
+                "hc0",
+                "hc2",
+                "hc3",
+                "clustered",
+                "driscoll-kraay",
+            ),
             hc1_correction=(
                 n / self.df_resid if self._cov_type == "robust" else None
             ),
@@ -301,16 +324,11 @@ class PanelOLS(BasePanelModel):
             diag_floor=0.0,
         )
 
-        # Preserve the legacy Stage-A transformed-fit R² exactly.
         ss_res = _to_float_scalar(xp.sum(resid ** 2))
         y_d_mean = _to_float_scalar(xp.mean(y_d))
         ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
-        # New standardized diagnostics use the full nuisance-effect rank.  This
-        # is intentionally separate from the historical self.df_resid used by
-        # covariance/t inference above, except when a disconnected two-way panel
-        # requires the component-aware df to avoid a false fit rejection.
         ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
@@ -335,10 +353,6 @@ class PanelOLS(BasePanelModel):
                 "legacy_rsquared_within": float(self.rsquared_within),
             },
         )
-        # Full-content identity is only needed for the Stage-B Hausman domain:
-        # one-way entity FE with classical nonrobust covariance.  Robust,
-        # clustered, time-only, and two-way FE are rejected before identity
-        # comparison, so hashing their full X/y would be pure host-transfer cost.
         hausman_compatible = (
             bool(self.entity_effects)
             and not bool(self.time_effects)
