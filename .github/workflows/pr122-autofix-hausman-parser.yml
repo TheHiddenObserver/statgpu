@@ -1,0 +1,231 @@
+name: PR122 Hausman Parser Autofix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-b-diagnostics
+    paths:
+      - .github/workflows/pr122-autofix-hausman-parser.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-b-diagnostics
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Patch parser and regression contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          parser_path = Path('dev/benchmarks/frontend_data/parsers/panel_stage_b.py')
+          text = parser_path.read_text(encoding='utf-8')
+          old = '''        for diagnostic_id, diagnostic in backend_result.get("diagnostics", {}).items():
+            balance = "unbalanced" if diagnostic_id.endswith("unbalanced") else "balanced"
+            explicit_re_constant = diagnostic_id.startswith(
+                "hausman_explicit_re_constant_"
+            )
+            parameterization = (
+                "re-explicit-constant" if explicit_re_constant else "standard"
+            )
+            variant = (
+                f"hausman-re-explicit-constant-{balance}"
+                if explicit_re_constant
+                else f"hausman-{balance}"
+            )
+            n_samples = 49 if balance == "unbalanced" else 54
+            scale = {
+                "scale_key": make_scale_key(n_samples, 2),
+                "n_samples": n_samples,
+                "n_features": 2,
+                "label": make_scale_label(n_samples, 2),
+            }
+            status = str(diagnostic.get("status", "failed"))
+            validation = _apply_aggregate_validation_contract(
+                _validation(
+                    ["hausman_backend_consistency", "backend_provenance"],
+                    status,
+                    filepath,
+                ),
+                schema_ok=schema_ok,
+                source_ok=source_ok,
+                backend_ok=backend_ok,
+                executed_backend_ok=executed_backend_ok,
+            )
+            method_parts: list[object] = [
+                "panel-stage-b-physical-validation",
+                "hausman",
+                balance,
+            ]
+            if explicit_re_constant:
+                method_parts.append(parameterization)
+'''
+          new = '''        for diagnostic_id, diagnostic in backend_result.get("diagnostics", {}).items():
+            applicable_fixture = diagnostic_id == "hausman_applicable_nonzero_effect"
+            explicit_re_constant = diagnostic_id.startswith(
+                "hausman_explicit_re_constant_"
+            )
+            parameterization = (
+                "re-explicit-constant" if explicit_re_constant else "standard"
+            )
+            if applicable_fixture:
+                balance = "dedicated"
+                variant = "hausman-applicable-nonzero-effect"
+                n_samples, n_features = 48, 1
+                validation_checks = [
+                    "hausman_backend_consistency",
+                    "hausman_applicable_statistic_pvalue_df",
+                    "backend_provenance",
+                ]
+                method_parts: list[object] = [
+                    "panel-stage-b-physical-validation",
+                    "hausman",
+                    "applicable-nonzero-effect",
+                ]
+            else:
+                balance = (
+                    "unbalanced" if diagnostic_id.endswith("unbalanced") else "balanced"
+                )
+                variant = (
+                    f"hausman-re-explicit-constant-{balance}"
+                    if explicit_re_constant
+                    else f"hausman-{balance}"
+                )
+                n_samples = 49 if balance == "unbalanced" else 54
+                n_features = 2
+                validation_checks = [
+                    "hausman_backend_consistency",
+                    "backend_provenance",
+                ]
+                method_parts = [
+                    "panel-stage-b-physical-validation",
+                    "hausman",
+                    balance,
+                ]
+                if explicit_re_constant:
+                    method_parts.append(parameterization)
+            scale = {
+                "scale_key": make_scale_key(n_samples, n_features),
+                "n_samples": n_samples,
+                "n_features": n_features,
+                "label": make_scale_label(n_samples, n_features),
+            }
+            status = str(diagnostic.get("status", "failed"))
+            validation = _apply_aggregate_validation_contract(
+                _validation(validation_checks, status, filepath),
+                schema_ok=schema_ok,
+                source_ok=source_ok,
+                backend_ok=backend_ok,
+                executed_backend_ok=executed_backend_ok,
+            )
+'''
+          if old not in text:
+              raise RuntimeError('diagnostic parser block anchor not found')
+          text = text.replace(old, new, 1)
+
+          old_params = '''                        "parameterization": parameterization,
+                        "applicable": bool(diagnostic.get("applicable")),
+                        "measurement_git_sha": data.get("git_sha"),
+'''
+          new_params = '''                        "parameterization": parameterization,
+                        "applicable": bool(diagnostic.get("applicable")),
+                        **(
+                            {"diagnostic_fixture": "nonzero-effect-applicable"}
+                            if applicable_fixture
+                            else {}
+                        ),
+                        "measurement_git_sha": data.get("git_sha"),
+'''
+          if old_params not in text:
+              raise RuntimeError('diagnostic parameter anchor not found')
+          text = text.replace(old_params, new_params, 1)
+          parser_path.write_text(text, encoding='utf-8')
+
+          test_path = Path('dev/tests/test_panel_stage_b_frontend_source.py')
+          test = test_path.read_text(encoding='utf-8')
+          test += '''
+
+
+def test_pr122_parser_distinguishes_dedicated_applicable_hausman_fixture(tmp_path) -> None:
+    from dev.benchmarks.frontend_data.parsers import (
+        parse_panel_stage_b_physical_validation,
+    )
+
+    data = json.loads(SOURCE_PATH.read_text(encoding="utf-8"))
+    for backend in ("cupy", "torch"):
+        diagnostics = data["backend_results"][backend]["diagnostics"]
+        template = dict(next(iter(diagnostics.values())))
+        template["status"] = "success"
+        template["applicable"] = True
+        diagnostics["hausman_applicable_nonzero_effect"] = template
+
+    synthetic = tmp_path / "panel_stage_b_with_applicable_hausman.json"
+    synthetic.write_text(json.dumps(data, indent=2) + "\\n", encoding="utf-8")
+    runs, _models, warnings = parse_panel_stage_b_physical_validation(
+        synthetic, "synthetic-pr122-applicable"
+    )
+
+    assert warnings == []
+    dedicated = [
+        run for run in runs if run["variant"] == "hausman-applicable-nonzero-effect"
+    ]
+    assert len(dedicated) == 2
+    assert {run["backend"] for run in dedicated} == {"cupy", "torch"}
+    assert {run["scale"]["n_samples"] for run in dedicated} == {48}
+    assert {run["scale"]["n_features"] for run in dedicated} == {1}
+    assert {run["parameters"]["parameterization"] for run in dedicated} == {"standard"}
+    assert {
+        run["parameters"]["diagnostic_fixture"] for run in dedicated
+    } == {"nonzero-effect-applicable"}
+    assert all(run["parameters"]["applicable"] is True for run in dedicated)
+    assert all(
+        "hausman_applicable_statistic_pvalue_df"
+        in {check["metric"] for check in run["metrics"]["validation"]["checks"]}
+        for run in dedicated
+    )
+
+    standard_balanced = [
+        run for run in runs if run["variant"] == "hausman-balanced"
+    ]
+    assert len(standard_balanced) == 2
+    dedicated_methods = {run["method_config_id"] for run in dedicated}
+    standard_methods = {run["method_config_id"] for run in standard_balanced}
+    assert dedicated_methods.isdisjoint(standard_methods)
+'''
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      - name: Run targeted frontend evidence gates
+        run: |
+          python -m pytest -q \
+            dev/tests/test_panel_stage_b_frontend_source.py \
+            dev/tests/test_panel_stage_b_ready_review_regressions.py \
+            dev/tests/test_frontend_domain_coverage.py \
+            dev/tests/test_benchmark_catalog.py
+          python -m compileall -q dev/benchmarks/frontend_data/parsers/panel_stage_b.py
+          git diff --check
+
+      - name: Commit parser fix and remove temporary carrier
+        run: |
+          rm .github/workflows/pr122-autofix-hausman-parser.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test: distinguish applicable Hausman frontend evidence'
+          git push origin HEAD:agent/panel-p1-stage-b-diagnostics
