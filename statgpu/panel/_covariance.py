@@ -465,22 +465,21 @@ def _hc_covariance(X, resid, *, kind: str, xp, metadata: Optional[dict] = None):
         leverage = xp.sum(projected * X, dim=1)
     else:
         leverage = xp.sum(projected * X, axis=1)
-    leverage_np = np.asarray(_to_numpy(leverage), dtype=np.float64).ravel()
+    leverage_min = _to_float_scalar(xp.min(leverage))
+    leverage_max = _to_float_scalar(xp.max(leverage))
     tol = 256.0 * np.finfo(np.float64).eps
-    if leverage_np.size and float(np.min(leverage_np)) < -tol:
+    if leverage_min < -tol:
         raise ValueError("HC2/HC3 leverage is materially negative")
-    if leverage_np.size and float(np.max(leverage_np)) > 1.0 + tol:
+    if leverage_max > 1.0 + tol:
         raise ValueError("HC2/HC3 leverage is materially greater than one")
-    leverage_np = np.clip(leverage_np, 0.0, 1.0)
-    denominator_np = 1.0 - leverage_np
-    if denominator_np.size and float(np.min(denominator_np)) <= tol:
+    if _is_torch(xp):
+        leverage = xp.clamp(leverage, min=0.0, max=1.0)
+    else:
+        leverage = xp.clip(leverage, 0.0, 1.0)
+    denominator = 1.0 - leverage
+    denominator_min = _to_float_scalar(xp.min(denominator))
+    if denominator_min <= tol:
         raise ValueError("HC2/HC3 covariance is undefined when leverage is numerically one")
-    denominator = xp_asarray(
-        denominator_np,
-        dtype=xp.float64,
-        xp=xp,
-        ref_arr=X,
-    )
     if kind == "hc2":
         adjusted_resid = resid / xp.sqrt(denominator)
     elif kind == "hc3":
@@ -495,8 +494,8 @@ def _hc_covariance(X, resid, *, kind: str, xp, metadata: Optional[dict] = None):
                 "covariance": kind,
                 "design_rank": int(rank),
                 "design_columns": int(X.shape[1]),
-                "leverage_min": float(leverage_np.min()) if leverage_np.size else None,
-                "leverage_max": float(leverage_np.max()) if leverage_np.size else None,
+                "leverage_min": float(leverage_min),
+                "leverage_max": float(leverage_max),
             }
         )
     return bread @ meat @ bread
