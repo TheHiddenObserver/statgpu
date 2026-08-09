@@ -49,10 +49,12 @@ class RandomEffects(BasePanelModel):
         self.conf_int_ = None
         self.theta_ = None
         self.variance_components_ = None
+        self.fit_statistics_ = None
         self.nobs = None
         self.df_resid = None
         self._params = None
         self._scale = None
+        self._panel_diagnostic_identity = None
 
     def fit(
         self,
@@ -108,6 +110,28 @@ class RandomEffects(BasePanelModel):
         # new array-interface validation rule for it in this refactor.
         self._panel_set_index_info(n, entity_ids=entity_ids)
 
+        from statgpu.panel._diagnostic_context import (
+            build_diagnostic_identity,
+            explicit_constant_column,
+        )
+
+        # Detect an explicit nonzero constant in the supplied level design.
+        # RandomEffects does not implicitly add an intercept, so this flag must
+        # describe the caller's actual X rather than the model family.
+        constant_index = explicit_constant_column(X_arr, xp=xp)
+        has_constant = constant_index is not None
+
+        # Hausman compatibility is checked against aligned level X/y/entity
+        # metadata, before any Swamy-Arora transformation is applied.
+        self._panel_diagnostic_identity = build_diagnostic_identity(
+            X_arr,
+            y_arr,
+            xp=xp,
+            entity_codes=entity_arr,
+            feature_names=self._feature_names,
+            has_constant=has_constant,
+        )
+
         # --- Step 1: Between estimation ---
         y_bar_i = group_means(y_arr, entity_arr, xp=xp)
         X_bar_i = xp.zeros_like(X_arr)
@@ -138,13 +162,45 @@ class RandomEffects(BasePanelModel):
         for j in range(k):
             X_within[:, j] = within_transform(X_arr[:, j], entity_arr, xp=xp)
 
-        XtX_w = X_within.T @ X_within
-        Xty_w = X_within.T @ y_within
-        try:
-            beta_within = xp.linalg.solve(XtX_w, Xty_w)
-        except _LINALG_ERRORS:
-            beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
-        resid_within = y_within - X_within @ beta_within
+        # An explicit level constant is annihilated exactly by the within
+        # transform. Passing that structural zero column into a normal-equation
+        # solve makes XtX singular. NumPy reliably raises LinAlgError here, while
+        # GPU linalg stacks may return a value or warning instead, which can make
+        # sigma2_e/theta/backend coefficients diverge. Remove the known null
+        # column and compute the same auxiliary least-squares RSS on the slope
+        # subspace. The df formula below is unchanged: k includes the explicit
+        # constant while the (N - 1) nuisance count uses the equivalent
+        # parameterization, so n - k - (N - 1) = n - n_slopes - N.
+        if constant_index is not None:
+            slope_indices = np.asarray(
+                [j for j in range(k) if j != int(constant_index)],
+                dtype=np.int64,
+            )
+            if slope_indices.size == 0:
+                resid_within = y_within
+            else:
+                slope_idx_dev = xp_asarray(
+                    slope_indices,
+                    dtype=xp.int64,
+                    xp=xp,
+                    ref_arr=X_arr,
+                )
+                X_within_fit = X_within[:, slope_idx_dev]
+                XtX_w = X_within_fit.T @ X_within_fit
+                Xty_w = X_within_fit.T @ y_within
+                # Use the small-matrix pseudoinverse deliberately in this
+                # structural-rank branch so correctness does not depend on
+                # backend-specific singular-solve exception semantics.
+                beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
+                resid_within = y_within - X_within_fit @ beta_within
+        else:
+            XtX_w = X_within.T @ X_within
+            Xty_w = X_within.T @ y_within
+            try:
+                beta_within = xp.linalg.solve(XtX_w, Xty_w)
+            except _LINALG_ERRORS:
+                beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
+            resid_within = y_within - X_within @ beta_within
         rss_within = float(xp.sum(resid_within ** 2))
 
         # --- Step 3: Swamy-Arora variance components ---
@@ -238,10 +294,68 @@ class RandomEffects(BasePanelModel):
             diag_floor=0.0,
         )
 
+        from statgpu.panel._diagnostic_context import build_model_fit_statistics
+        from statgpu.panel._diagnostics import _matrix_rank
+
+        rank_star = _matrix_rank(X_star, xp)
+        diagnostic_df_resid = n - rank_star
+        ss_res_diag = _to_float_scalar(xp.sum(resid_gls * resid_gls))
+
+        # In the quasi-demeaned fit space, an explicit level intercept becomes
+        # the transformed intercept column X_star[:, constant_index].  On an
+        # unbalanced panel this is not generally a vector of ones, so both the
+        # adjusted-R² denominator and the restricted model F must retain that
+        # exact transformed column.
+        restricted_X = None
+        restricted_rank = 0
+        if has_constant:
+            restricted_X = X_star[:, constant_index : constant_index + 1]
+            restricted_rank = _matrix_rank(restricted_X, xp)
+            restricted_params = xp.linalg.pinv(restricted_X) @ y_star
+            restricted_resid = y_star - restricted_X @ restricted_params
+            ss_tot_diag = _to_float_scalar(
+                xp.sum(restricted_resid * restricted_resid)
+            )
+        else:
+            ss_tot_diag = _to_float_scalar(xp.sum(y_star * y_star))
+
+        self.fit_statistics_ = build_model_fit_statistics(
+            y_arr,
+            X_arr,
+            beta_gls,
+            xp=xp,
+            entity_codes=entity_arr,
+            has_constant=has_constant,
+            rss_fit=ss_res_diag,
+            tss_fit=ss_tot_diag,
+            df_resid=diagnostic_df_resid,
+            df_total=n - restricted_rank,
+            f_y=y_star,
+            f_X=X_star,
+            f_params=beta_gls,
+            f_has_constant=has_constant,
+            f_restricted_X=restricted_X,
+            metadata={
+                "fit_space": "Swamy-Arora quasi-demeaned GLS regression",
+                "legacy_df_resid": int(self.df_resid),
+                "diagnostic_df_resid": int(diagnostic_df_resid),
+                "diagnostic_rank": int(rank_star),
+                "has_explicit_constant": bool(has_constant),
+                "constant_column_index": constant_index,
+                "restricted_rank": int(restricted_rank),
+            },
+        )
+
         self._params = np.asarray(self.coef_).ravel()
         self.coef_ = self._params
         self._fitted = True
         return self
+
+    def hausman_test(self, fixed_effects_model):
+        """Compare this RE fit with a matched one-way entity PanelOLS fit."""
+        from statgpu.panel._diagnostics import hausman_test
+
+        return hausman_test(fixed_effects_model, self)
 
     def predict(self, X):
         """Predict using the fitted model, preserving current NumPy output."""

@@ -57,9 +57,24 @@ class PooledOLS(BasePanelModel):
             raise ValueError(
                 "cov_type must be 'nonrobust', 'robust', 'clustered', or 'hac'"
             )
+        self.fit_statistics_ = None
 
-    def fit(self, X=None, y=None, cluster=None, time_index=None, formula=None, data=None):
-        """Fit the pooled OLS model."""
+    def fit(
+        self,
+        X=None,
+        y=None,
+        cluster=None,
+        time_index=None,
+        formula=None,
+        data=None,
+        entity_ids=None,
+    ):
+        """Fit the pooled OLS model.
+
+        ``entity_ids`` is optional and does not affect coefficients.  When
+        supplied it enables Stage-B within/between R² and the one-way panel
+        Breusch-Pagan random-effects LM diagnostic.
+        """
         (
             y_data,
             X_data,
@@ -74,15 +89,31 @@ class PooledOLS(BasePanelModel):
             X,
             y,
             model_has_intercept=True,
-            side_arrays={"cluster": cluster, "time_index": time_index},
+            side_arrays={
+                "cluster": cluster,
+                "time_index": time_index,
+                "entity_ids": entity_ids,
+            },
         )
         cluster = aligned["cluster"]
         time_index = aligned["time_index"]
+        entity_ids = aligned["entity_ids"]
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
+        entity_arr = None
+        if entity_ids is not None:
+            entity_arr, _ = factorize_panel_labels(
+                entity_ids,
+                xp,
+                ref_arr=X_arr,
+                name="entity_ids",
+                expected_n=X_arr.shape[0],
+            )
 
         # HAC depends on temporal ordering. Metadata may remain on CPU, while
-        # the numerical arrays are reordered on their selected backend.
+        # the numerical arrays are reordered on their selected backend. Stage B
+        # carries entity diagnostic codes through the identical permutation so
+        # BP/R² sufficient statistics cannot become misaligned with residuals.
         if self._cov_type == "hac" and time_index is not None:
             time_values = np.asarray(_to_numpy(time_index))
             if time_values.ndim != 1 or time_values.shape[0] != X_arr.shape[0]:
@@ -93,6 +124,8 @@ class PooledOLS(BasePanelModel):
             order = xp_asarray(order_np, dtype=xp.int64, xp=xp, ref_arr=X_arr)
             X_arr = X_arr[order]
             y_arr = y_arr[order]
+            if entity_arr is not None:
+                entity_arr = entity_arr[order]
 
         n = X_arr.shape[0]
         ones = xp.ones((n, 1), dtype=xp.float64)
@@ -149,8 +182,42 @@ class PooledOLS(BasePanelModel):
         self.nobs = n
         self.rank_ = rank
         self.df_resid = df_resid
+
+        from statgpu.panel._diagnostic_context import (
+            bp_lm_from_residuals,
+            build_model_fit_statistics,
+        )
+
+        self.fit_statistics_ = build_model_fit_statistics(
+            y_arr,
+            X_arr,
+            params,
+            xp=xp,
+            entity_codes=entity_arr,
+            has_constant=True,
+            rss_fit=ss_res,
+            tss_fit=ss_tot,
+            df_resid=df_resid,
+            df_total=n - 1,
+            metadata={
+                "fit_space": "pooled level regression",
+                "legacy_rsquared": self.rsquared,
+                "diagnostic_df_resid": int(df_resid),
+            },
+        )
+        self._bp_lm_result = (
+            None
+            if entity_arr is None
+            else bp_lm_from_residuals(resid, entity_arr, xp=xp)
+        )
         self._fitted = True
         return self
+
+    def breusch_pagan_lm_test(self):
+        """Test pooled OLS against a one-way entity random-effects component."""
+        from statgpu.panel._diagnostics import breusch_pagan_lm_test
+
+        return breusch_pagan_lm_test(self)
 
     def predict(self, X):
         """Predict using the fitted model."""

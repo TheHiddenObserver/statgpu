@@ -1,11 +1,23 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-08<br>
+> Last updated: 2026-08-09<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-08-08
+
+### PR #122 — Panel Tier-1 diagnostics Stage B
+
+- Added public structured `PanelTestResult` and `PanelFitStatistics` outputs plus standardized `fit_statistics_` on the maintained panel estimators. The new fit statistics use parameter-based within/between/overall R², an explicitly defined adjusted R², and a classical homoskedastic model F statistic where the estimator has a residual-OLS fit space.
+- Kept Stage-A coefficient inference and legacy R²/df behavior unchanged. In particular, `PanelOLS` continues to expose its historical public residual df and BSE/t/p/CI, while Stage-B diagnostics use a separate standard fixed-effect nuisance-rank df; the classical Hausman calculation consumes only a diagnostic small covariance rescaled to that standard denominator.
+- Added the classical pooling F test for fixed effects, the one-way entity error-components Breusch-Pagan LM test including the Baltagi-Li unbalanced-panel formula, and the classical one-way entity FE-vs-RE Hausman test. Inapplicable econometric cases return structured reasons; singular positive-semidefinite Hausman covariance differences use a documented generalized-inverse/rank extension, while materially indefinite differences are rejected.
+- Added optional `entity_ids` to `PooledOLS.fit()` and `FamaMacBeth.fit()` solely for Stage-B within/between fit statistics and the panel BP-LM path. Pooled HAC sorting now carries entity diagnostic metadata through the same stable permutation as X/y. Formula missing-row filtering aligns observation-level side arrays before diagnostics are formed.
+- Added analytic/fitted regressions, maintained Python 3.9 + Torch 2.0 CPU parity, and an executable `linearmodels==7.0` definition-alignment job. FirstDifference external comparison is restricted to panels where both implementations use the same transformed sample; Stage B does not silently redefine the Stage-A adjacent-observed-row differencing contract for internal time gaps.
+- Added `dev/benchmarks/validate_panel_stage_b_gpu.py` as the exact-head physical correctness/provenance gate. The previously accepted P100 artifacts at numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6` remain immutable historical evidence: CuPy and Torch each passed all 17 estimator cases with requested-backend provenance and no fallback, while the focused disconnected two-way FE artifact validated the df=1 inference boundary to machine precision. The four Hausman parameterizations per backend in that run were all correctly structured `applicable=false` cases, so they validate applicability/reason parity but do not physically exercise an applicable Hausman statistic/p-value/df path.
+- The reopened physical gate is now closed on exact clean measurement head `2701aa9feb3796c33c94e6480fcb78c80c6a809c`: Tesla P100 CuPy and Torch each passed all 17 estimator cases and all five Hausman diagnostics with requested/executed backend identity and no CPU fallback. The dedicated 48-observation nonzero-effect fixture is `applicable=true` on both backends with df=1; its Hausman statistic differs from NumPy by at most `1.10e-13` and p-value by at most `2.19e-14`. The promoted 44-row canonical validation source preserves statistic/pvalue/df for that branch, while the older 42-row a57efcea source remains historical audit evidence. No timing or speedup claim is made.
+
+Related: Issue #93 and pull request #122.
 
 ### PR #121 — CuPy inverse-quantile LUT correctness
 

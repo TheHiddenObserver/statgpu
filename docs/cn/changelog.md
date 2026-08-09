@@ -1,11 +1,23 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-08<br>
+> 最后更新：2026-08-09<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
 ## 2026-08-08
+
+### PR #122 — Panel Tier-1 diagnostics Stage B
+
+- 新增公开的结构化 `PanelTestResult`、`PanelFitStatistics` 以及维护中 panel estimator 的标准化 `fit_statistics_`。新的 fit statistics 包含 parameter-based within/between/overall R²、显式定义的 adjusted R²，以及在存在 residual-OLS 拟合空间时的 classical homoskedastic model F。
+- Stage-A 的 coefficient inference 与 legacy R²/df 行为保持不变。特别是 `PanelOLS` 继续公开历史 residual df 和 BSE/t/p/CI；Stage-B diagnostics 使用单独的标准 fixed-effect nuisance-rank df，经典 Hausman 只读取按该标准 denominator 重标度的小型 diagnostic covariance，不修改公共 inference。
+- 新增 fixed-effects classical pooling F、one-way entity error-components Breusch-Pagan LM（包含 Baltagi-Li unbalanced-panel 公式）以及 classical one-way entity FE-vs-RE Hausman。计量上不适用的情况返回结构化 reason；Hausman covariance difference 若为奇异 PSD，则使用明确记录的 generalized-inverse/rank extension；若实质 indefinite，则直接报告不可用。
+- `PooledOLS.fit()` 与 `FamaMacBeth.fit()` 的可选 `entity_ids` 只用于 Stage-B within/between fit statistics 和 panel BP-LM。Pooled HAC 稳定排序现在让 entity diagnostic metadata 与 X/y 使用完全相同的 permutation；formula missing-row filtering 也会在形成 diagnostics 前对齐 observation-level side arrays。
+- 增加 analytic/fitted regression、维护中的 Python 3.9 + Torch 2.0 CPU parity，以及可执行的 `linearmodels==7.0` definition-alignment job。FirstDifference 的外部比较只在两边 transformed sample 定义一致的 panel 上执行；Stage B 不会为了 external gate 静默改变 Stage-A 对内部缺期采用 adjacent-observed-row differencing 的既有契约。
+- 新增 `dev/benchmarks/validate_panel_stage_b_gpu.py` 作为 exact-head physical correctness/provenance gate。此前在数值实现 `a57efcea29b0e87ecb89865c5a6902d5773812c6` 上接受的 P100 artifact 继续作为不可变的历史证据保留：CuPy 与 Torch 各自通过全部 17 个 estimator case，requested/executed backend 一致且无 fallback；focused disconnected two-way FE artifact 也把 df=1 inference boundary 验证到机器精度。该运行中每个 backend 的 4 个 Hausman parameterization 都是正确的结构化 `applicable=false` case，因此它们验证了 applicability/reason parity，但没有在物理 GPU 上执行 applicable Hausman 的 statistic/p-value/df 路径。
+- 重新打开的 physical gate 已在精确 clean measurement head `2701aa9feb3796c33c94e6480fcb78c80c6a809c` 上闭合：Tesla P100 的 CuPy 与 Torch 各自通过全部 17 个 estimator case 和 5 个 Hausman diagnostic，requested/executed backend 一致且没有 CPU fallback。新增的 48-observation nonzero-effect fixture 在两个 backend 上均为 `applicable=true`、df=1；Hausman statistic 相对 NumPy 的最大差异不超过 `1.10e-13`，p-value 不超过 `2.19e-14`。新的 44-row canonical validation source 保留该分支的 statistic/pvalue/df；旧的 42-row a57efcea source 继续作为历史审计证据保留。本次证据不包含 timing 或 speedup 声明。
+
+关联：Issue #93 与 pull request #122。
 
 ### PR #121 — CuPy inverse-quantile LUT 正确性修复
 

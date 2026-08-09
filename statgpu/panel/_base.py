@@ -96,6 +96,37 @@ class BasePanelModel(BaseEstimator):
         self._panel_index_info = info
         return info
 
+    @property
+    def _panel_cov_params(self):
+        """Return the small covariance matrix used by Stage-B diagnostics.
+
+        Existing Stage-A inference is computed and stored before this property is
+        consulted, so rescaling here cannot change public bse/t/p/CI values.
+        PanelOLS preserves a historical residual-df convention that is one rank
+        parameterization away from the standard fixed-effect model df used by
+        classical Hausman tests.  When Stage-B fit metadata provides both the
+        legacy and standard diagnostic df, convert only this internal covariance
+        copy to the standard homoskedastic scale.
+        """
+        raw = getattr(self, "_panel_cov_params_raw", None)
+        if raw is None:
+            return None
+        result = getattr(self, "fit_statistics_", None)
+        metadata = getattr(result, "metadata", {}) if result is not None else {}
+        diagnostic_df = metadata.get("diagnostic_df")
+        legacy_df = metadata.get("legacy_df_resid")
+        cov_type = str(getattr(self, "_cov_type", "nonrobust")).lower()
+        if (
+            cov_type == "nonrobust"
+            and isinstance(diagnostic_df, dict)
+            and legacy_df is not None
+        ):
+            standard_df = diagnostic_df.get("df_resid")
+            if standard_df is not None and int(standard_df) > 0:
+                factor = float(legacy_df) / float(standard_df)
+                return raw * factor
+        return raw
+
     def _panel_predict_linear(
         self,
         X,
@@ -174,6 +205,14 @@ class BasePanelModel(BaseEstimator):
             allowed=allowed,
             hc1_correction=hc1_correction,
         )
+        # Persist only the final k x k matrix. Observation-scale X/residual arrays
+        # remain on the selected backend. `_panel_cov_params` exposes the
+        # diagnostic version and may rescale this raw copy after fit metadata is
+        # available; public Stage-A inference values below always use cov_params.
+        self._panel_cov_params_raw = np.asarray(
+            _to_numpy(cov_params), dtype=np.float64
+        )
+
         diag = xp.diag(cov_params)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)
@@ -185,12 +224,21 @@ class BasePanelModel(BaseEstimator):
             tvalues_dev = params / denominator
 
         dist_name = "t" if str(cov_type).lower() == "nonrobust" else "norm"
-        distribution = get_distribution(dist_name, backend=backend.name)
         df = int(df_resid if distribution_df is None else distribution_df)
-        if dist_name == "t":
+        if dist_name == "t" and df == 1:
+            # Student-t with one residual degree of freedom is exactly a
+            # standard Cauchy distribution.  Using this closed-form boundary
+            # avoids inverse-beta endpoint singularities in backend fallbacks
+            # while keeping the computation backend-native on NumPy/CuPy/Torch.
+            distribution = get_distribution("cauchy", backend=backend.name)
+            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
+            critical = distribution.isf(float(self.alpha) / 2)
+        elif dist_name == "t":
+            distribution = get_distribution("t", backend=backend.name)
             pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev), df)
             critical = distribution.isf(float(self.alpha) / 2, df)
         else:
+            distribution = get_distribution("norm", backend=backend.name)
             pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
             critical = distribution.isf(float(self.alpha) / 2)
         critical = xp_asarray(

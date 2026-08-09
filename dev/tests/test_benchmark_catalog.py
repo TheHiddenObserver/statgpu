@@ -84,6 +84,17 @@ def test_catalog_retains_distinct_noncanonical_dispositions(entries):
     assert focused["provenance_status"] == "validation_evidence"
     assert focused["issue"] == "#112"
 
+    panel_raw = next(
+        entry for entry in entries
+        if entry["path"]
+        == "results/pr122_p100/panel_stage_b_gpu_validation_faa95ce7.json"
+    )
+    assert panel_raw["classification"] == "not_canonical_ready"
+    assert panel_raw["provenance_status"] == "validation_evidence"
+    assert panel_raw["timing_protocol_status"] == "not_applicable"
+    assert panel_raw["statistical_alignment_status"] == "accepted"
+    assert panel_raw["issue"] == "#93"
+
 
 def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     from dev.benchmarks.frontend_data.catalog import validate_coverage_matrix
@@ -96,6 +107,10 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     assert rows["logistic-regression-cv"]["source_ids"] == [
         "cv-benchmark-20260807-1347184c988d",
         "cv-benchmark-pr116-20260807-bd8d512adced",
+    ]
+    assert rows["panel-estimation"]["source_ids"] == [
+        "new-modules-20260624-bcbdb676223b",
+        "panel-stage-b-pr122-20260809-2056f836bfe2",
     ]
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
@@ -119,9 +134,9 @@ def test_inventory_v2_reconciles_literal_counts(
     assert inventory["inventory_version"] == "2.0"
     assert inventory["discovered_json_artifacts"] == len(entries)
     assert inventory["classified_candidate_sources"] == len(entries)
-    assert inventory["registered_sources"] == len(manifest["sources"]) == 10
-    assert inventory["available_registered_sources"] == 10
-    assert inventory["parsed_registered_sources"] == 10
+    assert inventory["registered_sources"] == len(manifest["sources"]) == 11
+    assert inventory["available_registered_sources"] == 11
+    assert inventory["parsed_registered_sources"] == 11
     assert inventory["eligible_sources"] == (
         inventory["registered_sources"]
         + inventory["eligible_unregistered_sources"]

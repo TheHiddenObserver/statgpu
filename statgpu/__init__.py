@@ -54,6 +54,11 @@ from .panel import (
     BetweenOLS,
     FirstDifferenceOLS,
     FamaMacBeth,
+    PanelTestResult,
+    PanelFitStatistics,
+    hausman_test,
+    pooling_f_test,
+    breusch_pagan_lm_test,
     hac_covariance,
 )
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
@@ -180,6 +185,11 @@ __all__ = [
     "BetweenOLS",
     "FirstDifferenceOLS",
     "FamaMacBeth",
+    "PanelTestResult",
+    "PanelFitStatistics",
+    "hausman_test",
+    "pooling_f_test",
+    "breusch_pagan_lm_test",
     "hac_covariance",
     # Backends
     "get_backend",

@@ -132,6 +132,31 @@
       "reason": "Exact-head P100 focused correctness evidence for PR #116 is retained for audit but is intentionally not a dashboard timing source."
     },
     {
+      "rule_id": "pr122-panel-stage-b-physical-validation",
+      "priority": 20,
+      "classification": "not_canonical_ready",
+      "canonical_eligible": false,
+      "provenance_status": "validation_evidence",
+      "timing_protocol_status": "not_applicable",
+      "statistical_alignment_status": "accepted",
+      "issue": "#93",
+      "reason": "Immutable full Stage-B physical correctness/backend-provenance artifacts for PR #122 are retained for audit; only the currently SHA-protected normalized canonical source is registered in frontend_sources.json.",
+      "path_regex": "^results/pr122_p100/panel_stage_b_gpu_validation_.*[.]json$"
+    },
+    {
+      "rule_id": "superseded-pr122-panel-stage-b-canonical-a57efcea",
+      "priority": 21,
+      "path": "results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809.json",
+      "classification": "superseded_or_duplicate",
+      "canonical_eligible": false,
+      "provenance_status": "complete",
+      "timing_protocol_status": "not_applicable",
+      "statistical_alignment_status": "accepted",
+      "superseded_by": "results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+      "issue": "#93",
+      "reason": "The 42-row a57efcea Stage-B canonical validation source is retained immutably for audit but is superseded by the exact-clean-head 2701aa9f P100 source that also physically validates an applicable Hausman branch."
+    },
+    {
       "rule_id": "distribution-current-needs-audit",
       "priority": 30,
       "path": "results/distribution_bench_2026-06-21.json",

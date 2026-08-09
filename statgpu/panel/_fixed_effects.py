@@ -57,6 +57,7 @@ class PanelOLS(BasePanelModel):
         self.pvalues_ = None
         self.conf_int_ = None
         self.rsquared_within = None
+        self.fit_statistics_ = None
         self.nobs = None
         self.df_resid = None
 
@@ -64,6 +65,8 @@ class PanelOLS(BasePanelModel):
         self._scale = None
         self._entity_effects_map = {}
         self._time_effects_map = {}
+        self._pooling_f_result = None
+        self._panel_diagnostic_identity = None
 
     def fit(
         self,
@@ -170,16 +173,57 @@ class PanelOLS(BasePanelModel):
 
         n_entities = len(entity_labels) if entity_labels is not None else 0
         n_times = len(time_labels) if time_labels is not None else 0
+
+        from statgpu.panel._diagnostic_context import (
+            build_diagnostic_identity,
+            build_model_fit_statistics,
+            fixed_effect_diagnostic_df,
+            pooling_f_from_level_arrays,
+        )
+
+        # Compute the rank-consistent FE degrees of freedom before deciding
+        # whether the fit is feasible.  For disconnected two-way incidence
+        # graphs the nuisance rank is N + T - C, so the historical N/T count can
+        # otherwise reject an identified fit before Stage-B diagnostics run.
+        diagnostic_df = fixed_effect_diagnostic_df(
+            X_d,
+            xp=xp,
+            nobs=n,
+            n_entities=n_entities,
+            n_times=n_times,
+            entity_effects=self.entity_effects,
+            time_effects=self.time_effects,
+            has_constant=False,
+            entity_codes=entity_arr,
+            time_codes=time_arr,
+        )
+
+        # Preserve the legacy public df whenever it is positive.  If the legacy
+        # count is nonpositive solely because a disconnected two-way panel has a
+        # lower nuisance rank, use the component-aware df instead so the valid
+        # fit can proceed.  This keeps established connected-panel inference
+        # unchanged while fixing the false rejection boundary.
         n_effects = 0
         if self.entity_effects:
             n_effects += n_entities - 1
         if self.time_effects:
             n_effects += n_times - 1
-        self.df_resid = n - k - n_effects
-        if self.df_resid <= 0:
+        legacy_df_resid = n - k - n_effects
+        standard_df_resid = int(diagnostic_df["df_resid"])
+        if legacy_df_resid > 0:
+            self.df_resid = legacy_df_resid
+            public_df_basis = "legacy"
+        elif standard_df_resid > 0:
+            self.df_resid = standard_df_resid
+            public_df_basis = "component-aware"
+        else:
             raise ValueError(
-                f"Not enough observations: n={n}, k={k}, n_effects={n_effects}, "
-                f"df_resid={self.df_resid}.  Check that N*T >> k + effects."
+                "Not enough observations after fixed-effect rank adjustment: "
+                f"n={n}, k={k}, legacy_n_effects={n_effects}, "
+                f"legacy_df_resid={legacy_df_resid}, "
+                f"effect_rank={diagnostic_df['effect_rank']}, "
+                f"incidence_components={diagnostic_df['incidence_components']}, "
+                f"df_resid={standard_df_resid}."
             )
 
         y_pred = X_d @ coef
@@ -257,15 +301,90 @@ class PanelOLS(BasePanelModel):
             diag_floor=0.0,
         )
 
+        # Preserve the legacy Stage-A transformed-fit R² exactly.
         ss_res = _to_float_scalar(xp.sum(resid ** 2))
         y_d_mean = _to_float_scalar(xp.mean(y_d))
         ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
+        # New standardized diagnostics use the full nuisance-effect rank.  This
+        # is intentionally separate from the historical self.df_resid used by
+        # covariance/t inference above, except when a disconnected two-way panel
+        # requires the component-aware df to avoid a false fit rejection.
+        ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
+        self.fit_statistics_ = build_model_fit_statistics(
+            y_arr,
+            X_arr,
+            coef,
+            xp=xp,
+            entity_codes=entity_arr,
+            has_constant=False,
+            rss_fit=ss_res,
+            tss_fit=ss_tot_diag,
+            df_resid=diagnostic_df["df_resid"],
+            df_total=diagnostic_df["df_total"],
+            f_y=y_d,
+            f_X=X_d,
+            f_params=coef,
+            f_has_constant=False,
+            metadata={
+                "fit_space": "fixed-effect transformed regression",
+                "legacy_df_resid": int(legacy_df_resid),
+                "public_df_resid_basis": public_df_basis,
+                "diagnostic_df": dict(diagnostic_df),
+                "legacy_rsquared_within": float(self.rsquared_within),
+            },
+        )
+        # Full-content identity is only needed for the Stage-B Hausman domain:
+        # one-way entity FE with classical nonrobust covariance.  Robust,
+        # clustered, time-only, and two-way FE are rejected before identity
+        # comparison, so hashing their full X/y would be pure host-transfer cost.
+        hausman_compatible = (
+            bool(self.entity_effects)
+            and not bool(self.time_effects)
+            and str(self._cov_type).lower() == "nonrobust"
+        )
+        self._panel_diagnostic_identity = (
+            build_diagnostic_identity(
+                X_arr,
+                y_arr,
+                xp=xp,
+                entity_codes=entity_arr,
+                feature_names=self._feature_names,
+                has_constant=False,
+            )
+            if hausman_compatible
+            else None
+        )
+        self._pooling_f_result = (
+            pooling_f_from_level_arrays(
+                y_arr,
+                X_arr,
+                xp=xp,
+                rss_effects=ss_res,
+                df_resid_effects=diagnostic_df["df_resid"],
+                has_constant=False,
+            )
+            if self.entity_effects or self.time_effects
+            else None
+        )
+
         self._params = np.asarray(self.coef_).ravel()
         self.coef_ = self._params
         self._fitted = True
         return self
+
+    def pooling_f_test(self):
+        """Return the classical test that included fixed effects are jointly zero."""
+        from statgpu.panel._diagnostics import pooling_f_test
+
+        return pooling_f_test(self)
+
+    def hausman_test(self, random_effects_model):
+        """Compare one-way entity FE with a matched classical RandomEffects fit."""
+        from statgpu.panel._diagnostics import hausman_test
+
+        return hausman_test(self, random_effects_model)
 
     def predict(self, X, entity_ids=None, time_ids=None):
         """Predict using the fitted model, preserving existing effect semantics."""

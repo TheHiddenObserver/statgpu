@@ -82,18 +82,22 @@
     },
     {
       "capability_id": "panel-estimation",
-      "label": "Panel estimation coverage",
+      "label": "Panel estimation and diagnostics coverage",
       "status": "partial_canonical",
       "source_ids": [
-        "new-modules-20260624-bcbdb676223b"
+        "new-modules-20260624-bcbdb676223b",
+        "panel-stage-b-pr122-20260809-2056f836bfe2"
       ],
       "representative_dimensions": [
         "estimator",
         "backend",
-        "aligned_scale"
+        "aligned_scale",
+        "physical_validation",
+        "diagnostics",
+        "inference_regression"
       ],
       "issue": "#108",
-      "disposition": "Aligned PanelOLS and RandomEffects evidence exists; additional estimators and covariance variants remain open."
+      "disposition": "June timing rows cover aligned PanelOLS and RandomEffects. PR #122 adds canonical validation-only CuPy/Torch evidence for the 17-case Stage-B estimator matrix, five Hausman diagnostics per backend (including a physically applicable nonzero-effect statistic/p-value/df path), backend provenance, Stage-A inference regression, and the disconnected two-way FE df=1 physical boundary; broader performance/covariance timing remains open."
     },
     {
       "capability_id": "gam-nonparametric",

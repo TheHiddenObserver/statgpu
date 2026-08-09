@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "ceac2591d688920101474d09e145c7595e6d9460ce347828b4225139fcd60644"
+    "generation_id": "b425b95947fcb5ee7dcd4e6e10f1b108cfe82b804f5d46428e63c1fb5ca35b1d"
   },
   "environments": [
     {
@@ -27,6 +27,12 @@
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64",
       "host": "wE6lDe"
+    },
+    {
+      "env_id": "remote-p100-pr122-20260809",
+      "label": "Tesla P100 PR #122 Panel Stage B validation — 2026-08-09",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64"
     }
   ],
   "categories": [
@@ -111,6 +117,15 @@
       "supports_inference": false
     },
     {
+      "model_id": "BetweenOLS",
+      "primary_category_id": "panel",
+      "category_ids": [
+        "panel"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
+    },
+    {
       "model_id": "BonferroniCorrection",
       "primary_category_id": "anova",
       "category_ids": [
@@ -161,6 +176,24 @@
       "primary_category_id": "covariance",
       "category_ids": [
         "covariance"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
+    },
+    {
+      "model_id": "FamaMacBeth",
+      "primary_category_id": "panel",
+      "category_ids": [
+        "panel"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
+    },
+    {
+      "model_id": "FirstDifferenceOLS",
+      "primary_category_id": "panel",
+      "category_ids": [
+        "panel"
       ],
       "supports_penalty": false,
       "supports_inference": true
@@ -383,6 +416,15 @@
       "supports_inference": true
     },
     {
+      "model_id": "PooledOLS",
+      "primary_category_id": "panel",
+      "category_ids": [
+        "panel"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
+    },
+    {
       "model_id": "QuantileRegression",
       "primary_category_id": "robust_quantile",
       "category_ids": [
@@ -561,6 +603,11 @@
       "comparison_id": "p2-benchmark-20260617",
       "label": "Covariance and nonparametric benchmark — 2026-06-17",
       "env_id": "remote-p100"
+    },
+    {
+      "comparison_id": "panel-stage-b-pr122-20260809",
+      "label": "Panel Stage B physical validation — PR #122 — 2026-08-09",
+      "env_id": "remote-p100-pr122-20260809"
     },
     {
       "comparison_id": "penalized-glm-perf-20260622",
@@ -84727,7 +84774,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 9.062319993972778,
-          "std_ms": 0.011520549774405635,
+          "std_ms": 0.011520549774,
           "min_ms": 9.062081575393677,
           "max_ms": 9.086638689041138,
           "sample_count": 3,
@@ -84882,7 +84929,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 17.41701364517212,
-          "std_ms": 0.10901293932213849,
+          "std_ms": 0.109012939322,
           "min_ms": 17.355382442474365,
           "max_ms": 17.611205577850342,
           "sample_count": 3,
@@ -85037,7 +85084,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 12.491881847381592,
-          "std_ms": 0.10357847916711392,
+          "std_ms": 0.103578479167,
           "min_ms": 12.459933757781982,
           "max_ms": 12.69388198852539,
           "sample_count": 3,
@@ -85192,7 +85239,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 7.204592227935791,
-          "std_ms": 0.03478300871847091,
+          "std_ms": 0.034783008718,
           "min_ms": 7.1443915367126465,
           "max_ms": 7.226705551147461,
           "sample_count": 3,
@@ -85347,7 +85394,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 29.17364239692688,
-          "std_ms": 0.11058449868330528,
+          "std_ms": 0.110584498683,
           "min_ms": 29.15489673614502,
           "max_ms": 29.398292303085327,
           "sample_count": 3,
@@ -85502,7 +85549,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 76.099693775177,
-          "std_ms": 0.15514420258897654,
+          "std_ms": 0.155144202589,
           "min_ms": 75.85901021957397,
           "max_ms": 76.23404264450073,
           "sample_count": 3,
@@ -85657,7 +85704,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 34.79743003845215,
-          "std_ms": 0.08212314243487934,
+          "std_ms": 0.082123142435,
           "min_ms": 34.72268581390381,
           "max_ms": 34.921795129776,
           "sample_count": 3,
@@ -85812,7 +85859,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 7.392674684524536,
-          "std_ms": 0.06373652588749994,
+          "std_ms": 0.063736525887,
           "min_ms": 7.343053817749023,
           "max_ms": 7.496058940887451,
           "sample_count": 3,
@@ -85968,7 +86015,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 76.40200853347778,
-          "std_ms": 0.12667643292286518,
+          "std_ms": 0.126676432923,
           "min_ms": 76.32750272750854,
           "max_ms": 76.62561535835266,
           "sample_count": 3,
@@ -86125,7 +86172,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 153.78409624099731,
-          "std_ms": 1.2051632389990876,
+          "std_ms": 1.205163238999,
           "min_ms": 151.39129757881165,
           "max_ms": 154.0849506855011,
           "sample_count": 3,
@@ -86282,7 +86329,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 122.1560537815094,
-          "std_ms": 1.2313895375387158,
+          "std_ms": 1.231389537539,
           "min_ms": 122.06673622131348,
           "max_ms": 124.722421169281,
           "sample_count": 3,
@@ -86439,7 +86486,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 7.413893938064575,
-          "std_ms": 0.03394906482522582,
+          "std_ms": 0.033949064825,
           "min_ms": 7.350414991378784,
           "max_ms": 7.428675889968872,
           "sample_count": 3,
@@ -86595,7 +86642,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 50.83748698234558,
-          "std_ms": 0.5573683115942412,
+          "std_ms": 0.557368311594,
           "min_ms": 50.72379112243652,
           "max_ms": 51.95888876914978,
           "sample_count": 3,
@@ -86750,7 +86797,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 103.54551672935486,
-          "std_ms": 0.43010181393284636,
+          "std_ms": 0.430101813933,
           "min_ms": 102.88560390472412,
           "max_ms": 103.92677783966064,
           "sample_count": 3,
@@ -87008,7 +87055,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 32.809287309646606,
-          "std_ms": 0.22101482164439643,
+          "std_ms": 0.221014821644,
           "min_ms": 32.615602016448975,
           "max_ms": 33.15025568008423,
           "sample_count": 3,
@@ -87163,7 +87210,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 5.704343318939209,
-          "std_ms": 0.05382879156628554,
+          "std_ms": 0.053828791566,
           "min_ms": 5.664348602294922,
           "max_ms": 5.793154239654541,
           "sample_count": 3,
@@ -87318,7 +87365,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 79.3997049331665,
-          "std_ms": 0.2710391095246946,
+          "std_ms": 0.271039109525,
           "min_ms": 79.18986678123474,
           "max_ms": 79.8402726650238,
           "sample_count": 3,
@@ -87473,7 +87520,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 53.322941064834595,
-          "std_ms": 0.0964612495050475,
+          "std_ms": 0.096461249505,
           "min_ms": 53.19675803184509,
           "max_ms": 53.432852029800415,
           "sample_count": 3,
@@ -87628,7 +87675,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 367.21765995025635,
-          "std_ms": 1.2007614908480113,
+          "std_ms": 1.200761490848,
           "min_ms": 367.20117926597595,
           "max_ms": 369.7565793991089,
           "sample_count": 3,
@@ -87783,7 +87830,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 387.08221912384033,
-          "std_ms": 1.7942564379041452,
+          "std_ms": 1.794256437904,
           "min_ms": 385.0722312927246,
           "max_ms": 389.46205377578735,
           "sample_count": 3,
@@ -87938,7 +87985,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 226.59814357757568,
-          "std_ms": 1.4370176592588964,
+          "std_ms": 1.437017659259,
           "min_ms": 225.08418560028076,
           "max_ms": 228.59317064285278,
           "sample_count": 3,
@@ -88093,7 +88140,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 9.013503789901733,
-          "std_ms": 0.08388103984794355,
+          "std_ms": 0.083881039848,
           "min_ms": 8.965373039245605,
           "max_ms": 9.162425994873047,
           "sample_count": 3,
@@ -88248,7 +88295,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 17.37356185913086,
-          "std_ms": 0.1751727379638956,
+          "std_ms": 0.175172737964,
           "min_ms": 17.317146062850952,
           "max_ms": 17.713725566864014,
           "sample_count": 3,
@@ -88403,7 +88450,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 12.376457452774048,
-          "std_ms": 0.1469539035687877,
+          "std_ms": 0.146953903569,
           "min_ms": 12.127071619033813,
           "max_ms": 12.476563453674316,
           "sample_count": 3,
@@ -88558,7 +88605,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 7.113069295883179,
-          "std_ms": 0.022110917652291093,
+          "std_ms": 0.022110917652,
           "min_ms": 7.089287042617798,
           "max_ms": 7.1433186531066895,
           "sample_count": 3,
@@ -88713,7 +88760,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 29.22457456588745,
-          "std_ms": 0.07344943972222218,
+          "std_ms": 0.073449439722,
           "min_ms": 29.094338417053223,
           "max_ms": 29.266953468322754,
           "sample_count": 3,
@@ -88868,7 +88915,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 76.48885250091553,
-          "std_ms": 0.7515277112219284,
+          "std_ms": 0.751527711222,
           "min_ms": 76.3988196849823,
           "max_ms": 78.03615927696228,
           "sample_count": 3,
@@ -89023,7 +89070,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 34.95398163795471,
-          "std_ms": 0.08122915143822747,
+          "std_ms": 0.081229151438,
           "min_ms": 34.94828939437866,
           "max_ms": 35.12337803840637,
           "sample_count": 3,
@@ -89178,7 +89225,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 7.375836372375488,
-          "std_ms": 0.2661149489547812,
+          "std_ms": 0.266114948955,
           "min_ms": 7.340103387832642,
           "max_ms": 7.92163610458374,
           "sample_count": 3,
@@ -89334,7 +89381,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 75.77601075172424,
-          "std_ms": 0.45205802075521384,
+          "std_ms": 0.452058020755,
           "min_ms": 75.26275515556335,
           "max_ms": 76.36910676956177,
           "sample_count": 3,
@@ -89491,7 +89538,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 153.40235829353333,
-          "std_ms": 0.5537958099223218,
+          "std_ms": 0.553795809922,
           "min_ms": 153.37586402893066,
           "max_ms": 154.56366539001465,
           "sample_count": 3,
@@ -89648,7 +89695,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 121.93247675895691,
-          "std_ms": 0.2863016881758537,
+          "std_ms": 0.286301688176,
           "min_ms": 121.55237793922424,
           "max_ms": 122.25282192230225,
           "sample_count": 3,
@@ -89805,7 +89852,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 7.36507773399353,
-          "std_ms": 0.0928811561208376,
+          "std_ms": 0.092881156121,
           "min_ms": 7.2509050369262695,
           "max_ms": 7.4784159660339355,
           "sample_count": 3,
@@ -89961,7 +90008,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 51.06106400489807,
-          "std_ms": 0.12425235011605137,
+          "std_ms": 0.124252350116,
           "min_ms": 50.835102796554565,
           "max_ms": 51.12466216087341,
           "sample_count": 3,
@@ -90116,7 +90163,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 95.80263495445251,
-          "std_ms": 3.1773095837367222,
+          "std_ms": 3.177309583737,
           "min_ms": 89.1546905040741,
           "max_ms": 95.98329663276672,
           "sample_count": 3,
@@ -90271,7 +90318,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 49.2972731590271,
-          "std_ms": 2.079922258152906,
+          "std_ms": 2.079922258153,
           "min_ms": 48.696696758270264,
           "max_ms": 53.378403186798096,
           "sample_count": 3,
@@ -90426,7 +90473,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 32.66507387161255,
-          "std_ms": 0.16058180541689593,
+          "std_ms": 0.160581805417,
           "min_ms": 32.47341513633728,
           "max_ms": 32.866716384887695,
           "sample_count": 3,
@@ -90581,7 +90628,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 5.652785301208496,
-          "std_ms": 0.0647337375076041,
+          "std_ms": 0.064733737508,
           "min_ms": 5.633354187011719,
           "max_ms": 5.779355764389038,
           "sample_count": 3,
@@ -90736,7 +90783,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 79.96299862861633,
-          "std_ms": 0.3447674872577324,
+          "std_ms": 0.344767487258,
           "min_ms": 79.8010528087616,
           "max_ms": 80.5998146533966,
           "sample_count": 3,
@@ -90891,7 +90938,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 53.66373062133789,
-          "std_ms": 0.07744715297714648,
+          "std_ms": 0.077447152977,
           "min_ms": 53.63589525222778,
           "max_ms": 53.81232500076294,
           "sample_count": 3,
@@ -91046,7 +91093,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 368.74711513519287,
-          "std_ms": 1.0174916822778004,
+          "std_ms": 1.017491682278,
           "min_ms": 367.16771125793457,
           "max_ms": 369.62711811065674,
           "sample_count": 3,
@@ -91201,7 +91248,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 393.74133944511414,
-          "std_ms": 10.053154619538892,
+          "std_ms": 10.053154619539,
           "min_ms": 372.9921281337738,
           "max_ms": 394.8514759540558,
           "sample_count": 3,
@@ -91356,7 +91403,7 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 229.87377643585205,
-          "std_ms": 0.8445346932663552,
+          "std_ms": 0.844534693266,
           "min_ms": 229.26145792007446,
           "max_ms": 231.27886652946472,
           "sample_count": 3,
@@ -91413,6 +91460,3062 @@
         }
       },
       "comparison_id": "cv-benchmark-pr116-20260807"
+    },
+    {
+      "run_id": "7279d751fec4ae72",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-0df334186e5af228",
+      "method_config_id": "method-c0fdde15c26f43a5",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "56290607cc2a0cf2",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-dfd23de8fa23785c",
+      "method_config_id": "method-e4f7696d4033b5bd",
+      "variant": "balanced-hac-unsorted",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "metadata_sort_alignment",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "695e9058534086b0",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "BetweenOLS",
+      "case_id": "case-ef4ada9396e927aa",
+      "method_config_id": "method-c6458b366c6c5b4b",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "477b4803cfaac953",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FirstDifferenceOLS",
+      "case_id": "case-77e21b1b2625849e",
+      "method_config_id": "method-a891526d2820b20c",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "6ca556cca3c1dc6c",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-7505e931c271bead",
+      "method_config_id": "method-936c0cf8f8c6843c",
+      "variant": "entity-fe-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "pooling_f",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "e21809c952ed9df4",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-f697cc38be66bb5b",
+      "method_config_id": "method-75395c8069822f63",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "ac6d5fc5e070c379",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-376492aadf7db27e",
+      "method_config_id": "method-af8a0d67f1b0b4e8",
+      "variant": "explicit-constant-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p3",
+        "n_samples": 54,
+        "n_features": 3,
+        "label": "54×3"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "d4465ae990d85c88",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FamaMacBeth",
+      "case_id": "case-23b6169b7248b5ff",
+      "method_config_id": "method-b815058aea2adbef",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "e3be78f30afda49c",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-6e32a6271b846410",
+      "method_config_id": "method-64417e823f34055a",
+      "variant": "two-way-fe-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "pooling_f",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "4452fae4e283ef7b",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-dbbafa2f82f52516",
+      "method_config_id": "method-0ef4a02559810006",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "056e0de8e3170092",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-3fac3845d997d0be",
+      "method_config_id": "method-0ce477d0912b1b99",
+      "variant": "unbalanced-hac-unsorted",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "metadata_sort_alignment",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "a7069bd41b6ce3c2",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "BetweenOLS",
+      "case_id": "case-9319e500c0d05810",
+      "method_config_id": "method-fd5b0f3282f7b323",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "c4014db4618f0475",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FirstDifferenceOLS",
+      "case_id": "case-7e6762b4b150ea72",
+      "method_config_id": "method-dc8c010b9bd69c0b",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "547f90cd8206fe0e",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-7a6f0593ba47178d",
+      "method_config_id": "method-73caf204ad0ce7d3",
+      "variant": "entity-fe-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "pooling_f",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "3fc25da005609311",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-8c5eda16f11a344d",
+      "method_config_id": "method-2062c9b03141cff2",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "445759ea0b44a878",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-9a06cd1ab60b638f",
+      "method_config_id": "method-b230d1629d626033",
+      "variant": "explicit-constant-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p3",
+        "n_samples": 49,
+        "n_features": 3,
+        "label": "49×3"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "6b0cbd5594989983",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FamaMacBeth",
+      "case_id": "case-9ae95425684d313a",
+      "method_config_id": "method-2b49a6a725b5ea3c",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "83cf372c6fccda77",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-4a81e6630ee4a244",
+      "method_config_id": "method-4ed205ed0ad3db26",
+      "variant": "hausman-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "standard",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "095e3a18069cd015",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-c1327c75008f9dfa",
+      "method_config_id": "method-6352b566ecc4def7",
+      "variant": "hausman-re-explicit-constant-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "re-explicit-constant",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "a5ce2c8e73fdfcd3",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-528c7a3f7e02b3e3",
+      "method_config_id": "method-6580ac1c68723cc9",
+      "variant": "hausman-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "standard",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "08bb5121ff32dd95",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-7053bf05f9fc593f",
+      "method_config_id": "method-b49c53698837f046",
+      "variant": "hausman-re-explicit-constant-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "re-explicit-constant",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "a72370d3b5ccdeef",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-0571875762c64d2c",
+      "method_config_id": "method-d58d685666eb74d4",
+      "variant": "hausman-applicable-nonzero-effect",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n48_p1",
+        "n_samples": 48,
+        "n_features": 1,
+        "label": "48×1"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "standard",
+        "applicable": true,
+        "diagnostic_fixture": "nonzero-effect-applicable",
+        "statistic": 1.1965942530851057,
+        "pvalue": 0.27400344142676447,
+        "df": 1.0,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            },
+            {
+              "metric": "hausman_applicable_statistic_pvalue_df",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "6cd624414dece5bf",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-0df334186e5af228",
+      "method_config_id": "method-c0fdde15c26f43a5",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "d515d6684ce4f746",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-dfd23de8fa23785c",
+      "method_config_id": "method-e4f7696d4033b5bd",
+      "variant": "balanced-hac-unsorted",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "metadata_sort_alignment",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "6ccea7600064931d",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "BetweenOLS",
+      "case_id": "case-ef4ada9396e927aa",
+      "method_config_id": "method-c6458b366c6c5b4b",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "d6e9e3dbe35b8b12",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FirstDifferenceOLS",
+      "case_id": "case-77e21b1b2625849e",
+      "method_config_id": "method-a891526d2820b20c",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "1704f2b8ba0d05c5",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-7505e931c271bead",
+      "method_config_id": "method-936c0cf8f8c6843c",
+      "variant": "entity-fe-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "pooling_f",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "547b8f511ea88b95",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-f697cc38be66bb5b",
+      "method_config_id": "method-75395c8069822f63",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "c3b0d6f5d6fdfd93",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-376492aadf7db27e",
+      "method_config_id": "method-af8a0d67f1b0b4e8",
+      "variant": "explicit-constant-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p3",
+        "n_samples": 54,
+        "n_features": 3,
+        "label": "54×3"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "89b036b7f61372b0",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FamaMacBeth",
+      "case_id": "case-23b6169b7248b5ff",
+      "method_config_id": "method-b815058aea2adbef",
+      "variant": "balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "75dadabb2c7d4a31",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-6e32a6271b846410",
+      "method_config_id": "method-64417e823f34055a",
+      "variant": "two-way-fe-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "pooling_f",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "99bb431cee9ad0b9",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-dbbafa2f82f52516",
+      "method_config_id": "method-0ef4a02559810006",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "4b1040cb15d08732",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PooledOLS",
+      "case_id": "case-3fac3845d997d0be",
+      "method_config_id": "method-0ce477d0912b1b99",
+      "variant": "unbalanced-hac-unsorted",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "bp_lm",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "metadata_sort_alignment",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "3a94049592ef4a57",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "BetweenOLS",
+      "case_id": "case-9319e500c0d05810",
+      "method_config_id": "method-fd5b0f3282f7b323",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "40b888d3411cdbec",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FirstDifferenceOLS",
+      "case_id": "case-7e6762b4b150ea72",
+      "method_config_id": "method-dc8c010b9bd69c0b",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "d102490eea35e9d7",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-7a6f0593ba47178d",
+      "method_config_id": "method-73caf204ad0ce7d3",
+      "variant": "entity-fe-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "pooling_f",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "9ca6ae85a86d0dce",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-8c5eda16f11a344d",
+      "method_config_id": "method-2062c9b03141cff2",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "fc273a5c73d0ecea",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "RandomEffects",
+      "case_id": "case-9a06cd1ab60b638f",
+      "method_config_id": "method-b230d1629d626033",
+      "variant": "explicit-constant-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p3",
+        "n_samples": 49,
+        "n_features": 3,
+        "label": "49×3"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "random_effects_diagnostic_contract",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "bd74d2455189bbd5",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "FamaMacBeth",
+      "case_id": "case-9ae95425684d313a",
+      "method_config_id": "method-2b49a6a725b5ea3c",
+      "variant": "unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "fit_statistics",
+              "status": "pass"
+            },
+            {
+              "metric": "diagnostic_covariance",
+              "status": "pass"
+            },
+            {
+              "metric": "stage_a_inference",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        },
+        "inference": {
+          "ok": true,
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "cee85afecd82d8ee",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-4a81e6630ee4a244",
+      "method_config_id": "method-4ed205ed0ad3db26",
+      "variant": "hausman-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "standard",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "4712fb5193e2fb7f",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-c1327c75008f9dfa",
+      "method_config_id": "method-6352b566ecc4def7",
+      "variant": "hausman-re-explicit-constant-balanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n54_p2",
+        "n_samples": 54,
+        "n_features": 2,
+        "label": "54×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "re-explicit-constant",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "b07fbe6ab06e9c8a",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-528c7a3f7e02b3e3",
+      "method_config_id": "method-6580ac1c68723cc9",
+      "variant": "hausman-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "standard",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "81049fac88841b43",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-7053bf05f9fc593f",
+      "method_config_id": "method-b49c53698837f046",
+      "variant": "hausman-re-explicit-constant-unbalanced",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n49_p2",
+        "n_samples": 49,
+        "n_features": 2,
+        "label": "49×2"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "re-explicit-constant",
+        "applicable": false,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
+    },
+    {
+      "run_id": "3fd46d0bebaa4152",
+      "benchmark_session_id": "remote-p100-pr122-20260809-panel-stage-b-pr122",
+      "env_id": "remote-p100-pr122-20260809",
+      "category_ids": [
+        "panel"
+      ],
+      "model_id": "PanelOLS",
+      "case_id": "case-0571875762c64d2c",
+      "method_config_id": "method-d58d685666eb74d4",
+      "variant": "hausman-applicable-nonzero-effect",
+      "penalty": null,
+      "solver": "physical_validation",
+      "solver_display": "Physical validation",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n48_p1",
+        "n_samples": 48,
+        "n_features": 1,
+        "label": "48×1"
+      },
+      "parameters": {
+        "metric_scope": "physical_validation",
+        "diagnostic": "hausman",
+        "parameterization": "standard",
+        "applicable": true,
+        "diagnostic_fixture": "nonzero-effect-applicable",
+        "statistic": 1.1965942530849238,
+        "pvalue": 0.2740034414268009,
+        "df": 1.0,
+        "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
+        "working_tree_clean": true
+      },
+      "source": {
+        "file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json",
+        "date": "2026-08-09",
+        "parser": "parse_panel_stage_b_physical_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "original_path": "results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json",
+        "sha256": "2056f836bfe2a708b3131becca42dbba15e519762c8bafb582000b19f81120bf"
+      },
+      "metrics": {
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "hausman_backend_consistency",
+              "status": "pass"
+            },
+            {
+              "metric": "backend_provenance",
+              "status": "pass"
+            },
+            {
+              "metric": "hausman_applicable_statistic_pvalue_df",
+              "status": "pass"
+            }
+          ],
+          "quality": "reported",
+          "source_file": "panel_stage_b_pr122_p100_20260809_2701aa9f.json"
+        }
+      },
+      "comparison_id": "panel-stage-b-pr122-20260809"
     }
   ]
 }

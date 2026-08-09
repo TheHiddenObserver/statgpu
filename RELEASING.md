@@ -80,6 +80,15 @@ contracts, documentation contracts, and the Python 3.9–3.12 regression matrix.
 For changes affecting CuPy, Torch, inference, device routing, or performance,
 record physical-GPU acceptance on the exact release source commit.
 
+Physical evidence is tied to both the numerical implementation and the validator
+that defines the acceptance matrix. If a physical-validation runner changes after
+an artifact has been accepted—for example, because review adds a previously
+uncovered inference branch—the old artifact remains useful historical evidence
+but no longer proves the new acceptance contract. Return the affected pull
+request to a pending/draft state, rerun the changed validator on an exact clean
+candidate head, and only then promote new canonical evidence or restore a
+Ready/merge-ready conclusion.
+
 ### Package validation
 
 The `Release package validation` workflow automatically:

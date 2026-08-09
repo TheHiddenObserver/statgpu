@@ -34,6 +34,7 @@ class FirstDifferenceOLS(BasePanelModel):
         self.alpha = alpha
         if self.cov_type not in ("nonrobust", "robust"):
             raise ValueError("cov_type must be 'nonrobust' or 'robust'")
+        self.fit_statistics_ = None
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the first-difference OLS model."""
@@ -113,6 +114,41 @@ class FirstDifferenceOLS(BasePanelModel):
         self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
         self.nobs = n
         self.df_resid = df_resid
+
+        from statgpu.panel._diagnostic_context import build_model_fit_statistics
+        from statgpu.panel._diagnostics import _matrix_rank
+
+        rank_diff = _matrix_rank(X_diff, xp)
+        diagnostic_df = n - rank_diff
+        # The primary FD fit has no constant, so its total fit-space df is the
+        # number of retained first differences.  Standard within/between/overall
+        # R² are still evaluated using the level coefficient vector, matching the
+        # parameter-based panel definition rather than redefining them on Δy.
+        ss_tot_diag = _to_float_scalar(xp.sum(y_diff * y_diff))
+        self.fit_statistics_ = build_model_fit_statistics(
+            y_arr,
+            X_arr,
+            params,
+            xp=xp,
+            entity_codes=eids,
+            has_constant=False,
+            rss_fit=ss_res,
+            tss_fit=ss_tot_diag,
+            df_resid=diagnostic_df,
+            df_total=n,
+            f_y=y_diff,
+            f_X=X_diff,
+            f_params=params,
+            f_has_constant=False,
+            metadata={
+                "fit_space": "first-difference regression",
+                "legacy_df_resid": int(df_resid),
+                "diagnostic_df_resid": int(diagnostic_df),
+                "diagnostic_rank": int(rank_diff),
+                "legacy_rsquared": self.rsquared,
+            },
+        )
+
         self._fitted = True
         return self
 

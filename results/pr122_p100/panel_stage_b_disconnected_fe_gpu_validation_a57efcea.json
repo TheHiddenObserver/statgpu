@@ -1,0 +1,246 @@
+{
+  "backend_results": {
+    "cupy": {
+      "differences_vs_numpy": {
+        "bse": 0.0,
+        "coef": 2.220446049250313e-16,
+        "conf_int": 8.881784197001252e-16,
+        "fit_statistics.f_pvalue": 0.0,
+        "fit_statistics.f_statistic": 0.0,
+        "fit_statistics.rsquared_adj": 0.0,
+        "fit_statistics.rsquared_between": 0.0,
+        "fit_statistics.rsquared_overall": 0.0,
+        "fit_statistics.rsquared_within": 0.0,
+        "pooling_f.pvalue": 0.0,
+        "pooling_f.statistic": 0.0,
+        "pvalues": 0.0,
+        "tvalues": 4.440892098500626e-16
+      },
+      "executed_backend": "cupy",
+      "snapshot": {
+        "bse": [
+          0.5
+        ],
+        "coef": [
+          1.5
+        ],
+        "conf_int": [
+          [
+            -4.853102368087348,
+            7.853102368087348
+          ]
+        ],
+        "df_resid": 1,
+        "diagnostic_df": {
+          "df_resid": 1,
+          "df_total": 2,
+          "effect_rank": 7,
+          "incidence_components": 3,
+          "rank_x": 1
+        },
+        "fit_statistics": {
+          "f_df": [
+            1.0,
+            1.0
+          ],
+          "f_pvalue": 0.2048327646991338,
+          "f_statistic": 9.0,
+          "rsquared_adj": 0.8,
+          "rsquared_between": 0.0,
+          "rsquared_overall": 0.9,
+          "rsquared_within": 0.9
+        },
+        "legacy_df_resid": 0,
+        "nobs": 9,
+        "pooling_f": {
+          "applicable": true,
+          "df": [
+            6.0,
+            1.0
+          ],
+          "distribution": "F",
+          "pvalue": 1.0,
+          "reason": null,
+          "statistic": 0.0
+        },
+        "public_df_resid_basis": "component-aware",
+        "pvalues": [
+          0.20483276469913347
+        ],
+        "rsquared_within": 0.9,
+        "tvalues": [
+          3.0
+        ]
+      },
+      "status": "success"
+    },
+    "torch": {
+      "differences_vs_numpy": {
+        "bse": 0.0,
+        "coef": 4.440892098500626e-16,
+        "conf_int": 8.881784197001252e-16,
+        "fit_statistics.f_pvalue": 0.0,
+        "fit_statistics.f_statistic": 0.0,
+        "fit_statistics.rsquared_adj": 0.0,
+        "fit_statistics.rsquared_between": 0.0,
+        "fit_statistics.rsquared_overall": 0.0,
+        "fit_statistics.rsquared_within": 0.0,
+        "pooling_f.pvalue": 0.0,
+        "pooling_f.statistic": 0.0,
+        "pvalues": 0.0,
+        "tvalues": 8.881784197001252e-16
+      },
+      "executed_backend": "torch",
+      "snapshot": {
+        "bse": [
+          0.5
+        ],
+        "coef": [
+          1.5000000000000002
+        ],
+        "conf_int": [
+          [
+            -4.853102368087348,
+            7.853102368087348
+          ]
+        ],
+        "df_resid": 1,
+        "diagnostic_df": {
+          "df_resid": 1,
+          "df_total": 2,
+          "effect_rank": 7,
+          "incidence_components": 3,
+          "rank_x": 1
+        },
+        "fit_statistics": {
+          "f_df": [
+            1.0,
+            1.0
+          ],
+          "f_pvalue": 0.2048327646991338,
+          "f_statistic": 9.0,
+          "rsquared_adj": 0.8,
+          "rsquared_between": 0.0,
+          "rsquared_overall": 0.9,
+          "rsquared_within": 0.9
+        },
+        "legacy_df_resid": 0,
+        "nobs": 9,
+        "pooling_f": {
+          "applicable": true,
+          "df": [
+            6.0,
+            1.0
+          ],
+          "distribution": "F",
+          "pvalue": 1.0,
+          "reason": null,
+          "statistic": 0.0
+        },
+        "public_df_resid_basis": "component-aware",
+        "pvalues": [
+          0.20483276469913347
+        ],
+        "rsquared_within": 0.9,
+        "tvalues": [
+          3.0000000000000004
+        ]
+      },
+      "status": "success"
+    }
+  },
+  "environment": {
+    "gpu": "Tesla P100-SXM2-16GB",
+    "packages": {
+      "cupy": null,
+      "numpy": "1.24.2",
+      "scipy": "1.10.1",
+      "statgpu": "0.2.4",
+      "torch": "2.0.0"
+    },
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "python": "3.9.16"
+  },
+  "generated_at": "2026-08-09T03:37:05.589811+00:00",
+  "git_sha": "a57efcea29b0e87ecb89865c5a6902d5773812c6",
+  "protocol": {
+    "atol": 5e-07,
+    "expected_rank_contract": {
+      "component_aware_df_resid": 1,
+      "effect_rank": 7,
+      "incidence_components": 3,
+      "legacy_df_resid": 0,
+      "n_entities": 5,
+      "n_times": 5,
+      "nobs": 9,
+      "rank_x": 1
+    },
+    "fixture": "two disconnected 2x2 blocks plus one singleton",
+    "reference_backend": "numpy",
+    "requested_backends": [
+      "cupy",
+      "torch"
+    ],
+    "rtol": 5e-06,
+    "timing_collected": false
+  },
+  "reference": {
+    "bse": [
+      0.5
+    ],
+    "coef": [
+      1.4999999999999998
+    ],
+    "conf_int": [
+      [
+        -4.853102368087349,
+        7.853102368087349
+      ]
+    ],
+    "df_resid": 1,
+    "diagnostic_df": {
+      "df_resid": 1,
+      "df_total": 2,
+      "effect_rank": 7,
+      "incidence_components": 3,
+      "rank_x": 1
+    },
+    "fit_statistics": {
+      "f_df": [
+        1.0,
+        1.0
+      ],
+      "f_pvalue": 0.2048327646991338,
+      "f_statistic": 9.0,
+      "rsquared_adj": 0.8,
+      "rsquared_between": 0.0,
+      "rsquared_overall": 0.9,
+      "rsquared_within": 0.9
+    },
+    "legacy_df_resid": 0,
+    "nobs": 9,
+    "pooling_f": {
+      "applicable": true,
+      "df": [
+        6.0,
+        1.0
+      ],
+      "distribution": "F",
+      "pvalue": 1.0,
+      "reason": null,
+      "statistic": 0.0
+    },
+    "public_df_resid_basis": "component-aware",
+    "pvalues": [
+      0.20483276469913347
+    ],
+    "rsquared_within": 0.9,
+    "tvalues": [
+      2.9999999999999996
+    ]
+  },
+  "schema_version": 1,
+  "status": "success",
+  "validation": "panel_stage_b_disconnected_two_way_fe",
+  "working_tree_clean": true
+}

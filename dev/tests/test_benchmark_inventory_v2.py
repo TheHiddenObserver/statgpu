@@ -58,7 +58,7 @@ def test_canonical_inventory_v2_publishes_audited_catalog_snapshot() -> None:
         entry for entry in inventory["catalog_entries"]
         if entry["classification"] == "registered_canonical"
     ]
-    assert len(registered) == inventory["registered_sources"] == 10
+    assert len(registered) == inventory["registered_sources"] == 11
     assert all(entry["registered"] for entry in registered)
 
 
@@ -80,13 +80,13 @@ def test_serialized_inventory_omits_legacy_aliases() -> None:
     assert "eligible_total" not in serialized
     assert "available_sources" not in serialized
     assert "parsed_sources" not in serialized
-    assert serialized["available_registered_sources"] == 10
-    assert serialized["parsed_registered_sources"] == 10
+    assert serialized["available_registered_sources"] == 11
+    assert serialized["parsed_registered_sources"] == 11
 
     # Old Python callers can still read the two non-semantic aliases without
     # reintroducing those keys into the published JSON contract.
-    assert inventory["available_sources"] == 10
-    assert inventory["parsed_sources"] == 10
+    assert inventory["available_sources"] == 11
+    assert inventory["parsed_sources"] == 11
 
 
 def test_modified_repository_manifest_retains_legacy_inventory_contract() -> None:
