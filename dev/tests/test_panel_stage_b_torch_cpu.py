@@ -118,6 +118,29 @@ def test_stage_b_panel_fe_torch_cpu_pooling_and_fit_stats_match_numpy():
     assert actual.fit_statistics_.metadata["diagnostic_df"] == expected.fit_statistics_.metadata["diagnostic_df"]
 
 
+def test_stage_b_disconnected_two_way_fe_torch_cpu_uses_component_df():
+    entity = np.asarray([0, 0, 1, 1, 2, 2, 3, 3, 4], dtype=np.int64)
+    time = np.asarray([0, 1, 0, 1, 2, 3, 2, 3, 4], dtype=np.int64)
+    X = np.asarray([1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 0.0]).reshape(-1, 1)
+    y = np.asarray([1.0, -1.0, -1.0, 1.0, 2.0, -2.0, -2.0, 2.0, 0.0])
+    X_t, y_t, entity_t, time_t = _torch_arrays(X, y, entity, time)
+
+    expected = PanelOLS(entity_effects=True, time_effects=True).fit(
+        X, y, entity_ids=entity, time_ids=time
+    )
+    actual = PanelOLS(entity_effects=True, time_effects=True).fit(
+        X_t, y_t, entity_ids=entity_t, time_ids=time_t
+    )
+
+    assert_allclose(actual.coef_, expected.coef_, rtol=1e-10, atol=1e-11)
+    assert_allclose(actual.bse_, expected.bse_, rtol=1e-10, atol=1e-11)
+    assert actual.df_resid == expected.df_resid == 1
+    assert actual.fit_statistics_.metadata["legacy_df_resid"] == 0
+    assert actual.fit_statistics_.metadata["public_df_resid_basis"] == "component-aware"
+    assert actual.fit_statistics_.metadata["diagnostic_df"] == expected.fit_statistics_.metadata["diagnostic_df"]
+    assert actual.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 3
+
+
 def test_stage_b_random_effects_torch_cpu_fit_stats_and_identity_match_numpy():
     X, y, entity, time = _panel(seed=1222)
     X_t, y_t, entity_t, _ = _torch_arrays(X, y, entity, time)
