@@ -303,7 +303,7 @@ def test_panel_stage_b_physical_validation_is_published_without_timing(canonical
         run
         for run in output["runs"]
         if run["source"]["source_id"]
-        == "panel-stage-b-pr122-20260808-b8caffa6f915"
+        == "panel-stage-b-pr122-20260809-a6e47b9dec9c"
     ]
     assert len(rows) == 42
     assert {run["backend"] for run in rows} == {"cupy", "torch"}
@@ -320,7 +320,7 @@ def test_panel_stage_b_physical_validation_is_published_without_timing(canonical
     assert all("speedup" not in run["metrics"] for run in rows)
     assert all(
         run["parameters"]["measurement_git_sha"]
-        == "faa95ce7fb5cb204088957fbda5544c20a06fbfc"
+        == "a57efcea29b0e87ecb89865c5a6902d5773812c6"
         for run in rows
     )
 
