@@ -140,7 +140,7 @@ Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robu
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。post-review exact-clean head `c151550a...` 的 Tesla P100 acceptance 已闭合：CuPy 与 Torch 每个 backend 均通过 26/26 estimator covariance case 与 2/2 direct public covariance primitive，requested/executed backend 一致且无 CPU fallback。同步 performance rerun 覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup；旧 `9c0b3050...` 产物继续作为历史审计证据。
+hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。fresh exact-clean head `aad53587...` 的 Tesla P100 acceptance 已闭合：CuPy 与 Torch 每个 backend 均通过 26/26 estimator covariance case 与 6/6 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK regressions，requested/executed backend 一致且无 CPU fallback。同步 performance rerun 覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup；此前 `c151550a...` 与 `9c0b3050...` 产物继续作为历史审计证据。
 
 ### PooledOLS HAC 时间排序
 

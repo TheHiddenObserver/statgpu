@@ -25,7 +25,7 @@ from linearmodels.panel.covariance import (
     HeteroskedasticCovariance,
 )
 
-from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel import BetweenOLS, FirstDifferenceOLS, PanelOLS, PooledOLS, RandomEffects
 
 
 def _panel(seed=12720, *, unbalanced=True):
@@ -263,3 +263,52 @@ def test_random_effects_dk_matches_linearmodels_on_statgpu_fit_space():
     ).cov
     assert_allclose(sg._panel_cov_params_raw, expected, rtol=5e-9, atol=5e-11)
     assert sg._covariance_metadata["extra_df"] == 0
+
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc2", "hc3"])
+def test_between_hc_matches_statsmodels_on_entity_mean_fit_space(cov_type):
+    X, y, entity, _time = _panel(12729, unbalanced=True)
+    sg = BetweenOLS(cov_type=cov_type).fit(X, y, entity_ids=entity)
+
+    X_level = np.column_stack([np.ones(len(y)), X])
+    groups = np.unique(entity)
+    X_mean = np.stack([X_level[entity == group].mean(axis=0) for group in groups])
+    y_mean = np.asarray([y[entity == group].mean() for group in groups])
+    reference = (
+        statsmodels.OLS(y_mean, X_mean)
+        .fit()
+        .get_robustcov_results(cov_type=cov_type.upper())
+    )
+
+    assert_allclose(sg.coef_, reference.params, rtol=5e-10, atol=5e-12)
+    assert_allclose(
+        sg._panel_cov_params_raw, reference.cov_params(), rtol=5e-9, atol=5e-11
+    )
+    assert_allclose(sg.bse_, reference.bse, rtol=5e-9, atol=5e-11)
+
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc2", "hc3"])
+def test_first_difference_hc_matches_statsmodels_on_differenced_fit_space(cov_type):
+    X, y, entity, time = _panel(12730, unbalanced=False)
+    sg = FirstDifferenceOLS(cov_type=cov_type).fit(
+        X, y, entity_ids=entity, time_ids=time
+    )
+
+    order = np.lexsort((time, entity))
+    X_sorted = X[order]
+    y_sorted = y[order]
+    entity_sorted = entity[order]
+    same_entity = entity_sorted[1:] == entity_sorted[:-1]
+    X_diff = (X_sorted[1:] - X_sorted[:-1])[same_entity]
+    y_diff = (y_sorted[1:] - y_sorted[:-1])[same_entity]
+    reference = (
+        statsmodels.OLS(y_diff, X_diff)
+        .fit()
+        .get_robustcov_results(cov_type=cov_type.upper())
+    )
+
+    assert_allclose(sg.coef_, reference.params, rtol=5e-10, atol=5e-12)
+    assert_allclose(
+        sg._panel_cov_params_raw, reference.cov_params(), rtol=5e-9, atol=5e-11
+    )
+    assert_allclose(sg.bse_, reference.bse, rtol=5e-9, atol=5e-11)

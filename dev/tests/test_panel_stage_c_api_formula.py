@@ -7,7 +7,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 pd = pytest.importorskip("pandas")
-pytest.importorskip("patsy")
+patsy = pytest.importorskip("patsy")
 
 from statgpu.inference._results import ParameterInferenceResult
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
@@ -138,6 +138,52 @@ def test_random_effects_dk_formula_metadata_alignment_matches_constant_array_fit
     assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
     summary = formula_model.summary()
     assert summary.feature_names == ["Intercept", "x", "z"]
+
+
+def test_random_effects_formula_matches_patsy_categorical_interaction_transform_matrix():
+    data = _frame(128034)
+    data["group"] = pd.Categorical(
+        np.where(
+            data["time"].to_numpy() % 3 == 0,
+            "base",
+            np.where(data["time"].to_numpy() % 3 == 1, "mid", "high"),
+        ),
+        categories=["base", "mid", "high"],
+    )
+    main_formula = "y ~ x * C(group) + I(z ** 2)"
+    y_design, X_design = patsy.dmatrices(
+        main_formula, data, return_type="dataframe"
+    )
+
+    formula_model = RandomEffects().fit(
+        formula=f"{main_formula} | entity",
+        data=data,
+    )
+    array_model = RandomEffects().fit(
+        X_design.to_numpy(),
+        y_design.iloc[:, 0].to_numpy(),
+        entity_ids=data["entity"].to_numpy(),
+    )
+
+    expected_names = list(X_design.design_info.column_names)
+    assert formula_model._feature_names == expected_names
+    assert "Intercept" in expected_names
+    assert "C(group)[T.mid]" in expected_names
+    assert "C(group)[T.high]" in expected_names
+    assert "x:C(group)[T.mid]" in expected_names
+    assert "x:C(group)[T.high]" in expected_names
+    assert "I(z ** 2)" in expected_names
+    assert_allclose(formula_model.coef_, array_model.coef_, rtol=2e-12, atol=2e-13)
+    assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
+    assert_allclose(formula_model.pvalues_, array_model.pvalues_, rtol=2e-11, atol=2e-13)
+
+    expected_prediction = X_design.to_numpy() @ np.asarray(formula_model.coef_)
+    assert_allclose(
+        formula_model.predict(data),
+        expected_prediction,
+        rtol=2e-12,
+        atol=2e-13,
+    )
 
 
 @pytest.mark.parametrize(
