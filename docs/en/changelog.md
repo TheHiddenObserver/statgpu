@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-09<br>
+> Last updated: 2026-08-10<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -11,7 +11,7 @@ Stage C extends the Panel Tier-1 inference layer without changing estimator coef
 
 Driscoll-Kraay follows the pinned `linearmodels==7.0` full-rank scaling and time-score aggregation, with Bartlett, Parzen, and quadratic-spectral kernels. QS uses all observed lags when bandwidth is positive. HC2/HC3 are checked against analytic/statsmodels fit-space calculations, and cluster/DK definitions are checked against `linearmodels==7.0`. A separate maintained Torch 2.0 CPU gate covers Stage-C covariance primitives and estimator integrations.
 
-Physical CUDA acceptance is complete on exact clean implementation head `9c0b3050dd143c43a06bb6393d69f4f83e861637` using Tesla P100-SXM2-16GB. CuPy and Torch each pass all 26 estimator covariance cases plus two direct public covariance primitives without CPU fallback. The separate synchronized performance artifact covers the three base scales and the bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim.
+After the Ready-triggered ordered-categorical Driscoll-Kraay chronology fix, physical CUDA acceptance was rerun and completed on exact clean implementation head `c151550ab17bd9533a51599f86b6a4ea12a292e9` using Tesla P100-SXM2-16GB. CuPy and Torch each pass all 26 estimator covariance cases plus two direct public covariance primitives without CPU fallback. The synchronized performance rerun covers the three base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim. The earlier `9c0b3050dd143c43a06bb6393d69f4f83e861637` artifacts remain immutable historical evidence.
 
 ## 2026-08-08
 

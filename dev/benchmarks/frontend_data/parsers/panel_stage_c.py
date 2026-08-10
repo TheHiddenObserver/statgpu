@@ -11,7 +11,7 @@ from typing import Any
 from ..canonical import make_scale_key, make_scale_label
 
 _SOURCE_DATE = "2026-08-10"
-_MEASUREMENT_SHA = "9c0b3050dd143c43a06bb6393d69f4f83e861637"
+_MEASUREMENT_SHA = "c151550ab17bd9533a51599f86b6a4ea12a292e9"
 _VALIDATION_PARSER = "parse_panel_stage_c_physical_validation_v1"
 _PERFORMANCE_PARSER = "parse_panel_stage_c_performance_v1"
 _PARSER_VERSION = "1.0"

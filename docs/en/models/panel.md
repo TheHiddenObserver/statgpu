@@ -18,7 +18,7 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-Stage C of the Tier-1 panel roadmap completes the residual-sandwich covariance layer on top of the Stage-B diagnostics: historical defaults remain unchanged, while HC0/HC2/HC3, robust RandomEffects inference, explicit cluster group debiasing, and Driscoll-Kraay covariance are added with NumPy/CuPy/Torch-native accumulation. Tesla P100 correctness and synchronized performance evidence were recorded for the pre-review exact-clean head `9c0b3050...`; the subsequent ordered-categorical chronology fix changes production covariance input handling, so those artifacts are now historical evidence and a fresh exact-head P100 rerun is required before PR #126 returns to Ready.
+Stage C of the Tier-1 panel roadmap completes the residual-sandwich covariance layer on top of the Stage-B diagnostics: historical defaults remain unchanged, while HC0/HC2/HC3, robust RandomEffects inference, explicit cluster group debiasing, and Driscoll-Kraay covariance are added with NumPy/CuPy/Torch-native accumulation. The Ready-triggered ordered-categorical chronology fix was revalidated on exact-clean head `c151550a...` using Tesla P100: CuPy and Torch each pass all 26 estimator covariance cases plus two direct public covariance primitives, and the synchronized performance rerun includes the bounded `N=10,000`, `k=2`, `T=200` QS scenario. The earlier `9c0b3050...` artifacts remain immutable historical evidence.
 
 ## Paths
 
@@ -140,7 +140,7 @@ Stage C does not alter Swamy-Arora variance-component or coefficient estimation.
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-Hosted Stage-C tests pin HC2/HC3 against analytic/statsmodels fit-space calculations and cluster/Driscoll-Kraay definitions against `linearmodels==7.0`. The previously recorded Tesla P100 artifacts passed 26/26 estimator covariance cases plus 2/2 direct public covariance primitives per backend and included synchronized `N=10,000`, `k=2`, `T=200` QS timing. Because the post-review ordered-categorical chronology fix modifies production covariance metadata handling, those artifacts remain historical evidence but no longer close the exact-head physical gate; the updated candidate must be rerun on CuPy and Torch before Ready/merge consideration.
+Hosted Stage-C tests pin HC2/HC3 against analytic/statsmodels fit-space calculations and cluster/Driscoll-Kraay definitions against `linearmodels==7.0`. Post-review exact-clean-head Tesla P100 acceptance is complete on `c151550a...`: CuPy and Torch each pass 26/26 estimator covariance cases plus 2/2 direct public covariance primitives with requested/executed backend identity and no CPU fallback. The synchronized performance rerun covers the three base scales and explicit `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim. The superseded `9c0b3050...` artifacts remain historical audit evidence.
 
 ### PooledOLS HAC ordering
 

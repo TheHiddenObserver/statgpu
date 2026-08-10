@@ -11,8 +11,8 @@ from dev.benchmarks.frontend_data.parsers.panel_stage_c import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_9c0b3050.json"
-PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_9c0b3050.json"
+CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_c151550a.json"
+PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_c151550a.json"
 
 
 def test_stage_c_validation_parser_emits_exact_physical_matrix():
