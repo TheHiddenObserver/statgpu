@@ -54,7 +54,8 @@ def test_stage_c_hc_primitives_torch_cpu_match_numpy(cov_type):
     X_t = torch.as_tensor(X, dtype=torch.float64)
     resid_t = torch.as_tensor(resid, dtype=torch.float64)
     expected = ols_covariance(X, resid, cov_type=cov_type, xp=np)
-    actual = ols_covariance(X_t, resid_t, cov_type=cov_type, xp=torch)
+    actual = ols_covariance(X_t, resid_t, cov_type=cov_type)
+    assert torch.is_tensor(actual)
     assert_allclose(actual.detach().cpu().numpy(), expected, rtol=2e-10, atol=2e-12)
 
 
@@ -72,9 +73,9 @@ def test_stage_c_two_way_cluster_torch_cpu_matches_numpy_with_group_debias():
         torch.as_tensor(resid, dtype=torch.float64),
         c1,
         c2,
-        xp=torch,
         group_debias=True,
     )
+    assert torch.is_tensor(actual)
     assert_allclose(actual.detach().cpu().numpy(), expected, rtol=2e-10, atol=2e-12)
 
 
@@ -94,8 +95,8 @@ def test_stage_c_dk_torch_cpu_matches_numpy(kernel):
         bandwidth=2,
         kernel=kernel,
         extra_df=3,
-        xp=torch,
     )
+    assert torch.is_tensor(actual)
     assert_allclose(actual.detach().cpu().numpy(), expected, rtol=2e-10, atol=2e-12)
 
 

@@ -68,3 +68,15 @@ def test_stage_c_runner_group_debias_and_panel_dk_metadata_are_auditable():
     effect_rank = panel_dk.fit_statistics_.metadata["diagnostic_df"]["effect_rank"]
     assert dk_meta["extra_df"] == effect_rank
     assert dk_meta["rank_deficient_extension"] is False
+
+
+def test_stage_c_runner_public_primitive_matrix_is_complete():
+    X, y, entity, time, clusters = _MOD._dataset()
+    values = _MOD._public_primitive_cases(
+        X, y, entity, time, clusters, "numpy"
+    )
+    assert set(values) == {"cluster_group_debias", "driscoll_kraay_qs"}
+    for value in values.values():
+        arr = np.asarray(value, dtype=np.float64)
+        assert arr.shape == (3, 3)
+        assert np.all(np.isfinite(arr))

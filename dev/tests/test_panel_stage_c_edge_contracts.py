@@ -69,3 +69,12 @@ def test_qs_oversized_bandwidth_remains_a_smoothing_scale():
     assert meta["bandwidth"] == 9
     assert meta["all_observed_lags_weighted"] is True
     assert meta["max_weighted_lag"] == 4
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None])
+def test_cluster_primitives_reject_nonboolean_group_debias(value):
+    X = np.column_stack([np.ones(8), np.arange(8.0)])
+    resid = np.linspace(-0.2, 0.3, 8)
+    groups = np.repeat(np.arange(4), 2)
+    with pytest.raises(ValueError, match="group_debias must be boolean"):
+        clustered_covariance(X, resid, groups, group_debias=value)

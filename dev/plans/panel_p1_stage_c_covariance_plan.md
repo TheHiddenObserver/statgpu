@@ -252,6 +252,16 @@ Default:
 bw = floor(4 * (T/100)^(2/9)).
 ```
 
+An explicit bandwidth is retained even when `bw > T-1`. Only observed lags
+`1,...,T-1` can contribute, but Bartlett/Parzen still use the requested `bw`
+in their weight denominator and QS keeps it as the smoothing scale. Stage C
+does not silently replace an oversized bandwidth by `T-1`.
+For this oversized edge, Bartlett/Parzen are a documented statgpu extension:
+linearmodels 7.0 rejects its `bw+1` weight vector when it is longer than the
+`T` grouped scores. Stage C instead evaluates the same kernel formula only on
+observed lags. Oversized QS remains directly executable and is compared to
+linearmodels 7.0 at the final-covariance level.
+
 Kernel aliases/formulas follow linearmodels:
 
 **Bartlett / Newey–West**
@@ -391,7 +401,7 @@ R `plm`/`sandwich` and Stata/fixest definitions are documentation/remote referen
 - exact pair factorization;
 - DK time aggregation/full-rank scale/rank-deficient extension;
 - Bartlett/Parzen/QS exact weights and QS all-lag support;
-- bandwidth default/zero/cap/validation;
+- bandwidth default/zero/oversized/validation;
 - unsorted/repeated/unbalanced time labels.
 
 ### Estimator tests
@@ -430,6 +440,7 @@ For every supported estimator/covariance family:
 Add `dev/benchmarks/validate_panel_stage_c_gpu.py` as correctness/provenance only.
 
 Every new public covariance integration reaches both CuPy and Torch CUDA at least once.
+The exported covariance primitives also receive direct-call CuPy/Torch acceptance with `xp` omitted, proving public backend auto-detection rather than only estimator-mediated execution.
 
 Minimum per backend:
 
@@ -453,7 +464,7 @@ Questions:
 
 - HC2/3 avoids `O(n^2)` hat matrix and scales as row leverage + `k x k` operations;
 - cluster/DK uses grouped backend reductions, not observation Python loops/full host numerical transfer;
-- QS all-lag cost is reported at representative T and does not accidentally become `O(n^2)` in observations;
+- QS all-lag cost is reported at representative T and does not accidentally become `O(n^2)` in observations; the default runner includes a bounded same-order `N=10,000`, `k=2`, `T=200` high-T QS scenario in addition to the `T=20` base cases;
 - GPU metadata conversion/synchronization is not transfer-dominated at target sizes.
 
 No speedup claim is planned. Performance becomes blocking only for material regression/pathological complexity/transfer dominance. Optimization budget: one profile, at most two algorithmic/kernel attempts, one rebenchmark each. Timing JSON remains separate from correctness evidence.

@@ -19,8 +19,16 @@ from pathlib import Path
 
 import numpy as np
 
-from statgpu.backends import _to_numpy
-from statgpu.panel import BetweenOLS, FirstDifferenceOLS, PanelOLS, PooledOLS, RandomEffects
+from statgpu.backends import _is_cupy_array, _is_torch_array, _to_numpy
+from statgpu.panel import (
+    BetweenOLS,
+    FirstDifferenceOLS,
+    PanelOLS,
+    PooledOLS,
+    RandomEffects,
+    clustered_covariance,
+    driscoll_kraay_covariance,
+)
 
 
 def _git_sha() -> str:
@@ -90,6 +98,29 @@ def _backend_name(model):
 
 def _array(value):
     return np.asarray(_to_numpy(value), dtype=np.float64)
+
+
+def _array_backend_name(value):
+    if _is_cupy_array(value):
+        return "cupy"
+    if _is_torch_array(value):
+        return "torch"
+    return "numpy"
+
+
+def _public_primitive_cases(X, y, entity, time, clusters, backend):
+    X_design = np.column_stack([np.ones(len(y)), X])
+    params = np.linalg.lstsq(X_design, y, rcond=None)[0]
+    resid = y - X_design @ params
+    Xb, rb, _eb, _tb = _to_backend(X_design, resid, entity, time, backend)
+    return {
+        "cluster_group_debias": clustered_covariance(
+            Xb, rb, clusters[:, 0], group_debias=True
+        ),
+        "driscoll_kraay_qs": driscoll_kraay_covariance(
+            Xb, rb, time, bandwidth=2, kernel="qs"
+        ),
+    }
 
 
 def _snapshot(model):
@@ -299,11 +330,25 @@ def main():
     X, y, entity, time, clusters = _dataset()
     reference_models = _fit_cases(X, y, entity, time, clusters, "numpy")
     reference = {name: _snapshot(model) for name, model in reference_models.items()}
+    primitive_reference = {
+        name: _array(value)
+        for name, value in _public_primitive_cases(
+            X, y, entity, time, clusters, "numpy"
+        ).items()
+    }
+    required_public_primitives = {"cluster_group_debias", "driscoll_kraay_qs"}
+    if set(primitive_reference) != required_public_primitives:
+        raise AssertionError("NumPy public primitive acceptance matrix drifted")
 
     results = {}
     for backend in backends:
         models = _fit_cases(X, y, entity, time, clusters, backend)
-        payload = {"status": "success", "requested_backend": backend, "cases": {}}
+        payload = {
+            "status": "success",
+            "requested_backend": backend,
+            "cases": {},
+            "public_primitives": {},
+        }
         if set(models) != set(reference):
             raise AssertionError(f"{backend}: physical case set differs from NumPy reference")
         for name, model in models.items():
@@ -319,6 +364,32 @@ def main():
                 "executed_backend": executed,
                 "max_abs_differences": differences,
                 "covariance_metadata": snapshot["covariance_metadata"],
+            }
+        primitive_values = _public_primitive_cases(
+            X, y, entity, time, clusters, backend
+        )
+        if set(primitive_values) != required_public_primitives:
+            raise AssertionError(
+                f"{backend}: public primitive acceptance matrix drifted"
+            )
+        for name, value in primitive_values.items():
+            executed = _array_backend_name(value)
+            if executed != backend:
+                raise AssertionError(
+                    f"public primitive {name}: requested {backend}, executed {executed}"
+                )
+            actual = _array(value)
+            np.testing.assert_allclose(
+                actual,
+                primitive_reference[name],
+                rtol=args.rtol,
+                atol=args.atol,
+                err_msg=f"public primitive {name}",
+            )
+            payload["public_primitives"][name] = {
+                "status": "success",
+                "executed_backend": executed,
+                "max_abs_difference": _max_abs(actual, primitive_reference[name]),
             }
         results[backend] = payload
 
@@ -368,6 +439,7 @@ def main():
             "unbalanced": True,
         },
         "case_count_per_backend": len(reference),
+        "public_primitive_count_per_backend": len(required_public_primitives),
         "backends": results,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)

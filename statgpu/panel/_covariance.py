@@ -22,6 +22,8 @@ import numpy as np
 
 from statgpu.backends import (
     _LINALG_ERRORS,
+    _get_xp,
+    _resolve_backend,
     _to_float_scalar,
     _to_numpy,
     xp_asarray,
@@ -52,9 +54,11 @@ def normalize_covariance_type(cov_type: str) -> str:
     return _COVARIANCE_ALIASES.get(name, name)
 
 
-def _ensure_xp(xp=None):
-    """Return the array module, defaulting to numpy."""
-    return xp if xp is not None else np
+def _ensure_xp(xp=None, *arrays):
+    """Return an explicit array module or infer it from public inputs."""
+    if xp is not None:
+        return xp
+    return _get_xp(_resolve_backend("auto", *arrays))
 
 
 def _is_torch(xp) -> bool:
@@ -164,6 +168,12 @@ def _group_debias_factor(n_groups: int, nobs: int) -> float:
     return (n_groups / (n_groups - 1.0)) * ((nobs - 1.0) / nobs)
 
 
+def _validate_group_debias(value) -> bool:
+    if not isinstance(value, (bool, np.bool_)):
+        raise ValueError("group_debias must be boolean")
+    return bool(value)
+
+
 def clustered_covariance(
     X,
     resid,
@@ -179,7 +189,8 @@ def clustered_covariance(
     ``group_debias=True`` multiplies the grouped meat by
     ``(G/(G-1))*((n-1)/n)``.
     """
-    xp = _ensure_xp(xp)
+    xp = _ensure_xp(xp, X)
+    group_debias = _validate_group_debias(group_debias)
 
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
@@ -230,7 +241,8 @@ def two_way_clustered_covariance(
     metadata: Optional[dict] = None,
 ):
     """Two-way clustered covariance with exact intersection factorization."""
-    xp = _ensure_xp(xp)
+    xp = _ensure_xp(xp, X)
+    group_debias = _validate_group_debias(group_debias)
     n = int(X.shape[0])
     labels1, c1 = _factorize_1d_labels(cluster1, nobs=n, name="cluster1")
     labels2, c2 = _factorize_1d_labels(cluster2, nobs=n, name="cluster2")
@@ -286,7 +298,7 @@ def two_way_clustered_covariance(
 
 def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     """Historical row-order Newey-West HAC covariance using Bartlett weights."""
-    xp = _ensure_xp(xp)
+    xp = _ensure_xp(xp, X)
     if str(kernel).lower() != "bartlett":
         raise ValueError("kernel must be 'bartlett'")
     if bandwidth is not None:
@@ -398,7 +410,7 @@ def driscoll_kraay_covariance(
     rank-deficient statgpu fit uses the numerical design rank with a
     pseudoinverse as the documented Stage-C extension.
     """
-    xp = _ensure_xp(xp)
+    xp = _ensure_xp(xp, X)
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
@@ -545,7 +557,8 @@ def ols_covariance(
     metadata: Optional[dict] = None,
 ):
     """Dispatch residual-based panel covariance definitions."""
-    xp = _ensure_xp(xp)
+    xp = _ensure_xp(xp, X)
+    group_debias = _validate_group_debias(group_debias)
     name = normalize_covariance_type(cov_type)
     if allowed is not None:
         allowed_names = {normalize_covariance_type(value) for value in allowed}
@@ -555,7 +568,7 @@ def ols_covariance(
                 f"cov_type={cov_type!r} is not supported here; expected one of: {choices}"
             )
 
-    if bool(group_debias) and name != "clustered":
+    if group_debias and name != "clustered":
         raise ValueError("group_debias=True requires cov_type='clustered'")
 
     X = xp_asarray(X, dtype=xp.float64, xp=xp)

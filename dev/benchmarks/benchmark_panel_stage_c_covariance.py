@@ -21,6 +21,11 @@ import numpy as np
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 
 
+PERFORMANCE_SCHEMA_VERSION = 2
+DEFAULT_HIGH_T_SCALE = "10000x2x200"
+HIGH_T_CASES = ("pooled_dk_qs", "panel_entity_dk_qs")
+
+
 def _git_sha():
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
@@ -47,6 +52,30 @@ def _parse_scales(text):
     return values
 
 
+def _parse_high_t_scale(text):
+    parts = text.strip().lower().split("x")
+    if len(parts) != 3:
+        raise ValueError("high-T scale must be an NxKxT triple")
+    n, k, n_times = (int(v) for v in parts)
+    if n <= 0 or k <= 0 or n_times < 2 or n < n_times:
+        raise ValueError("high-T scale requires positive N/K, T>=2, and N>=T")
+    return n, k, n_times
+
+
+def _timing_row(*, backend, case, scenario, n, k, n_times, repeats, samples):
+    return {
+        "backend": backend,
+        "case": case,
+        "scenario": scenario,
+        "n_samples": int(n),
+        "n_features": int(k),
+        "n_times": int(n_times),
+        "repeats": int(repeats),
+        "median_seconds": float(np.median(samples)),
+        "samples_seconds": [float(v) for v in samples],
+    }
+
+
 def _sync(backend):
     if backend == "cupy":
         import cupy as cp
@@ -56,9 +85,11 @@ def _sync(backend):
         torch.cuda.synchronize()
 
 
-def _dataset(n, k, seed):
+def _dataset(n, k, seed, *, n_times=20):
+    if int(n_times) < 2 or int(n) < int(n_times):
+        raise ValueError("dataset requires n_times>=2 and n>=n_times")
     rng = np.random.default_rng(seed)
-    n_times = 20
+    n_times = int(n_times)
     n_entities = max(2, int(np.ceil(n / n_times)))
     entity = np.repeat(np.arange(n_entities), n_times)[:n]
     time_ids = np.tile(np.arange(n_times), n_entities)[:n]
@@ -135,6 +166,10 @@ def _fit_case(case, X, y, entity, time_ids, clusters, backend):
         return PanelOLS(
             entity_effects=True, cov_type="dk", bandwidth=2, device=device
         ).fit(X, y, entity_ids=entity, time_ids=time_ids)
+    if case == "panel_entity_dk_qs":
+        return PanelOLS(
+            entity_effects=True, cov_type="dk", bandwidth=2, kernel="qs", device=device
+        ).fit(X, y, entity_ids=entity, time_ids=time_ids)
     if case == "random_effects_nonrobust":
         return RandomEffects(device=device).fit(X, y, entity_ids=entity)
     if case == "random_effects_hc3":
@@ -160,6 +195,11 @@ def main():
     parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--backends", default="cupy,torch")
     parser.add_argument("--scales", default="10000x2,100000x2,100000x10")
+    parser.add_argument(
+        "--high-t-scale",
+        default=DEFAULT_HIGH_T_SCALE,
+        help="additional NxKxT scenario used only for QS all-lag cases",
+    )
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
 
@@ -182,7 +222,7 @@ def main():
     rows = []
     for scale_idx, (n, k) in enumerate(_parse_scales(args.scales)):
         X_np, y_np, entity_np, time_np, clusters = _dataset(
-            n, k, 20260812 + scale_idx
+            n, k, 20260812 + scale_idx, n_times=20
         )
         for backend in backends:
             X, y, entity, time_ids = _to_backend(
@@ -196,24 +236,56 @@ def main():
                     for _ in range(args.repeats)
                 ]
                 rows.append(
-                    {
-                        "backend": backend,
-                        "case": case,
-                        "n_samples": n,
-                        "n_features": k,
-                        "n_times": int(len(np.unique(time_np))),
-                        "repeats": args.repeats,
-                        "median_seconds": float(np.median(samples)),
-                        "samples_seconds": [float(v) for v in samples],
-                    }
+                    _timing_row(
+                        backend=backend,
+                        case=case,
+                        scenario="base",
+                        n=n,
+                        k=k,
+                        n_times=len(np.unique(time_np)),
+                        repeats=args.repeats,
+                        samples=samples,
+                    )
                 )
 
+    high_n, high_k, high_t = _parse_high_t_scale(args.high_t_scale)
+    X_np, y_np, entity_np, time_np, clusters = _dataset(
+        high_n, high_k, 20260899, n_times=high_t
+    )
+    for backend in backends:
+        X, y, entity, time_ids = _to_backend(
+            X_np, y_np, entity_np, time_np, backend
+        )
+        for case in HIGH_T_CASES:
+            _timed(case, X, y, entity, time_ids, clusters, backend)
+            samples = [
+                _timed(case, X, y, entity, time_ids, clusters, backend)
+                for _ in range(args.repeats)
+            ]
+            rows.append(
+                _timing_row(
+                    backend=backend,
+                    case=case,
+                    scenario="high_t_qs",
+                    n=high_n,
+                    k=high_k,
+                    n_times=len(np.unique(time_np)),
+                    repeats=args.repeats,
+                    samples=samples,
+                )
+            )
+
     payload = {
-        "schema_version": 1,
+        "schema_version": PERFORMANCE_SCHEMA_VERSION,
         "git_sha": args.expected_sha,
         "working_tree_clean": True,
         "benchmark": "panel_stage_c_covariance_fit_overhead",
         "timing_scope": "synchronized end-to-end estimator fit",
+        "input_residency": (
+            "X/y/entity/time preloaded on selected GPU backend; "
+            "cluster labels remain CPU metadata"
+        ),
+        "high_t_scale": args.high_t_scale,
         "environment": {
             "python": platform.python_version(),
             "platform": platform.platform(),
