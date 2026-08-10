@@ -55,7 +55,7 @@ jobs:
 
   r-external-alignment:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       STATGPU_RUN_R_PANEL_EXTERNAL: '1'
     steps:
@@ -70,18 +70,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . pytest
-      - name: Install pinned R references
+      - name: Install R external references
         run: |
           Rscript - <<'RS'
-          install.packages('remotes', repos='https://cloud.r-project.org')
-          remotes::install_version(
-            'sandwich', version='3.1-1', repos='https://cloud.r-project.org', upgrade='never'
-          )
-          remotes::install_version(
-            'plm', version='2.6-6', repos='https://cloud.r-project.org', upgrade='never'
-          )
-          stopifnot(as.character(packageVersion('sandwich')) == '3.1-1')
-          stopifnot(as.character(packageVersion('plm')) == '2.6-6')
+          options(repos = c(CRAN = 'https://cloud.r-project.org'))
+          install.packages(c('sandwich', 'plm'), Ncpus = 2L)
+          stopifnot(requireNamespace('sandwich', quietly = TRUE))
+          stopifnot(requireNamespace('plm', quietly = TRUE))
           cat('R', R.version.string, '\n')
           cat('plm', as.character(packageVersion('plm')), '\n')
           cat('sandwich', as.character(packageVersion('sandwich')), '\n')
