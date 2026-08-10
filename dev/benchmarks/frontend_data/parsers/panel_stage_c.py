@@ -11,7 +11,7 @@ from typing import Any
 from ..canonical import make_scale_key, make_scale_label
 
 _SOURCE_DATE = "2026-08-10"
-_MEASUREMENT_SHA = "c151550ab17bd9533a51599f86b6a4ea12a292e9"
+_MEASUREMENT_SHA = "aad53587c9611da0e71a676e86ef32d9f6403f5c"
 _VALIDATION_PARSER = "parse_panel_stage_c_physical_validation_v1"
 _PERFORMANCE_PARSER = "parse_panel_stage_c_performance_v1"
 _PARSER_VERSION = "1.0"
@@ -28,7 +28,11 @@ _EXPECTED_CASES = {
     "between_hc0", "between_hc2", "between_hc3",
     "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
 }
-_EXPECTED_PRIMITIVES = {"cluster_group_debias", "driscoll_kraay_qs"}
+_EXPECTED_PRIMITIVES = {
+    "cluster_group_debias", "driscoll_kraay_qs",
+    "ill_conditioned_hc0", "ill_conditioned_hc2",
+    "ill_conditioned_hc3", "ill_conditioned_dk",
+}
 _BASE_CASES = {
     "pooled_nonrobust", "pooled_hc3", "pooled_cluster_two_way", "pooled_dk_qs",
     "panel_entity_nonrobust", "panel_entity_hc3", "panel_entity_dk",
@@ -261,8 +265,8 @@ def parse_panel_stage_c_physical_validation(
                 }
             )
 
-    if len(runs) != 56:
-        raise ValueError(f"PR126 validation parser expected 56 rows, got {len(runs)}")
+    if len(runs) != 64:
+        raise ValueError(f"PR126 validation parser expected 64 rows, got {len(runs)}")
     return runs, _models(model_ids), warnings
 
 

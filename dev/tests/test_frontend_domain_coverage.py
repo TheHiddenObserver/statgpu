@@ -410,8 +410,8 @@ def test_unsupervised_exposes_complete_source_matrix(canonical_output):
 
 def test_generated_bundle_has_expected_complete_run_count(canonical_output):
     output, report, _, _ = canonical_output
-    assert len(output["runs"]) == 1976
-    assert report["runs_generated"] == 1976
+    assert len(output["runs"]) == 1984
+    assert report["runs_generated"] == 1984
 
 
 def test_missing_domain_sources_are_manifest_registered(canonical_output):

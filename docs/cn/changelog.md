@@ -7,13 +7,11 @@
 
 ## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）
 
-Ready-triggered ordered-categorical Driscoll-Kraay chronology 修复后，PR #126 的物理 CUDA 验收已在精确且干净的实现提交 `c151550ab17bd9533a51599f86b6a4ea12a292e9` 上使用 Tesla P100-SXM2-16GB 重新执行并通过：CuPy 与 Torch 均通过 26 个估计器协方差案例和 2 个直接公共协方差 primitive，且没有 CPU fallback。同步性能 rerun 覆盖三个基础规模及 `N=10,000`、`k=2`、`T=200` 的 QS all-lag 场景；该证据只记录 timing，不声明 speedup。旧 `9c0b3050dd143c43a06bb6393d69f4f83e861637` 产物继续作为不可变历史证据保留。
+Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的前提下扩展 Panel Tier-1 inference。`robust` 继续表示历史 HC1；新增 `hc0`、`hc2`、`hc3` 按各 estimator 的实际 transformed fit space 计算。`RandomEffects` 支持 quasi-demeaned GLS score 上的 robust/HC、clustered 与 Driscoll-Kraay covariance；one-/two-way cluster 的 `group_debias=True` 为显式 opt-in，默认 clustered 结果保持不变。`PooledOLS(cov_type="hac")` 仍是历史 row-order Bartlett/Newey-West 路径。
 
-Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的前提下扩展 Panel Tier-1 inference。`robust` 继续表示历史 HC1；新增 `hc0`、`hc2`、`hc3` 按各 estimator 的实际 transformed fit space 计算。`RandomEffects` 在 quasi-demeaned GLS score 上新增 robust/HC、clustered 与 Driscoll-Kraay covariance。one-/two-way cluster 新增显式 `group_debias=True`；默认 clustered result 保持不变。`PooledOLS(cov_type="hac")` 仍是 legacy row-order Bartlett/Newey-West，不会被重解释为 Driscoll-Kraay。
+修复后的 covariance 实现从 design pseudoinverse 构造 bread 与 influence row，以 `diag(X X+)` 计算 HC2/HC3 leverage，统一验证 entity/time/cluster metadata，保持 CuPy group scatter-add 后端原生，发布共享 inference result contract，恢复 RandomEffects formula 的 intercept/feature-name 语义，并对超大 bandwidth 下的 quadratic-spectral weight 使用稳定的小参数展开。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 以及 R `sandwich`/`plm`。
 
-Driscoll-Kraay 的 full-rank scale 与 time-score aggregation 固定对齐 `linearmodels==7.0`，并支持 Bartlett、Parzen 与 Quadratic Spectral；QS 在 bandwidth 为正时对所有 observed lag 赋权。HC2/HC3 通过 analytic/statsmodels fit-space 结果检查，cluster/DK definition 通过 `linearmodels==7.0` 检查；另有 maintained Torch 2.0 CPU gate 覆盖 Stage-C covariance primitive 与 estimator integration。
-
-physical CUDA gate 与 hosted definition gate 保持分离；post-review exact-clean-head P100 correctness 与 synchronized performance 已完成，因此当前 physical acceptance 已闭合。性能证据仍只表示对应工作负载的 bounded timing，不宣称通用 GPU speedup。
+Fresh physical CUDA 验收已在精确且干净的实现提交 `aad53587c9611da0e71a676e86ef32d9f6403f5c` 上使用 Tesla P100-SXM2-16GB 完成。CuPy 与 Torch 各自通过 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），其中包括 full-rank ill-conditioned HC0/HC2/HC3 与 Driscoll-Kraay，并验证 requested/executed backend 一致且无数值 CPU fallback。同步 performance 仍覆盖三个基础规模及有界的 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup。此前 `c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
 
 ## 2026-08-08
 

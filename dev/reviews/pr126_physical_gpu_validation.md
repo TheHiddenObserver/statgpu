@@ -2,65 +2,39 @@
 
 ## Current physical acceptance status
 
-**PARTIAL_REMOTE_PENDING**.
+**PHYSICAL_GPU_ACCEPTED** for the repaired numerical/validator contract.
 
-The previously accepted Tesla P100 evidence was measured at exact clean source SHA `c151550ab17bd9533a51599f86b6a4ea12a292e9` and recorded by repository commit `a8dc976208d3997140829491be7d3dbfddfcedd6`. That evidence remains immutable audit history, but it is **not applicable to the current repaired candidate** because post-acceptance review changed both the numerical covariance implementation and the physical-validation runners.
+Fresh Tesla P100 evidence was measured from exact clean implementation SHA `aad53587c9611da0e71a676e86ef32d9f6403f5c`. The subsequent artifact commit `fdf88e8990b30502958cc357099342d271792ec2` adds only the two raw evidence files; the canonical-promotion commit changes parser/manifest/coverage/tests/docs/generated benchmark assets only. It does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
 
-In particular, the repaired branch now:
+## Correctness and backend-provenance evidence
 
-- derives Stage-C covariance breads and observation influence rows from `X+` instead of normal equations, including full-rank ill-conditioned designs;
-- computes HC2/HC3 leverage from `diag(X X+)`;
-- fails closed on materially negative covariance diagonals before BSE/t/z storage;
-- removes the CuPy numerical host fallback in panel group scatter-add;
-- persists the backend selected at the numerical fit boundary instead of reconstructing backend identity from the requested device;
-- extends physical parity coverage to full-rank ill-conditioned HC0/HC2/HC3 and Driscoll-Kraay cases.
-
-These are physical-applicability changes under `RELEASING.md`, so a fresh clean CuPy/Torch GPU run is mandatory before this PR can return to `PHYSICAL_GPU_ACCEPTED` or `COMPLETE`.
-
-## Historical correctness/backend-provenance artifact
-
-The following artifact is retained as historical evidence only:
-
-- path: `results/pr126_p100/panel_stage_c_gpu_validation_c151550a.json`
-- measurement SHA: `c151550ab17bd9533a51599f86b6a4ea12a292e9`
-- artifact repository commit: `a8dc976208d3997140829491be7d3dbfddfcedd6`
-- Git blob: `ecaf21a96ee60aea5a446e1cc40a17ba5c2a205f`
-- SHA-256: `91e9ec53b6ee9516064797fcce0a23ba6a198037b639fd9965135bae3b3c7b63`
+- path: `results/pr126_p100/panel_stage_c_gpu_validation_aad53587.json`
+- measurement SHA: `aad53587c9611da0e71a676e86ef32d9f6403f5c`
+- artifact repository commit: `fdf88e8990b30502958cc357099342d271792ec2`
+- Git blob: `4fc52f29021321a9d7b1f87fc76950c843ef4059`
+- SHA-256: `aab3ac61315b78ecaf04351f2922a444e3f44c587b31f9832ccad32839601b6c`
 - GPU: Tesla P100-SXM2-16GB
-- result at that historical source: CuPy 26/26 estimator cases + 2/2 direct primitives; Torch 26/26 estimator cases + 2/2 direct primitives.
+- result: CuPy 32/32 and Torch 32/32 = 26 estimator covariance cases + 6 direct public primitives per backend
+- direct primitives: `cluster_group_debias`, `driscoll_kraay_qs`, `ill_conditioned_hc0`, `ill_conditioned_hc2`, `ill_conditioned_hc3`, `ill_conditioned_dk`
+- requested backend equals the backend persisted at the numerical fit boundary; no numerical CPU fallback was observed
 
-The artifact validated the implementation that existed at `c151550a...`; it must not be cited as evidence for the repaired pseudoinverse/provenance implementation.
+## Synchronized performance evidence
 
-## Historical synchronized-performance artifact
+- path: `results/pr126_p100/panel_stage_c_performance_aad53587.json`
+- measurement SHA: `aad53587c9611da0e71a676e86ef32d9f6403f5c`
+- artifact repository commit: `fdf88e8990b30502958cc357099342d271792ec2`
+- Git blob: `fd7b06e0bb3a51e6a74e524e5bc059063b5f75eb`
+- SHA-256: `99208f9276b92abf212d76655616718980095ba5c8ff9d3356a795a15ffa50c6`
+- GPU: Tesla P100-SXM2-16GB for both CuPy and Torch
+- rows: 58 = 54 base rows + 4 high-T QS rows
+- timing scope: synchronized end-to-end estimator fit
+- high-T scenario: `N=10,000`, `k=2`, `T=200`
+- no speedup claim or CPU-baseline claim is made
 
-The following timing artifact is likewise historical until rerun on the repaired source:
+## Superseded historical evidence
 
-- path: `results/pr126_p100/panel_stage_c_performance_c151550a.json`
-- measurement SHA: `c151550ab17bd9533a51599f86b6a4ea12a292e9`
-- artifact repository commit: `a8dc976208d3997140829491be7d3dbfddfcedd6`
-- Git blob: `e6495802d47f9db01ce1b379cc13845c5aaee09e`
-- SHA-256: `1861fc4f1817789484d4b2fb02c205c302199b7b4ce167d75d409d8c54d81931`
-- rows: 58 = 54 base rows + 4 high-T QS rows.
+The prior `c151550a...` and `9c0b3050...` correctness/performance artifacts remain immutable audit history but are not current acceptance sources. The current canonical source contract is the fresh `aad53587...` measurement above.
 
-It remains useful for audit/history and makes no speedup claim, but the performance runner now also validates persisted executed-backend provenance. A new exact-source run is required before timing evidence can be promoted again.
+## Merge-readiness boundary
 
-## Earlier historical artifacts
-
-The older `9c0b3050dd143c43a06bb6393d69f4f83e861637` measurement remains historical as before:
-
-- `results/pr126_p100/panel_stage_c_gpu_validation_9c0b3050.json` — SHA-256 `a0d258f6d6b8243e82684a29305606e5f6bd91bbe271c3ed335b32b5ec973665`;
-- `results/pr126_p100/panel_stage_c_performance_9c0b3050.json` — SHA-256 `214284f02a5e21e775e58deaf2fa3cc9b6384d392b96c6f300f31f4a02953b1c`.
-
-Neither old measurement is current acceptance evidence.
-
-## Required fresh physical closure
-
-On the final repaired source SHA, run the maintained physical correctness validator and synchronized performance runner from a **clean tree** on both CuPy CUDA and Torch CUDA. The correctness result must include:
-
-- all maintained estimator covariance cases;
-- direct public covariance primitives;
-- the new full-rank ill-conditioned HC0/HC2/HC3 and Driscoll-Kraay parity cases;
-- requested backend equal to the backend persisted by the actual fit;
-- no numerical CPU fallback.
-
-Only exact-head fresh artifacts that satisfy the repository source/manifest contracts may be promoted to current canonical evidence. Until then the lifecycle hard exit is **PARTIAL_REMOTE_PENDING**.
+The physical gate is closed. Merge readiness still requires all permanent hosted workflows to be green on the final metadata/promotion head and a fresh review with no unresolved CRITICAL/HIGH/relevant-MEDIUM finding.

@@ -7,7 +7,8 @@ All notable changes to statgpu are documented here, organized by release and dat
 ### PR #126 — Complete Panel Tier-1 Stage C covariance
 - Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance with NumPy/CuPy/Torch-native accumulation.
 - Preserved historical HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient estimates, and Stage-B diagnostics.
-- Added pinned statsmodels/linearmodels covariance checks plus exact-head physical GPU and performance validators. After the Ready-triggered ordered-categorical Driscoll-Kraay chronology fix, Tesla P100 acceptance was rerun and passed on exact clean implementation head `c151550ab17bd9533a51599f86b6a4ea12a292e9`: both CuPy and Torch passed all 26 estimator covariance cases plus two direct public primitives, and synchronized performance evidence includes the bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario without making a speedup claim. The earlier `9c0b3050dd143c43a06bb6393d69f4f83e861637` artifacts remain immutable historical evidence.
+- Hardened covariance numerics around the design pseudoinverse, stable HC2/HC3 leverage, metadata validation, backend-native CuPy scatter-add, unified inference storage, RandomEffects formula intercept/name semantics, and small-argument QS weights; pinned Python and R external alignment remains green.
+- Fresh Tesla P100 acceptance on exact clean implementation head `aad53587c9611da0e71a676e86ef32d9f6403f5c` passes all 26 estimator covariance cases plus 6 direct public primitives on each of CuPy and Torch (32/32 per backend), including ill-conditioned HC0/HC2/HC3/DK and persisted executed-backend provenance. Synchronized performance evidence covers the maintained base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario without making a speedup claim. Earlier `c151550a...` and `9c0b3050...` artifacts remain immutable historical evidence.
 
 ## 2026-08-08
 

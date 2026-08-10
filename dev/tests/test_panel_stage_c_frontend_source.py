@@ -11,8 +11,8 @@ from dev.benchmarks.frontend_data.parsers.panel_stage_c import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_c151550a.json"
-PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_c151550a.json"
+CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_aad53587.json"
+PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_aad53587.json"
 
 
 def test_stage_c_validation_parser_emits_exact_physical_matrix():
@@ -20,9 +20,9 @@ def test_stage_c_validation_parser_emits_exact_physical_matrix():
         CORRECTNESS, "remote-p100-pr126-20260810"
     )
     assert warnings == []
-    assert len(runs) == 56
+    assert len(runs) == 64
     assert {run["backend"] for run in runs} == {"cupy", "torch"}
-    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 4
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 12
     assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
     assert all("timing" not in run["metrics"] for run in runs)
     assert all("speedup" not in run["metrics"] for run in runs)
