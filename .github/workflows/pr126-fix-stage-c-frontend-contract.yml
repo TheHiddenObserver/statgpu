@@ -1,0 +1,82 @@
+name: PR126 Stage C frontend contract fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-fix-stage-c-frontend-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest 'jsonschema[format]'
+      - name: Apply fresh-review fixes
+        run: python dev/benchmarks/_pr126_fix_stage_c_frontend_contract.py
+      - name: Focused evidence/frontend gates
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_frontend_source.py \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_benchmark_catalog.py \
+            dev/tests/test_benchmark_inventory_v2.py \
+            dev/tests/test_frontend_domain_coverage.py \
+            -q --tb=short
+          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+      - name: Regenerate deterministic assets and build
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+          cd frontend
+          npm ci
+          npm run build
+      - name: Verify deterministic stability
+        run: |
+          cp frontend/public/data/benchmark_data.json /tmp/benchmark_data.json
+          cp frontend/public/data/parse_report.json /tmp/parse_report.json
+          cp frontend/public/data/source_inventory.json /tmp/source_inventory.json
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+          cmp /tmp/benchmark_data.json frontend/public/data/benchmark_data.json
+          cmp /tmp/parse_report.json frontend/public/data/parse_report.json
+          cmp /tmp/source_inventory.json frontend/public/data/source_inventory.json
+          git diff --check
+      - name: Commit validated review fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            dev/benchmarks/frontend_data/parsers/panel_stage_c.py \
+            dev/tests/test_panel_stage_c_frontend_source.py \
+            frontend/public/data/benchmark_data.json \
+            frontend/public/data/parse_report.json \
+            frontend/public/data/source_inventory.json \
+            docs/assets/benchmarks/data/benchmark_data.json \
+            docs/assets/benchmarks/data/parse_report.json \
+            docs/assets/benchmarks/data/source_inventory.json
+          git commit -m 'fix: separate Stage C time-scale identities'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
