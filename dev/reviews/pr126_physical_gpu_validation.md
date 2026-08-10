@@ -58,6 +58,7 @@ No canonical source identifier or raw evidence file is rewritten merely because 
 - **[HIGH][MATRIX] fixed** — RandomEffects formula matrix now covers categorical reference levels, interactions, transforms, column order, prediction, and Patsy design equivalence.
 - **[HIGH][MATRIX] fixed** — BetweenOLS and FirstDifferenceOLS HC0/HC2/HC3 now have independent statsmodels baselines on their entity-mean / first-difference fit spaces.
 - **[HIGH][FORMULA/INFER] fixed** — PooledOLS/BetweenOLS formula-added intercept metadata is preserved in summaries and `ParameterInferenceResult`.
+- **[HIGH][FORMULA/API] fixed** — always-intercept PooledOLS/BetweenOLS now reject explicit no-intercept formulas instead of silently ignoring `0 +` / `-1`.
 - **[MEDIUM][DOC] fixed** — EN/CN Panel docs no longer mix the old 26+2 physical status with the fresh 26+6 matrix.
 - **[MEDIUM][INFER/API] fixed** — robust/HC/cluster/DK summaries display normal-reference `z` labels instead of misleading `t` labels.
 

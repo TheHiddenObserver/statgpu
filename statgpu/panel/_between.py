@@ -95,7 +95,12 @@ class BetweenOLS(BasePanelModel):
             side_arrays={"entity_ids": entity_ids},
         )
         entity_ids = aligned["entity_ids"]
-        if formula is not None and bool(self._formula_has_intercept):
+        if formula is not None:
+            if not bool(self._formula_has_intercept):
+                raise ValueError(
+                    "BetweenOLS always includes an intercept; explicit no-intercept "
+                    "formulas are not supported"
+                )
             self._feature_names = [
                 "Intercept",
                 *list(self._feature_names or []),

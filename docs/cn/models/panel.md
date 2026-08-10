@@ -352,7 +352,7 @@ model.fit(
 )
 ```
 
-clustered inference 需要 `cluster`。`time_index` 定义 HAC 的稳定时间排序。`entity_ids` 是可选项，不改变系数；提供后会启用标准化 within/between R² 与 panel BP-LM。
+clustered inference 需要 `cluster`。`time_index` 定义 HAC 的稳定时间排序。`entity_ids` 是可选项，不改变系数；提供后会启用标准化 within/between R² 与 panel BP-LM。`PooledOLS` 与 `BetweenOLS` 始终包含截距，因此显式移除截距的公式（例如 `0 +` 或 `-1`）会直接报错，而不会被静默忽略。
 
 ### 其他模型
 

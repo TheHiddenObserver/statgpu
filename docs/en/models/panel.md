@@ -352,7 +352,7 @@ model.fit(
 )
 ```
 
-`cluster` is required for clustered inference. `time_index` defines stable temporal ordering for HAC. `entity_ids` is optional and does not change coefficients; it enables standardized within/between R² and the panel BP-LM diagnostic.
+`cluster` is required for clustered inference. `time_index` defines stable temporal ordering for HAC. `entity_ids` is optional and does not change coefficients; it enables standardized within/between R² and the panel BP-LM diagnostic. `PooledOLS` and `BetweenOLS` always include an intercept, so formulas that explicitly remove it (for example, `0 +` or `-1`) are rejected rather than silently ignored.
 
 ### Other models
 

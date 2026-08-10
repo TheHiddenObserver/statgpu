@@ -117,7 +117,12 @@ class PooledOLS(BasePanelModel):
         cluster = aligned["cluster"]
         time_index = aligned["time_index"]
         entity_ids = aligned["entity_ids"]
-        if formula is not None and bool(self._formula_has_intercept):
+        if formula is not None:
+            if not bool(self._formula_has_intercept):
+                raise ValueError(
+                    "PooledOLS always includes an intercept; explicit no-intercept "
+                    "formulas are not supported"
+                )
             self._feature_names = [
                 "Intercept",
                 *list(self._feature_names or []),

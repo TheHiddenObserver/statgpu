@@ -180,6 +180,20 @@ def test_formula_added_constant_keeps_intercept_in_summary_and_inference_names(e
 
 
 
+@pytest.mark.parametrize("estimator", [PooledOLS, BetweenOLS])
+@pytest.mark.parametrize("formula", ["y ~ 0 + x + z", "y ~ x + z - 1"])
+def test_always_intercept_estimators_reject_explicit_no_intercept_formula(
+    estimator, formula
+):
+    data = _frame(128037)
+    kwargs = {}
+    if estimator is BetweenOLS:
+        kwargs["entity_ids"] = data["entity"].to_numpy()
+    with pytest.raises(ValueError, match="always includes an intercept"):
+        estimator().fit(formula=formula, data=data, **kwargs)
+
+
+
 def test_random_effects_formula_matches_patsy_categorical_interaction_transform_matrix():
     data = _frame(128034)
     data["group"] = pd.Categorical(
