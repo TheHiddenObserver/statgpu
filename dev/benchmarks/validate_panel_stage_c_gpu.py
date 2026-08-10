@@ -28,6 +28,7 @@ from statgpu.panel import (
     RandomEffects,
     clustered_covariance,
     driscoll_kraay_covariance,
+    ols_covariance,
 )
 
 
@@ -66,6 +67,22 @@ def _dataset(seed=20260811, *, unbalanced=True):
     return X.astype(np.float64), y.astype(np.float64), entity, time, clusters
 
 
+def _ill_conditioned_inputs(seed=20260814):
+    rng = np.random.default_rng(seed)
+    n = 50
+    x = rng.normal(size=n)
+    X = np.column_stack(
+        [np.ones(n), x, x + 1.0e-9 * rng.normal(size=n)]
+    )
+    y = X @ np.array([0.35, 0.8, -0.45]) + rng.normal(scale=0.2, size=n)
+    params = np.linalg.lstsq(X, y, rcond=None)[0]
+    resid = y - X @ params
+    time = np.tile(np.arange(10), 5)
+    if np.linalg.matrix_rank(X) != 3 or np.linalg.cond(X) <= 1.0e8:
+        raise AssertionError("ill-conditioned physical fixture lost full-rank contract")
+    return X, resid, time
+
+
 def _to_backend(X, y, entity, time, backend):
     if backend == "numpy":
         return X, y, entity, time
@@ -93,7 +110,10 @@ def _device(backend):
 
 
 def _backend_name(model):
-    return model._get_backend(backend="auto").name
+    executed = getattr(model, "_backend_name", None)
+    if executed is None:
+        raise AssertionError("fit did not persist executed backend provenance")
+    return executed
 
 
 def _array(value):
@@ -113,12 +133,34 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
     params = np.linalg.lstsq(X_design, y, rcond=None)[0]
     resid = y - X_design @ params
     Xb, rb, _eb, _tb = _to_backend(X_design, resid, entity, time, backend)
+
+    X_ill, resid_ill, time_ill = _ill_conditioned_inputs()
+    dummy_entity = np.arange(len(resid_ill), dtype=np.int64)
+    X_ill_b, resid_ill_b, _dummy_b, time_ill_b = _to_backend(
+        X_ill, resid_ill, dummy_entity, time_ill, backend
+    )
     return {
         "cluster_group_debias": clustered_covariance(
             Xb, rb, clusters[:, 0], group_debias=True
         ),
         "driscoll_kraay_qs": driscoll_kraay_covariance(
             Xb, rb, time, bandwidth=2, kernel="qs"
+        ),
+        "ill_conditioned_hc0": ols_covariance(
+            X_ill_b, resid_ill_b, cov_type="hc0"
+        ),
+        "ill_conditioned_hc2": ols_covariance(
+            X_ill_b, resid_ill_b, cov_type="hc2"
+        ),
+        "ill_conditioned_hc3": ols_covariance(
+            X_ill_b, resid_ill_b, cov_type="hc3"
+        ),
+        "ill_conditioned_dk": driscoll_kraay_covariance(
+            X_ill_b,
+            resid_ill_b,
+            time_ill_b,
+            bandwidth=2,
+            kernel="bartlett",
         ),
     }
 
@@ -336,7 +378,14 @@ def main():
             X, y, entity, time, clusters, "numpy"
         ).items()
     }
-    required_public_primitives = {"cluster_group_debias", "driscoll_kraay_qs"}
+    required_public_primitives = {
+        "cluster_group_debias",
+        "driscoll_kraay_qs",
+        "ill_conditioned_hc0",
+        "ill_conditioned_hc2",
+        "ill_conditioned_hc3",
+        "ill_conditioned_dk",
+    }
     if set(primitive_reference) != required_public_primitives:
         raise AssertionError("NumPy public primitive acceptance matrix drifted")
 
