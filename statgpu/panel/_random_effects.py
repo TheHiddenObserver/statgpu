@@ -49,8 +49,11 @@ class RandomEffects(BasePanelModel):
         from statgpu.panel._covariance import normalize_covariance_type
 
         self.alpha = alpha
-        self.cov_type = cov_type
-        self._cov_type = normalize_covariance_type(cov_type)
+        # Follow the repository constructor-capture contract used by the other
+        # panel estimators: expose the canonical value during __init__ so the
+        # wrapper stores it in _cov_type, then let the wrapper restore the exact
+        # raw public constructor argument after construction.
+        self.cov_type = normalize_covariance_type(cov_type)
         self.bandwidth = bandwidth
         self.kernel = kernel
         self.group_debias = group_debias
@@ -63,7 +66,7 @@ class RandomEffects(BasePanelModel):
             "clustered",
             "driscoll-kraay",
         }
-        if self._cov_type not in allowed:
+        if self.cov_type not in allowed:
             raise ValueError(
                 "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', "
                 "'hc2', 'hc3', 'clustered', 'driscoll-kraay', 'dk', or 'kernel'"
