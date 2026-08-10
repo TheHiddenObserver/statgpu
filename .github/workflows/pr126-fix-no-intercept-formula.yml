@@ -1,0 +1,96 @@
+name: PR126 fix no-intercept formula contract
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-fix-no-intercept-formula.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install targeted dependencies
+        run: |
+          python -m pip install -e .
+          python -m pip install pytest pandas patsy
+      - name: Enforce always-intercept formula contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              path = Path(path)
+              text = path.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise RuntimeError(f'{path}: expected 1 match, found {text.count(old)}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          pooled_old = '''        if formula is not None and bool(self._formula_has_intercept):\n            self._feature_names = [\n                "Intercept",\n                *list(self._feature_names or []),\n            ]\n'''
+          pooled_new = '''        if formula is not None:\n            if not bool(self._formula_has_intercept):\n                raise ValueError(\n                    "PooledOLS always includes an intercept; explicit no-intercept "\n                    "formulas are not supported"\n                )\n            self._feature_names = [\n                "Intercept",\n                *list(self._feature_names or []),\n            ]\n'''
+          replace_once('statgpu/panel/_pooled.py', pooled_old, pooled_new)
+
+          between_old = '''        if formula is not None and bool(self._formula_has_intercept):\n            self._feature_names = [\n                "Intercept",\n                *list(self._feature_names or []),\n            ]\n'''
+          between_new = '''        if formula is not None:\n            if not bool(self._formula_has_intercept):\n                raise ValueError(\n                    "BetweenOLS always includes an intercept; explicit no-intercept "\n                    "formulas are not supported"\n                )\n            self._feature_names = [\n                "Intercept",\n                *list(self._feature_names or []),\n            ]\n'''
+          replace_once('statgpu/panel/_between.py', between_old, between_new)
+
+          test_path = Path('dev/tests/test_panel_stage_c_api_formula.py')
+          text = test_path.read_text(encoding='utf-8')
+          marker = '''\n\ndef test_random_effects_formula_matches_patsy_categorical_interaction_transform_matrix():\n'''
+          if text.count(marker) != 1:
+              raise RuntimeError('formula insertion marker drifted')
+          tests = '''\n\n@pytest.mark.parametrize("estimator", [PooledOLS, BetweenOLS])\n@pytest.mark.parametrize("formula", ["y ~ 0 + x + z", "y ~ x + z - 1"])\ndef test_always_intercept_estimators_reject_explicit_no_intercept_formula(\n    estimator, formula\n):\n    data = _frame(128037)\n    kwargs = {}\n    if estimator is BetweenOLS:\n        kwargs["entity_ids"] = data["entity"].to_numpy()\n    with pytest.raises(ValueError, match="always includes an intercept"):\n        estimator().fit(formula=formula, data=data, **kwargs)\n\n'''
+          text = text.replace(marker, tests + marker, 1)
+          test_path.write_text(text, encoding='utf-8')
+
+          docs = [
+              ('docs/en/models/panel.md',
+               '`entity_ids` is optional and does not change coefficients; it enables standardized within/between R² and the panel BP-LM diagnostic.\n',
+               '`entity_ids` is optional and does not change coefficients; it enables standardized within/between R² and the panel BP-LM diagnostic. `PooledOLS` and `BetweenOLS` always include an intercept, so formulas that explicitly remove it (for example, `0 +` or `-1`) are rejected rather than silently ignored.\n'),
+              ('docs/cn/models/panel.md',
+               '`entity_ids` 是可选参数，不改变系数；提供后可计算标准化的组内/组间 R² 与面板 BP-LM 诊断。\n',
+               '`entity_ids` 是可选参数，不改变系数；提供后可计算标准化的组内/组间 R² 与面板 BP-LM 诊断。`PooledOLS` 与 `BetweenOLS` 始终包含截距，因此显式移除截距的公式（例如 `0 +` 或 `-1`）会直接报错，而不会被静默忽略。\n'),
+          ]
+          for path, old, new in docs:
+              replace_once(path, old, new)
+
+          review_path = Path('dev/reviews/pr126_physical_gpu_validation.md')
+          review = review_path.read_text(encoding='utf-8')
+          marker = '- **[HIGH][FORMULA/INFER] fixed** — PooledOLS/BetweenOLS formula-added intercept metadata is preserved in summaries and `ParameterInferenceResult`.\n'
+          addition = marker + '- **[HIGH][FORMULA/API] fixed** — always-intercept PooledOLS/BetweenOLS now reject explicit no-intercept formulas instead of silently ignoring `0 +` / `-1`.\n'
+          if review.count(marker) != 1:
+              raise RuntimeError('review finding marker drifted')
+          review_path.write_text(review.replace(marker, addition, 1), encoding='utf-8')
+          PY
+      - name: Run formula and golden regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_formula.py \
+            dev/tests/test_panel_stage_a_golden.py \
+            -q --tb=short
+      - name: Commit fix and self-delete helper
+        shell: bash
+        run: |
+          git config user.name 'Ziqian Lin'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git rm .github/workflows/pr126-fix-no-intercept-formula.yml
+          git add statgpu/panel/_pooled.py statgpu/panel/_between.py \
+                  dev/tests/test_panel_stage_c_api_formula.py \
+                  docs/en/models/panel.md docs/cn/models/panel.md \
+                  dev/reviews/pr126_physical_gpu_validation.md
+          git commit -m 'fix: reject unsupported no-intercept panel formulas'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
