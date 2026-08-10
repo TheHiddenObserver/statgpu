@@ -27,10 +27,12 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install -U pip
-          python -m pip install pytest 'jsonschema[format]' numpy scipy pandas patsy
+          python -m pip install -e '.[formula]' pytest 'jsonschema[format]'
       - name: Apply evidence promotion
         run: python dev/benchmarks/_pr126_promote_postreview_p100.py
       - name: Focused promotion and review-fix contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest \
             dev/tests/test_panel_stage_c_frontend_source.py \
@@ -42,6 +44,8 @@ jobs:
             dev/tests/test_panel_stage_c_api_formula.py \
             -q --tb=short
       - name: Generate canonical assets
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           python dev/benchmarks/generate_benchmark_data.py \
             --out frontend/public/data/benchmark_data.json \
@@ -53,6 +57,8 @@ jobs:
           cp frontend/public/data/source_inventory.json docs/assets/benchmarks/data/source_inventory.json
           python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
       - name: Check deterministic regeneration
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           sha256sum frontend/public/data/benchmark_data.json frontend/public/data/parse_report.json frontend/public/data/source_inventory.json > /tmp/before.sha
           python dev/benchmarks/generate_benchmark_data.py \
@@ -74,8 +80,6 @@ jobs:
       - name: Diff hygiene
         run: git diff --check
       - name: Commit validated permanent promotion
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
