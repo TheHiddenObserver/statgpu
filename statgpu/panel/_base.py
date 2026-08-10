@@ -15,7 +15,11 @@ import numpy as np
 from statgpu._base import BaseEstimator
 from statgpu.backends import _to_numpy, xp_asarray, xp_maximum, xp_ones
 from statgpu.panel._results import build_panel_index_info
-from statgpu.panel._utils import PanelSummary, validate_panel_alpha, validate_panel_numeric_data
+from statgpu.panel._utils import (
+    PanelSummary,
+    validate_panel_alpha,
+    validate_panel_numeric_data,
+)
 
 
 class BasePanelModel(BaseEstimator):
@@ -32,7 +36,10 @@ class BasePanelModel(BaseEstimator):
         support_pipe: bool = False,
         side_arrays: Optional[Dict[str, object]] = None,
     ):
-        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
+        from statgpu.panel._formula import (
+            _align_formula_side_array,
+            _prepare_formula_fit,
+        )
 
         (
             y_data,
@@ -81,12 +88,18 @@ class BasePanelModel(BaseEstimator):
         X_device = self._to_array(X, backend=backend.name)
         y_device = self._to_array(y, backend=backend.name)
         X_arr = xp_asarray(X_device, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y_device, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
+        y_arr = xp_asarray(
+            y_device, dtype=xp.float64, xp=xp, ref_arr=X_arr
+        ).ravel()
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if validate_alpha and hasattr(self, "alpha"):
             validate_panel_alpha(self.alpha)
         validate_panel_numeric_data(X_arr, y_arr, xp)
+        # Persist the backend actually selected at the numerical fit boundary.
+        # Physical validation must not reconstruct this provenance later from
+        # the requested device, since that cannot detect a silent fallback.
+        self._backend_name = backend.name
         return backend, xp, X_arr, y_arr
 
     def _panel_set_index_info(self, nobs, *, entity_ids=None, time_ids=None):
@@ -184,7 +197,9 @@ class BasePanelModel(BaseEstimator):
                 X_arr = xp.concatenate([ones, X_arr], axis=1)
 
         value = self.coef_ if params is None else params
-        params_dev = xp_asarray(value, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
+        params_dev = xp_asarray(
+            value, dtype=xp.float64, xp=xp, ref_arr=X_arr
+        ).ravel()
         if int(X_arr.shape[1]) != int(params_dev.shape[0]):
             raise ValueError("X has an incompatible feature count")
         prediction = X_arr @ params_dev
@@ -213,6 +228,7 @@ class BasePanelModel(BaseEstimator):
     ):
         """Store residual-based OLS inference from the shared covariance registry."""
         from statgpu.inference._distributions_backend import get_distribution
+        from statgpu.inference._results import ParameterInferenceResult
         from statgpu.panel._covariance import (
             normalize_covariance_type,
             ols_covariance,
@@ -239,31 +255,40 @@ class BasePanelModel(BaseEstimator):
             metadata=covariance_metadata,
         )
         self._covariance_metadata = covariance_metadata
-        # Persist only the final k x k matrix. Observation-scale X/residual arrays
-        # remain on the selected backend. `_panel_cov_params` exposes the
-        # diagnostic version and may rescale this raw copy after fit metadata is
-        # available; public inference values below always use cov_params.
         self._panel_cov_params_raw = np.asarray(
             _to_numpy(cov_params), dtype=np.float64
         )
 
         diag = xp.diag(cov_params)
+        diag_abs_max = float(_to_numpy(xp.max(xp.abs(diag))))
+        negative_tol = (
+            4096.0
+            * np.finfo(np.float64).eps
+            * max(1.0, diag_abs_max)
+        )
+        diag_min = float(_to_numpy(xp.min(diag)))
+        if diag_min < -negative_tol:
+            raise ValueError(
+                "covariance has materially negative diagonal variance; "
+                "inference is not numerically valid"
+            )
+        # Only suppress roundoff-scale negative zeros.  A material negative
+        # variance must fail closed before any historical diagonal floor is used.
+        diag = xp_maximum(diag, 0.0, xp)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)
         bse_dev = xp.sqrt(diag)
         if diag_floor is None:
             tvalues_dev = params / bse_dev
         else:
-            denominator = xp_maximum(bse_dev, np.finfo(np.float64).tiny, xp)
+            denominator = xp_maximum(
+                bse_dev, np.finfo(np.float64).tiny, xp
+            )
             tvalues_dev = params / denominator
 
         dist_name = "t" if canonical_cov_type == "nonrobust" else "norm"
         df = int(df_resid if distribution_df is None else distribution_df)
         if dist_name == "t" and df == 1:
-            # Student-t with one residual degree of freedom is exactly a
-            # standard Cauchy distribution.  Using this closed-form boundary
-            # avoids inverse-beta endpoint singularities in backend fallbacks
-            # while keeping the computation backend-native on NumPy/CuPy/Torch.
             distribution = get_distribution("cauchy", backend=backend.name)
             pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
             critical = distribution.isf(float(self.alpha) / 2)
@@ -288,6 +313,25 @@ class BasePanelModel(BaseEstimator):
         self.conf_int_ = np.asarray(
             _to_numpy(xp.stack([conf_low, conf_high], axis=1))
         )
+
+        feature_names = getattr(self, "_feature_names", None)
+        if feature_names is not None and len(feature_names) != len(self.coef_):
+            feature_names = None
+        inference = ParameterInferenceResult(
+            method="panel_ols",
+            feature_names=feature_names,
+            metadata={"covariance": dict(covariance_metadata)},
+            params=self.coef_,
+            bse=self.bse_,
+            statistic=self.tvalues_,
+            statistic_name="t" if dist_name == "t" else "z",
+            pvalues=self.pvalues_,
+            conf_int=self.conf_int_,
+            cov_type=canonical_cov_type,
+            distribution="t" if dist_name == "t" else "normal",
+            df=float(df) if dist_name == "t" else None,
+        )
+        inference.apply_to(self)
         return cov_params
 
     def _panel_summary(
@@ -312,7 +356,9 @@ class BasePanelModel(BaseEstimator):
         coef_np = np.asarray(_to_numpy(self.coef_)).ravel()
         if feature_names_override is None:
             feature_names = _get_feature_names(
-                getattr(self, "_feature_names", None), len(coef_np), prefix=prefix
+                getattr(self, "_feature_names", None),
+                len(coef_np),
+                prefix=prefix,
             )
         else:
             feature_names = list(feature_names_override)
