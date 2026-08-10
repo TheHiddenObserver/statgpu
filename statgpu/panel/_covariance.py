@@ -2,8 +2,9 @@
 
 Stage C of Issue #93 extends the Stage-A residual-OLS covariance registry with
 HC0/HC2/HC3, explicit cluster group debiasing, and Driscoll-Kraay covariance.
-Existing nonrobust, historical HC1 (``robust``), clustered, and row-order HAC
-contracts remain backward compatible.
+Covariance breads are built from the design pseudoinverse rather than normal
+equations so full-rank but ill-conditioned designs do not square the condition
+number before inference.
 """
 from __future__ import annotations
 
@@ -21,7 +22,6 @@ from typing import Optional
 import numpy as np
 
 from statgpu.backends import (
-    _LINALG_ERRORS,
     _get_xp,
     _resolve_backend,
     _to_float_scalar,
@@ -29,6 +29,7 @@ from statgpu.backends import (
     xp_asarray,
     xp_zeros,
 )
+from statgpu.panel._utils import factorize_panel_metadata
 
 
 _COVARIANCE_ALIASES = {
@@ -69,23 +70,34 @@ def _matrix_rank(X, xp) -> int:
     return int(_to_float_scalar(xp.linalg.matrix_rank(X)))
 
 
-def _gram_inverse(X, xp, *, rank_aware: bool = False):
-    """Return inverse/pseudoinverse of X'X and the design rank.
+def _design_pseudoinverse(X, xp):
+    """Return X+, (X'X)+ and numerical rank without forming X'X first."""
+    X_pinv = xp.linalg.pinv(X)
+    bread = X_pinv @ X_pinv.T
+    return X_pinv, bread, _matrix_rank(X, xp)
 
-    Existing covariance paths keep their historical inverse-then-pseudoinverse
-    fallback. New rank-aware paths deliberately choose the pseudoinverse when
-    the fit-space design is numerically rank deficient so correctness does not
-    depend on backend-specific singular-inverse behavior.
+
+def _gram_inverse(X, xp, *, rank_aware: bool = False):
+    """Compatibility helper returning a stable generalized inverse of X'X.
+
+    ``rank_aware`` is retained for the existing internal signature.  The stable
+    implementation always derives the bread from ``X+``; it never attempts
+    ``inv(X'X)`` merely because ``X`` is still classified as full rank.
     """
-    gram = X.T @ X
-    rank = _matrix_rank(X, xp)
-    k = int(X.shape[1])
-    if rank_aware and rank < k:
-        return xp.linalg.pinv(gram), rank
-    try:
-        return xp.linalg.inv(gram), rank
-    except _LINALG_ERRORS:
-        return xp.linalg.pinv(gram), rank
+    del rank_aware
+    _X_pinv, bread, rank = _design_pseudoinverse(X, xp)
+    return bread, rank
+
+
+def _influence_rows(X, resid, xp):
+    """Return observation OLS influence rows e_i * ((X+)')_i."""
+    X_pinv, bread, rank = _design_pseudoinverse(X, xp)
+    influence = X_pinv.T * resid[:, None]
+    return influence, X_pinv, bread, rank
+
+
+def _symmetrize(matrix):
+    return 0.5 * (matrix + matrix.T)
 
 
 def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
@@ -116,74 +128,11 @@ def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
     return out
 
 
-def _ordered_categorical_factorization(values, *, nobs: int, name: str):
-    """Return observed ordered-categorical labels/codes without losing chronology.
-
-    pandas ordered categoricals carry an explicit semantic order that can differ
-    from lexical label order (for example ``t1, t2, t10``).  Preserve that
-    metadata before any NumPy coercion.  Unused categories are omitted so the
-    existing Stage-C contract continues to operate on distinct *observed*
-    periods, while observed categories retain their declared relative order.
-    """
-    candidate = getattr(values, "array", values)
-    dtype = getattr(candidate, "dtype", None)
-    categories = getattr(dtype, "categories", None)
-    if categories is None or not bool(getattr(dtype, "ordered", False)):
-        return None
-    codes = getattr(candidate, "codes", None)
-    if codes is None:
-        return None
-
-    codes_np = np.asarray(codes, dtype=np.int64).ravel()
-    if codes_np.shape[0] != int(nobs):
-        raise ValueError(f"{name} must be one-dimensional with length n_samples")
-    if np.any(codes_np < 0):
-        raise ValueError(f"{name} must not contain missing or non-finite values")
-
-    observed = np.unique(codes_np)
-    labels = np.asarray(categories)[observed]
-    remapped = np.searchsorted(observed, codes_np).astype(np.int64, copy=False)
-    return labels, remapped
-
-
 def _factorize_1d_labels(values, *, nobs: int, name: str):
-    categorical = _ordered_categorical_factorization(
-        values, nobs=nobs, name=name
+    labels, codes = factorize_panel_metadata(
+        values, name=name, expected_n=int(nobs)
     )
-    if categorical is not None:
-        return categorical
-
-    raw = np.asarray(_to_numpy(values))
-    if raw.ndim == 2 and raw.shape[1] == 1:
-        raw = raw[:, 0]
-    if raw.ndim != 1 or raw.shape[0] != int(nobs):
-        raise ValueError(f"{name} must be one-dimensional with length n_samples")
-
-    invalid = False
-    if np.issubdtype(raw.dtype, np.number):
-        invalid = bool(np.any(~np.isfinite(raw)))
-    elif np.issubdtype(raw.dtype, np.datetime64) or np.issubdtype(raw.dtype, np.timedelta64):
-        invalid = bool(np.any(np.isnat(raw)))
-    elif raw.dtype.kind == "O":
-        for value in raw:
-            if value is None:
-                invalid = True
-                break
-            if isinstance(value, (float, np.floating, complex, np.complexfloating)):
-                if not bool(np.isfinite(value)):
-                    invalid = True
-                    break
-            if isinstance(value, (np.datetime64, np.timedelta64)) and bool(np.isnat(value)):
-                invalid = True
-                break
-    if invalid:
-        raise ValueError(f"{name} must not contain missing or non-finite values")
-
-    try:
-        labels, codes = np.unique(raw, return_inverse=True)
-    except TypeError as exc:
-        raise ValueError(f"{name} values must have a deterministic sortable identity") from exc
-    return labels, codes.astype(np.int64, copy=False)
+    return labels, codes
 
 
 def _paired_codes(left, right):
@@ -219,41 +168,30 @@ def clustered_covariance(
     group_debias: bool = False,
     metadata: Optional[dict] = None,
 ):
-    """One-way clustered robust covariance matrix.
-
-    The default is the historical uncorrected statgpu sandwich. Setting
-    ``group_debias=True`` multiplies the grouped meat by
-    ``(G/(G-1))*((n-1)/n)``.
-    """
+    """One-way clustered robust covariance matrix."""
     xp = _ensure_xp(xp, X)
     group_debias = _validate_group_debias(group_debias)
 
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
-
     if X.ndim != 2:
         raise ValueError("X must be two-dimensional")
-    n, k = X.shape
+    n, _k = X.shape
     labels, cluster_idx = _factorize_1d_labels(
         clusters, nobs=int(n), name="clusters"
     )
     if resid.shape[0] != n:
         raise ValueError("X and resid must have the same number of observations")
 
-    XtX = X.T @ X / n
-    try:
-        bread = xp.linalg.inv(XtX)
-    except _LINALG_ERRORS:
-        bread = xp.linalg.pinv(XtX)
-
-    scores = X * resid[:, None]
+    influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
     n_clusters = int(len(labels))
-    S = _grouped_score_sums(scores, cluster_idx, n_groups=n_clusters, xp=xp)
-    meat = S.T @ S
+    grouped = _grouped_score_sums(
+        influence, cluster_idx, n_groups=n_clusters, xp=xp
+    )
     correction = 1.0
-    if bool(group_debias):
+    if group_debias:
         correction = _group_debias_factor(n_clusters, int(n))
-        meat = meat * correction
+    cov = _symmetrize(grouped.T @ grouped * float(correction))
     if metadata is not None:
         metadata.update(
             {
@@ -263,7 +201,7 @@ def clustered_covariance(
                 "group_debias_factors": [float(correction)],
             }
         )
-    return bread @ meat @ bread / (n * n)
+    return cov
 
 
 def two_way_clustered_covariance(
@@ -329,7 +267,7 @@ def two_way_clustered_covariance(
                 ],
             }
         )
-    return V1 + V2 - V12
+    return _symmetrize(V1 + V2 - V12)
 
 
 def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
@@ -338,63 +276,64 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     if str(kernel).lower() != "bartlett":
         raise ValueError("kernel must be 'bartlett'")
     if bandwidth is not None:
-        if isinstance(bandwidth, bool) or not isinstance(bandwidth, (int, np.integer)):
+        if isinstance(bandwidth, bool) or not isinstance(
+            bandwidth, (int, np.integer)
+        ):
             raise ValueError("bandwidth must be a non-negative integer or None")
         if int(bandwidth) < 0:
             raise ValueError("bandwidth must be a non-negative integer or None")
 
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
-
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
         raise ValueError("X and resid must have matching observation counts")
-    n, _ = X.shape
+    n = int(X.shape[0])
 
     if bandwidth is None:
         bandwidth = int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))
-    bandwidth = max(0, min(int(bandwidth), int(n) - 1))
+    bandwidth = max(0, min(int(bandwidth), n - 1))
 
-    XtX = X.T @ X / n
-    try:
-        bread = xp.linalg.inv(XtX)
-    except _LINALG_ERRORS:
-        bread = xp.linalg.pinv(XtX)
-
-    scores = X * resid[:, None]
-    meat = scores.T @ scores / n
-
+    influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
+    cov = influence.T @ influence
     for h in range(1, bandwidth + 1):
         w = 1.0 - h / (bandwidth + 1.0)
-        gamma_h = scores[h:].T @ scores[: n - h] / n
-        meat = meat + w * (gamma_h + gamma_h.T)
-
-    return bread @ meat @ bread / n
+        gamma_h = influence[h:].T @ influence[: n - h]
+        cov = cov + w * (gamma_h + gamma_h.T)
+    return _symmetrize(cov)
 
 
 def _canonical_kernel(kernel: str) -> str:
     name = str(kernel).strip().lower()
     if name not in _KERNEL_ALIASES:
         choices = ", ".join(sorted(_KERNEL_ALIASES))
-        raise ValueError(f"unsupported Driscoll-Kraay kernel {kernel!r}; expected one of: {choices}")
+        raise ValueError(
+            f"unsupported Driscoll-Kraay kernel {kernel!r}; expected one of: {choices}"
+        )
     return _KERNEL_ALIASES[name]
 
 
 def _validate_dk_bandwidth(bandwidth, n_periods: int) -> int:
     if bandwidth is None:
         bandwidth = int(np.floor(4.0 * (n_periods / 100.0) ** (2.0 / 9.0)))
-    if isinstance(bandwidth, bool) or not isinstance(bandwidth, (int, np.integer)):
-        raise ValueError("Driscoll-Kraay bandwidth must be a non-negative integer or None")
+    if isinstance(bandwidth, bool) or not isinstance(
+        bandwidth, (int, np.integer)
+    ):
+        raise ValueError(
+            "Driscoll-Kraay bandwidth must be a non-negative integer or None"
+        )
     bandwidth = int(bandwidth)
     if bandwidth < 0:
-        raise ValueError("Driscoll-Kraay bandwidth must be a non-negative integer or None")
-    # Do not silently cap an explicit bandwidth at T-1. Bartlett/Parzen use the
-    # requested bandwidth in their weight denominator even though only observed
-    # lags 1,...,T-1 can contribute; QS uses bandwidth as a smoothing scale over
-    # all observed lags. Silent capping changes the requested covariance.
+        raise ValueError(
+            "Driscoll-Kraay bandwidth must be a non-negative integer or None"
+        )
+    # Explicit oversized bandwidths are smoothing parameters, not silently
+    # capped lags. Only observed lags can contribute to the covariance.
     return bandwidth
 
 
-def _dk_kernel_weights(kernel: str, bandwidth: int, max_lag: int) -> tuple[str, np.ndarray]:
+def _dk_kernel_weights(
+    kernel: str, bandwidth: int, max_lag: int
+) -> tuple[str, np.ndarray]:
     """Return canonical DK kernel name and weights for lags 0..max_lag."""
     canonical = _canonical_kernel(kernel)
     max_lag = int(max_lag)
@@ -421,11 +360,20 @@ def _dk_kernel_weights(kernel: str, bandwidth: int, max_lag: int) -> tuple[str, 
         weights[1 : stop + 1] = w
         return canonical, weights
 
-    # Quadratic spectral uses bandwidth as a smoothing scale and is not
-    # truncated at bandwidth. All observed lags receive a weight.
+    # Quadratic spectral is not truncated at bandwidth.  Its direct expression
+    # catastrophically cancels for x -> 0, so use the analytic series there:
+    # 3/x^2 (sin(x)/x - cos(x))
+    #   = 1 - x^2/10 + x^4/280 - x^6/15120 + O(x^8).
     lag = np.arange(1, max_lag + 1, dtype=np.float64)
     x = 6.0 * np.pi * lag / (5.0 * bandwidth)
-    weights[1:] = 3.0 / (x * x) * (np.sin(x) / x - np.cos(x))
+    small = np.abs(x) < 1.0e-3
+    w = np.empty_like(x)
+    x2 = x[small] * x[small]
+    w[small] = 1.0 - x2 / 10.0 + x2 * x2 / 280.0 - x2 * x2 * x2 / 15120.0
+    regular = ~small
+    xr = x[regular]
+    w[regular] = 3.0 / (xr * xr) * (np.sin(xr) / xr - np.cos(xr))
+    weights[1:] = w
     return canonical, weights
 
 
@@ -440,22 +388,21 @@ def driscoll_kraay_covariance(
     xp=None,
     metadata: Optional[dict] = None,
 ):
-    """Driscoll-Kraay covariance on fit-space scores.
-
-    Full-rank scaling matches linearmodels 7.0 with ``debiased=True``. A
-    rank-deficient statgpu fit uses the numerical design rank with a
-    pseudoinverse as the documented Stage-C extension.
-    """
+    """Driscoll-Kraay covariance on fit-space influence scores."""
     xp = _ensure_xp(xp, X)
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
         raise ValueError("X and resid must have matching observation counts")
     n = int(X.shape[0])
-    labels, time_codes = _factorize_1d_labels(time_ids, nobs=n, name="time_ids")
+    labels, time_codes = _factorize_1d_labels(
+        time_ids, nobs=n, name="time_ids"
+    )
     n_periods = int(len(labels))
     if n_periods < 2:
-        raise ValueError("Driscoll-Kraay covariance requires at least two time periods")
+        raise ValueError(
+            "Driscoll-Kraay covariance requires at least two time periods"
+        )
 
     if isinstance(extra_df, bool) or not isinstance(extra_df, (int, np.integer)):
         raise ValueError("extra_df must be a non-negative integer")
@@ -463,7 +410,7 @@ def driscoll_kraay_covariance(
     if extra_df < 0:
         raise ValueError("extra_df must be a non-negative integer")
 
-    bread, rank = _gram_inverse(X, xp, rank_aware=True)
+    influence, _X_pinv, _bread, rank = _influence_rows(X, resid, xp)
     k_columns = int(X.shape[1])
     rank_deficient = rank < k_columns
     df_model = rank if rank_deficient else k_columns
@@ -473,8 +420,9 @@ def driscoll_kraay_covariance(
             "Driscoll-Kraay covariance requires positive debiased residual degrees of freedom"
         )
 
-    scores = X * resid[:, None]
-    grouped = _grouped_score_sums(scores, time_codes, n_groups=n_periods, xp=xp)
+    grouped = _grouped_score_sums(
+        influence, time_codes, n_groups=n_periods, xp=xp
+    )
     bw = _validate_dk_bandwidth(bandwidth, n_periods)
     canonical_kernel, weights_np = _dk_kernel_weights(
         kernel, bw, n_periods - 1
@@ -486,16 +434,15 @@ def driscoll_kraay_covariance(
         ref_arr=grouped,
     )
 
-    meat = grouped.T @ grouped
+    cov = grouped.T @ grouped
     for lag in range(1, n_periods):
         if weights_np[lag] == 0.0:
             continue
         gamma = grouped[lag:].T @ grouped[: n_periods - lag]
-        meat = meat + weights[lag] * (gamma + gamma.T)
+        cov = cov + weights[lag] * (gamma + gamma.T)
 
     scale = float(n) / float(denom)
-    cov = scale * (bread @ meat @ bread)
-    cov = 0.5 * (cov + cov.T)
+    cov = _symmetrize(scale * cov)
     if metadata is not None:
         nonzero_lags = np.flatnonzero(np.abs(weights_np[1:]) > 0.0) + 1
         metadata.update(
@@ -504,7 +451,9 @@ def driscoll_kraay_covariance(
                 "kernel": canonical_kernel,
                 "bandwidth": int(bw),
                 "n_periods": n_periods,
-                "max_weighted_lag": int(nonzero_lags.max()) if nonzero_lags.size else 0,
+                "max_weighted_lag": int(nonzero_lags.max())
+                if nonzero_lags.size
+                else 0,
                 "all_observed_lags_weighted": bool(
                     canonical_kernel == "qs" and bw > 0
                 ),
@@ -518,11 +467,11 @@ def driscoll_kraay_covariance(
     return cov
 
 
-def _hc_covariance(X, resid, *, kind: str, xp, metadata: Optional[dict] = None):
-    bread, rank = _gram_inverse(X, xp, rank_aware=True)
-    scores = X * resid[:, None]
+def _hc_covariance(
+    X, resid, *, kind: str, xp, metadata: Optional[dict] = None
+):
+    influence, X_pinv, _bread, rank = _influence_rows(X, resid, xp)
     if kind == "hc0":
-        meat = scores.T @ scores
         if metadata is not None:
             metadata.update(
                 {
@@ -531,16 +480,16 @@ def _hc_covariance(X, resid, *, kind: str, xp, metadata: Optional[dict] = None):
                     "design_columns": int(X.shape[1]),
                 }
             )
-        return bread @ meat @ bread
+        return _symmetrize(influence.T @ influence)
 
-    projected = X @ bread
+    projection_rows = X_pinv.T
     if _is_torch(xp):
-        leverage = xp.sum(projected * X, dim=1)
+        leverage = xp.sum(X * projection_rows, dim=1)
     else:
-        leverage = xp.sum(projected * X, axis=1)
+        leverage = xp.sum(X * projection_rows, axis=1)
     leverage_min = _to_float_scalar(xp.min(leverage))
     leverage_max = _to_float_scalar(xp.max(leverage))
-    tol = 256.0 * np.finfo(np.float64).eps
+    tol = 4096.0 * np.finfo(np.float64).eps
     if leverage_min < -tol:
         raise ValueError("HC2/HC3 leverage is materially negative")
     if leverage_max > 1.0 + tol:
@@ -552,15 +501,16 @@ def _hc_covariance(X, resid, *, kind: str, xp, metadata: Optional[dict] = None):
     denominator = 1.0 - leverage
     denominator_min = _to_float_scalar(xp.min(denominator))
     if denominator_min <= tol:
-        raise ValueError("HC2/HC3 covariance is undefined when leverage is numerically one")
+        raise ValueError(
+            "HC2/HC3 covariance is undefined when leverage is numerically one"
+        )
     if kind == "hc2":
         adjusted_resid = resid / xp.sqrt(denominator)
     elif kind == "hc3":
         adjusted_resid = resid / denominator
     else:
         raise ValueError(f"unknown HC covariance kind {kind!r}")
-    adjusted_scores = X * adjusted_resid[:, None]
-    meat = adjusted_scores.T @ adjusted_scores
+    adjusted_influence = projection_rows * adjusted_resid[:, None]
     if metadata is not None:
         metadata.update(
             {
@@ -571,7 +521,7 @@ def _hc_covariance(X, resid, *, kind: str, xp, metadata: Optional[dict] = None):
                 "leverage_max": float(leverage_max),
             }
         )
-    return bread @ meat @ bread
+    return _symmetrize(adjusted_influence.T @ adjusted_influence)
 
 
 def ols_covariance(
@@ -620,22 +570,11 @@ def ols_covariance(
     if name == "nonrobust":
         if scale is None:
             raise ValueError("scale is required for nonrobust covariance")
-        XtX = X.T @ X
-        try:
-            bread = xp.linalg.inv(XtX)
-        except _LINALG_ERRORS:
-            bread = xp.linalg.pinv(XtX)
-        return float(scale) * bread
+        _X_pinv, bread, _rank = _design_pseudoinverse(X, xp)
+        return _symmetrize(float(scale) * bread)
 
     if name == "robust":
-        # Preserve the historical HC1 path byte-for-byte in formula/scale.
-        XtX = X.T @ X
-        try:
-            bread = xp.linalg.inv(XtX)
-        except _LINALG_ERRORS:
-            bread = xp.linalg.pinv(XtX)
-        scores = X * resid[:, None]
-        meat = scores.T @ scores
+        influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
         correction = hc1_correction
         if correction is None:
             if df_resid is None or int(df_resid) <= 0:
@@ -651,10 +590,14 @@ def ols_covariance(
                     "hc1_correction": float(correction),
                 }
             )
-        return bread @ meat @ bread * float(correction)
+        return _symmetrize(
+            influence.T @ influence * float(correction)
+        )
 
     if name in {"hc0", "hc2", "hc3"}:
-        return _hc_covariance(X, resid, kind=name, xp=xp, metadata=metadata)
+        return _hc_covariance(
+            X, resid, kind=name, xp=xp, metadata=metadata
+        )
 
     if name == "clustered":
         if cluster is None:
@@ -673,7 +616,9 @@ def ols_covariance(
         if cluster_np.ndim == 2 and cluster_np.shape[1] == 1:
             cluster_np = cluster_np[:, 0]
         if cluster_np.ndim != 1:
-            raise ValueError("cluster must be one-dimensional, (n, 1), or (n, 2)")
+            raise ValueError(
+                "cluster must be one-dimensional, (n, 1), or (n, 2)"
+            )
         return clustered_covariance(
             X,
             resid,
@@ -699,7 +644,9 @@ def ols_covariance(
 
     if name == "driscoll-kraay":
         if time_ids is None:
-            raise ValueError("time_ids is required for Driscoll-Kraay covariance")
+            raise ValueError(
+                "time_ids is required for Driscoll-Kraay covariance"
+            )
         return driscoll_kraay_covariance(
             X,
             resid,
