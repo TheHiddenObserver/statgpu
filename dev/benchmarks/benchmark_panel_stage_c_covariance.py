@@ -183,7 +183,9 @@ def _timed(case, X, y, entity, time_ids, clusters, backend):
     model = _fit_case(case, X, y, entity, time_ids, clusters, backend)
     _sync(backend)
     elapsed = time.perf_counter() - start
-    executed = model._get_backend(backend="auto").name
+    executed = getattr(model, "_backend_name", None)
+    if executed is None:
+        raise AssertionError(f"{case}: fit did not persist executed backend provenance")
     if executed != backend:
         raise AssertionError(f"{case}: requested {backend}, executed {executed}")
     return elapsed
@@ -229,7 +231,6 @@ def main():
                 X_np, y_np, entity_np, time_np, backend
             )
             for case in cases:
-                # Warm-up includes import/allocator/kernel setup before samples.
                 _timed(case, X, y, entity, time_ids, clusters, backend)
                 samples = [
                     _timed(case, X, y, entity, time_ids, clusters, backend)
