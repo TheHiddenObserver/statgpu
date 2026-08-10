@@ -91,6 +91,10 @@ jobs:
           git diff --check
       - name: Commit validated evidence promotion
         run: |
+          # The GitHub Actions token cannot update permanent workflow files.
+          # The reviewed benchmark-frontend routing change is applied separately
+          # through the authenticated GitHub connector after this promotion lands.
+          git restore .github/workflows/benchmark-frontend.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
