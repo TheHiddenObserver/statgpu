@@ -41,7 +41,8 @@ The fresh evidence is now the registered Stage-C canonical source contract:
 - the canonical benchmark bundle contains 1984 runs after adding the eight newly promoted primitive rows;
 - recorded maximum absolute differences are treated as finite diagnostics, while the physical runner's `status=success` remains authoritative for its `rtol+atol` NumPy parity check because the artifact does not store the reference magnitudes needed to reconstruct the relative-tolerance term;
 - the prior `c151550a...` and `9c0b3050...` artifacts remain immutable historical/non-current evidence;
-- deterministic benchmark frontend assets were regenerated after promotion, and temporary promotion helpers are absent from the final tree.
+- deterministic benchmark frontend assets were regenerated after promotion, and temporary promotion helpers are absent from the final tree;
+- the promotion audit also verified and restored the pre-existing PR #122 canonical SHA-256 assertion after a broad run-count replacement accidentally touched the `1976` digit sequence inside that immutable hash; no Stage-B source, parser, or artifact content was changed.
 
 ## Superseded historical evidence
 
