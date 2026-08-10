@@ -159,7 +159,7 @@ def test_pipe_formula_rejects_missing_fixed_effect_labels(column, expected_name)
 
 def test_formula_aligned_cluster_rejects_missing_labels():
     data = _frame(128032)
-    clusters = data["entity"].astype(object).to_numpy()
+    clusters = data["entity"].astype(object).to_numpy().copy()
     clusters[4] = None
     with pytest.raises(ValueError, match="clusters.*missing or non-finite"):
         PooledOLS(cov_type="clustered").fit(
