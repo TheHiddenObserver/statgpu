@@ -210,15 +210,16 @@ def test_random_effects_hc2_hc3_matches_statsmodels_on_statgpu_fit_space(cov_typ
     assert_allclose(sg._panel_cov_params_raw, expected, rtol=5e-9, atol=5e-11)
 
 
-def test_random_effects_group_debiased_cluster_matches_linearmodels_on_statgpu_fit_space():
+def test_random_effects_two_way_cluster_fails_closed_when_reference_variance_is_negative():
     X, y, entity, time = _panel(12727)
     X = np.column_stack([np.ones(len(y)), X])
     clusters = np.column_stack([entity, time])
-    sg = RandomEffects(cov_type="clustered", group_debias=True).fit(
-        X, y, entity_ids=entity, cluster=clusters
-    )
-    X_star, y_star, params, _ = _re_fit_space(X, y, entity, sg)
 
+    # Reconstruct the same Swamy-Arora fit space from a covariance-invariant
+    # successful fit, then verify the external two-way cluster definition really
+    # has a materially negative variance for this deterministic fixture.
+    base = RandomEffects(cov_type="nonrobust").fit(X, y, entity_ids=entity)
+    X_star, y_star, params, _ = _re_fit_space(X, y, entity, base)
     expected = ClusteredCovariance(
         y_star[:, None],
         X_star,
@@ -230,8 +231,15 @@ def test_random_effects_group_debiased_cluster_matches_linearmodels_on_statgpu_f
         clusters=clusters,
         group_debias=True,
     ).cov
-    assert_allclose(sg._panel_cov_params_raw, expected, rtol=5e-9, atol=5e-11)
-    assert sg._covariance_metadata["cluster_dimensions"] == 2
+    assert np.min(np.diag(expected)) < -1.0e-12
+
+    with pytest.raises(
+        ValueError,
+        match="materially negative diagonal variance",
+    ):
+        RandomEffects(cov_type="clustered", group_debias=True).fit(
+            X, y, entity_ids=entity, cluster=clusters
+        )
 
 
 def test_random_effects_dk_matches_linearmodels_on_statgpu_fit_space():
