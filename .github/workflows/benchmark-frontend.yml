@@ -16,10 +16,12 @@ on:
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/test_panel_stage_b_frontend_source.py'
       - 'dev/tests/test_panel_stage_b_applicable_hausman_parser.py'
+      - 'dev/tests/test_panel_stage_c_frontend_source.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
       - 'results/benchmark_frontend_sources/**'
+      - 'results/pr126_p100/**'
       - 'pyproject.toml'
   pull_request:
     paths:
@@ -35,10 +37,12 @@ on:
       - 'dev/tests/test_frontend_domain_coverage.py'
       - 'dev/tests/test_panel_stage_b_frontend_source.py'
       - 'dev/tests/test_panel_stage_b_applicable_hausman_parser.py'
+      - 'dev/tests/test_panel_stage_c_frontend_source.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
       - 'results/benchmark_frontend_sources/**'
+      - 'results/pr126_p100/**'
       - 'pyproject.toml'
 
 concurrency:
@@ -70,7 +74,8 @@ jobs:
             dev/tests/test_frontend_cv_determinism.py \
             dev/tests/test_frontend_domain_coverage.py \
             dev/tests/test_panel_stage_b_frontend_source.py \
-            dev/tests/test_panel_stage_b_applicable_hausman_parser.py -v
+            dev/tests/test_panel_stage_b_applicable_hausman_parser.py \
+            dev/tests/test_panel_stage_c_frontend_source.py -v
       - name: Validate generator output
         run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 
