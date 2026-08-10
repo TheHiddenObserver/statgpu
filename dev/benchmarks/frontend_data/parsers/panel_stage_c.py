@@ -117,7 +117,8 @@ def _bool_check(metric: str, ok: bool, **extra: Any) -> dict[str, Any]:
     return {"metric": metric, "status": "pass" if ok else "fail", **extra}
 
 
-def _finite_diff_map(value: Any, limit: float) -> bool:
+def _finite_diff_map(value: Any) -> bool:
+    """Validate stored difference diagnostics; runner success owns rtol+atol parity."""
     if not isinstance(value, dict) or not value:
         return False
     for item in value.values():
@@ -145,8 +146,6 @@ def parse_panel_stage_c_physical_validation(
 
     dataset = data.get("dataset", {})
     scale = _scale(dataset.get("nobs", 0), dataset.get("n_features", 0))
-    atol = float(data.get("tolerances", {}).get("atol", 0.0))
-    limit = max(atol, 1e-12)
     source_ok = data.get("status") == "success" and data.get("working_tree_clean") is True
     runs: list[dict] = []
     model_ids: set[str] = set()
@@ -170,7 +169,7 @@ def parse_panel_stage_c_physical_validation(
 
         for case_name in sorted(_EXPECTED_CASES):
             case = cases[case_name]
-            diff_ok = _finite_diff_map(case.get("max_abs_differences"), limit)
+            diff_ok = _finite_diff_map(case.get("max_abs_differences"))
             executed_ok = case.get("executed_backend") == backend
             case_ok = case.get("status") == "success"
             ok = source_ok and backend_ok and case_ok and executed_ok and diff_ok
