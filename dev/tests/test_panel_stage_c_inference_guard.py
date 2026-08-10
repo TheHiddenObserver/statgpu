@@ -14,6 +14,12 @@ class _DummyPanelModel(BasePanelModel):
         super().__init__(device="cpu", n_jobs=None)
         self.alpha = 0.05
 
+    def fit(self, X=None, y=None):
+        return self
+
+    def predict(self, X):
+        return np.asarray(X)
+
 
 def test_negative_variance_guard_is_local_to_each_coefficient(monkeypatch):
     """A huge variance elsewhere must not mask a substantive negative variance."""
