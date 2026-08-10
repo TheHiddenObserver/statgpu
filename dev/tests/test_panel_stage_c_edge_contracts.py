@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.panel import driscoll_kraay_covariance
+from statgpu.panel import PooledOLS, driscoll_kraay_covariance
 from statgpu.panel._covariance import clustered_covariance
 
 
@@ -78,3 +78,76 @@ def test_cluster_primitives_reject_nonboolean_group_debias(value):
     groups = np.repeat(np.arange(4), 2)
     with pytest.raises(ValueError, match="group_debias must be boolean"):
         clustered_covariance(X, resid, groups, group_debias=value)
+
+
+
+def test_dk_preserves_ordered_categorical_chronology():
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(12951)
+    labels = np.tile(np.array(["t1", "t2", "t10"], dtype=object), 9)
+    numeric = np.tile(np.arange(3), 9)
+    ordered = pd.Categorical(
+        labels,
+        categories=["t1", "t2", "t10"],
+        ordered=True,
+    )
+    X = np.column_stack([np.ones(labels.size), rng.normal(size=labels.size)])
+    resid = rng.normal(size=labels.size)
+
+    actual = driscoll_kraay_covariance(
+        X, resid, ordered, bandwidth=1, kernel="bartlett"
+    )
+    expected = driscoll_kraay_covariance(
+        X, resid, numeric, bandwidth=1, kernel="bartlett"
+    )
+    lexical = driscoll_kraay_covariance(
+        X, resid, np.asarray(ordered, dtype=object), bandwidth=1, kernel="bartlett"
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=2e-13, atol=2e-15)
+    assert not np.allclose(actual, lexical, rtol=1e-10, atol=1e-12)
+
+
+def test_dk_ordered_categorical_rejects_missing_codes():
+    pd = pytest.importorskip("pandas")
+    labels = pd.Categorical(
+        ["t1", "t2", None, "t10"],
+        categories=["t1", "t2", "t10"],
+        ordered=True,
+    )
+    X = np.column_stack([np.ones(4), np.arange(4.0)])
+    resid = np.linspace(-0.2, 0.3, 4)
+    with pytest.raises(ValueError, match="must not contain missing or non-finite values"):
+        driscoll_kraay_covariance(X, resid, labels, bandwidth=1)
+
+
+def test_pooled_formula_dk_preserves_ordered_categorical_after_row_alignment():
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(12952)
+    labels = np.tile(np.array(["t1", "t2", "t10"], dtype=object), 12)
+    numeric = np.tile(np.arange(3), 12)
+    ordered = pd.Categorical(
+        labels,
+        categories=["t1", "t2", "t10"],
+        ordered=True,
+    )
+    x = rng.normal(size=labels.size)
+    y = 0.4 + 0.7 * x + rng.normal(scale=0.2, size=labels.size)
+    x_with_gap = x.copy()
+    x_with_gap[5] = np.nan
+    data = pd.DataFrame({"y": y, "x": x_with_gap})
+
+    categorical_fit = PooledOLS(cov_type="dk", bandwidth=1).fit(
+        formula="y ~ x", data=data, time_index=ordered
+    )
+    numeric_fit = PooledOLS(cov_type="dk", bandwidth=1).fit(
+        formula="y ~ x", data=data, time_index=numeric
+    )
+
+    np.testing.assert_allclose(
+        categorical_fit.coef_, numeric_fit.coef_, rtol=0.0, atol=0.0
+    )
+    np.testing.assert_allclose(
+        categorical_fit.bse_, numeric_fit.bse_, rtol=2e-13, atol=2e-15
+    )
+    assert categorical_fit._covariance_metadata["n_periods"] == 3

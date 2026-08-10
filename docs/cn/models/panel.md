@@ -1,7 +1,7 @@
 # Panel 模型
 
 > 语言：中文  
-> 最后更新：2026-08-09
+> 最后更新：2026-08-10
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/panel.md)
 
@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-Tier-1 Panel 路线的 Stage C 在 Stage-B diagnostics 之上补齐 residual-sandwich covariance 层：历史默认行为保持不变，同时加入 HC0/HC2/HC3、RandomEffects robust inference、显式 cluster group debias 与 Driscoll-Kraay，并保持 NumPy/CuPy/Torch 数值累积后端原生。当前 PR 的最终 physical CUDA acceptance 仍需由 exact-head 机器产物单独闭合。
+Tier-1 Panel 路线的 Stage C 在 Stage-B diagnostics 之上补齐 residual-sandwich covariance 层：历史默认行为保持不变，同时加入 HC0/HC2/HC3、RandomEffects robust inference、显式 cluster group debias 与 Driscoll-Kraay，并保持 NumPy/CuPy/Torch 数值累积后端原生。physical CUDA acceptance 已由 exact-clean-head Tesla P100 产物闭合：CuPy 与 Torch 均通过 26 个 estimator case 和 2 个 direct public covariance primitive，并记录了包含 bounded high-T QS 场景的同步 performance evidence。
 
 ## 路径
 
@@ -130,7 +130,7 @@ $$
 
 `PooledOLS` 与 `RandomEffects` 的 `extra_df=0`；`PanelOLS` 使用 Stage-B standard fixed-effect nuisance rank（`N`、`T` 或 `N+T-C`）。若 statgpu 合法到达 rank-deficient fit，则记录为扩展：用 numerical rank 替代 `k` 并配合 pseudoinverse；该 corner 不宣称与 `linearmodels` 完全相等。
 
-`bandwidth=None` 使用 `floor(4*(T/100)^(2/9))`，其中 `T` 是 observed distinct time period 数。Bartlett/Newey-West 与 Parzen/Gallant 在 bandwidth 处截断。Quadratic Spectral（`qs`、Andrews）把 bandwidth 当作平滑尺度；bandwidth 为正时对**所有 observed lag**赋权，而不是在 `bw` 截断。
+`bandwidth=None` 使用 `floor(4*(T/100)^(2/9))`，其中 `T` 是 observed distinct time period 数。Bartlett/Newey-West 与 Parzen/Gallant 在 bandwidth 处截断。Quadratic Spectral（`qs`、Andrews）把 bandwidth 当作平滑尺度；bandwidth 为正时对**所有 observed lag**赋权，而不是在 `bw` 截断。numeric 与 datetime time key 按自然排序处理；ordered pandas categorical 保留显式声明的 category chronology，并仅压缩实际 observed categories。普通 string/object label 仍采用 deterministic sorted-label order；若时间顺序与字典序不同，应传入 ordered categorical 或显式 numeric/datetime time key。
 
 ### RandomEffects covariance
 
@@ -140,7 +140,7 @@ Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robu
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。exact-head CuPy/Torch physical correctness 与 performance artifact 是独立 acceptance gate；PR #126 在这些产物闭合前继续保持 Draft。
+hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。exact-clean-head Tesla P100 acceptance 已对 CuPy 与 Torch 闭合：每个 backend 均通过 26/26 estimator covariance case 与 2/2 direct public covariance primitive，并验证 requested/executed backend identity、无 CPU fallback。同步 performance artifact 还覆盖显式 `N=10,000`、`k=2`、`T=200` 的 QS all-lag 场景；其中不编码 speedup 或 CPU-baseline claim。
 
 ### PooledOLS HAC 时间排序
 

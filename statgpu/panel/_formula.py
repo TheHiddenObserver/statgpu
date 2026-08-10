@@ -306,26 +306,50 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
                 None, None, False, False)
 
 
+def _ordered_categorical_array(values):
+    """Return an ordered categorical array-like without importing pandas."""
+    candidate = getattr(values, "array", values)
+    dtype = getattr(candidate, "dtype", None)
+    if (
+        getattr(dtype, "categories", None) is not None
+        and bool(getattr(dtype, "ordered", False))
+        and getattr(candidate, "codes", None) is not None
+    ):
+        return candidate
+    return None
+
+
 def _align_formula_side_array(values, design_info, expected_n=None, name="array"):
     """Align an observation-level side array with rows retained by Patsy."""
     if values is None:
         return None
-    arr = np.asarray(values)
-    if arr.ndim == 0:
-        raise ValueError(f"{name} must be observation-level")
+
+    categorical = _ordered_categorical_array(values)
+    if categorical is None:
+        arr = np.asarray(values)
+        if arr.ndim == 0:
+            raise ValueError(f"{name} must be observation-level")
+        n_values = int(arr.shape[0])
+    else:
+        arr = None
+        n_values = int(len(categorical))
+
     positions = getattr(design_info, "_statgpu_row_positions", None)
     if positions is None:
-        if expected_n is not None and arr.shape[0] != expected_n:
+        if expected_n is not None and n_values != expected_n:
             raise ValueError(f"{name} must have {expected_n} observations")
-        return arr
+        return categorical if categorical is not None else arr
+
     positions = np.asarray(positions, dtype=np.int64)
-    if arr.shape[0] == positions.shape[0]:
-        return arr
-    if positions.size and arr.shape[0] > int(positions.max()):
+    if n_values == positions.shape[0]:
+        return categorical if categorical is not None else arr
+    if positions.size and n_values > int(positions.max()):
+        if categorical is not None:
+            return categorical.take(positions)
         return arr[positions]
-    if positions.size == 0 and arr.shape[0] == 0:
-        return arr
-    raise ValueError(f"{name} has {arr.shape[0]} observations and cannot be aligned to the {positions.shape[0]} rows retained by the formula")
+    if positions.size == 0 and n_values == 0:
+        return categorical if categorical is not None else arr
+    raise ValueError(f"{name} has {n_values} observations and cannot be aligned to the {positions.shape[0]} rows retained by the formula")
 
 
 def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept):

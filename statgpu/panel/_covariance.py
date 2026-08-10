@@ -116,7 +116,43 @@ def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
     return out
 
 
+def _ordered_categorical_factorization(values, *, nobs: int, name: str):
+    """Return observed ordered-categorical labels/codes without losing chronology.
+
+    pandas ordered categoricals carry an explicit semantic order that can differ
+    from lexical label order (for example ``t1, t2, t10``).  Preserve that
+    metadata before any NumPy coercion.  Unused categories are omitted so the
+    existing Stage-C contract continues to operate on distinct *observed*
+    periods, while observed categories retain their declared relative order.
+    """
+    candidate = getattr(values, "array", values)
+    dtype = getattr(candidate, "dtype", None)
+    categories = getattr(dtype, "categories", None)
+    if categories is None or not bool(getattr(dtype, "ordered", False)):
+        return None
+    codes = getattr(candidate, "codes", None)
+    if codes is None:
+        return None
+
+    codes_np = np.asarray(codes, dtype=np.int64).ravel()
+    if codes_np.shape[0] != int(nobs):
+        raise ValueError(f"{name} must be one-dimensional with length n_samples")
+    if np.any(codes_np < 0):
+        raise ValueError(f"{name} must not contain missing or non-finite values")
+
+    observed = np.unique(codes_np)
+    labels = np.asarray(categories)[observed]
+    remapped = np.searchsorted(observed, codes_np).astype(np.int64, copy=False)
+    return labels, remapped
+
+
 def _factorize_1d_labels(values, *, nobs: int, name: str):
+    categorical = _ordered_categorical_factorization(
+        values, nobs=nobs, name=name
+    )
+    if categorical is not None:
+        return categorical
+
     raw = np.asarray(_to_numpy(values))
     if raw.ndim == 2 and raw.shape[1] == 1:
         raw = raw[:, 0]

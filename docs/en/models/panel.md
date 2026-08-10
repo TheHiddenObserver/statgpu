@@ -1,7 +1,7 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-08-09
+> Last updated: 2026-08-10
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/panel.md)
 
@@ -18,7 +18,7 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-Stage C of the Tier-1 panel roadmap completes the residual-sandwich covariance layer on top of the Stage-B diagnostics: historical defaults remain unchanged, while HC0/HC2/HC3, robust RandomEffects inference, explicit cluster group debiasing, and Driscoll-Kraay covariance are added with NumPy/CuPy/Torch-native accumulation. Final physical CUDA acceptance for this PR remains a separate evidence gate until the exact-head artifact is recorded.
+Stage C of the Tier-1 panel roadmap completes the residual-sandwich covariance layer on top of the Stage-B diagnostics: historical defaults remain unchanged, while HC0/HC2/HC3, robust RandomEffects inference, explicit cluster group debiasing, and Driscoll-Kraay covariance are added with NumPy/CuPy/Torch-native accumulation. Physical CUDA acceptance is recorded from exact-clean-head Tesla P100 runs: all 26 estimator cases plus two direct public covariance primitives pass on both CuPy and Torch, together with synchronized performance evidence including the bounded high-T QS scenario.
 
 ## Paths
 
@@ -130,7 +130,7 @@ $$
 
 `PooledOLS` and `RandomEffects` use `extra_df=0`. `PanelOLS` uses the Stage-B standard fixed-effect nuisance rank (`N`, `T`, or `N+T-C`). If statgpu validly reaches a rank-deficient fit, the documented extension replaces `k` by the numerical rank and uses a pseudoinverse; this corner is not claimed to be a `linearmodels` equality case.
 
-`bandwidth=None` uses `floor(4*(T/100)^(2/9))`, where `T` is the number of distinct observed periods. Bartlett/Newey-West and Parzen/Gallant are truncated at the bandwidth. Quadratic Spectral (`qs`, Andrews) treats bandwidth as a smoothing scale and applies weights to **all observed lags** when bandwidth is positive; it is not truncated at `bw`.
+`bandwidth=None` uses `floor(4*(T/100)^(2/9))`, where `T` is the number of distinct observed periods. Bartlett/Newey-West and Parzen/Gallant are truncated at the bandwidth. Quadratic Spectral (`qs`, Andrews) treats bandwidth as a smoothing scale and applies weights to **all observed lags** when bandwidth is positive; it is not truncated at `bw`. Numeric and datetime time keys use their natural sorted order. An ordered pandas categorical preserves its declared category chronology, restricted to observed categories. Plain string/object labels retain deterministic sorted-label ordering; when chronological order differs from lexical order, pass an ordered categorical or an explicit numeric/datetime time key.
 
 ### RandomEffects covariance
 
@@ -140,7 +140,7 @@ Stage C does not alter Swamy-Arora variance-component or coefficient estimation.
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-Hosted Stage-C tests pin HC2/HC3 against analytic/statsmodels fit-space calculations and cluster/Driscoll-Kraay definitions against `linearmodels==7.0`. The exact-head CuPy/Torch physical correctness and performance artifacts are a separate acceptance gate and must be recorded before PR #126 is promoted from Draft.
+Hosted Stage-C tests pin HC2/HC3 against analytic/statsmodels fit-space calculations and cluster/Driscoll-Kraay definitions against `linearmodels==7.0`. Exact-clean-head Tesla P100 acceptance is recorded for both CuPy and Torch: 26/26 estimator covariance cases plus 2/2 direct public covariance primitives per backend, with requested/executed backend identity and no CPU fallback. The synchronized performance artifact also covers the explicit `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it does not encode a speedup or CPU-baseline claim.
 
 ### PooledOLS HAC ordering
 
