@@ -616,7 +616,7 @@ cn = read(cn_path)
 cn_sentence = "PR #126 的物理 CUDA 验收已在精确且干净的实现提交 `9c0b3050dd143c43a06bb6393d69f4f83e861637` 上使用 Tesla P100-SXM2-16GB 完成：CuPy 与 Torch 均通过 26 个估计器协方差案例和 2 个直接公共协方差 primitive，且没有 CPU fallback。独立的同步性能证据覆盖三个基础规模及 `N=10,000`、`k=2`、`T=200` 的 QS all-lag 场景；该证据只记录 timing，不声明 speedup。"
 if cn_sentence not in cn:
     candidates = [
-        "## 2026-08-09 — Panel Stage C 协方差完成（PR #126）\n",
+        "## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）\n",
         "## 2026-08-09 — Panel Stage C covariance completion (PR #126)\n",
         "## 2026-08-09\n",
     ]

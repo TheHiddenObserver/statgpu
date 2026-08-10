@@ -11,7 +11,7 @@ Stage C extends the Panel Tier-1 inference layer without changing estimator coef
 
 Driscoll-Kraay follows the pinned `linearmodels==7.0` full-rank scaling and time-score aggregation, with Bartlett, Parzen, and quadratic-spectral kernels. QS uses all observed lags when bandwidth is positive. HC2/HC3 are checked against analytic/statsmodels fit-space calculations, and cluster/DK definitions are checked against `linearmodels==7.0`. A separate maintained Torch 2.0 CPU gate covers Stage-C covariance primitives and estimator integrations.
 
-The physical CUDA gate is intentionally separate: `dev/benchmarks/validate_panel_stage_c_gpu.py` and `dev/benchmarks/benchmark_panel_stage_c_covariance.py` must be run on the final exact clean implementation head before PR #126 can leave Draft. No GPU speedup or final physical-acceptance claim is made here yet.
+Physical CUDA acceptance is complete on exact clean implementation head `9c0b3050dd143c43a06bb6393d69f4f83e861637` using Tesla P100-SXM2-16GB. CuPy and Torch each pass all 26 estimator covariance cases plus two direct public covariance primitives without CPU fallback. The separate synchronized performance artifact covers the three base scales and the bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim.
 
 ## 2026-08-08
 

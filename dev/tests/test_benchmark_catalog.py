@@ -95,6 +95,19 @@ def test_catalog_retains_distinct_noncanonical_dispositions(entries):
     assert panel_raw["statistical_alignment_status"] == "accepted"
     assert panel_raw["issue"] == "#93"
 
+    stage_c_validation = next(
+        entry for entry in entries
+        if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_9c0b3050.json"
+    )
+    stage_c_performance = next(
+        entry for entry in entries
+        if entry["path"] == "results/pr126_p100/panel_stage_c_performance_9c0b3050.json"
+    )
+    assert stage_c_validation["classification"] == "registered_canonical"
+    assert stage_c_validation["source_id"] == "panel-stage-c-validation-pr126-20260810-a0d258f6d6b8"
+    assert stage_c_performance["classification"] == "registered_canonical"
+    assert stage_c_performance["source_id"] == "panel-stage-c-performance-pr126-20260810-214284f02a5e"
+
 
 def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     from dev.benchmarks.frontend_data.catalog import validate_coverage_matrix
@@ -111,6 +124,8 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     assert rows["panel-estimation"]["source_ids"] == [
         "new-modules-20260624-bcbdb676223b",
         "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "panel-stage-c-validation-pr126-20260810-a0d258f6d6b8",
+        "panel-stage-c-performance-pr126-20260810-214284f02a5e",
     ]
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
@@ -134,9 +149,9 @@ def test_inventory_v2_reconciles_literal_counts(
     assert inventory["inventory_version"] == "2.0"
     assert inventory["discovered_json_artifacts"] == len(entries)
     assert inventory["classified_candidate_sources"] == len(entries)
-    assert inventory["registered_sources"] == len(manifest["sources"]) == 11
-    assert inventory["available_registered_sources"] == 11
-    assert inventory["parsed_registered_sources"] == 11
+    assert inventory["registered_sources"] == len(manifest["sources"]) == 13
+    assert inventory["available_registered_sources"] == 13
+    assert inventory["parsed_registered_sources"] == 13
     assert inventory["eligible_sources"] == (
         inventory["registered_sources"]
         + inventory["eligible_unregistered_sources"]

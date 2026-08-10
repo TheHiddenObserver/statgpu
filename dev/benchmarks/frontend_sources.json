@@ -24,6 +24,11 @@
       "label": "Tesla P100 PR #122 Panel Stage B validation \u2014 2026-08-09",
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64"
+    },
+    "remote-p100-pr126-20260810": {
+      "label": "Tesla P100 PR #126 Panel Stage C \u2014 2026-08-10",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64"
     }
   },
   "frameworks": {
@@ -102,6 +107,14 @@
     "panel-stage-b-pr122-20260809": {
       "label": "Panel Stage B physical validation \u2014 PR #122 \u2014 2026-08-09",
       "env_id": "remote-p100-pr122-20260809"
+    },
+    "panel-stage-c-pr126-validation-20260810": {
+      "label": "Panel Stage C physical validation \u2014 PR #126 \u2014 2026-08-10",
+      "env_id": "remote-p100-pr126-20260810"
+    },
+    "panel-stage-c-pr126-performance-20260810": {
+      "label": "Panel Stage C synchronized performance \u2014 PR #126 \u2014 2026-08-10",
+      "env_id": "remote-p100-pr126-20260810"
     }
   },
   "sources": [
@@ -255,6 +268,36 @@
       "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
       "raw_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
       "provenance_note": "Final PR #122 Stage-B correctness/backend-provenance source. Exact clean P100 measurement 2701aa9feb3796c33c94e6480fcb78c80c6a809c passed all 17 estimator cases and five Hausman diagnostics on each of CuPy and Torch, with requested/executed backend identity and no CPU fallback. The dedicated hausman_applicable_nonzero_effect fixture is applicable on both GPU backends with df=1 and statistic/p-value agreement versus NumPy at floating-point noise. Raw artifact results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json has Git blob fa3a253e6d882a4e69be29e7e3b1dce7b223b9a9 and was committed by 0d0d654d825cea872672f27d02107a58048b345f. The older focused disconnected-FE artifact results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json (Git blob 3bda0b2040479ba8201e2722eb990ba086c3f3b9, measurement a57efcea29b0e87ecb89865c5a6902d5773812c6) is retained only as supplementary evidence for the unchanged df=1 path. No timing was collected."
+    },
+    {
+      "source_id": "panel-stage-c-validation-pr126-20260810-a0d258f6d6b8",
+      "comparison_id": "panel-stage-c-pr126-validation-20260810",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_9c0b3050.json",
+      "sha256": "a0d258f6d6b8243e82684a29305606e5f6bd91bbe271c3ed335b32b5ec973665",
+      "parser": "panel_stage_c_physical_validation",
+      "parser_version": "1.0",
+      "env_id": "remote-p100-pr126-20260810",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-10",
+      "measurement_git_sha": "9c0b3050dd143c43a06bb6393d69f4f83e861637",
+      "raw_git_sha": "9c0b3050dd143c43a06bb6393d69f4f83e861637",
+      "provenance_note": "PR #126 Stage-C exact-clean-head P100 correctness/backend-provenance evidence. Artifact commit 85d710bddf633134624501a9e27f03c30bc04ead; Git blob fe015f03fd488e22d40beccfe4cbe1984b25f5b7; 26 estimator cases plus two direct public covariance primitives per CuPy/Torch backend, with no CPU fallback."
+    },
+    {
+      "source_id": "panel-stage-c-performance-pr126-20260810-214284f02a5e",
+      "comparison_id": "panel-stage-c-pr126-performance-20260810",
+      "path": "results/pr126_p100/panel_stage_c_performance_9c0b3050.json",
+      "sha256": "214284f02a5e21e775e58deaf2fa3cc9b6384d392b96c6f300f31f4a02953b1c",
+      "parser": "panel_stage_c_performance",
+      "parser_version": "1.0",
+      "env_id": "remote-p100-pr126-20260810",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-10",
+      "measurement_git_sha": "9c0b3050dd143c43a06bb6393d69f4f83e861637",
+      "raw_git_sha": "9c0b3050dd143c43a06bb6393d69f4f83e861637",
+      "provenance_note": "PR #126 Stage-C synchronized end-to-end P100 timing evidence. Artifact commit 85d710bddf633134624501a9e27f03c30bc04ead; Git blob 53a06d82764bdeeb962eda5096fb6ee79220d5b0; includes the bounded N=10000, k=2, T=200 QS all-lag scenario. No speedup claim or CPU baseline is encoded."
     }
   ]
 }

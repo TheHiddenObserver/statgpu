@@ -23,6 +23,8 @@ from .parsers import (
     parse_new_modules_with_anova_benchmark,
     parse_p2_benchmark,
     parse_panel_stage_b_physical_validation,
+    parse_panel_stage_c_physical_validation,
+    parse_panel_stage_c_performance,
 )
 
 MINIMUM_DASHBOARD_SOURCE_DATE = date(2026, 6, 1)
@@ -58,6 +60,8 @@ PARSER_FUNCTIONS = {
     "new_modules_with_anova_benchmark": parse_new_modules_with_anova_benchmark,
     "p2_benchmark": parse_p2_benchmark,
     "panel_stage_b_physical_validation": parse_panel_stage_b_physical_validation,
+    "panel_stage_c_physical_validation": parse_panel_stage_c_physical_validation,
+    "panel_stage_c_performance": parse_panel_stage_c_performance,
 }
 
 

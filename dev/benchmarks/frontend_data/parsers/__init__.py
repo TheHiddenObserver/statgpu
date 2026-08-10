@@ -19,6 +19,10 @@ from .unsupervised import parse_unsupervised_benchmark
 from .new_modules_complete import parse_new_modules_with_anova_benchmark
 from .pr74_complete import parse_pr74_inference_benchmark
 from .panel_stage_b import parse_panel_stage_b_physical_validation
+from .panel_stage_c import (
+    parse_panel_stage_c_physical_validation,
+    parse_panel_stage_c_performance,
+)
 
 __all__ = [
     "parse_penalized_glm_bench_perf",
@@ -38,4 +42,6 @@ __all__ = [
     "parse_new_modules_with_anova_benchmark",
     "parse_p2_benchmark",
     "parse_panel_stage_b_physical_validation",
+    "parse_panel_stage_c_physical_validation",
+    "parse_panel_stage_c_performance",
 ]
