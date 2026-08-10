@@ -1,0 +1,69 @@
+name: PR126 fix summary reference label
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-fix-summary-reference-label.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install targeted dependencies
+        run: |
+          python -m pip install -e .
+          python -m pip install pytest pandas patsy
+      - name: Fix summary statistic labels and add regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              path = Path(path)
+              text = path.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise RuntimeError(f'{path}: expected 1 match, found {text.count(old)}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          utils = Path('statgpu/panel/_utils.py')
+          old = '''        lines.append("-" * 72)\n        lines.append(f"{'':<12} {'coef':>10} {'std err':>10} {'t':>8} {'P>|t|':>10} {ci_label:>10} {ci_label2:>10}")\n        lines.append("-" * 72)\n'''
+          new = '''        lines.append("-" * 72)\n        statistic_label = "t" if self.cov_type in (None, "nonrobust") else "z"\n        pvalue_label = "P>|t|" if statistic_label == "t" else "P>|z|"\n        lines.append(\n            f"{'':<12} {'coef':>10} {'std err':>10} "\n            f"{statistic_label:>8} {pvalue_label:>10} {ci_label:>10} {ci_label2:>10}"\n        )\n        lines.append("-" * 72)\n'''
+          replace_once(utils, old, new)
+
+          test_path = Path('dev/tests/test_panel_stage_c_api_formula.py')
+          text = test_path.read_text(encoding='utf-8')
+          marker = '''\n\n@pytest.mark.parametrize("estimator", [PooledOLS, BetweenOLS])\ndef test_formula_added_constant_keeps_intercept_in_summary_and_inference_names(estimator):\n'''
+          if text.count(marker) != 1:
+              raise RuntimeError('summary regression marker drifted')
+          tests = '''\n\ndef test_panel_summary_labels_normal_reference_as_z_and_nonrobust_as_t():\n    data = _frame(128036)\n    X = data[["x", "z"]].to_numpy()\n    y = data["y"].to_numpy()\n\n    robust = PooledOLS(cov_type="hc0").fit(X, y)\n    robust_text = str(robust.summary())\n    assert "P>|z|" in robust_text\n    assert "P>|t|" not in robust_text\n    assert robust._inference_result.statistic_name == "z"\n\n    nonrobust = PooledOLS(cov_type="nonrobust").fit(X, y)\n    nonrobust_text = str(nonrobust.summary())\n    assert "P>|t|" in nonrobust_text\n    assert "P>|z|" not in nonrobust_text\n    assert nonrobust._inference_result.statistic_name == "t"\n\n'''
+          test_path.write_text(text.replace(marker, tests + marker, 1), encoding='utf-8')
+          PY
+      - name: Run inference presentation regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_stage_a_golden.py \
+            -q --tb=short
+      - name: Commit fix and self-delete helper
+        shell: bash
+        run: |
+          git config user.name 'Ziqian Lin'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git rm .github/workflows/pr126-fix-summary-reference-label.yml
+          git add statgpu/panel/_utils.py dev/tests/test_panel_stage_c_api_formula.py
+          git commit -m 'fix: label panel sandwich summaries as z'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
