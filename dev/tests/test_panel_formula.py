@@ -42,7 +42,7 @@ def panel_df():
 
 @pytest.fixture
 def panel_arrays(panel_df):
-    """Extract arrays from the panel DataFrame."""
+    """Extract arrays from the panel DataFrame for testing."""
     return {
         'X': panel_df[['x1', 'x2']].values,
         'y': panel_df['y'].values,
@@ -180,7 +180,6 @@ class TestPanelOLSFormula:
         m = PanelOLS()
         m.fit(formula="y ~ x1 + x2 | entity + time", data=panel_df)
         s = m.summary()
-        # Check that feature names are available
         assert hasattr(s, 'coef')
 
     def test_no_formula_backward_compat(self, panel_arrays):
@@ -201,17 +200,35 @@ class TestPanelOLSFormula:
 class TestRandomEffectsFormula:
 
     def test_pipe_syntax(self, panel_df, panel_arrays):
-        """y ~ x1 + x2 | entity should match array interface."""
+        """Implicit formula intercept matches an explicit constant array model."""
         m_formula = RandomEffects()
         m_formula.fit(formula="y ~ x1 + x2 | entity", data=panel_df)
+
+        X_with_constant = np.column_stack(
+            [np.ones(len(panel_arrays['y'])), panel_arrays['X']]
+        )
+        m_array = RandomEffects()
+        m_array.fit(
+            X=X_with_constant, y=panel_arrays['y'],
+            entity_ids=panel_arrays['entity_ids'],
+        )
+
+        assert_allclose(m_formula.coef_, m_array.coef_, rtol=1e-6)
+        assert m_formula._feature_names == ["Intercept", "x1", "x2"]
+
+    def test_formula_explicit_no_intercept_matches_no_constant_array(
+        self, panel_df, panel_arrays
+    ):
+        m_formula = RandomEffects()
+        m_formula.fit(formula="y ~ 0 + x1 + x2 | entity", data=panel_df)
 
         m_array = RandomEffects()
         m_array.fit(
             X=panel_arrays['X'], y=panel_arrays['y'],
             entity_ids=panel_arrays['entity_ids'],
         )
-
         assert_allclose(m_formula.coef_, m_array.coef_, rtol=1e-6)
+        assert m_formula._feature_names == ["x1", "x2"]
 
     def test_predict_with_dataframe(self, panel_df):
         m = RandomEffects()
