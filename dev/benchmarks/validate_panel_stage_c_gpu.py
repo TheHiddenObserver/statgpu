@@ -28,8 +28,8 @@ from statgpu.panel import (
     RandomEffects,
     clustered_covariance,
     driscoll_kraay_covariance,
-    ols_covariance,
 )
+from statgpu.panel._covariance import ols_covariance
 
 
 def _git_sha() -> str:
