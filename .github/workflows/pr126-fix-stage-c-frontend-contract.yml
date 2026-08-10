@@ -30,7 +30,26 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest 'jsonschema[format]'
       - name: Apply fresh-review fixes
-        run: python dev/benchmarks/_pr126_fix_stage_c_frontend_contract.py
+        run: |
+          python dev/benchmarks/_pr126_fix_stage_c_frontend_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/tests/test_benchmark_frontend_data.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              'assert len(manifest["sources"]) == 11': 'assert len(manifest["sources"]) == 13',
+              'assert report["files_seen"] == 11': 'assert report["files_seen"] == 13',
+              'assert report["files_parsed"] == 11': 'assert report["files_parsed"] == 13',
+              'assert inventory["registered_sources"] == 11': 'assert inventory["registered_sources"] == 13',
+              'assert inventory["available_sources"] == 11': 'assert inventory["available_sources"] == 13',
+              'assert inventory["parsed_sources"] == 11': 'assert inventory["parsed_sources"] == 13',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'expected old manifest-count assertion not found: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Focused evidence/frontend gates
         run: |
           python -m pytest \
@@ -72,6 +91,7 @@ jobs:
           git add \
             dev/benchmarks/frontend_data/parsers/panel_stage_c.py \
             dev/tests/test_panel_stage_c_frontend_source.py \
+            dev/tests/test_benchmark_frontend_data.py \
             frontend/public/data/benchmark_data.json \
             frontend/public/data/parse_report.json \
             frontend/public/data/source_inventory.json \
