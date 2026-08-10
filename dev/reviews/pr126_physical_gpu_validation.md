@@ -4,7 +4,7 @@
 
 **PHYSICAL_GPU_ACCEPTED** for the repaired numerical/validator contract.
 
-Fresh Tesla P100 evidence was measured from exact clean implementation SHA `aad53587c9611da0e71a676e86ef32d9f6403f5c`. The subsequent artifact commit `fdf88e8990b30502958cc357099342d271792ec2` adds only the two raw evidence files; the canonical-promotion commit changes parser/manifest/coverage/tests/docs/generated benchmark assets only. It does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
+Fresh Tesla P100 evidence was measured from exact clean implementation SHA `aad53587c9611da0e71a676e86ef32d9f6403f5c`. The subsequent artifact commit `fdf88e8990b30502958cc357099342d271792ec2` adds only the two raw evidence files; the canonical-promotion commits change parser/manifest/coverage/tests/docs/generated benchmark assets only. They do not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
 
 ## Correctness and backend-provenance evidence
 
@@ -30,6 +30,18 @@ Fresh Tesla P100 evidence was measured from exact clean implementation SHA `aad5
 - timing scope: synchronized end-to-end estimator fit
 - high-T scenario: `N=10,000`, `k=2`, `T=200`
 - no speedup claim or CPU-baseline claim is made
+
+## Canonical promotion audit
+
+The fresh evidence is now the registered Stage-C canonical source contract:
+
+- correctness source: `panel-stage-c-validation-pr126-20260810-aab3ac61315b`;
+- performance source: `panel-stage-c-performance-pr126-20260810-99208f9276b9`;
+- the physical parser expects 26 estimator cases plus all 6 direct primitives and emits 64 validation rows across CuPy/Torch;
+- the canonical benchmark bundle contains 1984 runs after adding the eight newly promoted primitive rows;
+- recorded maximum absolute differences are treated as finite diagnostics, while the physical runner's `status=success` remains authoritative for its `rtol+atol` NumPy parity check because the artifact does not store the reference magnitudes needed to reconstruct the relative-tolerance term;
+- the prior `c151550a...` and `9c0b3050...` artifacts remain immutable historical/non-current evidence;
+- deterministic benchmark frontend assets were regenerated after promotion, and temporary promotion helpers are absent from the final tree.
 
 ## Superseded historical evidence
 
