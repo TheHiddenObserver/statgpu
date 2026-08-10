@@ -260,20 +260,20 @@ class BasePanelModel(BaseEstimator):
         )
 
         diag = xp.diag(cov_params)
-        diag_abs_max = float(_to_numpy(xp.max(xp.abs(diag))))
+        diag_np = np.asarray(_to_numpy(diag), dtype=np.float64).ravel()
         negative_tol = (
             4096.0
             * np.finfo(np.float64).eps
-            * max(1.0, diag_abs_max)
+            * np.maximum(1.0, np.abs(diag_np))
         )
-        diag_min = float(_to_numpy(xp.min(diag)))
-        if diag_min < -negative_tol:
+        if np.any(diag_np < -negative_tol):
             raise ValueError(
                 "covariance has materially negative diagonal variance; "
                 "inference is not numerically valid"
             )
-        # Only suppress roundoff-scale negative zeros.  A material negative
-        # variance must fail closed before any historical diagonal floor is used.
+        # Only suppress elementwise roundoff-scale negative zeros.  A material
+        # negative variance must fail closed before any historical diagonal floor
+        # is used, even when another coefficient has a much larger variance.
         diag = xp_maximum(diag, 0.0, xp)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)
