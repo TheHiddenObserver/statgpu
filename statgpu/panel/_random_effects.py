@@ -115,6 +115,24 @@ class RandomEffects(BasePanelModel):
                 "cluster": cluster,
             },
         )
+
+        # The shared formula parser strips Patsy's Intercept because most panel
+        # estimators either add their own constant or transform it away. Random
+        # effects does neither. Restore the formula-generated constant here so
+        # standard R-style ``y ~ x | entity`` has its declared intercept, while
+        # ``0 +``/``- 1`` remains an explicit no-intercept model.
+        if formula is not None and bool(self._formula_has_intercept):
+            X_data = np.column_stack(
+                [
+                    np.ones(len(y_data), dtype=np.float64),
+                    np.asarray(X_data, dtype=np.float64),
+                ]
+            )
+            self._feature_names = [
+                "Intercept",
+                *list(self._feature_names or []),
+            ]
+
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
         cluster = aligned["cluster"]
@@ -132,7 +150,6 @@ class RandomEffects(BasePanelModel):
             raise ValueError("group_debias=True requires cov_type='clustered'")
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
-        self._backend_name = backend.name
 
         entity_arr, _entity_labels = factorize_panel_labels(
             entity_ids, xp, ref_arr=X_arr, name="entity_ids"
@@ -159,9 +176,6 @@ class RandomEffects(BasePanelModel):
         constant_index = explicit_constant_column(X_arr, xp=xp)
         has_constant = constant_index is not None
 
-        # Classical Hausman is only available for nonrobust RE. Robust RE fits
-        # do not pay the full-content identity hashing cost because the test
-        # rejects their covariance contract before sample identity comparison.
         self._panel_diagnostic_identity = (
             build_diagnostic_identity(
                 X_arr,
@@ -429,12 +443,17 @@ class RandomEffects(BasePanelModel):
     def summary(self):
         """Print and return the structured coefficient summary."""
         k = len(self._params)
+        feature_names_override = (
+            None
+            if self._feature_names is not None
+            else [f"x{i + 1}" for i in range(k)]
+        )
         return self._panel_summary(
             model_type="RandomEffects",
             cov_type=self._cov_type,
             variance_components=self.variance_components_,
             theta=self.theta_,
-            feature_names_override=[f"x{i + 1}" for i in range(k)],
+            feature_names_override=feature_names_override,
             print_result=True,
         )
 
