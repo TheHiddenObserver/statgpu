@@ -1,0 +1,56 @@
+name: PR126 Stage C final review fixes
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-stage-c-final-review-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
+      - name: Apply final review fixes
+        run: python dev/benchmarks/_pr126_patch_final_review_fixes.py
+      - name: Focused Stage C review gates
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_performance_runner_contract.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            -q --tb=short
+          python -m py_compile \
+            statgpu/panel/_covariance.py \
+            dev/benchmarks/benchmark_panel_stage_c_covariance.py
+          git diff --check
+      - name: Commit validated fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            statgpu/panel/_covariance.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/benchmarks/benchmark_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_performance_runner_contract.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/plans/panel_p1_stage_c_covariance_plan.md
+          git commit -m 'fix: close Stage C final review gaps'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
