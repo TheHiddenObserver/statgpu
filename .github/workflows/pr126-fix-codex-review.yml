@@ -1,0 +1,55 @@
+name: PR126 Codex review fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - dev/benchmarks/_pr126_fix_codex_review.py
+      - .github/workflows/pr126-fix-codex-review.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,validation,formula]'
+          python -m pip install 'linearmodels==7.0' 'statsmodels==0.14.6'
+      - name: Apply review fixes
+        run: python dev/benchmarks/_pr126_fix_codex_review.py
+      - name: Focused Stage-C regression gates
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            -q --tb=short
+          git diff --check
+      - name: Commit validated fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            statgpu/panel/_covariance.py \
+            statgpu/panel/_formula.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            docs/en/models/panel.md \
+            docs/cn/models/panel.md
+          git diff --cached --check
+          git commit -m 'fix: preserve ordered categorical DK chronology'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
