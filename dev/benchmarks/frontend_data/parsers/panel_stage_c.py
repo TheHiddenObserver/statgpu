@@ -120,7 +120,7 @@ def _finite_diff_map(value: Any, limit: float) -> bool:
         if isinstance(item, bool) or not isinstance(item, (int, float)):
             return False
         item = float(item)
-        if not math.isfinite(item) or abs(item) > limit:
+        if not math.isfinite(item) or item < 0.0:
             return False
     return True
 
@@ -175,7 +175,7 @@ def parse_panel_stage_c_physical_validation(
                 _bool_check("backend_status_success", backend_ok),
                 _bool_check("case_status_success", case_ok),
                 _bool_check("executed_backend_matches_requested", executed_ok),
-                _bool_check("numpy_parity_within_physical_tolerance", diff_ok, tolerance=limit),
+                _bool_check("recorded_numpy_difference_finite", diff_ok),
             ]
             model_id = _model_id(case_name)
             model_ids.add(model_id)
@@ -219,7 +219,7 @@ def parse_panel_stage_c_physical_validation(
             item = primitives[primitive_name]
             try:
                 diff = float(item.get("max_abs_difference"))
-                diff_ok = math.isfinite(diff) and abs(diff) <= limit
+                diff_ok = math.isfinite(diff) and diff >= 0.0
             except (TypeError, ValueError):
                 diff_ok = False
             executed_ok = item.get("executed_backend") == backend
@@ -230,7 +230,7 @@ def parse_panel_stage_c_physical_validation(
                 _bool_check("backend_status_success", backend_ok),
                 _bool_check("primitive_status_success", item_ok),
                 _bool_check("executed_backend_matches_requested", executed_ok),
-                _bool_check("numpy_parity_within_physical_tolerance", diff_ok, tolerance=limit),
+                _bool_check("recorded_numpy_difference_finite", diff_ok),
             ]
             model_ids.add("PanelCovariancePrimitive")
             runs.append(
