@@ -30,6 +30,64 @@ jobs:
           python -m pip install -e '.[formula]' pytest 'jsonschema[format]'
       - name: Apply evidence promotion
         run: python dev/benchmarks/_pr126_promote_postreview_p100.py
+      - name: Align current and historical catalog contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('dev/tests/test_benchmark_catalog.py')
+          text = p.read_text(encoding='utf-8')
+          old = '''    stage_c_validation = next(
+              entry for entry in entries
+              if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_9c0b3050.json"
+          )
+          stage_c_performance = next(
+              entry for entry in entries
+              if entry["path"] == "results/pr126_p100/panel_stage_c_performance_9c0b3050.json"
+          )
+          assert stage_c_validation["classification"] == "registered_canonical"
+          assert stage_c_validation["source_id"] == "panel-stage-c-validation-pr126-20260810-a0d258f6d6b8"
+          assert stage_c_performance["classification"] == "registered_canonical"
+          assert stage_c_performance["source_id"] == "panel-stage-c-performance-pr126-20260810-214284f02a5e"
+          '''
+          new = '''    stage_c_validation = next(
+              entry for entry in entries
+              if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_c151550a.json"
+          )
+          stage_c_performance = next(
+              entry for entry in entries
+              if entry["path"] == "results/pr126_p100/panel_stage_c_performance_c151550a.json"
+          )
+          assert stage_c_validation["classification"] == "registered_canonical"
+          assert stage_c_validation["source_id"] == "panel-stage-c-validation-pr126-20260810-91e9ec53b6ee"
+          assert stage_c_performance["classification"] == "registered_canonical"
+          assert stage_c_performance["source_id"] == "panel-stage-c-performance-pr126-20260810-1861fc4f1817"
+
+          old_stage_c_validation = next(
+              entry for entry in entries
+              if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_9c0b3050.json"
+          )
+          old_stage_c_performance = next(
+              entry for entry in entries
+              if entry["path"] == "results/pr126_p100/panel_stage_c_performance_9c0b3050.json"
+          )
+          assert old_stage_c_validation["classification"] == "historical_or_excluded"
+          assert old_stage_c_validation["registered"] is False
+          assert old_stage_c_performance["classification"] == "historical_or_excluded"
+          assert old_stage_c_performance["registered"] is False
+          '''
+          if old not in text:
+              raise SystemExit('stage-c catalog assertion anchor missing')
+          text = text.replace(old, new, 1)
+          old_ids = '''        "panel-stage-c-validation-pr126-20260810-a0d258f6d6b8",
+                  "panel-stage-c-performance-pr126-20260810-214284f02a5e",
+          '''
+          new_ids = '''        "panel-stage-c-validation-pr126-20260810-91e9ec53b6ee",
+                  "panel-stage-c-performance-pr126-20260810-1861fc4f1817",
+          '''
+          if old_ids not in text:
+              raise SystemExit('stage-c coverage ID anchor missing')
+          p.write_text(text.replace(old_ids, new_ids, 1), encoding='utf-8')
+          PY
       - name: Focused promotion and review-fix contracts
         env:
           PYTHONPATH: ${{ github.workspace }}
@@ -89,6 +147,7 @@ jobs:
             dev/benchmarks/benchmark_coverage_matrix.json \
             dev/reviews/pr126_physical_gpu_validation.md \
             dev/tests/test_panel_stage_c_frontend_source.py \
+            dev/tests/test_benchmark_catalog.py \
             CHANGELOG.md \
             docs/en/changelog.md docs/cn/changelog.md \
             docs/en/models/panel.md docs/cn/models/panel.md \
