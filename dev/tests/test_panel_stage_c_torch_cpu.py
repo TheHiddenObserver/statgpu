@@ -59,6 +59,36 @@ def test_stage_c_hc_primitives_torch_cpu_match_numpy(cov_type):
     assert_allclose(actual.detach().cpu().numpy(), expected, rtol=2e-10, atol=2e-12)
 
 
+@pytest.mark.parametrize("cov_type", ["hc0", "hc2", "hc3"])
+def test_stage_c_ill_conditioned_hc_torch_cpu_matches_numpy(cov_type):
+    rng = np.random.default_rng(129011)
+    n = 50
+    x = rng.normal(size=n)
+    X = np.column_stack(
+        [np.ones(n), x, x + 1.0e-9 * rng.normal(size=n)]
+    )
+    y = X @ np.array([0.2, 0.7, -0.4]) + rng.normal(scale=0.2, size=n)
+    params = np.linalg.lstsq(X, y, rcond=None)[0]
+    resid = y - X @ params
+    assert np.linalg.matrix_rank(X) == 3
+    assert np.linalg.cond(X) > 1.0e8
+
+    expected = ols_covariance(X, resid, cov_type=cov_type, xp=np)
+    actual = ols_covariance(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(resid, dtype=torch.float64),
+        cov_type=cov_type,
+    )
+    assert torch.is_tensor(actual)
+    assert_allclose(
+        actual.detach().cpu().numpy(),
+        expected,
+        rtol=2e-5,
+        atol=1e-2,
+    )
+    assert np.all(np.diag(actual.detach().cpu().numpy()) >= 0.0)
+
+
 def test_stage_c_two_way_cluster_torch_cpu_matches_numpy_with_group_debias():
     rng = np.random.default_rng(12902)
     X = np.column_stack([np.ones(48), rng.normal(size=(48, 2))])
