@@ -270,34 +270,34 @@
       "provenance_note": "Final PR #122 Stage-B correctness/backend-provenance source. Exact clean P100 measurement 2701aa9feb3796c33c94e6480fcb78c80c6a809c passed all 17 estimator cases and five Hausman diagnostics on each of CuPy and Torch, with requested/executed backend identity and no CPU fallback. The dedicated hausman_applicable_nonzero_effect fixture is applicable on both GPU backends with df=1 and statistic/p-value agreement versus NumPy at floating-point noise. Raw artifact results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json has Git blob fa3a253e6d882a4e69be29e7e3b1dce7b223b9a9 and was committed by 0d0d654d825cea872672f27d02107a58048b345f. The older focused disconnected-FE artifact results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json (Git blob 3bda0b2040479ba8201e2722eb990ba086c3f3b9, measurement a57efcea29b0e87ecb89865c5a6902d5773812c6) is retained only as supplementary evidence for the unchanged df=1 path. No timing was collected."
     },
     {
-      "source_id": "panel-stage-c-validation-pr126-20260810-aab3ac61315b",
+      "source_id": "panel-stage-c-validation-pr126-20260810-7d8777fabe32",
       "comparison_id": "panel-stage-c-pr126-validation-20260810",
-      "path": "results/pr126_p100/panel_stage_c_gpu_validation_aad53587.json",
-      "sha256": "aab3ac61315b78ecaf04351f2922a444e3f44c587b31f9832ccad32839601b6c",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_5ed763be.json",
+      "sha256": "7d8777fabe32a012c91e8eb68914daca3e981cf6c6efeaa092b2172746b0d063",
       "parser": "panel_stage_c_physical_validation",
       "parser_version": "1.0",
       "env_id": "remote-p100-pr126-20260810",
       "required": true,
       "allowed_issue_codes": [],
       "source_date": "2026-08-10",
-      "measurement_git_sha": "aad53587c9611da0e71a676e86ef32d9f6403f5c",
-      "raw_git_sha": "aad53587c9611da0e71a676e86ef32d9f6403f5c",
-      "provenance_note": "Current PR #126 Stage-C repaired exact-clean-head P100 correctness/backend-provenance evidence. Artifact repository commit fdf88e8990b30502958cc357099342d271792ec2; Git blob 4fc52f29021321a9d7b1f87fc76950c843ef4059; 26 estimator cases plus six direct public covariance primitives per CuPy/Torch backend, including full-rank ill-conditioned HC0/HC2/HC3/Driscoll-Kraay, with requested/executed backend identity and no numerical CPU fallback. The older c151550a and 9c0b3050 measurements remain immutable historical evidence."
+      "measurement_git_sha": "5ed763be2a331e6dc988ac133e79f0484d4cdebd",
+      "raw_git_sha": "5ed763be2a331e6dc988ac133e79f0484d4cdebd",
+      "provenance_note": "Final PR #126 Stage-C post-review exact-clean-head P100 correctness/backend-provenance evidence. Artifact repository commit 07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2; Git blob d5aa76dd8d3305792c643bb29856610d784af3f0; 26 estimator cases plus six direct public covariance primitives per CuPy/Torch backend (32/32 each), including full-rank ill-conditioned HC0/HC2/HC3/Driscoll-Kraay, with requested/executed backend identity and no numerical CPU fallback. The prior aad53587, c151550a, and 9c0b3050 measurements remain immutable historical evidence."
     },
     {
-      "source_id": "panel-stage-c-performance-pr126-20260810-99208f9276b9",
+      "source_id": "panel-stage-c-performance-pr126-20260810-75da75c0405c",
       "comparison_id": "panel-stage-c-pr126-performance-20260810",
-      "path": "results/pr126_p100/panel_stage_c_performance_aad53587.json",
-      "sha256": "99208f9276b92abf212d76655616718980095ba5c8ff9d3356a795a15ffa50c6",
+      "path": "results/pr126_p100/panel_stage_c_performance_5ed763be.json",
+      "sha256": "75da75c0405cce6e842c64c1b07b08a7b1cfd030fa08eac10916bd118ea33524",
       "parser": "panel_stage_c_performance",
       "parser_version": "1.0",
       "env_id": "remote-p100-pr126-20260810",
       "required": true,
       "allowed_issue_codes": [],
       "source_date": "2026-08-10",
-      "measurement_git_sha": "aad53587c9611da0e71a676e86ef32d9f6403f5c",
-      "raw_git_sha": "aad53587c9611da0e71a676e86ef32d9f6403f5c",
-      "provenance_note": "Current PR #126 Stage-C repaired synchronized end-to-end P100 timing evidence. Artifact repository commit fdf88e8990b30502958cc357099342d271792ec2; Git blob fd7b06e0bb3a51e6a74e524e5bc059063b5f75eb; 58 synchronized rows cover three base scales plus the bounded N=10000, k=2, T=200 QS all-lag scenario on both CuPy and Torch. No speedup claim or CPU baseline is encoded. The older c151550a and 9c0b3050 timing artifacts remain immutable historical evidence."
+      "measurement_git_sha": "5ed763be2a331e6dc988ac133e79f0484d4cdebd",
+      "raw_git_sha": "5ed763be2a331e6dc988ac133e79f0484d4cdebd",
+      "provenance_note": "Final PR #126 Stage-C post-review synchronized end-to-end P100 timing evidence. Artifact repository commit 07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2; Git blob 1e735274c76f3bad3aa747b25a36f449fb764cc0; 58 synchronized rows cover three base scales plus the bounded N=10000, k=2, T=200 QS all-lag scenario on both CuPy and Torch. No speedup claim or CPU baseline is encoded. The prior aad53587, c151550a, and 9c0b3050 timing artifacts remain immutable historical evidence."
     }
   ]
 }

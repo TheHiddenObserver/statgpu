@@ -2,90 +2,44 @@
 
 ## Current physical acceptance status
 
-**PARTIAL_REMOTE_PENDING**.
+**PHYSICAL_GPU_ACCEPTED** for the final post-review numerical/validator contract.
 
-The Tesla P100 evidence measured from exact clean implementation SHA `aad53587c9611da0e71a676e86ef32d9f6403f5c` remains valid historical evidence for the Stage-C numerical covariance/validator contract at that SHA, but it is no longer sufficient for final PR acceptance.
+Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the only commit between that production checkpoint and `5ed763be2a331e6dc988ac133e79f0484d4cdebd` changes this review document. The artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files. The canonical-promotion commit changes frontend parser metadata, manifest/coverage/tests/docs/generated benchmark assets only; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
 
-A subsequent strict review found and fixed inference/formula presentation defects in production files under `statgpu/panel/**`:
+## Correctness and backend-provenance evidence
 
-- `PooledOLS` and `BetweenOLS` formula fits now preserve the implicit `Intercept` in summary and unified inference feature-name metadata;
-- these always-intercept estimators now reject explicit no-intercept formulas rather than silently overriding `0 +` / `-1`;
-- `PanelSummary` now labels sandwich/normal-reference statistics as `z` / `P>|z|` while retaining the historical `tvalues_` field/API;
-- related formula/inference regressions were added, including Patsy categorical-reference, interaction, transform, prediction and transformed-fit-space covariance coverage.
-
-These fixes do not change covariance formulas, coefficient estimates, standard errors, p-values, confidence intervals, backend selection, or the physical validation runners. However, `RELEASING.md` requires fresh exact-source physical acceptance for inference-facing production changes. Therefore the previous claim that no `statgpu/panel/**` file changed after `aad53587...` is no longer true, and the physical gate is reopened until a fresh clean-head CuPy/Torch run is recorded on the final review-fix head.
-
-## Final strict-review checkpoint
-
-The final production-source review checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`.
-
-Re-review of the final delta found no unresolved **CRITICAL**, **HIGH**, or relevant **MEDIUM** issue in the Stage-C scope. The last new finding was the explicit no-intercept formula contract for always-intercept `PooledOLS` / `BetweenOLS`; it is fixed and covered by both `0 +` and `-1` regressions. The targeted formula suite plus the Stage-A golden suite passed before that fix was committed.
-
-The one unresolved inline PR thread is the older P2 backend-provenance comment on `validate_panel_stage_c_gpu.py`. It is outdated: fits now persist the backend selected at the numerical fit boundary, and both physical runners validate that persisted value. The thread is intentionally left unresolved rather than mutating review history without an explicit request.
-
-A pre-existing `FamaMacBeth` formula-summary naming limitation remains outside Stage-C scope: Stage C explicitly freezes the Fama-MacBeth estimator/covariance path and this review does not broaden the PR into unrelated Fama-MacBeth API cleanup.
-
-## Historical correctness and backend-provenance evidence
-
-- path: `results/pr126_p100/panel_stage_c_gpu_validation_aad53587.json`
-- measurement SHA: `aad53587c9611da0e71a676e86ef32d9f6403f5c`
-- artifact repository commit: `fdf88e8990b30502958cc357099342d271792ec2`
-- Git blob: `4fc52f29021321a9d7b1f87fc76950c843ef4059`
-- SHA-256: `aab3ac61315b78ecaf04351f2922a444e3f44c587b31f9832ccad32839601b6c`
+- path: `results/pr126_p100/panel_stage_c_gpu_validation_5ed763be.json`
+- measurement SHA: `5ed763be2a331e6dc988ac133e79f0484d4cdebd`
+- artifact repository commit: `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2`
+- Git blob: `d5aa76dd8d3305792c643bb29856610d784af3f0`
+- SHA-256: `7d8777fabe32a012c91e8eb68914daca3e981cf6c6efeaa092b2172746b0d063`
 - GPU: Tesla P100-SXM2-16GB
-- result at measurement SHA: CuPy 32/32 and Torch 32/32 = 26 estimator covariance cases + 6 direct public primitives per backend
+- result: CuPy 32/32 and Torch 32/32 = 26 estimator covariance cases + 6 direct public primitives per backend
 - direct primitives: `cluster_group_debias`, `driscoll_kraay_qs`, `ill_conditioned_hc0`, `ill_conditioned_hc2`, `ill_conditioned_hc3`, `ill_conditioned_dk`
-- requested backend equaled the backend persisted at the numerical fit boundary; no numerical CPU fallback was observed
+- requested backend equals the backend persisted at the numerical fit boundary for every correctness case; no numerical CPU fallback was observed
+- the runner's package metadata records `cupy: null`; this is the same pre-existing package-name discovery limitation present in the previously accepted `aad53587...` artifact and does not replace executed-backend provenance
 
-## Historical synchronized performance evidence
+## Synchronized performance evidence
 
-- path: `results/pr126_p100/panel_stage_c_performance_aad53587.json`
-- measurement SHA: `aad53587c9611da0e71a676e86ef32d9f6403f5c`
-- artifact repository commit: `fdf88e8990b30502958cc357099342d271792ec2`
-- Git blob: `fd7b06e0bb3a51e6a74e524e5bc059063b5f75eb`
-- SHA-256: `99208f9276b92abf212d76655616718980095ba5c8ff9d3356a795a15ffa50c6`
+- path: `results/pr126_p100/panel_stage_c_performance_5ed763be.json`
+- measurement SHA: `5ed763be2a331e6dc988ac133e79f0484d4cdebd`
+- artifact repository commit: `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2`
+- Git blob: `1e735274c76f3bad3aa747b25a36f449fb764cc0`
+- SHA-256: `75da75c0405cce6e842c64c1b07b08a7b1cfd030fa08eac10916bd118ea33524`
 - GPU: Tesla P100-SXM2-16GB for both CuPy and Torch
 - rows: 58 = 54 base rows + 4 high-T QS rows
 - timing scope: synchronized end-to-end estimator fit
 - high-T scenario: `N=10,000`, `k=2`, `T=200`
 - no speedup claim or CPU-baseline claim is made
 
-## Canonical promotion audit
+## Strict review status
 
-The `aad53587...` evidence remains registered as the canonical historical Stage-C source contract until replacement evidence is accepted:
+The final production-source re-review found no unresolved CRITICAL, HIGH, or relevant MEDIUM issue in Stage-C scope. The last in-scope fixes covered RandomEffects formula matrix depth, transformed-fit-space external HC baselines, PooledOLS/BetweenOLS intercept metadata and explicit no-intercept rejection, documentation status, and robust-summary `z` labels. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.
 
-- correctness source: `panel-stage-c-validation-pr126-20260810-aab3ac61315b`;
-- performance source: `panel-stage-c-performance-pr126-20260810-99208f9276b9`;
-- the physical parser expects 26 estimator cases plus all 6 direct primitives and emits 64 validation rows across CuPy/Torch;
-- the canonical benchmark bundle contains 1984 runs after adding the eight newly promoted primitive rows;
-- recorded maximum absolute differences are finite diagnostics, while the physical runner's `status=success` remains authoritative for its `rtol+atol` NumPy parity check because the artifact does not store the reference magnitudes needed to reconstruct the relative-tolerance term;
-- the prior `c151550a...` and `9c0b3050...` artifacts remain immutable older historical evidence;
-- deterministic benchmark frontend assets were regenerated after promotion, and temporary promotion helpers are absent from the final tree.
+## Superseded historical evidence
 
-No canonical source identifier or raw evidence file is rewritten merely because acceptance is reopened. A fresh exact-head physical run must produce new immutable evidence and then be promoted through the same parser/manifest/frontend audit path.
+The prior `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performance artifacts remain immutable audit history but are not current acceptance sources. The current canonical source contract is the fresh `5ed763be...` measurement above.
 
-## Strict review findings closed since `aad53587...`
+## Merge-readiness boundary
 
-- **[HIGH][MATRIX] fixed** — RandomEffects formula matrix now covers categorical reference levels, interactions, transforms, column order, prediction, and Patsy design equivalence.
-- **[HIGH][MATRIX] fixed** — BetweenOLS and FirstDifferenceOLS HC0/HC2/HC3 now have independent statsmodels baselines on their entity-mean / first-difference fit spaces.
-- **[HIGH][FORMULA/INFER] fixed** — PooledOLS/BetweenOLS formula-added intercept metadata is preserved in summaries and `ParameterInferenceResult`.
-- **[HIGH][FORMULA/API] fixed** — always-intercept PooledOLS/BetweenOLS now reject explicit no-intercept formulas instead of silently ignoring `0 +` / `-1`.
-- **[MEDIUM][DOC] fixed** — EN/CN Panel docs no longer mix the old 26+2 physical status with the fresh 26+6 matrix.
-- **[MEDIUM][INFER/API] fixed** — robust/HC/cluster/DK summaries display normal-reference `z` labels instead of misleading `t` labels.
-
-Focused review regressions passed after each fix, including the Stage-A golden suite for formula metadata/API changes. No new numerical covariance or backend implementation defect was found in the re-reviewed production paths.
-
-## Hosted-CI trigger note
-
-The source checkpoint `86bed6fe...` was pushed by the temporary self-deleting review workflow using `GITHUB_TOKEN`. GitHub's recursive-workflow protection produced `action_required` / zero-job PR workflow records rather than executing the seven permanent workflows. This is not a test failure. This review/status commit is intentionally made through normal repository credentials so the permanent workflows can execute on a post-review head without changing production source or the physical validator contract.
-
-## Remaining acceptance gates
-
-Before PR #126 can return to **PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**:
-
-1. permanent hosted workflows must be green on the final review/status head;
-2. run `dev/benchmarks/validate_panel_stage_c_gpu.py` on that exact clean head for both CuPy and Torch;
-3. run `dev/benchmarks/benchmark_panel_stage_c_covariance.py` on the same exact clean head for both CuPy and Torch;
-4. audit and promote the new immutable artifacts without changing the measured production source or validator contract afterward.
-
-Until these gates close, PR #126 must remain Draft and must not be described as merge-ready.
+The physical gate is closed. Merge readiness still requires all permanent hosted workflows to be green on the final promoted head and a final post-promotion review with no new CRITICAL/HIGH/relevant-MEDIUM finding. The PR remains Draft until an explicit Ready transition is requested.

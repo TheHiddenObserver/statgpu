@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-Tier-1 Panel 路线的 Stage C 在 Stage-B diagnostics 之上补齐 residual-sandwich covariance 层：历史默认行为保持不变，同时加入 HC0/HC2/HC3、RandomEffects robust inference、显式 cluster group debias 与 Driscoll-Kraay，并保持 NumPy/CuPy/Torch 数值累积后端原生。修复后的 covariance/provenance 实现已在 exact-clean head `aad53587...` 上重新完成 Tesla P100 验证：CuPy 与 Torch 各自通过全部 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK；同步 performance 也覆盖有界的 `N=10,000`、`k=2`、`T=200` QS 场景。此前 `c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
+Tier-1 Panel 路线的 Stage C 在 Stage-B diagnostics 之上补齐 residual-sandwich covariance 层：历史默认行为保持不变，同时加入 HC0/HC2/HC3、RandomEffects robust inference、显式 cluster group debias 与 Driscoll-Kraay，并保持 NumPy/CuPy/Torch 数值累积后端原生。修复后的 covariance/provenance 实现已在 exact-clean head `5ed763be...` 上重新完成 Tesla P100 验证：CuPy 与 Torch 各自通过全部 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK；同步 performance 也覆盖有界的 `N=10,000`、`k=2`、`T=200` QS 场景。此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
 
 ## 路径
 
@@ -140,7 +140,7 @@ Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robu
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。fresh exact-clean head `aad53587...` 的 Tesla P100 acceptance 已闭合：CuPy 与 Torch 每个 backend 均通过 26/26 estimator covariance case 与 6/6 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK regressions，requested/executed backend 一致且无 CPU fallback。同步 performance rerun 覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup；此前 `c151550a...` 与 `9c0b3050...` 产物继续作为历史审计证据。
+hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。fresh exact-clean head `5ed763be...` 的 Tesla P100 acceptance 已闭合：CuPy 与 Torch 每个 backend 均通过 26/26 estimator covariance case 与 6/6 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK regressions，requested/executed backend 一致且无 CPU fallback。同步 performance rerun 覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup；此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为历史审计证据。
 
 ### PooledOLS HAC 时间排序
 

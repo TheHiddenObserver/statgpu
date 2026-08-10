@@ -11,7 +11,7 @@ Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的
 
 修复后的 covariance 实现从 design pseudoinverse 构造 bread 与 influence row，以 `diag(X X+)` 计算 HC2/HC3 leverage，统一验证 entity/time/cluster metadata，保持 CuPy group scatter-add 后端原生，发布共享 inference result contract，恢复 RandomEffects formula 的 intercept/feature-name 语义，并对超大 bandwidth 下的 quadratic-spectral weight 使用稳定的小参数展开。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 以及 R `sandwich`/`plm`。
 
-Fresh physical CUDA 验收已在精确且干净的实现提交 `aad53587c9611da0e71a676e86ef32d9f6403f5c` 上使用 Tesla P100-SXM2-16GB 完成。CuPy 与 Torch 各自通过 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），其中包括 full-rank ill-conditioned HC0/HC2/HC3 与 Driscoll-Kraay，并验证 requested/executed backend 一致且无数值 CPU fallback。同步 performance 仍覆盖三个基础规模及有界的 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup。此前 `c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
+Fresh physical CUDA 验收已在精确且干净的实现提交 `5ed763be2a331e6dc988ac133e79f0484d4cdebd` 上使用 Tesla P100-SXM2-16GB 完成。CuPy 与 Torch 各自通过 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），其中包括 full-rank ill-conditioned HC0/HC2/HC3 与 Driscoll-Kraay，并验证 requested/executed backend 一致且无数值 CPU fallback。同步 performance 仍覆盖三个基础规模及有界的 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup。此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
 
 ## 2026-08-08
 
