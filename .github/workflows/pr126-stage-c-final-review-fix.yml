@@ -1,4 +1,4 @@
-name: PR126 Stage C final review fixes v2
+name: PR126 Stage C final review fixes v3
 
 on:
   push:
@@ -30,18 +30,21 @@ jobs:
         run: |
           python dev/benchmarks/_pr126_patch_final_review_fixes.py
           python dev/benchmarks/_pr126_patch_final_review_fix_v2.py
+          python dev/benchmarks/_pr126_patch_final_review_fix_v3.py
       - name: Focused Stage C review gates
         run: |
           python -m pytest \
             dev/tests/test_panel_stage_c_edge_contracts.py \
             dev/tests/test_panel_stage_c_performance_runner_contract.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
             dev/tests/test_panel_stage_c_external.py \
             dev/tests/test_panel_stage_c_external_defaults.py \
             dev/tests/test_panel_stage_c_linearmodels_estimators.py \
             -q --tb=short
           python -m py_compile \
             statgpu/panel/_covariance.py \
-            dev/benchmarks/benchmark_panel_stage_c_covariance.py
+            dev/benchmarks/benchmark_panel_stage_c_covariance.py \
+            dev/benchmarks/validate_panel_stage_c_gpu.py
           git diff --check
       - name: Commit validated fixes
         run: |
@@ -53,6 +56,9 @@ jobs:
             dev/benchmarks/benchmark_panel_stage_c_covariance.py \
             dev/tests/test_panel_stage_c_performance_runner_contract.py \
             dev/tests/test_panel_stage_c_external_defaults.py \
-            dev/plans/panel_p1_stage_c_covariance_plan.md
+            dev/tests/test_panel_stage_c_torch_cpu.py \
+            dev/benchmarks/validate_panel_stage_c_gpu.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py
+          git add -f dev/plans/panel_p1_stage_c_covariance_plan.md
           git commit -m 'fix: close Stage C final review gaps'
           git push origin HEAD:agent/panel-p1-stage-c-covariance
