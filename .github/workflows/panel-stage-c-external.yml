@@ -8,6 +8,7 @@ on:
       - 'dev/tests/test_panel_stage_c_external.py'
       - 'dev/tests/test_panel_stage_c_external_defaults.py'
       - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
+      - 'dev/tests/test_panel_stage_c_r_external.py'
       - '.github/workflows/panel-stage-c-external.yml'
   push:
     branches: [master]
@@ -16,6 +17,7 @@ on:
       - 'dev/tests/test_panel_stage_c_external.py'
       - 'dev/tests/test_panel_stage_c_external_defaults.py'
       - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
+      - 'dev/tests/test_panel_stage_c_r_external.py'
       - '.github/workflows/panel-stage-c-external.yml'
 
 permissions:
@@ -50,3 +52,40 @@ jobs:
             dev/tests/test_panel_stage_c_external_defaults.py \
             dev/tests/test_panel_stage_c_linearmodels_estimators.py \
             -q --tb=short
+
+  r-external-alignment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STATGPU_RUN_R_PANEL_EXTERNAL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.4.2'
+      - name: Install statgpu test environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Install pinned R references
+        run: |
+          Rscript - <<'RS'
+          install.packages('remotes', repos='https://cloud.r-project.org')
+          remotes::install_version(
+            'sandwich', version='3.1-1', repos='https://cloud.r-project.org', upgrade='never'
+          )
+          remotes::install_version(
+            'plm', version='2.6-6', repos='https://cloud.r-project.org', upgrade='never'
+          )
+          stopifnot(as.character(packageVersion('sandwich')) == '3.1-1')
+          stopifnot(as.character(packageVersion('plm')) == '2.6-6')
+          cat('R', R.version.string, '\n')
+          cat('plm', as.character(packageVersion('plm')), '\n')
+          cat('sandwich', as.character(packageVersion('sandwich')), '\n')
+          RS
+      - name: Run R plm and sandwich alignment
+        run: |
+          python -m pytest dev/tests/test_panel_stage_c_r_external.py -q --tb=short
