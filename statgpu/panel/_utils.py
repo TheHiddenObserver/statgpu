@@ -127,7 +127,12 @@ class PanelSummary:
         ci_label = f"[{self.alpha/2:.3f}" if self.alpha != 0.05 else "[0.025"
         ci_label2 = f"{1-self.alpha/2:.3f}]" if self.alpha != 0.05 else "0.975]"
         lines.append("-" * 72)
-        lines.append(f"{'':<12} {'coef':>10} {'std err':>10} {'t':>8} {'P>|t|':>10} {ci_label:>10} {ci_label2:>10}")
+        statistic_label = "t" if self.cov_type in (None, "nonrobust") else "z"
+        pvalue_label = "P>|t|" if statistic_label == "t" else "P>|z|"
+        lines.append(
+            f"{'':<12} {'coef':>10} {'std err':>10} "
+            f"{statistic_label:>8} {pvalue_label:>10} {ci_label:>10} {ci_label2:>10}"
+        )
         lines.append("-" * 72)
         for i, name in enumerate(self.feature_names):
             lines.append(

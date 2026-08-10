@@ -140,6 +140,25 @@ def test_random_effects_dk_formula_metadata_alignment_matches_constant_array_fit
     assert summary.feature_names == ["Intercept", "x", "z"]
 
 
+def test_panel_summary_labels_normal_reference_as_z_and_nonrobust_as_t():
+    data = _frame(128036)
+    X = data[["x", "z"]].to_numpy()
+    y = data["y"].to_numpy()
+
+    robust = PooledOLS(cov_type="hc0").fit(X, y)
+    robust_text = str(robust.summary())
+    assert "P>|z|" in robust_text
+    assert "P>|t|" not in robust_text
+    assert robust._inference_result.statistic_name == "z"
+
+    nonrobust = PooledOLS(cov_type="nonrobust").fit(X, y)
+    nonrobust_text = str(nonrobust.summary())
+    assert "P>|t|" in nonrobust_text
+    assert "P>|z|" not in nonrobust_text
+    assert nonrobust._inference_result.statistic_name == "t"
+
+
+
 @pytest.mark.parametrize("estimator", [PooledOLS, BetweenOLS])
 def test_formula_added_constant_keeps_intercept_in_summary_and_inference_names(estimator):
     data = _frame(128035)
