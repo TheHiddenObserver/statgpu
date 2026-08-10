@@ -30,7 +30,18 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest 'jsonschema[format]'
       - name: Apply audited Stage C evidence promotion
-        run: python dev/benchmarks/_pr126_promote_stage_c_evidence.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/benchmarks/_pr126_promote_stage_c_evidence.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '## 2026-08-09 — Panel Stage C 协方差完成（PR #126）\\n',
+              '## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）\\n',
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+          python dev/benchmarks/_pr126_promote_stage_c_evidence.py
       - name: Run focused parser, catalog, coverage, and inventory gates
         run: |
           python -m pytest \
