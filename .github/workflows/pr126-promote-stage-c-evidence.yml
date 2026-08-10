@@ -33,19 +33,25 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path('dev/benchmarks/_pr126_promote_stage_c_evidence.py')
-          text = path.read_text(encoding='utf-8')
+          helper = Path('dev/benchmarks/_pr126_promote_stage_c_evidence.py')
+          text = helper.read_text(encoding='utf-8')
           text = text.replace(
               '## 2026-08-09 — Panel Stage C 协方差完成（PR #126）\\n',
               '## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）\\n',
           )
-          text = text.replace(
-              'assert len(output["runs"]) == 1862',
-              'assert len(output["runs"]) == 1976',
-          )
-          path.write_text(text, encoding='utf-8')
+          helper.write_text(text, encoding='utf-8')
           PY
           python dev/benchmarks/_pr126_promote_stage_c_evidence.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/tests/test_frontend_domain_coverage.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'assert len(output["runs"]) == 1862'
+          new = 'assert len(output["runs"]) == 1976'
+          if old not in text:
+              raise SystemExit('expected old frontend run-count assertion not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Run focused parser, catalog, coverage, and inventory gates
         run: |
           python -m pytest \
