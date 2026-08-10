@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "d33227270735604b2b4e4a24dfa486ce07cf8aae954176cebdc753b6fb59e5a3"
+    "generation_id": "9ab7e1b1b610aee37f977b9dec5d758473a61d7c39d6831ddc13126217ca3bc0"
   },
   "environments": [
     {
@@ -99165,7 +99165,7 @@
       "comparison_id": "panel-stage-c-pr126-validation-20260810"
     },
     {
-      "run_id": "46a0c25a4eb56c46",
+      "run_id": "6c2a94fb16a2edbc",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99182,7 +99182,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99234,7 +99234,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "ad83d3de87aad3f9",
+      "run_id": "7b60914bebf1cd0b",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99251,7 +99251,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99303,7 +99303,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "72eeb9bba11ad4fb",
+      "run_id": "7b3b5b67355c85cd",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99320,7 +99320,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99372,7 +99372,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "69f5c4fceadaf243",
+      "run_id": "bb6c11306a7ffb95",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99389,7 +99389,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99441,7 +99441,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "0ebf8bac4b4c3be1",
+      "run_id": "c885a621b7cb1d78",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99458,7 +99458,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99510,7 +99510,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "78c0c6e321d2884c",
+      "run_id": "8209fba04e4e8c59",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99527,7 +99527,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99579,7 +99579,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "bfc2efa451e5e540",
+      "run_id": "01ba6150713bbf44",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99596,7 +99596,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99648,7 +99648,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "4f87c9a137d8076f",
+      "run_id": "fdb766f5a9f5aa64",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99665,7 +99665,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99717,7 +99717,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "b8366d0d09e3604a",
+      "run_id": "90666607ee51f37e",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99734,7 +99734,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99786,7 +99786,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "be74fbbc3efa0d88",
+      "run_id": "761c62eade5b7500",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99803,7 +99803,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99855,7 +99855,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "27b05ce9f988337b",
+      "run_id": "746ec4be4dbe35b3",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99872,7 +99872,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99924,7 +99924,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "efddc2081eabdd03",
+      "run_id": "47218d6f1e9c0039",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -99941,7 +99941,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -99993,7 +99993,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "4de98805384a7c8a",
+      "run_id": "ae64946f0052c293",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100010,7 +100010,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -100062,7 +100062,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "38c1f25c378394e6",
+      "run_id": "facffac66bf66666",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100079,7 +100079,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -100131,7 +100131,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "7423b55dfcba8802",
+      "run_id": "abbcc6f5b1496af9",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100148,7 +100148,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -100200,7 +100200,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "8a76ddc061c676ce",
+      "run_id": "acc5cd1ef036264e",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100217,7 +100217,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -100269,7 +100269,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "79681292859ad175",
+      "run_id": "1ad3321a28993889",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100286,7 +100286,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -100338,7 +100338,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "7814ab94efccbafc",
+      "run_id": "e01b03d43ca88b40",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100355,7 +100355,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t20",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=20"
@@ -100407,7 +100407,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "0c67e325882e3071",
+      "run_id": "a4ff78d14d35dc19",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100424,7 +100424,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100476,7 +100476,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "9e92e9bbdb121ed5",
+      "run_id": "0a9c49c46d260482",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100493,7 +100493,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100545,7 +100545,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "20f7e9b4c16e5611",
+      "run_id": "cd2d78ea0022e7da",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100562,7 +100562,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100614,7 +100614,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "9c5b7594e77ae29b",
+      "run_id": "aa275adee403d52d",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100631,7 +100631,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100683,7 +100683,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "bdb0061bb1847e9e",
+      "run_id": "1c231078fc29f373",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100700,7 +100700,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100752,7 +100752,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "aff47fc1b8248093",
+      "run_id": "ea1596c3daf401de",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100769,7 +100769,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100821,7 +100821,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "21d41e642049a923",
+      "run_id": "96ab93e5bfd9783e",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100838,7 +100838,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100890,7 +100890,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "bc45a6e2ba1b9a26",
+      "run_id": "629499b1c48fe644",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100907,7 +100907,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -100959,7 +100959,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "107025953a287f34",
+      "run_id": "7de71af4833585f7",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -100976,7 +100976,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101028,7 +101028,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "2bc333b6ca98f56b",
+      "run_id": "f3986898378fd48c",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101045,7 +101045,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101097,7 +101097,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "0aa3d4ed6b62d5a5",
+      "run_id": "b17cd33ebe6012a1",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101114,7 +101114,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101166,7 +101166,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "fc0b1c21c5c14a3c",
+      "run_id": "fa2ad901944aa826",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101183,7 +101183,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101235,7 +101235,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "efaa63aa0a2383c1",
+      "run_id": "3198e7aee687ad5c",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101252,7 +101252,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101304,7 +101304,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "b9a240499bfe1ad7",
+      "run_id": "5b12d7ecc046c806",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101321,7 +101321,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101373,7 +101373,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "8f006ecff7289e78",
+      "run_id": "13bf030fea8a868f",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101390,7 +101390,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101442,7 +101442,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "b751ea7bd445ce36",
+      "run_id": "2ba2e29b4e759410",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101459,7 +101459,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101511,7 +101511,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "5fdbd5962c4bd019",
+      "run_id": "f06d41ea511f66ce",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101528,7 +101528,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101580,7 +101580,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "3424db97b638d0d4",
+      "run_id": "9b669ef5f43ba25c",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101597,7 +101597,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p2",
+        "scale_key": "n100000_p2_t20",
         "n_samples": 100000,
         "n_features": 2,
         "label": "100K×2 · T=20"
@@ -101649,7 +101649,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "3014d1ecee88c1b9",
+      "run_id": "e8609efab680e081",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101666,7 +101666,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -101718,7 +101718,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "0649e271f1a30aee",
+      "run_id": "022bb6075718a127",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101735,7 +101735,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -101787,7 +101787,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "f6d2873c93f9df6b",
+      "run_id": "4297953205f878db",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101804,7 +101804,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -101856,7 +101856,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "b6cc7148ce520092",
+      "run_id": "a01f0ebc330be267",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101873,7 +101873,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -101925,7 +101925,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "701c414724748ead",
+      "run_id": "1e582e68c53cd421",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -101942,7 +101942,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -101994,7 +101994,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "4d7bbfc387a67a61",
+      "run_id": "d55b3f2e17a70c13",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102011,7 +102011,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102063,7 +102063,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "2b89aedd2c607296",
+      "run_id": "15b40d3fa656b539",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102080,7 +102080,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102132,7 +102132,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "952f7c4758d4a213",
+      "run_id": "ec414cd8f81a584a",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102149,7 +102149,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102201,7 +102201,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "ce7cd6ab05027e26",
+      "run_id": "8c0fb6a5d27006ae",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102218,7 +102218,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102270,7 +102270,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "a73ee2ec2a11b221",
+      "run_id": "812b138a8c5bf500",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102287,7 +102287,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102339,7 +102339,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "145b8bee30e4b567",
+      "run_id": "801a75538caaf3cd",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102356,7 +102356,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102408,7 +102408,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "3485e208f0cbc2b3",
+      "run_id": "fd2c45709e48f754",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102425,7 +102425,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102477,7 +102477,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "cee068e84c8e8e38",
+      "run_id": "8e02bd137087ed39",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102494,7 +102494,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102546,7 +102546,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "d059c35bcb6042c4",
+      "run_id": "35ad39003efdf44b",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102563,7 +102563,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102615,7 +102615,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "5ba3fea6daa0f9b3",
+      "run_id": "f7e55461663e55ba",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102632,7 +102632,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102684,7 +102684,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "f1ce6a30a7a3a60f",
+      "run_id": "de5d0defb2677deb",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102701,7 +102701,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102753,7 +102753,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "c60592376232728d",
+      "run_id": "cd038498353c86c2",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102770,7 +102770,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102822,7 +102822,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "176b57e502c614e3",
+      "run_id": "f200a4fe8ba01c0a",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102839,7 +102839,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n100000_p10",
+        "scale_key": "n100000_p10_t20",
         "n_samples": 100000,
         "n_features": 10,
         "label": "100K×10 · T=20"
@@ -102891,7 +102891,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "a22fff47a31467b4",
+      "run_id": "85ba450c481b25ba",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102908,7 +102908,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t200",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=200"
@@ -102960,7 +102960,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "b10281240647fcc3",
+      "run_id": "c2d0e3853bf937c9",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -102977,7 +102977,7 @@
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t200",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=200"
@@ -103029,7 +103029,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "350a0b850faf8404",
+      "run_id": "54dbb3271cf80f89",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -103046,7 +103046,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t200",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=200"
@@ -103098,7 +103098,7 @@
       "comparison_id": "panel-stage-c-pr126-performance-20260810"
     },
     {
-      "run_id": "6add001711688078",
+      "run_id": "796fc62e836a34c5",
       "benchmark_session_id": "remote-p100-pr126-20260810-panel-stage-c-pr126-performance",
       "env_id": "remote-p100-pr126-20260810",
       "category_ids": [
@@ -103115,7 +103115,7 @@
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
-        "scale_key": "n10000_p2",
+        "scale_key": "n10000_p2_t200",
         "n_samples": 10000,
         "n_features": 2,
         "label": "10K×2 · T=200"

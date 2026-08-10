@@ -40,11 +40,18 @@ def test_stage_c_performance_parser_emits_timing_without_speedup():
     assert len(runs) == 58
     assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
     assert all("speedup" not in run["metrics"] for run in runs)
+    base = [run for run in runs if run["parameters"]["scenario"] == "base"]
     high_t = [run for run in runs if run["parameters"]["scenario"] == "high_t_qs"]
+    assert len(base) == 54
     assert len(high_t) == 4
     assert {run["backend"] for run in high_t} == {"cupy", "torch"}
     assert {run["parameters"]["n_times"] for run in high_t} == {200}
     assert {run["model_id"] for run in high_t} == {"PooledOLS", "PanelOLS"}
+    assert {run["scale"]["scale_key"] for run in base} == {
+        "n10000_p2_t20", "n100000_p2_t20", "n100000_p10_t20"
+    }
+    assert {run["scale"]["scale_key"] for run in high_t} == {"n10000_p2_t200"}
+    assert {run["scale"]["label"] for run in high_t} == {"10K×2 · T=200"}
 
 
 def test_stage_c_performance_parser_fails_closed_on_high_t_contract(tmp_path):
@@ -63,3 +70,25 @@ def test_stage_c_validation_parser_fails_closed_on_case_identity(tmp_path):
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="case identity drifted"):
         parse_panel_stage_c_physical_validation(broken, "remote-p100-pr126-20260810")
+
+
+def test_stage_c_performance_parser_fails_closed_on_base_matrix_drift(tmp_path):
+    data = json.loads(PERFORMANCE.read_text(encoding="utf-8"))
+    base_rows = [row for row in data["rows"] if row["scenario"] == "base"]
+    assert len(base_rows) == 54
+    base_rows[0]["case"] = base_rows[1]["case"]
+    broken = tmp_path / "broken_base_matrix.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="base matrix drifted"):
+        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260810")
+
+
+def test_stage_c_performance_parser_fails_closed_on_high_t_backend_matrix_drift(tmp_path):
+    data = json.loads(PERFORMANCE.read_text(encoding="utf-8"))
+    high_t = [row for row in data["rows"] if row["scenario"] == "high_t_qs"]
+    assert len(high_t) == 4
+    high_t[0]["backend"] = "torch"
+    broken = tmp_path / "broken_high_t_matrix.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="high-T QS matrix drifted"):
+        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260810")

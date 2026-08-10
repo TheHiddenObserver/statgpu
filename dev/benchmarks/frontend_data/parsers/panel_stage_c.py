@@ -29,6 +29,12 @@ _EXPECTED_CASES = {
     "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
 }
 _EXPECTED_PRIMITIVES = {"cluster_group_debias", "driscoll_kraay_qs"}
+_BASE_CASES = {
+    "pooled_nonrobust", "pooled_hc3", "pooled_cluster_two_way", "pooled_dk_qs",
+    "panel_entity_nonrobust", "panel_entity_hc3", "panel_entity_dk",
+    "random_effects_nonrobust", "random_effects_hc3",
+}
+_BASE_SCALES = {(10000, 2, 20), (100000, 2, 20), (100000, 10, 20)}
 _HIGH_T_CASES = {"pooled_dk_qs", "panel_entity_dk_qs"}
 
 
@@ -51,12 +57,21 @@ def _model_id(case: str) -> str:
     raise ValueError(f"unknown Stage-C case identity: {case!r}")
 
 
-def _scale(n_samples: int, n_features: int, *, suffix: str | None = None) -> dict[str, Any]:
+def _scale(
+    n_samples: int,
+    n_features: int,
+    *,
+    suffix: str | None = None,
+    key_suffix: str | None = None,
+) -> dict[str, Any]:
     label = make_scale_label(int(n_samples), int(n_features))
     if suffix:
         label = f"{label} · {suffix}"
+    scale_key = make_scale_key(int(n_samples), int(n_features))
+    if key_suffix:
+        scale_key = f"{scale_key}_{key_suffix}"
     return {
-        "scale_key": make_scale_key(int(n_samples), int(n_features)),
+        "scale_key": scale_key,
         "n_samples": int(n_samples),
         "n_features": int(n_features),
         "label": label,
@@ -274,18 +289,44 @@ def parse_panel_stage_c_performance(
     if {row.get("backend") for row in rows} != {"cupy", "torch"}:
         raise ValueError("PR126 Stage-C performance requires CuPy and Torch rows")
 
+    base_rows = [row for row in rows if row.get("scenario") == "base"]
+    expected_base = {
+        (backend, case_name, n_samples, n_features, n_times)
+        for backend in ("cupy", "torch")
+        for case_name in _BASE_CASES
+        for n_samples, n_features, n_times in _BASE_SCALES
+    }
+    actual_base = [
+        (
+            row.get("backend"),
+            row.get("case"),
+            int(row.get("n_samples", 0)),
+            int(row.get("n_features", 0)),
+            int(row.get("n_times", 0)),
+        )
+        for row in base_rows
+    ]
+    if len(actual_base) != len(expected_base) or set(actual_base) != expected_base:
+        raise ValueError("PR126 Stage-C performance base matrix drifted")
+
     high_t = [row for row in rows if row.get("scenario") == "high_t_qs"]
-    if len(high_t) != 4:
-        raise ValueError("PR126 Stage-C performance requires four high-T QS rows")
-    if {row.get("case") for row in high_t} != _HIGH_T_CASES:
-        raise ValueError("PR126 Stage-C high-T QS case identity drifted")
-    if any(
-        int(row.get("n_samples", 0)) != 10000
-        or int(row.get("n_features", 0)) != 2
-        or int(row.get("n_times", 0)) != 200
+    expected_high_t = {
+        (backend, case_name, 10000, 2, 200)
+        for backend in ("cupy", "torch")
+        for case_name in _HIGH_T_CASES
+    }
+    actual_high_t = [
+        (
+            row.get("backend"),
+            row.get("case"),
+            int(row.get("n_samples", 0)),
+            int(row.get("n_features", 0)),
+            int(row.get("n_times", 0)),
+        )
         for row in high_t
-    ):
-        raise ValueError("PR126 Stage-C high-T QS dimensions drifted")
+    ]
+    if len(actual_high_t) != len(expected_high_t) or set(actual_high_t) != expected_high_t:
+        raise ValueError("PR126 Stage-C performance high-T QS matrix drifted")
 
     output: list[dict] = []
     model_ids: set[str] = set()
@@ -314,7 +355,12 @@ def parse_panel_stage_c_performance(
         n_samples = int(row["n_samples"])
         n_features = int(row["n_features"])
         n_times = int(row["n_times"])
-        scale = _scale(n_samples, n_features, suffix=f"T={n_times}")
+        scale = _scale(
+            n_samples,
+            n_features,
+            suffix=f"T={n_times}",
+            key_suffix=f"t{n_times}",
+        )
         output.append(
             {
                 "run_id": "",
