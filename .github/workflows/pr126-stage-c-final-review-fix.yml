@@ -1,4 +1,4 @@
-name: PR126 Stage C final review fixes
+name: PR126 Stage C final review fixes v2
 
 on:
   push:
@@ -27,7 +27,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
       - name: Apply final review fixes
-        run: python dev/benchmarks/_pr126_patch_final_review_fixes.py
+        run: |
+          python dev/benchmarks/_pr126_patch_final_review_fixes.py
+          python dev/benchmarks/_pr126_patch_final_review_fix_v2.py
       - name: Focused Stage C review gates
         run: |
           python -m pytest \
