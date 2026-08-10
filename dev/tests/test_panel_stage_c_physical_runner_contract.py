@@ -75,7 +75,14 @@ def test_stage_c_runner_public_primitive_matrix_is_complete():
     values = _MOD._public_primitive_cases(
         X, y, entity, time, clusters, "numpy"
     )
-    assert set(values) == {"cluster_group_debias", "driscoll_kraay_qs"}
+    assert set(values) == {
+        "cluster_group_debias",
+        "driscoll_kraay_qs",
+        "ill_conditioned_hc0",
+        "ill_conditioned_hc2",
+        "ill_conditioned_hc3",
+        "ill_conditioned_dk",
+    }
     for value in values.values():
         arr = np.asarray(value, dtype=np.float64)
         assert arr.shape == (3, 3)
