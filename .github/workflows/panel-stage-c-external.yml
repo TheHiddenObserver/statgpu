@@ -7,6 +7,7 @@ on:
       - 'statgpu/panel/**'
       - 'dev/tests/test_panel_stage_c_external.py'
       - 'dev/tests/test_panel_stage_c_external_defaults.py'
+      - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
       - '.github/workflows/panel-stage-c-external.yml'
   push:
     branches: [master]
@@ -14,6 +15,7 @@ on:
       - 'statgpu/panel/**'
       - 'dev/tests/test_panel_stage_c_external.py'
       - 'dev/tests/test_panel_stage_c_external_defaults.py'
+      - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
       - '.github/workflows/panel-stage-c-external.yml'
 
 permissions:
@@ -46,4 +48,5 @@ jobs:
           python -m pytest \
             dev/tests/test_panel_stage_c_external.py \
             dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
             -q --tb=short
