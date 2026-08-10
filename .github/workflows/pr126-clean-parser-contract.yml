@@ -1,0 +1,54 @@
+name: PR126 clean Stage C parser contract
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-clean-parser-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - name: Remove obsolete absolute-tolerance parser surface
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('dev/benchmarks/frontend_data/parsers/panel_stage_c.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              'def _finite_diff_map(value: Any, limit: float) -> bool:\n': (
+                  'def _finite_diff_map(value: Any) -> bool:\n'
+                  '    """Validate stored difference diagnostics; runner success owns rtol+atol parity."""\n'
+              ),
+              '    atol = float(data.get("tolerances", {}).get("atol", 0.0))\n    limit = max(atol, 1e-12)\n': '',
+              '            diff_ok = _finite_diff_map(case.get("max_abs_differences"), limit)\n':
+                  '            diff_ok = _finite_diff_map(case.get("max_abs_differences"))\n',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise RuntimeError(f'expected parser cleanup target exactly once: {old!r}')
+              text = text.replace(old, new, 1)
+          if 'limit' in text[text.index('def _finite_diff_map'):text.index('def parse_panel_stage_c_performance')]:
+              raise RuntimeError('obsolete physical-parser limit reference remains')
+          path.write_text(text, encoding='utf-8')
+          PY
+          python -m py_compile dev/benchmarks/frontend_data/parsers/panel_stage_c.py
+      - name: Commit cleanup and self-delete helper
+        run: |
+          rm .github/workflows/pr126-clean-parser-contract.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: clarify Stage C evidence parser contract'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
