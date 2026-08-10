@@ -61,8 +61,8 @@ jobs:
                '`entity_ids` is optional and does not change coefficients; it enables standardized within/between R² and the panel BP-LM diagnostic.\n',
                '`entity_ids` is optional and does not change coefficients; it enables standardized within/between R² and the panel BP-LM diagnostic. `PooledOLS` and `BetweenOLS` always include an intercept, so formulas that explicitly remove it (for example, `0 +` or `-1`) are rejected rather than silently ignored.\n'),
               ('docs/cn/models/panel.md',
-               '`entity_ids` 是可选参数，不改变系数；提供后可计算标准化的组内/组间 R² 与面板 BP-LM 诊断。\n',
-               '`entity_ids` 是可选参数，不改变系数；提供后可计算标准化的组内/组间 R² 与面板 BP-LM 诊断。`PooledOLS` 与 `BetweenOLS` 始终包含截距，因此显式移除截距的公式（例如 `0 +` 或 `-1`）会直接报错，而不会被静默忽略。\n'),
+               '`entity_ids` 是可选项，不改变系数；提供后会启用标准化 within/between R² 与 panel BP-LM。\n',
+               '`entity_ids` 是可选项，不改变系数；提供后会启用标准化 within/between R² 与 panel BP-LM。`PooledOLS` 与 `BetweenOLS` 始终包含截距，因此显式移除截距的公式（例如 `0 +` 或 `-1`）会直接报错，而不会被静默忽略。\n'),
           ]
           for path, old, new in docs:
               replace_once(path, old, new)
