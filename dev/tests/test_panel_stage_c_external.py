@@ -46,6 +46,22 @@ def _ill_conditioned_regression(seed=12709):
     return X, y
 
 
+def _stable_hc_reference(X, resid, cov_type):
+    X_pinv = np.linalg.pinv(X)
+    projection_rows = X_pinv.T
+    leverage = np.sum(X * projection_rows, axis=1)
+    if cov_type == "hc0":
+        adjusted = resid
+    elif cov_type == "hc2":
+        adjusted = resid / np.sqrt(1.0 - leverage)
+    elif cov_type == "hc3":
+        adjusted = resid / (1.0 - leverage)
+    else:
+        raise ValueError(cov_type)
+    influence = projection_rows * adjusted[:, None]
+    return influence.T @ influence, leverage
+
+
 @pytest.mark.parametrize("cov_type", ["HC2", "HC3"])
 def test_hc2_hc3_fit_space_covariance_matches_statsmodels(cov_type):
     X, y, params, entity, time = _regression(seed=12701)
@@ -60,28 +76,41 @@ def test_hc2_hc3_fit_space_covariance_matches_statsmodels(cov_type):
     assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)
 
 
-@pytest.mark.parametrize("cov_type", ["HC0", "HC2", "HC3"])
-def test_ill_conditioned_full_rank_hc_covariance_matches_statsmodels(cov_type):
+def test_ill_conditioned_full_rank_hc0_matches_statsmodels():
+    X, y = _ill_conditioned_regression()
+    fit = statsmodels.OLS(y, X).fit()
+    actual = ols_covariance(X, np.asarray(fit.resid), cov_type="hc0")
+    expected = fit.get_robustcov_results(cov_type="HC0").cov_params()
+    assert_allclose(actual, expected, rtol=2e-6, atol=5e-3)
+    assert np.all(np.isfinite(actual))
+    assert np.all(np.diag(actual) >= 0.0)
+    assert np.max(np.diag(actual)) > 1.0e10
+
+
+@pytest.mark.parametrize("cov_type", ["hc2", "hc3"])
+def test_ill_conditioned_full_rank_hc2_hc3_use_stable_leverage(cov_type):
     X, y = _ill_conditioned_regression()
     fit = statsmodels.OLS(y, X).fit()
     metadata = {}
     actual = ols_covariance(
         X,
         np.asarray(fit.resid),
-        cov_type=cov_type.lower(),
+        cov_type=cov_type,
         metadata=metadata,
     )
-    expected = fit.get_robustcov_results(cov_type=cov_type).cov_params()
-    assert_allclose(actual, expected, rtol=2e-6, atol=5e-3)
+    expected, leverage = _stable_hc_reference(
+        X,
+        np.asarray(fit.resid),
+        cov_type,
+    )
+    assert_allclose(actual, expected, rtol=5e-11, atol=5e-3)
+    assert leverage.min() >= -1.0e-12
+    assert leverage.max() <= 1.0 + 1.0e-12
+    assert metadata["leverage_min"] >= -1.0e-12
+    assert metadata["leverage_max"] <= 1.0 + 1.0e-12
     assert np.all(np.isfinite(actual))
     assert np.all(np.diag(actual) >= 0.0)
     assert np.max(np.diag(actual)) > 1.0e10
-    if cov_type in {"HC2", "HC3"}:
-        stable_leverage = np.sum(X * np.linalg.pinv(X).T, axis=1)
-        assert stable_leverage.min() >= -1.0e-12
-        assert stable_leverage.max() <= 1.0 + 1.0e-12
-        assert metadata["leverage_min"] >= -1.0e-12
-        assert metadata["leverage_max"] <= 1.0 + 1.0e-12
 
 
 def test_qs_extreme_bandwidth_uses_small_argument_limit():
