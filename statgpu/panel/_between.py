@@ -95,6 +95,11 @@ class BetweenOLS(BasePanelModel):
             side_arrays={"entity_ids": entity_ids},
         )
         entity_ids = aligned["entity_ids"]
+        if formula is not None and bool(self._formula_has_intercept):
+            self._feature_names = [
+                "Intercept",
+                *list(self._feature_names or []),
+            ]
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
         self._panel_set_index_info(X_arr.shape[0], entity_ids=entity_ids)

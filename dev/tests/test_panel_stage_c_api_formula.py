@@ -10,7 +10,7 @@ pd = pytest.importorskip("pandas")
 patsy = pytest.importorskip("patsy")
 
 from statgpu.inference._results import ParameterInferenceResult
-from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel import BetweenOLS, PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._covariance import driscoll_kraay_covariance
 
 
@@ -138,6 +138,27 @@ def test_random_effects_dk_formula_metadata_alignment_matches_constant_array_fit
     assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
     summary = formula_model.summary()
     assert summary.feature_names == ["Intercept", "x", "z"]
+
+
+@pytest.mark.parametrize("estimator", [PooledOLS, BetweenOLS])
+def test_formula_added_constant_keeps_intercept_in_summary_and_inference_names(estimator):
+    data = _frame(128035)
+    kwargs = {}
+    if estimator is BetweenOLS:
+        kwargs["entity_ids"] = data["entity"].to_numpy()
+    model = estimator(cov_type="hc0").fit(
+        formula="y ~ x + z",
+        data=data,
+        **kwargs,
+    )
+
+    expected_names = ["Intercept", "x", "z"]
+    summary = model.summary()
+    assert summary.feature_names == expected_names
+    assert len(summary.feature_names) == len(summary.coef) == len(model.coef_)
+    assert model._feature_names == expected_names
+    assert model._inference_result.feature_names == expected_names
+
 
 
 def test_random_effects_formula_matches_patsy_categorical_interaction_transform_matrix():
