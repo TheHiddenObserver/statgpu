@@ -9,10 +9,21 @@ The Tesla P100 evidence measured from exact clean implementation SHA `aad53587c9
 A subsequent strict review found and fixed inference/formula presentation defects in production files under `statgpu/panel/**`:
 
 - `PooledOLS` and `BetweenOLS` formula fits now preserve the implicit `Intercept` in summary and unified inference feature-name metadata;
+- these always-intercept estimators now reject explicit no-intercept formulas rather than silently overriding `0 +` / `-1`;
 - `PanelSummary` now labels sandwich/normal-reference statistics as `z` / `P>|z|` while retaining the historical `tvalues_` field/API;
 - related formula/inference regressions were added, including Patsy categorical-reference, interaction, transform, prediction and transformed-fit-space covariance coverage.
 
-These fixes do not change covariance formulas, coefficient estimates, standard errors, p-values, confidence intervals, backend selection, or the physical validation runners. However, `RELEASING.md` requires fresh exact-source physical acceptance for inference-facing production changes. Therefore the previous claim that no `statgpu/panel/**` file changed after `aad53587...` is no longer true, and the physical gate is reopened until a fresh clean-head CuPy/Torch run is recorded on the final review-fix source head.
+These fixes do not change covariance formulas, coefficient estimates, standard errors, p-values, confidence intervals, backend selection, or the physical validation runners. However, `RELEASING.md` requires fresh exact-source physical acceptance for inference-facing production changes. Therefore the previous claim that no `statgpu/panel/**` file changed after `aad53587...` is no longer true, and the physical gate is reopened until a fresh clean-head CuPy/Torch run is recorded on the final review-fix head.
+
+## Final strict-review checkpoint
+
+The final production-source review checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`.
+
+Re-review of the final delta found no unresolved **CRITICAL**, **HIGH**, or relevant **MEDIUM** issue in the Stage-C scope. The last new finding was the explicit no-intercept formula contract for always-intercept `PooledOLS` / `BetweenOLS`; it is fixed and covered by both `0 +` and `-1` regressions. The targeted formula suite plus the Stage-A golden suite passed before that fix was committed.
+
+The one unresolved inline PR thread is the older P2 backend-provenance comment on `validate_panel_stage_c_gpu.py`. It is outdated: fits now persist the backend selected at the numerical fit boundary, and both physical runners validate that persisted value. The thread is intentionally left unresolved rather than mutating review history without an explicit request.
+
+A pre-existing `FamaMacBeth` formula-summary naming limitation remains outside Stage-C scope: Stage C explicitly freezes the Fama-MacBeth estimator/covariance path and this review does not broaden the PR into unrelated Fama-MacBeth API cleanup.
 
 ## Historical correctness and backend-provenance evidence
 
@@ -62,16 +73,19 @@ No canonical source identifier or raw evidence file is rewritten merely because 
 - **[MEDIUM][DOC] fixed** — EN/CN Panel docs no longer mix the old 26+2 physical status with the fresh 26+6 matrix.
 - **[MEDIUM][INFER/API] fixed** — robust/HC/cluster/DK summaries display normal-reference `z` labels instead of misleading `t` labels.
 
-Focused review regressions passed after each fix, including the Stage-A golden suite for the formula metadata change. No new numerical covariance or backend implementation defect was found in the re-reviewed production paths.
+Focused review regressions passed after each fix, including the Stage-A golden suite for formula metadata/API changes. No new numerical covariance or backend implementation defect was found in the re-reviewed production paths.
+
+## Hosted-CI trigger note
+
+The source checkpoint `86bed6fe...` was pushed by the temporary self-deleting review workflow using `GITHUB_TOKEN`. GitHub's recursive-workflow protection produced `action_required` / zero-job PR workflow records rather than executing the seven permanent workflows. This is not a test failure. This review/status commit is intentionally made through normal repository credentials so the permanent workflows can execute on a post-review head without changing production source or the physical validator contract.
 
 ## Remaining acceptance gates
 
 Before PR #126 can return to **PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**:
 
-1. permanent hosted workflows must be green on the final review-fix head;
-2. final re-review must have no unresolved CRITICAL, HIGH, or relevant MEDIUM finding;
-3. run `dev/benchmarks/validate_panel_stage_c_gpu.py` on that exact clean head for both CuPy and Torch;
-4. run `dev/benchmarks/benchmark_panel_stage_c_covariance.py` on the same exact clean head for both CuPy and Torch;
-5. audit and promote the new immutable artifacts without changing the measured production source or validator contract afterward.
+1. permanent hosted workflows must be green on the final review/status head;
+2. run `dev/benchmarks/validate_panel_stage_c_gpu.py` on that exact clean head for both CuPy and Torch;
+3. run `dev/benchmarks/benchmark_panel_stage_c_covariance.py` on the same exact clean head for both CuPy and Torch;
+4. audit and promote the new immutable artifacts without changing the measured production source or validator contract afterward.
 
 Until these gates close, PR #126 must remain Draft and must not be described as merge-ready.
