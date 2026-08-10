@@ -33,6 +33,19 @@ def _regression(seed=12700, *, n_entities=9, n_times=7):
     return X, y, params, entity, time
 
 
+def _ill_conditioned_regression(seed=12709):
+    rng = np.random.default_rng(seed)
+    n = 50
+    x = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    X = np.column_stack([np.ones(n), x, x + 1.0e-9 * noise])
+    y = X @ np.array([0.4, 0.8, -0.35]) + rng.normal(scale=0.25, size=n)
+    assert np.linalg.matrix_rank(X) == 3
+    assert np.linalg.cond(X) > 1.0e8
+    assert np.linalg.cond(X.T @ X) > 1.0e15
+    return X, y
+
+
 @pytest.mark.parametrize("cov_type", ["HC2", "HC3"])
 def test_hc2_hc3_fit_space_covariance_matches_statsmodels(cov_type):
     X, y, params, entity, time = _regression(seed=12701)
@@ -45,6 +58,38 @@ def test_hc2_hc3_fit_space_covariance_matches_statsmodels(cov_type):
         .cov_params()
     )
     assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)
+
+
+@pytest.mark.parametrize("cov_type", ["HC0", "HC2", "HC3"])
+def test_ill_conditioned_full_rank_hc_covariance_matches_statsmodels(cov_type):
+    X, y = _ill_conditioned_regression()
+    fit = statsmodels.OLS(y, X).fit()
+    metadata = {}
+    actual = ols_covariance(
+        X,
+        np.asarray(fit.resid),
+        cov_type=cov_type.lower(),
+        metadata=metadata,
+    )
+    expected = fit.get_robustcov_results(cov_type=cov_type).cov_params()
+    assert_allclose(actual, expected, rtol=2e-6, atol=5e-3)
+    assert np.all(np.isfinite(actual))
+    assert np.all(np.diag(actual) >= 0.0)
+    assert np.max(np.diag(actual)) > 1.0e10
+    if cov_type in {"HC2", "HC3"}:
+        stable_leverage = np.sum(X * np.linalg.pinv(X).T, axis=1)
+        assert stable_leverage.min() >= -1.0e-12
+        assert stable_leverage.max() <= 1.0 + 1.0e-12
+        assert metadata["leverage_min"] >= -1.0e-12
+        assert metadata["leverage_max"] <= 1.0 + 1.0e-12
+
+
+def test_qs_extreme_bandwidth_uses_small_argument_limit():
+    canonical, weights = _dk_kernel_weights(
+        "qs", bandwidth=1_000_000_000, max_lag=2
+    )
+    assert canonical == "qs"
+    assert_allclose(weights[1:], np.ones(2), rtol=0.0, atol=2e-16)
 
 
 def test_one_way_group_debiased_cluster_matches_linearmodels_primitive():
@@ -103,9 +148,6 @@ def test_two_way_group_debiased_cluster_matches_linearmodels_primitive():
 def test_dk_kernel_weights_match_linearmodels(kernel, lm_kernel):
     canonical, actual = _dk_kernel_weights(kernel, bandwidth=2, max_lag=8)
     reference = np.asarray(KERNEL_LOOKUP[lm_kernel](2.0, 8), dtype=np.float64)
-    # linearmodels returns only the supported Bartlett/Parzen prefix, while the
-    # statgpu helper returns one value per observed lag and explicitly pads the
-    # truncated tail with zeros so a single lag loop can serve all kernels.
     expected = np.zeros_like(actual)
     expected[: reference.size] = reference
     assert_allclose(actual, expected, rtol=5e-14, atol=5e-15)
