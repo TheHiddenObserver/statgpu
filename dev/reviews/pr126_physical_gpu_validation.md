@@ -4,7 +4,7 @@
 
 **PHYSICAL_GPU_ACCEPTED** for the final post-review numerical/validator contract.
 
-Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the only commit between that production checkpoint and `5ed763be2a331e6dc988ac133e79f0484d4cdebd` changes this review document. The artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files. The canonical-promotion commit changes frontend parser metadata, manifest/coverage/tests/docs/generated benchmark assets only; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
+Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the only commit between that production checkpoint and `5ed763be2a331e6dc988ac133e79f0484d4cdebd` changes this review document. The artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files. The canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changes frontend parser metadata, manifest/coverage/tests/docs/generated benchmark assets only; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
 
 ## Correctness and backend-provenance evidence
 
@@ -32,9 +32,22 @@ Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed76
 - high-T scenario: `N=10,000`, `k=2`, `T=200`
 - no speedup claim or CPU-baseline claim is made
 
+## Canonical promotion audit
+
+The fresh sources are registered as:
+
+- correctness: `panel-stage-c-validation-pr126-20260810-7d8777fabe32`;
+- performance: `panel-stage-c-performance-pr126-20260810-75da75c0405c`.
+
+The promotion regenerated deterministic frontend assets and passed the maintained Stage-C parser, benchmark catalog, inventory-v2, domain-coverage, and benchmark-data validation suite. The generated inventory remains 13 registered / 13 available / 13 parsed sources with zero unclassified artifacts. The prior `aad53587...` source is no longer registered and remains immutable historical evidence.
+
 ## Strict review status
 
 The final production-source re-review found no unresolved CRITICAL, HIGH, or relevant MEDIUM issue in Stage-C scope. The last in-scope fixes covered RandomEffects formula matrix depth, transformed-fit-space external HC baselines, PooledOLS/BetweenOLS intercept metadata and explicit no-intercept rejection, documentation status, and robust-summary `z` labels. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.
+
+## Final promoted-head checkpoint
+
+This user-authored review/status-only commit follows canonical promotion specifically to trigger the permanent PR workflows after GitHub's `GITHUB_TOKEN` recursion guard on the bot-authored promotion commit. It changes no numerical source, physical validator, performance runner, parser contract, manifest, benchmark data, or raw evidence. Final acceptance requires those permanent workflows to complete green on this checkpoint and one final review of the post-measurement/promotion delta.
 
 ## Superseded historical evidence
 
@@ -42,4 +55,4 @@ The prior `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performanc
 
 ## Merge-readiness boundary
 
-The physical gate is closed. Merge readiness still requires all permanent hosted workflows to be green on the final promoted head and a final post-promotion review with no new CRITICAL/HIGH/relevant-MEDIUM finding. The PR remains Draft until an explicit Ready transition is requested.
+The physical gate is closed. Merge readiness still requires all permanent hosted workflows to be green on the final promoted-head checkpoint and a final post-promotion review with no new CRITICAL/HIGH/relevant-MEDIUM finding. The PR remains Draft until an explicit Ready transition is requested.
