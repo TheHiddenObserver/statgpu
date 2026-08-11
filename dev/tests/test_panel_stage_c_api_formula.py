@@ -325,3 +325,39 @@ def test_robust_random_effects_hausman_has_explicit_covariance_reason():
     assert result.applicable is False
     assert result.reason is not None
     assert "nonrobust RE covariance" in result.reason
+
+
+
+def test_panel_formula_summary_and_inference_preserve_patsy_term_names():
+    data = _frame(128038)
+    data["group"] = pd.Categorical(
+        np.where(
+            data["time"].to_numpy() % 3 == 0,
+            "base",
+            np.where(data["time"].to_numpy() % 3 == 1, "mid", "high"),
+        ),
+        categories=["base", "mid", "high"],
+    )
+    main_formula = "y ~ x * C(group) + I(z ** 2)"
+    _y_design, X_design = patsy.dmatrices(
+        main_formula, data, return_type="dataframe"
+    )
+
+    model = PanelOLS(cov_type="hc0").fit(
+        formula=f"{main_formula} | entity",
+        data=data,
+    )
+    expected_names = [
+        name for name in X_design.design_info.column_names if name != "Intercept"
+    ]
+
+    summary = model.summary()
+    assert model._feature_names == expected_names
+    assert model._inference_result.feature_names == expected_names
+    assert summary.feature_names == expected_names
+    assert len(summary.feature_names) == len(summary.coef) == len(model.coef_)
+    assert "C(group)[T.mid]" in expected_names
+    assert "C(group)[T.high]" in expected_names
+    assert "x:C(group)[T.mid]" in expected_names
+    assert "x:C(group)[T.high]" in expected_names
+    assert "I(z ** 2)" in expected_names

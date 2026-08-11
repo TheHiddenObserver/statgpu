@@ -14,25 +14,25 @@ Active impact axes:
 - **Inference** — HC0/HC2/HC3, robust RandomEffects inference, Driscoll–Kraay, cluster corrections, standard errors, test statistics, p-values, confidence intervals, and covariance matrices.
 - **Backend** — covariance bread/meat, leverage, grouped score accumulation, and kernel lag accumulation must remain NumPy/CuPy/Torch native.
 - **Formula/data alignment** — cluster/time/entity metadata must follow Patsy missing-row filtering and estimator-specific ordering/transformation.
-- **Benchmark/performance** — HC2/HC3 and Driscoll–Kraay add backend kernels/reductions; correctness precedes performance, but representative physical timing/memory evidence is required before Stage C is called complete.
+- **Benchmark/performance** — HC2/HC3 and Driscoll–Kraay add backend kernels/reductions; correctness precedes performance, and representative synchronized physical timing evidence is required before Stage C is called complete. Memory is an algorithmic/no-host-transfer gate rather than a separately sampled peak-memory metric: review forbids `n x n` hat matrices and full numerical host copies, bounds grouped-score working sets to `O(Gk)` / `O(Tk)`, and physical target-scale runs must complete without OOM.
 - **Docs/artifacts** — EN/CN panel docs, changelogs, physical validation, benchmark evidence, and benchmark coverage metadata where applicable.
 
 Inactive axes:
 
 - **Loss / penalty / solver / CV** — covariance estimation does not alter an optimization objective, regularization path, solver, or tuning layer.
 
-Validation target: `remote-full` before Stage C is called COMPLETE. If the only missing gate is physical GPU/R evidence, the correct hard exit is `PARTIAL_REMOTE_PENDING`.
+Validation target/tier: `remote-full` before Stage C is called COMPLETE. If the only missing gate is physical GPU/R evidence, the correct hard exit is `PARTIAL_REMOTE_PENDING`.
 
 ## 2. Capability decisions
 
-| Model | backend | inference | formula | covariance work in Stage C |
-| --- | --- | --- | --- | --- |
-| `PanelOLS` | three-backend | supported | supported | preserve nonrobust/HC1/clustered; add HC0/HC2/HC3 and Driscoll–Kraay; explicit one-/two-way cluster correction contract |
-| `RandomEffects` | three-backend | supported | supported | preserve nonrobust default; add HC0/HC1/HC2/HC3, one-/two-way clustered, and Driscoll–Kraay on quasi-demeaned GLS fit space |
-| `PooledOLS` | three-backend | supported | supported | preserve nonrobust/HC1/clustered/row-HAC; add HC0/HC2/HC3 and Driscoll–Kraay; explicit cluster correction contract |
-| `BetweenOLS` | three-backend | supported | supported | preserve nonrobust/HC1; add HC0/HC2/HC3 on entity-mean regression; no DK because the fit space has one row per entity rather than a time-indexed panel score process |
-| `FirstDifferenceOLS` | three-backend | supported | supported | preserve nonrobust/HC1; add HC0/HC2/HC3 on the retained first-difference regression; no Stage-C DK until a gap-aware differenced-time score contract is separately specified |
-| `FamaMacBeth` | three-backend | supported | supported | unchanged; beta-series covariance remains model-specific (`nonrobust` / `newey-west`) and is not routed through residual-OLS covariance |
+| Model | backend | inference | formula | benchmark | covariance work in Stage C |
+| --- | --- | --- | --- | --- | --- |
+| `PanelOLS` | three-backend | supported | supported | required | preserve nonrobust/HC1/clustered; add HC0/HC2/HC3 and Driscoll–Kraay; explicit one-/two-way cluster correction contract |
+| `RandomEffects` | three-backend | supported | supported | required | preserve nonrobust default; add HC0/HC1/HC2/HC3, one-/two-way clustered, and Driscoll–Kraay on quasi-demeaned GLS fit space |
+| `PooledOLS` | three-backend | supported | supported | required | preserve nonrobust/HC1/clustered/row-HAC; add HC0/HC2/HC3 and Driscoll–Kraay; explicit cluster correction contract |
+| `BetweenOLS` | three-backend | supported | supported | not-performance-sensitive | preserve nonrobust/HC1; add HC0/HC2/HC3 on entity-mean regression; no DK because the fit space has one row per entity rather than a time-indexed panel score process |
+| `FirstDifferenceOLS` | three-backend | supported | supported | not-performance-sensitive | preserve nonrobust/HC1; add HC0/HC2/HC3 on the retained first-difference regression; no Stage-C DK until a gap-aware differenced-time score contract is separately specified |
+| `FamaMacBeth` | three-backend | supported | supported | not-performance-sensitive | unchanged; beta-series covariance remains model-specific (`nonrobust` / `newey-west`) and is not routed through residual-OLS covariance |
 
 `CV` is non-tunable/not applicable for all touched capabilities. A covariance option is not declared supported until its NumPy/CuPy/Torch inference path is tested.
 

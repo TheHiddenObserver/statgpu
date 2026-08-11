@@ -439,13 +439,18 @@ class PanelOLS(BasePanelModel):
     def summary(self):
         """Print and return the existing structured coefficient summary."""
         k = len(self._params)
+        feature_names_override = (
+            None
+            if self._feature_names is not None
+            else [f"x{i + 1}" for i in range(k)]
+        )
         return self._panel_summary(
             model_type="PanelOLS",
             cov_type=self._cov_type,
             rsquared_within=self.rsquared_within,
             entity_effects=self.entity_effects,
             time_effects=self.time_effects,
-            feature_names_override=[f"x{i + 1}" for i in range(k)],
+            feature_names_override=feature_names_override,
             print_result=True,
         )
 

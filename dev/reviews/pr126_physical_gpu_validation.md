@@ -2,7 +2,11 @@
 
 ## Current physical acceptance status
 
-**PHYSICAL_GPU_ACCEPTED** for the final post-review numerical/validator contract.
+**PARTIAL_REMOTE_PENDING** after the 2026-08-11 `.claude/skills/code-review.md` re-audit.
+
+Validation tier target: `remote-full`.
+
+The previously accepted `5ed763be...` physical evidence remains immutable historical evidence, but it is no longer exact-source acceptance evidence after the re-audit changes `statgpu/panel/_fixed_effects.py` to repair formula/inference presentation. Fresh physical GPU correctness and synchronized performance evidence are required on the final review-fix source head before this record can return to `PHYSICAL_GPU_ACCEPTED`.
 
 Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the only commit between that production checkpoint and `5ed763be2a331e6dc988ac133e79f0484d4cdebd` changes this review document. The artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files. The canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changes frontend parser metadata, manifest/coverage/tests/docs/generated benchmark assets only; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
 
@@ -55,4 +59,4 @@ The prior `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performanc
 
 ## Merge-readiness boundary
 
-The physical gate is closed. Merge readiness still requires all permanent hosted workflows to be green on the final promoted-head checkpoint and a final post-promotion review with no new CRITICAL/HIGH/relevant-MEDIUM finding. The PR remains Draft until an explicit Ready transition is requested.
+The previous physical gate is superseded by the current production-source review fix. Merge readiness now requires fresh physical GPU correctness/performance evidence on the final source head, canonical promotion of any replacement artifacts, permanent hosted workflows green on the resulting final checkpoint, and a final `.claude/skills/code-review.md` re-review with no unresolved CRITICAL/HIGH/relevant-MEDIUM finding. The PR remains Draft until an explicit Ready transition is requested.
