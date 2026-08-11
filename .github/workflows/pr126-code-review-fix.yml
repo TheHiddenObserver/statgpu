@@ -33,8 +33,6 @@ jobs:
                   raise SystemExit(f'marker not found in {path}: {old[:120]!r}')
               p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          # HIGH[FORMULA/INFER]: preserve Patsy term names in PanelOLS summaries,
-          # while keeping historical x1/x2/... names for the array interface.
           replace_once(
               'statgpu/panel/_fixed_effects.py',
               '''    def summary(self):\n        \"\"\"Print and return the existing structured coefficient summary.\"\"\"\n        k = len(self._params)\n        return self._panel_summary(\n            model_type=\"PanelOLS\",\n            cov_type=self._cov_type,\n            rsquared_within=self.rsquared_within,\n            entity_effects=self.entity_effects,\n            time_effects=self.time_effects,\n            feature_names_override=[f\"x{i + 1}\" for i in range(k)],\n            print_result=True,\n        )\n''',
@@ -48,9 +46,6 @@ jobs:
               test_text += '''\n\n\ndef test_panel_formula_summary_and_inference_preserve_patsy_term_names():\n    data = _frame(128038)\n    data[\"group\"] = pd.Categorical(\n        np.where(\n            data[\"time\"].to_numpy() % 3 == 0,\n            \"base\",\n            np.where(data[\"time\"].to_numpy() % 3 == 1, \"mid\", \"high\"),\n        ),\n        categories=[\"base\", \"mid\", \"high\"],\n    )\n    main_formula = \"y ~ x * C(group) + I(z ** 2)\"\n    _y_design, X_design = patsy.dmatrices(\n        main_formula, data, return_type=\"dataframe\"\n    )\n\n    model = PanelOLS(cov_type=\"hc0\").fit(\n        formula=f\"{main_formula} | entity\",\n        data=data,\n    )\n    expected_names = [\n        name for name in X_design.design_info.column_names if name != \"Intercept\"\n    ]\n\n    summary = model.summary()\n    assert model._feature_names == expected_names\n    assert model._inference_result.feature_names == expected_names\n    assert summary.feature_names == expected_names\n    assert len(summary.feature_names) == len(summary.coef) == len(model.coef_)\n    assert \"C(group)[T.mid]\" in expected_names\n    assert \"C(group)[T.high]\" in expected_names\n    assert \"x:C(group)[T.mid]\" in expected_names\n    assert \"x:C(group)[T.high]\" in expected_names\n    assert \"I(z ** 2)\" in expected_names\n'''
               test_path.write_text(test_text, encoding='utf-8')
 
-          # MEDIUM[PERF/MATRIX]: make the benchmark capability disposition and
-          # memory acceptance contract explicit rather than leaving an unmet
-          # peak-memory implication in the reviewed plan.
           replace_once(
               'dev/plans/panel_p1_stage_c_covariance_plan.md',
               '- **Benchmark/performance** — HC2/HC3 and Driscoll–Kraay add backend kernels/reductions; correctness precedes performance, but representative physical timing/memory evidence is required before Stage C is called complete.',
@@ -97,6 +92,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/pr126-code-review-fix.yml
-          git add statgpu/panel/_fixed_effects.py dev/tests/test_panel_stage_c_api_formula.py dev/plans/panel_p1_stage_c_covariance_plan.md dev/reviews/pr126_physical_gpu_validation.md
+          git add statgpu/panel/_fixed_effects.py dev/tests/test_panel_stage_c_api_formula.py dev/reviews/pr126_physical_gpu_validation.md
+          git add -f dev/plans/panel_p1_stage_c_covariance_plan.md
           git commit -m "fix: close PR126 strict review findings"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
