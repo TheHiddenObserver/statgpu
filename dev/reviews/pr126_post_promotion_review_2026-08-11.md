@@ -2,9 +2,9 @@
 
 Standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
-## Status
+## Terminal verdict
 
-**PHYSICAL_GPU_ACCEPTED / POST-PROMOTION REVIEW CLEAN / HOSTED_FINAL_PENDING**
+**PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**
 
 Validation tier: `remote-full`.
 
@@ -16,9 +16,13 @@ Raw evidence commit:
 
 `be679c13357475b8d26db42661b557fbea2f327f`
 
-Canonical promotion head reviewed here:
+Canonical promotion head:
 
 `d771a7432e3b3da3299b6af2b05c5171579092ce`
+
+Post-promotion hosted-review checkpoint:
+
+`d38feab5aca8fa76b9be9f08d753be8bf85b7203`
 
 ## Active strict-review axes
 
@@ -93,21 +97,36 @@ The generated inventory reports 15 eligible sources, 15 registered sources, 15 a
 
 ## Exact-source applicability
 
-The raw evidence commit `be679c13...` differs from numerical measurement `3dc7df19...` only by the two immutable raw JSON artifacts. The promotion gate then explicitly rejected any change from `3dc7df19...` to the promoted tree under:
+The raw evidence commit `be679c13...` differs from numerical measurement `3dc7df19...` only by the two immutable raw JSON artifacts. The promoted/checkpoint tree through `d38feab5...` differs from the numerical measurement only by those raw artifacts plus parser/source metadata, benchmark tests, docs/review records, and deterministic benchmark assets. There is no change after the numerical measurement to:
 
 - `statgpu/panel/**`;
 - `dev/benchmarks/validate_panel_stage_c_gpu.py`;
 - `dev/benchmarks/benchmark_panel_stage_c_covariance.py`.
 
-The gate passed. Promotion therefore changes parser/source metadata, maintained benchmark tests, docs/review records, and deterministic frontend assets only; it does not invalidate the exact-head physical numerical measurement.
+The exact-source gate therefore remains satisfied: canonical promotion does not invalidate the P100 numerical measurement.
 
-## Post-promotion re-review findings
+## Auto-fix / re-review findings closed after physical return
 
-- `[MEDIUM][ARTIFACT][fixed] dev/reviews/pr126_post_promotion_review_2026-08-11.md` — this checkpoint still described the superseded `ec511f53...` 32/32 promotion. It is now refreshed to the current `3dc7df19...` 39/39 rank-policy evidence and `d771a743...` canonical promotion.
-- `[MEDIUM][PROVENANCE][fixed during promotion review] dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_policy.py` — the performance parser initially risked presenting paired correctness provenance as if it were timing-artifact-local metadata. The promoted parser now records only facts proven by the timing artifact; the CuPy `13.6.0` relationship is retained only in manifest/review provenance.
-- `[MEDIUM][MATRIX][fixed during promotion] benchmark canonical fixtures` — adding two required sources legitimately changes the manifest from 13 to 15 sources and the deterministic bundle from 1984 to 2120 runs. Maintained source-count, inventory, coverage-list, and run-count contracts were updated and passed 59/59.
+- `[MEDIUM][PROVENANCE][fixed] dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_policy.py` — paired correctness provenance is not presented as timing-artifact-local metadata. The timing parser records only timing-artifact facts; CuPy `13.6.0` remains cross-source manifest/review provenance.
+- `[MEDIUM][MATRIX][fixed] canonical benchmark fixtures` — the two new required immutable sources legitimately move the manifest from 13 to 15 sources and the deterministic bundle from 1984 to 2120 runs. Maintained inventory/coverage/run-count fixtures were updated and pass.
+- `[MEDIUM][ARTIFACT][fixed] dev/reviews/pr126_post_promotion_review_2026-08-11.md` — the stale `ec511f53...` 32/32 checkpoint was replaced with the current `3dc7df19...` 39/39 rank-policy promotion record.
+- `[MEDIUM][ARTIFACT][fixed] dev/reviews/pr126_physical_gpu_validation.md` — after the hosted-final gate completed, the authoritative physical record was advanced from `HOSTED_FINAL_PENDING` to the terminal acceptance state so repository artifacts and PR status cannot contradict each other.
 
-The post-promotion source/parser/manifest/generated-data/docs review found no remaining CRITICAL, HIGH, or relevant MEDIUM issue.
+No CRITICAL, HIGH, or relevant MEDIUM finding remains after the final review/fix loop.
+
+## Final hosted gate
+
+All seven permanent workflows completed successfully on post-promotion review checkpoint `d38feab5...`:
+
+1. Tests — success;
+2. Panel Stage C Torch CPU — success, maintained Torch 2.0.1 matrix **31/31 passed**;
+3. Panel Stage C external covariance — success, including `Run R plm and sandwich alignment`;
+4. Maintenance compatibility — success;
+5. Release notes validation — success;
+6. Release package validation — success;
+7. Benchmark Frontend CI — success, including deterministic data checks, frontend build, E2E, production QA, and staleness checks.
+
+The terminal status changes after `d38feab5...` are review/documentation-only and do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence. The final exact-head permanent workflow recheck is expected to remain green; any failure would invalidate this terminal verdict and reopen the review/fix loop.
 
 ## Review-thread state
 
@@ -119,12 +138,8 @@ There are three historical inline review threads:
 
 The unresolved backend-provenance thread is intentionally retained as review history. Its underlying issue is closed: fitted estimators persist the backend selected at the numerical fit boundary, maintained CPU parity exercises the contract, and the current P100 correctness artifact records requested/executed backend equality for every estimator and primitive.
 
-## Final gate
+## Lifecycle boundary
 
-This review-only checkpoint does not change production source, physical runners, parser logic, manifest identities, or generated benchmark assets. Permanent hosted workflows must now complete green on the checkpoint head, followed by one final read-only `.claude/skills/code-review.md` review of the checkpoint delta and workflow results.
+The technical Stage-C gate is closed: **PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**.
 
-If that final review finds no new CRITICAL, HIGH, or relevant MEDIUM issue, the technical status may advance to:
-
-**PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**
-
-PR #126 remains Draft, open, and unmerged. It must not be marked Ready or merged without explicit user instruction.
+PR #126 intentionally remains Draft, open, and unmerged. No Ready-for-review transition or merge may be performed without explicit user instruction.
