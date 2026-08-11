@@ -24,11 +24,11 @@ Post-promotion hosted-review checkpoint:
 
 `d38feab5aca8fa76b9be9f08d753be8bf85b7203`
 
-Terminal hosted head:
+Terminal hosted gate head:
 
 `50dd7ab0d01327e25a5b08d7fbf881c272d4c0ac`.
 
-The terminal review/status commits after the canonical promotion change review/status Markdown only; they do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence.
+The terminal review/status commits after the canonical promotion change review/status Markdown only; they do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence. This file is the audit record of the completed `50dd7ab0...` hosted gate. Updating an audit record after the gate necessarily creates a documentation-only descendant; requiring that descendant's CI result to be written back into the same branch would create an infinite status-record/CI recursion. Such audit-record-only descendants do not reopen the executable/code gate unless they alter a maintained contract or executable artifact.
 
 ## Active strict-review axes
 
@@ -122,7 +122,7 @@ No CRITICAL, HIGH, or relevant MEDIUM finding remains after the final review/fix
 
 ## Final hosted gate
 
-All seven permanent workflows completed successfully on terminal head `50dd7ab0d01327e25a5b08d7fbf881c272d4c0ac`:
+All seven permanent workflows completed successfully on terminal hosted-gate head `50dd7ab0d01327e25a5b08d7fbf881c272d4c0ac`:
 
 1. Tests — success;
 2. Panel Stage C Torch CPU — success;
