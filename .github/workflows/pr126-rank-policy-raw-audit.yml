@@ -1,0 +1,161 @@
+name: PR126 rank-policy raw evidence audit
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - '.github/workflows/pr126-rank-policy-raw-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit immutable raw evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import math
+          import statistics
+          import subprocess
+          from pathlib import Path
+
+          MEASUREMENT_SHA = '3dc7df19176f8fb881a8d37e9d75b4f75e71b058'
+          RAW_COMMIT = 'be679c13357475b8d26db42661b557fbea2f327f'
+          CORRECTNESS = Path('results/pr126_p100/panel_stage_c_gpu_validation_3dc7df19.json')
+          PERFORMANCE = Path('results/pr126_p100/panel_stage_c_performance_3dc7df19.json')
+
+          expected_cases = {
+              'pooled_hc0', 'pooled_hc2', 'pooled_hc3',
+              'pooled_cluster_one_way', 'pooled_cluster_two_way_group_debias',
+              'pooled_dk_bartlett', 'pooled_dk_qs', 'pooled_legacy_hac',
+              'panel_entity_hc0', 'panel_entity_hc2', 'panel_entity_hc3',
+              'panel_two_way_hc3', 'panel_two_way_cluster_group_debias', 'panel_two_way_dk',
+              'random_effects_explicit_constant_robust', 'random_effects_explicit_constant_hc0',
+              'random_effects_explicit_constant_hc2', 'random_effects_explicit_constant_hc3',
+              'random_effects_cluster_two_way', 'random_effects_dk',
+              'between_hc0', 'between_hc2', 'between_hc3',
+              'first_difference_hc0', 'first_difference_hc2', 'first_difference_hc3',
+              'panel_rank_boundary_dk',
+          }
+          expected_primitives = {
+              'cluster_group_debias', 'driscoll_kraay_qs',
+              'ill_conditioned_hc0', 'ill_conditioned_hc2',
+              'ill_conditioned_hc3', 'ill_conditioned_dk',
+              'rank_boundary_nonrobust', 'rank_boundary_hc0', 'rank_boundary_hc2',
+              'rank_boundary_hc3', 'rank_boundary_cluster', 'rank_boundary_dk',
+          }
+          base_cases = {
+              'pooled_nonrobust', 'pooled_hc3', 'pooled_cluster_two_way', 'pooled_dk_qs',
+              'panel_entity_nonrobust', 'panel_entity_hc3', 'panel_entity_dk',
+              'random_effects_nonrobust', 'random_effects_hc3',
+          }
+          base_scales = {(10000, 2, 20), (100000, 2, 20), (100000, 10, 20)}
+          high_t_cases = {'pooled_dk_qs', 'panel_entity_dk_qs'}
+
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{MEASUREMENT_SHA}..{RAW_COMMIT}'], text=True
+          ).splitlines()
+          assert set(changed) == {str(CORRECTNESS), str(PERFORMANCE)}, changed
+
+          def sha256(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          def blob(path):
+              return subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip()
+
+          v = json.loads(CORRECTNESS.read_text())
+          assert v['schema_version'] == 1
+          assert v['git_sha'] == MEASUREMENT_SHA
+          assert v['working_tree_clean'] is True
+          assert v['status'] == 'success'
+          assert v['environment']['gpu'] == 'Tesla P100-SXM2-16GB'
+          assert v['environment']['packages']['cupy'] == '13.6.0'
+          assert v['case_count_per_backend'] == len(expected_cases) == 27
+          assert v['public_primitive_count_per_backend'] == len(expected_primitives) == 12
+          assert set(v['backends']) == {'cupy', 'torch'}
+          for backend in ('cupy', 'torch'):
+              result = v['backends'][backend]
+              assert result['status'] == 'success'
+              assert result['requested_backend'] == backend
+              assert set(result['cases']) == expected_cases
+              assert set(result['public_primitives']) == expected_primitives
+              for name, case in result['cases'].items():
+                  assert case['status'] == 'success', (backend, name)
+                  assert case['executed_backend'] == backend, (backend, name, case['executed_backend'])
+                  diffs = case['max_abs_differences']
+                  assert isinstance(diffs, dict) and diffs, (backend, name)
+                  for metric, value in diffs.items():
+                      assert isinstance(value, (int, float)) and not isinstance(value, bool), (backend, name, metric)
+                      assert math.isfinite(float(value)) and float(value) >= 0.0, (backend, name, metric, value)
+              for name, item in result['public_primitives'].items():
+                  assert item['status'] == 'success', (backend, name)
+                  assert item['executed_backend'] == backend, (backend, name, item['executed_backend'])
+                  value = float(item['max_abs_difference'])
+                  assert math.isfinite(value) and value >= 0.0, (backend, name, value)
+
+          p = json.loads(PERFORMANCE.read_text())
+          assert p['schema_version'] == 2
+          assert p['git_sha'] == MEASUREMENT_SHA
+          assert p['working_tree_clean'] is True
+          assert p['benchmark'] == 'panel_stage_c_covariance_fit_overhead'
+          assert p['timing_scope'] == 'synchronized end-to-end estimator fit'
+          assert p['high_t_scale'] == '10000x2x200'
+          assert set(p['environment']['gpu_by_backend']) == {'cupy', 'torch'}
+          assert set(p['environment']['gpu_by_backend'].values()) == {'Tesla P100-SXM2-16GB'}
+          rows = p['rows']
+          assert len(rows) == 58
+          assert {row['backend'] for row in rows} == {'cupy', 'torch'}
+          base = [row for row in rows if row['scenario'] == 'base']
+          high_t = [row for row in rows if row['scenario'] == 'high_t_qs']
+          expected_base = {
+              (backend, case, n, k, t)
+              for backend in ('cupy', 'torch')
+              for case in base_cases
+              for n, k, t in base_scales
+          }
+          actual_base = {
+              (row['backend'], row['case'], row['n_samples'], row['n_features'], row['n_times'])
+              for row in base
+          }
+          assert len(base) == 54 and actual_base == expected_base
+          expected_high_t = {
+              (backend, case, 10000, 2, 200)
+              for backend in ('cupy', 'torch')
+              for case in high_t_cases
+          }
+          actual_high_t = {
+              (row['backend'], row['case'], row['n_samples'], row['n_features'], row['n_times'])
+              for row in high_t
+          }
+          assert len(high_t) == 4 and actual_high_t == expected_high_t
+          for row in rows:
+              samples = [float(x) for x in row['samples_seconds']]
+              assert row['repeats'] == len(samples) == 3
+              assert all(math.isfinite(x) and x > 0.0 for x in samples)
+              median = float(row['median_seconds'])
+              assert math.isfinite(median) and median > 0.0
+              assert math.isclose(median, statistics.median(samples), rel_tol=1e-12, abs_tol=1e-15)
+
+          print('RAW_AUDIT=PASS')
+          print(f'MEASUREMENT_SHA={MEASUREMENT_SHA}')
+          print(f'RAW_COMMIT={RAW_COMMIT}')
+          print(f'CORRECTNESS_SHA256={sha256(CORRECTNESS)}')
+          print(f'CORRECTNESS_BLOB={blob(CORRECTNESS)}')
+          print(f'PERFORMANCE_SHA256={sha256(PERFORMANCE)}')
+          print(f'PERFORMANCE_BLOB={blob(PERFORMANCE)}')
+          print(f'VALIDATION_CUPY_VERSION={v["environment"]["packages"]["cupy"]}')
+          print(f'PERFORMANCE_CUPY_METADATA={p["environment"]["packages"].get("cupy")!r}')
+          print('PERFORMANCE_CUPY_PROVENANCE=paired exact-head correctness artifact records CuPy 13.6.0; timing runner itself successfully imported/executed CuPy and asserted persisted backend identity on every timed fit')
+          PY
