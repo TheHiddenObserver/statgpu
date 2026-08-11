@@ -24,11 +24,11 @@ Post-promotion hosted-review checkpoint:
 
 `d38feab5aca8fa76b9be9f08d753be8bf85b7203`
 
-Terminal review/status lineage:
+Terminal hosted head:
 
-`ad214a4c39ecf322dcc51173877152808a07c83f` → `8fc44ac9d886a74e7110f6e3f2cb450066cffa14` → `5d90950b96392e7a10f790e38f7e9fa6ee021f90`.
+`50dd7ab0d01327e25a5b08d7fbf881c272d4c0ac`.
 
-These terminal commits change review/status Markdown only; they do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence.
+The terminal review/status commits after the canonical promotion change review/status Markdown only; they do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence.
 
 ## Active strict-review axes
 
@@ -122,7 +122,7 @@ No CRITICAL, HIGH, or relevant MEDIUM finding remains after the final review/fix
 
 ## Final hosted gate
 
-All seven permanent workflows completed successfully on the terminal review/status head `5d90950b96392e7a10f790e38f7e9fa6ee021f90`:
+All seven permanent workflows completed successfully on terminal head `50dd7ab0d01327e25a5b08d7fbf881c272d4c0ac`:
 
 1. Tests — success;
 2. Panel Stage C Torch CPU — success;
@@ -132,7 +132,7 @@ All seven permanent workflows completed successfully on the terminal review/stat
 6. Release package validation — success, including distribution validation plus Ubuntu, Windows, and macOS wheel smoke;
 7. Benchmark Frontend CI — success, including deterministic data checks, frontend build, E2E, production QA, and staleness checks.
 
-An earlier terminal-doc-only head briefly exhibited a GitHub Actions workflow/check-suite aggregation lag for Release package validation even though all four constituent checks had already completed successfully. The new terminal head completed the same workflow normally at workflow level, confirming that the earlier state was platform aggregation lag rather than an unexecuted or failed gate.
+An earlier terminal-doc-only head briefly exhibited a GitHub Actions workflow/check-suite aggregation lag for Release package validation even though all four constituent checks had already completed successfully. Subsequent terminal heads completed the same workflow normally at workflow level, confirming that the earlier state was platform aggregation lag rather than an unexecuted or failed gate.
 
 ## Review-thread state
 
