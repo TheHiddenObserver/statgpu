@@ -1,0 +1,163 @@
+name: PR126 rank-aware fit autofix
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - .github/workflows/pr126-autofix-rank-aware-fit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply rank-aware backward-compatible fit policy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}")
+              p.write_text(text.replace(old, new))
+
+          # Pooled: keep historical full-rank paths, SVD only for declared numerical deficiency/failure.
+          replace_once(
+              'statgpu/panel/_pooled.py',
+              'from statgpu.panel._linalg import panel_lstsq\n',
+              'from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank\n'
+          )
+          replace_once(
+              'statgpu/panel/_pooled.py',
+              '''def _panel_lstsq(X, y, xp):\n    """Return least-squares coefficients and rank under the shared panel policy."""\n    return panel_lstsq(X, y, xp)\n''',
+              '''def _panel_lstsq(X, y, xp):\n    """Preserve the historical full-rank solver under an explicit rank policy."""\n    rank = panel_matrix_rank(X, xp)\n    if rank < int(X.shape[1]):\n        params, _ = panel_lstsq(X, y, xp)\n        return params, rank\n    if getattr(xp, "__name__", "") == "torch":\n        try:\n            return xp.linalg.pinv(X) @ y, rank\n        except RuntimeError:\n            params, _ = panel_lstsq(X, y, xp)\n            return params, rank\n    try:\n        return xp.linalg.lstsq(X, y, rcond=None)[0], rank\n    except (TypeError, AttributeError, np.linalg.LinAlgError):\n        params, _ = panel_lstsq(X, y, xp)\n        return params, rank\n'''
+          )
+
+          # PanelOLS: restore historical full-rank Cholesky/solve route.
+          replace_once(
+              'statgpu/panel/_fixed_effects.py',
+              '''from statgpu.backends import (\n    _to_float_scalar,\n    _to_numpy,\n    xp_maximum,\n)\n''',
+              '''from statgpu.backends import (\n    _LINALG_ERRORS,\n    _to_float_scalar,\n    _to_numpy,\n    xp_cholesky_solve,\n    xp_maximum,\n)\n'''
+          )
+          replace_once(
+              'statgpu/panel/_fixed_effects.py',
+              'from statgpu.panel._linalg import panel_lstsq\n',
+              'from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank\n'
+          )
+          replace_once(
+              'statgpu/panel/_fixed_effects.py',
+              '''        coef, fit_rank = panel_lstsq(X_d, y_d, xp)\n''',
+              '''        fit_rank = panel_matrix_rank(X_d, xp)\n        if fit_rank < int(X_d.shape[1]):\n            coef, _ = panel_lstsq(X_d, y_d, xp)\n        else:\n            XtX = X_d.T @ X_d\n            Xty = X_d.T @ y_d\n            try:\n                coef = xp_cholesky_solve(XtX, Xty, xp)\n            except _LINALG_ERRORS:\n                try:\n                    coef = xp.linalg.solve(XtX, Xty)\n                except _LINALG_ERRORS:\n                    coef, _ = panel_lstsq(X_d, y_d, xp)\n'''
+          )
+
+          # Between and FirstDifference: rank-aware guard around historical normal-equation solve.
+          for path, design, response, rank_name in [
+              ('statgpu/panel/_between.py', 'X_mean', 'y_mean', 'rank_mean'),
+              ('statgpu/panel/_first_diff.py', 'X_diff', 'y_diff', 'rank_diff'),
+          ]:
+              replace_once(
+                  path,
+                  'from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray\n',
+                  'from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray\n'
+              )
+              replace_once(
+                  path,
+                  'from statgpu.panel._linalg import panel_lstsq\n',
+                  'from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank\n'
+              )
+              old = f'        params, {rank_name} = panel_lstsq({design}, {response}, xp)\n'
+              new = f'''        {rank_name} = panel_matrix_rank({design}, xp)\n        if {rank_name} < int({design}.shape[1]):\n            params, _ = panel_lstsq({design}, {response}, xp)\n        else:\n            XtX = {design}.T @ {design}\n            Xty = {design}.T @ {response}\n            try:\n                params = xp.linalg.solve(XtX, Xty)\n            except _LINALG_ERRORS:\n                params, _ = panel_lstsq({design}, {response}, xp)\n'''
+              replace_once(path, old, new)
+
+          # RandomEffects: preserve each historical full-rank regression route.
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''from statgpu.backends import (\n    _to_float_scalar,\n    _to_numpy,\n    xp_asarray,\n    xp_zeros,\n)\n''',
+              '''from statgpu.backends import (\n    _LINALG_ERRORS,\n    _to_float_scalar,\n    _to_numpy,\n    xp_asarray,\n    xp_cholesky_solve,\n    xp_zeros,\n)\n'''
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              'from statgpu.panel._linalg import panel_lstsq\n',
+              'from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank\n'
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''        beta_between, _rank_between = panel_lstsq(\n            X_bar_unique, y_bar_unique, xp\n        )\n''',
+              '''        rank_between = panel_matrix_rank(X_bar_unique, xp)\n        if rank_between < int(X_bar_unique.shape[1]):\n            beta_between, _ = panel_lstsq(X_bar_unique, y_bar_unique, xp)\n        else:\n            XtX_b = X_bar_unique.T @ X_bar_unique\n            Xty_b = X_bar_unique.T @ y_bar_unique\n            try:\n                beta_between = xp.linalg.solve(XtX_b, Xty_b)\n            except _LINALG_ERRORS:\n                beta_between, _ = panel_lstsq(X_bar_unique, y_bar_unique, xp)\n'''
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''                beta_within, _rank_within = panel_lstsq(\n                    X_within_fit, y_within, xp\n                )\n''',
+              '''                rank_within = panel_matrix_rank(X_within_fit, xp)\n                if rank_within < int(X_within_fit.shape[1]):\n                    beta_within, _ = panel_lstsq(X_within_fit, y_within, xp)\n                else:\n                    XtX_w = X_within_fit.T @ X_within_fit\n                    Xty_w = X_within_fit.T @ y_within\n                    beta_within = xp.linalg.pinv(XtX_w) @ Xty_w\n'''
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''            beta_within, _rank_within = panel_lstsq(\n                X_within, y_within, xp\n            )\n''',
+              '''            rank_within = panel_matrix_rank(X_within, xp)\n            if rank_within < int(X_within.shape[1]):\n                beta_within, _ = panel_lstsq(X_within, y_within, xp)\n            else:\n                XtX_w = X_within.T @ X_within\n                Xty_w = X_within.T @ y_within\n                try:\n                    beta_within = xp.linalg.solve(XtX_w, Xty_w)\n                except _LINALG_ERRORS:\n                    beta_within, _ = panel_lstsq(X_within, y_within, xp)\n'''
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''        beta_gls, rank_star = panel_lstsq(X_star, y_star, xp)\n''',
+              '''        rank_star = panel_matrix_rank(X_star, xp)\n        if rank_star < int(X_star.shape[1]):\n            beta_gls, _ = panel_lstsq(X_star, y_star, xp)\n        else:\n            XtX_s = X_star.T @ X_star\n            Xty_s = X_star.T @ y_star\n            try:\n                beta_gls = xp_cholesky_solve(XtX_s, Xty_s, xp)\n            except _LINALG_ERRORS:\n                try:\n                    beta_gls = xp.linalg.solve(XtX_s, Xty_s)\n                except _LINALG_ERRORS:\n                    beta_gls, _ = panel_lstsq(X_star, y_star, xp)\n'''
+          )
+          # The transformed intercept is one-column and full-rank in valid RE fits;
+          # preserve the old rank-aware result without changing public coefficients.
+
+          # Lock the full-rank PanelOLS path: the rank-deficient SVD solve must not be used.
+          edge = Path('dev/tests/test_panel_stage_c_edge_contracts.py')
+          text = edge.read_text()
+          addition = '''\n\ndef test_panel_full_rank_fit_preserves_historical_solver_path(monkeypatch):\n    import statgpu.panel._fixed_effects as fixed_effects_module\n    from statgpu.panel import PanelOLS\n\n    rng = np.random.default_rng(12955)\n    X = rng.normal(size=(80, 3))\n    y = X @ np.array([0.4, -0.2, 0.7]) + rng.normal(scale=0.1, size=80)\n    expected = np.linalg.solve(X.T @ X, X.T @ y)\n\n    def _forbid_rank_deficient_solve(*args, **kwargs):\n        raise AssertionError("full-rank PanelOLS entered the SVD rank-deficient solve")\n\n    monkeypatch.setattr(fixed_effects_module, "panel_lstsq", _forbid_rank_deficient_solve)\n    model = PanelOLS().fit(X, y)\n    np.testing.assert_allclose(model.coef_, expected, rtol=2e-12, atol=2e-14)\n'''
+          if 'test_panel_full_rank_fit_preserves_historical_solver_path' not in text:
+              edge.write_text(text + addition)
+          else:
+              raise SystemExit('full-rank historical solver test already exists')
+          PY
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[formula,validation]' 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
+      - name: Run backward-compatibility and Stage-C review matrix
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            -q --tb=short
+          python -m py_compile \
+            statgpu/panel/_linalg.py statgpu/panel/_covariance.py \
+            statgpu/panel/_pooled.py statgpu/panel/_fixed_effects.py \
+            statgpu/panel/_between.py statgpu/panel/_first_diff.py \
+            statgpu/panel/_random_effects.py statgpu/panel/_diagnostics.py \
+            statgpu/panel/_diagnostic_context.py
+          git diff --check
+      - name: Commit rank-aware policy and self-delete
+        shell: bash
+        run: |
+          git config user.name 'TheHiddenObserver'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git add \
+            statgpu/panel/_pooled.py statgpu/panel/_fixed_effects.py \
+            statgpu/panel/_between.py statgpu/panel/_first_diff.py \
+            statgpu/panel/_random_effects.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py
+          git rm -f .github/workflows/pr126-autofix-rank-aware-fit.yml
+          git commit -m 'fix(panel): preserve full-rank fit solver contracts'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
