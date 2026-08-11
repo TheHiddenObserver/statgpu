@@ -1,0 +1,131 @@
+name: PR126 acceptance-status reconciliation
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - '.github/workflows/pr126-doc-status-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - name: Reconcile acceptance surfaces
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'marker not found in {path}: {old[:180]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Physical review record: make the old 5ed run unambiguously historical.
+          replace_once(
+              'dev/reviews/pr126_physical_gpu_validation.md',
+              'Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the only commit between that production checkpoint and `5ed763be2a331e6dc988ac133e79f0484d4cdebd` changes this review document. The artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files. The canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changes frontend parser metadata, manifest/coverage/tests/docs/generated benchmark assets only; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.',
+              'Historical Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files, and the prior canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changed only parser metadata, manifest/coverage/tests/docs/generated benchmark assets. That evidence was applicable to the pre-re-audit source through the prior promoted checkpoint, but the later `PanelOLS.summary()` formula/inference presentation fix changes `statgpu/panel/**`; under `RELEASING.md` it is therefore no longer exact-source acceptance evidence for the current branch.'
+          )
+          replace_once(
+              'dev/reviews/pr126_physical_gpu_validation.md',
+              'The final production-source re-review found no unresolved CRITICAL, HIGH, or relevant MEDIUM issue in Stage-C scope. The last in-scope fixes covered RandomEffects formula matrix depth, transformed-fit-space external HC baselines, PooledOLS/BetweenOLS intercept metadata and explicit no-intercept rejection, documentation status, and robust-summary `z` labels. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.',
+              'The 2026-08-11 `.claude/skills/code-review.md` re-audit found and fixed a HIGH formula/inference issue: `PanelOLS.summary()` had overwritten Patsy term names with generic `x1`, `x2`, ... labels. A new categorical/interaction/transform regression now requires `summary().feature_names`, `_feature_names`, and `_inference_result.feature_names` to match the Patsy term order. The same re-audit made benchmark capability decisions and the memory/no-host-transfer acceptance contract explicit. The current review/fix loop has no unresolved CRITICAL/HIGH source finding at this checkpoint; acceptance remains `PARTIAL_REMOTE_PENDING` until the loop reaches a no-new-findings review, hosted gates are green, and fresh exact-head physical GPU evidence is recorded. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.'
+          )
+          replace_once(
+              'dev/reviews/pr126_physical_gpu_validation.md',
+              '## Final promoted-head checkpoint\n\nThis user-authored review/status-only commit follows canonical promotion specifically to trigger the permanent PR workflows after GitHub\'s `GITHUB_TOKEN` recursion guard on the bot-authored promotion commit. It changes no numerical source, physical validator, performance runner, parser contract, manifest, benchmark data, or raw evidence. Final acceptance requires those permanent workflows to complete green on this checkpoint and one final review of the post-measurement/promotion delta.',
+              '## Prior promoted-head checkpoint\n\nThe prior acceptance cycle reached promoted checkpoint `102d58b0ee239902804a282fe9747fdf713ad3ab` with permanent hosted workflows green. That checkpoint predates the current `PanelOLS.summary()` production-source fix and is retained only as audit history; it is not the current final acceptance head.'
+          )
+          replace_once(
+              'dev/reviews/pr126_physical_gpu_validation.md',
+              'The prior `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performance artifacts remain immutable audit history but are not current acceptance sources. The current canonical source contract is the fresh `5ed763be...` measurement above.',
+              'The prior `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performance artifacts remain immutable audit history. The `5ed763be...` sources remain registered benchmark provenance until replacement evidence is promoted, but none of these artifacts is exact-source physical acceptance evidence for the current post-re-audit source.'
+          )
+
+          # English model page.
+          replace_once('docs/en/models/panel.md', '> Last updated: 2026-08-10', '> Last updated: 2026-08-11')
+          replace_once(
+              'docs/en/models/panel.md',
+              'The repaired covariance/provenance implementation was revalidated on exact-clean head `5ed763be...` using Tesla P100: CuPy and Torch each pass all 26 estimator covariance cases plus six direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3/DK, and the synchronized performance run includes the bounded `N=10,000`, `k=2`, `T=200` QS scenario. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts remain immutable historical evidence.',
+              'The pre-re-audit numerical implementation was validated on exact-clean head `5ed763be...` using Tesla P100: CuPy and Torch each passed all 26 estimator covariance cases plus six direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3/DK, and the synchronized performance run included the bounded `N=10,000`, `k=2`, `T=200` QS scenario. The 2026-08-11 strict re-audit subsequently fixed formula/inference presentation in `PanelOLS.summary()`. Because that fix changes `statgpu/panel/**`, the `5ed763be...` run is now historical evidence and fresh exact-head physical acceptance for the current branch is pending. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts remain immutable historical evidence.'
+          )
+          replace_once(
+              'docs/en/models/panel.md',
+              'Fresh exact-clean-head Tesla P100 acceptance is complete on `5ed763be...`: CuPy and Torch each pass 26/26 estimator covariance cases plus 6/6 direct public covariance primitives (32/32 per backend), including the full-rank ill-conditioned HC0/HC2/HC3/DK regressions, with requested/executed backend identity and no CPU fallback. The synchronized performance rerun covers the three base scales and explicit `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim. The earlier `c151550a...` and `9c0b3050...` artifacts remain historical audit evidence.',
+              'The pre-re-audit exact-clean Tesla P100 run on `5ed763be...` passed 26/26 estimator covariance cases plus 6/6 direct public covariance primitives on each of CuPy and Torch (32/32 per backend), including the full-rank ill-conditioned HC0/HC2/HC3/DK regressions, with requested/executed backend identity and no CPU fallback. Its synchronized performance run covered the three base scales and the explicit `N=10,000`, `k=2`, `T=200` QS all-lag scenario and made no speedup claim. After the 2026-08-11 `PanelOLS.summary()` formula/inference fix, this run is historical rather than current exact-source acceptance; fresh physical validation on the final review-fix head is pending.'
+          )
+
+          # Chinese model page.
+          replace_once('docs/cn/models/panel.md', '> 最后更新：2026-08-10', '> 最后更新：2026-08-11')
+          replace_once(
+              'docs/cn/models/panel.md',
+              '修复后的 covariance/provenance 实现已在 exact-clean head `5ed763be...` 上重新完成 Tesla P100 验证：CuPy 与 Torch 各自通过全部 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK；同步 performance 也覆盖有界的 `N=10,000`、`k=2`、`T=200` QS 场景。此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。',
+              're-audit 之前的数值实现曾在 exact-clean head `5ed763be...` 上完成 Tesla P100 验证：CuPy 与 Torch 各自通过全部 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK；同步 performance 也覆盖有界的 `N=10,000`、`k=2`、`T=200` QS 场景。2026-08-11 的严格 re-audit 随后修复了 `PanelOLS.summary()` 的 formula/inference 展示语义。由于该修复改动了 `statgpu/panel/**`，`5ed763be...` 现在仅作为历史证据；当前分支仍需在最终 review-fix head 上重新完成 exact-head physical acceptance。此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。'
+          )
+          replace_once(
+              'docs/cn/models/panel.md',
+              'fresh exact-clean head `5ed763be...` 的 Tesla P100 acceptance 已闭合：CuPy 与 Torch 每个 backend 均通过 26/26 estimator covariance case 与 6/6 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK regressions，requested/executed backend 一致且无 CPU fallback。同步 performance rerun 覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup；此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为历史审计证据。',
+              're-audit 之前的 exact-clean Tesla P100 run `5ed763be...` 在 CuPy 与 Torch 每个 backend 上均通过 26/26 estimator covariance case 与 6/6 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK regressions，requested/executed backend 一致且无 CPU fallback。同步 performance rerun 覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup。2026-08-11 的 `PanelOLS.summary()` formula/inference 修复之后，该 run 仅作为历史证据；当前最终 review-fix head 的 fresh physical validation 仍待完成。'
+          )
+
+          # Detailed changelogs: preserve historical measurement, but do not claim
+          # it is current exact-source acceptance after the later source fix.
+          replace_once('docs/en/changelog.md', '> Last updated: 2026-08-10', '> Last updated: 2026-08-11')
+          replace_once(
+              'docs/en/changelog.md',
+              'Fresh physical CUDA acceptance completed on exact clean implementation head `5ed763be2a331e6dc988ac133e79f0484d4cdebd` using Tesla P100-SXM2-16GB. CuPy and Torch each pass all 26 estimator covariance cases plus 6 direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3 and Driscoll-Kraay cases, with requested/executed backend identity and no numerical CPU fallback. The synchronized performance run retains the three base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts are retained as immutable historical evidence.',
+              'The pre-re-audit source was physically validated on exact clean head `5ed763be2a331e6dc988ac133e79f0484d4cdebd` using Tesla P100-SXM2-16GB: CuPy and Torch each passed all 26 estimator covariance cases plus 6 direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3 and Driscoll-Kraay cases, with requested/executed backend identity and no numerical CPU fallback. The synchronized performance run retained the three base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario and made no speedup claim. A subsequent 2026-08-11 strict review fixed `PanelOLS.summary()` formula term naming, which changed `statgpu/panel/**`; the `5ed763be...` run is therefore historical evidence for the current branch and fresh exact-source physical validation is pending. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts are also retained as immutable historical evidence.'
+          )
+          replace_once('docs/cn/changelog.md', '> 最后更新：2026-08-10', '> 最后更新：2026-08-11')
+          replace_once(
+              'docs/cn/changelog.md',
+              'Fresh physical CUDA 验收已在精确且干净的实现提交 `5ed763be2a331e6dc988ac133e79f0484d4cdebd` 上使用 Tesla P100-SXM2-16GB 完成。CuPy 与 Torch 各自通过 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），其中包括 full-rank ill-conditioned HC0/HC2/HC3 与 Driscoll-Kraay，并验证 requested/executed backend 一致且无数值 CPU fallback。同步 performance 仍覆盖三个基础规模及有界的 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup。此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。',
+              're-audit 之前的 source 曾在精确且干净的提交 `5ed763be2a331e6dc988ac133e79f0484d4cdebd` 上使用 Tesla P100-SXM2-16GB 完成 physical validation：CuPy 与 Torch 各自通过 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），其中包括 full-rank ill-conditioned HC0/HC2/HC3 与 Driscoll-Kraay，并验证 requested/executed backend 一致且无数值 CPU fallback。同步 performance 覆盖三个基础规模及有界的 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，只记录 timing，不声明 speedup。随后 2026-08-11 的严格 review 修复了 `PanelOLS.summary()` 的 formula term naming，并因此改动 `statgpu/panel/**`；故 `5ed763be...` 对当前分支仅作为历史证据，fresh exact-source physical validation 仍待完成。此前 `aad53587...`、`c151550a...` 与 `9c0b3050...` 产物同样继续作为不可变历史证据保留。'
+          )
+
+          # Root changelog is PR-level summary, but must not advertise superseded
+          # exact-source acceptance as current.
+          replace_once(
+              'CHANGELOG.md',
+              '### PR #126 — Complete Panel Tier-1 Stage C covariance',
+              '### PR #126 — Panel Tier-1 Stage C covariance'
+          )
+          replace_once(
+              'CHANGELOG.md',
+              '- Fresh Tesla P100 acceptance on exact clean implementation head `5ed763be2a331e6dc988ac133e79f0484d4cdebd` passes all 26 estimator covariance cases plus 6 direct public primitives on each of CuPy and Torch (32/32 per backend), including ill-conditioned HC0/HC2/HC3/DK and persisted executed-backend provenance. Synchronized performance evidence covers the maintained base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario without making a speedup claim. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts remain immutable historical evidence.',
+              '- The pre-re-audit exact-clean Tesla P100 run on `5ed763be2a331e6dc988ac13325d19a036e03ab6cc` is not used; the actual historical measurement is `5ed763be2a331e6dc988ac133e79f0484d4cdebd`, which passed 32/32 cases per CuPy/Torch backend and the bounded high-T performance scenario. A later strict-review fix to `PanelOLS.summary()` changed `statgpu/panel/**`, so that physical run is now historical and fresh exact-source validation is pending for the current branch.'
+          )
+          PY
+
+      - name: Validate documentation patch
+        run: |
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          review = Path('dev/reviews/pr126_physical_gpu_validation.md').read_text()
+          assert '**PARTIAL_REMOTE_PENDING**' in review
+          assert 'no longer exact-source acceptance evidence' in review
+          assert 'Therefore the measurement remains applicable' not in review
+          for path in ['docs/en/models/panel.md', 'docs/cn/models/panel.md', 'docs/en/changelog.md', 'docs/cn/changelog.md', 'CHANGELOG.md']:
+              text = Path(path).read_text()
+              assert 'fresh exact-source physical validation' in text.lower() or 'fresh physical validation' in text.lower() or 'fresh exact-head physical acceptance' in text.lower() or 'fresh exact-source validation' in text.lower()
+          print('PASS — acceptance surfaces consistently mark fresh physical evidence pending')
+          PY
+      - name: Commit reconciliation and self-delete helper
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr126-doc-status-fix.yml
+          git add dev/reviews/pr126_physical_gpu_validation.md docs/en/models/panel.md docs/cn/models/panel.md docs/en/changelog.md docs/cn/changelog.md CHANGELOG.md
+          git commit -m "docs: reconcile PR126 reopened acceptance status"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
