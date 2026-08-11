@@ -1,0 +1,51 @@
+name: PR126 review wording cleanup
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - '.github/workflows/pr126-doc-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+      - name: Clean wording
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'marker not found: {path}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'CHANGELOG.md',
+              '- The pre-re-audit exact-clean Tesla P100 run on `5ed763be2a331e6dc988ac13325d19a036e03ab6cc` is not used; the actual historical measurement is `5ed763be2a331e6dc988ac133e79f0484d4cdebd`, which passed 32/32 cases per CuPy/Torch backend and the bounded high-T performance scenario. A later strict-review fix to `PanelOLS.summary()` changed `statgpu/panel/**`, so that physical run is now historical and fresh exact-source validation is pending for the current branch.',
+              '- The pre-re-audit exact-clean Tesla P100 run on `5ed763be2a331e6dc988ac133e79f0484d4cdebd` passed 32/32 cases per CuPy/Torch backend and the bounded high-T performance scenario. A later strict-review fix to `PanelOLS.summary()` changed `statgpu/panel/**`, so that physical run is now historical and fresh exact-source validation is pending for the current branch.'
+          )
+          replace_once(
+              'dev/reviews/pr126_physical_gpu_validation.md',
+              'The fresh sources are registered as:',
+              'The prior promoted sources are registered as:'
+          )
+          PY
+          git diff --check
+      - name: Commit and self-delete
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr126-doc-cleanup.yml
+          git add CHANGELOG.md dev/reviews/pr126_physical_gpu_validation.md
+          git commit -m "docs: clean PR126 review wording"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
