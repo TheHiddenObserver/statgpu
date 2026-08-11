@@ -30,6 +30,23 @@ jobs:
         run: python -m pip install pytest 'jsonschema[format]'
       - name: Audit and promote physical evidence
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/pr126_promote_ec511.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''replace_once(catalog_test, OLD_VID, VID)
+          replace_once(catalog_test, OLD_PID, PID)
+          '''
+          new = '''text = catalog_test.read_text(encoding="utf-8")
+          if text.count(OLD_VID) != 2 or text.count(OLD_PID) != 2:
+              raise RuntimeError("Stage-C canonical source-id occurrence count drifted")
+          text = text.replace(OLD_VID, VID).replace(OLD_PID, PID)
+          catalog_test.write_text(text, encoding="utf-8")
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('promotion helper source-id patch marker drifted')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           python -m py_compile .github/scripts/pr126_promote_ec511.py
           python .github/scripts/pr126_promote_ec511.py
           git diff --check
