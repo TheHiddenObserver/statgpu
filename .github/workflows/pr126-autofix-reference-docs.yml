@@ -1,0 +1,176 @@
+name: PR126 reference docs autofix
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - .github/workflows/pr126-autofix-reference-docs.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply review fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}")
+              p.write_text(text.replace(old, new))
+
+          # The stable-HC reference must implement the reviewed explicit numerical-rank
+          # contract independently, not call NumPy's backend-default pinv.
+          replace_once(
+              "dev/tests/test_panel_stage_c_external.py",
+              '''def _stable_hc_reference(X, resid, cov_type):\n    X_pinv = np.linalg.pinv(X)\n    projection_rows = X_pinv.T\n''',
+              '''def _stable_hc_reference(X, resid, cov_type):\n    U, singular_values, Vh = np.linalg.svd(X, full_matrices=False)\n    cutoff = max(X.shape) * np.finfo(np.float64).eps * singular_values[0]\n    retained = singular_values > cutoff\n    inverse_values = np.zeros_like(singular_values)\n    inverse_values[retained] = 1.0 / singular_values[retained]\n    X_pinv = (Vh.T * inverse_values) @ U.T\n    projection_rows = X_pinv.T\n'''
+          )
+
+          # Freeze the explicit policy in the reviewed plan.
+          replace_once(
+              "dev/plans/panel_p1_stage_c_covariance_plan.md",
+              '''- use pseudoinverse consistently for supported rank-deficient fit spaces;\n''',
+              '''- use pseudoinverse consistently for supported rank-deficient fit spaces; numerical rank and pseudoinverse must come from the same backend-native SVD mask with the explicit float64 cutoff `max(n,k) * eps * s_max`, never from independent backend defaults;\n'''
+          )
+
+          # Update user docs: old ec511 acceptance is immutable history, not current acceptance.
+          en = Path("docs/en/models/panel.md")
+          text = en.read_text()
+          old_lines = [line for line in text.splitlines() if "ec511f53" in line and "32/32" in line]
+          if len(old_lines) != 2:
+              raise SystemExit(f"docs/en/models/panel.md: expected 2 current-acceptance lines, found {len(old_lines)}")
+          replacements = [
+              "The earlier exact-clean Tesla P100 run at `ec511f53...` remains immutable historical evidence (26 estimator cases + 6 direct primitives per backend, 32/32, plus 58 synchronized performance rows), but it no longer constitutes current acceptance after the numerical-rank and FirstDifference chronology production fixes. The repaired implementation uses one backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max` for both pseudoinverse and numerical rank, and FirstDifference preserves ordered-categorical time chronology. Fresh exact-head physical correctness is pending on the expanded 26-estimator + 12-primitive matrix (**38/38 per backend**), together with a synchronized performance rerun.",
+              "The previous P100 source `ec511f53...` is retained only as historical evidence because the shared covariance implementation and FirstDifference chronology changed afterward. Maintained local/Torch-CPU gates now include the numerical-rank boundary, while current `remote-full` acceptance requires a fresh exact-head CuPy/Torch run of 26 estimator cases + 12 public primitives (**38/38 per backend**) and a synchronized performance rerun. Explicit GPU devices continue to forbid silent CPU fallback."
+          ]
+          for old, new in zip(old_lines, replacements):
+              text = text.replace(old, new, 1)
+          # Add explicit numerical-rank policy after rank-deficient DK sentence if absent.
+          needle = "If statgpu validly reaches a rank-deficient fit, the extension records numerical rank in place of `k` and uses a pseudoinverse; this corner is not claimed to match linearmodels exactly."
+          if needle in text and "max(n,k) * eps64 * s_max" not in text[text.index(needle):text.index(needle)+800]:
+              text = text.replace(needle, needle + " Numerical rank and the pseudoinverse are derived from the same backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max`, so NumPy/CuPy/Torch cannot select different effective covariance subspaces merely because their library defaults differ.")
+          en.write_text(text)
+
+          cn = Path("docs/cn/models/panel.md")
+          text = cn.read_text()
+          old_lines = [line for line in text.splitlines() if "ec511f53" in line and "32/32" in line]
+          if len(old_lines) != 2:
+              raise SystemExit(f"docs/cn/models/panel.md: expected 2 current-acceptance lines, found {len(old_lines)}")
+          replacements = [
+              "此前 exact-clean `ec511f53...` Tesla P100 运行继续作为不可变历史证据保留（每个 backend 26 个 estimator case + 6 个 direct primitive，共 32/32，以及 58 行同步 performance），但在 numerical-rank 与 FirstDifference 时间顺序的 production 修复之后，它不再代表当前 acceptance。修复后的 covariance 用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 同时定义 pseudoinverse 与 numerical rank；FirstDifference 也保留 ordered categorical 的显式时间顺序。当前 `remote-full` 仍需在新的 exact head 上重新完成扩展后的 26 estimator + 12 primitive（**每个 backend 38/38**）以及同步 performance。",
+              "旧 P100 source `ec511f53...` 现在仅作为历史证据保留，因为其后共享 covariance 实现与 FirstDifference chronology 已发生 production 修改。maintained local/Torch-CPU gate 已覆盖 numerical-rank boundary；当前 `remote-full` acceptance 需要新的 exact-head CuPy/Torch 26 estimator + 12 public primitive（**每个 backend 38/38**）以及同步 performance rerun。显式 GPU device 仍禁止静默回退 CPU。"
+          ]
+          for old, new in zip(old_lines, replacements):
+              text = text.replace(old, new, 1)
+          cn.write_text(text)
+
+          # Root changelog: preserve the old measurement as history and state the current gate.
+          replace_once(
+              "CHANGELOG.md",
+              '''- Fresh post-re-audit physical acceptance was completed on exact-clean head `ec511f539adeaaedf310f92248200d0868577532` using Tesla P100-SXM2-16GB: CuPy and Torch each passed 32/32 correctness checks, and synchronized performance passed all 58 rows including the bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario. Earlier `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` runs remain immutable historical evidence.\n''',
+              '''- Retained the exact-clean `ec511f53...` Tesla P100 32/32-per-backend correctness and 58-row synchronized performance run as immutable historical evidence; subsequent numerical-rank and FirstDifference chronology fixes require fresh exact-head 38/38-per-backend correctness plus a performance rerun before current physical acceptance is restored.\n'''
+          )
+
+          # Detailed changelogs can contain more than one old acceptance line. Replace only
+          # lines that explicitly combine ec511 and 32/32, preserving other historical hashes.
+          for path, replacement in [
+              ("docs/en/changelog.md", "The `ec511f53...` Tesla P100 32/32-per-backend correctness and 58-row performance run is retained as immutable historical evidence. Because later review fixed the shared numerical-rank cutoff and FirstDifference ordered-categorical chronology, current physical acceptance is pending a fresh exact-head 26-estimator + 12-primitive (**38/38 per backend**) correctness run and synchronized performance rerun."),
+              ("docs/cn/changelog.md", "`ec511f53...` Tesla P100 的每 backend 32/32 correctness 与 58 行 performance 继续作为不可变历史证据保留。后续 review 修复了共享 numerical-rank cutoff 与 FirstDifference ordered-categorical chronology，因此当前 physical acceptance 需要在新的 exact head 上重新完成 26 estimator + 12 primitive（**每个 backend 38/38**）correctness 与同步 performance。")
+          ]:
+              p = Path(path)
+              lines = p.read_text().splitlines()
+              idx = [i for i, line in enumerate(lines) if "ec511f53" in line and "32/32" in line]
+              if not idx:
+                  raise SystemExit(f"{path}: no ec511 32/32 acceptance line found")
+              for i in idx:
+                  prefix = "- " if lines[i].lstrip().startswith("-") else ""
+                  indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+                  lines[i] = indent + prefix + replacement
+              p.write_text("\n".join(lines) + "\n")
+
+          # Authoritative physical record: explicitly supersede the old terminal status while
+          # preserving the immutable old evidence details below.
+          record = Path("dev/reviews/pr126_physical_gpu_validation.md")
+          text = record.read_text()
+          text = text.replace(
+              "**PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**\n\nValidation tier: `remote-full`.",
+              "**SUPERSEDED BY LATER PRODUCTION FIXES / PARTIAL_REMOTE_PENDING / NOT MERGE-READY**\n\nCurrent validation tier: `local-full`; fresh `remote-full` is pending."
+          )
+          text = text.replace(
+              "Therefore the physical measurement remains applicable under `RELEASING.md`.",
+              "That applicability statement was true for the old promoted head, but is superseded by later production changes to `statgpu/panel/_covariance.py` and `statgpu/panel/_first_diff.py`; the `ec511...` measurement is now historical evidence only."
+          )
+          text = text.replace("## Final hosted and strict-review closure", "## Historical hosted and strict-review closure")
+          text = text.replace(
+              "This commit changes only this acceptance record, so it does not alter the reviewed statistical implementation, physical runners, canonical evidence, or exact-source applicability. The technical hard exit is therefore `PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY`.",
+              "The historical closure above no longer represents the current branch after the later numerical-rank and FirstDifference chronology production fixes. Current hard exit is `PARTIAL_REMOTE_PENDING`: fresh exact-head CuPy/Torch correctness on the expanded 26+12 matrix and synchronized performance are required before physical acceptance can be restored."
+          )
+          if "PARTIAL_REMOTE_PENDING" not in text or "historical evidence only" not in text:
+              raise SystemExit("physical record supersession patch did not apply")
+          record.write_text(text)
+          PY
+      - name: Install external test environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
+      - name: Run external and documentation regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            -q --tb=short
+          python -m pytest \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            -q --tb=short
+          python -m py_compile dev/tests/test_panel_stage_c_external.py
+          git diff --check
+      - name: Verify stale terminal claims are gone from current surfaces
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          paths = [
+              Path('CHANGELOG.md'), Path('docs/en/changelog.md'), Path('docs/cn/changelog.md'),
+              Path('docs/en/models/panel.md'), Path('docs/cn/models/panel.md'),
+              Path('dev/reviews/pr126_physical_gpu_validation.md'),
+          ]
+          for p in paths:
+              text = p.read_text()
+              if p.name == 'pr126_physical_gpu_validation.md':
+                  assert 'SUPERSEDED BY LATER PRODUCTION FIXES / PARTIAL_REMOTE_PENDING' in text
+              if p.name == 'panel.md' or 'changelog' in p.name.lower():
+                  assert '38/38' in text
+          PY
+      - name: Commit fixes and self-delete
+        shell: bash
+        run: |
+          git config user.name 'TheHiddenObserver'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git add \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/plans/panel_p1_stage_c_covariance_plan.md \
+            docs/en/models/panel.md docs/cn/models/panel.md \
+            CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md \
+            dev/reviews/pr126_physical_gpu_validation.md
+          git rm -f .github/workflows/pr126-autofix-reference-docs.yml
+          git commit -m 'fix(panel): align rank reference and acceptance docs'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
