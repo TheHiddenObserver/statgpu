@@ -31,6 +31,7 @@ def test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable():
         "random_effects_cluster_two_way", "random_effects_dk",
         "between_hc0", "between_hc2", "between_hc3",
         "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
+        "panel_rank_boundary_dk",
     }
     assert required <= set(cases)
     assert len(cases) == len(required)

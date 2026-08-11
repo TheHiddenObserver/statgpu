@@ -9,8 +9,9 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
@@ -81,12 +82,7 @@ class FirstDifferenceOLS(BasePanelModel):
         )
         n, k = X_diff.shape
 
-        XtX = X_diff.T @ X_diff
-        Xty = X_diff.T @ y_diff
-        try:
-            params = xp.linalg.solve(XtX, Xty)
-        except _LINALG_ERRORS:
-            params = xp.linalg.pinv(X_diff) @ y_diff
+        params, rank_diff = panel_lstsq(X_diff, y_diff, xp)
 
         if n <= k:
             raise ValueError(
@@ -118,9 +114,7 @@ class FirstDifferenceOLS(BasePanelModel):
         self.df_resid = df_resid
 
         from statgpu.panel._diagnostic_context import build_model_fit_statistics
-        from statgpu.panel._diagnostics import _matrix_rank
 
-        rank_diff = _matrix_rank(X_diff, xp)
         diagnostic_df = n - rank_diff
         ss_tot_diag = _to_float_scalar(xp.sum(y_diff * y_diff))
         self.fit_statistics_ = build_model_fit_statistics(

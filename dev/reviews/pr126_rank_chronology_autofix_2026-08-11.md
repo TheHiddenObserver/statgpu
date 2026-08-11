@@ -29,6 +29,6 @@ The dedicated maintained Torch-CPU workflow and the full permanent hosted matrix
 
 The earlier P100 measurement `ec511f539adeaaedf310f92248200d0868577532` predates the production fixes in `statgpu/panel/_covariance.py` and `statgpu/panel/_first_diff.py` and is therefore historical, not exact-source acceptance evidence for the repaired implementation.
 
-Fresh physical correctness must execute the expanded 26-estimator + 12-public-primitive matrix on both CuPy and Torch. Because the shared covariance implementation changed, synchronized performance evidence must also be rerun before Stage C can return to `remote-full / COMPLETE`.
+Fresh physical correctness must execute the expanded 27-estimator + 12-public-primitive matrix on both CuPy and Torch. Because the shared covariance implementation changed, synchronized performance evidence must also be rerun before Stage C can return to `remote-full / COMPLETE`.
 
 PR #126 remains Draft and unmerged.

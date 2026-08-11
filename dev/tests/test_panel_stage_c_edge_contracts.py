@@ -180,3 +180,27 @@ def test_first_difference_preserves_ordered_categorical_chronology():
     )
     np.testing.assert_allclose(categorical.coef_, numeric.coef_, rtol=0.0, atol=0.0)
     np.testing.assert_allclose(categorical.bse_, numeric.bse_, rtol=2e-13, atol=2e-15)
+
+
+def test_panel_rank_boundary_fit_matches_explicit_svd_policy():
+    from statgpu.panel import PanelOLS
+
+    rng = np.random.default_rng(12954)
+    n, k = 100, 3
+    q_left, _ = np.linalg.qr(rng.normal(size=(n, k)))
+    q_right, _ = np.linalg.qr(rng.normal(size=(k, k)))
+    X = q_left @ np.diag([10.0, 1.0, 1.0e-13]) @ q_right.T
+    y = rng.normal(size=n)
+    time = np.tile(np.arange(10), 10)
+    U, singular_values, Vh = np.linalg.svd(X, full_matrices=False)
+    cutoff = max(X.shape) * np.finfo(np.float64).eps * singular_values[0]
+    retained = singular_values > cutoff
+    assert int(np.sum(retained)) == 2
+    inverse_values = np.zeros_like(singular_values)
+    inverse_values[retained] = 1.0 / singular_values[retained]
+    expected = ((Vh.T * inverse_values) @ U.T) @ y
+
+    model = PanelOLS(cov_type="dk", bandwidth=2).fit(X, y, time_ids=time)
+    np.testing.assert_allclose(model.coef_, expected, rtol=5e-11, atol=5e-13)
+    assert model._covariance_metadata["design_rank"] == 2
+    assert model.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2

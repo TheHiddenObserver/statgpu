@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-此前 exact-clean `ec511f53...` Tesla P100 运行继续作为不可变历史证据保留（每个 backend 26 个 estimator case + 6 个 direct primitive，共 32/32，以及 58 行同步 performance），但在 numerical-rank 与 FirstDifference 时间顺序的 production 修复之后，它不再代表当前 acceptance。修复后的 covariance 用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 同时定义 pseudoinverse 与 numerical rank；FirstDifference 也保留 ordered categorical 的显式时间顺序。当前 `remote-full` 仍需在新的 exact head 上重新完成扩展后的 26 estimator + 12 primitive（**每个 backend 38/38**）以及同步 performance。
+此前 exact-clean `ec511f53...` Tesla P100 运行继续作为不可变历史证据保留（每个 backend 26 个 estimator case + 6 个 direct primitive，共 32/32，以及 58 行同步 performance），但在 numerical-rank 与 FirstDifference 时间顺序的 production 修复之后，它不再代表当前 acceptance。修复后的 covariance 用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 同时定义 pseudoinverse 与 numerical rank；FirstDifference 也保留 ordered categorical 的显式时间顺序。当前 `remote-full` 仍需在新的 exact head 上重新完成扩展后的 27 estimator + 12 primitive（**每个 backend 39/39**）以及同步 performance。
 
 ## 路径
 
@@ -140,7 +140,7 @@ Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robu
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-旧 P100 source `ec511f53...` 现在仅作为历史证据保留，因为其后共享 covariance 实现与 FirstDifference chronology 已发生 production 修改。maintained local/Torch-CPU gate 已覆盖 numerical-rank boundary；当前 `remote-full` acceptance 需要新的 exact-head CuPy/Torch 26 estimator + 12 public primitive（**每个 backend 38/38**）以及同步 performance rerun。显式 GPU device 仍禁止静默回退 CPU。
+旧 P100 source `ec511f53...` 现在仅作为历史证据保留，因为其后共享 covariance 实现与 FirstDifference chronology 已发生 production 修改。maintained local/Torch-CPU gate 已覆盖 numerical-rank boundary；当前 `remote-full` acceptance 需要新的 exact-head CuPy/Torch 27 estimator + 12 public primitive（**每个 backend 39/39**）以及同步 performance rerun。显式 GPU device 仍禁止静默回退 CPU。
 
 ### PooledOLS HAC 时间排序
 

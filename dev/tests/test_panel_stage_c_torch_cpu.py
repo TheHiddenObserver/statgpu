@@ -254,3 +254,28 @@ def test_stage_c_rank_boundary_covariance_torch_cpu_matches_numpy():
         if cov_type in {"hc0", "hc2", "hc3", "driscoll-kraay"}:
             assert meta_np["design_rank"] == 2
             assert meta_t["design_rank"] == 2
+
+
+def test_panel_rank_boundary_fit_and_dk_torch_cpu_match_shared_policy():
+    X, y, time, _cluster = _rank_boundary_inputs(seed=12911)
+    U, singular_values, Vh = np.linalg.svd(X, full_matrices=False)
+    cutoff = max(X.shape) * np.finfo(np.float64).eps * singular_values[0]
+    inverse_values = np.zeros_like(singular_values)
+    retained = singular_values > cutoff
+    inverse_values[retained] = 1.0 / singular_values[retained]
+    expected_coef = ((Vh.T * inverse_values) @ U.T) @ y
+
+    expected = PanelOLS(cov_type="dk", bandwidth=2).fit(
+        X, y, time_ids=time
+    )
+    actual = PanelOLS(cov_type="dk", bandwidth=2).fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(time, dtype=torch.int64),
+    )
+    assert_allclose(expected.coef_, expected_coef, rtol=5e-11, atol=5e-13)
+    _assert_inference(actual, expected, rtol=5e-9, atol=5e-11)
+    assert expected._covariance_metadata["design_rank"] == 2
+    assert actual._covariance_metadata["design_rank"] == 2
+    assert expected.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2
+    assert actual.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2

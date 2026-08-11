@@ -297,6 +297,15 @@ def _fit_cases(X, y, entity, time, clusters, backend):
             cov_type=cov, device=device
         ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
 
+    X_rank, y_rank, time_rank, _cluster_rank = _rank_boundary_inputs()
+    rank_entity = np.arange(len(y_rank), dtype=np.int64)
+    X_rank_b, y_rank_b, _rank_entity_b, time_rank_b = _to_backend(
+        X_rank, y_rank, rank_entity, time_rank, backend
+    )
+    cases["panel_rank_boundary_dk"] = PanelOLS(
+        cov_type="dk", bandwidth=2, device=device
+    ).fit(X_rank_b, y_rank_b, time_ids=time_rank_b)
+
     return cases
 
 
@@ -505,6 +514,7 @@ def main():
         "random_effects_cluster_two_way", "random_effects_dk",
         "between_hc0", "between_hc2", "between_hc3",
         "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
+        "panel_rank_boundary_dk",
     }
     if set(reference) != required_cases:
         missing = sorted(required_cases - set(reference))
@@ -513,8 +523,8 @@ def main():
             "NumPy reference Stage-C physical matrix drifted: "
             f"missing={missing}, unexpected={unexpected}"
         )
-    if len(reference) != 26:
-        raise AssertionError(f"expected 26 Stage-C physical cases, got {len(reference)}")
+    if len(reference) != 27:
+        raise AssertionError(f"expected 27 Stage-C physical cases, got {len(reference)}")
     for backend, payload in results.items():
         if set(payload["cases"]) != required_cases:
             missing = sorted(required_cases - set(payload["cases"]))

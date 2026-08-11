@@ -11,24 +11,13 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import factorize_panel_labels
 
 
 def _panel_lstsq(X, y, xp):
-    """Return least-squares coefficients and the effective design rank."""
-    if getattr(xp, "__name__", "") == "torch":
-        params = xp.linalg.pinv(X) @ y
-        rank = int(_to_float_scalar(xp.linalg.matrix_rank(X)))
-        return params, rank
-    try:
-        result = xp.linalg.lstsq(X, y, rcond=None)
-        params = result[0]
-        rank = int(_to_float_scalar(result[2]))
-        return params, rank
-    except (TypeError, AttributeError, np.linalg.LinAlgError):
-        params = xp.linalg.pinv(X) @ y
-        rank = int(_to_float_scalar(xp.linalg.matrix_rank(X)))
-        return params, rank
+    """Return least-squares coefficients and rank under the shared panel policy."""
+    return panel_lstsq(X, y, xp)
 
 
 class PooledOLS(BasePanelModel):

@@ -51,6 +51,6 @@ The `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` Stage-C artif
 
 All seven permanent hosted workflows completed successfully on post-promotion checkpoint `05eeb5c0ceaadeae7481d77fda2719e61af64d64`, including Tests, Panel Stage C Torch CPU, Python external covariance definitions, R `plm`/`sandwich` alignment, Maintenance compatibility, Release notes validation, Release package validation, and Benchmark Frontend CI. The final `.claude/skills/code-review.md` re-review found no new CRITICAL, HIGH, or relevant MEDIUM issue after the post-promotion fixes. The only newly observed LOW artifact wording issue was corrected before that final hosted run.
 
-The historical closure above no longer represents the current branch after the later numerical-rank and FirstDifference chronology production fixes. Current hard exit is `PARTIAL_REMOTE_PENDING`: fresh exact-head CuPy/Torch correctness on the expanded 26+12 matrix and synchronized performance are required before physical acceptance can be restored.
+The historical closure above no longer represents the current branch after the later numerical-rank and FirstDifference chronology production fixes. Current hard exit is `PARTIAL_REMOTE_PENDING`: fresh exact-head CuPy/Torch correctness on the expanded 27+12 matrix and synchronized performance are required before physical acceptance can be restored.
 
 PR #126 intentionally remains Draft and unmerged. A Ready-for-review transition or merge still requires explicit user instruction.

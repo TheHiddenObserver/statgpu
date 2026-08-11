@@ -18,6 +18,7 @@ import numpy as np
 
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.inference._distributions_backend import get_distribution
+from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
 from statgpu.panel._results import PanelFitStatistics, PanelTestResult
 from statgpu.panel._utils import group_means
 
@@ -74,7 +75,7 @@ def _applicable(
 
 
 def _matrix_rank(X, xp) -> int:
-    return int(_to_float_scalar(xp.linalg.matrix_rank(X)))
+    return panel_matrix_rank(X, xp)
 
 
 def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
@@ -215,7 +216,7 @@ def _classical_model_f(
     resid = y - X @ params.ravel()
     rss_u = _to_float_scalar(xp.sum(resid * resid))
     if restricted_X is not None:
-        beta_r = xp.linalg.pinv(restricted_X) @ y
+        beta_r, _rank_r_fit = panel_lstsq(restricted_X, y, xp)
         resid_r = y - restricted_X @ beta_r
         rss_r = _to_float_scalar(xp.sum(resid_r * resid_r))
     elif has_constant:

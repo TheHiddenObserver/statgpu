@@ -19,6 +19,7 @@ from statgpu.panel._diagnostics import (
     _matrix_rank,
     _pooling_f_from_sums,
 )
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import group_means, group_sizes
 
 
@@ -128,9 +129,12 @@ def fixed_effect_diagnostic_df(
     has_constant: bool = False,
     entity_codes=None,
     time_codes=None,
+    rank_x=None,
 ):
     """Return rank-consistent Stage-B FE diagnostic df without changing legacy df."""
-    rank_x = _matrix_rank(X_transformed, xp)
+    if rank_x is None:
+        rank_x = _matrix_rank(X_transformed, xp)
+    rank_x = int(rank_x)
     n_components = 1
     if entity_effects and time_effects:
         n_components = _two_way_incidence_components(
@@ -205,8 +209,7 @@ def pooling_f_from_level_arrays(
         X_pool = X - xp.mean(X, axis=0)
         constant_projection_df = 1
 
-    rank_pool = _matrix_rank(X_pool, xp)
-    beta_pool = xp.linalg.pinv(X_pool) @ y_pool
+    beta_pool, rank_pool = panel_lstsq(X_pool, y_pool, xp)
     resid_pool = y_pool - X_pool @ beta_pool
     rss_pool = _to_float_scalar(xp.sum(resid_pool * resid_pool))
     df_resid_pool = n - rank_pool - constant_projection_df

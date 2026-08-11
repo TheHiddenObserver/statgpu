@@ -16,13 +16,12 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import (
-    _LINALG_ERRORS,
     _to_float_scalar,
     _to_numpy,
-    xp_cholesky_solve,
     xp_maximum,
 )
 from statgpu.panel._base import BasePanelModel
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import (
     _scatter_add,
     demean_variables,
@@ -187,12 +186,7 @@ class PanelOLS(BasePanelModel):
             y_d = y_arr
             X_d = X_arr
 
-        XtX = X_d.T @ X_d
-        Xty = X_d.T @ y_d
-        try:
-            coef = xp_cholesky_solve(XtX, Xty, xp)
-        except _LINALG_ERRORS:
-            coef = xp.linalg.solve(XtX, Xty)
+        coef, fit_rank = panel_lstsq(X_d, y_d, xp)
 
         n_entities = len(entity_labels) if entity_labels is not None else 0
         n_times = len(time_labels) if time_labels is not None else 0
@@ -215,6 +209,7 @@ class PanelOLS(BasePanelModel):
             has_constant=False,
             entity_codes=entity_arr,
             time_codes=time_arr,
+            rank_x=fit_rank,
         )
 
         n_effects = 0
