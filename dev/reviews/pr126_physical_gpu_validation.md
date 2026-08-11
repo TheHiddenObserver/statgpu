@@ -8,7 +8,7 @@ Validation tier target: `remote-full`.
 
 The previously accepted `5ed763be...` physical evidence remains immutable historical evidence, but it is no longer exact-source acceptance evidence after the re-audit changes `statgpu/panel/_fixed_effects.py` to repair formula/inference presentation. Fresh physical GPU correctness and synchronized performance evidence are required on the final review-fix source head before this record can return to `PHYSICAL_GPU_ACCEPTED`.
 
-Fresh Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the only commit between that production checkpoint and `5ed763be2a331e6dc988ac133e79f0484d4cdebd` changes this review document. The artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files. The canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changes frontend parser metadata, manifest/coverage/tests/docs/generated benchmark assets only; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the measurement remains applicable under `RELEASING.md`.
+Historical Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files, and the prior canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changed only parser metadata, manifest/coverage/tests/docs/generated benchmark assets. That evidence was applicable to the pre-re-audit source through the prior promoted checkpoint, but the later `PanelOLS.summary()` formula/inference presentation fix changes `statgpu/panel/**`; under `RELEASING.md` it is therefore no longer exact-source acceptance evidence for the current branch.
 
 ## Correctness and backend-provenance evidence
 
@@ -47,15 +47,15 @@ The promotion regenerated deterministic frontend assets and passed the maintaine
 
 ## Strict review status
 
-The final production-source re-review found no unresolved CRITICAL, HIGH, or relevant MEDIUM issue in Stage-C scope. The last in-scope fixes covered RandomEffects formula matrix depth, transformed-fit-space external HC baselines, PooledOLS/BetweenOLS intercept metadata and explicit no-intercept rejection, documentation status, and robust-summary `z` labels. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.
+The 2026-08-11 `.claude/skills/code-review.md` re-audit found and fixed a HIGH formula/inference issue: `PanelOLS.summary()` had overwritten Patsy term names with generic `x1`, `x2`, ... labels. A new categorical/interaction/transform regression now requires `summary().feature_names`, `_feature_names`, and `_inference_result.feature_names` to match the Patsy term order. The same re-audit made benchmark capability decisions and the memory/no-host-transfer acceptance contract explicit. The current review/fix loop has no unresolved CRITICAL/HIGH source finding at this checkpoint; acceptance remains `PARTIAL_REMOTE_PENDING` until the loop reaches a no-new-findings review, hosted gates are green, and fresh exact-head physical GPU evidence is recorded. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.
 
-## Final promoted-head checkpoint
+## Prior promoted-head checkpoint
 
-This user-authored review/status-only commit follows canonical promotion specifically to trigger the permanent PR workflows after GitHub's `GITHUB_TOKEN` recursion guard on the bot-authored promotion commit. It changes no numerical source, physical validator, performance runner, parser contract, manifest, benchmark data, or raw evidence. Final acceptance requires those permanent workflows to complete green on this checkpoint and one final review of the post-measurement/promotion delta.
+The prior acceptance cycle reached promoted checkpoint `102d58b0ee239902804a282fe9747fdf713ad3ab` with permanent hosted workflows green. That checkpoint predates the current `PanelOLS.summary()` production-source fix and is retained only as audit history; it is not the current final acceptance head.
 
 ## Superseded historical evidence
 
-The prior `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performance artifacts remain immutable audit history but are not current acceptance sources. The current canonical source contract is the fresh `5ed763be...` measurement above.
+The prior `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performance artifacts remain immutable audit history. The `5ed763be...` sources remain registered benchmark provenance until replacement evidence is promoted, but none of these artifacts is exact-source physical acceptance evidence for the current post-re-audit source.
 
 ## Merge-readiness boundary
 

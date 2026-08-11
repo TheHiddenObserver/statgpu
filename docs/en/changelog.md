@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-10<br>
+> Last updated: 2026-08-11<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -11,7 +11,7 @@ Stage C extends the Panel Tier-1 inference layer without changing estimator coef
 
 The repaired covariance implementation derives bread and influence rows from the design pseudoinverse, computes HC2/HC3 leverage from `diag(X X+)`, validates entity/time/cluster metadata consistently, keeps CuPy group scatter-add backend-native, publishes the shared inference result contract, preserves RandomEffects formula intercept and feature names, and stabilizes quadratic-spectral weights for very large bandwidths. External definitions are checked against pinned `statsmodels`, `linearmodels`, and R `sandwich`/`plm` references.
 
-Fresh physical CUDA acceptance completed on exact clean implementation head `5ed763be2a331e6dc988ac133e79f0484d4cdebd` using Tesla P100-SXM2-16GB. CuPy and Torch each pass all 26 estimator covariance cases plus 6 direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3 and Driscoll-Kraay cases, with requested/executed backend identity and no numerical CPU fallback. The synchronized performance run retains the three base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario; it records timing only and makes no speedup claim. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts are retained as immutable historical evidence.
+The pre-re-audit source was physically validated on exact clean head `5ed763be2a331e6dc988ac133e79f0484d4cdebd` using Tesla P100-SXM2-16GB: CuPy and Torch each passed all 26 estimator covariance cases plus 6 direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3 and Driscoll-Kraay cases, with requested/executed backend identity and no numerical CPU fallback. The synchronized performance run retained the three base scales and bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario and made no speedup claim. A subsequent 2026-08-11 strict review fixed `PanelOLS.summary()` formula term naming, which changed `statgpu/panel/**`; the `5ed763be...` run is therefore historical evidence for the current branch and fresh exact-source physical validation is pending. Earlier `aad53587...`, `c151550a...`, and `9c0b3050...` artifacts are also retained as immutable historical evidence.
 
 ## 2026-08-08
 
