@@ -2,7 +2,7 @@
 
 ## Current physical acceptance status
 
-**PHYSICAL_GPU_ACCEPTED / POST_PROMOTION_REVIEW_PENDING**
+**PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**
 
 Validation tier: `remote-full`.
 
@@ -47,6 +47,10 @@ Canonical registration is protected by the immutable source SHA-256 values toget
 
 The `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` Stage-C artifacts remain immutable audit history and are not current canonical acceptance sources.
 
-## Remaining merge-readiness boundary
+## Final hosted and strict-review closure
 
-The physical gate is closed. Merge readiness still requires permanent hosted workflows green on the final post-promotion checkpoint and a final `.claude/skills/code-review.md` re-review with no new CRITICAL/HIGH/relevant-MEDIUM finding. PR #126 remains Draft until an explicit Ready transition is requested.
+All seven permanent hosted workflows completed successfully on post-promotion checkpoint `05eeb5c0ceaadeae7481d77fda2719e61af64d64`, including Tests, Panel Stage C Torch CPU, Python external covariance definitions, R `plm`/`sandwich` alignment, Maintenance compatibility, Release notes validation, Release package validation, and Benchmark Frontend CI. The final `.claude/skills/code-review.md` re-review found no new CRITICAL, HIGH, or relevant MEDIUM issue after the post-promotion fixes. The only newly observed LOW artifact wording issue was corrected before that final hosted run.
+
+This commit changes only this acceptance record, so it does not alter the reviewed statistical implementation, physical runners, canonical evidence, or exact-source applicability. The technical hard exit is therefore `PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY`.
+
+PR #126 intentionally remains Draft and unmerged. A Ready-for-review transition or merge still requires explicit user instruction.
