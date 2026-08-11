@@ -41,7 +41,7 @@ Fresh Tesla P100 evidence was measured from exact clean strict-review checkpoint
 - source date: `2026-08-11`
 - environment: `remote-p100-pr126-20260811`
 
-The parser fails closed on measurement SHA, clean-tree flag, exact 26+6 correctness identity, requested/executed backend identity, exact 58-row base/high-T matrix, and positive finite synchronized timing samples.
+Canonical registration is protected by the immutable source SHA-256 values together with the fail-closed promotion audit, which hard-checks measurement SHA, clean-tree status, exact 26+6 correctness identity, requested/executed backend identity, the exact 58-row base/high-T matrix, and positive finite synchronized timing samples/medians. The maintained parser independently fails closed on schema, measurement SHA, case/matrix identity, and performance timing structure, while emitting explicit source/backend/case/primitive acceptance checks in the validation rows.
 
 ## Superseded historical evidence
 
