@@ -77,7 +77,7 @@ jobs:
         shell: bash
         run: |
           git rm .github/workflows/pr126-promote-ec511f53-evidence.yml
-          git rm .github/scripts/pr126_promote_ec511.py
+          git rm -f .github/scripts/pr126_promote_ec511.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
