@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install validation dependencies
-        run: python -m pip install pytest 'jsonschema[format]'
+        run: python -m pip install pytest 'jsonschema[format]' -e '.[formula]'
       - name: Audit and promote physical evidence
         run: |
           python - <<'PY'
