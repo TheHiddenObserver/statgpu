@@ -1,0 +1,95 @@
+name: PR126 rank-aware diagnostics autofix
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - .github/workflows/pr126-autofix-rank-aware-diagnostics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply diagnostic backward-compatibility fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}")
+              p.write_text(text.replace(old, new))
+
+          replace_once(
+              'statgpu/panel/_diagnostics.py',
+              '''    if restricted_X is not None:\n        beta_r, _rank_r_fit = panel_lstsq(restricted_X, y, xp)\n        resid_r = y - restricted_X @ beta_r\n''',
+              '''    if restricted_X is not None:\n        if rank_r < int(restricted_X.shape[1]):\n            beta_r, _ = panel_lstsq(restricted_X, y, xp)\n        else:\n            beta_r = xp.linalg.pinv(restricted_X) @ y\n        resid_r = y - restricted_X @ beta_r\n'''
+          )
+          replace_once(
+              'statgpu/panel/_diagnostic_context.py',
+              '''    beta_pool, rank_pool = panel_lstsq(X_pool, y_pool, xp)\n    resid_pool = y_pool - X_pool @ beta_pool\n''',
+              '''    rank_pool = _matrix_rank(X_pool, xp)\n    if rank_pool < int(X_pool.shape[1]):\n        beta_pool, _ = panel_lstsq(X_pool, y_pool, xp)\n    else:\n        beta_pool = xp.linalg.pinv(X_pool) @ y_pool\n    resid_pool = y_pool - X_pool @ beta_pool\n'''
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''        from statgpu.panel._diagnostic_context import build_model_fit_statistics\n        from statgpu.panel._diagnostics import _matrix_rank\n\n        diagnostic_df_resid = n - rank_star\n''',
+              '''        from statgpu.panel._diagnostic_context import build_model_fit_statistics\n\n        diagnostic_df_resid = n - rank_star\n'''
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''        if has_constant:\n            restricted_X = X_star[:, constant_index : constant_index + 1]\n            restricted_params, restricted_rank = panel_lstsq(\n                restricted_X, y_star, xp\n            )\n            restricted_resid = y_star - restricted_X @ restricted_params\n''',
+              '''        if has_constant:\n            restricted_X = X_star[:, constant_index : constant_index + 1]\n            restricted_rank = panel_matrix_rank(restricted_X, xp)\n            if restricted_rank < int(restricted_X.shape[1]):\n                restricted_params, _ = panel_lstsq(restricted_X, y_star, xp)\n            else:\n                restricted_params = xp.linalg.pinv(restricted_X) @ y_star\n            restricted_resid = y_star - restricted_X @ restricted_params\n'''
+          )
+
+          edge = Path('dev/tests/test_panel_stage_c_edge_contracts.py')
+          text = edge.read_text()
+          addition = '''\n\ndef test_full_rank_pooling_diagnostic_preserves_historical_pinv_path(monkeypatch):\n    import statgpu.panel._diagnostic_context as diagnostic_context\n\n    rng = np.random.default_rng(12956)\n    X = rng.normal(size=(60, 2))\n    y = X @ np.array([0.3, -0.5]) + rng.normal(scale=0.2, size=60)\n\n    def _forbid_rank_deficient_solve(*args, **kwargs):\n        raise AssertionError("full-rank pooling diagnostic entered SVD deficiency solve")\n\n    monkeypatch.setattr(diagnostic_context, "panel_lstsq", _forbid_rank_deficient_solve)\n    result = diagnostic_context.pooling_f_from_level_arrays(\n        y, X, xp=np, rss_effects=float(np.sum(y * y)) + 1.0,\n        df_resid_effects=50, has_constant=True,\n    )\n    assert result is not None\n'''
+          if 'test_full_rank_pooling_diagnostic_preserves_historical_pinv_path' in text:
+              raise SystemExit('diagnostic full-rank contract test already exists')
+          edge.write_text(text + addition)
+          PY
+      - name: Install validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[formula,validation]' 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
+      - name: Run diagnostic and Stage-C regression matrix
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            -q --tb=short
+          python -m py_compile \
+            statgpu/panel/_diagnostics.py statgpu/panel/_diagnostic_context.py \
+            statgpu/panel/_random_effects.py
+          git diff --check
+      - name: Commit diagnostic fix and self-delete
+        shell: bash
+        run: |
+          git config user.name 'TheHiddenObserver'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git add \
+            statgpu/panel/_diagnostics.py statgpu/panel/_diagnostic_context.py \
+            statgpu/panel/_random_effects.py dev/tests/test_panel_stage_c_edge_contracts.py
+          git rm -f .github/workflows/pr126-autofix-rank-aware-diagnostics.yml
+          git commit -m 'fix(panel): preserve full-rank diagnostic solver contracts'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
