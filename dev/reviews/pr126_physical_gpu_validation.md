@@ -2,11 +2,11 @@
 
 ## Current physical acceptance status
 
-**PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**
+**SUPERSEDED BY LATER PRODUCTION FIXES / PARTIAL_REMOTE_PENDING / NOT MERGE-READY**
 
-Validation tier: `remote-full`.
+Current validation tier: `local-full`; fresh `remote-full` is pending.
 
-Fresh Tesla P100 evidence was measured from exact clean strict-review checkpoint `ec511f539adeaaedf310f92248200d0868577532`. The raw artifact commit `e1a155bf77b416e0873a037015aaafd22371ab11` differs from the measurement checkpoint only by `results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json` and `results/pr126_p100/panel_stage_c_performance_ec511f53.json`. Canonical promotion changes only parser/source metadata, coverage/tests/docs/review records, and deterministic frontend benchmark assets; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the physical measurement remains applicable under `RELEASING.md`.
+Fresh Tesla P100 evidence was measured from exact clean strict-review checkpoint `ec511f539adeaaedf310f92248200d0868577532`. The raw artifact commit `e1a155bf77b416e0873a037015aaafd22371ab11` differs from the measurement checkpoint only by `results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json` and `results/pr126_p100/panel_stage_c_performance_ec511f53.json`. Canonical promotion changes only parser/source metadata, coverage/tests/docs/review records, and deterministic frontend benchmark assets; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. That applicability statement was true for the old promoted head, but is superseded by later production changes to `statgpu/panel/_covariance.py` and `statgpu/panel/_first_diff.py`; the `ec511...` measurement is now historical evidence only.
 
 ## Correctness and backend-provenance evidence
 
@@ -47,10 +47,10 @@ Canonical registration is protected by the immutable source SHA-256 values toget
 
 The `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` Stage-C artifacts remain immutable audit history and are not current canonical acceptance sources.
 
-## Final hosted and strict-review closure
+## Historical hosted and strict-review closure
 
 All seven permanent hosted workflows completed successfully on post-promotion checkpoint `05eeb5c0ceaadeae7481d77fda2719e61af64d64`, including Tests, Panel Stage C Torch CPU, Python external covariance definitions, R `plm`/`sandwich` alignment, Maintenance compatibility, Release notes validation, Release package validation, and Benchmark Frontend CI. The final `.claude/skills/code-review.md` re-review found no new CRITICAL, HIGH, or relevant MEDIUM issue after the post-promotion fixes. The only newly observed LOW artifact wording issue was corrected before that final hosted run.
 
-This commit changes only this acceptance record, so it does not alter the reviewed statistical implementation, physical runners, canonical evidence, or exact-source applicability. The technical hard exit is therefore `PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY`.
+The historical closure above no longer represents the current branch after the later numerical-rank and FirstDifference chronology production fixes. Current hard exit is `PARTIAL_REMOTE_PENDING`: fresh exact-head CuPy/Torch correctness on the expanded 26+12 matrix and synchronized performance are required before physical acceptance can be restored.
 
 PR #126 intentionally remains Draft and unmerged. A Ready-for-review transition or merge still requires explicit user instruction.

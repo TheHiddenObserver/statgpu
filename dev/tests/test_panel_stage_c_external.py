@@ -47,7 +47,12 @@ def _ill_conditioned_regression(seed=12709):
 
 
 def _stable_hc_reference(X, resid, cov_type):
-    X_pinv = np.linalg.pinv(X)
+    U, singular_values, Vh = np.linalg.svd(X, full_matrices=False)
+    cutoff = max(X.shape) * np.finfo(np.float64).eps * singular_values[0]
+    retained = singular_values > cutoff
+    inverse_values = np.zeros_like(singular_values)
+    inverse_values[retained] = 1.0 / singular_values[retained]
+    X_pinv = (Vh.T * inverse_values) @ U.T
     projection_rows = X_pinv.T
     leverage = np.sum(X * projection_rows, axis=1)
     if cov_type == "hc0":

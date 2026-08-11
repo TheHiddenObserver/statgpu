@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-Tier-1 Panel 路线的 Stage C 在 Stage-B diagnostics 之上补齐 residual-sandwich covariance 层：历史默认行为保持不变，同时加入 HC0/HC2/HC3、RandomEffects robust inference、显式 cluster group debias 与 Driscoll-Kraay，并保持 NumPy/CuPy/Torch 数值累积后端原生。2026-08-11 的严格 re-audit 修复 `PanelOLS.summary()` 的 formula/inference 展示语义后，最终 source 已在 exact-clean head `ec511f53...` 上重新完成 Tesla P100 physical acceptance：CuPy 与 Torch 各自通过全部 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK；同步 performance 共通过 58 行，并覆盖有界的 `N=10,000`、`k=2`、`T=200` QS 场景。此前 `5ed763be...`、`aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
+此前 exact-clean `ec511f53...` Tesla P100 运行继续作为不可变历史证据保留（每个 backend 26 个 estimator case + 6 个 direct primitive，共 32/32，以及 58 行同步 performance），但在 numerical-rank 与 FirstDifference 时间顺序的 production 修复之后，它不再代表当前 acceptance。修复后的 covariance 用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 同时定义 pseudoinverse 与 numerical rank；FirstDifference 也保留 ordered categorical 的显式时间顺序。当前 `remote-full` 仍需在新的 exact head 上重新完成扩展后的 26 estimator + 12 primitive（**每个 backend 38/38**）以及同步 performance。
 
 ## 路径
 
@@ -140,7 +140,7 @@ Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robu
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-hosted Stage-C tests 已将 HC2/HC3 与 analytic/statsmodels fit-space 计算对齐，并将 cluster/Driscoll-Kraay definition 与 `linearmodels==7.0` 固定版本对齐。fresh exact-clean Tesla P100 acceptance `ec511f53...` 在 CuPy 与 Torch 每个 backend 上均通过 26/26 estimator covariance case 与 6/6 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3/DK regressions，requested/executed backend 一致且无 CPU fallback。同步 performance 共通过 58 行，覆盖三个 base scale 以及显式 `N=10,000`、`k=2`、`T=200` QS all-lag 场景；只记录 timing，不声明 speedup 或 CPU baseline。
+旧 P100 source `ec511f53...` 现在仅作为历史证据保留，因为其后共享 covariance 实现与 FirstDifference chronology 已发生 production 修改。maintained local/Torch-CPU gate 已覆盖 numerical-rank boundary；当前 `remote-full` acceptance 需要新的 exact-head CuPy/Torch 26 estimator + 12 public primitive（**每个 backend 38/38**）以及同步 performance rerun。显式 GPU device 仍禁止静默回退 CPU。
 
 ### PooledOLS HAC 时间排序
 

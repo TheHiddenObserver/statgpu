@@ -11,7 +11,7 @@ Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的
 
 修复后的 covariance 实现从 design pseudoinverse 构造 bread 与 influence row，以 `diag(X X+)` 计算 HC2/HC3 leverage，统一验证 entity/time/cluster metadata，保持 CuPy group scatter-add 后端原生，发布共享 inference result contract，恢复 RandomEffects formula 的 intercept/feature-name 语义，并对超大 bandwidth 下的 quadratic-spectral weight 使用稳定的小参数展开。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 以及 R `sandwich`/`plm`。
 
-2026-08-11 的严格 review 修复 `PanelOLS.summary()` 的 formula term naming 后，已在精确且干净的提交 `ec511f539adeaaedf310f92248200d0868577532` 上使用 Tesla P100-SXM2-16GB 重新完成 fresh exact-source physical acceptance。CuPy 与 Torch 各自通过 26 个 estimator covariance case 和 6 个 direct public covariance primitive（每个 backend 32/32），包括 full-rank ill-conditioned HC0/HC2/HC3 与 Driscoll-Kraay，并验证 requested/executed backend 一致且无数值 CPU fallback。同步 performance 共通过 58 行，覆盖三个基础规模以及有界的 `N=10,000`、`k=2`、`T=200` QS all-lag 场景，不声明 speedup 或 CPU baseline。此前 `5ed763be...`、`aad53587...`、`c151550a...` 与 `9c0b3050...` 产物继续作为不可变历史证据保留。
+`ec511f53...` Tesla P100 的每 backend 32/32 correctness 与 58 行 performance 继续作为不可变历史证据保留。后续 review 修复了共享 numerical-rank cutoff 与 FirstDifference ordered-categorical chronology，因此当前 physical acceptance 需要在新的 exact head 上重新完成 26 estimator + 12 primitive（**每个 backend 38/38**）correctness 与同步 performance。
 
 ## 2026-08-08
 

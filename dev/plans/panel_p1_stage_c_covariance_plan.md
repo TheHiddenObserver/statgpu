@@ -137,7 +137,7 @@ This is documented as **transformed-fit-space HC2/HC3**. It is not claimed equal
 Implementation requirements:
 
 - compute `h_i` rowwise as `sum((Z @ B) * Z, axis=1)`, never an `n x n` hat matrix;
-- use pseudoinverse consistently for supported rank-deficient fit spaces;
+- use pseudoinverse consistently for supported rank-deficient fit spaces; numerical rank and pseudoinverse must come from the same backend-native SVD mask with the explicit float64 cutoff `max(n,k) * eps * s_max`, never from independent backend defaults;
 - keep leverage/score arrays backend-native;
 - reject materially invalid leverage and any numerically unit leverage that makes HC2/HC3 undefined; tiny dimensionless roundoff outside `[0,1]` may be normalized with a machine-epsilon guard only;
 - existing `robust` continues its historical estimator-specific HC1 correction unchanged.
