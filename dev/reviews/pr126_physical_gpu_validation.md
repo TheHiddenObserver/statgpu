@@ -38,7 +38,7 @@ Historical Tesla P100 evidence was measured from exact clean review/status SHA `
 
 ## Canonical promotion audit
 
-The fresh sources are registered as:
+The prior promoted sources are registered as:
 
 - correctness: `panel-stage-c-validation-pr126-20260810-7d8777fabe32`;
 - performance: `panel-stage-c-performance-pr126-20260810-75da75c0405c`.
