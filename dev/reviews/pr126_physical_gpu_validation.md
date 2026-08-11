@@ -2,61 +2,51 @@
 
 ## Current physical acceptance status
 
-**PARTIAL_REMOTE_PENDING** after the 2026-08-11 `.claude/skills/code-review.md` re-audit.
+**PHYSICAL_GPU_ACCEPTED / POST_PROMOTION_REVIEW_PENDING**
 
-Validation tier target: `remote-full`.
+Validation tier: `remote-full`.
 
-The previously accepted `5ed763be...` physical evidence remains immutable historical evidence, but it is no longer exact-source acceptance evidence after the re-audit changes `statgpu/panel/_fixed_effects.py` to repair formula/inference presentation. Fresh physical GPU correctness and synchronized performance evidence are required on the final review-fix source head before this record can return to `PHYSICAL_GPU_ACCEPTED`.
-
-Historical Tesla P100 evidence was measured from exact clean review/status SHA `5ed763be2a331e6dc988ac133e79f0484d4cdebd`. Its production-source parent checkpoint is `86bed6feb8f97ba80dbb58876238b972e60711f8`; the artifact commit `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2` adds only the two raw evidence files, and the prior canonical-promotion commit `54b664c34aa6a150b7431f6289c83546502b2fd1` changed only parser metadata, manifest/coverage/tests/docs/generated benchmark assets. That evidence was applicable to the pre-re-audit source through the prior promoted checkpoint, but the later `PanelOLS.summary()` formula/inference presentation fix changes `statgpu/panel/**`; under `RELEASING.md` it is therefore no longer exact-source acceptance evidence for the current branch.
+Fresh Tesla P100 evidence was measured from exact clean strict-review checkpoint `ec511f539adeaaedf310f92248200d0868577532`. The raw artifact commit `e1a155bf77b416e0873a037015aaafd22371ab11` differs from the measurement checkpoint only by `results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json` and `results/pr126_p100/panel_stage_c_performance_ec511f53.json`. Canonical promotion changes only parser/source metadata, coverage/tests/docs/review records, and deterministic frontend benchmark assets; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the physical measurement remains applicable under `RELEASING.md`.
 
 ## Correctness and backend-provenance evidence
 
-- path: `results/pr126_p100/panel_stage_c_gpu_validation_5ed763be.json`
-- measurement SHA: `5ed763be2a331e6dc988ac133e79f0484d4cdebd`
-- artifact repository commit: `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2`
-- Git blob: `d5aa76dd8d3305792c643bb29856610d784af3f0`
-- SHA-256: `7d8777fabe32a012c91e8eb68914daca3e981cf6c6efeaa092b2172746b0d063`
+- path: `results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json`
+- measurement SHA: `ec511f539adeaaedf310f92248200d0868577532`
+- raw artifact commit: `e1a155bf77b416e0873a037015aaafd22371ab11`
+- Git blob: `a02fcad0eefd5993d2ae05b8d00a55e5ca1d885f`
+- SHA-256: `af2227efe3cd0ab77472ff1d6584233d475f6ed5c4c4d36d318efc127d143f63`
 - GPU: Tesla P100-SXM2-16GB
-- result: CuPy 32/32 and Torch 32/32 = 26 estimator covariance cases + 6 direct public primitives per backend
+- result: CuPy **32/32**, Torch **32/32** = 26 estimator covariance cases + 6 direct public primitives per backend
 - direct primitives: `cluster_group_debias`, `driscoll_kraay_qs`, `ill_conditioned_hc0`, `ill_conditioned_hc2`, `ill_conditioned_hc3`, `ill_conditioned_dk`
-- requested backend equals the backend persisted at the numerical fit boundary for every correctness case; no numerical CPU fallback was observed
-- the runner's package metadata records `cupy: null`; this is the same pre-existing package-name discovery limitation present in the previously accepted `aad53587...` artifact and does not replace executed-backend provenance
+- every estimator case and public primitive records the requested backend as the executed backend; no numerical CPU fallback was observed
 
 ## Synchronized performance evidence
 
-- path: `results/pr126_p100/panel_stage_c_performance_5ed763be.json`
-- measurement SHA: `5ed763be2a331e6dc988ac133e79f0484d4cdebd`
-- artifact repository commit: `07ab76db7b9454e51683bbe4c1a2c2dc54ce58c2`
-- Git blob: `1e735274c76f3bad3aa747b25a36f449fb764cc0`
-- SHA-256: `75da75c0405cce6e842c64c1b07b08a7b1cfd030fa08eac10916bd118ea33524`
+- path: `results/pr126_p100/panel_stage_c_performance_ec511f53.json`
+- measurement SHA: `ec511f539adeaaedf310f92248200d0868577532`
+- raw artifact commit: `e1a155bf77b416e0873a037015aaafd22371ab11`
+- Git blob: `76d6eabeefc6e04095270a5df8a231cb150ea220`
+- SHA-256: `4099740700221ffdae2770427a5ad0fca7dc3c1ec0f47173caf166aa56a1fca0`
 - GPU: Tesla P100-SXM2-16GB for both CuPy and Torch
-- rows: 58 = 54 base rows + 4 high-T QS rows
+- rows: **58** = 54 base + 4 high-T QS
 - timing scope: synchronized end-to-end estimator fit
-- high-T scenario: `N=10,000`, `k=2`, `T=200`
+- high-T matrix: CuPy/Torch × PooledOLS/PanelOLS QS at `N=10,000,k=2,T=200`
+- every timing sample and stored median is finite and positive; each stored median equals the median of its raw samples
 - no speedup claim or CPU-baseline claim is made
 
-## Canonical promotion audit
+## Canonical promotion
 
-The prior promoted sources are registered as:
+- correctness source id: `panel-stage-c-validation-pr126-20260811-af2227efe3cd`
+- performance source id: `panel-stage-c-performance-pr126-20260811-409974070022`
+- source date: `2026-08-11`
+- environment: `remote-p100-pr126-20260811`
 
-- correctness: `panel-stage-c-validation-pr126-20260810-7d8777fabe32`;
-- performance: `panel-stage-c-performance-pr126-20260810-75da75c0405c`.
-
-The promotion regenerated deterministic frontend assets and passed the maintained Stage-C parser, benchmark catalog, inventory-v2, domain-coverage, and benchmark-data validation suite. The generated inventory remains 13 registered / 13 available / 13 parsed sources with zero unclassified artifacts. The prior `aad53587...` source is no longer registered and remains immutable historical evidence.
-
-## Strict review status
-
-The 2026-08-11 `.claude/skills/code-review.md` re-audit found and fixed a HIGH formula/inference issue: `PanelOLS.summary()` had overwritten Patsy term names with generic `x1`, `x2`, ... labels. A new categorical/interaction/transform regression now requires `summary().feature_names`, `_feature_names`, and `_inference_result.feature_names` to match the Patsy term order. The same re-audit made benchmark capability decisions and the memory/no-host-transfer acceptance contract explicit. The current review/fix loop has no unresolved CRITICAL/HIGH source finding at this checkpoint; acceptance remains `PARTIAL_REMOTE_PENDING` until the loop reaches a no-new-findings review, hosted gates are green, and fresh exact-head physical GPU evidence is recorded. One older unresolved P2 inline thread about backend provenance is outdated because the implemented fit/runner contract now persists and validates the actually selected backend. A pre-existing FamaMacBeth formula-summary naming limitation remains outside Stage-C scope.
-
-## Prior promoted-head checkpoint
-
-The prior acceptance cycle reached promoted checkpoint `102d58b0ee239902804a282fe9747fdf713ad3ab` with permanent hosted workflows green. That checkpoint predates the current `PanelOLS.summary()` production-source fix and is retained only as audit history; it is not the current final acceptance head.
+The parser fails closed on measurement SHA, clean-tree flag, exact 26+6 correctness identity, requested/executed backend identity, exact 58-row base/high-T matrix, and positive finite synchronized timing samples.
 
 ## Superseded historical evidence
 
-The prior `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` correctness/performance artifacts remain immutable audit history. The `5ed763be...` sources remain registered benchmark provenance until replacement evidence is promoted, but none of these artifacts is exact-source physical acceptance evidence for the current post-re-audit source.
+The `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` Stage-C artifacts remain immutable audit history and are not current canonical acceptance sources.
 
-## Merge-readiness boundary
+## Remaining merge-readiness boundary
 
-The previous physical gate is superseded by the current production-source review fix. Merge readiness now requires fresh physical GPU correctness/performance evidence on the final source head, canonical promotion of any replacement artifacts, permanent hosted workflows green on the resulting final checkpoint, and a final `.claude/skills/code-review.md` re-review with no unresolved CRITICAL/HIGH/relevant-MEDIUM finding. The PR remains Draft until an explicit Ready transition is requested.
+The physical gate is closed. Merge readiness still requires permanent hosted workflows green on the final post-promotion checkpoint and a final `.claude/skills/code-review.md` re-review with no new CRITICAL/HIGH/relevant-MEDIUM finding. PR #126 remains Draft until an explicit Ready transition is requested.

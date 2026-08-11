@@ -10,8 +10,8 @@ from typing import Any
 
 from ..canonical import make_scale_key, make_scale_label
 
-_SOURCE_DATE = "2026-08-10"
-_MEASUREMENT_SHA = "5ed763be2a331e6dc988ac133e79f0484d4cdebd"
+_SOURCE_DATE = "2026-08-11"
+_MEASUREMENT_SHA = "ec511f539adeaaedf310f92248200d0868577532"
 _VALIDATION_PARSER = "parse_panel_stage_c_physical_validation_v1"
 _PERFORMANCE_PARSER = "parse_panel_stage_c_performance_v1"
 _PARSER_VERSION = "1.0"

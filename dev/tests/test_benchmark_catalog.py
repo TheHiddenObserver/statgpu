@@ -97,16 +97,16 @@ def test_catalog_retains_distinct_noncanonical_dispositions(entries):
 
     stage_c_validation = next(
         entry for entry in entries
-        if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_5ed763be.json"
+        if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json"
     )
     stage_c_performance = next(
         entry for entry in entries
-        if entry["path"] == "results/pr126_p100/panel_stage_c_performance_5ed763be.json"
+        if entry["path"] == "results/pr126_p100/panel_stage_c_performance_ec511f53.json"
     )
     assert stage_c_validation["classification"] == "registered_canonical"
-    assert stage_c_validation["source_id"] == "panel-stage-c-validation-pr126-20260810-7d8777fabe32"
+    assert stage_c_validation["source_id"] == "panel-stage-c-validation-pr126-20260811-af2227efe3cd"
     assert stage_c_performance["classification"] == "registered_canonical"
-    assert stage_c_performance["source_id"] == "panel-stage-c-performance-pr126-20260810-75da75c0405c"
+    assert stage_c_performance["source_id"] == "panel-stage-c-performance-pr126-20260811-409974070022"
 
 
 def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
@@ -124,8 +124,8 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
     assert rows["panel-estimation"]["source_ids"] == [
         "new-modules-20260624-bcbdb676223b",
         "panel-stage-b-pr122-20260809-2056f836bfe2",
-        "panel-stage-c-validation-pr126-20260810-7d8777fabe32",
-        "panel-stage-c-performance-pr126-20260810-75da75c0405c",
+        "panel-stage-c-validation-pr126-20260811-af2227efe3cd",
+        "panel-stage-c-performance-pr126-20260811-409974070022",
     ]
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
@@ -254,3 +254,16 @@ def test_stage_c_superseded_artifacts_remain_historical(entries):
     assert aad_validation["registered"] is False
     assert aad_performance["classification"] == "historical_or_excluded"
     assert aad_performance["registered"] is False
+
+    five_validation = next(
+        entry for entry in entries
+        if entry["path"] == "results/pr126_p100/panel_stage_c_gpu_validation_5ed763be.json"
+    )
+    five_performance = next(
+        entry for entry in entries
+        if entry["path"] == "results/pr126_p100/panel_stage_c_performance_5ed763be.json"
+    )
+    assert five_validation["classification"] == "historical_or_excluded"
+    assert five_validation["registered"] is False
+    assert five_performance["classification"] == "historical_or_excluded"
+    assert five_performance["registered"] is False

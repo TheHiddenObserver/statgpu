@@ -8,7 +8,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance with NumPy/CuPy/Torch-native accumulation.
 - Preserved historical HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient estimates, and Stage-B diagnostics.
 - Hardened covariance numerics around the design pseudoinverse, stable HC2/HC3 leverage, metadata validation, backend-native CuPy scatter-add, unified inference storage, RandomEffects formula intercept/name semantics, and small-argument QS weights; pinned Python and R external alignment remains green.
-- The pre-re-audit exact-clean Tesla P100 run on `5ed763be2a331e6dc988ac133e79f0484d4cdebd` passed 32/32 cases per CuPy/Torch backend and the bounded high-T performance scenario. A later strict-review fix to `PanelOLS.summary()` changed `statgpu/panel/**`, so that physical run is now historical and fresh exact-source validation is pending for the current branch.
+- Fresh post-re-audit physical acceptance was completed on exact-clean head `ec511f539adeaaedf310f92248200d0868577532` using Tesla P100-SXM2-16GB: CuPy and Torch each passed 32/32 correctness checks, and synchronized performance passed all 58 rows including the bounded `N=10,000`, `k=2`, `T=200` QS all-lag scenario. Earlier `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` runs remain immutable historical evidence.
 
 ## 2026-08-08
 

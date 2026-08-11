@@ -11,13 +11,13 @@ from dev.benchmarks.frontend_data.parsers.panel_stage_c import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_5ed763be.json"
-PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_5ed763be.json"
+CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json"
+PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_ec511f53.json"
 
 
 def test_stage_c_validation_parser_emits_exact_physical_matrix():
     runs, models, warnings = parse_panel_stage_c_physical_validation(
-        CORRECTNESS, "remote-p100-pr126-20260810"
+        CORRECTNESS, "remote-p100-pr126-20260811"
     )
     assert warnings == []
     assert len(runs) == 64
@@ -34,7 +34,7 @@ def test_stage_c_validation_parser_emits_exact_physical_matrix():
 
 def test_stage_c_performance_parser_emits_timing_without_speedup():
     runs, _, warnings = parse_panel_stage_c_performance(
-        PERFORMANCE, "remote-p100-pr126-20260810"
+        PERFORMANCE, "remote-p100-pr126-20260811"
     )
     assert warnings == []
     assert len(runs) == 58
@@ -60,7 +60,7 @@ def test_stage_c_performance_parser_fails_closed_on_high_t_contract(tmp_path):
     broken = tmp_path / "broken_performance.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="high-T scale drifted"):
-        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260810")
+        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260811")
 
 
 def test_stage_c_validation_parser_fails_closed_on_case_identity(tmp_path):
@@ -69,7 +69,7 @@ def test_stage_c_validation_parser_fails_closed_on_case_identity(tmp_path):
     broken = tmp_path / "broken_validation.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="case identity drifted"):
-        parse_panel_stage_c_physical_validation(broken, "remote-p100-pr126-20260810")
+        parse_panel_stage_c_physical_validation(broken, "remote-p100-pr126-20260811")
 
 
 def test_stage_c_performance_parser_fails_closed_on_base_matrix_drift(tmp_path):
@@ -80,7 +80,7 @@ def test_stage_c_performance_parser_fails_closed_on_base_matrix_drift(tmp_path):
     broken = tmp_path / "broken_base_matrix.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="base matrix drifted"):
-        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260810")
+        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260811")
 
 
 def test_stage_c_performance_parser_fails_closed_on_high_t_backend_matrix_drift(tmp_path):
@@ -91,4 +91,4 @@ def test_stage_c_performance_parser_fails_closed_on_high_t_backend_matrix_drift(
     broken = tmp_path / "broken_high_t_matrix.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="high-T QS matrix drifted"):
-        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260810")
+        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260811")
