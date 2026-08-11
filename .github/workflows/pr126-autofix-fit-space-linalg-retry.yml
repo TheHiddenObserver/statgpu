@@ -1,0 +1,141 @@
+name: PR126 fit-space linalg autofix retry
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - .github/workflows/pr126-autofix-fit-space-linalg-retry.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reapply reviewed fit-space patch and review corrections
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/pr126-autofix-fit-space-linalg.yml').read_text()
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n      - name: Install focused validation environment"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          exec(compile(textwrap.dedent(workflow[start:end]), '<reviewed-fit-space-patch>', 'exec'))
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}")
+              p.write_text(text.replace(old, new))
+
+          # Rank-only diagnostics must not materialize full U/V/bread merely to
+          # obtain singular values. Keep the exact same cutoff with svdvals.
+          Path('statgpu/panel/_linalg.py').write_text('''"""Shared numerical linear algebra policy for panel fit spaces."""\n\nfrom __future__ import annotations\n\nimport numpy as np\n\nfrom statgpu.backends import _to_float_scalar\n\n\ndef _rank_mask(X, singular_values, xp):\n    if int(singular_values.shape[0]) == 0:\n        raise ValueError("panel design must contain at least one column")\n    s_max = _to_float_scalar(xp.max(singular_values))\n    cutoff = (\n        max(int(X.shape[0]), int(X.shape[1]))\n        * np.finfo(np.float64).eps\n        * float(s_max)\n    )\n    retained = singular_values > float(cutoff)\n    rank = int(_to_float_scalar(xp.sum(retained)))\n    return retained, rank\n\n\ndef panel_svd_pseudoinverse(X, xp):\n    """Return X+, (X'X)+, and rank from one explicit float64 SVD mask."""\n    U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)\n    retained, rank = _rank_mask(X, singular_values, xp)\n    safe_values = xp.where(\n        retained, singular_values, xp.ones_like(singular_values)\n    )\n    inverse_values = xp.where(\n        retained, 1.0 / safe_values, xp.zeros_like(singular_values)\n    )\n    X_pinv = (Vh.T * inverse_values) @ U.T\n    bread = X_pinv @ X_pinv.T\n    return X_pinv, bread, rank\n\n\ndef panel_lstsq(X, y, xp):\n    """Return the minimum-norm least-squares solution under the panel SVD policy."""\n    X_pinv, _bread, rank = panel_svd_pseudoinverse(X, xp)\n    return X_pinv @ y, rank\n\n\ndef panel_matrix_rank(X, xp):\n    """Return numerical rank using exactly the panel pseudoinverse cutoff."""\n    if getattr(xp, "__name__", "") == "torch":\n        singular_values = xp.linalg.svdvals(X)\n    else:\n        singular_values = xp.linalg.svd(X, compute_uv=False)\n    _retained, rank = _rank_mask(X, singular_values, xp)\n    return rank\n''')
+
+          # Classical model-F restricted fits must use the same identified subspace.
+          replace_once(
+              'statgpu/panel/_diagnostics.py',
+              'from statgpu.panel._linalg import panel_matrix_rank\n',
+              'from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank\n'
+          )
+          replace_once(
+              'statgpu/panel/_diagnostics.py',
+              '        beta_r = xp.linalg.pinv(restricted_X) @ y\n',
+              '        beta_r, _rank_r_fit = panel_lstsq(restricted_X, y, xp)\n'
+          )
+
+          # Remove linalg-fallback imports that the shared policy supersedes.
+          replace_once(
+              'statgpu/panel/_between.py',
+              'from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray\n',
+              'from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray\n'
+          )
+          replace_once(
+              'statgpu/panel/_first_diff.py',
+              'from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray\n',
+              'from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray\n'
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '        from statgpu.panel._diagnostics import _matrix_rank\n\n\n        diagnostic_df_resid = n - rank_star\n',
+              '        diagnostic_df_resid = n - rank_star\n'
+          )
+
+          # The physical runner contract must include the new estimator-level case.
+          replace_once(
+              'dev/tests/test_panel_stage_c_physical_runner_contract.py',
+              '        "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",\n    }\n',
+              '        "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",\n        "panel_rank_boundary_dk",\n    }\n'
+          )
+          PY
+      - name: Install focused validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[formula,validation]' 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
+      - name: Run expanded fit-space review matrix
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            -q --tb=short
+          python -m py_compile \
+            statgpu/panel/_linalg.py \
+            statgpu/panel/_covariance.py \
+            statgpu/panel/_pooled.py \
+            statgpu/panel/_fixed_effects.py \
+            statgpu/panel/_between.py \
+            statgpu/panel/_first_diff.py \
+            statgpu/panel/_random_effects.py \
+            statgpu/panel/_diagnostics.py \
+            statgpu/panel/_diagnostic_context.py \
+            dev/benchmarks/validate_panel_stage_c_gpu.py
+          git diff --check
+      - name: Commit reviewed fit-space fix and delete helpers
+        shell: bash
+        run: |
+          git config user.name 'TheHiddenObserver'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git add \
+            statgpu/panel/_linalg.py \
+            statgpu/panel/_covariance.py \
+            statgpu/panel/_pooled.py \
+            statgpu/panel/_fixed_effects.py \
+            statgpu/panel/_between.py \
+            statgpu/panel/_first_diff.py \
+            statgpu/panel/_random_effects.py \
+            statgpu/panel/_diagnostics.py \
+            statgpu/panel/_diagnostic_context.py \
+            dev/benchmarks/validate_panel_stage_c_gpu.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_torch_cpu.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md \
+            docs/en/models/panel.md docs/cn/models/panel.md \
+            dev/reviews/pr126_physical_gpu_validation.md \
+            dev/reviews/pr126_rank_chronology_autofix_2026-08-11.md \
+            dev/reviews/pr126_rank_chronology_re_review_2026-08-11.md
+          git rm -f \
+            .github/workflows/pr126-autofix-fit-space-linalg.yml \
+            .github/workflows/pr126-autofix-fit-space-linalg-retry.yml
+          git commit -m 'fix(panel): unify fit-space numerical rank policy'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
