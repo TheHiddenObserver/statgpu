@@ -24,6 +24,10 @@ Post-promotion hosted-review checkpoint:
 
 `d38feab5aca8fa76b9be9f08d753be8bf85b7203`
 
+Terminal review/documentation head prior to this note:
+
+`8fc44ac9d886a74e7110f6e3f2cb450066cffa14`
+
 ## Active strict-review axes
 
 - public API / presentation contract;
@@ -114,7 +118,7 @@ The exact-source gate therefore remains satisfied: canonical promotion does not 
 
 No CRITICAL, HIGH, or relevant MEDIUM finding remains after the final review/fix loop.
 
-## Final hosted gate
+## Hosted gates
 
 All seven permanent workflows completed successfully on post-promotion review checkpoint `d38feab5...`:
 
@@ -126,7 +130,9 @@ All seven permanent workflows completed successfully on post-promotion review ch
 6. Release package validation — success;
 7. Benchmark Frontend CI — success, including deterministic data checks, frontend build, E2E, production QA, and staleness checks.
 
-The terminal status changes after `d38feab5...` are review/documentation-only and do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence. The final exact-head permanent workflow recheck is expected to remain green; any failure would invalidate this terminal verdict and reopen the review/fix loop.
+The terminal documentation-only head `8fc44ac9...` was also rechecked. Release notes, maintenance, Torch, Tests, external covariance/R alignment, and Benchmark Frontend all reached workflow-level `completed/success`; all Benchmark Frontend subjobs including E2E and production QA succeeded. Release package validation has a GitHub Actions aggregation anomaly: its workflow/check-suite wrapper remains reported as `in_progress`, but the check suite contains exactly four check-runs and **all four are `completed/success`** — distribution validation plus Ubuntu, Windows, and macOS wheel smoke. There is no hidden or pending package check. This is recorded as platform state-reporting lag, not as an unexecuted or failed gate, and no rerun is created merely to refresh the wrapper status.
+
+The terminal status changes after `d38feab5...` are review/documentation-only and do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence.
 
 ## Review-thread state
 
