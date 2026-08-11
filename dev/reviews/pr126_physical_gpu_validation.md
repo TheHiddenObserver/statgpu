@@ -2,11 +2,11 @@
 
 ## Current physical acceptance status
 
-**PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTION / HOSTED_FINAL_PENDING**
+**PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**
 
 Validation tier: `remote-full`.
 
-The current accepted numerical measurement is exact clean head `3dc7df19176f8fb881a8d37e9d75b4f75e71b058` on Tesla P100-SXM2-16GB. Raw evidence was committed in `be679c13357475b8d26db42661b557fbea2f327f`; comparison from the measurement head to that raw commit changes only the two `results/pr126_p100/*_3dc7df19.json` artifacts. Promotion changes parser/source metadata, tests, docs/review records, and deterministic frontend benchmark assets only; it does not change `statgpu/panel/**` or either physical runner.
+The accepted numerical measurement is exact clean head `3dc7df19176f8fb881a8d37e9d75b4f75e71b058` on Tesla P100-SXM2-16GB. Raw evidence was committed in `be679c13357475b8d26db42661b557fbea2f327f`; comparison from the measurement head to that raw commit changes only the two `results/pr126_p100/*_3dc7df19.json` artifacts. Canonical promotion at `d771a7432e3b3da3299b6af2b05c5171579092ce` changes parser/source metadata, maintained benchmark tests, docs/review records, and deterministic frontend benchmark assets only; it does not change `statgpu/panel/**` or either physical runner. The post-promotion review checkpoint `d38feab5aca8fa76b9be9f08d753be8bf85b7203` passed all seven permanent hosted workflows, including the maintained Torch matrix and the R `plm`/`sandwich` external alignment.
 
 ## Current correctness and backend provenance
 
@@ -39,13 +39,15 @@ The current accepted numerical measurement is exact clean head `3dc7df19176f8fb8
 
 The performance artifact has `environment.packages.cupy=null` because that runner queried the distribution name `cupy` while the host uses a CUDA-suffixed CuPy distribution. This is a metadata-only limitation: the paired required exact-head correctness artifact records CuPy `13.6.0`, and the timing runner could only produce CuPy rows after importing CuPy and additionally failed closed unless every timed fit persisted the requested backend. The canonical parser does not synthesize a CuPy version into the timing rows; this cross-artifact fact is retained only as provenance.
 
-## New immutable canonical identities
+## Immutable canonical identities
 
 - correctness source: `panel-stage-c-rank-policy-validation-pr126-20260811-c67ada7ec59f`
 - performance source: `panel-stage-c-rank-policy-performance-pr126-20260811-f27bef0b7c55`
 - parser generation: v2 rank-policy parser identities, separate from the frozen historical v1 `ec511f53...` parsers
 - environment: `remote-p100-pr126-20260811`
 - source date: `2026-08-11`
+
+The canonical generator/promotion gate produced **2120 runs / 47 models**, parsed **15/15** registered sources, reported **0 validation errors and 0 errors/warnings**, passed the maintained parser/catalog/inventory/domain suite **59/59**, passed strict-source regeneration, and passed frontend typecheck/build. The exact-source applicability gate confirmed that no `statgpu/panel/**` file and neither physical runner changed after the numerical measurement.
 
 ## Historical evidence
 
@@ -56,6 +58,18 @@ The prior canonical sources remain registered and immutable but are historical f
 
 The earlier `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` raw artifacts also remain audit history. None is overwritten.
 
-## Remaining lifecycle gate
+## Final hosted and review gate
 
-Physical evidence is accepted. The remaining gate is canonical promotion validation, all permanent hosted workflows on the post-promotion checkpoint, and one final `.claude/skills/code-review.md` re-review. PR #126 remains Draft and unmerged; Ready-for-review or merge requires explicit user instruction.
+The post-promotion review checkpoint `d38feab5...` completed all seven permanent workflows successfully:
+
+1. Tests
+2. Panel Stage C Torch CPU
+3. Panel Stage C external covariance
+4. Maintenance compatibility
+5. Release notes validation
+6. Release package validation
+7. Benchmark Frontend CI
+
+The maintained Torch 2.0.1 CPU suite passed **31/31** and the R `Run R plm and sandwich alignment` step completed successfully. The final strict review found no new CRITICAL, HIGH, or relevant MEDIUM issue after the promotion/artifact fixes. The only final-head delta after that checkpoint is terminal review/status documentation; it does not change production source, parsers, manifests, generated benchmark assets, or physical runners.
+
+The technical Stage-C status is therefore **PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**. PR #126 intentionally remains Draft and unmerged; Ready-for-review or merge requires explicit user instruction.
