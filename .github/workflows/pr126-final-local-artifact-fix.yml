@@ -1,0 +1,50 @@
+name: PR126 final local artifact fix
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - .github/workflows/pr126-final-local-artifact-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - name: Align plan and physical-record provenance
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          plan = Path('dev/plans/panel_p1_stage_c_covariance_plan.md')
+          text = plan.read_text()
+          anchor = '- use pseudoinverse consistently for supported rank-deficient fit spaces; numerical rank and pseudoinverse must come from the same backend-native SVD mask with the explicit float64 cutoff `max(n,k) * eps * s_max`, never from independent backend defaults;\n'
+          addition = "- preserve each estimator's historical full-column-rank coefficient solver; enter the shared SVD minimum-norm solve only when the explicit rank policy reports `rank < k` or the historical solver raises a linear-algebra failure, and reuse that fit-space rank in covariance/diagnostics;\n"
+          assert text.count(anchor) == 1
+          if addition not in text:
+              text = text.replace(anchor, anchor + addition)
+          plan.write_text(text)
+
+          record = Path('dev/reviews/pr126_physical_gpu_validation.md')
+          text = record.read_text()
+          old = 'but is superseded by later production changes to `statgpu/panel/_covariance.py` and `statgpu/panel/_first_diff.py`; the `ec511...` measurement is now historical evidence only.'
+          new = 'but is superseded by later production changes to the shared panel numerical-rank/fit-space policy and FirstDifference chronology across `statgpu/panel/**`; the `ec511...` measurement is now historical evidence only.'
+          assert text.count(old) == 1
+          record.write_text(text.replace(old, new))
+          PY
+          git diff --check
+      - name: Commit artifact fix and self-delete
+        run: |
+          git config user.name 'TheHiddenObserver'
+          git config user.email '51812297+TheHiddenObserver@users.noreply.github.com'
+          git add -f dev/plans/panel_p1_stage_c_covariance_plan.md
+          git add dev/reviews/pr126_physical_gpu_validation.md
+          git rm -f .github/workflows/pr126-final-local-artifact-fix.yml
+          git commit -m 'docs: align PR126 rank-policy review artifacts'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
