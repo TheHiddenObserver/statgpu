@@ -23,6 +23,10 @@ from .panel_stage_c import (
     parse_panel_stage_c_physical_validation,
     parse_panel_stage_c_performance,
 )
+from .panel_stage_c_rank_policy import (
+    parse_panel_stage_c_rank_policy_physical_validation,
+    parse_panel_stage_c_rank_policy_performance,
+)
 
 __all__ = [
     "parse_penalized_glm_bench_perf",
@@ -44,4 +48,6 @@ __all__ = [
     "parse_panel_stage_b_physical_validation",
     "parse_panel_stage_c_physical_validation",
     "parse_panel_stage_c_performance",
+    "parse_panel_stage_c_rank_policy_physical_validation",
+    "parse_panel_stage_c_rank_policy_performance",
 ]
