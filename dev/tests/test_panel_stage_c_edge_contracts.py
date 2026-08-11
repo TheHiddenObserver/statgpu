@@ -204,3 +204,20 @@ def test_panel_rank_boundary_fit_matches_explicit_svd_policy():
     np.testing.assert_allclose(model.coef_, expected, rtol=5e-11, atol=5e-13)
     assert model._covariance_metadata["design_rank"] == 2
     assert model.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2
+
+
+def test_panel_full_rank_fit_preserves_historical_solver_path(monkeypatch):
+    import statgpu.panel._fixed_effects as fixed_effects_module
+    from statgpu.panel import PanelOLS
+
+    rng = np.random.default_rng(12955)
+    X = rng.normal(size=(80, 3))
+    y = X @ np.array([0.4, -0.2, 0.7]) + rng.normal(scale=0.1, size=80)
+    expected = np.linalg.solve(X.T @ X, X.T @ y)
+
+    def _forbid_rank_deficient_solve(*args, **kwargs):
+        raise AssertionError("full-rank PanelOLS entered the SVD rank-deficient solve")
+
+    monkeypatch.setattr(fixed_effects_module, "panel_lstsq", _forbid_rank_deficient_solve)
+    model = PanelOLS().fit(X, y)
+    np.testing.assert_allclose(model.coef_, expected, rtol=2e-12, atol=2e-14)
