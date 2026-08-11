@@ -24,9 +24,11 @@ Post-promotion hosted-review checkpoint:
 
 `d38feab5aca8fa76b9be9f08d753be8bf85b7203`
 
-Terminal review/documentation head prior to this note:
+Terminal review/status lineage:
 
-`8fc44ac9d886a74e7110f6e3f2cb450066cffa14`
+`ad214a4c39ecf322dcc51173877152808a07c83f` → `8fc44ac9d886a74e7110f6e3f2cb450066cffa14` → `5d90950b96392e7a10f790e38f7e9fa6ee021f90`.
+
+These terminal commits change review/status Markdown only; they do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence.
 
 ## Active strict-review axes
 
@@ -101,38 +103,36 @@ The generated inventory reports 15 eligible sources, 15 registered sources, 15 a
 
 ## Exact-source applicability
 
-The raw evidence commit `be679c13...` differs from numerical measurement `3dc7df19...` only by the two immutable raw JSON artifacts. The promoted/checkpoint tree through `d38feab5...` differs from the numerical measurement only by those raw artifacts plus parser/source metadata, benchmark tests, docs/review records, and deterministic benchmark assets. There is no change after the numerical measurement to:
+The raw evidence commit `be679c13...` differs from numerical measurement `3dc7df19...` only by the two immutable raw JSON artifacts. The promoted/checkpoint tree differs from the numerical measurement only by those raw artifacts plus parser/source metadata, benchmark tests, docs/review records, and deterministic benchmark assets. There is no change after the numerical measurement to:
 
 - `statgpu/panel/**`;
 - `dev/benchmarks/validate_panel_stage_c_gpu.py`;
 - `dev/benchmarks/benchmark_panel_stage_c_covariance.py`.
 
-The exact-source gate therefore remains satisfied: canonical promotion does not invalidate the P100 numerical measurement.
+The exact-source gate therefore remains satisfied: canonical promotion and terminal review/status updates do not invalidate the P100 numerical measurement.
 
 ## Auto-fix / re-review findings closed after physical return
 
 - `[MEDIUM][PROVENANCE][fixed] dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_policy.py` — paired correctness provenance is not presented as timing-artifact-local metadata. The timing parser records only timing-artifact facts; CuPy `13.6.0` remains cross-source manifest/review provenance.
 - `[MEDIUM][MATRIX][fixed] canonical benchmark fixtures` — the two new required immutable sources legitimately move the manifest from 13 to 15 sources and the deterministic bundle from 1984 to 2120 runs. Maintained inventory/coverage/run-count fixtures were updated and pass.
 - `[MEDIUM][ARTIFACT][fixed] dev/reviews/pr126_post_promotion_review_2026-08-11.md` — the stale `ec511f53...` 32/32 checkpoint was replaced with the current `3dc7df19...` 39/39 rank-policy promotion record.
-- `[MEDIUM][ARTIFACT][fixed] dev/reviews/pr126_physical_gpu_validation.md` — after the hosted-final gate completed, the authoritative physical record was advanced from `HOSTED_FINAL_PENDING` to the terminal acceptance state so repository artifacts and PR status cannot contradict each other.
+- `[MEDIUM][ARTIFACT][fixed] dev/reviews/pr126_physical_gpu_validation.md` — the authoritative physical record was advanced from pending to the terminal acceptance state after the hosted/post-promotion gate completed.
 
 No CRITICAL, HIGH, or relevant MEDIUM finding remains after the final review/fix loop.
 
-## Hosted gates
+## Final hosted gate
 
-All seven permanent workflows completed successfully on post-promotion review checkpoint `d38feab5...`:
+All seven permanent workflows completed successfully on the terminal review/status head `5d90950b96392e7a10f790e38f7e9fa6ee021f90`:
 
 1. Tests — success;
-2. Panel Stage C Torch CPU — success, maintained Torch 2.0.1 matrix **31/31 passed**;
+2. Panel Stage C Torch CPU — success;
 3. Panel Stage C external covariance — success, including `Run R plm and sandwich alignment`;
 4. Maintenance compatibility — success;
 5. Release notes validation — success;
-6. Release package validation — success;
+6. Release package validation — success, including distribution validation plus Ubuntu, Windows, and macOS wheel smoke;
 7. Benchmark Frontend CI — success, including deterministic data checks, frontend build, E2E, production QA, and staleness checks.
 
-The terminal documentation-only head `8fc44ac9...` was also rechecked. Release notes, maintenance, Torch, Tests, external covariance/R alignment, and Benchmark Frontend all reached workflow-level `completed/success`; all Benchmark Frontend subjobs including E2E and production QA succeeded. Release package validation has a GitHub Actions aggregation anomaly: its workflow/check-suite wrapper remains reported as `in_progress`, but the check suite contains exactly four check-runs and **all four are `completed/success`** — distribution validation plus Ubuntu, Windows, and macOS wheel smoke. There is no hidden or pending package check. This is recorded as platform state-reporting lag, not as an unexecuted or failed gate, and no rerun is created merely to refresh the wrapper status.
-
-The terminal status changes after `d38feab5...` are review/documentation-only and do not change production source, parser logic, source manifests, deterministic benchmark assets, physical runners, or numerical evidence.
+An earlier terminal-doc-only head briefly exhibited a GitHub Actions workflow/check-suite aggregation lag for Release package validation even though all four constituent checks had already completed successfully. The new terminal head completed the same workflow normally at workflow level, confirming that the earlier state was platform aggregation lag rather than an unexecuted or failed gate.
 
 ## Review-thread state
 
