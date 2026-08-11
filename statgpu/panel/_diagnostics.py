@@ -216,7 +216,10 @@ def _classical_model_f(
     resid = y - X @ params.ravel()
     rss_u = _to_float_scalar(xp.sum(resid * resid))
     if restricted_X is not None:
-        beta_r, _rank_r_fit = panel_lstsq(restricted_X, y, xp)
+        if rank_r < int(restricted_X.shape[1]):
+            beta_r, _ = panel_lstsq(restricted_X, y, xp)
+        else:
+            beta_r = xp.linalg.pinv(restricted_X) @ y
         resid_r = y - restricted_X @ beta_r
         rss_r = _to_float_scalar(xp.sum(resid_r * resid_r))
     elif has_constant:

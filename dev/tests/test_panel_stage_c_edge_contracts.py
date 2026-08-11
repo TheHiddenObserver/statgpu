@@ -221,3 +221,21 @@ def test_panel_full_rank_fit_preserves_historical_solver_path(monkeypatch):
     monkeypatch.setattr(fixed_effects_module, "panel_lstsq", _forbid_rank_deficient_solve)
     model = PanelOLS().fit(X, y)
     np.testing.assert_allclose(model.coef_, expected, rtol=2e-12, atol=2e-14)
+
+
+def test_full_rank_pooling_diagnostic_preserves_historical_pinv_path(monkeypatch):
+    import statgpu.panel._diagnostic_context as diagnostic_context
+
+    rng = np.random.default_rng(12956)
+    X = rng.normal(size=(60, 2))
+    y = X @ np.array([0.3, -0.5]) + rng.normal(scale=0.2, size=60)
+
+    def _forbid_rank_deficient_solve(*args, **kwargs):
+        raise AssertionError("full-rank pooling diagnostic entered SVD deficiency solve")
+
+    monkeypatch.setattr(diagnostic_context, "panel_lstsq", _forbid_rank_deficient_solve)
+    result = diagnostic_context.pooling_f_from_level_arrays(
+        y, X, xp=np, rss_effects=float(np.sum(y * y)) + 1.0,
+        df_resid_effects=50, has_constant=True,
+    )
+    assert result is not None

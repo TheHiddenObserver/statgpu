@@ -209,7 +209,11 @@ def pooling_f_from_level_arrays(
         X_pool = X - xp.mean(X, axis=0)
         constant_projection_df = 1
 
-    beta_pool, rank_pool = panel_lstsq(X_pool, y_pool, xp)
+    rank_pool = _matrix_rank(X_pool, xp)
+    if rank_pool < int(X_pool.shape[1]):
+        beta_pool, _ = panel_lstsq(X_pool, y_pool, xp)
+    else:
+        beta_pool = xp.linalg.pinv(X_pool) @ y_pool
     resid_pool = y_pool - X_pool @ beta_pool
     rss_pool = _to_float_scalar(xp.sum(resid_pool * resid_pool))
     df_resid_pool = n - rank_pool - constant_projection_df

@@ -387,7 +387,6 @@ class RandomEffects(BasePanelModel):
         )
 
         from statgpu.panel._diagnostic_context import build_model_fit_statistics
-        from statgpu.panel._diagnostics import _matrix_rank
 
         diagnostic_df_resid = n - rank_star
         ss_res_diag = _to_float_scalar(xp.sum(resid_gls * resid_gls))
@@ -396,9 +395,11 @@ class RandomEffects(BasePanelModel):
         restricted_rank = 0
         if has_constant:
             restricted_X = X_star[:, constant_index : constant_index + 1]
-            restricted_params, restricted_rank = panel_lstsq(
-                restricted_X, y_star, xp
-            )
+            restricted_rank = panel_matrix_rank(restricted_X, xp)
+            if restricted_rank < int(restricted_X.shape[1]):
+                restricted_params, _ = panel_lstsq(restricted_X, y_star, xp)
+            else:
+                restricted_params = xp.linalg.pinv(restricted_X) @ y_star
             restricted_resid = y_star - restricted_X @ restricted_params
             ss_tot_diag = _to_float_scalar(
                 xp.sum(restricted_resid * restricted_resid)
