@@ -153,10 +153,6 @@ def test_rank_policy_performance_parser_emits_58_synchronized_rows():
     assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
     assert all("speedup" not in run["metrics"] for run in runs)
     assert all(
-        run["parameters"]["paired_validation_cupy_version"] == "13.6.0"
-        for run in runs
-    )
-    assert all(
         run["parameters"]["measurement_git_sha"]
         == "3dc7df19176f8fb881a8d37e9d75b4f75e71b058"
         for run in runs

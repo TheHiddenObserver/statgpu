@@ -11,7 +11,7 @@ Stage C extends the Panel Tier-1 inference layer without changing estimator coef
 
 The repaired covariance implementation derives bread and influence rows from the design pseudoinverse, computes HC2/HC3 leverage from `diag(X X+)`, validates entity/time/cluster metadata consistently, keeps CuPy group scatter-add backend-native, publishes the shared inference result contract, preserves RandomEffects formula intercept and feature names, and stabilizes quadratic-spectral weights for very large bandwidths. External definitions are checked against pinned `statsmodels`, `linearmodels`, and R `sandwich`/`plm` references.
 
-The `ec511f53...` Tesla P100 32/32-per-backend correctness and 58-row performance run is retained as immutable historical evidence. Because later review fixed the shared numerical-rank cutoff and FirstDifference ordered-categorical chronology, current physical acceptance is pending a fresh exact-head 27-estimator + 12-primitive (**39/39 per backend**) correctness run and synchronized performance rerun.
+The repaired implementation is now physically accepted on exact-clean `3dc7df19...` Tesla P100: CuPy 13.6.0 and Torch each pass 27 estimator integrations + 12 direct public primitives (**39/39 per backend**), including the numerical-rank boundary, and the paired synchronized performance source contains all 58 maintained rows. The older `ec511f53...` run remains immutable historical evidence and is not overwritten.
 
 ## 2026-08-08
 

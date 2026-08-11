@@ -115,6 +115,14 @@
     "panel-stage-c-pr126-performance-20260811": {
       "label": "Panel Stage C synchronized performance — PR #126 — 2026-08-11",
       "env_id": "remote-p100-pr126-20260811"
+    },
+    "panel-stage-c-pr126-rank-policy-validation-20260811": {
+      "label": "Panel Stage C rank-policy physical validation — PR #126 — 2026-08-11",
+      "env_id": "remote-p100-pr126-20260811"
+    },
+    "panel-stage-c-pr126-rank-policy-performance-20260811": {
+      "label": "Panel Stage C rank-policy synchronized performance — PR #126 — 2026-08-11",
+      "env_id": "remote-p100-pr126-20260811"
     }
   },
   "sources": [
@@ -298,6 +306,36 @@
       "measurement_git_sha": "ec511f539adeaaedf310f92248200d0868577532",
       "raw_git_sha": "ec511f539adeaaedf310f92248200d0868577532",
       "provenance_note": "Final PR #126 post-re-audit synchronized end-to-end P100 timing evidence. Raw artifact commit e1a155bf77b416e0873a037015aaafd22371ab11; Git blob 76d6eabeefc6e04095270a5df8a231cb150ea220; SHA-256 4099740700221ffdae2770427a5ad0fca7dc3c1ec0f47173caf166aa56a1fca0. 58 synchronized rows cover three base scales plus bounded N=10000, k=2, T=200 QS all-lag cases on both CuPy and Torch. No speedup or CPU-baseline claim is encoded. Earlier 5ed763be, aad53587, c151550a, and 9c0b3050 artifacts remain immutable historical evidence."
+    },
+    {
+      "source_id": "panel-stage-c-rank-policy-validation-pr126-20260811-c67ada7ec59f",
+      "comparison_id": "panel-stage-c-pr126-rank-policy-validation-20260811",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_3dc7df19.json",
+      "sha256": "c67ada7ec59ff85d6a652714dc45cdae81efc67a4c13fe853c85d0712fc689ad",
+      "parser": "panel_stage_c_rank_policy_physical_validation",
+      "parser_version": "2.0",
+      "env_id": "remote-p100-pr126-20260811",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-11",
+      "measurement_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "raw_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "provenance_note": "PR #126 final rank-policy exact-clean P100 correctness/backend-provenance evidence. Raw artifact commit be679c13357475b8d26db42661b557fbea2f327f; Git blob 5de153023af751ff960969483c11fb77dc115456; SHA-256 c67ada7ec59ff85d6a652714dc45cdae81efc67a4c13fe853c85d0712fc689ad. CuPy 13.6.0 and Torch each pass 27 estimator integrations plus 12 direct public covariance primitives (39/39 per backend), including PanelOLS numerical-rank-boundary Driscoll-Kraay integration and nonrobust/HC0/HC2/HC3/cluster/DK rank-boundary primitives. Every estimator/primitive records requested/executed backend identity, the measurement tree is clean, and no numerical CPU fallback is accepted. Historical ec511f53 and earlier Stage-C sources remain immutable and are not overwritten."
+    },
+    {
+      "source_id": "panel-stage-c-rank-policy-performance-pr126-20260811-f27bef0b7c55",
+      "comparison_id": "panel-stage-c-pr126-rank-policy-performance-20260811",
+      "path": "results/pr126_p100/panel_stage_c_performance_3dc7df19.json",
+      "sha256": "f27bef0b7c55db8a8d31f0574e3133760649c28a9089b3c7d3cfcc121009e152",
+      "parser": "panel_stage_c_rank_policy_performance",
+      "parser_version": "2.0",
+      "env_id": "remote-p100-pr126-20260811",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-11",
+      "measurement_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "raw_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "provenance_note": "PR #126 final rank-policy exact-clean P100 synchronized timing evidence. Raw artifact commit be679c13357475b8d26db42661b557fbea2f327f; Git blob 5e903cf0bd9a5f73e9273d9cc3488cb5e13219da; SHA-256 f27bef0b7c55db8a8d31f0574e3133760649c28a9089b3c7d3cfcc121009e152. All 58 synchronized end-to-end fit rows pass: 54 base rows over three maintained scales plus four bounded N=10000, k=2, T=200 QS all-lag rows on CuPy/Torch. Every sample is finite/positive and each stored median equals the median of its raw samples; no speedup or CPU-baseline claim is encoded. This timing artifact records packages.cupy as null because the performance runner queried the distribution name cupy while the environment installs a CUDA-suffixed CuPy distribution. The paired required exact-head correctness source independently records CuPy 13.6.0, and the timing runner imported CuPy and failed closed unless each timed fit persisted the requested backend. This is documented provenance, not a synthesized timing-artifact field."
     }
   ]
 }

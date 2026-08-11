@@ -357,7 +357,6 @@ def parse_panel_stage_c_rank_policy_performance(
                     "input_residency": data.get("input_residency"),
                     "measurement_git_sha": data.get("git_sha"),
                     "working_tree_clean": True,
-                    "paired_validation_cupy_version": _EXPECTED_CUPY_VERSION,
                 },
                 "source": _source(filepath, _PERFORMANCE_PARSER),
                 "metrics": {
@@ -372,7 +371,6 @@ def parse_panel_stage_c_rank_policy_performance(
                             {"metric": "synchronized_timing", "status": "pass"},
                             {"metric": "raw_samples_finite_positive", "status": "pass"},
                             {"metric": "median_matches_raw_samples", "status": "pass"},
-                            {"metric": "gpu_backend_identity_asserted_by_runner", "status": "pass"},
                         ],
                         "quality": "reported",
                         "source_file": filepath.name,

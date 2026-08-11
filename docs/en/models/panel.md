@@ -18,7 +18,7 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-The earlier exact-clean Tesla P100 run at `ec511f53...` remains immutable historical evidence (26 estimator cases + 6 direct primitives per backend, 32/32, plus 58 synchronized performance rows), but it no longer constitutes current acceptance after the numerical-rank and FirstDifference chronology production fixes. The repaired implementation uses one backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max` for both pseudoinverse and numerical rank, and FirstDifference preserves ordered-categorical time chronology. Fresh exact-head physical correctness is pending on the expanded 27-estimator + 12-primitive matrix (**39/39 per backend**), together with a synchronized performance rerun.
+The repaired numerical-rank and FirstDifference chronology implementation is physically accepted on exact-clean Tesla P100 measurement `3dc7df19...`: CuPy 13.6.0 and Torch each pass 27 estimator integrations + 12 direct public primitives (**39/39 per backend**), including the numerical-rank boundary, and the paired synchronized performance artifact contains all 58 maintained rows. The implementation uses one backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max` for pseudoinverse/rank decisions and preserves ordered-categorical FirstDifference chronology. The earlier `ec511f53...` 32/32 source remains immutable historical evidence and is not overwritten.
 
 ## Paths
 
@@ -140,7 +140,7 @@ Stage C does not alter Swamy-Arora variance-component or coefficient estimation.
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-The previous P100 source `ec511f53...` is retained only as historical evidence because the shared covariance implementation and FirstDifference chronology changed afterward. Maintained local/Torch-CPU gates now include the numerical-rank boundary, while current `remote-full` acceptance requires a fresh exact-head CuPy/Torch run of 26 estimator cases + 12 public primitives (**39/39 per backend**) and a synchronized performance rerun. Explicit GPU devices continue to forbid silent CPU fallback.
+Current `remote-full` acceptance is the exact-clean `3dc7df19...` Tesla P100 run: CuPy and Torch each pass 27 estimator integrations + 12 public primitives (**39/39 per backend**) and the synchronized performance matrix contains 58/58 rows. The six new rank-boundary primitives and `panel_rank_boundary_dk` integration pass on both GPU backends with requested/executed backend identity. The older `ec511f53...` source is historical only. Explicit GPU devices continue to forbid silent CPU fallback.
 
 ### PooledOLS HAC ordering
 

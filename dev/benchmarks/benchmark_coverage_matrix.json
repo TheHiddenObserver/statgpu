@@ -88,7 +88,9 @@
         "new-modules-20260624-bcbdb676223b",
         "panel-stage-b-pr122-20260809-2056f836bfe2",
         "panel-stage-c-validation-pr126-20260811-af2227efe3cd",
-        "panel-stage-c-performance-pr126-20260811-409974070022"
+        "panel-stage-c-performance-pr126-20260811-409974070022",
+        "panel-stage-c-rank-policy-validation-pr126-20260811-c67ada7ec59f",
+        "panel-stage-c-rank-policy-performance-pr126-20260811-f27bef0b7c55"
       ],
       "representative_dimensions": [
         "estimator",
@@ -102,7 +104,7 @@
         "timing_protocol"
       ],
       "issue": "#108",
-      "disposition": "June timing rows cover aligned PanelOLS and RandomEffects; PR #122 provides canonical Stage-B diagnostic/physical validation. PR #126 fresh post-re-audit exact-clean P100 evidence at ec511f53 provides canonical Stage-C CuPy/Torch correctness for 26 estimator covariance integrations plus six direct public primitives per backend, including ill-conditioned HC0/HC2/HC3/DK, and synchronized timing for three base scales plus a bounded N=10,000, k=2, T=200 QS all-lag scenario. The 5ed763be, aad53587, c151550a, and 9c0b3050 artifacts are historical only. No Stage-C speedup claim is made."
+      "disposition": "June timing rows cover aligned PanelOLS and RandomEffects; PR #122 provides canonical Stage-B diagnostic/physical validation. PR #126 current Stage-C rank-policy acceptance is the exact-clean 3dc7df19 P100 source: CuPy and Torch each pass 27 estimator integrations plus 12 direct public primitives (39/39), including the numerical-rank boundary, with requested/executed backend identity. The paired current performance source contributes 58 synchronized rows over three base scales plus bounded N=10,000, k=2, T=200 QS all-lag cases. The older ec511f53, 5ed763be, aad53587, c151550a, and 9c0b3050 artifacts remain immutable historical evidence. No Stage-C speedup claim is made."
     },
     {
       "capability_id": "gam-nonparametric",

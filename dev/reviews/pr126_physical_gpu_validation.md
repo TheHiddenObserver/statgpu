@@ -2,55 +2,60 @@
 
 ## Current physical acceptance status
 
-**SUPERSEDED BY LATER PRODUCTION FIXES / PARTIAL_REMOTE_PENDING / NOT MERGE-READY**
+**PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTION / HOSTED_FINAL_PENDING**
 
-Current validation tier: `local-full`; fresh `remote-full` is pending.
+Validation tier: `remote-full`.
 
-Fresh Tesla P100 evidence was measured from exact clean strict-review checkpoint `ec511f539adeaaedf310f92248200d0868577532`. The raw artifact commit `e1a155bf77b416e0873a037015aaafd22371ab11` differs from the measurement checkpoint only by `results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json` and `results/pr126_p100/panel_stage_c_performance_ec511f53.json`. Canonical promotion changes only parser/source metadata, coverage/tests/docs/review records, and deterministic frontend benchmark assets; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. That applicability statement was true for the old promoted head, but is superseded by later production changes to the shared panel numerical-rank/fit-space policy and FirstDifference chronology across `statgpu/panel/**`; the `ec511...` measurement is now historical evidence only.
+The current accepted numerical measurement is exact clean head `3dc7df19176f8fb881a8d37e9d75b4f75e71b058` on Tesla P100-SXM2-16GB. Raw evidence was committed in `be679c13357475b8d26db42661b557fbea2f327f`; comparison from the measurement head to that raw commit changes only the two `results/pr126_p100/*_3dc7df19.json` artifacts. Promotion changes parser/source metadata, tests, docs/review records, and deterministic frontend benchmark assets only; it does not change `statgpu/panel/**` or either physical runner.
 
-## Correctness and backend-provenance evidence
+## Current correctness and backend provenance
 
-- path: `results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json`
-- measurement SHA: `ec511f539adeaaedf310f92248200d0868577532`
-- raw artifact commit: `e1a155bf77b416e0873a037015aaafd22371ab11`
-- Git blob: `a02fcad0eefd5993d2ae05b8d00a55e5ca1d885f`
-- SHA-256: `af2227efe3cd0ab77472ff1d6584233d475f6ed5c4c4d36d318efc127d143f63`
+- path: `results/pr126_p100/panel_stage_c_gpu_validation_3dc7df19.json`
+- measurement SHA: `3dc7df19176f8fb881a8d37e9d75b4f75e71b058`
+- raw artifact commit: `be679c13357475b8d26db42661b557fbea2f327f`
+- Git blob: `5de153023af751ff960969483c11fb77dc115456`
+- SHA-256: `c67ada7ec59ff85d6a652714dc45cdae81efc67a4c13fe853c85d0712fc689ad`
 - GPU: Tesla P100-SXM2-16GB
-- result: CuPy **32/32**, Torch **32/32** = 26 estimator covariance cases + 6 direct public primitives per backend
-- direct primitives: `cluster_group_debias`, `driscoll_kraay_qs`, `ill_conditioned_hc0`, `ill_conditioned_hc2`, `ill_conditioned_hc3`, `ill_conditioned_dk`
-- every estimator case and public primitive records the requested backend as the executed backend; no numerical CPU fallback was observed
+- CuPy package provenance: `13.6.0`
+- CuPy: **39/39** = 27 estimator integrations + 12 direct public primitives
+- Torch: **39/39** = 27 estimator integrations + 12 direct public primitives
+- rank-boundary primitives: `rank_boundary_nonrobust`, `rank_boundary_hc0`, `rank_boundary_hc2`, `rank_boundary_hc3`, `rank_boundary_cluster`, `rank_boundary_dk`
+- estimator integration: `panel_rank_boundary_dk` passes on both backends with numerical `design_rank=2`, `design_columns=3`, and `rank_deficient_extension=true`
+- every estimator/primitive records requested backend == executed backend; no numerical CPU fallback is accepted
 
-## Synchronized performance evidence
+## Current synchronized performance
 
-- path: `results/pr126_p100/panel_stage_c_performance_ec511f53.json`
-- measurement SHA: `ec511f539adeaaedf310f92248200d0868577532`
-- raw artifact commit: `e1a155bf77b416e0873a037015aaafd22371ab11`
-- Git blob: `76d6eabeefc6e04095270a5df8a231cb150ea220`
-- SHA-256: `4099740700221ffdae2770427a5ad0fca7dc3c1ec0f47173caf166aa56a1fca0`
+- path: `results/pr126_p100/panel_stage_c_performance_3dc7df19.json`
+- measurement SHA: `3dc7df19176f8fb881a8d37e9d75b4f75e71b058`
+- raw artifact commit: `be679c13357475b8d26db42661b557fbea2f327f`
+- Git blob: `5e903cf0bd9a5f73e9273d9cc3488cb5e13219da`
+- SHA-256: `f27bef0b7c55db8a8d31f0574e3133760649c28a9089b3c7d3cfcc121009e152`
 - GPU: Tesla P100-SXM2-16GB for both CuPy and Torch
-- rows: **58** = 54 base + 4 high-T QS
+- rows: **58/58** = 54 base + 4 high-T QS
 - timing scope: synchronized end-to-end estimator fit
 - high-T matrix: CuPy/Torch × PooledOLS/PanelOLS QS at `N=10,000,k=2,T=200`
-- every timing sample and stored median is finite and positive; each stored median equals the median of its raw samples
-- no speedup claim or CPU-baseline claim is made
+- every timing sample is finite/positive and each stored median equals the median of its three raw samples
+- no speedup or CPU-baseline claim is made
 
-## Canonical promotion
+The performance artifact has `environment.packages.cupy=null` because that runner queried the distribution name `cupy` while the host uses a CUDA-suffixed CuPy distribution. This is a metadata-only limitation: the paired required exact-head correctness artifact records CuPy `13.6.0`, and the timing runner could only produce CuPy rows after importing CuPy and additionally failed closed unless every timed fit persisted the requested backend. The canonical parser does not synthesize a CuPy version into the timing rows; this cross-artifact fact is retained only as provenance.
 
-- correctness source id: `panel-stage-c-validation-pr126-20260811-af2227efe3cd`
-- performance source id: `panel-stage-c-performance-pr126-20260811-409974070022`
-- source date: `2026-08-11`
+## New immutable canonical identities
+
+- correctness source: `panel-stage-c-rank-policy-validation-pr126-20260811-c67ada7ec59f`
+- performance source: `panel-stage-c-rank-policy-performance-pr126-20260811-f27bef0b7c55`
+- parser generation: v2 rank-policy parser identities, separate from the frozen historical v1 `ec511f53...` parsers
 - environment: `remote-p100-pr126-20260811`
+- source date: `2026-08-11`
 
-Canonical registration is protected by the immutable source SHA-256 values together with the fail-closed promotion audit, which hard-checks measurement SHA, clean-tree status, exact 26+6 correctness identity, requested/executed backend identity, the exact 58-row base/high-T matrix, and positive finite synchronized timing samples/medians. The maintained parser independently fails closed on schema, measurement SHA, case/matrix identity, and performance timing structure, while emitting explicit source/backend/case/primitive acceptance checks in the validation rows.
+## Historical evidence
 
-## Superseded historical evidence
+The prior canonical sources remain registered and immutable but are historical for current acceptance:
 
-The `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` Stage-C artifacts remain immutable audit history and are not current canonical acceptance sources.
+- `panel-stage-c-validation-pr126-20260811-af2227efe3cd` (`ec511f53...`, 32/32 per backend)
+- `panel-stage-c-performance-pr126-20260811-409974070022` (`ec511f53...`, 58 rows)
 
-## Historical hosted and strict-review closure
+The earlier `5ed763be...`, `aad53587...`, `c151550a...`, and `9c0b3050...` raw artifacts also remain audit history. None is overwritten.
 
-All seven permanent hosted workflows completed successfully on post-promotion checkpoint `05eeb5c0ceaadeae7481d77fda2719e61af64d64`, including Tests, Panel Stage C Torch CPU, Python external covariance definitions, R `plm`/`sandwich` alignment, Maintenance compatibility, Release notes validation, Release package validation, and Benchmark Frontend CI. The final `.claude/skills/code-review.md` re-review found no new CRITICAL, HIGH, or relevant MEDIUM issue after the post-promotion fixes. The only newly observed LOW artifact wording issue was corrected before that final hosted run.
+## Remaining lifecycle gate
 
-The historical closure above no longer represents the current branch after the later numerical-rank and FirstDifference chronology production fixes. Current hard exit is `PARTIAL_REMOTE_PENDING`: fresh exact-head CuPy/Torch correctness on the expanded 27+12 matrix and synchronized performance are required before physical acceptance can be restored.
-
-PR #126 intentionally remains Draft and unmerged. A Ready-for-review transition or merge still requires explicit user instruction.
+Physical evidence is accepted. The remaining gate is canonical promotion validation, all permanent hosted workflows on the post-promotion checkpoint, and one final `.claude/skills/code-review.md` re-review. PR #126 remains Draft and unmerged; Ready-for-review or merge requires explicit user instruction.

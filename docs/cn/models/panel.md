@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-此前 exact-clean `ec511f53...` Tesla P100 运行继续作为不可变历史证据保留（每个 backend 26 个 estimator case + 6 个 direct primitive，共 32/32，以及 58 行同步 performance），但在 numerical-rank 与 FirstDifference 时间顺序的 production 修复之后，它不再代表当前 acceptance。修复后的 covariance 用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 同时定义 pseudoinverse 与 numerical rank；FirstDifference 也保留 ordered categorical 的显式时间顺序。当前 `remote-full` 仍需在新的 exact head 上重新完成扩展后的 27 estimator + 12 primitive（**每个 backend 39/39**）以及同步 performance。
+修复后的 numerical-rank 与 FirstDifference chronology 实现已在 exact-clean `3dc7df19...` Tesla P100 上完成 physical acceptance：CuPy 13.6.0 与 Torch 各通过 27 个 estimator integration + 12 个 direct public primitive（**每个 backend 39/39**），包括 numerical-rank boundary；配套同步 performance artifact 也包含全部 58 个 maintained row。实现使用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 统一 pseudoinverse/rank 决策，并保留 ordered-categorical FirstDifference chronology。旧 `ec511f53...` 32/32 source 继续作为不可变历史证据保留，不会被覆盖。
 
 ## 路径
 
@@ -140,7 +140,7 @@ Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robu
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-旧 P100 source `ec511f53...` 现在仅作为历史证据保留，因为其后共享 covariance 实现与 FirstDifference chronology 已发生 production 修改。maintained local/Torch-CPU gate 已覆盖 numerical-rank boundary；当前 `remote-full` acceptance 需要新的 exact-head CuPy/Torch 27 estimator + 12 public primitive（**每个 backend 39/39**）以及同步 performance rerun。显式 GPU device 仍禁止静默回退 CPU。
+当前 `remote-full` acceptance 来自 exact-clean `3dc7df19...` Tesla P100：CuPy 与 Torch 各通过 27 个 estimator integration + 12 个 public primitive（**每个 backend 39/39**），同步 performance matrix 为 58/58 行。新增的六个 rank-boundary primitive 与 `panel_rank_boundary_dk` integration 均在两个 GPU backend 上通过，且 requested/executed backend 一致。旧 `ec511f53...` source 仅作为历史证据保留；显式 GPU device 仍禁止静默回退 CPU。
 
 ### PooledOLS HAC 时间排序
 
