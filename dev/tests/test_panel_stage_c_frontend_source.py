@@ -9,16 +9,25 @@ from dev.benchmarks.frontend_data.parsers.panel_stage_c import (
     parse_panel_stage_c_performance,
     parse_panel_stage_c_physical_validation,
 )
+from dev.benchmarks.frontend_data.parsers.panel_stage_c_rank_policy import (
+    parse_panel_stage_c_rank_policy_performance,
+    parse_panel_stage_c_rank_policy_physical_validation,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json"
 PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_ec511f53.json"
+RANK_POLICY_CORRECTNESS = (
+    ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_3dc7df19.json"
+)
+RANK_POLICY_PERFORMANCE = (
+    ROOT / "results/pr126_p100/panel_stage_c_performance_3dc7df19.json"
+)
+ENV_ID = "remote-p100-pr126-20260811"
 
 
 def test_stage_c_validation_parser_emits_exact_physical_matrix():
-    runs, models, warnings = parse_panel_stage_c_physical_validation(
-        CORRECTNESS, "remote-p100-pr126-20260811"
-    )
+    runs, models, warnings = parse_panel_stage_c_physical_validation(CORRECTNESS, ENV_ID)
     assert warnings == []
     assert len(runs) == 64
     assert {run["backend"] for run in runs} == {"cupy", "torch"}
@@ -33,9 +42,7 @@ def test_stage_c_validation_parser_emits_exact_physical_matrix():
 
 
 def test_stage_c_performance_parser_emits_timing_without_speedup():
-    runs, _, warnings = parse_panel_stage_c_performance(
-        PERFORMANCE, "remote-p100-pr126-20260811"
-    )
+    runs, _, warnings = parse_panel_stage_c_performance(PERFORMANCE, ENV_ID)
     assert warnings == []
     assert len(runs) == 58
     assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
@@ -60,7 +67,7 @@ def test_stage_c_performance_parser_fails_closed_on_high_t_contract(tmp_path):
     broken = tmp_path / "broken_performance.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="high-T scale drifted"):
-        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260811")
+        parse_panel_stage_c_performance(broken, ENV_ID)
 
 
 def test_stage_c_validation_parser_fails_closed_on_case_identity(tmp_path):
@@ -69,7 +76,7 @@ def test_stage_c_validation_parser_fails_closed_on_case_identity(tmp_path):
     broken = tmp_path / "broken_validation.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="case identity drifted"):
-        parse_panel_stage_c_physical_validation(broken, "remote-p100-pr126-20260811")
+        parse_panel_stage_c_physical_validation(broken, ENV_ID)
 
 
 def test_stage_c_performance_parser_fails_closed_on_base_matrix_drift(tmp_path):
@@ -80,7 +87,7 @@ def test_stage_c_performance_parser_fails_closed_on_base_matrix_drift(tmp_path):
     broken = tmp_path / "broken_base_matrix.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="base matrix drifted"):
-        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260811")
+        parse_panel_stage_c_performance(broken, ENV_ID)
 
 
 def test_stage_c_performance_parser_fails_closed_on_high_t_backend_matrix_drift(tmp_path):
@@ -91,4 +98,100 @@ def test_stage_c_performance_parser_fails_closed_on_high_t_backend_matrix_drift(
     broken = tmp_path / "broken_high_t_matrix.json"
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="high-T QS matrix drifted"):
-        parse_panel_stage_c_performance(broken, "remote-p100-pr126-20260811")
+        parse_panel_stage_c_performance(broken, ENV_ID)
+
+
+def test_rank_policy_validation_parser_emits_39_checks_per_backend():
+    runs, models, warnings = parse_panel_stage_c_rank_policy_physical_validation(
+        RANK_POLICY_CORRECTNESS, ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 78
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 24
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all(run["parameters"]["measurement_git_sha"] == (
+        "3dc7df19176f8fb881a8d37e9d75b4f75e71b058"
+    ) for run in runs)
+    boundary = [
+        run for run in runs
+        if run["variant"] == "rank-policy-panel-rank-boundary-dk"
+    ]
+    assert len(boundary) == 2
+    assert {run["backend"] for run in boundary} == {"cupy", "torch"}
+    assert all(
+        run["parameters"]["covariance_metadata"]["design_rank"] == 2
+        and run["parameters"]["covariance_metadata"]["design_columns"] == 3
+        and run["parameters"]["covariance_metadata"]["rank_deficient_extension"] is True
+        for run in boundary
+    )
+    rank_primitives = {
+        run["variant"] for run in runs
+        if run["model_id"] == "PanelCovariancePrimitive"
+        and "rank-boundary" in run["variant"]
+    }
+    assert rank_primitives == {
+        "rank-policy-public-rank-boundary-nonrobust",
+        "rank-policy-public-rank-boundary-hc0",
+        "rank-policy-public-rank-boundary-hc2",
+        "rank-policy-public-rank-boundary-hc3",
+        "rank-policy-public-rank-boundary-cluster",
+        "rank-policy-public-rank-boundary-dk",
+    }
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_rank_policy_performance_parser_emits_58_synchronized_rows():
+    runs, models, warnings = parse_panel_stage_c_rank_policy_performance(
+        RANK_POLICY_PERFORMANCE, ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 58
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert all(
+        run["parameters"]["paired_validation_cupy_version"] == "13.6.0"
+        for run in runs
+    )
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "3dc7df19176f8fb881a8d37e9d75b4f75e71b058"
+        for run in runs
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects"
+    }
+    assert len([run for run in runs if run["parameters"]["scenario"] == "base"]) == 54
+    assert len([run for run in runs if run["parameters"]["scenario"] == "high_t_qs"]) == 4
+
+
+def test_rank_policy_validation_parser_fails_closed_on_boundary_metadata(tmp_path):
+    data = json.loads(RANK_POLICY_CORRECTNESS.read_text(encoding="utf-8"))
+    data["backends"]["cupy"]["cases"]["panel_rank_boundary_dk"][
+        "covariance_metadata"
+    ]["rank_deficient_extension"] = False
+    broken = tmp_path / "broken_rank_policy_validation.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="rank-boundary covariance metadata drifted"):
+        parse_panel_stage_c_rank_policy_physical_validation(broken, ENV_ID)
+
+
+def test_rank_policy_validation_parser_fails_closed_on_primitive_identity(tmp_path):
+    data = json.loads(RANK_POLICY_CORRECTNESS.read_text(encoding="utf-8"))
+    del data["backends"]["torch"]["public_primitives"]["rank_boundary_hc3"]
+    broken = tmp_path / "broken_rank_policy_primitives.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="public primitive identity drifted"):
+        parse_panel_stage_c_rank_policy_physical_validation(broken, ENV_ID)
+
+
+def test_rank_policy_performance_parser_fails_closed_on_gpu_provenance(tmp_path):
+    data = json.loads(RANK_POLICY_PERFORMANCE.read_text(encoding="utf-8"))
+    data["environment"]["gpu_by_backend"]["cupy"] = "unexpected GPU"
+    broken = tmp_path / "broken_rank_policy_performance.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="GPU provenance drifted"):
+        parse_panel_stage_c_rank_policy_performance(broken, ENV_ID)
