@@ -83,6 +83,26 @@ def _ill_conditioned_inputs(seed=20260814):
     return X, resid, time
 
 
+def _rank_boundary_inputs(seed=20260815):
+    """Return a controlled design just below the explicit numerical-rank cutoff."""
+    rng = np.random.default_rng(seed)
+    n, k = 100, 3
+    q_left, _ = np.linalg.qr(rng.normal(size=(n, k)))
+    q_right, _ = np.linalg.qr(rng.normal(size=(k, k)))
+    singular_values = np.array([10.0, 1.0, 1.0e-13])
+    X = q_left @ np.diag(singular_values) @ q_right.T
+    resid = rng.normal(size=n)
+    time = np.tile(np.arange(10), 10)
+    clusters = np.repeat(np.arange(10), 10)
+    observed = np.linalg.svd(X, compute_uv=False)
+    cutoff = max(X.shape) * np.finfo(np.float64).eps * observed[0]
+    if not observed[-1] < cutoff < observed[-2]:
+        raise AssertionError("rank-boundary fixture no longer straddles the explicit cutoff")
+    if np.linalg.matrix_rank(X) != 2:
+        raise AssertionError("rank-boundary fixture must have numerical rank two")
+    return X, resid, time, clusters
+
+
 def _to_backend(X, y, entity, time, backend):
     if backend == "numpy":
         return X, y, entity, time
@@ -139,6 +159,11 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
     X_ill_b, resid_ill_b, _dummy_b, time_ill_b = _to_backend(
         X_ill, resid_ill, dummy_entity, time_ill, backend
     )
+    X_rank, resid_rank, time_rank, cluster_rank = _rank_boundary_inputs()
+    rank_entity = np.arange(len(resid_rank), dtype=np.int64)
+    X_rank_b, resid_rank_b, _rank_entity_b, time_rank_b = _to_backend(
+        X_rank, resid_rank, rank_entity, time_rank, backend
+    )
     return {
         "cluster_group_debias": clustered_covariance(
             Xb, rb, clusters[:, 0], group_debias=True
@@ -156,11 +181,25 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
             X_ill_b, resid_ill_b, cov_type="hc3"
         ),
         "ill_conditioned_dk": driscoll_kraay_covariance(
-            X_ill_b,
-            resid_ill_b,
-            time_ill_b,
-            bandwidth=2,
-            kernel="bartlett",
+            X_ill_b, resid_ill_b, time_ill_b, bandwidth=2, kernel="bartlett"
+        ),
+        "rank_boundary_nonrobust": ols_covariance(
+            X_rank_b, resid_rank_b, cov_type="nonrobust", scale=1.0
+        ),
+        "rank_boundary_hc0": ols_covariance(
+            X_rank_b, resid_rank_b, cov_type="hc0"
+        ),
+        "rank_boundary_hc2": ols_covariance(
+            X_rank_b, resid_rank_b, cov_type="hc2"
+        ),
+        "rank_boundary_hc3": ols_covariance(
+            X_rank_b, resid_rank_b, cov_type="hc3"
+        ),
+        "rank_boundary_cluster": clustered_covariance(
+            X_rank_b, resid_rank_b, cluster_rank
+        ),
+        "rank_boundary_dk": driscoll_kraay_covariance(
+            X_rank_b, resid_rank_b, time_rank_b, bandwidth=2, kernel="bartlett"
         ),
     }
 
@@ -345,7 +384,14 @@ def _environment(backends):
         "platform": platform.platform(),
         "gpu": gpu,
         "packages": {
-            name: _version(name) for name in ("statgpu", "numpy", "scipy", "cupy", "torch")
+            name: (
+                _version("cupy")
+                or _version("cupy-cuda11x")
+                or _version("cupy-cuda12x")
+                if name == "cupy"
+                else _version(name)
+            )
+            for name in ("statgpu", "numpy", "scipy", "cupy", "torch")
         },
     }
 
@@ -385,6 +431,12 @@ def main():
         "ill_conditioned_hc2",
         "ill_conditioned_hc3",
         "ill_conditioned_dk",
+        "rank_boundary_nonrobust",
+        "rank_boundary_hc0",
+        "rank_boundary_hc2",
+        "rank_boundary_hc3",
+        "rank_boundary_cluster",
+        "rank_boundary_dk",
     }
     if set(primitive_reference) != required_public_primitives:
         raise AssertionError("NumPy public primitive acceptance matrix drifted")

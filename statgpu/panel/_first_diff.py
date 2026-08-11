@@ -11,7 +11,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._utils import factorize_panel_labels
+from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
 class FirstDifferenceOLS(BasePanelModel):
@@ -183,10 +183,10 @@ def _first_diff_transform(X, y, entity_ids, time_ids, xp):
     """
     eids_np = _to_numpy(entity_ids).ravel()
     if time_ids is not None:
-        tids_np = np.asarray(_to_numpy(time_ids)).ravel()
-        if tids_np.shape[0] != eids_np.shape[0]:
-            raise ValueError("time_ids must have the same length as entity_ids")
-        sort_idx_np = np.lexsort((tids_np, eids_np))
+        _time_labels, time_codes = factorize_panel_metadata(
+            time_ids, name="time_ids", expected_n=eids_np.shape[0]
+        )
+        sort_idx_np = np.lexsort((time_codes, eids_np))
     else:
         sort_idx_np = np.argsort(eids_np, kind="stable")
 

@@ -66,15 +66,35 @@ def _is_torch(xp) -> bool:
     return getattr(xp, "__name__", "") == "torch"
 
 
-def _matrix_rank(X, xp) -> int:
-    return int(_to_float_scalar(xp.linalg.matrix_rank(X)))
-
-
 def _design_pseudoinverse(X, xp):
-    """Return X+, (X'X)+ and numerical rank without forming X'X first."""
-    X_pinv = xp.linalg.pinv(X)
+    """Return X+, (X'X)+ and rank from one explicit SVD cutoff.
+
+    Backend libraries use different defaults for ``pinv`` and ``matrix_rank``.
+    Near the numerical-rank boundary this can make the covariance bread retain
+    directions that the reported rank drops (or vice versa), and can disagree
+    across NumPy/CuPy/Torch.  Derive both quantities from the same SVD mask
+    using the standard ``max(m, n) * eps * s_max`` float64 threshold.
+    """
+    U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
+    if int(singular_values.shape[0]) == 0:
+        raise ValueError("covariance design must contain at least one column")
+    s_max = _to_float_scalar(xp.max(singular_values))
+    cutoff = (
+        max(int(X.shape[0]), int(X.shape[1]))
+        * np.finfo(np.float64).eps
+        * float(s_max)
+    )
+    retained = singular_values > float(cutoff)
+    rank = int(_to_float_scalar(xp.sum(retained)))
+    safe_values = xp.where(
+        retained, singular_values, xp.ones_like(singular_values)
+    )
+    inverse_values = xp.where(
+        retained, 1.0 / safe_values, xp.zeros_like(singular_values)
+    )
+    X_pinv = (Vh.T * inverse_values) @ U.T
     bread = X_pinv @ X_pinv.T
-    return X_pinv, bread, _matrix_rank(X, xp)
+    return X_pinv, bread, rank
 
 
 def _gram_inverse(X, xp, *, rank_aware: bool = False):

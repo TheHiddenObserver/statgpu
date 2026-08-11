@@ -151,3 +151,32 @@ def test_pooled_formula_dk_preserves_ordered_categorical_after_row_alignment():
         categorical_fit.bse_, numeric_fit.bse_, rtol=2e-13, atol=2e-15
     )
     assert categorical_fit._covariance_metadata["n_periods"] == 3
+
+
+def test_first_difference_preserves_ordered_categorical_chronology():
+    pd = pytest.importorskip("pandas")
+    from statgpu.panel import FirstDifferenceOLS
+
+    rng = np.random.default_rng(12953)
+    n_entities = 12
+    numeric_time = np.tile(np.arange(3), n_entities)
+    labels = np.tile(np.array(["t1", "t2", "t10"], dtype=object), n_entities)
+    ordered_time = pd.Categorical(
+        labels, categories=["t1", "t2", "t10"], ordered=True
+    )
+    entity = np.repeat(np.arange(n_entities), 3)
+    X = rng.normal(size=(entity.size, 1))
+    y = (
+        0.8 * X[:, 0]
+        + np.tile(np.array([0.0, 0.35, -0.2]), n_entities)
+        + rng.normal(scale=0.15, size=entity.size)
+    )
+
+    numeric = FirstDifferenceOLS(cov_type="hc0").fit(
+        X, y, entity_ids=entity, time_ids=numeric_time
+    )
+    categorical = FirstDifferenceOLS(cov_type="hc0").fit(
+        X, y, entity_ids=entity, time_ids=ordered_time
+    )
+    np.testing.assert_allclose(categorical.coef_, numeric.coef_, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(categorical.bse_, numeric.bse_, rtol=2e-13, atol=2e-15)

@@ -207,3 +207,50 @@ def test_stage_c_between_and_fd_torch_cpu_hc_match_numpy(estimator, cov_type):
             X_t, y_t, entity_ids=entity_t, time_ids=time_t
         )
     _assert_inference(actual, expected, rtol=5e-8, atol=5e-10)
+
+
+def _rank_boundary_inputs(seed=12910):
+    rng = np.random.default_rng(seed)
+    n, k = 100, 3
+    q_left, _ = np.linalg.qr(rng.normal(size=(n, k)))
+    q_right, _ = np.linalg.qr(rng.normal(size=(k, k)))
+    X = q_left @ np.diag([10.0, 1.0, 1.0e-13]) @ q_right.T
+    resid = rng.normal(size=n)
+    time = np.tile(np.arange(10), 10)
+    cluster = np.repeat(np.arange(10), 10)
+    cutoff = max(X.shape) * np.finfo(np.float64).eps * np.linalg.svd(X, compute_uv=False)[0]
+    assert np.linalg.svd(X, compute_uv=False)[-1] < cutoff
+    assert np.linalg.matrix_rank(X) == 2
+    return X, resid, time, cluster
+
+
+def test_stage_c_rank_boundary_covariance_torch_cpu_matches_numpy():
+    X, resid, time, cluster = _rank_boundary_inputs()
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    resid_t = torch.as_tensor(resid, dtype=torch.float64)
+
+    cases = [
+        ("nonrobust", dict(scale=1.0)),
+        ("hc0", {}),
+        ("hc2", {}),
+        ("hc3", {}),
+        ("clustered", dict(cluster=cluster)),
+        ("driscoll-kraay", dict(time_ids=time, bandwidth=2)),
+    ]
+    for cov_type, kwargs in cases:
+        meta_np = {}
+        meta_t = {}
+        expected = ols_covariance(
+            X, resid, cov_type=cov_type, xp=np, metadata=meta_np, **kwargs
+        )
+        actual = ols_covariance(
+            X_t, resid_t, cov_type=cov_type, metadata=meta_t, **kwargs
+        )
+        assert torch.is_tensor(actual)
+        assert_allclose(
+            actual.detach().cpu().numpy(), expected, rtol=5e-10, atol=5e-12
+        )
+        assert np.all(np.isfinite(expected))
+        if cov_type in {"hc0", "hc2", "hc3", "driscoll-kraay"}:
+            assert meta_np["design_rank"] == 2
+            assert meta_t["design_rank"] == 2

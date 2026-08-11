@@ -82,8 +82,26 @@ def test_stage_c_runner_public_primitive_matrix_is_complete():
         "ill_conditioned_hc2",
         "ill_conditioned_hc3",
         "ill_conditioned_dk",
+        "rank_boundary_nonrobust",
+        "rank_boundary_hc0",
+        "rank_boundary_hc2",
+        "rank_boundary_hc3",
+        "rank_boundary_cluster",
+        "rank_boundary_dk",
     }
     for value in values.values():
         arr = np.asarray(value, dtype=np.float64)
         assert arr.shape == (3, 3)
         assert np.all(np.isfinite(arr))
+
+
+def test_stage_c_runner_rank_boundary_is_explicitly_rank_two():
+    X, resid, time, _cluster = _MOD._rank_boundary_inputs()
+    meta = {}
+    cov = _MOD.ols_covariance(
+        X, resid, cov_type="driscoll-kraay", time_ids=time, bandwidth=2, metadata=meta
+    )
+    assert np.all(np.isfinite(cov))
+    assert meta["design_rank"] == 2
+    assert meta["design_columns"] == 3
+    assert meta["rank_deficient_extension"] is True
