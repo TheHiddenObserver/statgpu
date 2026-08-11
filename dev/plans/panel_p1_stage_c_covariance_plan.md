@@ -138,6 +138,7 @@ Implementation requirements:
 
 - compute `h_i` rowwise as `sum((Z @ B) * Z, axis=1)`, never an `n x n` hat matrix;
 - use pseudoinverse consistently for supported rank-deficient fit spaces; numerical rank and pseudoinverse must come from the same backend-native SVD mask with the explicit float64 cutoff `max(n,k) * eps * s_max`, never from independent backend defaults;
+- preserve each estimator's historical full-column-rank coefficient solver; enter the shared SVD minimum-norm solve only when the explicit rank policy reports `rank < k` or the historical solver raises a linear-algebra failure, and reuse that fit-space rank in covariance/diagnostics;
 - keep leverage/score arrays backend-native;
 - reject materially invalid leverage and any numerically unit leverage that makes HC2/HC3 undefined; tiny dimensionless roundoff outside `[0,1]` may be normalized with a machine-epsilon guard only;
 - existing `robust` continues its historical estimator-specific HC1 correction unchanged.
