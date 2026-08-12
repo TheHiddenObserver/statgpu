@@ -62,7 +62,24 @@ def test_pooled_rank_deficiency_uses_effective_rank_for_df():
     assert model.rank_ == expected_rank
     assert model.df_resid == X.shape[0] - expected_rank
     assert model.df_resid == int(reference.df_resid)
-    assert_allclose(model.bse_, reference.bse, rtol=1e-8, atol=1e-10)
+
+    # Exact collinearity leaves the fitted subspace identified but not the
+    # original coefficient coordinates.  Stage C therefore keeps the
+    # Moore-Penrose fit/covariance substrate while failing closed on ordinary
+    # coordinate-wise BSE/test/p-value/CI publication.
+    assert_allclose(
+        design @ model._panel_cov_params_raw @ design.T,
+        design @ reference.cov_params() @ design.T,
+        rtol=1e-8,
+        atol=1e-10,
+    )
+    assert model._coefficient_inference_available is False
+    assert model.bse_ is None
+    assert model.tvalues_ is None
+    assert model.pvalues_ is None
+    assert model.conf_int_ is None
+    assert model._inference_result.metadata["applicable"] is False
+    assert "rank deficient" in model._inference_result.metadata["reason"]
 
 
 def test_orchestrator_enforces_exact_clean_worktrees_and_pipefail():
