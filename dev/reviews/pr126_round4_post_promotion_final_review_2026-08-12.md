@@ -8,7 +8,7 @@ Review standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 Technical candidate before this review-record-only checkpoint:
 
-`a4f8c6e8e0ed6c198dddccda275e0eff746b1f83`
+`5ce595e7d610579d3c56994ce1722ebca4a595d3`
 
 The only tree delta introduced by this checkpoint is this review Markdown file. Production source, physical runners, immutable raw P100 artifacts, v4 parser/source registrations, maintained tests, coverage metadata, and generated benchmark assets are unchanged.
 
@@ -68,24 +68,28 @@ Promotion gates passed:
 
 ## Post-promotion review/fix
 
-Independent review found and fixed two relevant artifact-level findings:
+Independent review found and fixed three relevant artifact-level findings:
 
 1. `[MEDIUM][PARSER][fixed]` — the initial v4 performance parser allowed any positive repeat count and tolerance-based median equality. It now requires `repeats == 3`, exactly three raw samples, and exact equality with `statistics.median(samples)`. Corruption tests cover a two-sample row and a one-ULP median drift.
 2. `[MEDIUM][ARTIFACT][fixed]` — the prior review header still said canonical promotion was pending after promotion had completed. The durable review record now reflects canonical promotion completion.
+3. `[MEDIUM][ARTIFACT][fixed]` — the first permanent hosted attempt on review checkpoint `a6b0de3508b83c3ca09d17cb901b4d3a48ae0ed3` finished **6/7**: `Benchmark Frontend CI` failed its permanent staleness job after the v4 performance parser hardening added `exactly_three_raw_samples` and renamed the exact-median validation check, but the six committed canonical frontend/docs JSON assets had not been regenerated from that hardened parser. This was a real artifact synchronization failure, not a flaky job. The canonical bundle was regenerated with `--deterministic --strict-sources`, the frontend build was run in the same order as the permanent staleness job to synchronize the docs mirror, and the temporary raw-audit helper/workflow were removed. The resulting technical candidate is `5ce595e7d610579d3c56994ce1722ebca4a595d3`.
 
 Post-fix gates passed:
 
 - maintained canonical matrix: **81/81**;
 - strict deterministic generator check: **2426 runs / 47 models / 19 sources**, 0 validation errors, 0 errors, 0 warnings;
-- compile/static checks;
+- frontend build and docs benchmark mirror synchronization;
+- compile/static checks and `git diff --check`;
 - measurement-source applicability relative to `a99726e1...`;
 - immutable raw-artifact identity relative to `ccc46da6...`.
 
-Final read-only review of technical candidate `a4f8c6e8...` found no unresolved CRITICAL, HIGH, or relevant MEDIUM finding. No new inline review thread appeared. The sole unresolved inline P2 is the older **outdated** backend-provenance thread; its underlying issue is closed by persisted fit-time backend provenance plus the current physical evidence contract and it remains only as review history.
+The hosted staleness fix changes only generated benchmark assets and review/helper artifacts; it does not change `statgpu/panel/**`, `dev/benchmarks/validate_panel_stage_c_gpu.py`, or `dev/benchmarks/benchmark_panel_stage_c_covariance.py`. Therefore the exact-clean P100 evidence from `a99726e1...` remains applicable.
+
+Final read-only review of technical candidate `5ce595e7...` found no unresolved CRITICAL, HIGH, or relevant MEDIUM finding. No new inline review thread appeared. The sole unresolved inline P2 is the older **outdated** backend-provenance thread; its underlying issue is closed by persisted fit-time backend provenance plus the current physical evidence contract and it remains only as review history.
 
 ## Final hosted gate
 
-All seven permanent workflows must complete successfully on the exact SHA containing this review-record-only checkpoint:
+The first review checkpoint `a6b0de35...` was not terminal because Benchmark Frontend staleness failed as described above. All seven permanent workflows must now complete successfully on the new exact SHA containing this review-record-only checkpoint:
 
 1. Tests;
 2. Panel Stage C Torch CPU;
@@ -93,7 +97,7 @@ All seven permanent workflows must complete successfully on the exact SHA contai
 4. Maintenance compatibility;
 5. Release notes validation;
 6. Release package validation;
-7. Benchmark Frontend CI, including deterministic data checks, E2E, and production QA.
+7. Benchmark Frontend CI, including deterministic data checks, staleness, E2E, and production QA.
 
 If all seven complete successfully and no new review finding appears, the technical state becomes `PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY`.
 
