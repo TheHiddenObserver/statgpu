@@ -416,12 +416,22 @@ class PanelOLS(BasePanelModel):
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")
         xp = backend.xp
-        prediction = self._panel_predict_linear(
-            X,
-            model_has_intercept=False,
-            add_intercept=False,
-            return_numpy=False,
-        )
+        try:
+            prediction = self._panel_predict_linear(
+                X,
+                model_has_intercept=False,
+                add_intercept=False,
+                return_numpy=False,
+            )
+        except ValueError as exc:
+            if str(exc) != "X has an incompatible feature count":
+                raise
+            prediction = self._panel_predict_linear(
+                X,
+                model_has_intercept=False,
+                add_intercept=True,
+                return_numpy=False,
+            )
         self._predict_backend_name = backend.name
 
         def _effect_values(ids, mapping, name):

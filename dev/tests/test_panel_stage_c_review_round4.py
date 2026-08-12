@@ -112,3 +112,52 @@ def test_panel_predict_full_rank_effect_semantics_remain_numpy_visible():
     assert isinstance(pred, np.ndarray)
     assert model._predict_backend_name == "numpy"
     assert pred.shape == (8,)
+
+
+def test_two_way_demeaning_convergence_is_unit_equivariant():
+    entity = np.array([0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3], dtype=np.int64)
+    time = np.array([0, 1, 3, 0, 2, 1, 2, 3, 0, 2, 3], dtype=np.int64)
+    rng = np.random.default_rng(12924)
+    raw_y = rng.normal(size=len(entity))
+    y = _explicit_two_way_residual(raw_y, entity, time)
+    X = rng.normal(size=(len(entity), 2))
+
+    y_base, X_base = demean_variables(
+        y, X, entity, time, xp=np, max_iter=200, tol=1e-12
+    )
+    y_scale = 1.0e-12
+    X_scales = np.array([1.0e-9, 1.0e9])
+    y_scaled, X_scaled = demean_variables(
+        y * y_scale,
+        X * X_scales,
+        entity,
+        time,
+        xp=np,
+        max_iter=200,
+        tol=1e-12,
+    )
+    assert_allclose(y_scaled / y_scale, y_base, rtol=2e-10, atol=2e-11)
+    assert_allclose(X_scaled / X_scales, X_base, rtol=2e-10, atol=2e-11)
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        demean_variables(
+            y * 1.0e-12,
+            X * 1.0e-12,
+            entity,
+            time,
+            xp=np,
+            max_iter=1,
+            tol=1e-10,
+        )
+
+
+def test_panel_predict_preserves_omitted_explicit_constant_compatibility():
+    rng = np.random.default_rng(12925)
+    x = rng.normal(size=50)
+    X_full = np.column_stack([np.ones(len(x)), x])
+    y = 0.6 + 0.9 * x + rng.normal(scale=0.1, size=len(x))
+    model = PanelOLS().fit(X_full, y)
+    expected = X_full[:12] @ model.coef_
+    actual = model.predict(x[:12, None])
+    assert_allclose(actual, expected, rtol=0, atol=2e-12)
+    assert model._predict_backend_name == "numpy"

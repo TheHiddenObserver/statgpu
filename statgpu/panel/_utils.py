@@ -389,6 +389,15 @@ def demean_variables(
         if hasattr(X, "clone")
         else X - 0.0
     )
+    y_scale_ref = _to_float_scalar(xp.max(xp.abs(y_d)))
+    if getattr(xp, "__name__", "") == "torch":
+        X_scale_ref = xp.max(xp.abs(X), dim=0).values
+    else:
+        X_scale_ref = xp.max(xp.abs(X), axis=0)
+    X_scale_ref = xp_maximum(
+        X_scale_ref, np.finfo(np.float64).tiny, xp
+    )
+    y_scale_ref = max(float(y_scale_ref), np.finfo(np.float64).tiny)
 
     if entity_ids is not None:
         y_d = within_transform(y_d, entity_ids, xp)
@@ -406,15 +415,23 @@ def demean_variables(
             y_d = within_transform(y_d, time_ids, xp)
             X_d = _within_transform_matrix(X_d, time_ids, xp)
             y_change = _to_float_scalar(xp.max(xp.abs(y_d - y_d_old)))
-            X_change = _to_float_scalar(xp.max(xp.abs(X_d - X_d_old)))
-            max_change = max(float(y_change), float(X_change))
+            if getattr(xp, "__name__", "") == "torch":
+                X_change_columns = xp.max(xp.abs(X_d - X_d_old), dim=0).values
+            else:
+                X_change_columns = xp.max(xp.abs(X_d - X_d_old), axis=0)
+            y_relative_change = float(y_change) / y_scale_ref
+            X_relative_change = _to_float_scalar(
+                xp.max(X_change_columns / X_scale_ref)
+            )
+            max_change = max(float(y_relative_change), float(X_relative_change))
             if max_change < tol:
                 converged = True
                 break
         if not converged:
             raise RuntimeError(
                 "two-way fixed-effect demeaning did not converge within "
-                f"max_iter={max_iter}; final max change={max_change:.6e}, tol={tol:.6e}"
+                f"max_iter={max_iter}; final max relative change={max_change:.6e}, "
+                f"tol={tol:.6e}"
             )
 
     return y_d, X_d
