@@ -30,8 +30,9 @@ jobs:
           def replace_once(path, old, new):
               p = Path(path)
               text = p.read_text(encoding='utf-8')
-              if text.count(old) != 1:
-                  raise SystemExit(f'{path}: replacement count={text.count(old)}')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: replacement count={count}')
               p.write_text(text.replace(old, new), encoding='utf-8')
 
           replace_once(
@@ -48,14 +49,13 @@ jobs:
           p = Path('dev/tests/test_panel_stage_c_inference_guard.py')
           text = p.read_text(encoding='utf-8')
           start = text.index('def test_negative_variance_guard_is_scale_equivariant')
-          replacement = '''def test_negative_variance_guard_is_scale_equivariant(monkeypatch):\n    \"\"\"Outcome/parameter rescaling cannot change covariance validity.\"\"\"\n    material = np.array([[4.0e-14, 0.0], [0.0, -1.0e-28]])\n    for multiplier in (1.0e-12, 1.0, 1.0e12):\n        with pytest.raises(ValueError, match=\"materially negative diagonal variance\"):\n            _store_with_mock_covariance(monkeypatch, material * multiplier)\n\n    # A large off-diagonal entry must never mask a negative variance.  This also\n    # guards against using row/column norms, whose units change under regressor\n    # reparameterization.\n    indefinite = np.array([[1.0, 1.0e8], [1.0e8, -1.0e-20]])\n    with pytest.raises(ValueError, match=\"materially negative diagonal variance\"):\n        _store_with_mock_covariance(monkeypatch, indefinite)\n\n    signed_zero = np.array([[4.0e-14, 0.0], [0.0, -0.0]])\n    model = _store_with_mock_covariance(monkeypatch, signed_zero)\n    assert np.all(np.isfinite(model.bse_))\n    assert model.bse_[1] >= 0.0\n'''
-          text = text[:start] + replacement
-          p.write_text(text, encoding='utf-8')
+          replacement = '''def test_negative_variance_guard_is_scale_equivariant(monkeypatch):\n    \"\"\"Outcome/parameter rescaling cannot change covariance validity.\"\"\"\n    material = np.array([[4.0e-14, 0.0], [0.0, -1.0e-28]])\n    for multiplier in (1.0e-12, 1.0, 1.0e12):\n        with pytest.raises(ValueError, match=\"materially negative diagonal variance\"):\n            _store_with_mock_covariance(monkeypatch, material * multiplier)\n\n    # A large off-diagonal entry must never mask a negative variance. This also\n    # guards against row/column-norm tolerances that change units under regressor\n    # reparameterization.\n    indefinite = np.array([[1.0, 1.0e8], [1.0e8, -1.0e-20]])\n    with pytest.raises(ValueError, match=\"materially negative diagonal variance\"):\n        _store_with_mock_covariance(monkeypatch, indefinite)\n\n    signed_zero = np.array([[4.0e-14, 0.0], [0.0, -0.0]])\n    model = _store_with_mock_covariance(monkeypatch, signed_zero)\n    assert np.all(np.isfinite(model.bse_))\n    assert model.bse_[1] >= 0.0\n'''
+          p.write_text(text[:start] + replacement, encoding='utf-8')
 
           p = Path('dev/tests/test_panel_stage_c_rank_deficient_matrix.py')
           text = p.read_text(encoding='utf-8')
-          marker = '''    pairs = [\n        (\n            PanelOLS(cov_type=cov_type).fit(X1, y),\n            PanelOLS(cov_type=cov_type).fit(X2, y),\n            X1,\n            X2,\n        ),\n'''
-          insert = '''    pairs = [\n        (\n            PanelOLS(cov_type=cov_type).fit(X1, y),\n            PanelOLS(cov_type=cov_type).fit(X2, y),\n            X1,\n            X2,\n        ),\n        (\n            PanelOLS(entity_effects=True, cov_type=cov_type).fit(\n                X1, y, entity_ids=entity\n            ),\n            PanelOLS(entity_effects=True, cov_type=cov_type).fit(\n                X2, y, entity_ids=entity\n            ),\n            X1,\n            X2,\n        ),\n'''
+          marker = '''    pairs = [\n        (PanelOLS(cov_type=cov_type).fit(X1, y),\n         PanelOLS(cov_type=cov_type).fit(X2, y), X1, X2),\n'''
+          insert = '''    pairs = [\n        (PanelOLS(cov_type=cov_type).fit(X1, y),\n         PanelOLS(cov_type=cov_type).fit(X2, y), X1, X2),\n        (PanelOLS(entity_effects=True, cov_type=cov_type).fit(\n             X1, y, entity_ids=entity),\n         PanelOLS(entity_effects=True, cov_type=cov_type).fit(\n             X2, y, entity_ids=entity), X1, X2),\n'''
           if marker not in text:
               raise SystemExit('rank matrix insertion marker missing')
           p.write_text(text.replace(marker, insert, 1), encoding='utf-8')
