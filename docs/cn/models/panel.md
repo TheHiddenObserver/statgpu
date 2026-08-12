@@ -18,8 +18,6 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-Tesla P100 的 exact-clean 测量继续作为不可变审计证据保留。`f1546476...` source 已记录 CuPy/Torch 每个 backend 47/47 correctness case 以及全部 58 行同步 performance，并按新的 immutable v3 source identity 完成 promotion。随后 2026-08-12 的 hardening 又修改了 two-way FE 收敛、秩亏 coefficient-inference applicability、PanelOLS prediction backend execution 与 FirstDifference duplicate-time validation，因此该 v3 数值证据现在只描述历史实现，而不代表更新后的 numerical tree。长期 model 文档只记录稳定的 evidence lineage，不记录 PR lifecycle 状态。
-
 ## 路径
 
 ```python
@@ -75,9 +73,9 @@ $$
 
 其中 \(X^+\) 在需要时表示 Moore-Penrose 伪逆。`BetweenOLS` 对个体均值执行 OLS，`FirstDifferenceOLS` 对 \(\Delta X\) 和 \(\Delta y\) 执行 OLS，`FamaMacBeth` 对逐期系数向量求平均。
 
-## Stage-C 协方差与推断
+## 协方差与推断
 
-对于历史 full-column-rank 拟合，Stage C 仍是增量式扩展：系数估计、Stage-B fit statistics 与历史默认推断不改变。对受支持的 rank-deficient extension，则使用 identified numerical rank，使冗余列不会改变 fitted value、residual df、variance component 或其他 identified fit-space quantity。公开 coefficient vector 是共享的 Moore-Penrose minimum-norm representation，但原始坐标下的 coefficient 不唯一可识别；因此 exact rank-deficient fit 的 `bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 不可用，`summary()` 也会 fail closed。协方差名称规范如下。
+对 full-column-rank 拟合，逐系数推断按照所选 covariance estimator 正常提供。对 rank-deficient 拟合，statgpu 使用 identified numerical rank，使精确冗余列不会改变 fitted value、residual df、variance component 或其他 identified fit-space quantity。公开 coefficient vector 是 Moore-Penrose minimum-norm representation，但原始坐标下的 coefficient 不唯一可识别；因此 exact rank-deficient fit 的 `bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 不可用，`summary()` 也会 fail closed。
 
 | `cov_type` | 行为 |
 |---|---|
@@ -88,7 +86,7 @@ $$
 | `"clustered"` | one-/two-way cluster sandwich；支持时可用 `group_debias=True` 显式修正 |
 | `"driscoll-kraay"`、`"dk"`、`"kernel"` | 按 time 聚合 score 后计算 Driscoll-Kraay，可选 Bartlett、Parzen、Quadratic Spectral kernel |
 | `"hac"` | `PooledOLS` 历史 row-order Bartlett/Newey-West；与 Driscoll-Kraay 明确区分 |
-| `"newey-west"` | `FamaMacBeth` 系数路径已有 HAC；不进入 Stage-C residual-OLS covariance 层 |
+| `"newey-west"` | `FamaMacBeth` 系数路径上的 HAC；与 residual-OLS covariance 区分 |
 
 ### HC0/HC2/HC3 的拟合空间定义
 
@@ -104,13 +102,13 @@ HC0 的 meat 为 $\sum_i z_i z_i^\top e_i^2$；HC2 将每个残差平方除以 $
 
 ### Cluster covariance 与 `group_debias`
 
-one-way clustering 在 cluster 内汇总 score vector。two-way clustering 对 cluster 1、cluster 2 与精确 paired-label intersection 做 inclusion-exclusion。默认 `group_debias=False` 完全保留历史 statgpu clustered covariance。设某一 component 有 `G` 个 group，则 `group_debias=True` 会在 inclusion-exclusion 前将该 component 的 meat 乘以
+one-way clustering 在 cluster 内汇总 score vector。two-way clustering 对 cluster 1、cluster 2 与精确 paired-label intersection 做 inclusion-exclusion。默认 `group_debias=False` 保留 statgpu 既有 clustered covariance。设某一 component 有 `G` 个 group，则 `group_debias=True` 会在 inclusion-exclusion 前将该 component 的 meat 乘以
 
 $$
 \frac{G}{G-1}\frac{n-1}{n}.
 $$
 
-这只改变 covariance 大小；Stage C 不会静默把 coefficient test 改成 finite-group t reference。字符串/分类 cluster label 属于 metadata，可在 CPU factorize，但数值 score matrix 不会搬回 CPU。
+这只改变 covariance 大小；coefficient test 不会静默切换到 finite-group t reference。字符串/分类 cluster label 属于 metadata，可在 CPU factorize，但数值 score matrix 不会搬回 CPU。
 
 ### Driscoll-Kraay covariance
 
@@ -122,29 +120,27 @@ $$
 
 再对有序 `g_t` 序列计算 kernel HAC。`PooledOLS` 使用 `time_index=`；`PanelOLS` 与 `RandomEffects` 使用对齐后的 `time_ids=`。unbalanced panel 直接按每个 time 实际存在的观测聚合。
 
-对 full-rank fit-space design（列数 `k`），Stage C 使用与 `linearmodels==7.0` 对齐的 debiased scale：
+对 full-rank fit-space design（列数 `k`），statgpu 使用与 `linearmodels==7.0` 对齐的 debiased scale：
 
 $$
 \mathrm{scale}_{DK}=\frac{n}{n-\mathrm{extra\_df}-k}.
 $$
 
-`PooledOLS` 与 `RandomEffects` 的 `extra_df=0`；`PanelOLS` 使用 Stage-B standard fixed-effect nuisance rank（`N`、`T` 或 `N+T-C`）。若 statgpu 合法到达 rank-deficient fit，则记录为扩展：用 numerical rank 替代 `k` 并配合 pseudoinverse；该 corner 不宣称与 `linearmodels` 完全相等。
+`PooledOLS` 与 `RandomEffects` 的 `extra_df=0`；`PanelOLS` 使用标准 fixed-effect nuisance rank（`N`、`T` 或 `N+T-C`）。若 statgpu 合法到达 rank-deficient fit，则使用 numerical rank 替代 `k` 并配合 pseudoinverse；该 corner 不宣称与 `linearmodels` 完全相等。
 
 `bandwidth=None` 使用 `floor(4*(T/100)^(2/9))`，其中 `T` 是 observed distinct time period 数。Bartlett/Newey-West 与 Parzen/Gallant 在 bandwidth 处截断。Quadratic Spectral（`qs`、Andrews）把 bandwidth 当作平滑尺度；bandwidth 为正时对**所有 observed lag**赋权，而不是在 `bw` 截断。numeric 与 datetime time key 按自然排序处理；ordered pandas categorical 保留显式声明的 category chronology，并仅压缩实际 observed categories。普通 string/object label 仍采用 deterministic sorted-label order；若时间顺序与字典序不同，应传入 ordered categorical 或显式 numeric/datetime time key。
 
 ### RandomEffects covariance
 
-历史 full-rank Swamy-Arora variance component 与 coefficient estimate 保持不变。对受支持的 rank-deficient extension，between/within/quasi-demeaned residual df 使用各自 identified numerical rank，从而使 variance component、theta、fitted value 与 fit-space covariance 对精确冗余列保持不变。由于原始 coefficient coordinate 不唯一可识别，逐坐标 BSE/test/p-value/CI 不可用；robust、HC、cluster 与 Driscoll-Kraay covariance 仍可在 `X_star` 上形成，用于 identified fit-space 审计。Stage-B classical Hausman 要求 **FE 与 RE 两端都使用 nonrobust covariance**；robust auxiliary Hausman 不在 Stage C 范围内，并返回结构化 inapplicable 结果。
+full-rank design 下，`RandomEffects` 使用 Swamy-Arora variance component 与 feasible-GLS 构造。对受支持的 rank-deficient extension，between/within/quasi-demeaned residual df 使用各自 identified numerical rank，从而使 variance component、theta、fitted value 与 fit-space covariance 对精确冗余列保持不变。由于原始 coefficient coordinate 不唯一可识别，逐坐标 BSE/test/p-value/CI 不可用；robust、HC、cluster 与 Driscoll-Kraay covariance 在 `X_star` 上形成。经典 Hausman 要求 **FE 与 RE 两端都使用 nonrobust covariance**；robust auxiliary Hausman 不受支持，并返回结构化 inapplicable 结果。
 
-### Backend 与验证状态
+### Backend 行为
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-已完成的 `f1546476...` Tesla P100 run 继续作为不可变历史证据保留：CuPy 与 Torch 均完成 47/47 correctness case，同步 performance matrix 为 58/58 行。随后新的 implementation hardening 再次改变 production numerical behavior，因此该历史 measurement 不能描述当前 numerical tree；更新后的实现需要新的 exact-head physical lineage。PR 专属 acceptance 状态只记录在仓库 review 文档中，而不写入长期模型文档。显式 GPU device 继续禁止静默回退 CPU。
-
 ### PooledOLS HAC 时间排序
 
-对 `PooledOLS(cov_type="hac")`，应向 `fit` 传入 `time_index=`。实现采用稳定时间排序，并让 X、y 和 Stage-B entity diagnostic metadata 使用同一个 permutation。因此 BP-LM 与参数型 R² 不会因为 HAC 排序后仍使用旧 entity metadata 而发生错位。
+对 `PooledOLS(cov_type="hac")`，应向 `fit` 传入 `time_index=`。实现采用稳定时间排序，并让 X、y 和 entity diagnostic metadata 使用同一个 permutation。因此 BP-LM 与参数型 R² 不会因为 HAC 排序后仍使用旧 entity metadata 而发生错位。
 
 ### 秩亏 PooledOLS
 
@@ -155,7 +151,7 @@ HC leverage、row score、cluster/time grouped score、lag product、bread/meat/
 - 精确共线时单个系数不唯一；
 - 因而系数级 covariance、BSE、test statistic、p-value 和 confidence interval 不应被解释为唯一识别的系数推断。
 
-Stage-B model-F 的 restriction rank 使用有效数值 rank，而不是直接使用原始列数。同样的 coefficient-inference-unavailable 规则适用于 rank-deficient `PanelOLS`、`RandomEffects`、`BetweenOLS` 与 `FirstDifferenceOLS`。
+model-F 的 restriction rank 使用有效数值 rank，而不是直接使用原始列数。同样的 coefficient-inference-unavailable 规则适用于 rank-deficient `PanelOLS`、`RandomEffects`、`BetweenOLS` 与 `FirstDifferenceOLS`。
 
 ### FirstDifference 时间语义
 
@@ -188,15 +184,15 @@ within/between/overall R² 采用与 `linearmodels` 对齐的 parameter-based �
 - **between R²** 在个体均值上评价 \(\bar y_i-\bar X_i\hat\beta\)；
 - **within R²** 在 entity-demeaned 的 y 和 X 上评价同一系数向量。
 
-只有 level regressor design 中存在实际可识别的常数项时，overall 和 between total sum of squares 才中心化。固定效应本身不会自动改变这一规则。`RandomEffects` 会检测传入 level design 中显式的非零常数列，并在 adjusted R² 与 restricted model-F 中保留其 quasi-demeaned transformed column。常数检测的容差相对于该列自身量级定义，因此仅改变单位不会把一个非零常数误判成 slope，反之亦然。若 total sum of squares 为 0，Stage-B 标准字段返回 `0.0`，并在 `metadata["degenerate_total_ss"]` 中标记。
+只有 level regressor design 中存在实际可识别的常数项时，overall 和 between total sum of squares 才中心化。固定效应本身不会自动改变这一规则。`RandomEffects` 会检测传入 level design 中显式的非零常数列，并在 adjusted R² 与 restricted model-F 中保留其 quasi-demeaned transformed column。常数检测的容差相对于该列自身量级定义，因此仅改变单位不会把一个非零常数误判成 slope，反之亦然。若 total sum of squares 为 0，标准字段返回 `0.0`，并在 `metadata["degenerate_total_ss"]` 中标记。
 
 ### Legacy `PanelOLS.rsquared_within`
 
-`PanelOLS.rsquared_within` 为兼容 Stage A 保持原样。双向 FE 下，它描述历史上的 entity+time 完整 transformed fit，因此可能与标准化的 entity-within `fit_statistics_.rsquared_within` 不同。Stage B 不覆盖旧属性，并在 fit-statistics metadata 中保留兼容值。
+`PanelOLS.rsquared_within` 为向后兼容保持原样。双向 FE 下，它描述 entity+time 完整 transformed fit，因此可能与标准化的 entity-within `fit_statistics_.rsquared_within` 不同。标准化 statistic 不覆盖旧属性，并在 fit-statistics metadata 中保留兼容值。
 
 ### Adjusted R² 与 diagnostic df
 
-新的标准化 diagnostics 使用完整 fixed-effect nuisance space 的 rank。当前 `PanelOLS` 不保留 exogenous intercept，因此标准 nuisance-effect rank 为：
+标准化 diagnostics 使用完整 fixed-effect nuisance space 的 rank。当前 `PanelOLS` 不保留 exogenous intercept，因此标准 nuisance-effect rank 为：
 
 - 仅 entity effects：\(N\)；
 - 仅 time effects：\(T\)；
@@ -204,7 +200,7 @@ within/between/overall R² 采用与 `linearmodels` 对齐的 parameter-based �
 
 因此常见的 \(N+T-1\) 只是连通面板 \(C=1\) 的特例；若 incomplete panel 的 incidence graph 不连通，diagnostic df 使用实际 dummy-space rank，而不会硬编码连通情形。
 
-若 transformed slope design 的数值 rank 为 \(r_X\)，Stage B 使用
+若 transformed slope design 的数值 rank 为 \(r_X\)，标准化 diagnostics 使用
 
 $$
 \mathrm{df}_{\mathrm{resid,diag}}
@@ -220,11 +216,11 @@ $$
 
 来计算标准 FE model F 与 adjusted R²。
 
-这套 diagnostic df 与历史公开 `PanelOLS.df_resid` 明确分离；旧 df 继续服务已有 covariance、t statistic、p-value、confidence interval 与 summary。Hausman 使用一份仅供 diagnostic 的小型 FE covariance，并按标准 nuisance-rank denominator 重标度；Stage-A 公共 BSE/CI 不受影响。
+这套 diagnostic df 与公开 `PanelOLS.df_resid` 明确分离；该 df 继续服务现有 covariance、t statistic、p-value、confidence interval 与 summary。Hausman 使用一份仅供 diagnostic 的小型 FE covariance，并按标准 nuisance-rank denominator 重标度；公共 BSE/CI 不受影响。
 
 ### Classical model F
 
-对 OLS-style panel estimator，Stage B 报告主拟合空间上的 classical homoskedastic joint-slope F：
+对 OLS-style panel estimator，标准化 statistics 报告主拟合空间上的 classical homoskedastic joint-slope F：
 
 $$
 F=
@@ -234,7 +230,7 @@ $$
 
 其中 \(q\) 是有效 restriction rank。即使 estimator 的 coefficient covariance 使用 robust 或 clustered 选项，这一字段也不会静默变成 robust Wald test。当 unrestricted regression 精确拟合而 restricted regression 的 RSS 为正时，标准化结果采用经典极限值 `F=inf`、`p=0`，而不是把统计量标成 unavailable。RSS 的 zero/nesting tolerance 按 RSS 自身量级缩放，因此将 response 与 fitted coefficient 同时乘一个单位变换常数不会改变无量纲 F statistic 或 applicability。
 
-`FamaMacBeth` 不定义 residual-OLS model F 或 adjusted R²，因为其 covariance 来自逐期横截面系数时间序列；Stage B 不会把 beta-series inference 重命名成 residual OLS inference。
+`FamaMacBeth` 不定义 residual-OLS model F 或 adjusted R²，因为其 covariance 来自逐期横截面系数时间序列；beta-series inference 不会被重命名成 residual OLS inference。
 
 ## Specification Tests
 
@@ -269,7 +265,7 @@ result = pooled.breusch_pagan_lm_test()
 result = breusch_pagan_lm_test(pooled)
 ```
 
-这里是 **panel error-components Breusch-Pagan LM test**，不是横截面异方差的 Breusch-Pagan test。Stage B 实现 one-way entity 版本，并包含 `plm::plmtest(type="bp", effect="individual")` 使用的 Baltagi-Li incomplete/unbalanced-panel 公式。
+这里是 **panel error-components Breusch-Pagan LM test**，不是横截面异方差的 Breusch-Pagan test。statgpu 实现 one-way entity 版本，并包含 `plm::plmtest(type="bp", effect="individual")` 使用的 Baltagi-Li incomplete/unbalanced-panel 公式。
 
 原假设是 entity random-effect variance 为 0。至少需要两个 entity、正的 pooled RSS，并且至少一个 entity 有重复观测。没有 `entity_ids` 时返回结构化 inapplicable 结果，不会根据行顺序猜测 panel structure。
 
@@ -286,7 +282,7 @@ result = fe.hausman_test(re)
 result = hausman_test(fe, re)
 ```
 
-Stage B 实现 one-way entity FE-versus-RE 的经典二次型 Hausman：
+statgpu 实现 one-way entity FE-versus-RE 的经典二次型 Hausman：
 
 $$
 H=(\hat\beta_{FE}-\hat\beta_{RE})^\top
@@ -298,7 +294,7 @@ $$
 
 - FE 必须只有 one-way entity effects；
 - FE coefficient covariance 必须是 classical/nonrobust；
-- RE coefficient covariance 同样必须是 classical/nonrobust；Stage-C robust/HC/cluster/DK RE fit 不属于该 classical test 的输入；
+- RE coefficient covariance 同样必须是 classical/nonrobust；robust/HC/cluster/DK RE fit 不属于该 classical test 的输入；
 - FE 与 RE 必须来自同一个对齐后的 y/entity 样本和同一个 canonical slope design；
 - RE 可以比 FE 多一个显式常数，因为 entity FE 已吸收共同 intercept；该常数不会进入 Hausman coefficient vector；
 - 行/样本一致性使用所有对齐 float64 **slope-X/y** 值的 collision-resistant SHA-256 digest，并结合 entity-code signature 与 canonical feature metadata，而不是只比较 shape 或低阶 moments；
@@ -307,9 +303,9 @@ $$
 
 数组输入下，在移除 RE-only constant 后 slope 会重新按 `x1`、`x2`、... 做 canonical 编号；named/formula design 则保留 slope 名称。Hausman covariance rank 与 identified-range tolerance 按 covariance/coefficient 自身量级缩放，所以改变 outcome 单位不会改变同一数学问题的 applicability。
 
-GPU 拟合下，canonical slope full-content digest 仅为了 hashing 而通过有界 chunk 分批复制到 host。只有可进入 Stage-B Hausman 的 one-way entity nonrobust FE 与 `RandomEffects` 保留该 identity；robust/clustered、time-only、two-way FE 在 identity compare 前就会被判不适用，因此不承担完整 X/y hashing 开销。拟合对象只保存 digest/index metadata，不保留第二份完整 CPU design copy。统计估计、covariance 构造与 fit-statistic reduction 仍在所选数值 backend 上完成。
+GPU 拟合下，canonical slope full-content digest 仅为了 hashing 而通过有界 chunk 分批复制到 host。只有可进入 classical Hausman 的 one-way entity nonrobust FE 与 `RandomEffects` 保留该 identity；robust/clustered、time-only、two-way FE 在 identity compare 前就会被判不适用，因此不承担完整 X/y hashing 开销。拟合对象只保存 digest/index metadata，不保留第二份完整 CPU design copy。统计估计、covariance 构造与 fit-statistic reduction 仍在所选数值 backend 上完成。
 
-若 covariance difference 为 positive semidefinite 但 rank deficient，statgpu 提供显式记录的 generalized-inverse extension：只在 coefficient difference 位于 identified range 内时计算，并使用 numerical rank 作为 chi-square df。metadata 会记录 `used_pinv=True` 和 `singular PSD generalized-inverse Hausman`。Stage B 不实现 robust auxiliary-regression Hausman。
+若 covariance difference 为 positive semidefinite 但 rank deficient，statgpu 提供显式记录的 generalized-inverse extension：只在 coefficient difference 位于 identified range 内时计算，并使用 numerical rank 作为 chi-square df。metadata 会记录 `used_pinv=True` 和 `singular PSD generalized-inverse Hausman`。robust auxiliary-regression Hausman 不受支持。
 
 ## 参数与 fit 签名
 
@@ -379,7 +375,7 @@ FamaMacBeth(
 )
 ```
 
-`FamaMacBeth.fit(..., entity_ids=None)` 中的可选 entity IDs 只用于 Stage-B within/between R²；beta-series estimation 与 covariance path 保持不变。
+`FamaMacBeth.fit(..., entity_ids=None)` 中的可选 entity IDs 只用于标准化 within/between R²；beta-series estimation 与 covariance path 保持不变。
 
 ## CPU 与 GPU 示例
 
@@ -407,7 +403,7 @@ re = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
 print(fe.hausman_test(re))
 ```
 
-CuPy CUDA 使用 `device="cuda"`；Torch CUDA 使用 CUDA tensor 并设置 `device="torch"`。Stage-B 的统计变换与 sufficient-statistic accumulation 跟随所选数值 backend；formula/label metadata、最终 scalar 与小型 covariance matrix 使用 CPU metadata boundary；Hausman-compatible one-way FE/RE 拟合还会仅为 collision-resistant identity hashing 对 canonical slope X/y 做有界分块 host copy。
+CuPy CUDA 使用 `device="cuda"`；Torch CUDA 使用 CUDA tensor 并设置 `device="torch"`。统计变换与 sufficient-statistic accumulation 跟随所选数值 backend；formula/label metadata、最终 scalar 与小型 covariance matrix 使用 CPU metadata boundary；Hausman-compatible one-way FE/RE 拟合还会仅为 collision-resistant identity hashing 对 canonical slope X/y 做有界分块 host copy。
 
 ## 输出
 
@@ -428,9 +424,9 @@ formula evaluation 可能因为 missing value 删除行。entity、time、cluste
 
 ## 验证
 
-Stage A / PR #119 建立共享 Panel framework，并在 Tesla P100 上通过 10 个 CuPy + 10 个 Torch exact-head physical cases。
+Panel estimator 由 maintained analytic/fitted-model regression、formula/missing-row alignment、backend contract 与 external covariance-definition tests 覆盖。在定义可比的场景下，covariance 与 specification-test 行为会与 `linearmodels==7.0`、`statsmodels` 以及 R `plm`/`sandwich` 做对齐。GPU validation 同时覆盖 CuPy 与 Torch，并校验 requested/executed backend identity，因此不接受静默 CPU fallback。
 
-Stage B 增加 maintained analytic/fitted-model regression tests、formula/missing-row alignment、Python 3.9 + Torch 2.0 CPU parity，以及可执行的 `linearmodels==7.0` external-definition gate。physical runner 每个 backend 包含 17 个 estimator cases 与 4 个 Hausman diagnostic cases，其中包括 balanced/unbalanced 显式常数 RandomEffects，以及 FE 吸收 intercept、RE 显式估计 intercept 的 Hausman 参数化。最终 promotion 要求 `dev/benchmarks/validate_panel_stage_b_gpu.py` 在 clean exact commit 上同时通过 CuPy 与 Torch CUDA；该 runner 是 correctness/provenance gate，而不是性能 benchmark。另有独立 physical benchmark 用于测量 Hausman-compatible FE/RE 上剩余 full-content identity 开销。
+validation 与 benchmark artifact 属于版本变更和发布证据；稳定 API 与统计语义由本模型页和公开实现定义，而不是由某个 PR、commit 或 benchmark lineage 定义。
 
 ## 参考文献
 
@@ -439,5 +435,7 @@ Stage B 增加 maintained analytic/fitted-model regression tests、formula/missi
 - Baltagi, B. H., & Li, Q. (1990). A Lagrange Multiplier Test for the Error Components Model with Incomplete Panels.
 - White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator.
 - Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix.
+- Driscoll, J. C., & Kraay, A. C. (1998). Consistent covariance matrix estimation with spatially dependent panel data.
+- Andrews, D. W. K. (1991). Heteroskedasticity and autocorrelation consistent covariance matrix estimation.
 - Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium.
 - Cameron, A. C., Gelbach, J. B., & Miller, D. L. (2011). Robust inference with multiway clustering.
