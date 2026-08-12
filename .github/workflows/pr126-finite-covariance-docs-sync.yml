@@ -1,0 +1,47 @@
+name: PR126 Finite Covariance Docs Sync
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-finite-covariance-docs-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply docs patch
+        run: python dev/pr126_sync_finite_cov_docs.py
+      - name: Validate docs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for path in ['dev/plans/panel_p1_stage_c_covariance_plan.md','docs/en/models/panel.md','docs/cn/models/panel.md']:
+              text = Path(path).read_text(encoding='utf-8')
+              if 'non-finite' not in text and '非有限' not in text:
+                  raise SystemExit(f'{path}: missing finite-covariance contract')
+          PY
+          git diff --check
+      - name: Commit docs patch
+        run: |
+          rm dev/pr126_sync_finite_cov_docs.py
+          rm .github/workflows/pr126-finite-covariance-docs-sync.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "1144995+chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add docs/en/models/panel.md docs/cn/models/panel.md
+          git add -f dev/plans/panel_p1_stage_c_covariance_plan.md
+          git add -u dev/pr126_sync_finite_cov_docs.py .github/workflows/pr126-finite-covariance-docs-sync.yml
+          git commit -m "docs: document strict finite panel covariance"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
