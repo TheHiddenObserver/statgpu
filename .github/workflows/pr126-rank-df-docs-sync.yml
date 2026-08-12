@@ -1,0 +1,56 @@
+name: PR126 Rank DF Docs Sync
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-rank-df-docs-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply docs and audit status patch
+        run: python dev/pr126_sync_rank_df_docs.py
+      - name: Validate synchronized status
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          required = {
+              'docs/en/models/panel.md': ['PARTIAL_REMOTE_PENDING', '47/47', 'identified numerical rank'],
+              'docs/cn/models/panel.md': ['PARTIAL_REMOTE_PENDING', '47/47', 'identified numerical rank'],
+              'dev/reviews/pr126_physical_gpu_validation.md': ['PARTIAL_REMOTE_PENDING', '47/47', '58/58'],
+              'dev/reviews/pr126_rank_df_inference_autofix_2026-08-12.md': ['PARTIAL_REMOTE_PENDING', '86 passed', '45 passed'],
+          }
+          for path, needles in required.items():
+              text = Path(path).read_text(encoding='utf-8')
+              for needle in needles:
+                  if needle not in text:
+                      raise SystemExit(f'{path}: missing {needle!r}')
+          historical = Path('dev/reviews/pr126_post_promotion_review_2026-08-11.md').read_text(encoding='utf-8')
+          if 'Historical checkpoint, superseded on 2026-08-12' not in historical:
+              raise SystemExit('historical post-promotion record is not marked superseded')
+          PY
+          git diff --check
+      - name: Commit synchronized docs
+        run: |
+          rm dev/pr126_sync_rank_df_docs.py
+          rm .github/workflows/pr126-rank-df-docs-sync.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "1144995+chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md docs/en/models/panel.md docs/cn/models/panel.md dev/plans/panel_p1_stage_c_covariance_plan.md dev/reviews/pr126_physical_gpu_validation.md dev/reviews/pr126_post_promotion_review_2026-08-11.md dev/reviews/pr126_rank_df_inference_autofix_2026-08-12.md
+          git add -u dev/pr126_sync_rank_df_docs.py .github/workflows/pr126-rank-df-docs-sync.yml
+          git commit -m "docs: reopen PR126 physical acceptance after rank-df fix"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
