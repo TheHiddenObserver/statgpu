@@ -1,0 +1,25 @@
+name: PR126 v4 raw evidence audit
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+    paths:
+      - 'dev/pr126_v4_raw_audit.py'
+      - '.github/workflows/pr126-v4-raw-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit fresh raw physical evidence
+        run: python dev/pr126_v4_raw_audit.py
