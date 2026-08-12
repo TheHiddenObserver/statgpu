@@ -28,6 +28,11 @@ jobs:
         run: |
           python dev/pr126_promote_rank_df_v3.py
           python dev/pr126_update_v3_catalog_contracts.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/tests/test_panel_stage_c_frontend_source.py')
+          path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
       - name: Confirm historical parsers remain frozen
         run: |
           git diff --exit-code -- \
