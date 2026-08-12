@@ -78,7 +78,32 @@ jobs:
               )'''
           if text.count(old) != 1:
               raise SystemExit(f'schema helper anchor drifted: {text.count(old)}')
-          p.write_text(text.replace(old, new, 1))
+          text = text.replace(old, new, 1)
+
+          function_anchor = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected one replacement target, found {count}")
+              return text.replace(old, new, 1)
+          '''
+          function_replacement = function_anchor + '''
+          def replace_first(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count < 1:
+                  raise RuntimeError(f"{label}: replacement target is missing")
+              return text.replace(old, new, 1)
+          '''
+          if text.count(function_anchor) != 1:
+              raise SystemExit('replace_once helper anchor drifted')
+          text = text.replace(function_anchor, function_replacement, 1)
+
+          case_call = '''    text = replace_once(
+                  text,
+                  ''' + "'''" + '''                _bool_check("recorded_numpy_difference_finite", diff_ok),\\n            ]''' + "'''" + ''','''
+          if text.count(case_call) != 1:
+              raise SystemExit(f'case transform call anchor drifted: {text.count(case_call)}')
+          text = text.replace(case_call, case_call.replace('replace_once', 'replace_first', 1), 1)
+          p.write_text(text)
           PY
       - name: Apply immutable v4 promotion
         run: python dev/pr126_v4_promote.py
