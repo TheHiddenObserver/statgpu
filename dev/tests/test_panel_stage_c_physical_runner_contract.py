@@ -31,6 +31,10 @@ def test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable():
         "random_effects_cluster_two_way", "random_effects_dk",
         "between_hc0", "between_hc2", "between_hc3",
         "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
+        "panel_entity_rank_deficient_nonrobust", "panel_entity_rank_deficient_robust",
+        "between_rank_deficient_nonrobust", "between_rank_deficient_robust",
+        "first_difference_rank_deficient_nonrobust", "first_difference_rank_deficient_robust",
+        "random_effects_rank_deficient_nonrobust", "random_effects_rank_deficient_robust",
         "panel_rank_boundary_dk",
     }
     assert required <= set(cases)
@@ -106,3 +110,25 @@ def test_stage_c_runner_rank_boundary_is_explicitly_rank_two():
     assert meta["design_rank"] == 2
     assert meta["design_columns"] == 3
     assert meta["rank_deficient_extension"] is True
+
+
+
+def test_stage_c_runner_rank_deficient_estimators_exercise_identified_rank_df():
+    X, y, entity, time, clusters = _MOD._dataset()
+    cases = _MOD._fit_cases(X, y, entity, time, clusters, "numpy")
+    names = {
+        "panel_entity_rank_deficient_nonrobust",
+        "panel_entity_rank_deficient_robust",
+        "between_rank_deficient_nonrobust",
+        "between_rank_deficient_robust",
+        "first_difference_rank_deficient_nonrobust",
+        "first_difference_rank_deficient_robust",
+        "random_effects_rank_deficient_nonrobust",
+        "random_effects_rank_deficient_robust",
+    }
+    for name in names:
+        model = cases[name]
+        fit_rank = _MOD._fit_rank(model)
+        assert fit_rank < len(np.asarray(model.coef_).ravel()), name
+        assert model.df_resid > 0, name
+        assert np.all(np.isfinite(model.bse_)), name

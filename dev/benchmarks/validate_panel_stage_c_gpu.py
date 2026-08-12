@@ -103,6 +103,23 @@ def _rank_boundary_inputs(seed=20260815):
     return X, resid, time, clusters
 
 
+def _rank_deficient_estimator_inputs(seed=20260816):
+    """Return an unbalanced exact-collinearity panel for estimator integration."""
+    rng = np.random.default_rng(seed)
+    n_entities, n_times = 15, 4
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    keep = np.ones(entity.size, dtype=bool)
+    keep[[1, 10, 19, 33, 46, 57]] = False
+    entity = entity[keep]
+    time = time[keep]
+    x = rng.normal(size=entity.size)
+    X = np.column_stack([x, 2.0 * x]).astype(np.float64)
+    alpha = np.repeat(rng.normal(scale=0.3, size=n_entities), n_times)[keep]
+    y = 0.4 + 0.7 * x + alpha + rng.normal(scale=0.2, size=entity.size)
+    return X, y.astype(np.float64), entity, time
+
+
 def _to_backend(X, y, entity, time, backend):
     if backend == "numpy":
         return X, y, entity, time
@@ -204,6 +221,20 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
     }
 
 
+def _fit_rank(model):
+    """Return the estimator fit-space numerical rank for audit payloads."""
+    fit = model.fit_statistics_
+    metadata = getattr(fit, "metadata", {}) if fit is not None else {}
+    diagnostic_df = metadata.get("diagnostic_df")
+    if isinstance(diagnostic_df, dict) and "rank_x" in diagnostic_df:
+        return int(diagnostic_df["rank_x"])
+    if "diagnostic_rank" in metadata:
+        return int(metadata["diagnostic_rank"])
+    if hasattr(model, "rank_"):
+        return int(model.rank_)
+    return int(len(np.asarray(model.coef_).ravel()))
+
+
 def _snapshot(model):
     fit = model.fit_statistics_
     fit_payload = {
@@ -296,6 +327,28 @@ def _fit_cases(X, y, entity, time, clusters, backend):
         cases[f"first_difference_{cov}"] = FirstDifferenceOLS(
             cov_type=cov, device=device
         ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
+
+    X_rd, y_rd, entity_rd, time_rd = _rank_deficient_estimator_inputs()
+    X_rd_b, y_rd_b, entity_rd_b, time_rd_b = _to_backend(
+        X_rd, y_rd, entity_rd, time_rd, backend
+    )
+    X_rd_re = np.column_stack([np.ones(len(y_rd)), X_rd])
+    X_rd_re_b, y_rd_re_b, entity_rd_re_b, _time_rd_re_b = _to_backend(
+        X_rd_re, y_rd, entity_rd, time_rd, backend
+    )
+    for cov in ("nonrobust", "robust"):
+        cases[f"panel_entity_rank_deficient_{cov}"] = PanelOLS(
+            entity_effects=True, cov_type=cov, device=device
+        ).fit(X_rd_b, y_rd_b, entity_ids=entity_rd_b)
+        cases[f"between_rank_deficient_{cov}"] = BetweenOLS(
+            cov_type=cov, device=device
+        ).fit(X_rd_b, y_rd_b, entity_ids=entity_rd_b)
+        cases[f"first_difference_rank_deficient_{cov}"] = FirstDifferenceOLS(
+            cov_type=cov, device=device
+        ).fit(X_rd_b, y_rd_b, entity_ids=entity_rd_b, time_ids=time_rd_b)
+        cases[f"random_effects_rank_deficient_{cov}"] = RandomEffects(
+            cov_type=cov, device=device
+        ).fit(X_rd_re_b, y_rd_re_b, entity_ids=entity_rd_re_b)
 
     X_rank, y_rank, time_rank, _cluster_rank = _rank_boundary_inputs()
     rank_entity = np.arange(len(y_rank), dtype=np.int64)
@@ -474,6 +527,8 @@ def main():
                 "executed_backend": executed,
                 "max_abs_differences": differences,
                 "covariance_metadata": snapshot["covariance_metadata"],
+                "fit_rank": _fit_rank(model),
+                "parameter_count": int(snapshot["coef"].size),
             }
         primitive_values = _public_primitive_cases(
             X, y, entity, time, clusters, backend
@@ -514,6 +569,10 @@ def main():
         "random_effects_cluster_two_way", "random_effects_dk",
         "between_hc0", "between_hc2", "between_hc3",
         "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
+        "panel_entity_rank_deficient_nonrobust", "panel_entity_rank_deficient_robust",
+        "between_rank_deficient_nonrobust", "between_rank_deficient_robust",
+        "first_difference_rank_deficient_nonrobust", "first_difference_rank_deficient_robust",
+        "random_effects_rank_deficient_nonrobust", "random_effects_rank_deficient_robust",
         "panel_rank_boundary_dk",
     }
     if set(reference) != required_cases:
@@ -523,8 +582,8 @@ def main():
             "NumPy reference Stage-C physical matrix drifted: "
             f"missing={missing}, unexpected={unexpected}"
         )
-    if len(reference) != 27:
-        raise AssertionError(f"expected 27 Stage-C physical cases, got {len(reference)}")
+    if len(reference) != 35:
+        raise AssertionError(f"expected 35 Stage-C physical cases, got {len(reference)}")
     for backend, payload in results.items():
         if set(payload["cases"]) != required_cases:
             missing = sorted(required_cases - set(payload["cases"]))

@@ -41,6 +41,16 @@ def _version(name):
         return None
 
 
+def _package_version(name):
+    if name == "cupy":
+        return (
+            _version("cupy")
+            or _version("cupy-cuda11x")
+            or _version("cupy-cuda12x")
+        )
+    return _version(name)
+
+
 def _parse_scales(text):
     values = []
     for token in text.split(","):
@@ -292,7 +302,7 @@ def main():
             "platform": platform.platform(),
             "gpu_by_backend": {backend: _gpu_name(backend) for backend in backends},
             "packages": {
-                name: _version(name)
+                name: _package_version(name)
                 for name in ("statgpu", "numpy", "cupy", "torch")
             },
         },

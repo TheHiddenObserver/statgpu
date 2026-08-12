@@ -55,3 +55,11 @@ def test_timing_row_schema_records_scenario_and_time_dimension():
     assert row["median_seconds"] == pytest.approx(0.3)
     assert row["samples_seconds"] == [0.3, 0.2, 0.4]
     assert mod.PERFORMANCE_SCHEMA_VERSION >= 2
+
+
+
+def test_cupy_package_version_accepts_cuda_specific_distribution(monkeypatch):
+    mod = _runner()
+    versions = {"cupy-cuda12x": "13.6.0"}
+    monkeypatch.setattr(mod, "_version", lambda name: versions.get(name))
+    assert mod._package_version("cupy") == "13.6.0"
