@@ -77,9 +77,9 @@ def audit_correctness() -> None:
     assert "P100" in env["gpu"]
     assert env["packages"]["cupy"] == "13.6.0"
     assert env["packages"]["torch"] == "2.0.0"
-    assert set(data["results"]) == {"cupy", "torch"}
+    assert set(data["backends"]) == {"cupy", "torch"}
     for backend in ("cupy", "torch"):
-        payload = data["results"][backend]
+        payload = data["backends"][backend]
         assert payload["status"] == "success"
         assert payload["requested_backend"] == backend
         cases = payload["cases"]
@@ -113,6 +113,7 @@ def audit_correctness() -> None:
         assert rank_meta["design_rank"] == 2
         assert rank_meta["design_columns"] == 3
         assert rank_meta["rank_deficient_extension"] is True
+        assert rank_meta["coefficient_inference_applicable"] is False
     assert data["case_count_per_backend"] == len(EXPECTED_CASES) == 35
     assert data["public_primitive_count_per_backend"] == len(EXPECTED_PRIMITIVES) == 12
 
@@ -126,12 +127,12 @@ def audit_performance() -> None:
     assert data["timing_scope"] == "synchronized end-to-end estimator fit"
     assert data["environment"]["packages"]["cupy"] == "13.6.0"
     assert data["environment"]["packages"]["torch"] == "2.0.0"
-    gpu_names = data["environment"]["gpu_names"]
+    gpu_names = data["environment"]["gpu_by_backend"]
     assert set(gpu_names) == {"cupy", "torch"}
     assert all("P100" in gpu_names[b] for b in gpu_names)
     assert data["high_t_scale"] == "10000x2x200"
     assert data["two_way_unbalanced_scale"] == "10000x2x20"
-    rows = data["results"]
+    rows = data["rows"]
     assert len(rows) == 60
     seen = set()
     base = high_t = tw = 0
