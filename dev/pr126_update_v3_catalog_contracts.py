@@ -34,7 +34,7 @@ def update_literal_counts() -> None:
         Path("dev/tests/test_benchmark_inventory_v2.py"),
         "== 15",
         f"== {NEW_SOURCE_COUNT}",
-        2,
+        5,
     )
     replace_all(
         Path("dev/tests/test_frontend_domain_coverage.py"),
