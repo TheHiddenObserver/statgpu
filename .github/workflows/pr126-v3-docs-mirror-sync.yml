@@ -1,0 +1,64 @@
+name: PR126 V3 Docs Mirror Sync
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-v3-docs-mirror-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install benchmark validation dependency
+        run: python -m pip install 'jsonschema[format]'
+      - name: Generate canonical data exactly as permanent staleness gate
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+      - name: Build docs benchmark mirror exactly as permanent staleness gate
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - name: Validate canonical frontend data stayed current
+        run: |
+          git diff --exit-code -- frontend/public/data
+          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+      - name: Validate docs mirror delta and formatting
+        run: |
+          changes="$(git status --porcelain -- docs/assets/benchmarks)"
+          if [ -z "$changes" ]; then
+            echo "Expected stale docs benchmark mirror to change, but no delta was produced."
+            exit 1
+          fi
+          echo "Docs benchmark mirror delta:"
+          printf '%s\n' "$changes"
+          git diff --check
+      - name: Commit synchronized docs benchmark mirror
+        run: |
+          rm .github/workflows/pr126-v3-docs-mirror-sync.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "1144995+chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add docs/assets/benchmarks
+          git add -u .github/workflows/pr126-v3-docs-mirror-sync.yml
+          git commit -m "fix: sync PR126 v3 benchmark docs mirror"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
