@@ -20,10 +20,27 @@ def _runner():
 
 def test_high_t_scenario_is_explicit_and_qs_only():
     mod = _runner()
+    assert mod.PERFORMANCE_SCHEMA_VERSION == 3
     n, k, n_times = mod._parse_high_t_scale(mod.DEFAULT_HIGH_T_SCALE)
     assert (n, k, n_times) == (10000, 2, 200)
     assert n_times >= 200
     assert set(mod.HIGH_T_CASES) == {"pooled_dk_qs", "panel_entity_dk_qs"}
+
+
+def test_two_way_unbalanced_scenario_is_explicit_and_incomplete():
+    mod = _runner()
+    assert mod.DEFAULT_TWO_WAY_UNBALANCED_SCALE == "10000x2x20"
+    assert mod.TWO_WAY_UNBALANCED_CASE == "panel_two_way_nonrobust"
+    X, y, entity, time, clusters = mod._unbalanced_two_way_dataset(
+        1000, 2, 43, n_times=20
+    )
+    assert X.shape == (1000, 2)
+    assert y.shape == (1000,)
+    assert clusters.shape == (1000, 2)
+    assert np.unique(clusters, axis=0).shape[0] == 1000
+    counts = np.bincount(entity)
+    assert np.unique(counts[counts > 0]).size > 1
+    assert len(np.unique(time)) == 20
 
 
 def test_dataset_honors_requested_time_dimension():

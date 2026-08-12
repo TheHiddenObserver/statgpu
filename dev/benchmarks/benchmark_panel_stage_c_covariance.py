@@ -21,9 +21,11 @@ import numpy as np
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 
 
-PERFORMANCE_SCHEMA_VERSION = 2
+PERFORMANCE_SCHEMA_VERSION = 3
 DEFAULT_HIGH_T_SCALE = "10000x2x200"
+DEFAULT_TWO_WAY_UNBALANCED_SCALE = "10000x2x20"
 HIGH_T_CASES = ("pooled_dk_qs", "panel_entity_dk_qs")
+TWO_WAY_UNBALANCED_CASE = "panel_two_way_nonrobust"
 
 
 def _git_sha():
@@ -111,6 +113,40 @@ def _dataset(n, k, seed, *, n_times=20):
     return X, y.astype(np.float64), entity, time_ids, clusters
 
 
+def _unbalanced_two_way_dataset(n, k, seed, *, n_times=20):
+    """Deterministic incomplete panel for alternating-projection timing."""
+    if int(n_times) < 2 or int(n) < int(n_times):
+        raise ValueError("two-way dataset requires n_times>=2 and n>=n_times")
+    rng = np.random.default_rng(seed)
+    n_times = int(n_times)
+    n_entities = max(2, int(np.ceil((1.2 * n) / n_times)))
+    entity_full = np.repeat(np.arange(n_entities), n_times)
+    time_full = np.tile(np.arange(n_times), n_entities)
+    keep = ((7 * entity_full + 11 * time_full) % 17) != 0
+    retained = np.flatnonzero(keep)
+    if retained.size < int(n):
+        raise RuntimeError("deterministic two-way mask did not retain enough rows")
+    idx = retained[: int(n)]
+    X_full = rng.normal(size=(entity_full.size, k)).astype(np.float64)
+    beta = np.linspace(0.15, 0.75, k, dtype=np.float64)
+    alpha = rng.normal(scale=0.35, size=n_entities)
+    tau = rng.normal(scale=0.2, size=n_times)
+    y_full = (
+        X_full @ beta
+        + alpha[entity_full]
+        + tau[time_full]
+        + rng.normal(scale=0.25, size=entity_full.size)
+    )
+    entity = entity_full[idx]
+    time_ids = time_full[idx]
+    X = X_full[idx]
+    y = y_full[idx].astype(np.float64)
+    clusters = np.column_stack([entity, time_ids])
+    if np.unique(clusters, axis=0).shape[0] != int(n):
+        raise RuntimeError("two-way performance dataset contains duplicate panel cells")
+    return X, y, entity, time_ids, clusters
+
+
 def _to_backend(X, y, entity, time_ids, backend):
     if backend == "cupy":
         import cupy as cp
@@ -180,6 +216,13 @@ def _fit_case(case, X, y, entity, time_ids, clusters, backend):
         return PanelOLS(
             entity_effects=True, cov_type="dk", bandwidth=2, kernel="qs", device=device
         ).fit(X, y, entity_ids=entity, time_ids=time_ids)
+    if case == "panel_two_way_nonrobust":
+        return PanelOLS(
+            entity_effects=True,
+            time_effects=True,
+            cov_type="nonrobust",
+            device=device,
+        ).fit(X, y, entity_ids=entity, time_ids=time_ids)
     if case == "random_effects_nonrobust":
         return RandomEffects(device=device).fit(X, y, entity_ids=entity)
     if case == "random_effects_hc3":
@@ -211,6 +254,11 @@ def main():
         "--high-t-scale",
         default=DEFAULT_HIGH_T_SCALE,
         help="additional NxKxT scenario used only for QS all-lag cases",
+    )
+    parser.add_argument(
+        "--two-way-unbalanced-scale",
+        default=DEFAULT_TWO_WAY_UNBALANCED_SCALE,
+        help="NxKxT scenario for the iterative two-way FE performance path",
     )
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
@@ -286,6 +334,42 @@ def main():
                 )
             )
 
+    tw_n, tw_k, tw_t = _parse_high_t_scale(args.two_way_unbalanced_scale)
+    X_np, y_np, entity_np, time_np, clusters = _unbalanced_two_way_dataset(
+        tw_n, tw_k, 20260900, n_times=tw_t
+    )
+    for backend in backends:
+        X, y, entity, time_ids = _to_backend(
+            X_np, y_np, entity_np, time_np, backend
+        )
+        _timed(
+            TWO_WAY_UNBALANCED_CASE, X, y, entity, time_ids, clusters, backend
+        )
+        samples = [
+            _timed(
+                TWO_WAY_UNBALANCED_CASE,
+                X,
+                y,
+                entity,
+                time_ids,
+                clusters,
+                backend,
+            )
+            for _ in range(args.repeats)
+        ]
+        rows.append(
+            _timing_row(
+                backend=backend,
+                case=TWO_WAY_UNBALANCED_CASE,
+                scenario="two_way_unbalanced",
+                n=tw_n,
+                k=tw_k,
+                n_times=len(np.unique(time_np)),
+                repeats=args.repeats,
+                samples=samples,
+            )
+        )
+
     payload = {
         "schema_version": PERFORMANCE_SCHEMA_VERSION,
         "git_sha": args.expected_sha,
@@ -297,6 +381,7 @@ def main():
             "cluster labels remain CPU metadata"
         ),
         "high_t_scale": args.high_t_scale,
+        "two_way_unbalanced_scale": args.two_way_unbalanced_scale,
         "environment": {
             "python": platform.python_version(),
             "platform": platform.platform(),

@@ -32,6 +32,9 @@ from statgpu.panel import (
 from statgpu.panel._covariance import ols_covariance
 
 
+CORRECTNESS_SCHEMA_VERSION = 2
+
+
 def _git_sha() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
@@ -652,7 +655,7 @@ def main():
             )
 
     output = {
-        "schema_version": 1,
+        "schema_version": CORRECTNESS_SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": sha,
         "working_tree_clean": True,

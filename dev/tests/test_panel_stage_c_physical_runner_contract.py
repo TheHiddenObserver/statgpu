@@ -15,6 +15,10 @@ _MOD = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MOD)
 
 
+def test_stage_c_runner_fresh_schema_version_is_explicit():
+    assert _MOD.CORRECTNESS_SCHEMA_VERSION == 2
+
+
 def test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable():
     X, y, entity, time, clusters = _MOD._dataset()
     cases = _MOD._fit_cases(X, y, entity, time, clusters, "numpy")
