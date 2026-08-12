@@ -426,8 +426,6 @@ Formula evaluation may drop rows with missing values. Entity, time, cluster, and
 
 Panel estimators are covered by maintained analytic and fitted-model regression tests, formula/missing-row alignment tests, backend-contract tests, and external covariance-definition checks. Where definitions overlap, covariance and specification-test behavior is compared with `linearmodels==7.0`, `statsmodels`, and R `plm`/`sandwich`. GPU validation exercises both CuPy and Torch execution and verifies explicit requested/executed backend identity so silent CPU fallback is not accepted.
 
-Validation and benchmark artifacts are release/change evidence; the stable API and statistical semantics are defined by this model page and the public implementation rather than by a particular PR, commit, or benchmark lineage.
-
 ## References
 
 - Hausman, J. A. (1978). Specification tests in econometrics.
