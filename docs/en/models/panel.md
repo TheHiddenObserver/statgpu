@@ -140,7 +140,7 @@ Historical full-rank Swamy-Arora variance-component and coefficient estimation i
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-Current validation status is **PARTIAL_REMOTE_PENDING**. The `3dc7df19...` Tesla P100 run remains historical evidence only because production numerical behavior changed afterward. Fresh correctness acceptance must run the expanded matrix at the current exact-clean source: CuPy and Torch each require **47/47 = 35 estimator integrations + 12 public primitives**, including eight rank-deficient nonrobust/HC1 estimator cases that record `fit_rank < parameter_count`; the synchronized performance target remains 58/58 rows. Explicit GPU devices continue to forbid silent CPU fallback.
+The `3dc7df19...` Tesla P100 run is historical evidence only because production numerical behavior changed afterward. The post-fix implementation has not yet been promoted from fresh physical evidence: its maintained acceptance matrix requires **47/47 = 35 estimator integrations + 12 public primitives** on each of CuPy and Torch, including eight rank-deficient nonrobust/HC1 estimator cases that record `fit_rank < parameter_count`; the synchronized performance matrix remains 58/58 rows. PR-specific gate state is tracked in the repository review records rather than this long-lived model page. Explicit GPU devices continue to forbid silent CPU fallback.
 
 ### PooledOLS HAC ordering
 

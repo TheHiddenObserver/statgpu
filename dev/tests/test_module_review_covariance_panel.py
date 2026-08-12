@@ -187,8 +187,26 @@ def test_panel_rank_deficiency_uses_stable_pseudoinverse():
     assert np.all(np.isfinite(pooled.coef_))
 
 
-def test_between_requires_positive_residual_degrees_of_freedom():
+def test_between_rank_deficient_df_uses_identified_rank():
+    # Three entity means and three raw columns after the automatic intercept,
+    # but only rank two: the supported rank-deficient extension has one
+    # residual degree of freedom and must not reject merely because groups <= k.
     X = np.arange(12.0).reshape(6, 2)
+    y = np.arange(6.0)
+    entity = np.array([0, 0, 1, 1, 2, 2])
+    model = BetweenOLS().fit(X, y, entity_ids=entity)
+    assert model.df_resid == 1
+    assert model.fit_statistics_.metadata["diagnostic_rank"] == 2
+
+
+def test_between_requires_positive_identified_residual_degrees_of_freedom():
+    # Three entity means span intercept + two slopes, so rank == n_groups and
+    # the identified residual degrees of freedom are genuinely zero.
+    X = np.array([
+        [0.0, 0.0], [0.0, 0.0],
+        [1.0, 0.0], [1.0, 0.0],
+        [0.0, 1.0], [0.0, 1.0],
+    ])
     y = np.arange(6.0)
     entity = np.array([0, 0, 1, 1, 2, 2])
     with pytest.raises(ValueError, match="degrees of freedom"):

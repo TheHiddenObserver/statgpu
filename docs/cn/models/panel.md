@@ -140,7 +140,7 @@ $$
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-当前验证状态为 **PARTIAL_REMOTE_PENDING**。由于后续 production numerical behavior 已改变，`3dc7df19...` Tesla P100 结果仅保留为历史证据。新的 correctness acceptance 必须在当前 exact-clean source 上执行扩展矩阵：CuPy 与 Torch 各要求 **47/47 = 35 个 estimator integration + 12 个 public primitive**，其中新增 8 个 rank-deficient nonrobust/HC1 estimator case 并记录 `fit_rank < parameter_count`；同步 performance 目标仍为 58/58 行。显式 GPU device 继续禁止静默回退 CPU。
+由于后续 production numerical behavior 已改变，`3dc7df19...` Tesla P100 结果仅保留为历史证据。修复后的实现尚未基于新的 physical evidence 完成 promotion：maintained acceptance matrix 要求 CuPy 与 Torch 各通过 **47/47 = 35 个 estimator integration + 12 个 public primitive**，其中包括 8 个记录 `fit_rank < parameter_count` 的 rank-deficient nonrobust/HC1 estimator case；同步 performance matrix 仍为 58/58 行。PR 专属 gate 状态记录在仓库 review 文档中，而不写入长期模型文档。显式 GPU device 继续禁止静默回退 CPU。
 
 ### PooledOLS HAC 时间排序
 
