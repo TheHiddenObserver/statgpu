@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Apply final refinements
-        run: python dev/pr126_round4_final_refinement.py
+        run: python dev/pr126_round4_final_refinement_v2.py
       - name: Install focused environment
         run: |
           python -m pip install --upgrade pip
@@ -51,13 +51,14 @@ jobs:
           assert 'FirstDifference time semantics' in en
           assert 'coefficient-inference-unavailable' in cn
           assert 'FirstDifference 时间语义' in cn
+          assert 'f1546476...' in en and 'f1546476...' in cn
           PY
           git diff --check
       - name: Commit validated refinements
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/workflows/pr126-round4-final-refinement.yml dev/pr126_round4_final_refinement.py
+          git rm .github/workflows/pr126-round4-final-refinement.yml dev/pr126_round4_final_refinement.py dev/pr126_round4_final_refinement_v2.py
           git add statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py docs/en/models/panel.md docs/cn/models/panel.md
           git diff --cached --check
           git commit -m 'fix: finalize Panel Stage C review contracts'
