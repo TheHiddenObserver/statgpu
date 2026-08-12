@@ -260,9 +260,12 @@ class BasePanelModel(BaseEstimator):
         )
 
         diag = xp.diag(cov_params)
-        diag_np = np.diag(self._panel_cov_params_raw).astype(
-            np.float64, copy=False
-        )
+        cov_np = self._panel_cov_params_raw
+        if not np.all(np.isfinite(cov_np)):
+            raise ValueError(
+                "covariance contains non-finite values; inference is not numerically valid"
+            )
+        diag_np = np.diag(cov_np).astype(np.float64, copy=False)
         # A variance is invalid whenever it is strictly negative. There is no
         # dimensionally valid generic tolerance that can distinguish a small
         # negative variance from cancellation using only the final covariance:

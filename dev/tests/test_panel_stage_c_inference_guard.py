@@ -81,3 +81,17 @@ def test_negative_variance_guard_is_scale_equivariant(monkeypatch):
     model = _store_with_mock_covariance(monkeypatch, signed_zero)
     assert np.all(np.isfinite(model.bse_))
     assert model.bse_[1] >= 0.0
+
+
+
+@pytest.mark.parametrize(
+    "covariance",
+    [
+        np.array([[1.0, np.nan], [np.nan, 1.0]]),
+        np.array([[np.inf, 0.0], [0.0, 1.0]]),
+        np.array([[1.0, 0.0], [0.0, -np.inf]]),
+    ],
+)
+def test_inference_rejects_nonfinite_covariance(monkeypatch, covariance):
+    with pytest.raises(ValueError, match="covariance contains non-finite values"):
+        _store_with_mock_covariance(monkeypatch, covariance)
