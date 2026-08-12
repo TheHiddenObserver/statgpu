@@ -1,0 +1,53 @@
+name: PR126 round4 remote evidence contract
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-round4-remote-contract.yml
+
+permissions:
+  contents: write
+
+jobs:
+  remote-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply remote evidence contract fixes
+        run: python dev/pr126_round4_remote_contract_fix.py
+      - name: Install focused environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,validation,formula,torch]' 'linearmodels==7.0'
+      - name: Run focused runner and source matrix
+        run: |
+          python -m pytest -q \
+            dev/tests/test_panel_stage_c_performance_runner_contract.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_review_round4.py \
+            dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
+            dev/tests/test_panel_stage_c_torch_cpu.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py
+      - name: Static gates
+        run: |
+          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py dev/benchmarks/benchmark_panel_stage_c_covariance.py
+          git diff --check
+      - name: Commit validated remote contracts
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr126-round4-remote-contract.yml dev/pr126_round4_remote_contract_fix.py
+          git add dev/benchmarks/validate_panel_stage_c_gpu.py dev/benchmarks/benchmark_panel_stage_c_covariance.py dev/tests/test_panel_stage_c_physical_runner_contract.py dev/tests/test_panel_stage_c_performance_runner_contract.py
+          git diff --cached --check
+          git commit -m 'test: version fresh Panel Stage C remote evidence contracts'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
