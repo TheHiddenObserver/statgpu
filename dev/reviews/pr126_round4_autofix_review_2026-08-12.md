@@ -8,7 +8,7 @@ Review standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 Technical candidate before this review-record-only commit:
 
-`cc71157f8d5d32380c307b0f7e7641fd612fbacb`
+`8ce6f80a1292265b92d5cf53b11f27b652291432`
 
 This record is intentionally the only branch delta after the technical candidate. After the exact checkpoint hosted workflows complete, live PR metadata may record the resulting lifecycle state without mutating the branch and creating a CI/status-record recursion.
 
@@ -71,6 +71,11 @@ Inactive: loss, penalty, generic solver, CV.
     - Fresh performance runner now emits schema v3 and adds an incomplete/unbalanced `PanelOLS(entity_effects=True,time_effects=True,cov_type='nonrobust')` case at `N=10,000`, `k=2`, `T=20` for both GPU backends.
     - Fresh performance target is 60 synchronized rows: 54 historical base rows + 4 bounded high-T QS rows + 2 two-way-unbalanced rows.
 
+11. **HIGH / TEST-CONTRACT — the first exact hosted checkpoint exposed one stale legacy rank-deficiency test.**
+    - `dev/tests/test_pr79_final_review_fixes.py::test_pooled_rank_deficiency_uses_effective_rank_for_df` still required statsmodels-style coordinate BSE on an exact-collinear `PooledOLS` design.
+    - The test now keeps its effective-rank/df assertions, compares the identifiable fitted-space covariance `X V X'`, and requires explicit coefficient-inference unavailability.
+    - The targeted failing contract plus the current rank-deficient/inference matrix passed before the fix was committed.
+
 ## Validation already completed before this checkpoint
 
 The fix loop used fail-before-commit helper workflows. Relevant completed gates include:
@@ -81,9 +86,11 @@ The fix loop used fail-before-commit helper workflows. Relevant completed gates 
 - final single-sync / bilingual docs / physical-contract refinement matrix: **155 tests passed**, plus compile/static/docs contracts and `git diff --check`;
 - fresh remote-runner contract matrix: **92/92 passed**, plus compile/static checks and `git diff --check`;
 - RandomEffects prediction-backend focused matrix: passed with static checks;
-- reviewed-plan synchronization contract: passed.
+- reviewed-plan synchronization contract: passed;
+- first hosted checkpoint `1a5f7138...`: all regression matrices, static/docs contracts, Stage-B external alignment, Torch Stage-C workflow, maintenance/release gates reached green, but the complete CPU suite found the one stale PR79 BSE expectation above (`1 failed, 2535 passed, 737 skipped`);
+- hosted-failure follow-up: the exact failing PR79 test plus current rank-deficient/inference matrix and static checks passed before committing technical candidate `8ce6f80a...`.
 
-Final read-only review of the technical candidate found no unresolved CRITICAL, HIGH, or relevant MEDIUM finding.
+Final read-only review of the updated technical candidate found no unresolved CRITICAL, HIGH, or relevant MEDIUM finding.
 
 ## Fresh remote acceptance contract
 
