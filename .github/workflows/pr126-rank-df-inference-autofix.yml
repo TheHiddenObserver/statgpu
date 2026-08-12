@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
       - name: Apply source and test patch
         run: python dev/pr126_autofix_rank_df.py
       - name: Install focused validation environment
