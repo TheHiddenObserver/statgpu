@@ -332,6 +332,10 @@ def _fit_cases(X, y, entity, time, clusters, backend):
         cases[f"random_effects_explicit_constant_{cov}"] = RandomEffects(
             cov_type=cov, device=device
         ).fit(Xcb, ycb, entity_ids=ecb)
+        if cov == "hc0":
+            cases[f"random_effects_explicit_constant_{cov}"]._physical_prediction = cases[
+                f"random_effects_explicit_constant_{cov}"
+            ].predict(Xcb[:8])
     cases["random_effects_cluster_two_way"] = RandomEffects(
         cov_type="clustered", group_debias=True, device=device
     ).fit(Xcb, ycb, entity_ids=ecb, cluster=clusters)
@@ -572,7 +576,10 @@ def main():
                     raise AssertionError(
                         f"{name}: rank-deficient inference reason is not auditable"
                     )
-            if name == "panel_entity_hc0" and snapshot["prediction_backend"] != backend:
+            if name in {
+                "panel_entity_hc0",
+                "random_effects_explicit_constant_hc0",
+            } and snapshot["prediction_backend"] != backend:
                 raise AssertionError(
                     f"{name}: prediction requested {backend}, executed {snapshot['prediction_backend']}"
                 )

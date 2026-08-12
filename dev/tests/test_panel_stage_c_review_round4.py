@@ -161,3 +161,23 @@ def test_panel_predict_preserves_omitted_explicit_constant_compatibility():
     actual = model.predict(x[:12, None])
     assert_allclose(actual, expected, rtol=0, atol=2e-12)
     assert model._predict_backend_name == "numpy"
+
+
+def test_random_effects_predict_preserves_backend_helper_and_constant_compatibility():
+    rng = np.random.default_rng(12926)
+    n_entities, n_times = 10, 4
+    entity = np.repeat(np.arange(n_entities), n_times)
+    x = rng.normal(size=entity.size)
+    X_full = np.column_stack([np.ones(len(x)), x])
+    alpha = np.repeat(rng.normal(scale=0.25, size=n_entities), n_times)
+    y = 0.5 + 0.85 * x + alpha + rng.normal(scale=0.15, size=len(x))
+    model = RandomEffects(cov_type="hc0").fit(X_full, y, entity_ids=entity)
+
+    expected_full = X_full[:12] @ model.coef_
+    actual_full = model.predict(X_full[:12])
+    assert_allclose(actual_full, expected_full, rtol=0, atol=2e-12)
+    assert model._predict_backend_name == "numpy"
+
+    actual_omitted = model.predict(x[:12, None])
+    assert_allclose(actual_omitted, expected_full, rtol=0, atol=2e-12)
+    assert model._predict_backend_name == "numpy"

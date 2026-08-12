@@ -465,24 +465,27 @@ class RandomEffects(BasePanelModel):
         return hausman_test(fixed_effects_model, self)
 
     def predict(self, X):
-        """Predict using the fitted model, preserving current NumPy output."""
+        """Predict on the selected numerical backend and return NumPy output."""
         self._check_is_fitted()
-        if getattr(self, "_design_info", None) is not None and hasattr(X, "columns"):
-            from statgpu.panel._formula import _formula_predict
-
-            X_arr = _formula_predict(
+        backend = self._get_backend(backend="auto")
+        try:
+            prediction = self._panel_predict_linear(
                 X,
-                self._design_info,
-                self._formula_has_intercept,
                 model_has_intercept=False,
+                add_intercept=False,
+                return_numpy=False,
             )
-        else:
-            X_arr = np.asarray(X, dtype=np.float64)
-        if X_arr.ndim == 1:
-            X_arr = X_arr.reshape(-1, 1)
-        if X_arr.shape[1] + 1 == self.coef_.shape[0]:
-            X_arr = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
-        return X_arr @ self.coef_
+        except ValueError as exc:
+            if str(exc) != "X has an incompatible feature count":
+                raise
+            prediction = self._panel_predict_linear(
+                X,
+                model_has_intercept=False,
+                add_intercept=True,
+                return_numpy=False,
+            )
+        self._predict_backend_name = backend.name
+        return np.asarray(_to_numpy(prediction), dtype=np.float64)
 
     def summary(self):
         """Print and return the structured coefficient summary."""
