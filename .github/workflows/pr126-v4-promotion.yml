@@ -107,6 +107,53 @@ jobs:
           PY
       - name: Apply immutable v4 promotion
         run: python dev/pr126_v4_promote.py
+      - name: Synchronize maintained exact canonical fixtures
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrences of {old!r}, found {count}')
+              p.write_text(text.replace(old, new))
+
+          p = 'dev/tests/test_benchmark_frontend_data.py'
+          replace(p, 'assert len(manifest["sources"]) == 17', 'assert len(manifest["sources"]) == 19')
+          replace(p, 'assert report["files_seen"] == 17', 'assert report["files_seen"] == 19')
+          replace(p, 'assert report["files_parsed"] == 17', 'assert report["files_parsed"] == 19')
+          replace(p, 'assert inventory["registered_sources"] == 17', 'assert inventory["registered_sources"] == 19')
+          replace(p, 'assert inventory["available_sources"] == 17', 'assert inventory["available_sources"] == 19')
+          replace(p, 'assert inventory["parsed_sources"] == 17', 'assert inventory["parsed_sources"] == 19')
+
+          p = 'dev/tests/test_benchmark_catalog.py'
+          old_list_tail = '''        "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
+              "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
+          ]'''
+          new_list_tail = '''        "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
+              "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
+              "panel-stage-c-identifiability-validation-pr126-20260812-2d929bccf1c7",
+              "panel-stage-c-identifiability-performance-pr126-20260812-2238002d491f",
+          ]'''
+          replace(p, old_list_tail, new_list_tail)
+          replace(p, 'assert inventory["registered_sources"] == len(manifest["sources"]) == 17', 'assert inventory["registered_sources"] == len(manifest["sources"]) == 19')
+          replace(p, 'assert inventory["available_registered_sources"] == 17', 'assert inventory["available_registered_sources"] == 19')
+          replace(p, 'assert inventory["parsed_registered_sources"] == 17', 'assert inventory["parsed_registered_sources"] == 19')
+
+          p = 'dev/tests/test_benchmark_inventory_v2.py'
+          replace(p, 'assert len(registered) == inventory["registered_sources"] == 17', 'assert len(registered) == inventory["registered_sources"] == 19')
+          replace(p, 'assert serialized["available_registered_sources"] == 17', 'assert serialized["available_registered_sources"] == 19')
+          replace(p, 'assert serialized["parsed_registered_sources"] == 17', 'assert serialized["parsed_registered_sources"] == 19')
+          replace(p, 'assert inventory["available_sources"] == 17', 'assert inventory["available_sources"] == 19')
+          replace(p, 'assert inventory["parsed_sources"] == 17', 'assert inventory["parsed_sources"] == 19')
+
+          p = 'dev/tests/test_frontend_domain_coverage.py'
+          replace(p, 'assert len(manifest["sources"]) == 17', 'assert len(manifest["sources"]) == 19')
+          replace(p, 'assert len(output["runs"]) == 2272', 'assert len(output["runs"]) == 2426')
+          replace(p, 'assert report["runs_generated"] == 2272', 'assert report["runs_generated"] == 2426')
+          PY
       - name: Install benchmark validation dependencies
         run: |
           python -m pip install --upgrade pip
@@ -169,6 +216,10 @@ jobs:
             dev/benchmarks/frontend_sources.json \
             dev/benchmarks/benchmark_coverage_matrix.json \
             dev/tests/test_panel_stage_c_identifiability_frontend_source.py \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_benchmark_catalog.py \
+            dev/tests/test_benchmark_inventory_v2.py \
+            dev/tests/test_frontend_domain_coverage.py \
             dev/reviews/pr126_round4_autofix_review_2026-08-12.md \
             dev/plans/panel_p1_stage_c_covariance_plan.md \
             frontend/public/data \
