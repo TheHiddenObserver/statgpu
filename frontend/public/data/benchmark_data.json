@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "5cabd569688d4675eacf2afb057c0dbabef71763bb46c97acaba83491eed149a"
+    "generation_id": "066ce799e5a35752e34cc56ff66c9f50ef7852c73d4eccb4c84440ea2baa0f68"
   },
   "environments": [
     {
@@ -113857,7 +113857,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -113940,7 +113940,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114023,7 +114023,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114102,7 +114102,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114187,7 +114187,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114272,7 +114272,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114355,7 +114355,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114438,7 +114438,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114517,7 +114517,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114602,7 +114602,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114687,7 +114687,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114770,7 +114770,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114853,7 +114853,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -114932,7 +114932,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115017,7 +115017,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115110,7 +115110,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115205,7 +115205,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115294,7 +115294,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115377,7 +115377,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115464,7 +115464,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115555,7 +115555,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115644,7 +115644,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115733,7 +115733,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115814,7 +115814,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115897,7 +115897,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -115980,7 +115980,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116062,7 +116062,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116153,7 +116153,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116242,7 +116242,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116323,7 +116323,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116406,7 +116406,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116489,7 +116489,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116570,7 +116570,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116649,7 +116649,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116734,7 +116734,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116812,7 +116812,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116881,7 +116881,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -116950,7 +116950,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117019,7 +117019,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117088,7 +117088,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117157,7 +117157,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117226,7 +117226,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117295,7 +117295,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117364,7 +117364,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117433,7 +117433,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117502,7 +117502,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117571,7 +117571,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117647,7 +117647,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117730,7 +117730,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117813,7 +117813,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117892,7 +117892,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -117977,7 +117977,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118062,7 +118062,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118145,7 +118145,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118228,7 +118228,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118307,7 +118307,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118392,7 +118392,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118477,7 +118477,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118560,7 +118560,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118643,7 +118643,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118722,7 +118722,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118807,7 +118807,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118900,7 +118900,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -118995,7 +118995,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119084,7 +119084,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119167,7 +119167,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119254,7 +119254,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119345,7 +119345,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119434,7 +119434,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119523,7 +119523,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119604,7 +119604,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119687,7 +119687,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119770,7 +119770,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119852,7 +119852,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -119943,7 +119943,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120032,7 +120032,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120113,7 +120113,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120196,7 +120196,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120279,7 +120279,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120360,7 +120360,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120439,7 +120439,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120524,7 +120524,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120602,7 +120602,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120671,7 +120671,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120740,7 +120740,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120809,7 +120809,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120878,7 +120878,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -120947,7 +120947,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121016,7 +121016,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121085,7 +121085,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121154,7 +121154,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121223,7 +121223,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121292,7 +121292,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121361,7 +121361,7 @@
       "source": {
         "file": "panel_stage_c_gpu_validation_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_physical_validation_v2",
+        "parser": "parse_panel_stage_c_rank_df_physical_validation_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
         "original_path": "",
@@ -121433,7 +121433,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121502,7 +121502,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121571,7 +121571,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121640,7 +121640,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121709,7 +121709,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121778,7 +121778,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121847,7 +121847,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121916,7 +121916,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -121985,7 +121985,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122054,7 +122054,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122123,7 +122123,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122192,7 +122192,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122261,7 +122261,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122330,7 +122330,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122399,7 +122399,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122468,7 +122468,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122537,7 +122537,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122606,7 +122606,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122675,7 +122675,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122744,7 +122744,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122813,7 +122813,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122882,7 +122882,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -122951,7 +122951,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123020,7 +123020,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123089,7 +123089,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123158,7 +123158,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123227,7 +123227,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123296,7 +123296,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123365,7 +123365,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123434,7 +123434,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123503,7 +123503,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123572,7 +123572,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123641,7 +123641,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123710,7 +123710,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123779,7 +123779,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123848,7 +123848,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123917,7 +123917,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -123986,7 +123986,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124055,7 +124055,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124124,7 +124124,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124193,7 +124193,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124262,7 +124262,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124331,7 +124331,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124400,7 +124400,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124469,7 +124469,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124538,7 +124538,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124607,7 +124607,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124676,7 +124676,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124745,7 +124745,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124814,7 +124814,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124883,7 +124883,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -124952,7 +124952,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -125021,7 +125021,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -125090,7 +125090,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -125159,7 +125159,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -125228,7 +125228,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -125297,7 +125297,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",
@@ -125366,7 +125366,7 @@
       "source": {
         "file": "panel_stage_c_performance_f1546476.json",
         "date": "2026-08-12",
-        "parser": "parse_panel_stage_c_rank_df_performance_v2",
+        "parser": "parse_panel_stage_c_rank_df_performance_v3",
         "parser_version": "3.0",
         "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "original_path": "",

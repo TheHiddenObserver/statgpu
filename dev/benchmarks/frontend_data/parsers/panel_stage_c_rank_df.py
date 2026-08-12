@@ -3,8 +3,8 @@ from __future__ import annotations
 
 The v1 Stage-C parser remains frozen to the historical ``ec511f53`` source.
 These parser identities intentionally use distinct benchmark sessions and stable
-ID namespaces so the fresh ``3dc7df19`` evidence can coexist with the
-historical source without overwriting or colliding with it.
+ID namespaces so the fresh ``f1546476`` evidence can coexist with the
+historical v1/v2 sources without overwriting or colliding with them.
 """
 
 import json
@@ -25,8 +25,8 @@ from .panel_stage_c import (
 
 _SOURCE_DATE = "2026-08-12"
 _MEASUREMENT_SHA = "f154647665788df2570439a1cc154a43f509aa45"
-_VALIDATION_PARSER = "parse_panel_stage_c_rank_df_physical_validation_v2"
-_PERFORMANCE_PARSER = "parse_panel_stage_c_rank_df_performance_v2"
+_VALIDATION_PARSER = "parse_panel_stage_c_rank_df_physical_validation_v3"
+_PERFORMANCE_PARSER = "parse_panel_stage_c_rank_df_performance_v3"
 _PARSER_VERSION = "3.0"
 _EXPECTED_GPU = "Tesla P100-SXM2-16GB"
 _EXPECTED_CUPY_VERSION = "13.6.0"
