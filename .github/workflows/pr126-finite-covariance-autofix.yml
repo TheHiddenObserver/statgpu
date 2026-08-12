@@ -22,40 +22,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Apply finite-covariance guard and regression
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          p = Path('statgpu/panel/_base.py')
-          text = p.read_text(encoding='utf-8')
-          old = '''        diag = xp.diag(cov_params)\n        diag_np = np.diag(self._panel_cov_params_raw).astype(\n            np.float64, copy=False\n        )\n        # A variance is invalid whenever it is strictly negative. There is no\n'''
-          new = '''        diag = xp.diag(cov_params)\n        cov_np = self._panel_cov_params_raw\n        if not np.all(np.isfinite(cov_np)):\n            raise ValueError(\n                "covariance contains non-finite values; inference is not numerically valid"\n            )\n        diag_np = np.diag(cov_np).astype(np.float64, copy=False)\n        # A variance is invalid whenever it is strictly negative. There is no\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'_base.py replacement count={text.count(old)}')
-          p.write_text(text.replace(old, new), encoding='utf-8')
-
-          p = Path('dev/tests/test_panel_stage_c_inference_guard.py')
-          text = p.read_text(encoding='utf-8')
-          addition = r'''
-
-
-@pytest.mark.parametrize(
-    "covariance",
-    [
-        np.array([[1.0, np.nan], [np.nan, 1.0]]),
-        np.array([[np.inf, 0.0], [0.0, 1.0]]),
-        np.array([[1.0, 0.0], [0.0, -np.inf]]),
-    ],
-)
-def test_inference_rejects_nonfinite_covariance(monkeypatch, covariance):
-    with pytest.raises(ValueError, match="covariance contains non-finite values"):
-        _store_with_mock_covariance(monkeypatch, covariance)
-'''
-          if 'test_inference_rejects_nonfinite_covariance' in text:
-              raise SystemExit('nonfinite covariance regression already exists')
-          p.write_text(text + addition, encoding='utf-8')
-          PY
+      - name: Apply finite covariance patch
+        run: python dev/pr126_finite_covariance_fix.py
       - name: Install focused environment
         run: |
           python -m pip install --upgrade pip
@@ -68,10 +36,11 @@ def test_inference_rejects_nonfinite_covariance(monkeypatch, covariance):
           git diff --check
       - name: Commit validated fix
         run: |
+          rm dev/pr126_finite_covariance_fix.py
           rm .github/workflows/pr126-finite-covariance-autofix.yml
           git config user.name "chatgpt-codex-connector"
           git config user.email "1144995+chatgpt-codex-connector[bot]@users.noreply.github.com"
           git add statgpu/panel/_base.py dev/tests/test_panel_stage_c_inference_guard.py
-          git add -u .github/workflows/pr126-finite-covariance-autofix.yml
+          git add -u dev/pr126_finite_covariance_fix.py .github/workflows/pr126-finite-covariance-autofix.yml
           git commit -m "fix: reject nonfinite panel covariance inference"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
