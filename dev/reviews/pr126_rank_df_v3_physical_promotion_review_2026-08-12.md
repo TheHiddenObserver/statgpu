@@ -6,7 +6,7 @@ Standard: `.claude/skills/code-review.md` (`auto-fix` / post-promotion review)
 
 **PHYSICAL_GPU_ACCEPTED / PROMOTION REVIEW CLEAN / HOSTED CHECKPOINT PENDING / NOT MERGE-READY**
 
-This file is the connector-authored review-record-only checkpoint. The promoted technical tree immediately before this checkpoint is `6eb59dbcefe93e0672cc884542fad37fd34afdd4`. This checkpoint must pass all seven permanent hosted workflows before the PR can exit as `COMPLETE / MERGE-READY`.
+The promoted technical tree immediately before this connector-authored review-record-only checkpoint is `8958b571427197cf0373c8d0274770a95d2c7a58`. This checkpoint must pass all seven permanent hosted workflows before the PR can exit as `COMPLETE / MERGE-READY`.
 
 ## Fresh physical evidence accepted
 
@@ -64,9 +64,9 @@ Historical Stage-C v1/v2 parsers and source registrations remain immutable. The 
 - `dev/benchmarks/frontend_data/parsers/panel_stage_c.py`;
 - `dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_policy.py`.
 
-The canonical catalog now contains 17 required sources and deterministically generates 2272 runs. Promotion validation completed with 77/77 focused parser/catalog tests, strict-source generation, zero validation errors, zero errors/warnings, strict-source re-check, and `git diff --check`.
+The canonical catalog contains 17 required sources and deterministically generates 2272 runs. Promotion validation completed with 77/77 focused parser/catalog tests, strict-source generation, zero validation errors, zero errors/warnings, strict-source re-check, and `git diff --check`.
 
-## Post-promotion review/fix finding
+## Post-promotion review/fix findings
 
 ### [MEDIUM][PROVENANCE][fixed] v3 parser inherited stale v2 textual labels
 
@@ -74,27 +74,50 @@ Independent post-promotion review found that the newly generated v3 parser corre
 
 This did not change which raw artifacts were parsed or accepted, but it made canonical run provenance text internally inconsistent. The fix changes the stale text to `f1546476` and the emitted labels to `_v3`, regenerates canonical frontend assets, and reruns the focused parser/catalog/strict-source gates. Historical v1/v2 parsers remain untouched.
 
+### [MEDIUM][ARTIFACT][fixed] committed docs benchmark mirror was stale after v3 promotion
+
+The first post-promotion review checkpoint `daf6fa23eef67a50a78fb2b993a7b81e31ba4e08` exposed a real permanent-CI failure in `Benchmark Frontend CI`'s `staleness` job. Parser/generator validation itself succeeded with 17 sources, 2272 runs, and zero validation errors; the failure occurred only after the job rebuilt the deployed docs frontend and detected stale files under `docs/assets/benchmarks`.
+
+Root cause: the canonical generator transaction writes the three files under `frontend/public/data`, while Vite's `frontend/vite.config.ts` publishes the deployable mirror to `docs/assets/benchmarks` during `npm run build`. The promotion workflow regenerated the canonical frontend data but did not run the build step, so the committed docs mirror still reflected the historical v2 catalog.
+
+Fix:
+
+- run the exact permanent staleness sequence on the v3 canonical tree: deterministic strict-source generation followed by `frontend/npm ci` and `npm run build`;
+- require `frontend/public/data` to remain byte-current after regeneration;
+- require the build to produce a docs-mirror delta;
+- rerun strict-source validation and `git diff --check`;
+- commit only the synchronized docs benchmark mirror and self-delete the temporary workflow.
+
+The net diff from failed checkpoint `daf6fa23...` to corrected technical tree `8958b571...` contains exactly three generated files:
+
+- `docs/assets/benchmarks/data/benchmark_data.json`;
+- `docs/assets/benchmarks/data/parse_report.json`;
+- `docs/assets/benchmarks/data/source_inventory.json`.
+
+No parser, manifest, raw evidence, production numerical source, physical runner, or frontend source code changed in this hosted-CI fix.
+
 ## Net promotion tree audit
 
-The net diff from raw-evidence commit `2cda842d...` to promoted technical tree `6eb59dbc...` contains only:
+The complete v3 promotion lineage after both post-promotion fixes contains only:
 
 - the new v3 parser plus parser registry/export wiring;
 - new immutable source/environment/comparison registrations;
 - benchmark coverage-matrix registration;
 - maintained parser/catalog/source-count tests;
-- regenerated canonical frontend benchmark data.
+- regenerated canonical frontend benchmark data;
+- the synchronized deployable docs benchmark mirror.
 
-No `statgpu/` production numerical source, physical runner, or historical v1/v2 parser changes occur in that promotion diff. Temporary promotion/fix helpers and workflows self-delete and are absent from the promoted tree.
+No `statgpu/` production numerical source, physical runner, or historical v1/v2 parser changes occur in the promotion lineage. Temporary promotion/fix helpers and workflows self-delete and are absent from the corrected technical tree.
 
 ## Independent re-review result
 
-After the provenance-label fix, the post-promotion review found no unresolved CRITICAL, HIGH, or relevant MEDIUM issue in the fresh physical evidence, v3 parser, immutable-source registration, benchmark coverage, or generated assets.
+After the provenance-label and docs-mirror fixes, the post-promotion review found no unresolved CRITICAL, HIGH, or relevant MEDIUM issue in the fresh physical evidence, v3 parser, immutable-source registration, benchmark coverage, canonical frontend data, or deployable docs mirror.
 
 The only unresolved inline PR thread remains the older **outdated** P2 backend-provenance thread on the historical runner diff. Its underlying no-fallback provenance issue is already fixed by persisted fit backend identity and is directly exercised by the accepted physical evidence; the thread is retained as review history.
 
 ## Remaining hard gate
 
-1. This exact review-record-only checkpoint must pass all seven permanent hosted workflows.
+1. This exact review-record-only checkpoint must pass all seven permanent hosted workflows, including the permanent benchmark staleness/build/E2E/production-QA gate.
 2. A final read-only strict review must find no new CRITICAL, HIGH, or relevant MEDIUM issue.
 3. If both hold, the technical status may become **PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**.
 
