@@ -16,20 +16,21 @@ PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_a99726e1.json
 RUNNER = ROOT / "dev/benchmarks/benchmark_panel_stage_c_covariance.py"
 
 EXPECTED_CASES = {
-    "pooled_hc0", "pooled_hc2", "pooled_hc3", "pooled_cluster_oneway",
-    "pooled_dk_bartlett", "pooled_hac_legacy", "panel_entity_hc0",
-    "panel_entity_hc2", "panel_entity_hc3", "panel_two_way_hc3",
-    "panel_two_way_cluster_group_debias", "panel_two_way_dk",
+    "pooled_hc0", "pooled_hc2", "pooled_hc3",
+    "pooled_cluster_one_way", "pooled_cluster_two_way_group_debias",
+    "pooled_dk_bartlett", "pooled_dk_qs", "pooled_legacy_hac",
+    "panel_entity_hc0", "panel_entity_hc2", "panel_entity_hc3",
+    "panel_two_way_hc3", "panel_two_way_cluster_group_debias", "panel_two_way_dk",
     "random_effects_explicit_constant_robust", "random_effects_explicit_constant_hc0",
     "random_effects_explicit_constant_hc2", "random_effects_explicit_constant_hc3",
-    "random_effects_cluster_two_way", "random_effects_dk", "between_hc0",
-    "between_hc2", "between_hc3", "first_difference_hc0",
-    "first_difference_hc2", "first_difference_hc3",
-    "panel_entity_rank_deficient_nonrobust", "between_rank_deficient_nonrobust",
-    "first_difference_rank_deficient_nonrobust", "random_effects_rank_deficient_nonrobust",
-    "panel_entity_rank_deficient_robust", "between_rank_deficient_robust",
-    "first_difference_rank_deficient_robust", "random_effects_rank_deficient_robust",
-    "panel_rank_boundary_dk", "pooled_dk_qs", "pooled_dk_parzen",
+    "random_effects_cluster_two_way", "random_effects_dk",
+    "between_hc0", "between_hc2", "between_hc3",
+    "first_difference_hc0", "first_difference_hc2", "first_difference_hc3",
+    "panel_rank_boundary_dk",
+    "panel_entity_rank_deficient_nonrobust", "panel_entity_rank_deficient_robust",
+    "between_rank_deficient_nonrobust", "between_rank_deficient_robust",
+    "first_difference_rank_deficient_nonrobust", "first_difference_rank_deficient_robust",
+    "random_effects_rank_deficient_nonrobust", "random_effects_rank_deficient_robust",
 }
 EXPECTED_PRIMITIVES = {
     "cluster_group_debias", "driscoll_kraay_qs", "ill_conditioned_hc0",
