@@ -557,6 +557,18 @@ def main():
             differences = _compare(
                 reference[name], snapshot, rtol=args.rtol, atol=args.atol, label=name
             )
+            fit_rank = _fit_rank(model)
+            parameter_count = int(snapshot["coef"].size)
+            if fit_rank < parameter_count:
+                if snapshot["coefficient_inference_applicable"]:
+                    raise AssertionError(
+                        f"{name}: rank-deficient fit published coordinate inference"
+                    )
+                reason = snapshot["coefficient_inference_reason"]
+                if not reason or "rank deficient" not in reason:
+                    raise AssertionError(
+                        f"{name}: rank-deficient inference reason is not auditable"
+                    )
             if name == "panel_entity_hc0" and snapshot["prediction_backend"] != backend:
                 raise AssertionError(
                     f"{name}: prediction requested {backend}, executed {snapshot['prediction_backend']}"
@@ -566,8 +578,8 @@ def main():
                 "executed_backend": executed,
                 "max_abs_differences": differences,
                 "covariance_metadata": snapshot["covariance_metadata"],
-                "fit_rank": _fit_rank(model),
-                "parameter_count": int(snapshot["coef"].size),
+                "fit_rank": fit_rank,
+                "parameter_count": parameter_count,
                 "coefficient_inference_applicable": snapshot[
                     "coefficient_inference_applicable"
                 ],

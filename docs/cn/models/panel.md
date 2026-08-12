@@ -77,7 +77,7 @@ $$
 
 ## Stage-C 协方差与推断
 
-对于历史 full-column-rank 拟合，Stage C 仍是增量式扩展：系数估计、Stage-B fit statistics 与历史默认推断不改变。对受支持的 rank-deficient extension，则使用 identified numerical rank，使冗余列不会改变 fit-space df 或已识别推断。协方差名称规范如下。
+对于历史 full-column-rank 拟合，Stage C 仍是增量式扩展：系数估计、Stage-B fit statistics 与历史默认推断不改变。对受支持的 rank-deficient extension，则使用 identified numerical rank，使冗余列不会改变 fitted value、residual df、variance component 或其他 identified fit-space quantity。公开 coefficient vector 是共享的 Moore-Penrose minimum-norm representation，但原始坐标下的 coefficient 不唯一可识别；因此 exact rank-deficient fit 的 `bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 不可用，`summary()` 也会 fail closed。协方差名称规范如下。
 
 | `cov_type` | 行为 |
 |---|---|
@@ -134,13 +134,13 @@ $$
 
 ### RandomEffects covariance
 
-历史 full-rank Swamy-Arora variance component 与 coefficient estimate 保持不变。对受支持的 rank-deficient extension，between/within/quasi-demeaned residual df 使用各自 identified numerical rank，从而使 variance component、theta、identified fitted value 与 fit-space inference 对精确冗余列保持不变。robust、HC、cluster 与 Driscoll-Kraay 仍基于 `X_star` 与相应 residual 计算，因此改变 `cov_type` 只改变 inference。Stage-B classical Hausman 要求 **FE 与 RE 两端都使用 nonrobust covariance**；robust auxiliary Hausman 不在 Stage C 范围内，并返回结构化 inapplicable 结果。
+历史 full-rank Swamy-Arora variance component 与 coefficient estimate 保持不变。对受支持的 rank-deficient extension，between/within/quasi-demeaned residual df 使用各自 identified numerical rank，从而使 variance component、theta、fitted value 与 fit-space covariance 对精确冗余列保持不变。由于原始 coefficient coordinate 不唯一可识别，逐坐标 BSE/test/p-value/CI 不可用；robust、HC、cluster 与 Driscoll-Kraay covariance 仍可在 `X_star` 上形成，用于 identified fit-space 审计。Stage-B classical Hausman 要求 **FE 与 RE 两端都使用 nonrobust covariance**；robust auxiliary Hausman 不在 Stage C 范围内，并返回结构化 inapplicable 结果。
 
 ### Backend 与验证状态
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-由于后续 production numerical behavior 已改变，`3dc7df19...` Tesla P100 结果仅保留为历史证据。修复后的实现尚未基于新的 physical evidence 完成 promotion：maintained acceptance matrix 要求 CuPy 与 Torch 各通过 **47/47 = 35 个 estimator integration + 12 个 public primitive**，其中包括 8 个记录 `fit_rank < parameter_count` 的 rank-deficient nonrobust/HC1 estimator case；同步 performance matrix 仍为 58/58 行。PR 专属 gate 状态记录在仓库 review 文档中，而不写入长期模型文档。显式 GPU device 继续禁止静默回退 CPU。
+已完成的 `f1546476...` Tesla P100 run 继续作为不可变历史证据保留：CuPy 与 Torch 均完成 47/47 correctness case，同步 performance matrix 为 58/58 行。随后新的 implementation hardening 再次改变 production numerical behavior，因此该历史 measurement 不能描述当前 numerical tree；更新后的实现需要新的 exact-head physical lineage。PR 专属 acceptance 状态只记录在仓库 review 文档中，而不写入长期模型文档。显式 GPU device 继续禁止静默回退 CPU。
 
 ### PooledOLS HAC 时间排序
 
@@ -155,7 +155,11 @@ HC leverage、row score、cluster/time grouped score、lag product、bread/meat/
 - 精确共线时单个系数不唯一；
 - 因而系数级 covariance、BSE、test statistic、p-value 和 confidence interval 不应被解释为唯一识别的系数推断。
 
-Stage-B model-F 的 restriction rank 使用有效数值 rank，而不是直接使用原始列数。
+Stage-B model-F 的 restriction rank 使用有效数值 rank，而不是直接使用原始列数。同样的 coefficient-inference-unavailable 规则适用于 rank-deficient `PanelOLS`、`RandomEffects`、`BetweenOLS` 与 `FirstDifferenceOLS`。
+
+### FirstDifference 时间语义
+
+提供 `time_ids` 时，`FirstDifferenceOLS` 要求每个 `(entity_id, time_id)` pair 唯一；重复 pair 会直接报错，不会构造没有时间含义的同一期差分。差分发生在每个 entity 的连续**已观测**时间点之间；内部 calendar gap 可以存在，不会自动补齐，也不会按 gap 长度缩放。ordered categorical time label 保留其声明的 chronology。
 
 ## 标准化 `fit_statistics_`
 

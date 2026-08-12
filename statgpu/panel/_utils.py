@@ -414,16 +414,16 @@ def demean_variables(
                 X_d = _within_transform_matrix(X_d, entity_ids, xp)
             y_d = within_transform(y_d, time_ids, xp)
             X_d = _within_transform_matrix(X_d, time_ids, xp)
-            y_change = _to_float_scalar(xp.max(xp.abs(y_d - y_d_old)))
+            y_change = xp.max(xp.abs(y_d - y_d_old))
             if getattr(xp, "__name__", "") == "torch":
                 X_change_columns = xp.max(xp.abs(X_d - X_d_old), dim=0).values
             else:
                 X_change_columns = xp.max(xp.abs(X_d - X_d_old), axis=0)
-            y_relative_change = float(y_change) / y_scale_ref
-            X_relative_change = _to_float_scalar(
-                xp.max(X_change_columns / X_scale_ref)
+            y_relative_change = y_change / y_scale_ref
+            X_relative_change = xp.max(X_change_columns / X_scale_ref)
+            max_change = _to_float_scalar(
+                xp.maximum(y_relative_change, X_relative_change)
             )
-            max_change = max(float(y_relative_change), float(X_relative_change))
             if max_change < tol:
                 converged = True
                 break

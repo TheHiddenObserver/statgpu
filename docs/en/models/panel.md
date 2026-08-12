@@ -77,7 +77,7 @@ where \(X^+\) denotes the inverse or Moore-Penrose pseudoinverse as required. `B
 
 ## Stage-C Covariance and Inference
 
-Stage C is additive on historical full-column-rank fits: coefficient estimation, Stage-B fit statistics, and the historical default inference remain unchanged. The supported rank-deficient extension uses identified numerical rank so adding redundant columns does not change fit-space degrees of freedom or identified inference. Covariance names are normalized as follows.
+Stage C is additive on historical full-column-rank fits: coefficient estimation, Stage-B fit statistics, and the historical default inference remain unchanged. The supported rank-deficient extension uses identified numerical rank so adding redundant columns does not change fitted values, residual degrees of freedom, variance components, or other identified fit-space quantities. The reported coefficient vector is the shared Moore-Penrose minimum-norm representation, but the original coordinate coefficients are not uniquely identified; `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` are therefore unavailable and `summary()` fails closed for an exact rank-deficient fit. Covariance names are normalized as follows.
 
 | `cov_type` | Behavior |
 |---|---|
@@ -134,7 +134,7 @@ $$
 
 ### RandomEffects covariance
 
-Historical full-rank Swamy-Arora variance-component and coefficient estimation is unchanged. In the supported rank-deficient extension, the between/within/quasi-demeaned residual degrees of freedom use their identified numerical ranks, making variance components, theta, identified fitted values, and fit-space inference invariant to exactly redundant columns. Robust, HC, cluster, and Driscoll-Kraay covariance are computed from `X_star` and its residuals, so changing `cov_type` still changes inference only. The classical Stage-B Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman remains out of scope and returns a structured inapplicable result.
+Historical full-rank Swamy-Arora variance-component and coefficient estimation is unchanged. In the supported rank-deficient extension, the between/within/quasi-demeaned residual degrees of freedom use their identified numerical ranks, making variance components, theta, fitted values, and fit-space covariance invariant to exactly redundant columns. Coordinate-wise BSE/test/p-value/CI output is unavailable because the original coefficient coordinates are not uniquely identified. Robust, HC, cluster, and Driscoll-Kraay covariance are still formed on `X_star` for identified fit-space auditing. The classical Stage-B Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman remains out of scope and returns a structured inapplicable result.
 
 ### Backend and validation status
 
@@ -155,7 +155,11 @@ A rank-deficient design separates fitted-space validity from coefficient-space i
 - individual coefficients are not unique under exact collinearity;
 - coefficient-level covariance, BSE, test statistics, p-values, and confidence intervals are therefore non-identifiable and should not be interpreted as unique coefficient inference.
 
-Stage-B model-F restrictions use effective numerical rank rather than blindly using the raw column count.
+Stage-B model-F restrictions use effective numerical rank rather than blindly using the raw column count. The same coefficient-inference-unavailable rule applies to rank-deficient `PanelOLS`, `RandomEffects`, `BetweenOLS`, and `FirstDifferenceOLS` fits.
+
+### FirstDifference time semantics
+
+When `time_ids` are supplied, `FirstDifferenceOLS` requires every `(entity_id, time_id)` pair to be unique and rejects duplicates instead of constructing a meaningless within-time difference. Differences are taken between consecutive **observed** times within each entity; internal calendar gaps are allowed and are not implicitly filled or divided by gap length. Ordered categorical time labels preserve their declared chronology.
 
 ## Standardized `fit_statistics_`
 
