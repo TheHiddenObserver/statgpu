@@ -28,10 +28,15 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          for path in ['dev/plans/panel_p1_stage_c_covariance_plan.md','docs/en/models/panel.md','docs/cn/models/panel.md']:
+          checks = {
+              'dev/plans/panel_p1_stage_c_covariance_plan.md': 'entire final covariance matrix to be finite',
+              'docs/en/models/panel.md': 'non-finite',
+              'docs/cn/models/panel.md': '非有限',
+          }
+          for path, needle in checks.items():
               text = Path(path).read_text(encoding='utf-8')
-              if 'non-finite' not in text and '非有限' not in text:
-                  raise SystemExit(f'{path}: missing finite-covariance contract')
+              if needle not in text:
+                  raise SystemExit(f'{path}: missing {needle!r}')
           PY
           git diff --check
       - name: Commit docs patch
