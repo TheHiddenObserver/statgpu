@@ -22,6 +22,64 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Normalize temporary promotion helper anchors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('dev/pr126_v4_promote.py')
+          text = p.read_text()
+          old = '''    text = replace_once(
+                  text,
+                  'if int(data.get("schema_version", -1)) != 1:',
+                  'if int(data.get("schema_version", -1)) != 2:',
+                  "correctness schema",
+              )
+              text = replace_once(
+                  text,
+                  'requires schema_version=1',
+                  'requires schema_version=2',
+                  "correctness schema message",
+              )
+              text = replace_once(
+                  text,
+                  'if int(data.get("schema_version", -1)) != 2:',
+                  'if int(data.get("schema_version", -1)) != 3:',
+                  "performance schema",
+              )
+              text = replace_once(
+                  text,
+                  'performance requires schema_version=2',
+                  'performance requires schema_version=3',
+                  "performance schema message",
+              )'''
+          new = '''    text = replace_once(
+                  text,
+                  'if int(data.get("schema_version", -1)) != 2:',
+                  'if int(data.get("schema_version", -1)) != 3:',
+                  "performance schema",
+              )
+              text = replace_once(
+                  text,
+                  'performance requires schema_version=2',
+                  'performance requires schema_version=3',
+                  "performance schema message",
+              )
+              text = replace_once(
+                  text,
+                  'if int(data.get("schema_version", -1)) != 1:',
+                  'if int(data.get("schema_version", -1)) != 2:',
+                  "correctness schema",
+              )
+              text = replace_once(
+                  text,
+                  'requires schema_version=1',
+                  'requires schema_version=2',
+                  "correctness schema message",
+              )'''
+          if text.count(old) != 1:
+              raise SystemExit(f'schema helper anchor drifted: {text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+          PY
       - name: Apply immutable v4 promotion
         run: python dev/pr126_v4_promote.py
       - name: Install benchmark validation dependencies
