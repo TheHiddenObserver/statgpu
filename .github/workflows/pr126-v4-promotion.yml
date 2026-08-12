@@ -97,9 +97,9 @@ jobs:
             dev/tests/test_benchmark_inventory_v2.py \
             dev/tests/test_frontend_domain_coverage.py \
             dev/reviews/pr126_round4_autofix_review_2026-08-12.md \
-            dev/plans/panel_p1_stage_c_covariance_plan.md \
             frontend/public/data \
             docs/assets/benchmarks
+          git add -f dev/plans/panel_p1_stage_c_covariance_plan.md
           git diff --cached --check
           git commit -m 'bench: promote PR126 identifiability P100 evidence v4'
           git push origin HEAD:agent/panel-p1-stage-c-covariance
