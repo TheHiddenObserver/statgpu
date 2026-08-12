@@ -47,9 +47,21 @@ jobs:
             dev/benchmarks/frontend_data/parsers/panel_stage_c_identifiability.py \
             dev/tests/test_panel_stage_c_identifiability_frontend_source.py
           git diff --check
-          changed="$(git diff --name-only a99726e19c535dfcd0a94711bbc8be6aac437584...HEAD; git diff --name-only)"
-          if printf '%s\n' "$changed" | grep -E '^(statgpu/panel/|dev/benchmarks/validate_panel_stage_c_gpu.py$|dev/benchmarks/benchmark_panel_stage_c_covariance.py$|results/pr126_p100/panel_stage_c_(gpu_validation|performance)_a99726e1.json$)' ; then
-            echo 'Exact-source applicability violated by post-promotion review.'
+
+          numerical_changed="$(git diff --name-only a99726e19c535dfcd0a94711bbc8be6aac437584...HEAD; git diff --name-only)"
+          if printf '%s\n' "$numerical_changed" | grep -E '^(statgpu/panel/|dev/benchmarks/validate_panel_stage_c_gpu.py$|dev/benchmarks/benchmark_panel_stage_c_covariance.py$)' ; then
+            echo 'Exact measurement-source applicability violated by post-promotion review.'
+            exit 1
+          fi
+
+          raw_paths='results/pr126_p100/panel_stage_c_gpu_validation_a99726e1.json results/pr126_p100/panel_stage_c_performance_a99726e1.json'
+          if ! git diff --quiet ccc46da6c5f2dee025c7715e39215db69b2872b8...HEAD -- $raw_paths ; then
+            echo 'Immutable raw P100 artifacts changed after their raw commit.'
+            git diff --stat ccc46da6c5f2dee025c7715e39215db69b2872b8...HEAD -- $raw_paths
+            exit 1
+          fi
+          if ! git diff --quiet -- $raw_paths ; then
+            echo 'Working tree modified immutable raw P100 artifacts.'
             exit 1
           fi
       - name: Commit validated parser hardening
