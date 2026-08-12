@@ -1,0 +1,49 @@
+name: PR126 round4 full-suite contract fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-round4-fullsuite-contract.yml
+
+permissions:
+  contents: write
+
+jobs:
+  contract-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply maintained contract fix
+        run: python dev/pr126_round4_fullsuite_contract_fix.py
+      - name: Install focused environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[validation,formula]'
+      - name: Run failing contract and rank-deficient matrix
+        run: |
+          python -m pytest -q \
+            dev/tests/test_pr79_final_review_fixes.py::test_pooled_rank_deficiency_uses_effective_rank_for_df \
+            dev/tests/test_panel_stage_c_review_round4.py \
+            dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
+            dev/tests/test_panel_stage_c_inference_guard.py
+      - name: Static gates
+        run: |
+          python -m compileall -q statgpu/panel dev/tests/test_pr79_final_review_fixes.py
+          git diff --check
+      - name: Commit validated contract fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr126-round4-fullsuite-contract.yml dev/pr126_round4_fullsuite_contract_fix.py
+          git add dev/tests/test_pr79_final_review_fixes.py
+          git diff --cached --check
+          git commit -m 'test: align legacy rank-deficiency inference contract'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
