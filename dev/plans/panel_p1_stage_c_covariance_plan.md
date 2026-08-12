@@ -34,7 +34,7 @@ Validation target/tier: `remote-full` before Stage C is called COMPLETE. If the 
 | `FirstDifferenceOLS` | three-backend | supported | supported | not-performance-sensitive | preserve nonrobust/HC1; add HC0/HC2/HC3 on the retained first-difference regression; no Stage-C DK until a gap-aware differenced-time score contract is separately specified |
 | `FamaMacBeth` | three-backend | supported | supported | not-performance-sensitive | unchanged; beta-series covariance remains model-specific (`nonrobust` / `newey-west`) and is not routed through residual-OLS covariance |
 
-`CV` is non-tunable/not applicable for all touched capabilities. A covariance option is not declared supported until its NumPy/CuPy/Torch inference path is tested.
+`CV` is non-tunable/not applicable for all touched capabilities. A covariance option is not declared supported until its NumPy/CuPy/Torch inference path is tested. The `inference=supported` capability decision applies to identified/full-column-rank coefficient coordinates. Exact rank-deficient fits remain supported for minimum-norm estimation, prediction, residuals, fit statistics, and fit-space covariance, but ordinary coordinate-wise BSE/test/p-value/CI output is explicitly unavailable because the original coefficient coordinates are not uniquely identified.
 
 ## 3. Backward-compatibility contract
 
@@ -48,7 +48,7 @@ Stage C is additive.
 6. Stage-B classical Hausman remains restricted to matched nonrobust FE/RE covariance. Robust/HC/cluster/DK RE fits remain inapplicable to this classical Hausman path.
 7. Existing `PanelOLS` legacy public residual-df/t-inference behavior remains frozen where Stage B froze it. New covariance modes have their own documented correction basis.
 8. On historical full-column-rank fits, coefficients, fitted values, variance components, theta, R², specification tests, formula parsing, and prediction semantics do not change solely because Stage C exists.
-9. On supported rank-deficient fits, residual and auxiliary-regression degrees of freedom use the identified numerical rank. Adding an exactly redundant column must not change identified fitted values, Swamy-Arora variance components/theta, fit-space covariance, or inference merely by increasing the raw column count.
+9. On supported rank-deficient fits, residual and auxiliary-regression degrees of freedom use the identified numerical rank. Adding an exactly redundant column must not change identified fitted values, Swamy-Arora variance components/theta, or fit-space covariance merely by increasing the raw column count. The coefficient vector is the shared Moore-Penrose minimum-norm representation, while ordinary coordinate-wise BSE/test/p-value/CI output is unavailable and summaries fail closed because the original coordinates are not uniquely identified.
 
 Golden regression tests must freeze pre-Stage-C default covariance/inference outputs before dispatch changes.
 
@@ -412,7 +412,7 @@ R `plm`/`sandwich` and Stata/fixest definitions are documentation/remote referen
 For every supported estimator/covariance family:
 
 - coefficients invariant to covariance selection;
-- covariance/BSE/t-or-z/p/CI consistent;
+- on full-column-rank fits, covariance/BSE/t-or-z/p/CI consistent; on exact rank-deficient fits, fit-space covariance remains auditable while coordinate-wise BSE/t-or-z/p/CI is explicitly unavailable;
 - NumPy analytic/external precision;
 - maintained Torch CPU where used by project gates;
 - CuPy/Torch physical CUDA parity;
@@ -455,9 +455,9 @@ Minimum per backend:
 - at least one DK Parzen or QS explicit-bandwidth case, with QS all-lag execution physically covered;
 - deliberately permuted/formula-equivalent metadata-order fixture where feasible.
 
-Record exact SHA/clean tree, requested/executed backend, covariance/SE/t/p/CI vs NumPy, coefficient and Stage-B-stat invariance, covariance config/effective bandwidth/support/group counts/rank extension, and environment/GPU metadata.
+Fresh correctness evidence uses schema v2. Record exact SHA/clean tree, requested/executed fit backend, full-rank covariance/SE/t/p/CI vs NumPy, rank-deficient fit rank/parameter count plus explicit coefficient-inference unavailability, `PanelOLS` and `RandomEffects` prediction execution backend on representative full-rank cases, coefficient and Stage-B-stat invariance where identified, covariance config/effective bandwidth/support/group counts/rank extension, and environment/GPU metadata. The maintained matrix remains 35 estimator integrations plus 12 public covariance primitives, i.e. 47/47 checks per requested GPU backend.
 
-A validator change after an accepted artifact invalidates acceptance for the changed validator contract per `RELEASING.md`.
+A validator change after an accepted artifact invalidates acceptance for the changed validator contract per `RELEASING.md`. Historical schema-v1 evidence and its immutable parser/source identities are never overwritten.
 
 ## 15. Performance gate
 
@@ -468,9 +468,10 @@ Questions:
 - HC2/3 avoids `O(n^2)` hat matrix and scales as row leverage + `k x k` operations;
 - cluster/DK uses grouped backend reductions, not observation Python loops/full host numerical transfer;
 - QS all-lag cost is reported at representative T and does not accidentally become `O(n^2)` in observations; the default runner includes a bounded same-order `N=10,000`, `k=2`, `T=200` high-T QS scenario in addition to the `T=20` base cases;
-- GPU metadata conversion/synchronization is not transfer-dominated at target sizes.
+- GPU metadata conversion/synchronization is not transfer-dominated at target sizes;
+- the iterative two-way FE path changed in the final review loop, so schema-v3 performance evidence includes an explicit incomplete/unbalanced `PanelOLS(entity_effects=True, time_effects=True, cov_type='nonrobust')` case at `N=10,000`, `k=2`, `T=20` on both CuPy and Torch.
 
-No speedup claim is planned. Performance becomes blocking only for material regression/pathological complexity/transfer dominance. Optimization budget: one profile, at most two algorithmic/kernel attempts, one rebenchmark each. Timing JSON remains separate from correctness evidence.
+No speedup claim is planned. Fresh schema-v3 performance evidence contains 60 rows: the historical 54 base rows, 4 bounded high-T QS rows, and 2 unbalanced two-way FE rows. Performance becomes blocking only for material regression/pathological complexity/transfer dominance. Optimization budget: one profile, at most two algorithmic/kernel attempts, one rebenchmark each. Timing JSON remains separate from correctness evidence. Historical schema-v2 timing artifacts remain immutable and are not reinterpreted as current evidence.
 
 ## 16. Docs/artifacts
 
@@ -512,13 +513,15 @@ Docs explicitly state HC fit-space semantics, robust==HC1, legacy HAC vs DK, DK 
 - [ ] Pooled legacy row-HAC distinct/unchanged.
 - [ ] Cluster one-/two-way and group-debias backward-compatible.
 - [ ] Every supported new public covariance works NumPy/CuPy/Torch without fallback.
+- [ ] Exact rank-deficient fits preserve identified fit-space quantities while ordinary coordinate-wise BSE/test/p-value/CI output is explicitly unavailable.
+- [ ] `PanelOLS.predict()` and `RandomEffects.predict()` execute linear prediction on the selected numerical backend before returning the historical NumPy-visible output.
 - [ ] Physical CUDA includes Pooled/Panel/RE/Between/FD new HC integrations plus cluster and DK on both GPU backends.
 - [ ] No full GPU numerical host copy for covariance accumulation.
 - [ ] Formula/missing-row metadata alignment tested.
 - [ ] Analytic/statsmodels/linearmodels comparisons pass where definitionally comparable.
 - [ ] Stage-B diagnostics/fit stats regression-clean.
 - [ ] EN/CN docs/changelogs synchronized.
-- [ ] Performance gate has no material unresolved regression.
+- [ ] Fresh schema-v3 performance gate contains 60 synchronized rows, including the two CuPy/Torch unbalanced two-way FE cases, with no material unresolved regression.
 - [ ] Exact-head hosted tests/compatibility/release/frontend gates pass.
 - [ ] Exact-clean-head physical Stage-C CuPy/Torch validation passes and immutable evidence is recorded.
 - [ ] Fresh final review has zero unresolved CRITICAL/HIGH/relevant MEDIUM.
