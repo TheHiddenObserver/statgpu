@@ -8,7 +8,7 @@ Standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 Active axes: public API/presentation, inference, NumPy/CuPy/Torch backend behavior, formula/panel metadata, benchmark/performance, and docs/artifacts. Loss, penalty, generic solver framework, and CV remain inactive.
 
-This file is the connector-authored local-review checkpoint. Its commit must pass the seven permanent hosted workflows before the local gate exits to `PARTIAL_REMOTE_PENDING` and fresh P100 evidence is collected.
+The final local source/docs/runner candidate before this checkpoint is `39cdda5301ccfc9a88808e10f9caf4f6597f4725`. The last documentation re-review gap is closed there: the Stage-C plan and EN/CN model documentation now state that strict inference requires the entire final covariance to be finite before rejecting strictly negative diagonal variances. This connector-authored review-record-only commit is the exact hosted-checkpoint head; production source, tests, physical runners, benchmark parsers/manifests, and generated benchmark assets are unchanged by this checkpoint.
 
 ## Findings reopened by independent review
 
@@ -51,7 +51,7 @@ Fresh target: **47/47 per backend = 35 estimator integrations + 12 public primit
 
 ## Independent re-review result
 
-The post-fix source review rechecked rank/df formulas, full-rank backward compatibility, backend-native fit/covariance paths, formula chronology/alignment, physical runner provenance, performance runner provenance, and current docs/artifact status. No unresolved CRITICAL, HIGH, or relevant MEDIUM finding remains locally at this checkpoint.
+The post-fix source review rechecked rank/df formulas, full-rank backward compatibility, backend-native fit/covariance paths, formula chronology/alignment, physical runner provenance, performance runner provenance, strict finite/negative covariance failure semantics, and current docs/artifact status. No unresolved CRITICAL, HIGH, or relevant MEDIUM finding remains locally at this checkpoint.
 
 The old `3dc7df19...` P100 evidence and all v1/v2 canonical identities remain immutable historical evidence and are not current acceptance evidence because production numerical behavior changed afterward.
 
