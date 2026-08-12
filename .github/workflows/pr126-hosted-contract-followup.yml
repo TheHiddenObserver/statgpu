@@ -27,7 +27,7 @@ jobs:
       - name: Install focused validation environment
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "numpy<2" pytest pandas patsy
+          python -m pip install "numpy<2" pytest pandas patsy scikit-learn
           python -m pip install -e .
       - name: Run hosted-failure regressions
         run: |
