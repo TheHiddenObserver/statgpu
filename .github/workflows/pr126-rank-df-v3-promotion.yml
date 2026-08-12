@@ -6,6 +6,8 @@ on:
       - agent/panel-p1-stage-c-covariance
     paths:
       - '.github/workflows/pr126-rank-df-v3-promotion.yml'
+      - 'dev/pr126_promote_rank_df_v3.py'
+      - 'dev/pr126_update_v3_catalog_contracts.py'
 
 permissions:
   contents: write
