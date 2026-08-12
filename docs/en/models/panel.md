@@ -18,7 +18,7 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-The previous exact-clean Tesla P100 measurement `3dc7df19...` (CuPy/Torch **39/39 per backend**, plus 58 synchronized performance rows) remains immutable historical evidence, but it is no longer current acceptance evidence after the 2026-08-12 rank-deficient-df and strict covariance-validity fixes. The current implementation still uses one backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max`, now also uses identified rank for supported rank-deficient residual/auxiliary degrees of freedom, and fails closed if the final covariance contains any non-finite value or any strictly negative diagonal variance (IEEE signed zero may normalize to zero). Fresh physical acceptance is pending on the current exact source with an expanded target of **35 estimator integrations + 12 public primitives = 47/47 per backend**, plus the unchanged 58-row performance matrix.
+The exact-clean Tesla P100 measurements remain immutable audit evidence. The `f1546476...` source recorded CuPy/Torch 47/47 per backend and all 58 synchronized performance rows and was promoted under immutable v3 source identities. Subsequent 2026-08-12 hardening changed two-way FE convergence, rank-deficient coefficient-inference applicability, PanelOLS prediction backend execution, and duplicate-time FirstDifference validation, so that v3 numerical evidence is historical rather than evidence for the newer implementation. Long-lived model documentation records evidence lineage but does not carry PR lifecycle state.
 
 ## Paths
 
@@ -140,7 +140,7 @@ Historical full-rank Swamy-Arora variance-component and coefficient estimation i
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-The `3dc7df19...` Tesla P100 run is historical evidence only because production numerical behavior changed afterward. The post-fix implementation has not yet been promoted from fresh physical evidence: its maintained acceptance matrix requires **47/47 = 35 estimator integrations + 12 public primitives** on each of CuPy and Torch, including eight rank-deficient nonrobust/HC1 estimator cases that record `fit_rank < parameter_count`; the synchronized performance matrix remains 58/58 rows. PR-specific gate state is tracked in the repository review records rather than this long-lived model page. Explicit GPU devices continue to forbid silent CPU fallback.
+The accepted `f1546476...` P100 run remains immutable historical evidence: both CuPy and Torch completed 47/47 correctness cases and the synchronized performance matrix contained 58/58 rows. Later implementation hardening requires a new exact-head physical lineage before those measurements can describe the current numerical tree. PR-specific acceptance state is intentionally tracked only in repository review records. Explicit GPU devices continue to forbid silent CPU fallback.
 
 ### PooledOLS HAC ordering
 

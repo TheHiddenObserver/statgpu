@@ -274,7 +274,20 @@ def test_panel_rank_boundary_fit_and_dk_torch_cpu_match_shared_policy():
         time_ids=torch.as_tensor(time, dtype=torch.int64),
     )
     assert_allclose(expected.coef_, expected_coef, rtol=5e-11, atol=5e-13)
-    _assert_inference(actual, expected, rtol=5e-9, atol=5e-11)
+    assert_allclose(actual.coef_, expected.coef_, rtol=5e-9, atol=5e-11)
+    assert_allclose(
+        actual._panel_cov_params_raw,
+        expected._panel_cov_params_raw,
+        rtol=5e-9,
+        atol=5e-11,
+    )
+    for model in (expected, actual):
+        assert model._coefficient_inference_available is False
+        assert model.bse_ is None
+        assert model.tvalues_ is None
+        assert model.pvalues_ is None
+        assert model.conf_int_ is None
+        assert model._inference_result.metadata["applicable"] is False
     assert expected._covariance_metadata["design_rank"] == 2
     assert actual._covariance_metadata["design_rank"] == 2
     assert expected.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2

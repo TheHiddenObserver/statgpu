@@ -42,8 +42,19 @@ def test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable():
     for name, model in cases.items():
         snap = _MOD._snapshot(model)
         assert np.all(np.isfinite(snap["coef"])), name
-        assert np.all(np.isfinite(snap["bse"])), name
         assert np.all(np.isfinite(snap["covariance"])), name
+        if snap["coefficient_inference_applicable"]:
+            assert np.all(np.isfinite(snap["bse"])), name
+            assert np.all(np.isfinite(snap["tvalues"])), name
+            assert np.all(np.isfinite(snap["pvalues"])), name
+            assert np.all(np.isfinite(snap["conf_int"])), name
+            assert snap["coefficient_inference_reason"] is None
+        else:
+            assert snap["bse"] is None, name
+            assert snap["tvalues"] is None, name
+            assert snap["pvalues"] is None, name
+            assert snap["conf_int"] is None, name
+            assert "rank deficient" in snap["coefficient_inference_reason"], name
 
 
 def test_stage_c_runner_physically_requires_qs_all_lag_contract():
@@ -131,4 +142,11 @@ def test_stage_c_runner_rank_deficient_estimators_exercise_identified_rank_df():
         fit_rank = _MOD._fit_rank(model)
         assert fit_rank < len(np.asarray(model.coef_).ravel()), name
         assert model.df_resid > 0, name
-        assert np.all(np.isfinite(model.bse_)), name
+        assert np.all(np.isfinite(model._panel_cov_params_raw)), name
+        assert model._coefficient_inference_available is False, name
+        assert model.bse_ is None, name
+        assert model.tvalues_ is None, name
+        assert model.pvalues_ is None, name
+        assert model.conf_int_ is None, name
+        assert model._inference_result.metadata["applicable"] is False, name
+        assert "rank deficient" in model._inference_result.metadata["reason"], name

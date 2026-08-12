@@ -157,6 +157,10 @@ def _array(value):
     return np.asarray(_to_numpy(value), dtype=np.float64)
 
 
+def _optional_array(value):
+    return None if value is None else _array(value)
+
+
 def _array_backend_name(value):
     if _is_cupy_array(value):
         return "cupy"
@@ -248,11 +252,19 @@ def _snapshot(model):
     }
     return {
         "coef": _array(model.coef_).ravel(),
-        "bse": _array(model.bse_).ravel(),
-        "tvalues": _array(model.tvalues_).ravel(),
-        "pvalues": _array(model.pvalues_).ravel(),
-        "conf_int": _array(model.conf_int_),
+        "bse": None if model.bse_ is None else _array(model.bse_).ravel(),
+        "tvalues": None if model.tvalues_ is None else _array(model.tvalues_).ravel(),
+        "pvalues": None if model.pvalues_ is None else _array(model.pvalues_).ravel(),
+        "conf_int": _optional_array(model.conf_int_),
         "covariance": _array(model._panel_cov_params_raw),
+        "coefficient_inference_applicable": bool(
+            getattr(model, "_coefficient_inference_available", True)
+        ),
+        "coefficient_inference_reason": getattr(
+            model, "_coefficient_inference_reason", None
+        ),
+        "prediction": _optional_array(getattr(model, "_physical_prediction", None)),
+        "prediction_backend": getattr(model, "_predict_backend_name", None),
         "nobs": int(model.nobs),
         "df_resid": int(model.df_resid),
         "fit_statistics": fit_payload,
@@ -289,6 +301,10 @@ def _fit_cases(X, y, entity, time, clusters, backend):
         cases[f"panel_entity_{cov}"] = PanelOLS(
             entity_effects=True, cov_type=cov, device=device
         ).fit(Xb, yb, entity_ids=eb)
+        if cov == "hc0":
+            cases[f"panel_entity_{cov}"]._physical_prediction = cases[
+                f"panel_entity_{cov}"
+            ].predict(Xb[:8], entity_ids=eb[:8])
     cases["panel_two_way_hc3"] = PanelOLS(
         entity_effects=True, time_effects=True, cov_type="hc3", device=device
     ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
@@ -379,11 +395,30 @@ def _scalar_diff(actual, expected, *, rtol, atol, label):
 
 def _compare(reference, candidate, *, rtol, atol, label):
     differences = {}
-    for field in ("coef", "bse", "tvalues", "pvalues", "conf_int", "covariance"):
+    for field in ("coef", "bse", "tvalues", "pvalues", "conf_int", "covariance", "prediction"):
+        actual = candidate[field]
+        expected = reference[field]
+        if expected is None or actual is None:
+            if expected is not None or actual is not None:
+                raise AssertionError(
+                    f"{label}.{field}: None contract differs between candidate and reference"
+                )
+            differences[field] = 0.0
+            continue
         np.testing.assert_allclose(
-            candidate[field], reference[field], rtol=rtol, atol=atol, err_msg=f"{label}.{field}"
+            actual, expected, rtol=rtol, atol=atol, err_msg=f"{label}.{field}"
         )
-        differences[field] = _max_abs(candidate[field], reference[field])
+        differences[field] = _max_abs(actual, expected)
+    for field in ("coefficient_inference_applicable", "coefficient_inference_reason", "prediction_backend"):
+        actual = candidate[field]
+        expected = reference[field]
+        if field == "prediction_backend" and expected == "numpy" and actual is not None:
+            # NumPy reference predicts on NumPy; GPU candidates must persist the
+            # requested execution backend instead of matching the reference label.
+            continue
+        if actual != expected:
+            raise AssertionError(f"{label}.{field}: {actual!r} != {expected!r}")
+        differences[field] = 0.0
     for field in ("nobs", "df_resid"):
         if candidate[field] != reference[field]:
             raise AssertionError(f"{label}.{field}: {candidate[field]} != {reference[field]}")
@@ -522,6 +557,10 @@ def main():
             differences = _compare(
                 reference[name], snapshot, rtol=args.rtol, atol=args.atol, label=name
             )
+            if name == "panel_entity_hc0" and snapshot["prediction_backend"] != backend:
+                raise AssertionError(
+                    f"{name}: prediction requested {backend}, executed {snapshot['prediction_backend']}"
+                )
             payload["cases"][name] = {
                 "status": "success",
                 "executed_backend": executed,
@@ -529,6 +568,13 @@ def main():
                 "covariance_metadata": snapshot["covariance_metadata"],
                 "fit_rank": _fit_rank(model),
                 "parameter_count": int(snapshot["coef"].size),
+                "coefficient_inference_applicable": snapshot[
+                    "coefficient_inference_applicable"
+                ],
+                "coefficient_inference_reason": snapshot[
+                    "coefficient_inference_reason"
+                ],
+                "prediction_backend": snapshot["prediction_backend"],
             }
         primitive_values = _public_primitive_cases(
             X, y, entity, time, clusters, backend

@@ -21,6 +21,7 @@ from statgpu.backends import (
     _to_numpy,
     xp_cholesky_solve,
     xp_maximum,
+    xp_asarray,
 )
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
@@ -310,6 +311,7 @@ class PanelOLS(BasePanelModel):
             scale=scale,
             df_resid=self.df_resid,
             backend=backend,
+            fit_rank=fit_rank,
             cov_type=self._cov_type,
             cluster=cluster_for_cov,
             time_ids=time_ids,
@@ -410,40 +412,47 @@ class PanelOLS(BasePanelModel):
         return hausman_test(self, random_effects_model)
 
     def predict(self, X, entity_ids=None, time_ids=None):
-        """Predict using the fitted model, preserving existing effect semantics."""
+        """Predict on the selected numerical backend and return NumPy output."""
         self._check_is_fitted()
-        if getattr(self, "_design_info", None) is not None and hasattr(X, "columns"):
-            from statgpu.panel._formula import _formula_predict
+        backend = self._get_backend(backend="auto")
+        xp = backend.xp
+        prediction = self._panel_predict_linear(
+            X,
+            model_has_intercept=False,
+            add_intercept=False,
+            return_numpy=False,
+        )
+        self._predict_backend_name = backend.name
 
-            X_arr = _formula_predict(
-                X,
-                self._design_info,
-                self._formula_has_intercept,
-                model_has_intercept=False,
+        def _effect_values(ids, mapping, name):
+            if not mapping or ids is None:
+                return None
+            ids_np = np.asarray(_to_numpy(ids)).ravel()
+            if ids_np.shape[0] != int(prediction.shape[0]):
+                raise ValueError(
+                    f"{name} must have one value per prediction row"
+                )
+            values = np.fromiter(
+                (float(mapping.get(value, 0.0)) for value in ids_np),
+                dtype=np.float64,
+                count=ids_np.shape[0],
             )
-        else:
-            X_arr = np.asarray(X, dtype=np.float64)
-        if X_arr.ndim == 1:
-            X_arr = X_arr.reshape(-1, 1)
-        if X_arr.shape[1] + 1 == self.coef_.shape[0]:
-            X_arr = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
-        y_pred = X_arr @ self.coef_
+            return xp_asarray(
+                values, dtype=xp.float64, xp=xp, ref_arr=prediction
+            )
 
-        if self._entity_effects_map and entity_ids is not None:
-            ent_arr = np.asarray(entity_ids).ravel()
-            ent_effects = np.vectorize(
-                self._entity_effects_map.get, otypes=[np.float64]
-            )(ent_arr, 0.0)
-            y_pred = y_pred + ent_effects
+        entity_effect = _effect_values(
+            entity_ids, self._entity_effects_map, "entity_ids"
+        )
+        if entity_effect is not None:
+            prediction = prediction + entity_effect
+        time_effect = _effect_values(
+            time_ids, self._time_effects_map, "time_ids"
+        )
+        if time_effect is not None:
+            prediction = prediction + time_effect
 
-        if self._time_effects_map and time_ids is not None:
-            time_arr = np.asarray(time_ids).ravel()
-            time_effects = np.vectorize(
-                self._time_effects_map.get, otypes=[np.float64]
-            )(time_arr, 0.0)
-            y_pred = y_pred + time_effects
-
-        return y_pred
+        return np.asarray(_to_numpy(prediction), dtype=np.float64)
 
     def summary(self):
         """Print and return the existing structured coefficient summary."""

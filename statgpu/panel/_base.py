@@ -224,11 +224,12 @@ class BasePanelModel(BaseEstimator):
         allowed=None,
         hc1_correction=None,
         distribution_df=None,
+        fit_rank=None,
         diag_floor=1e-30,
     ):
         """Store residual-based OLS inference from the shared covariance registry."""
         from statgpu.inference._distributions_backend import get_distribution
-        from statgpu.inference._results import ParameterInferenceResult
+        from statgpu.inference._results import BaseInferenceResult, ParameterInferenceResult
         from statgpu.panel._covariance import (
             normalize_covariance_type,
             ols_covariance,
@@ -265,6 +266,59 @@ class BasePanelModel(BaseEstimator):
             raise ValueError(
                 "covariance contains non-finite values; inference is not numerically valid"
             )
+
+        if fit_rank is None:
+            from statgpu.panel._linalg import panel_matrix_rank
+
+            fit_rank = panel_matrix_rank(X, xp)
+        fit_rank = int(fit_rank)
+        design_columns = int(X.shape[1])
+        if fit_rank <= 0 or fit_rank > design_columns:
+            raise ValueError(
+                "fit_rank must identify a positive subspace no larger than the design"
+            )
+        rank_deficient = fit_rank < design_columns
+        self._coefficient_inference_available = not rank_deficient
+        self._coefficient_inference_reason = None
+        self._covariance_metadata["design_rank"] = fit_rank
+        self._covariance_metadata["design_columns"] = design_columns
+        self._covariance_metadata["coefficient_inference_applicable"] = not rank_deficient
+
+        if rank_deficient:
+            reason = (
+                "coefficient-level inference is unavailable because the fit-space design "
+                f"is rank deficient (rank={fit_rank}, columns={design_columns}); "
+                "fitted values and identified fit-space quantities remain available"
+            )
+            self._coefficient_inference_reason = reason
+            self._covariance_metadata["coefficient_inference_reason"] = reason
+            self.coef_ = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
+            self.bse_ = None
+            self.tvalues_ = None
+            self.pvalues_ = None
+            self.conf_int_ = None
+            self._params = self.coef_.copy()
+            self._bse = None
+            self._tvalues = None
+            self._zvalues = None
+            self._pvalues = None
+            self._conf_int = None
+            feature_names = getattr(self, "_feature_names", None)
+            if feature_names is not None and len(feature_names) != len(self.coef_):
+                feature_names = None
+            BaseInferenceResult(
+                method="panel_ols_unavailable",
+                feature_names=feature_names,
+                metadata={
+                    "applicable": False,
+                    "reason": reason,
+                    "covariance": dict(covariance_metadata),
+                    "fit_rank": fit_rank,
+                    "design_columns": design_columns,
+                },
+            ).apply_to(self)
+            return cov_params
+
         diag_np = np.diag(cov_np).astype(np.float64, copy=False)
         # A variance is invalid whenever it is strictly negative. There is no
         # dimensionally valid generic tolerance that can distinguish a small
@@ -356,6 +410,15 @@ class BasePanelModel(BaseEstimator):
         """Construct the existing PanelSummary with explicit compatibility knobs."""
         self._check_is_fitted()
         from statgpu.panel._formula import _get_feature_names
+
+        if getattr(self, "_coefficient_inference_available", True) is False:
+            raise ValueError(
+                getattr(
+                    self,
+                    "_coefficient_inference_reason",
+                    "coefficient-level inference is unavailable for this fit",
+                )
+            )
 
         coef_np = np.asarray(_to_numpy(self.coef_)).ravel()
         if feature_names_override is None:

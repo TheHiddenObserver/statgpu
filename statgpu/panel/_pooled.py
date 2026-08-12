@@ -198,6 +198,7 @@ class PooledOLS(BasePanelModel):
             scale=scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank,
             cov_type=self._cov_type,
             cluster=cluster_for_cov,
             time_ids=time_index,

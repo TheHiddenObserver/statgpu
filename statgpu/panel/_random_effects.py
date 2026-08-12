@@ -383,6 +383,7 @@ class RandomEffects(BasePanelModel):
             scale=self._scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank_star,
             cov_type=self._cov_type,
             cluster=cluster_for_cov,
             time_ids=time_ids,

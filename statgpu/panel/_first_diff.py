@@ -109,6 +109,7 @@ class FirstDifferenceOLS(BasePanelModel):
             scale=scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank_diff,
             cov_type=self._cov_type,
             allowed=("nonrobust", "robust", "hc0", "hc2", "hc3"),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
@@ -190,6 +191,15 @@ def _first_diff_transform(X, y, entity_ids, time_ids, xp):
         _time_labels, time_codes = factorize_panel_metadata(
             time_ids, name="time_ids", expected_n=eids_np.shape[0]
         )
+        pairs = np.column_stack(
+            [np.asarray(eids_np, dtype=np.int64), np.asarray(time_codes, dtype=np.int64)]
+        )
+        if np.unique(pairs, axis=0).shape[0] != pairs.shape[0]:
+            raise ValueError(
+                "FirstDifferenceOLS requires unique (entity_id, time_id) observations"
+            )
+        # Differences are taken between consecutive observed times within each
+        # entity. Internal calendar gaps are therefore allowed and are not filled.
         sort_idx_np = np.lexsort((time_codes, eids_np))
     else:
         sort_idx_np = np.argsort(eids_np, kind="stable")

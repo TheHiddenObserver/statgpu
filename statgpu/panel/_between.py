@@ -161,6 +161,7 @@ class BetweenOLS(BasePanelModel):
             scale=scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank_mean,
             cov_type=self._cov_type,
             allowed=("nonrobust", "robust", "hc0", "hc2", "hc3"),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,

@@ -88,7 +88,22 @@ def test_exact_rank_deficient_estimator_matrix_torch_cpu_matches_numpy():
     )
 
     for expected, actual in model_pairs:
-        _assert_inference(actual, expected)
+        assert_allclose(actual.coef_, expected.coef_, rtol=2e-7, atol=2e-9)
+        assert_allclose(
+            actual._panel_cov_params_raw,
+            expected._panel_cov_params_raw,
+            rtol=2e-7,
+            atol=2e-9,
+        )
+        for model in (expected, actual):
+            assert model._coefficient_inference_available is False
+            assert model.bse_ is None
+            assert model.tvalues_ is None
+            assert model.pvalues_ is None
+            assert model.conf_int_ is None
+            assert model._inference_result.metadata["applicable"] is False
+            with pytest.raises(ValueError, match="rank deficient"):
+                model.summary()
         expected_meta = expected._covariance_metadata
         actual_meta = actual._covariance_metadata
         assert expected_meta["design_rank"] < expected_meta["design_columns"]

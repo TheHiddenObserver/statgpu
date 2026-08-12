@@ -395,16 +395,27 @@ def demean_variables(
         X_d = _within_transform_matrix(X_d, entity_ids, xp)
 
     if time_ids is not None:
+        converged = False
+        max_change = float("inf")
         for _iteration in range(max_iter):
             y_d_old = y_d.copy() if hasattr(y_d, "copy") else y_d.clone()
+            X_d_old = X_d.copy() if hasattr(X_d, "copy") else X_d.clone()
             if entity_ids is not None:
                 y_d = within_transform(y_d, entity_ids, xp)
                 X_d = _within_transform_matrix(X_d, entity_ids, xp)
             y_d = within_transform(y_d, time_ids, xp)
             X_d = _within_transform_matrix(X_d, time_ids, xp)
-            max_change = _to_float_scalar(xp.max(xp.abs(y_d - y_d_old)))
+            y_change = _to_float_scalar(xp.max(xp.abs(y_d - y_d_old)))
+            X_change = _to_float_scalar(xp.max(xp.abs(X_d - X_d_old)))
+            max_change = max(float(y_change), float(X_change))
             if max_change < tol:
+                converged = True
                 break
+        if not converged:
+            raise RuntimeError(
+                "two-way fixed-effect demeaning did not converge within "
+                f"max_iter={max_iter}; final max change={max_change:.6e}, tol={tol:.6e}"
+            )
 
     return y_d, X_d
 
