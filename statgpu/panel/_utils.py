@@ -389,19 +389,24 @@ def demean_variables(
         if hasattr(X, "clone")
         else X - 0.0
     )
-    y_scale_ref = _to_float_scalar(xp.max(xp.abs(y_d)))
-    if getattr(xp, "__name__", "") == "torch":
-        X_scale_ref = xp.max(xp.abs(X), dim=0).values
-    else:
-        X_scale_ref = xp.max(xp.abs(X), axis=0)
-    X_scale_ref = xp_maximum(
-        X_scale_ref, np.finfo(np.float64).tiny, xp
-    )
-    y_scale_ref = max(float(y_scale_ref), np.finfo(np.float64).tiny)
 
     if entity_ids is not None:
         y_d = within_transform(y_d, entity_ids, xp)
         X_d = _within_transform_matrix(X_d, entity_ids, xp)
+
+    # Scale convergence in the transformed fit space.  Level data can be
+    # dominated by entity effects that are removed before alternating
+    # projections; using that level scale can make an unconverged two-way
+    # projection look relatively tiny and terminate early.
+    y_scale_ref = _to_float_scalar(xp.max(xp.abs(y_d)))
+    if getattr(xp, "__name__", "") == "torch":
+        X_scale_ref = xp.max(xp.abs(X_d), dim=0).values
+    else:
+        X_scale_ref = xp.max(xp.abs(X_d), axis=0)
+    X_scale_ref = xp_maximum(
+        X_scale_ref, np.finfo(np.float64).tiny, xp
+    )
+    y_scale_ref = max(float(y_scale_ref), np.finfo(np.float64).tiny)
 
     if time_ids is not None:
         converged = False
