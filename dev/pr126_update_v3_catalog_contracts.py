@@ -46,7 +46,7 @@ def update_literal_counts() -> None:
         Path("dev/tests/test_frontend_domain_coverage.py"),
         "== 2120",
         f"== {NEW_RUN_COUNT}",
-        1,
+        2,
     )
 
 
