@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-11<br>
+> Last updated: 2026-08-12<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -11,7 +11,7 @@ Stage C extends the Panel Tier-1 inference layer without changing estimator coef
 
 The repaired covariance implementation derives bread and influence rows from the design pseudoinverse, computes HC2/HC3 leverage from `diag(X X+)`, validates entity/time/cluster metadata consistently, keeps CuPy group scatter-add backend-native, publishes the shared inference result contract, preserves RandomEffects formula intercept and feature names, and stabilizes quadratic-spectral weights for very large bandwidths. External definitions are checked against pinned `statsmodels`, `linearmodels`, and R `sandwich`/`plm` references.
 
-The repaired implementation is now physically accepted on exact-clean `3dc7df19...` Tesla P100: CuPy 13.6.0 and Torch each pass 27 estimator integrations + 12 direct public primitives (**39/39 per backend**), including the numerical-rank boundary, and the paired synchronized performance source contains all 58 maintained rows. The older `ec511f53...` run remains immutable historical evidence and is not overwritten.
+The exact-clean `3dc7df19...` Tesla P100 result (CuPy/Torch **39/39 per backend**, plus all 58 synchronized performance rows) remains immutable historical evidence. A 2026-08-12 strict re-review subsequently reopened the rank-deficient residual/Swamy-Arora df contract and a unit-dependent negative-variance guard. The local fixes now use identified rank for supported rank-deficient df while preserving historical full-rank formulas, and strict inference rejects every truly negative final variance. Because production numerical behavior changed, fresh physical acceptance is pending on the expanded **47/47 per backend** correctness matrix; the performance target remains 58 rows.
 
 ## 2026-08-08
 

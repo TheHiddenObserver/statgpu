@@ -1,7 +1,7 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-08-11
+> Last updated: 2026-08-12
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/panel.md)
 
@@ -18,7 +18,7 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-The repaired numerical-rank and FirstDifference chronology implementation is physically accepted on exact-clean Tesla P100 measurement `3dc7df19...`: CuPy 13.6.0 and Torch each pass 27 estimator integrations + 12 direct public primitives (**39/39 per backend**), including the numerical-rank boundary, and the paired synchronized performance artifact contains all 58 maintained rows. The implementation uses one backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max` for pseudoinverse/rank decisions and preserves ordered-categorical FirstDifference chronology. The earlier `ec511f53...` 32/32 source remains immutable historical evidence and is not overwritten.
+The previous exact-clean Tesla P100 measurement `3dc7df19...` (CuPy/Torch **39/39 per backend**, plus 58 synchronized performance rows) remains immutable historical evidence, but it is no longer current acceptance evidence after the 2026-08-12 rank-deficient-df and strict covariance-validity fixes. The current implementation still uses one backend-native SVD mask with cutoff `max(n,k) * eps64 * s_max`, now also uses identified rank for supported rank-deficient residual/auxiliary degrees of freedom, and rejects every strictly negative final covariance diagonal. Fresh physical acceptance is pending on the current exact source with an expanded target of **35 estimator integrations + 12 public primitives = 47/47 per backend**, plus the unchanged 58-row performance matrix.
 
 ## Paths
 
@@ -77,7 +77,7 @@ where \(X^+\) denotes the inverse or Moore-Penrose pseudoinverse as required. `B
 
 ## Stage-C Covariance and Inference
 
-Stage C is additive: coefficient estimation, Stage-B fit statistics, and the historical default inference remain unchanged. Covariance names are normalized as follows.
+Stage C is additive on historical full-column-rank fits: coefficient estimation, Stage-B fit statistics, and the historical default inference remain unchanged. The supported rank-deficient extension uses identified numerical rank so adding redundant columns does not change fit-space degrees of freedom or identified inference. Covariance names are normalized as follows.
 
 | `cov_type` | Behavior |
 |---|---|
@@ -134,13 +134,13 @@ $$
 
 ### RandomEffects covariance
 
-Stage C does not alter Swamy-Arora variance-component or coefficient estimation. Robust, HC, cluster, and Driscoll-Kraay covariance are computed from the quasi-demeaned GLS design `X_star` and residuals. Therefore changing `cov_type` changes only inference. The classical Stage-B Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman remains out of scope and returns a structured inapplicable result.
+Historical full-rank Swamy-Arora variance-component and coefficient estimation is unchanged. In the supported rank-deficient extension, the between/within/quasi-demeaned residual degrees of freedom use their identified numerical ranks, making variance components, theta, identified fitted values, and fit-space inference invariant to exactly redundant columns. Robust, HC, cluster, and Driscoll-Kraay covariance are computed from `X_star` and its residuals, so changing `cov_type` still changes inference only. The classical Stage-B Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman remains out of scope and returns a structured inapplicable result.
 
 ### Backend and validation status
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-Current `remote-full` acceptance is the exact-clean `3dc7df19...` Tesla P100 run: CuPy and Torch each pass 27 estimator integrations + 12 public primitives (**39/39 per backend**) and the synchronized performance matrix contains 58/58 rows. The six new rank-boundary primitives and `panel_rank_boundary_dk` integration pass on both GPU backends with requested/executed backend identity. The older `ec511f53...` source is historical only. Explicit GPU devices continue to forbid silent CPU fallback.
+Current validation status is **PARTIAL_REMOTE_PENDING**. The `3dc7df19...` Tesla P100 run remains historical evidence only because production numerical behavior changed afterward. Fresh correctness acceptance must run the expanded matrix at the current exact-clean source: CuPy and Torch each require **47/47 = 35 estimator integrations + 12 public primitives**, including eight rank-deficient nonrobust/HC1 estimator cases that record `fit_rank < parameter_count`; the synchronized performance target remains 58/58 rows. Explicit GPU devices continue to forbid silent CPU fallback.
 
 ### PooledOLS HAC ordering
 

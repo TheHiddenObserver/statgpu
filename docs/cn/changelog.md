@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-11<br>
+> 最后更新：2026-08-12<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -11,7 +11,7 @@ Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的
 
 修复后的 covariance 实现从 design pseudoinverse 构造 bread 与 influence row，以 `diag(X X+)` 计算 HC2/HC3 leverage，统一验证 entity/time/cluster metadata，保持 CuPy group scatter-add 后端原生，发布共享 inference result contract，恢复 RandomEffects formula 的 intercept/feature-name 语义，并对超大 bandwidth 下的 quadratic-spectral weight 使用稳定的小参数展开。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 以及 R `sandwich`/`plm`。
 
-修复后的实现现已在 exact-clean `3dc7df19...` Tesla P100 上完成 physical acceptance：CuPy 13.6.0 与 Torch 各通过 27 个 estimator integration + 12 个 direct public primitive（**每个 backend 39/39**），包括 numerical-rank boundary，配套同步 performance source 也包含全部 58 个 maintained row。旧 `ec511f53...` 运行继续作为不可变历史证据保留，不会被覆盖。
+exact-clean `3dc7df19...` Tesla P100 结果（CuPy/Torch **每个 backend 39/39**，以及全部 58 行同步 performance）继续作为不可变历史证据保留。2026-08-12 的 strict re-review 随后重新发现 rank-deficient residual/Swamy-Arora df 契约以及依赖单位的 negative-variance guard 问题；本地修复现在让受支持的秩亏 df 使用 identified rank，同时保持历史 full-rank 公式不变，并对任何真实负的最终 variance fail closed。由于 production numerical behavior 已改变，新的 physical acceptance 尚待执行扩展后的 **每个 backend 47/47** correctness matrix；performance 目标仍为 58 行。
 
 ## 2026-08-08
 

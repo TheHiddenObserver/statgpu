@@ -2,6 +2,8 @@
 
 Standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
+> **Historical checkpoint, superseded on 2026-08-12.** A later independent strict review reopened rank-deficient df and covariance-validity issues. The `3dc7df19...` evidence and v2 promotion below remain immutable historical facts, but they are no longer current acceptance evidence. See `pr126_rank_df_inference_autofix_2026-08-12.md` and `pr126_physical_gpu_validation.md` for current status.
+
 ## Terminal verdict
 
 **PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY**

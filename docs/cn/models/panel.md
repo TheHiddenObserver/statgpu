@@ -1,7 +1,7 @@
 # Panel 模型
 
 > 语言：中文  
-> 最后更新：2026-08-11
+> 最后更新：2026-08-12
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/panel.md)
 
@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-修复后的 numerical-rank 与 FirstDifference chronology 实现已在 exact-clean `3dc7df19...` Tesla P100 上完成 physical acceptance：CuPy 13.6.0 与 Torch 各通过 27 个 estimator integration + 12 个 direct public primitive（**每个 backend 39/39**），包括 numerical-rank boundary；配套同步 performance artifact 也包含全部 58 个 maintained row。实现使用同一个 backend-native SVD mask、cutoff `max(n,k) * eps64 * s_max` 统一 pseudoinverse/rank 决策，并保留 ordered-categorical FirstDifference chronology。旧 `ec511f53...` 32/32 source 继续作为不可变历史证据保留，不会被覆盖。
+此前 exact-clean `3dc7df19...` Tesla P100 结果（CuPy/Torch **每个 backend 39/39**，以及 58 行同步 performance）继续作为不可变历史证据保留，但在 2026-08-12 的 rank-deficient df 与 strict covariance-validity 修复后已不再是当前 acceptance evidence。当前实现继续使用同一个 backend-native SVD mask 与 cutoff `max(n,k) * eps64 * s_max`，并进一步让受支持的秩亏 residual/auxiliary df 使用 identified rank，同时对任何严格为负的最终 covariance diagonal fail closed。新的 physical acceptance 尚待在当前 exact source 上执行扩展矩阵：**35 个 estimator integration + 12 个 public primitive = 每个 backend 47/47**，performance 目标仍为 58 行。
 
 ## 路径
 
@@ -77,7 +77,7 @@ $$
 
 ## Stage-C 协方差与推断
 
-Stage C 是增量式扩展：系数估计、Stage-B fit statistics 与历史默认推断不改变。协方差名称规范如下。
+对于历史 full-column-rank 拟合，Stage C 仍是增量式扩展：系数估计、Stage-B fit statistics 与历史默认推断不改变。对受支持的 rank-deficient extension，则使用 identified numerical rank，使冗余列不会改变 fit-space df 或已识别推断。协方差名称规范如下。
 
 | `cov_type` | 行为 |
 |---|---|
@@ -134,13 +134,13 @@ $$
 
 ### RandomEffects covariance
 
-Stage C 不改变 Swamy-Arora variance component 或 coefficient estimate。robust、HC、cluster 与 Driscoll-Kraay 都基于 quasi-demeaned GLS design `X_star` 与相应 residual 计算，因此改变 `cov_type` 只改变 inference。Stage-B classical Hausman 要求 **FE 与 RE 两端都使用 nonrobust covariance**；robust auxiliary Hausman 不在 Stage C 范围内，并返回结构化 inapplicable 结果。
+历史 full-rank Swamy-Arora variance component 与 coefficient estimate 保持不变。对受支持的 rank-deficient extension，between/within/quasi-demeaned residual df 使用各自 identified numerical rank，从而使 variance component、theta、identified fitted value 与 fit-space inference 对精确冗余列保持不变。robust、HC、cluster 与 Driscoll-Kraay 仍基于 `X_star` 与相应 residual 计算，因此改变 `cov_type` 只改变 inference。Stage-B classical Hausman 要求 **FE 与 RE 两端都使用 nonrobust covariance**；robust auxiliary Hausman 不在 Stage C 范围内，并返回结构化 inapplicable 结果。
 
 ### Backend 与验证状态
 
 HC leverage、row score、cluster/time grouped score、lag product、bread/meat/covariance 都保留在 NumPy/CuPy/Torch 数值后端。CPU transfer 只允许 label/group code、小型配置和 scalar audit reduction。显式 GPU device 不静默回退 CPU。
 
-当前 `remote-full` acceptance 来自 exact-clean `3dc7df19...` Tesla P100：CuPy 与 Torch 各通过 27 个 estimator integration + 12 个 public primitive（**每个 backend 39/39**），同步 performance matrix 为 58/58 行。新增的六个 rank-boundary primitive 与 `panel_rank_boundary_dk` integration 均在两个 GPU backend 上通过，且 requested/executed backend 一致。旧 `ec511f53...` source 仅作为历史证据保留；显式 GPU device 仍禁止静默回退 CPU。
+当前验证状态为 **PARTIAL_REMOTE_PENDING**。由于后续 production numerical behavior 已改变，`3dc7df19...` Tesla P100 结果仅保留为历史证据。新的 correctness acceptance 必须在当前 exact-clean source 上执行扩展矩阵：CuPy 与 Torch 各要求 **47/47 = 35 个 estimator integration + 12 个 public primitive**，其中新增 8 个 rank-deficient nonrobust/HC1 estimator case 并记录 `fit_rank < parameter_count`；同步 performance 目标仍为 58/58 行。显式 GPU device 继续禁止静默回退 CPU。
 
 ### PooledOLS HAC 时间排序
 

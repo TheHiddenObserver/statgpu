@@ -6,7 +6,7 @@ Branch: `agent/panel-p1-stage-c-covariance`
 
 ## 1. Scope and impact classification
 
-Stage C completes the covariance/inference work promised by Issue #93 while preserving all Stage-A/Stage-B coefficient estimates, fitted values, predictions, default covariance behavior, diagnostic definitions, and strict-device semantics.
+Stage C completes the covariance/inference work promised by Issue #93 while preserving all historical full-column-rank Stage-A/Stage-B coefficient estimates, fitted values, predictions, default covariance behavior, diagnostic definitions, and strict-device semantics. The supported rank-deficient extension is additionally required to depend on the identified numerical fit space rather than the raw number of redundant columns.
 
 Active impact axes:
 
@@ -47,7 +47,8 @@ Stage C is additive.
 5. Existing clustered covariance remains un-debiased by default. `group_debias=True` is opt-in, so old numerical output does not change.
 6. Stage-B classical Hausman remains restricted to matched nonrobust FE/RE covariance. Robust/HC/cluster/DK RE fits remain inapplicable to this classical Hausman path.
 7. Existing `PanelOLS` legacy public residual-df/t-inference behavior remains frozen where Stage B froze it. New covariance modes have their own documented correction basis.
-8. Coefficients, fitted values, variance components, theta, R², specification tests, formula parsing, and prediction semantics do not change solely because Stage C exists.
+8. On historical full-column-rank fits, coefficients, fitted values, variance components, theta, R², specification tests, formula parsing, and prediction semantics do not change solely because Stage C exists.
+9. On supported rank-deficient fits, residual and auxiliary-regression degrees of freedom use the identified numerical rank. Adding an exactly redundant column must not change identified fitted values, Swamy-Arora variance components/theta, fit-space covariance, or inference merely by increasing the raw column count.
 
 Golden regression tests must freeze pre-Stage-C default covariance/inference outputs before dispatch changes.
 
@@ -138,14 +139,15 @@ Implementation requirements:
 
 - compute `h_i` rowwise as `sum((Z @ B) * Z, axis=1)`, never an `n x n` hat matrix;
 - use pseudoinverse consistently for supported rank-deficient fit spaces; numerical rank and pseudoinverse must come from the same backend-native SVD mask with the explicit float64 cutoff `max(n,k) * eps * s_max`, never from independent backend defaults;
-- preserve each estimator's historical full-column-rank coefficient solver; enter the shared SVD minimum-norm solve only when the explicit rank policy reports `rank < k` or the historical solver raises a linear-algebra failure, and reuse that fit-space rank in covariance/diagnostics;
+- preserve each estimator's historical full-column-rank coefficient solver; enter the shared SVD minimum-norm solve only when the explicit rank policy reports `rank < k` or the historical solver raises a linear-algebra failure, and reuse that fit-space rank in covariance/diagnostics and in rank-deficient residual/auxiliary degrees of freedom while leaving full-rank formulas unchanged;
+- strict inference rejects every strictly negative final covariance diagonal; IEEE signed zero may be normalized to zero, but no absolute or row/column-scale tolerance may turn a genuinely negative variance into a valid-looking standard error because such tolerances are not invariant to outcome/regressor units;
 - keep leverage/score arrays backend-native;
 - reject materially invalid leverage and any numerically unit leverage that makes HC2/HC3 undefined; tiny dimensionless roundoff outside `[0,1]` may be normalized with a machine-epsilon guard only;
 - existing `robust` continues its historical estimator-specific HC1 correction unchanged.
 
 ## 6. RandomEffects covariance
 
-Swamy–Arora estimation is untouched. All Stage-C covariance uses the already-computed quasi-demeaned regression:
+Historical full-rank Swamy–Arora estimation is untouched. For the supported rank-deficient extension, the between, within, and quasi-demeaned residual degrees of freedom use the corresponding identified numerical ranks so redundant columns cannot change variance components or theta. All Stage-C covariance uses the already-computed quasi-demeaned regression:
 
 ```text
 score_it = x*_it e*_it.
