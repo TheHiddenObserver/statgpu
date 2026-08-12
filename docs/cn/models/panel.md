@@ -426,8 +426,6 @@ formula evaluation 可能因为 missing value 删除行。entity、time、cluste
 
 Panel estimator 由 maintained analytic/fitted-model regression、formula/missing-row alignment、backend contract 与 external covariance-definition tests 覆盖。在定义可比的场景下，covariance 与 specification-test 行为会与 `linearmodels==7.0`、`statsmodels` 以及 R `plm`/`sandwich` 做对齐。GPU validation 同时覆盖 CuPy 与 Torch，并校验 requested/executed backend identity，因此不接受静默 CPU fallback。
 
-validation 与 benchmark artifact 属于版本变更和发布证据；稳定 API 与统计语义由本模型页和公开实现定义，而不是由某个 PR、commit 或 benchmark lineage 定义。
-
 ## 参考文献
 
 - Hausman, J. A. (1978). Specification Tests in Econometrics.
