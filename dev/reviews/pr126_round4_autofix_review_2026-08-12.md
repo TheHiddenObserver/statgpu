@@ -4,7 +4,7 @@ Review standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 ## Checkpoint status
 
-`LOCAL_REVIEW_CLEAN / HOSTED_FINAL_PENDING / NOT MERGE-READY`
+`PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTION_PENDING / NOT MERGE-READY`
 
 Technical candidate before this review-record-only commit:
 
@@ -114,7 +114,7 @@ Per requested GPU backend:
 - **60/60 synchronized end-to-end fit rows**;
 - 54 base rows + 4 bounded `N=10,000, k=2, T=200` QS rows + 2 `panel_two_way_nonrobust` / `two_way_unbalanced` rows at `N=10,000, k=2, T=20`;
 - three finite positive raw samples per row under the default runner, with the stored median exactly equal to the sample median;
-- requested backend must equal persisted executed fit backend;
+- each timing row persists the requested backend label, and the exact runner must fail closed unless the fitted model persists `_backend_name` equal to that requested backend;
 - CUDA-specific CuPy package provenance must be recorded when applicable;
 - no CPU speedup claim.
 
@@ -123,3 +123,18 @@ Per requested GPU backend:
 The seven permanent workflows must complete successfully on the exact review-record checkpoint before the branch can be classified `PARTIAL_REMOTE_PENDING / LOCAL REVIEW CLEAN`.
 
 Even after hosted and fresh physical acceptance, this PR remains Draft unless the user explicitly requests Ready-for-review. No merge is authorized by this review record.
+
+
+## Fresh physical v4 audit — accepted
+
+Exact measurement source: `a99726e19c535dfcd0a94711bbc8be6aac437584`.  Raw artifact commit: `ccc46da6c5f2dee025c7715e39215db69b2872b8`.
+
+- correctness schema v2: CuPy **47/47**, Torch **47/47**; SHA-256 `2d929bccf1c7a0ade385c495bd6a3144cd607dec413c80857e455263c9f1f017`; Git blob `ca40d98e48e7747c080f7bf1868cf355ada048a5`;
+- performance schema v3: **60/60** synchronized rows; SHA-256 `2238002d491fe9397890af1d5e87162458f0a98b293ecf41f6b8831e5a9152b6`; Git blob `e1b61e05ea93425947d1e6a7b35d38227d22c358`;
+- all nine rank-deficient estimator acceptance cases record `fit_rank < parameter_count`, `coefficient_inference_applicable=false`, and an explicit reason;
+- `panel_entity_hc0` and `random_effects_explicit_constant_hc0` persist the requested prediction backend;
+- all timing rows have three finite positive samples and exact persisted medians.
+
+[MEDIUM][ARTIFACT][fixed] The pre-measurement review wording overstated schema-v3 timing provenance as a row-local persisted `executed_backend`. The artifact truth is narrower and still fail-closed: each row persists `backend`, while the exact immutable runner checks fitted `model._backend_name == backend` before returning elapsed time. The v4 source documents this runner-level proof and does **not** synthesize an absent field. No physical rerun is required because neither the runner nor numerical behavior changed after measurement.
+
+The v1/v2/v3 parser/source identities remain frozen. Fresh evidence is promoted only through new v4 identifiability parser/source identities.

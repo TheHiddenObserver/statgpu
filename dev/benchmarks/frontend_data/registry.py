@@ -30,6 +30,10 @@ from .parsers import (
     parse_panel_stage_c_rank_df_physical_validation,
     parse_panel_stage_c_rank_df_performance,
 )
+from .parsers import (
+    parse_panel_stage_c_identifiability_physical_validation,
+    parse_panel_stage_c_identifiability_performance,
+)
 
 MINIMUM_DASHBOARD_SOURCE_DATE = date(2026, 6, 1)
 
@@ -75,6 +79,16 @@ PARSER_FUNCTIONS = {
     ),
     "panel_stage_c_rank_df_performance": parse_panel_stage_c_rank_df_performance,
 }
+PARSER_FUNCTIONS.update(
+    {
+        "panel_stage_c_identifiability_physical_validation": (
+            parse_panel_stage_c_identifiability_physical_validation
+        ),
+        "panel_stage_c_identifiability_performance": (
+            parse_panel_stage_c_identifiability_performance
+        ),
+    }
+)
 
 
 def validate_manifest_source_dates(manifest: dict) -> None:
