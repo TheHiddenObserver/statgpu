@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "356f83d7bd7b5cdf8981b3ade968c539b63a9714fb610128c79ab4e8d13a1c57"
+    "generation_id": "a967d1e95033100acc77bd87783e1d1aaf1fb03c94fe13768fc82cde76229ad7"
   },
   "environments": [
     {
@@ -133709,11 +133709,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -133778,11 +133782,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -133847,11 +133855,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -133916,11 +133928,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -133985,11 +134001,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134054,11 +134074,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134123,11 +134147,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134192,11 +134220,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134261,11 +134293,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134330,11 +134366,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134399,11 +134439,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134468,11 +134512,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134537,11 +134585,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134606,11 +134658,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134675,11 +134731,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134744,11 +134804,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134813,11 +134877,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134882,11 +134950,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -134951,11 +135023,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135020,11 +135096,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135089,11 +135169,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135158,11 +135242,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135227,11 +135315,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135296,11 +135388,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135365,11 +135461,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135434,11 +135534,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135503,11 +135607,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135572,11 +135680,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135641,11 +135753,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135710,11 +135826,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135779,11 +135899,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135848,11 +135972,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135917,11 +136045,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -135986,11 +136118,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136055,11 +136191,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136124,11 +136264,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136193,11 +136337,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136262,11 +136410,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136331,11 +136483,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136400,11 +136556,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136469,11 +136629,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136538,11 +136702,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136607,11 +136775,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136676,11 +136848,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136745,11 +136921,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136814,11 +136994,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136883,11 +137067,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -136952,11 +137140,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137021,11 +137213,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137090,11 +137286,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137159,11 +137359,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137228,11 +137432,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137297,11 +137505,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137366,11 +137578,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137435,11 +137651,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137504,11 +137724,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137573,11 +137797,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137642,11 +137870,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137711,11 +137943,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
@@ -137780,11 +138016,15 @@
               "status": "pass"
             },
             {
+              "metric": "exactly_three_raw_samples",
+              "status": "pass"
+            },
+            {
               "metric": "raw_samples_finite_positive",
               "status": "pass"
             },
             {
-              "metric": "median_matches_raw_samples",
+              "metric": "median_exactly_matches_raw_samples",
               "status": "pass"
             }
           ],
