@@ -4,13 +4,17 @@ Review standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 ## Checkpoint verdict
 
-`PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTED / LOCAL_REVIEW_CLEAN / HOSTED_FINAL_PENDING / NOT MERGE-READY`
+`PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTED / LOCAL_REVIEW_CLEAN / HOSTED_7_OF_7_GREEN / COMPLETE / MERGE-READY`
 
-Technical candidate before this review-record-only checkpoint:
+Technical candidate before the review-record-only hosted checkpoint:
 
 `5ce595e7d610579d3c56994ce1722ebca4a595d3`
 
-The only tree delta introduced by this checkpoint is this review Markdown file. Production source, physical runners, immutable raw P100 artifacts, v4 parser/source registrations, maintained tests, coverage metadata, and generated benchmark assets are unchanged.
+Exact hosted review checkpoint:
+
+`ef2e104b4b8a4f3c9b9ade57c0df9666d7f82b7c`
+
+The only tree delta from the technical candidate to the hosted review checkpoint is this review Markdown file. Production source, physical runners, immutable raw P100 artifacts, v4 parser/source registrations, maintained tests, coverage metadata, and generated benchmark assets are unchanged.
 
 ## Fresh physical evidence
 
@@ -89,16 +93,22 @@ Final read-only review of technical candidate `5ce595e7...` found no unresolved 
 
 ## Final hosted gate
 
-The first review checkpoint `a6b0de35...` was not terminal because Benchmark Frontend staleness failed as described above. All seven permanent workflows must now complete successfully on the new exact SHA containing this review-record-only checkpoint:
+The first review checkpoint `a6b0de35...` was not terminal because Benchmark Frontend staleness failed as described above.
 
-1. Tests;
-2. Panel Stage C Torch CPU;
-3. Panel Stage C external covariance, including R `plm` / `sandwich`;
-4. Maintenance compatibility;
-5. Release notes validation;
-6. Release package validation;
-7. Benchmark Frontend CI, including deterministic data checks, staleness, E2E, and production QA.
+The exact hosted review checkpoint `ef2e104b4b8a4f3c9b9ade57c0df9666d7f82b7c` subsequently completed **7/7 GREEN** across all permanent workflows:
 
-If all seven complete successfully and no new review finding appears, the technical state becomes `PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY`.
+1. **Tests** — complete CPU suite, Python 3.9/3.10/3.11/3.12 regression matrices, docs/static contracts, maintained Torch regressions, and Stage-B linearmodels alignment;
+2. **Panel Stage C Torch CPU**;
+3. **Panel Stage C external covariance** — pinned Python external definitions plus R `plm` / `sandwich`;
+4. **Maintenance compatibility**;
+5. **Release notes validation**;
+6. **Release package validation** — distribution validation and Ubuntu/macOS/Windows wheel smoke;
+7. **Benchmark Frontend CI** — Python 3.9/3.11 parser-generator checks, deterministic generate/build/staleness, frontend build/typecheck, E2E, and multi-browser production QA.
 
-PR #126 remains Draft, open, and unmerged. This review record does not authorize Ready-for-review or merge; either action requires explicit user instruction.
+No new review finding appeared after the hosted gate. Therefore the technical state at `ef2e104b...` is:
+
+`PHYSICAL_GPU_ACCEPTED / COMPLETE / MERGE-READY`.
+
+This status-correction commit changes only this durable review record and does not alter the accepted technical candidate or physical-evidence applicability. Its exact SHA is subject to the same permanent hosted gate before lifecycle transition. The terminal exact-SHA hosted result and final read-only review are recorded in PR review metadata rather than by recursively creating another status-only commit.
+
+Draft/Ready-for-review transition and merge are separate lifecycle actions and do not change the technical acceptance result.
