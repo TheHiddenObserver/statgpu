@@ -1,0 +1,61 @@
+name: PR126 round4 autofix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-round4-autofix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply reviewed fix patch
+        run: python dev/pr126_round4_autofix.py
+
+      - name: Install focused validation environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,validation,formula,torch]' 'linearmodels==7.0'
+
+      - name: Run focused review matrix
+        run: |
+          python -m pytest -q \
+            dev/tests/test_panel_stage_c_review_round4.py \
+            dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
+            dev/tests/test_panel_stage_c_torch_cpu.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_formula.py \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_module_review_covariance_panel.py
+
+      - name: Static and formatting gates
+        run: |
+          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py dev/tests/test_panel_stage_c_review_round4.py
+          git diff --check
+
+      - name: Commit validated fixes and remove helper
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr126-round4-autofix.yml dev/pr126_round4_autofix.py
+          git add statgpu/panel dev/tests dev/benchmarks/validate_panel_stage_c_gpu.py CHANGELOG.md docs/en docs/cn
+          git diff --cached --check
+          git commit -m 'fix: close fresh Panel Stage C review findings'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
