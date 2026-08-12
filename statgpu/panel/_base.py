@@ -260,12 +260,12 @@ class BasePanelModel(BaseEstimator):
         )
 
         diag = xp.diag(cov_params)
-        diag_np = np.asarray(_to_numpy(diag), dtype=np.float64).ravel()
-        negative_tol = (
-            4096.0
-            * np.finfo(np.float64).eps
-            * np.maximum(1.0, np.abs(diag_np))
-        )
+        cov_np = self._panel_cov_params_raw
+        diag_np = np.diag(cov_np).astype(np.float64, copy=False)
+        row_scale = np.max(np.abs(cov_np), axis=1)
+        col_scale = np.max(np.abs(cov_np), axis=0)
+        local_scale = np.maximum(row_scale, col_scale)
+        negative_tol = 4096.0 * np.finfo(np.float64).eps * local_scale
         if np.any(diag_np < -negative_tol):
             raise ValueError(
                 "covariance has materially negative diagonal variance; "

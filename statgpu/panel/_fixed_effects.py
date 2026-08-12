@@ -231,7 +231,7 @@ class PanelOLS(BasePanelModel):
             n_effects += n_entities - 1
         if self.time_effects:
             n_effects += n_times - 1
-        legacy_df_resid = n - k - n_effects
+        legacy_df_resid = n - int(fit_rank) - n_effects
         standard_df_resid = int(diagnostic_df["df_resid"])
         if legacy_df_resid > 0:
             self.df_resid = legacy_df_resid

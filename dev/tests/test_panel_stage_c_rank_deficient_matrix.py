@@ -94,3 +94,60 @@ def test_exact_rank_deficient_estimator_matrix_torch_cpu_matches_numpy():
         assert expected_meta["design_rank"] < expected_meta["design_columns"]
         assert actual_meta["design_rank"] == expected_meta["design_rank"]
         assert actual_meta["design_columns"] == expected_meta["design_columns"]
+
+
+@pytest.mark.parametrize("cov_type", ["nonrobust", "robust"])
+def test_rank_deficient_df_and_identified_inference_are_column_space_invariant(cov_type):
+    """Redundant columns cannot change identified fit/inference in rank extensions."""
+    rng = np.random.default_rng(12913)
+    n_entities, n_times = 18, 5
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    keep = np.ones(entity.size, dtype=bool)
+    keep[[1, 8, 17, 29, 44, 63, 78]] = False
+    entity = entity[keep]
+    time = time[keep]
+    x = rng.normal(size=entity.size)
+    alpha = np.repeat(rng.normal(scale=0.35, size=n_entities), n_times)[keep]
+    y = 0.45 + 0.75 * x + alpha + rng.normal(scale=0.2, size=entity.size)
+
+    X1 = x[:, None]
+    X2 = np.column_stack([x, 2.0 * x])
+    pairs = [
+        (PanelOLS(cov_type=cov_type).fit(X1, y),
+         PanelOLS(cov_type=cov_type).fit(X2, y), X1, X2),
+        (BetweenOLS(cov_type=cov_type).fit(X1, y, entity_ids=entity),
+         BetweenOLS(cov_type=cov_type).fit(X2, y, entity_ids=entity),
+         np.column_stack([np.ones(len(y)), X1]),
+         np.column_stack([np.ones(len(y)), X2])),
+        (FirstDifferenceOLS(cov_type=cov_type).fit(X1, y, entity_ids=entity, time_ids=time),
+         FirstDifferenceOLS(cov_type=cov_type).fit(X2, y, entity_ids=entity, time_ids=time),
+         X1, X2),
+    ]
+
+    X1_re = np.column_stack([np.ones(len(y)), X1])
+    X2_re = np.column_stack([np.ones(len(y)), X2])
+    re_base = RandomEffects(cov_type=cov_type).fit(X1_re, y, entity_ids=entity)
+    re_redundant = RandomEffects(cov_type=cov_type).fit(X2_re, y, entity_ids=entity)
+    pairs.append((re_base, re_redundant, X1_re, X2_re))
+
+    for base, redundant, design_base, design_redundant in pairs:
+        assert base.df_resid == redundant.df_resid
+        assert_allclose(
+            design_redundant @ np.asarray(redundant.coef_),
+            design_base @ np.asarray(base.coef_),
+            rtol=2e-10, atol=2e-11,
+        )
+        cov_base = np.asarray(base._panel_cov_params_raw)
+        cov_redundant = np.asarray(redundant._panel_cov_params_raw)
+        assert_allclose(
+            design_redundant @ cov_redundant @ design_redundant.T,
+            design_base @ cov_base @ design_base.T,
+            rtol=2e-8, atol=2e-10,
+        )
+
+    assert_allclose(re_redundant.variance_components_["sigma2_e"],
+                    re_base.variance_components_["sigma2_e"], rtol=2e-11, atol=2e-13)
+    assert_allclose(re_redundant.variance_components_["sigma2_a"],
+                    re_base.variance_components_["sigma2_a"], rtol=2e-11, atol=2e-13)
+    assert_allclose(re_redundant.theta_, re_base.theta_, rtol=2e-11, atol=2e-13)

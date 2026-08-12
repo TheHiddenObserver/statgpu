@@ -146,11 +146,12 @@ class BetweenOLS(BasePanelModel):
 
         resid = y_mean - X_mean @ params
         n = n_groups
-        if n <= k:
+        if n <= rank_mean:
             raise ValueError(
-                f"positive residual degrees of freedom required; groups={n}, parameters={k}"
+                "positive residual degrees of freedom required; "
+                f"groups={n}, rank={rank_mean}"
             )
-        df_resid = n - k
+        df_resid = n - int(rank_mean)
         scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
 
         self._panel_store_ols_inference(

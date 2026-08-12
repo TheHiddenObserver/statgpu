@@ -93,11 +93,12 @@ class FirstDifferenceOLS(BasePanelModel):
             except _LINALG_ERRORS:
                 params, _ = panel_lstsq(X_diff, y_diff, xp)
 
-        if n <= k:
+        if n <= rank_diff:
             raise ValueError(
-                f"positive residual degrees of freedom required; n={n}, k={k}"
+                "positive residual degrees of freedom required; "
+                f"n={n}, rank={rank_diff}"
             )
-        df_resid = n - k
+        df_resid = n - int(rank_diff)
         resid = y_diff - X_diff @ params
         scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
 

@@ -234,6 +234,7 @@ class RandomEffects(BasePanelModel):
                 dtype=np.int64,
             )
             if slope_indices.size == 0:
+                rank_within = 0
                 resid_within = y_within
             else:
                 slope_idx_dev = xp_asarray(
@@ -274,18 +275,27 @@ class RandomEffects(BasePanelModel):
         per_entity_sizes = T_i_np[first_idx]
         T_bar = float(n_entities) / float(np.sum(1.0 / per_entity_sizes))
 
-        df_within = n - k - (n_entities - 1)
+        # Preserve the historical Swamy-Arora parameterization at full
+        # column rank, but count only identified auxiliary-regression directions
+        # in the rank-deficient extension. With an explicit level constant, the
+        # within regression drops that annihilated column and the entity nuisance
+        # rank is N; without a constant it is N-1. These formulas reduce exactly
+        # to n-k-(N-1) and N-k on the historical full-rank paths.
+        within_effect_df = n_entities if has_constant else n_entities - 1
+        df_within = n - int(rank_within) - int(within_effect_df)
         if df_within <= 0:
             raise ValueError(
-                f"Not enough observations for within df: n={n}, k={k}, "
-                f"n_entities={n_entities}, df_within={df_within}"
+                "Not enough observations for within df: "
+                f"n={n}, rank_within={rank_within}, "
+                f"effect_df={within_effect_df}, df_within={df_within}"
             )
         sigma2_e = rss_within / df_within
 
-        df_between = n_entities - k
+        df_between = n_entities - int(rank_between)
         if df_between <= 0:
             warnings.warn(
-                f"Between estimator under-identified: n_entities={n_entities} <= k={k}. "
+                "Between estimator under-identified: "
+                f"n_entities={n_entities} <= rank_between={rank_between}. "
                 "Variance component sigma2_a may be unreliable.",
                 UserWarning,
                 stacklevel=2,
@@ -343,7 +353,15 @@ class RandomEffects(BasePanelModel):
                     beta_gls, _ = panel_lstsq(X_star, y_star, xp)
 
         resid_gls = y_star - X_star @ beta_gls
-        df_resid = n - k
+        # Full-rank behavior remains n-k. The rank-deficient extension uses
+        # identified quasi-demeaned rank so redundant columns cannot change
+        # scale, HC1 correction, or Student-t degrees of freedom.
+        df_resid = n - int(rank_star)
+        if df_resid <= 0:
+            raise ValueError(
+                "positive residual degrees of freedom required; "
+                f"n={n}, rank={rank_star}"
+            )
         self.df_resid = df_resid
         self._scale = _to_float_scalar(xp.sum(resid_gls ** 2)) / df_resid
 
