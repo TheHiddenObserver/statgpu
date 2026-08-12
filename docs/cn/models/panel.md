@@ -18,7 +18,7 @@
 
 数组输入的数值路径支持 NumPy、CuPy CUDA 与 Torch CUDA。formula 构造以及字符串/分类 entity、time、cluster 标签属于明确的 CPU 元数据边界，只会把对齐后的紧凑编码传入数值后端。显式 GPU device 不会静默回退 CPU。
 
-此前 exact-clean `3dc7df19...` Tesla P100 结果（CuPy/Torch **每个 backend 39/39**，以及 58 行同步 performance）继续作为不可变历史证据保留，但在 2026-08-12 的 rank-deficient df 与 strict covariance-validity 修复后已不再是当前 acceptance evidence。当前实现继续使用同一个 backend-native SVD mask 与 cutoff `max(n,k) * eps64 * s_max`，并进一步让受支持的秩亏 residual/auxiliary df 使用 identified rank，同时对任何严格为负的最终 covariance diagonal fail closed。新的 physical acceptance 尚待在当前 exact source 上执行扩展矩阵：**35 个 estimator integration + 12 个 public primitive = 每个 backend 47/47**，performance 目标仍为 58 行。
+此前 exact-clean `3dc7df19...` Tesla P100 结果（CuPy/Torch **每个 backend 39/39**，以及 58 行同步 performance）继续作为不可变历史证据保留，但在 2026-08-12 的 rank-deficient df 与 strict covariance-validity 修复后已不再是当前 acceptance evidence。当前实现继续使用同一个 backend-native SVD mask 与 cutoff `max(n,k) * eps64 * s_max`，并进一步让受支持的秩亏 residual/auxiliary df 使用 identified rank；若最终 covariance 含任何非有限值或任何严格为负的 diagonal variance，则 strict inference fail closed（IEEE signed zero 可正规化为 0）。新的 physical acceptance 尚待在当前 exact source 上执行扩展矩阵：**35 个 estimator integration + 12 个 public primitive = 每个 backend 47/47**，performance 目标仍为 58 行。
 
 ## 路径
 
