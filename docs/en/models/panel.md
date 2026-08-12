@@ -18,8 +18,6 @@ The `statgpu.panel` module provides six panel-data estimators:
 
 Array-input numerical paths support NumPy, CuPy CUDA, and Torch CUDA. Formula construction and categorical entity/time/cluster labels are intentional CPU metadata boundaries; compact aligned codes are transferred to the selected numerical backend. Explicit GPU devices do not silently fall back to CPU.
 
-The exact-clean Tesla P100 measurements remain immutable audit evidence. The `f1546476...` source recorded CuPy/Torch 47/47 per backend and all 58 synchronized performance rows and was promoted under immutable v3 source identities. Subsequent 2026-08-12 hardening changed two-way FE convergence, rank-deficient coefficient-inference applicability, PanelOLS prediction backend execution, and duplicate-time FirstDifference validation, so that v3 numerical evidence is historical rather than evidence for the newer implementation. Long-lived model documentation records evidence lineage but does not carry PR lifecycle state.
-
 ## Paths
 
 ```python
@@ -75,9 +73,9 @@ $$
 
 where \(X^+\) denotes the inverse or Moore-Penrose pseudoinverse as required. `BetweenOLS` applies OLS to entity means, `FirstDifferenceOLS` applies OLS to Δ\(X\) and Δ\(y\), and `FamaMacBeth` averages period-specific coefficient vectors.
 
-## Stage-C Covariance and Inference
+## Covariance and Inference
 
-Stage C is additive on historical full-column-rank fits: coefficient estimation, Stage-B fit statistics, and the historical default inference remain unchanged. The supported rank-deficient extension uses identified numerical rank so adding redundant columns does not change fitted values, residual degrees of freedom, variance components, or other identified fit-space quantities. The reported coefficient vector is the shared Moore-Penrose minimum-norm representation, but the original coordinate coefficients are not uniquely identified; `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` are therefore unavailable and `summary()` fails closed for an exact rank-deficient fit. Covariance names are normalized as follows.
+For full-column-rank fits, coefficient-space inference is available according to the selected covariance estimator. For rank-deficient fits, statgpu uses the identified numerical rank so exactly redundant columns do not change fitted values, residual degrees of freedom, variance components, or other identified fit-space quantities. The reported coefficient vector is the Moore-Penrose minimum-norm representation, but the original coordinate coefficients are not uniquely identified; `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` are therefore unavailable and `summary()` fails closed for an exact rank-deficient fit.
 
 | `cov_type` | Behavior |
 |---|---|
@@ -88,7 +86,7 @@ Stage C is additive on historical full-column-rank fits: coefficient estimation,
 | `"clustered"` | One- or two-way clustered sandwich; `group_debias=True` opt-in correction where supported |
 | `"driscoll-kraay"`, `"dk"`, `"kernel"` | Time-aggregated Driscoll-Kraay covariance with Bartlett, Parzen, or quadratic-spectral kernels |
 | `"hac"` | Historical row-order Bartlett/Newey-West covariance for `PooledOLS`; deliberately distinct from Driscoll-Kraay |
-| `"newey-west"` | Existing HAC on the `FamaMacBeth` coefficient path; not routed through the residual-OLS Stage-C layer |
+| `"newey-west"` | HAC on the `FamaMacBeth` coefficient path; distinct from residual-OLS covariance |
 
 ### HC0/HC2/HC3 fit-space definition
 
@@ -110,7 +108,7 @@ $$
 \frac{G}{G-1}\frac{n-1}{n},
 $$
 
-using that component's own group count before two-way inclusion-exclusion. This changes covariance magnitude only; Stage C does not silently switch coefficient tests to a finite-group t reference. String/categorical cluster labels are metadata and are factorized without moving the numerical score matrix to CPU.
+using that component's own group count before two-way inclusion-exclusion. This changes covariance magnitude only; coefficient tests do not silently switch to a finite-group t reference. String/categorical cluster labels are metadata and are factorized without moving the numerical score matrix to CPU.
 
 ### Driscoll-Kraay covariance
 
@@ -122,29 +120,27 @@ $$
 
 then applies a kernel HAC to the ordered `g_t` series. `PooledOLS` uses `time_index=`, while `PanelOLS` and `RandomEffects` use aligned `time_ids=`. Unbalanced panels are supported because each time aggregate contains only observed rows.
 
-For a full-rank fit-space design with `k` columns, Stage C uses the `linearmodels==7.0`-compatible debiased scale
+For a full-rank fit-space design with `k` columns, statgpu uses the `linearmodels==7.0`-compatible debiased scale
 
 $$
 \mathrm{scale}_{DK}=\frac{n}{n-\mathrm{extra\_df}-k}.
 $$
 
-`PooledOLS` and `RandomEffects` use `extra_df=0`. `PanelOLS` uses the Stage-B standard fixed-effect nuisance rank (`N`, `T`, or `N+T-C`). If statgpu validly reaches a rank-deficient fit, the documented extension replaces `k` by the numerical rank and uses a pseudoinverse; this corner is not claimed to be a `linearmodels` equality case.
+`PooledOLS` and `RandomEffects` use `extra_df=0`. `PanelOLS` uses the standard fixed-effect nuisance rank (`N`, `T`, or `N+T-C`). For a supported rank-deficient fit, the extension replaces `k` by the numerical rank and uses a pseudoinverse; this corner is not claimed to be a `linearmodels` equality case.
 
 `bandwidth=None` uses `floor(4*(T/100)^(2/9))`, where `T` is the number of distinct observed periods. Bartlett/Newey-West and Parzen/Gallant are truncated at the bandwidth. Quadratic Spectral (`qs`, Andrews) treats bandwidth as a smoothing scale and applies weights to **all observed lags** when bandwidth is positive; it is not truncated at `bw`. Numeric and datetime time keys use their natural sorted order. An ordered pandas categorical preserves its declared category chronology, restricted to observed categories. Plain string/object labels retain deterministic sorted-label ordering; when chronological order differs from lexical order, pass an ordered categorical or an explicit numeric/datetime time key.
 
 ### RandomEffects covariance
 
-Historical full-rank Swamy-Arora variance-component and coefficient estimation is unchanged. In the supported rank-deficient extension, the between/within/quasi-demeaned residual degrees of freedom use their identified numerical ranks, making variance components, theta, fitted values, and fit-space covariance invariant to exactly redundant columns. Coordinate-wise BSE/test/p-value/CI output is unavailable because the original coefficient coordinates are not uniquely identified. Robust, HC, cluster, and Driscoll-Kraay covariance are still formed on `X_star` for identified fit-space auditing. The classical Stage-B Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman remains out of scope and returns a structured inapplicable result.
+For a full-rank design, `RandomEffects` uses the Swamy-Arora variance-component and feasible-GLS construction. In the supported rank-deficient extension, the between/within/quasi-demeaned residual degrees of freedom use their identified numerical ranks, making variance components, theta, fitted values, and fit-space covariance invariant to exactly redundant columns. Coordinate-wise BSE/test/p-value/CI output is unavailable because the original coefficient coordinates are not uniquely identified. Robust, HC, cluster, and Driscoll-Kraay covariance are formed on `X_star`. The classical Hausman test requires **both** the FE and RE fits to use nonrobust covariance; robust auxiliary Hausman is not supported and returns a structured inapplicable result.
 
-### Backend and validation status
+### Backend behavior
 
 HC leverage, row scores, grouped cluster/time scores, lag products, bread/meat matrices, and covariance accumulation remain on NumPy/CuPy/Torch. CPU transfers are restricted to labels/group codes, small configuration, and scalar audit reductions. Explicit GPU devices never silently fall back to CPU.
 
-The accepted `f1546476...` P100 run remains immutable historical evidence: both CuPy and Torch completed 47/47 correctness cases and the synchronized performance matrix contained 58/58 rows. Later implementation hardening requires a new exact-head physical lineage before those measurements can describe the current numerical tree. PR-specific acceptance state is intentionally tracked only in repository review records. Explicit GPU devices continue to forbid silent CPU fallback.
-
 ### PooledOLS HAC ordering
 
-For `PooledOLS(cov_type="hac")`, pass `time_index=` to `fit`. The implementation validates the side array and uses a stable time ordering while keeping X, y, and Stage-B entity diagnostic metadata under the identical permutation. Consequently, BP-LM and parameter-based R² cannot accidentally group residuals using pre-sort entity metadata.
+For `PooledOLS(cov_type="hac")`, pass `time_index=` to `fit`. The implementation validates the side array and uses a stable time ordering while keeping X, y, and entity diagnostic metadata under the identical permutation. Consequently, BP-LM and parameter-based R² cannot accidentally group residuals using pre-sort entity metadata.
 
 ### Rank-deficient PooledOLS
 
@@ -155,7 +151,7 @@ A rank-deficient design separates fitted-space validity from coefficient-space i
 - individual coefficients are not unique under exact collinearity;
 - coefficient-level covariance, BSE, test statistics, p-values, and confidence intervals are therefore non-identifiable and should not be interpreted as unique coefficient inference.
 
-Stage-B model-F restrictions use effective numerical rank rather than blindly using the raw column count. The same coefficient-inference-unavailable rule applies to rank-deficient `PanelOLS`, `RandomEffects`, `BetweenOLS`, and `FirstDifferenceOLS` fits.
+Model-F restrictions use effective numerical rank rather than blindly using the raw column count. The same coefficient-inference-unavailable rule applies to rank-deficient `PanelOLS`, `RandomEffects`, `BetweenOLS`, and `FirstDifferenceOLS` fits.
 
 ### FirstDifference time semantics
 
@@ -188,15 +184,15 @@ For coefficient vector \(\hat\beta\):
 - **between R²** evaluates entity means \(\bar y_i-\bar X_i\hat\beta\);
 - **within R²** evaluates entity-demeaned \(y\) and \(X\).
 
-Overall and between total sums of squares are centered only when the actual level regressor design contains an identified constant. Fixed effects by themselves do not change this centering rule. `RandomEffects` detects an explicit nonzero constant column in the supplied level design and retains its quasi-demeaned transformed column when defining adjusted R² and the restricted model-F regression. Constant detection uses a tolerance relative to the column's own magnitude, so changing units does not turn a nonzero constant into a slope or vice versa. A zero total sum of squares is reported as `0.0` in the standardized Stage-B field and marked in `metadata["degenerate_total_ss"]`.
+Overall and between total sums of squares are centered only when the actual level regressor design contains an identified constant. Fixed effects by themselves do not change this centering rule. `RandomEffects` detects an explicit nonzero constant column in the supplied level design and retains its quasi-demeaned transformed column when defining adjusted R² and the restricted model-F regression. Constant detection uses a tolerance relative to the column's own magnitude, so changing units does not turn a nonzero constant into a slope or vice versa. A zero total sum of squares is reported as `0.0` in the standardized field and marked in `metadata["degenerate_total_ss"]`.
 
 ### Legacy `PanelOLS.rsquared_within`
 
-`PanelOLS.rsquared_within` is retained exactly for Stage-A compatibility. In a two-way FE model it describes the historical full entity+time transformed fit and can differ from the standardized entity-within `fit_statistics_.rsquared_within`. Stage B does not silently overwrite the legacy attribute; the compatibility value is recorded in fit-statistics metadata.
+`PanelOLS.rsquared_within` is retained for backward compatibility. In a two-way FE model it describes the full entity+time transformed fit and can differ from the standardized entity-within `fit_statistics_.rsquared_within`. The standardized statistic does not overwrite the legacy attribute; the compatibility value is recorded in fit-statistics metadata.
 
 ### Adjusted R² and diagnostic degrees of freedom
 
-For new standardized diagnostics, `PanelOLS` uses the rank of the complete fixed-effect nuisance space. Current `PanelOLS` does not retain an exogenous intercept, so the standard nuisance-effect rank is:
+For standardized diagnostics, `PanelOLS` uses the rank of the complete fixed-effect nuisance space. Current `PanelOLS` does not retain an exogenous intercept, so the standard nuisance-effect rank is:
 
 - entity effects only: \(N\);
 - time effects only: \(T\);
@@ -204,7 +200,7 @@ For new standardized diagnostics, `PanelOLS` uses the rank of the complete fixed
 
 Thus the familiar \(N+T-1\) formula is the connected-panel special case \(C=1\); incomplete panels with disconnected incidence components receive their actual dummy-space rank rather than a hard-coded connected-panel rank.
 
-If \(r_X\) is the numerical rank of the transformed slope design, Stage B uses
+If \(r_X\) is the numerical rank of the transformed slope design, the standardized diagnostics use
 
 $$
 \mathrm{df}_{\mathrm{resid,diag}}
@@ -220,11 +216,11 @@ $$
 
 for the standardized FE model F and adjusted R².
 
-This is intentionally separate from the historical public `PanelOLS.df_resid`, which remains unchanged because existing covariance, t statistics, p-values, confidence intervals, and summaries depend on that compatibility convention. Hausman uses a diagnostic-only small FE covariance matrix rescaled to the standard nuisance-rank denominator; the public Stage-A BSE/CI remain unchanged.
+This is intentionally separate from the public `PanelOLS.df_resid`, which remains unchanged because existing covariance, t statistics, p-values, confidence intervals, and summaries depend on that compatibility convention. Hausman uses a diagnostic-only small FE covariance matrix rescaled to the standard nuisance-rank denominator; public BSE/CI are unchanged.
 
 ### Classical model F
 
-For OLS-style panel estimators, Stage B reports the classical homoskedastic joint-slope F statistic on the estimator's primary fit space:
+For OLS-style panel estimators, the standardized statistics report the classical homoskedastic joint-slope F statistic on the estimator's primary fit space:
 
 $$
 F=
@@ -234,7 +230,7 @@ $$
 
 where \(q\) is the effective restriction rank. A robust or clustered covariance choice does not silently convert this field into a robust Wald test. When the unrestricted regression fits exactly while the restricted regression has positive RSS, the standardized result is the limiting classical value `F=inf`, `p=0` rather than an unavailable statistic. RSS zero/nesting tolerances are relative to the RSS scale, so multiplying the response and fitted coefficients by a common unit-conversion factor does not change the dimensionless F statistic or its applicability.
 
-`FamaMacBeth` does not receive a residual-OLS model F or adjusted R². Its covariance is based on the time series of cross-sectional coefficient estimates, and Stage B does not relabel that beta-series inference as residual OLS.
+`FamaMacBeth` does not receive a residual-OLS model F or adjusted R². Its covariance is based on the time series of cross-sectional coefficient estimates, and beta-series inference is not relabeled as residual OLS.
 
 ## Specification Tests
 
@@ -269,7 +265,7 @@ result = pooled.breusch_pagan_lm_test()
 result = breusch_pagan_lm_test(pooled)
 ```
 
-This is the **panel error-components Breusch-Pagan LM test**, not the cross-sectional heteroskedasticity Breusch-Pagan test. Stage B implements the one-way entity version, including the Baltagi-Li incomplete/unbalanced-panel formula used by `plm::plmtest(type="bp", effect="individual")`.
+This is the **panel error-components Breusch-Pagan LM test**, not the cross-sectional heteroskedasticity Breusch-Pagan test. statgpu implements the one-way entity version, including the Baltagi-Li incomplete/unbalanced-panel formula used by `plm::plmtest(type="bp", effect="individual")`.
 
 The null is zero entity random-effect variance. At least two entities, positive pooled RSS, and at least one repeated observation within an entity are required. Without `entity_ids`, the result is structured as inapplicable rather than guessed from row order.
 
@@ -286,7 +282,7 @@ result = fe.hausman_test(re)
 result = hausman_test(fe, re)
 ```
 
-Stage B implements the original quadratic-form one-way entity FE-versus-RE Hausman test:
+statgpu implements the original quadratic-form one-way entity FE-versus-RE Hausman test:
 
 $$
 H=(\hat\beta_{FE}-\hat\beta_{RE})^\top
@@ -298,7 +294,7 @@ Applicability rules are explicit:
 
 - FE must be one-way entity effects only;
 - the FE coefficient covariance must be classical/nonrobust;
-- the RE coefficient covariance must also be classical/nonrobust; Stage-C robust/HC/cluster/DK RE fits are not inputs to this classical test;
+- the RE coefficient covariance must also be classical/nonrobust; robust/HC/cluster/DK RE fits are not inputs to this classical test;
 - FE and RE must be fitted to the same aligned y/entity sample and the same canonical slope design;
 - an RE-only explicit constant is allowed because entity FE absorbs the common intercept; that constant is excluded from the Hausman coefficient vector;
 - row/sample compatibility uses a collision-resistant SHA-256 digest of every aligned float64 **slope-X/y** value plus the entity-code signature and canonical feature metadata, not only matching shapes or low-order moments;
@@ -307,9 +303,9 @@ Applicability rules are explicit:
 
 For array input, slopes are canonically renumbered after an RE-only constant is removed. For named/formula designs, slope names are preserved. Hausman covariance-rank and identified-range tolerances are relative to the covariance/coefficient scale, so a change of outcome units does not change applicability for the same mathematical problem.
 
-For GPU fits, the canonical slope full-content digest is computed through bounded chunks copied to host solely for hashing. One-way entity FE with nonrobust covariance and `RandomEffects` retain this identity because they can participate in Stage-B Hausman. Robust/clustered, time-only, and two-way FE are rejected before identity comparison and do not pay the full X/y hashing cost. Fitted models retain only the digest/index metadata, not a second CPU copy of the design. Statistical estimation, covariance construction, and fit-statistic reductions remain on the selected numerical backend.
+For GPU fits, the canonical slope full-content digest is computed through bounded chunks copied to host solely for hashing. One-way entity FE with nonrobust covariance and `RandomEffects` retain this identity because they can participate in the classical Hausman test. Robust/clustered, time-only, and two-way FE are rejected before identity comparison and do not pay the full X/y hashing cost. Fitted models retain only the digest/index metadata, not a second CPU copy of the design. Statistical estimation, covariance construction, and fit-statistic reductions remain on the selected numerical backend.
 
-If the covariance difference is positive semidefinite but rank-deficient, statgpu provides a documented generalized-inverse extension: the test uses the identified range and chi-square degrees of freedom equal to the numerical rank, but only when the coefficient difference lies in that range. Metadata records `used_pinv=True` and labels this as the `singular PSD generalized-inverse Hausman` extension. Robust auxiliary-regression Hausman is not part of Stage B.
+If the covariance difference is positive semidefinite but rank-deficient, statgpu provides a documented generalized-inverse extension: the test uses the identified range and chi-square degrees of freedom equal to the numerical rank, but only when the coefficient difference lies in that range. Metadata records `used_pinv=True` and labels this as the `singular PSD generalized-inverse Hausman` extension. Robust auxiliary-regression Hausman is not supported.
 
 ## Parameters and Fit Signatures
 
@@ -379,7 +375,7 @@ FamaMacBeth(
 )
 ```
 
-`FamaMacBeth.fit(..., entity_ids=None)` accepts optional entity IDs only for Stage-B within/between R². The beta-series estimation and covariance path are unchanged.
+`FamaMacBeth.fit(..., entity_ids=None)` accepts optional entity IDs only for standardized within/between R². The beta-series estimation and covariance path are unchanged.
 
 ## CPU and GPU Example
 
@@ -407,7 +403,7 @@ re = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
 print(fe.hausman_test(re))
 ```
 
-For CuPy CUDA use `device="cuda"`; for Torch CUDA use CUDA tensors and `device="torch"`. Stage-B statistical transforms and sufficient-statistic accumulation follow the selected numerical backend. Formula/label metadata, final scalars, and small covariance matrices use the CPU metadata boundary; Hausman-compatible one-way FE/RE fits additionally perform bounded chunked host copies of canonical slope X/y solely for collision-resistant identity hashing.
+For CuPy CUDA use `device="cuda"`; for Torch CUDA use CUDA tensors and `device="torch"`. Statistical transforms and sufficient-statistic accumulation follow the selected numerical backend. Formula/label metadata, final scalars, and small covariance matrices use the CPU metadata boundary; Hausman-compatible one-way FE/RE fits additionally perform bounded chunked host copies of canonical slope X/y solely for collision-resistant identity hashing.
 
 ## Outputs
 
@@ -428,9 +424,9 @@ Formula evaluation may drop rows with missing values. Entity, time, cluster, and
 
 ## Validation
 
-Stage A / PR #119 established the shared panel framework and passed exact-head physical validation on Tesla P100 across 10 CuPy and 10 Torch cases.
+Panel estimators are covered by maintained analytic and fitted-model regression tests, formula/missing-row alignment tests, backend-contract tests, and external covariance-definition checks. Where definitions overlap, covariance and specification-test behavior is compared with `linearmodels==7.0`, `statsmodels`, and R `plm`/`sandwich`. GPU validation exercises both CuPy and Torch execution and verifies explicit requested/executed backend identity so silent CPU fallback is not accepted.
 
-Stage B adds maintained analytic and fitted-model regression tests, formula/missing-row alignment tests, Python 3.9 + Torch 2.0 CPU parity coverage, and an executable `linearmodels==7.0` external-definition gate. The physical runner contains 17 estimator cases per backend and four Hausman diagnostic cases per backend, including balanced/unbalanced RandomEffects with an explicit constant and FE-versus-RE Hausman where FE absorbs that intercept. Final promotion requires `dev/benchmarks/validate_panel_stage_b_gpu.py` to pass on an exact clean commit for both CuPy and Torch CUDA; this runner is a correctness/provenance gate rather than a performance benchmark. A separate physical benchmark measures the remaining full-content identity overhead on Hausman-compatible FE/RE fits.
+Validation and benchmark artifacts are release/change evidence; the stable API and statistical semantics are defined by this model page and the public implementation rather than by a particular PR, commit, or benchmark lineage.
 
 ## References
 
@@ -439,5 +435,7 @@ Stage B adds maintained analytic and fitted-model regression tests, formula/miss
 - Baltagi, B. H., & Li, Q. (1990). A Lagrange multiplier test for the error components model with incomplete panels.
 - White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator.
 - Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix.
+- Driscoll, J. C., & Kraay, A. C. (1998). Consistent covariance matrix estimation with spatially dependent panel data.
+- Andrews, D. W. K. (1991). Heteroskedasticity and autocorrelation consistent covariance matrix estimation.
 - Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium.
 - Cameron, A. C., Gelbach, J. B., & Miller, D. L. (2011). Robust inference with multiway clustering.
