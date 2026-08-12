@@ -394,26 +394,25 @@ def demean_variables(
         y_d = within_transform(y_d, entity_ids, xp)
         X_d = _within_transform_matrix(X_d, entity_ids, xp)
 
-    # Scale convergence in the transformed fit space.  Level data can be
-    # dominated by entity effects that are removed before alternating
-    # projections; using that level scale can make an unconverged two-way
-    # projection look relatively tiny and terminate early.
-    y_scale_ref = _to_float_scalar(xp.max(xp.abs(y_d)))
-    if getattr(xp, "__name__", "") == "torch":
-        X_scale_ref = xp.max(xp.abs(X_d), dim=0).values
-    else:
-        X_scale_ref = xp.max(xp.abs(X_d), axis=0)
-    X_scale_ref = xp_maximum(
-        X_scale_ref, np.finfo(np.float64).tiny, xp
-    )
-    y_scale_ref = max(float(y_scale_ref), np.finfo(np.float64).tiny)
-
     if time_ids is not None:
         converged = False
         max_change = float("inf")
+        tiny = np.finfo(np.float64).tiny
         for _iteration in range(max_iter):
             y_d_old = y_d.copy() if hasattr(y_d, "copy") else y_d.clone()
             X_d_old = X_d.copy() if hasattr(X_d, "copy") else X_d.clone()
+
+            # Use the scale of the current transformed iterate.  A fixed scale
+            # from level data, or even from an earlier partially transformed
+            # iterate, can be dominated by effects that later projections remove
+            # and can therefore accept materially non-zero remaining group means.
+            y_scale_ref = xp_maximum(xp.max(xp.abs(y_d_old)), tiny, xp)
+            if getattr(xp, "__name__", "") == "torch":
+                X_scale_ref = xp.max(xp.abs(X_d_old), dim=0).values
+            else:
+                X_scale_ref = xp.max(xp.abs(X_d_old), axis=0)
+            X_scale_ref = xp_maximum(X_scale_ref, tiny, xp)
+
             if entity_ids is not None:
                 y_d = within_transform(y_d, entity_ids, xp)
                 X_d = _within_transform_matrix(X_d, entity_ids, xp)
