@@ -1,0 +1,79 @@
+name: PR126 V3 Provenance Fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-v3-provenance-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply provenance-label fix
+        run: python dev/pr126_fix_v3_provenance_labels.py
+      - name: Confirm historical parsers remain frozen
+        run: |
+          git diff --exit-code -- \
+            dev/benchmarks/frontend_data/parsers/panel_stage_c.py \
+            dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_policy.py
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest 'jsonschema[format]'
+      - name: Regenerate deterministic canonical assets
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+      - name: Validate parser, assets, and strict sources
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_frontend_source.py \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_benchmark_catalog.py \
+            dev/tests/test_benchmark_inventory_v2.py \
+            dev/tests/test_frontend_contracts.py \
+            dev/tests/test_frontend_domain_coverage.py \
+            -q --tb=short
+          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_df.py').read_text(encoding='utf-8')
+          assert '3dc7df19' not in text
+          assert 'rank_df_physical_validation_v2' not in text
+          assert 'rank_df_performance_v2' not in text
+          assert 'f1546476' in text
+          assert 'rank_df_physical_validation_v3' in text
+          assert 'rank_df_performance_v3' in text
+          PY
+          git diff --check
+      - name: Commit validated provenance fix
+        run: |
+          rm dev/pr126_fix_v3_provenance_labels.py
+          rm .github/workflows/pr126-v3-provenance-fix.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "1144995+chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add \
+            dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_df.py \
+            frontend/public/data \
+            docs/assets/benchmarks
+          git add -u \
+            dev/pr126_fix_v3_provenance_labels.py \
+            .github/workflows/pr126-v3-provenance-fix.yml
+          git commit -m "fix: align PR126 v3 provenance labels"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
