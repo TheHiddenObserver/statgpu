@@ -13,6 +13,10 @@ from dev.benchmarks.frontend_data.parsers.panel_stage_c_rank_policy import (
     parse_panel_stage_c_rank_policy_performance,
     parse_panel_stage_c_rank_policy_physical_validation,
 )
+from dev.benchmarks.frontend_data.parsers.panel_stage_c_rank_df import (
+    parse_panel_stage_c_rank_df_performance,
+    parse_panel_stage_c_rank_df_physical_validation,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json"
@@ -24,6 +28,13 @@ RANK_POLICY_PERFORMANCE = (
     ROOT / "results/pr126_p100/panel_stage_c_performance_3dc7df19.json"
 )
 ENV_ID = "remote-p100-pr126-20260811"
+RANK_DF_CORRECTNESS = (
+    ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_f1546476.json"
+)
+RANK_DF_PERFORMANCE = (
+    ROOT / "results/pr126_p100/panel_stage_c_performance_f1546476.json"
+)
+RANK_DF_ENV_ID = "remote-p100-pr126-20260812"
 
 
 def test_stage_c_validation_parser_emits_exact_physical_matrix():
@@ -191,3 +202,72 @@ def test_rank_policy_performance_parser_fails_closed_on_gpu_provenance(tmp_path)
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="GPU provenance drifted"):
         parse_panel_stage_c_rank_policy_performance(broken, ENV_ID)
+
+
+def test_rank_df_validation_parser_emits_47_checks_per_backend():
+    runs, models, warnings = parse_panel_stage_c_rank_df_physical_validation(
+        RANK_DF_CORRECTNESS, RANK_DF_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 94
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 24
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "f154647665788df2570439a1cc154a43f509aa45"
+        for run in runs
+    )
+    rank_deficient = [
+        run
+        for run in runs
+        if "rank-deficient" in run["variant"]
+        and run["model_id"] != "PanelCovariancePrimitive"
+    ]
+    assert len(rank_deficient) == 16
+    assert {run["backend"] for run in rank_deficient} == {"cupy", "torch"}
+    assert all(
+        0 < run["parameters"]["fit_rank"] < run["parameters"]["parameter_count"]
+        for run in rank_deficient
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_rank_df_validation_parser_fails_closed_on_identified_rank_contract(tmp_path):
+    data = json.loads(RANK_DF_CORRECTNESS.read_text(encoding="utf-8"))
+    case = data["backends"]["cupy"]["cases"]["between_rank_deficient_nonrobust"]
+    case["fit_rank"] = case["parameter_count"]
+    broken = tmp_path / "broken_rank_df_validation.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="identified-rank contract drifted"):
+        parse_panel_stage_c_rank_df_physical_validation(broken, RANK_DF_ENV_ID)
+
+
+def test_rank_df_performance_parser_emits_58_synchronized_rows():
+    runs, models, warnings = parse_panel_stage_c_rank_df_performance(
+        RANK_DF_PERFORMANCE, RANK_DF_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 58
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "f154647665788df2570439a1cc154a43f509aa45"
+        for run in runs
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects"
+    }
+
+
+def test_rank_df_performance_parser_fails_closed_on_median_drift(tmp_path):
+    data = json.loads(RANK_DF_PERFORMANCE.read_text(encoding="utf-8"))
+    data["rows"][0]["median_seconds"] *= 1.5
+    broken = tmp_path / "broken_rank_df_performance.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="reported median does not match raw samples"):
+        parse_panel_stage_c_rank_df_performance(broken, RANK_DF_ENV_ID)

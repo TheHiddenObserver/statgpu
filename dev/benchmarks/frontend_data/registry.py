@@ -27,6 +27,8 @@ from .parsers import (
     parse_panel_stage_c_performance,
     parse_panel_stage_c_rank_policy_physical_validation,
     parse_panel_stage_c_rank_policy_performance,
+    parse_panel_stage_c_rank_df_physical_validation,
+    parse_panel_stage_c_rank_df_performance,
 )
 
 MINIMUM_DASHBOARD_SOURCE_DATE = date(2026, 6, 1)
@@ -68,6 +70,10 @@ PARSER_FUNCTIONS = {
         parse_panel_stage_c_rank_policy_physical_validation
     ),
     "panel_stage_c_rank_policy_performance": parse_panel_stage_c_rank_policy_performance,
+    "panel_stage_c_rank_df_physical_validation": (
+        parse_panel_stage_c_rank_df_physical_validation
+    ),
+    "panel_stage_c_rank_df_performance": parse_panel_stage_c_rank_df_performance,
 }
 
 
