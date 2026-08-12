@@ -4,7 +4,7 @@ Review standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 ## Checkpoint status
 
-`PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTION_PENDING / NOT MERGE-READY`
+`PHYSICAL_GPU_ACCEPTED / CANONICAL_PROMOTED / HOSTED_FINAL_PENDING / NOT MERGE-READY`
 
 Technical candidate before this review-record-only commit:
 
@@ -138,3 +138,12 @@ Exact measurement source: `a99726e19c535dfcd0a94711bbc8be6aac437584`.  Raw artif
 [MEDIUM][ARTIFACT][fixed] The pre-measurement review wording overstated schema-v3 timing provenance as a row-local persisted `executed_backend`. The artifact truth is narrower and still fail-closed: each row persists `backend`, while the exact immutable runner checks fitted `model._backend_name == backend` before returning elapsed time. The v4 source documents this runner-level proof and does **not** synthesize an absent field. No physical rerun is required because neither the runner nor numerical behavior changed after measurement.
 
 The v1/v2/v3 parser/source identities remain frozen. Fresh evidence is promoted only through new v4 identifiability parser/source identities.
+
+
+## Post-promotion independent parser review
+
+[MEDIUM][PARSER][fixed] The first v4 performance parser accepted any positive `repeats` count and used a tolerance-based median comparison, while the immutable source contract requires exactly three raw timing samples and an exactly persisted median. The parser now requires `repeats == 3`, exactly three samples, and exact equality with `statistics.median(samples)`. Corruption tests cover a two-sample row and a one-ULP median drift.
+
+[MEDIUM][ARTIFACT][fixed] The checkpoint header still said `CANONICAL_PROMOTION_PENDING` after canonical promotion commit `72bc21d3d0a1afd23467ecb1ff176d42df709cb4` had passed the dedicated v4 promotion gate. The record now reflects `CANONICAL_PROMOTED / HOSTED_FINAL_PENDING`.
+
+The post-promotion parser hardening changes only parser/test/review artifacts. It does not touch `statgpu/panel/**`, the correctness runner, the performance runner, or either immutable raw JSON file, so the exact-clean `a99726e1...` P100 evidence remains applicable.

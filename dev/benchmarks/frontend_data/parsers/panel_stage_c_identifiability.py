@@ -4,7 +4,7 @@ from __future__ import annotations
 The v1 Stage-C parser remains frozen to the historical ``ec511f53`` source.
 These parser identities intentionally use distinct benchmark sessions and stable
 ID namespaces so the fresh ``a99726e1`` evidence can coexist with the
-historical v1/v2 sources without overwriting or colliding with them.
+historical v1/v2/v3 sources without overwriting or colliding with them.
 """
 
 import json
@@ -433,8 +433,10 @@ def parse_panel_stage_c_identifiability_performance(
             raise ValueError(f"unknown PR126 identifiability Stage-C scenario: {scenario!r}")
         repeats = int(row.get("repeats", 0))
         samples = row.get("samples_seconds")
-        if repeats <= 0 or not isinstance(samples, list) or len(samples) != repeats:
-            raise ValueError("PR126 identifiability Stage-C timing samples/repeats contract failed")
+        if repeats != 3 or not isinstance(samples, list) or len(samples) != 3:
+            raise ValueError(
+                "PR126 identifiability Stage-C timing requires exactly three raw samples"
+            )
         numeric_samples = [float(value) for value in samples]
         if any(not math.isfinite(value) or value <= 0.0 for value in numeric_samples):
             raise ValueError("PR126 identifiability Stage-C timing samples must be finite and positive")
@@ -442,8 +444,10 @@ def parse_panel_stage_c_identifiability_performance(
         if not math.isfinite(median) or median <= 0.0:
             raise ValueError("PR126 identifiability Stage-C timing median must be finite and positive")
         expected_median = float(statistics.median(numeric_samples))
-        if not math.isclose(median, expected_median, rel_tol=1e-12, abs_tol=1e-15):
-            raise ValueError("PR126 identifiability Stage-C reported median does not match raw samples")
+        if median != expected_median:
+            raise ValueError(
+                "PR126 identifiability Stage-C reported median must exactly match raw samples"
+            )
 
         model_id = _model_id(case_name)
         model_ids.add(model_id)
@@ -497,8 +501,9 @@ def parse_panel_stage_c_identifiability_performance(
                         "status": "pass",
                         "checks": [
                             {"metric": "synchronized_timing", "status": "pass"},
+                            {"metric": "exactly_three_raw_samples", "status": "pass"},
                             {"metric": "raw_samples_finite_positive", "status": "pass"},
-                            {"metric": "median_matches_raw_samples", "status": "pass"},
+                            {"metric": "median_exactly_matches_raw_samples", "status": "pass"},
                         ],
                         "quality": "reported",
                         "source_file": filepath.name,

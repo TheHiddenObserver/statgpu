@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -68,7 +69,7 @@ def test_v4_performance_parser_enforces_60_row_matrix_and_two_way_case():
     assert all(run["source"]["parser_version"] == "4.0" for run in runs)
 
 
-def test_v4_performance_parser_rejects_matrix_or_median_drift(tmp_path):
+def test_v4_performance_parser_rejects_matrix_repeat_or_median_drift(tmp_path):
     payload = json.loads(PERFORMANCE.read_text())
     broken = copy.deepcopy(payload)
     broken["rows"] = broken["rows"][:-1]
@@ -78,8 +79,18 @@ def test_v4_performance_parser_rejects_matrix_or_median_drift(tmp_path):
         )
 
     broken = copy.deepcopy(payload)
-    broken["rows"][0]["median_seconds"] *= 2.0
-    with pytest.raises(ValueError, match="median"):
+    broken["rows"][0]["repeats"] = 2
+    broken["rows"][0]["samples_seconds"] = broken["rows"][0]["samples_seconds"][:2]
+    broken["rows"][0]["median_seconds"] = sum(broken["rows"][0]["samples_seconds"]) / 2.0
+    with pytest.raises(ValueError, match="exactly three raw samples"):
+        parse_panel_stage_c_identifiability_performance(
+            _write(tmp_path, "bad-repeats.json", broken), ENV
+        )
+
+    broken = copy.deepcopy(payload)
+    current = float(broken["rows"][0]["median_seconds"])
+    broken["rows"][0]["median_seconds"] = math.nextafter(current, math.inf)
+    with pytest.raises(ValueError, match="exactly match"):
         parse_panel_stage_c_identifiability_performance(
             _write(tmp_path, "bad-median.json", broken), ENV
         )
