@@ -8,7 +8,7 @@ Standard: `.claude/skills/code-review.md` (`auto-fix` mode)
 
 Active axes: public API/presentation, inference, NumPy/CuPy/Torch backend behavior, formula/panel metadata, benchmark/performance, and docs/artifacts. Loss, penalty, generic solver framework, and CV remain inactive.
 
-The final local source/docs/runner candidate before this checkpoint is `39cdda5301ccfc9a88808e10f9caf4f6597f4725`. The last documentation re-review gap is closed there: the Stage-C plan and EN/CN model documentation now state that strict inference requires the entire final covariance to be finite before rejecting strictly negative diagonal variances. This connector-authored review-record-only commit is the exact hosted-checkpoint head; production source, tests, physical runners, benchmark parsers/manifests, and generated benchmark assets are unchanged by this checkpoint.
+The current local source/docs/runner candidate before this checkpoint is `1a6d75e0140bc26d17a0425c4226d4a81a9c102c`. The prior hosted checkpoint exposed two maintained-contract gaps; both are fixed there without reverting the rank-aware production behavior. This connector-authored review-record-only commit is the new exact hosted-checkpoint head; it does not modify production source, tests, physical runners, benchmark parsers/manifests, or generated benchmark assets.
 
 ## Findings reopened by independent review
 
@@ -39,6 +39,14 @@ The physical runner now adds eight exact-collinearity estimator integrations: Pa
 
 Fresh target: **47/47 per backend = 35 estimator integrations + 12 public primitives**. Performance remains 58 rows. The timing runner now discovers CUDA-suffixed CuPy distribution versions.
 
+### [HIGH][TEST][fixed] Maintained BetweenOLS zero-df test encoded the obsolete raw-column-count rule
+
+The permanent regression matrix still required `BetweenOLS` to raise whenever the number of entity means did not exceed the raw parameter count. That test contradicted the newly supported identified-rank extension. It is now split into two executable contracts: an exact-collinearity case with `groups <= raw k` but positive `groups-rank` must fit with `df_resid=1`, while a full-rank three-group design with `rank == groups` must fail for genuinely zero identified residual degrees of freedom.
+
+### [MEDIUM][DOC][fixed] Long-lived model pages used a PR lifecycle token
+
+The documentation contract correctly rejected `PARTIAL_REMOTE_PENDING` in EN/CN model pages as a stale global release-status marker. The model pages now state only durable evidence facts: the old P100 source is historical, the post-fix implementation has not yet been promoted from fresh physical evidence, and the maintained matrix is 47/47 per backend plus 58 performance rows. Exact PR lifecycle status remains in `dev/reviews/` and PR metadata.
+
 ## Validation completed before this checkpoint
 
 - first focused source/external matrix: **86 passed**;
@@ -46,12 +54,14 @@ Fresh target: **47/47 per backend = 35 estimator integrations + 12 public primit
 - expanded runner + maintained Torch contract matrix: **45 passed**;
 - non-finite covariance focused inference/covariance matrix: success;
 - docs/plan/current-acceptance consistency validation: success;
+- hosted-failure follow-up regression matrix: success;
+- maintained documentation contracts and bilingual link check after follow-up: success;
 - syntax / compile checks: success;
 - `git diff --check`: success.
 
 ## Independent re-review result
 
-The post-fix source review rechecked rank/df formulas, full-rank backward compatibility, backend-native fit/covariance paths, formula chronology/alignment, physical runner provenance, performance runner provenance, strict finite/negative covariance failure semantics, and current docs/artifact status. No unresolved CRITICAL, HIGH, or relevant MEDIUM finding remains locally at this checkpoint.
+The post-fix source review rechecked rank/df formulas, full-rank backward compatibility, backend-native fit/covariance paths, formula chronology/alignment, physical runner provenance, performance runner provenance, strict finite/negative covariance failure semantics, maintained legacy tests, and current docs/artifact status. No unresolved CRITICAL, HIGH, or relevant MEDIUM finding remains locally at this checkpoint.
 
 The old `3dc7df19...` P100 evidence and all v1/v2 canonical identities remain immutable historical evidence and are not current acceptance evidence because production numerical behavior changed afterward.
 
