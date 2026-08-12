@@ -24,7 +24,9 @@ jobs:
           python-version: '3.11'
 
       - name: Apply reviewed fix patch
-        run: python dev/pr126_round4_autofix.py
+        run: |
+          python dev/pr126_round4_autofix.py
+          python dev/pr126_round4_contract_followup.py
 
       - name: Install focused validation environment
         run: |
@@ -54,7 +56,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/workflows/pr126-round4-autofix.yml dev/pr126_round4_autofix.py
+          git rm .github/workflows/pr126-round4-autofix.yml dev/pr126_round4_autofix.py dev/pr126_round4_contract_followup.py
           git add statgpu/panel dev/tests dev/benchmarks/validate_panel_stage_c_gpu.py CHANGELOG.md docs/en docs/cn
           git diff --cached --check
           git commit -m 'fix: close fresh Panel Stage C review findings'
