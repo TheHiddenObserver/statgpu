@@ -7,11 +7,11 @@
 
 ## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）
 
-Stage C 在不改变 estimator coefficient 与 Stage-B diagnostic definition 的前提下扩展 Panel Tier-1 inference。`robust` 继续表示历史 HC1；新增 `hc0`、`hc2`、`hc3` 按各 estimator 的实际 transformed fit space 计算。`RandomEffects` 支持 quasi-demeaned GLS score 上的 robust/HC、clustered 与 Driscoll-Kraay covariance；one-/two-way cluster 的 `group_debias=True` 为显式 opt-in，默认 clustered 结果保持不变。`PooledOLS(cov_type="hac")` 仍是历史 row-order Bartlett/Newey-West 路径。
+Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator coefficient 与标准化 fit-statistic 定义不变。`robust` 继续表示既有 HC1；`hc0`、`hc2`、`hc3` 按各 estimator 的实际 transformed fit space 计算。`RandomEffects` 在 quasi-demeaned GLS score 上支持 robust/HC、clustered 与 Driscoll-Kraay covariance；one-/two-way cluster 支持显式 `group_debias=True`，`PooledOLS(cov_type="hac")` 继续表示 legacy row-order Bartlett/Newey-West 路径。
 
-修复后的 covariance 实现从 design pseudoinverse 构造 bread 与 influence row，以 `diag(X X+)` 计算 HC2/HC3 leverage，统一验证 entity/time/cluster metadata，保持 CuPy group scatter-add 后端原生，发布共享 inference result contract，恢复 RandomEffects formula 的 intercept/feature-name 语义，并对超大 bandwidth 下的 quadratic-spectral weight 使用稳定的小参数展开。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 以及 R `sandwich`/`plm`。
+本次还强化了 two-way fixed-effect 收敛、rank-deficient coefficient identifiability、backend-native `PanelOLS.predict()`、`FirstDifferenceOLS` duplicate/time 语义、HC2/HC3 leverage 稳定性、metadata alignment、CuPy scatter-add、RandomEffects formula intercept/name 行为以及 quadratic-spectral weight。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 和 R `sandwich`/`plm`。
 
-P100 validation lineage 继续作为不可变审计证据保留，其中较新的 exact-clean `f1546476...` run 已完成 CuPy/Torch **每个 backend 47/47** correctness case 和全部 58 行同步 performance。随后新的 strict re-review 又强化了 two-way FE alternating projection：只有 `y` 与 `X` 都收敛才接受；exact rank-deficient fit 保留 identified fit-space 结果但不再发布普通逐系数 inference；`PanelOLS.predict()` 先在所选 numerical backend 上计算再返回历史 NumPy output；`FirstDifferenceOLS` 拒绝重复 `(entity,time)` 观测，同时继续采用 consecutive-observed gap 语义。由于这些修改再次改变 production numerical behavior，历史 P100 结果不能作为当前 implementation 的 exact-head evidence。
+最终 exact-clean Tesla P100 验证在 `a99726e1...` 上通过：CuPy 13.6.0 **47/47**、Torch 2.0.0 **47/47**（每个 backend 35 个 estimator integration + 12 个 public covariance primitive），requested/executed backend identity 一致且无静默 CPU fallback。同步 performance source 为 **60/60** 行：54 行 base、4 行 `N=10,000, k=2, T=200` bounded high-T QS，以及 2 行 `N=10,000, k=2, T=20` unbalanced two-way-FE。可审计 source：`results/pr126_p100/panel_stage_c_gpu_validation_a99726e1.json` 与 `results/pr126_p100/panel_stage_c_performance_a99726e1.json`。
 
 ## 2026-08-08
 
