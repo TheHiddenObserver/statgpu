@@ -5,10 +5,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## 2026-08-09
 
 ### PR #126 — Panel Tier-1 Stage C covariance
-- Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance with NumPy/CuPy/Torch-native accumulation.
-- Preserved historical HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient estimates, and Stage-B diagnostics.
-- Hardened covariance numerics around the design pseudoinverse, stable HC2/HC3 leverage, metadata validation, backend-native CuPy scatter-add, unified inference storage, RandomEffects formula intercept/name semantics, and small-argument QS weights; pinned Python and R external alignment remains green.
-- Hardened two-way FE convergence to require both outcome and design projections to converge, made rank-deficient coefficient inference explicitly unavailable while preserving identified fit-space results, kept `PanelOLS.predict()` on the selected NumPy/CuPy/Torch backend, and rejected duplicate entity-time rows in `FirstDifferenceOLS`; prior P100 lineages remain immutable historical evidence after these numerical changes.
+- Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance across NumPy, CuPy, and Torch.
+- Preserved the existing HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient-estimation, and panel fit-statistic contracts.
+- Hardened two-way fixed-effect convergence, rank-deficient inference semantics, backend-native prediction, FirstDifference time validation, and covariance numerical stability.
+- Added maintained Python/R external-definition checks plus exact physical CuPy/Torch correctness and synchronized performance validation.
 
 ## 2026-08-08
 
