@@ -116,6 +116,10 @@ def test_rank_deficient_df_and_identified_inference_are_column_space_invariant(c
     pairs = [
         (PanelOLS(cov_type=cov_type).fit(X1, y),
          PanelOLS(cov_type=cov_type).fit(X2, y), X1, X2),
+        (PanelOLS(entity_effects=True, cov_type=cov_type).fit(
+             X1, y, entity_ids=entity),
+         PanelOLS(entity_effects=True, cov_type=cov_type).fit(
+             X2, y, entity_ids=entity), X1, X2),
         (BetweenOLS(cov_type=cov_type).fit(X1, y, entity_ids=entity),
          BetweenOLS(cov_type=cov_type).fit(X2, y, entity_ids=entity),
          np.column_stack([np.ones(len(y)), X1]),

@@ -260,20 +260,21 @@ class BasePanelModel(BaseEstimator):
         )
 
         diag = xp.diag(cov_params)
-        cov_np = self._panel_cov_params_raw
-        diag_np = np.diag(cov_np).astype(np.float64, copy=False)
-        row_scale = np.max(np.abs(cov_np), axis=1)
-        col_scale = np.max(np.abs(cov_np), axis=0)
-        local_scale = np.maximum(row_scale, col_scale)
-        negative_tol = 4096.0 * np.finfo(np.float64).eps * local_scale
-        if np.any(diag_np < -negative_tol):
+        diag_np = np.diag(self._panel_cov_params_raw).astype(
+            np.float64, copy=False
+        )
+        # A variance is invalid whenever it is strictly negative. There is no
+        # dimensionally valid generic tolerance that can distinguish a small
+        # negative variance from cancellation using only the final covariance:
+        # outcome and regressor rescaling transform covariance entries at
+        # different rates. IEEE negative zero compares equal to zero and is
+        # normalized below without weakening this fail-closed rule.
+        if np.any(diag_np < 0.0):
             raise ValueError(
                 "covariance has materially negative diagonal variance; "
                 "inference is not numerically valid"
             )
-        # Only suppress elementwise roundoff-scale negative zeros.  A material
-        # negative variance must fail closed before any historical diagonal floor
-        # is used, even when another coefficient has a much larger variance.
+        # Normalize signed zero before any historical diagonal floor is used.
         diag = xp_maximum(diag, 0.0, xp)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)

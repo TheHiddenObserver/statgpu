@@ -64,14 +64,20 @@ def _store_with_mock_covariance(monkeypatch, covariance):
 
 
 def test_negative_variance_guard_is_scale_equivariant(monkeypatch):
-    """Changing outcome units cannot change accept-vs-fail covariance validity."""
-    material = np.array([[4.0e-14, 0.0], [0.0, -1.0e-14]])
-    for multiplier in (1.0, 1.0e12):
+    """Outcome/parameter rescaling cannot change covariance validity."""
+    material = np.array([[4.0e-14, 0.0], [0.0, -1.0e-28]])
+    for multiplier in (1.0e-12, 1.0, 1.0e12):
         with pytest.raises(ValueError, match="materially negative diagonal variance"):
             _store_with_mock_covariance(monkeypatch, material * multiplier)
 
-    roundoff = np.array([[4.0e-14, 2.0e-14], [2.0e-14, -1.0e-28]])
-    for multiplier in (1.0, 1.0e12):
-        model = _store_with_mock_covariance(monkeypatch, roundoff * multiplier)
-        assert np.all(np.isfinite(model.bse_))
-        assert model.bse_[1] >= 0.0
+    # A large off-diagonal entry must never mask a negative variance. This also
+    # guards against row/column-norm tolerances that change units under regressor
+    # reparameterization.
+    indefinite = np.array([[1.0, 1.0e8], [1.0e8, -1.0e-20]])
+    with pytest.raises(ValueError, match="materially negative diagonal variance"):
+        _store_with_mock_covariance(monkeypatch, indefinite)
+
+    signed_zero = np.array([[4.0e-14, 0.0], [0.0, -0.0]])
+    model = _store_with_mock_covariance(monkeypatch, signed_zero)
+    assert np.all(np.isfinite(model.bse_))
+    assert model.bse_[1] >= 0.0
