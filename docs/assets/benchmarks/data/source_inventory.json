@@ -1,15 +1,15 @@
 {
   "inventory_version": "2.0",
   "catalog_version": "2.0",
-  "catalog_digest": "9a8a018b09505f6373465c06cfec57ccdd248986303ca65f789d35ab3191e4f4",
+  "catalog_digest": "430caec4951b2cc82295f62038ea236bcc5e7e51de6b3962d3a489cd5be99bfa",
   "coverage_matrix_version": "1.0",
-  "coverage_matrix_digest": "a0bd04d104cd66e6b903ec8853aa7c5cb28eab513bb010c2e325c737fff6df3b",
-  "discovered_json_artifacts": 111,
-  "classified_candidate_sources": 111,
-  "eligible_sources": 19,
-  "registered_sources": 19,
-  "available_registered_sources": 19,
-  "parsed_registered_sources": 19,
+  "coverage_matrix_digest": "44ea148dbac2201b88464e32d998810fac7452c33f3844bce3fa3a8ea4cf4ebf",
+  "discovered_json_artifacts": 113,
+  "classified_candidate_sources": 113,
+  "eligible_sources": 21,
+  "registered_sources": 21,
+  "available_registered_sources": 21,
+  "parsed_registered_sources": 21,
   "eligible_unregistered_sources": 0,
   "not_canonical_ready_sources": 45,
   "historical_or_excluded_sources": 47,
@@ -1621,6 +1621,42 @@
       "rule_id": "manifest-registration"
     },
     {
+      "path": "results/pr126_p100_fresh/panel_stage_c_correctness_p100.json",
+      "artifact_type": "json",
+      "source_date": "2026-08-13",
+      "classification": "registered_canonical",
+      "canonical_eligible": true,
+      "registered": true,
+      "source_id": "panel-stage-c-final-validation-pr126-20260813-62fbf89e58fb",
+      "parser": "panel_stage_c_final_physical_validation",
+      "parser_version": "5.0",
+      "provenance_status": "complete",
+      "timing_protocol_status": "accepted",
+      "statistical_alignment_status": "accepted",
+      "reason": "Registered in frontend_sources.json and protected by manifest SHA256.",
+      "superseded_by": null,
+      "issue": null,
+      "rule_id": "manifest-registration"
+    },
+    {
+      "path": "results/pr126_p100_fresh/panel_stage_c_performance_p100.json",
+      "artifact_type": "json",
+      "source_date": "2026-08-13",
+      "classification": "registered_canonical",
+      "canonical_eligible": true,
+      "registered": true,
+      "source_id": "panel-stage-c-final-performance-pr126-20260813-980ffe9bd392",
+      "parser": "panel_stage_c_final_performance",
+      "parser_version": "5.0",
+      "provenance_status": "complete",
+      "timing_protocol_status": "accepted",
+      "statistical_alignment_status": "accepted",
+      "reason": "Registered in frontend_sources.json and protected by manifest SHA256.",
+      "superseded_by": null,
+      "issue": null,
+      "rule_id": "manifest-registration"
+    },
+    {
       "path": "results/pr74_inference_validation.json",
       "artifact_type": "json",
       "source_date": null,
@@ -2023,5 +2059,5 @@
     "current_evidence_not_canonical_ready": 2,
     "partial_canonical": 7
   },
-  "generation_id": "1c58a08ce9fde836078137736c390db5358f3a59a0c4969aff12dd20aca4302e"
+  "generation_id": "d01ab2bc2da12feda7915293d50d75127b7cfc98f3d44e9491b04753b8db364c"
 }
