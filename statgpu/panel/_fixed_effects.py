@@ -104,6 +104,8 @@ class PanelOLS(BasePanelModel):
         bandwidth: Optional[int] = None,
         kernel: str = "bartlett",
         group_debias: bool = False,
+        demean_max_iter: int = 1_000_000,
+        demean_tol: float = 1e-10,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         from statgpu.panel._covariance import normalize_covariance_type
@@ -115,6 +117,14 @@ class PanelOLS(BasePanelModel):
         self.bandwidth = bandwidth
         self.kernel = kernel
         self.group_debias = group_debias
+        if isinstance(demean_max_iter, (bool, np.bool_)) or not isinstance(
+            demean_max_iter, (int, np.integer)
+        ) or int(demean_max_iter) <= 0:
+            raise ValueError("demean_max_iter must be a positive integer")
+        if not np.isfinite(float(demean_tol)) or float(demean_tol) <= 0.0:
+            raise ValueError("demean_tol must be finite and positive")
+        self.demean_max_iter = int(demean_max_iter)
+        self.demean_tol = float(demean_tol)
         allowed = {
             "nonrobust",
             "robust",
@@ -245,6 +255,8 @@ class PanelOLS(BasePanelModel):
                 entity_ids=entity_arr if self.entity_effects else None,
                 time_ids=time_arr if self.time_effects else None,
                 xp=xp,
+                max_iter=self.demean_max_iter,
+                tol=self.demean_tol,
             )
         else:
             y_d = y_arr
@@ -366,6 +378,8 @@ class PanelOLS(BasePanelModel):
                 entity_arr,
                 time_arr,
                 xp,
+                max_iter=self.demean_max_iter,
+                tol=self.demean_tol,
             )
             ent_effects = np.asarray(_to_numpy(ent_effects_dev)).ravel()
             time_effect_values = np.asarray(_to_numpy(time_effects_dev)).ravel()
@@ -608,7 +622,17 @@ class PanelOLS(BasePanelModel):
         return super().get_params(deep)
 
     def set_params(self, **params):
-        """Delegate parameter updates to the shared estimator contract."""
+        """Validate FE convergence controls and delegate estimator updates."""
+        if "demean_max_iter" in params:
+            value = params["demean_max_iter"]
+            if isinstance(value, (bool, np.bool_)) or not isinstance(
+                value, (int, np.integer)
+            ) or int(value) <= 0:
+                raise ValueError("demean_max_iter must be a positive integer")
+        if "demean_tol" in params:
+            value = params["demean_tol"]
+            if not np.isfinite(float(value)) or float(value) <= 0.0:
+                raise ValueError("demean_tol must be finite and positive")
         return super().set_params(**params)
 
 

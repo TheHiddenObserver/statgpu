@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-12<br>
+> 最后更新：2026-08-13<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -9,7 +9,7 @@
 
 Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator coefficient 与标准化 fit-statistic 定义不变。`robust` 继续表示既有 HC1；`hc0`、`hc2`、`hc3` 按各 estimator 的实际 transformed fit space 计算。`RandomEffects` 在 quasi-demeaned GLS score 上支持 robust/HC、clustered 与 Driscoll-Kraay covariance；one-/two-way cluster 支持显式 `group_debias=True`，`PooledOLS(cov_type="hac")` 继续表示 legacy row-order Bartlett/Newey-West 路径。
 
-本次还强化了 two-way fixed-effect 收敛，其中 alternating-projection stopping rule 改为按 transformed fit space 缩放，避免已被消除的 entity-level offset 造成过早收敛；同时强化 rank-deficient coefficient identifiability、backend-native `PanelOLS.predict()`、`FirstDifferenceOLS` duplicate/time 语义、HC2/HC3 leverage 稳定性、metadata alignment、CuPy scatter-add、RandomEffects formula intercept/name 行为以及 quadratic-spectral weight。外部定义继续对齐固定版本的 `statsmodels`、`linearmodels` 和 R `sandwich`/`plm`。
+本次还系统强化了 two-way fixed-effect 的收敛与 prediction。entity/time projection metadata 只在迭代前 factorize 一次，并在所选 backend 上复用；收敛判据直接检查两个 effect 维度的 residual group mean，对数值上被固定效应完全吸收的方向使用 scale-aware roundoff floor，同时公开 fail-closed 的 `demean_max_iter`/`demean_tol` 控制以处理弱连通 panel。unbalanced panel 的 two-way fixed effects 改为联合恢复；若已知 entity/time label 分属 disconnected incidence graph 的不同 component，则该预测不可识别并明确报错。prediction 也不再把任意少一列的矩阵猜成“省略 intercept”，只有与拟合设计一致时才按原位置和原数值恢复显式 non-unit constant。其余强化还包括 rank-deficient coefficient identifiability、`FirstDifferenceOLS` duplicate/time 语义、HC2/HC3 leverage 稳定性、metadata alignment、CuPy scatter-add、RandomEffects formula intercept/name 行为以及 quadratic-spectral weight。外部定义固定对齐 `statsmodels==0.14.6`、`linearmodels==7.0`、R `plm==2.6-7` 与 R `sandwich==3.1-3`。
 
 `a99726e1...` 上的 exact-clean Tesla P100 验证曾通过 CuPy 13.6.0 **47/47**、Torch 2.0.0 **47/47** correctness case（每个 backend 35 个 estimator integration + 12 个 public covariance primitive），requested/executed backend identity 一致且无静默 CPU fallback；同步 performance source 为 **60/60** 行，包括 54 行 base、4 行 `N=10,000, k=2, T=200` bounded high-T QS 与 2 行 `N=10,000, k=2, T=20` unbalanced two-way-FE。由于随后 transformed-fit-space convergence-scale 修复改变了 production numerical behavior，这两份 artifact 继续作为前一 numerical tree 的不可变证据保留，而当前 exact-head physical acceptance 需要重新执行 P100 验证。可审计 source：`results/pr126_p100/panel_stage_c_gpu_validation_a99726e1.json` 与 `results/pr126_p100/panel_stage_c_performance_a99726e1.json`。
 

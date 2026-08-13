@@ -1,7 +1,7 @@
 # Panel 模型
 
 > 语言：中文  
-> 最后更新：2026-08-12
+> 最后更新：2026-08-13
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/panel.md)
 
@@ -319,6 +319,8 @@ PanelOLS(
     bandwidth=None,
     kernel="bartlett",
     group_debias=False,
+    demean_max_iter=1_000_000,
+    demean_tol=1e-10,
     device="auto",
 )
 ```
@@ -327,7 +329,7 @@ PanelOLS(
 model.fit(X, y, entity_ids=entity_ids, time_ids=time_ids, cluster=cluster)
 ```
 
-formula 输入也可使用已有 pipe syntax，例如 `"y ~ x1 + x2 | entity"`。formula 的 missing-row filtering 会同步对齐 observation-level side arrays。
+formula 输入也可使用已有 pipe syntax，例如 `"y ~ x1 + x2 | entity"`。formula 的 missing-row filtering 会同步对齐 observation-level side arrays。对于 two-way fixed effects，`demean_max_iter` 与 `demean_tol` 控制 fail-closed、backend-native 的 projection solver；收敛判据直接检查残余 entity/time group mean，而不是只比较相邻 iterate。group code 只在迭代前 factorize 一次并反复复用。unbalanced panel 的 two-way fixed effects 会联合恢复；若已观察 entity-time incidence graph 不连通，则来自不同 component 的已知 entity/time label 组合不可识别，prediction 会明确报错，而不会把任意 component normalization 相加。
 
 ### `PooledOLS`
 

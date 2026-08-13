@@ -163,10 +163,14 @@ def test_disconnected_two_way_prediction_rejects_cross_component_effect_sum():
 
 def test_weakly_connected_two_way_panel_converges_beyond_legacy_100_iterations():
     rng = np.random.default_rng(20260818)
-    n_entities = 20
-    entity = np.repeat(np.arange(n_entities), 2)
+    n_entities = 30
+    entity = np.repeat(np.arange(n_entities), 3)
     time = np.column_stack(
-        [np.arange(n_entities), np.arange(1, n_entities + 1)]
+        [
+            np.arange(n_entities),
+            np.arange(1, n_entities + 1),
+            np.arange(2, n_entities + 2),
+        ]
     ).ravel()
     X = rng.normal(size=(entity.size, 2))
     y = rng.normal(size=entity.size)
@@ -188,12 +192,53 @@ def test_weakly_connected_two_way_panel_converges_beyond_legacy_100_iterations()
         entity,
         time,
         xp=np,
-        max_iter=50_000,
+        max_iter=10_000,
         tol=1e-10,
     )
     _assert_two_way_means_zero(y_d, entity, time, atol=3e-10)
     for column in range(X_d.shape[1]):
         _assert_two_way_means_zero(X_d[:, column], entity, time, atol=3e-10)
+
+
+def test_panel_exposes_fail_closed_two_way_convergence_controls():
+    rng = np.random.default_rng(202608181)
+    n_entities = 30
+    entity = np.repeat(np.arange(n_entities), 3)
+    time = np.column_stack(
+        [
+            np.arange(n_entities),
+            np.arange(1, n_entities + 1),
+            np.arange(2, n_entities + 2),
+        ]
+    ).ravel()
+    X = rng.normal(size=(entity.size, 2))
+    y = 0.5 * X[:, 0] - 0.2 * X[:, 1] + rng.normal(scale=0.2, size=entity.size)
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        PanelOLS(
+            entity_effects=True,
+            time_effects=True,
+            demean_max_iter=100,
+            demean_tol=1e-10,
+        ).fit(X, y, entity_ids=entity, time_ids=time)
+
+    model = PanelOLS(
+        entity_effects=True,
+        time_effects=True,
+        demean_max_iter=10_000,
+        demean_tol=1e-10,
+    ).fit(X, y, entity_ids=entity, time_ids=time)
+    assert model.demean_max_iter == 10_000
+    assert model.demean_tol == 1e-10
+    assert model.get_params()["demean_max_iter"] == 10_000
+    assert model.get_params()["demean_tol"] == 1e-10
+
+    with pytest.raises(ValueError, match="positive integer"):
+        PanelOLS(demean_max_iter=0)
+    with pytest.raises(ValueError, match="finite and positive"):
+        PanelOLS(demean_tol=0.0)
+    with pytest.raises(ValueError, match="positive integer"):
+        PanelOLS().set_params(demean_max_iter=False)
 
 
 def test_numerically_absorbed_two_way_direction_terminates_without_relative_zero_trap():

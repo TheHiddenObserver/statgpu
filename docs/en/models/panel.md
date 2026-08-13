@@ -1,7 +1,7 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-08-12
+> Last updated: 2026-08-13
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/panel.md)
 
@@ -319,6 +319,8 @@ PanelOLS(
     bandwidth=None,
     kernel="bartlett",
     group_debias=False,
+    demean_max_iter=1_000_000,
+    demean_tol=1e-10,
     device="auto",
 )
 ```
@@ -327,7 +329,7 @@ PanelOLS(
 model.fit(X, y, entity_ids=entity_ids, time_ids=time_ids, cluster=cluster)
 ```
 
-Formula input can also request effects through the existing pipe syntax, for example `"y ~ x1 + x2 | entity"`. Formula row filtering aligns side arrays to the retained estimation sample.
+Formula input can also request effects through the existing pipe syntax, for example `"y ~ x1 + x2 | entity"`. Formula row filtering aligns side arrays to the retained estimation sample. For two-way fixed effects, `demean_max_iter` and `demean_tol` control the fail-closed backend-native projection solver; convergence is checked against residual entity and time means rather than only adjacent-iterate changes. Group codes are factorized once and reused across iterations. Fitted two-way effects are recovered jointly on unbalanced panels. If the observed entity-time incidence graph is disconnected, a prediction combining known entity and time labels from different components is not identified and raises instead of adding arbitrary component normalizations.
 
 ### `PooledOLS`
 
