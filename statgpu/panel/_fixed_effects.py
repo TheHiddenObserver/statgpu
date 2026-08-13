@@ -26,6 +26,7 @@ from statgpu.backends import (
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
 from statgpu.panel._utils import (
+    _recover_two_way_effects,
     _scatter_add,
     demean_variables,
     factorize_panel_labels,
@@ -91,6 +92,8 @@ class PanelOLS(BasePanelModel):
         self._time_effects_map = {}
         self._pooling_f_result = None
         self._panel_diagnostic_identity = None
+        self._predict_constant_index = None
+        self._predict_constant_value = None
 
     def fit(
         self,
@@ -209,8 +212,17 @@ class PanelOLS(BasePanelModel):
         from statgpu.panel._diagnostic_context import (
             build_diagnostic_identity,
             build_model_fit_statistics,
+            explicit_constant_column,
             fixed_effect_diagnostic_df,
             pooling_f_from_level_arrays,
+        )
+
+        constant_index = explicit_constant_column(X_arr, xp=xp)
+        self._predict_constant_index = constant_index
+        self._predict_constant_value = (
+            None
+            if constant_index is None
+            else _to_float_scalar(X_arr[0, int(constant_index)])
         )
 
         diagnostic_df = fixed_effect_diagnostic_df(
@@ -262,37 +274,56 @@ class PanelOLS(BasePanelModel):
         resid_centered = resid_orig - grand_mean
         self._grand_mean = grand_mean
 
-        if self.entity_effects and entity_arr is not None:
-            ent_sums = _scatter_add(
-                xp, entity_arr, resid_centered, len(entity_labels)
-            )
-            ent_counts = _scatter_add(
-                xp,
+        if (
+            self.entity_effects
+            and self.time_effects
+            and entity_arr is not None
+            and time_arr is not None
+        ):
+            ent_effects_dev, time_effects_dev = _recover_two_way_effects(
+                resid_centered,
                 entity_arr,
-                xp.ones_like(resid_centered),
-                len(entity_labels),
+                time_arr,
+                xp,
             )
-            ent_effects = _to_numpy(
-                ent_sums / xp_maximum(ent_counts, 1.0, xp)
-            ).ravel()
+            ent_effects = np.asarray(_to_numpy(ent_effects_dev)).ravel()
+            time_effect_values = np.asarray(_to_numpy(time_effects_dev)).ravel()
             for i, eid in enumerate(entity_labels):
                 self._entity_effects_map[eid] = float(ent_effects[i])
-
-        if self.time_effects and time_arr is not None:
-            time_sums = _scatter_add(
-                xp, time_arr, resid_centered, len(time_labels)
-            )
-            time_counts = _scatter_add(
-                xp,
-                time_arr,
-                xp.ones_like(resid_centered),
-                len(time_labels),
-            )
-            time_effect_values = _to_numpy(
-                time_sums / xp_maximum(time_counts, 1.0, xp)
-            ).ravel()
             for i, tid in enumerate(time_labels):
                 self._time_effects_map[tid] = float(time_effect_values[i])
+        else:
+            if self.entity_effects and entity_arr is not None:
+                ent_sums = _scatter_add(
+                    xp, entity_arr, resid_centered, len(entity_labels)
+                )
+                ent_counts = _scatter_add(
+                    xp,
+                    entity_arr,
+                    xp.ones_like(resid_centered),
+                    len(entity_labels),
+                )
+                ent_effects = _to_numpy(
+                    ent_sums / xp_maximum(ent_counts, 1.0, xp)
+                ).ravel()
+                for i, eid in enumerate(entity_labels):
+                    self._entity_effects_map[eid] = float(ent_effects[i])
+
+            if self.time_effects and time_arr is not None:
+                time_sums = _scatter_add(
+                    xp, time_arr, resid_centered, len(time_labels)
+                )
+                time_counts = _scatter_add(
+                    xp,
+                    time_arr,
+                    xp.ones_like(resid_centered),
+                    len(time_labels),
+                )
+                time_effect_values = _to_numpy(
+                    time_sums / xp_maximum(time_counts, 1.0, xp)
+                ).ravel()
+                for i, tid in enumerate(time_labels):
+                    self._time_effects_map[tid] = float(time_effect_values[i])
 
         cluster_for_cov = cluster
         if self._cov_type == "clustered":
@@ -416,22 +447,14 @@ class PanelOLS(BasePanelModel):
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")
         xp = backend.xp
-        try:
-            prediction = self._panel_predict_linear(
-                X,
-                model_has_intercept=False,
-                add_intercept=False,
-                return_numpy=False,
-            )
-        except ValueError as exc:
-            if str(exc) != "X has an incompatible feature count":
-                raise
-            prediction = self._panel_predict_linear(
-                X,
-                model_has_intercept=False,
-                add_intercept=True,
-                return_numpy=False,
-            )
+        prediction = self._panel_predict_linear(
+            X,
+            model_has_intercept=False,
+            add_intercept=False,
+            return_numpy=False,
+            omitted_constant_index=self._predict_constant_index,
+            omitted_constant_value=self._predict_constant_value,
+        )
         self._predict_backend_name = backend.name
 
         def _effect_values(ids, mapping, name):
