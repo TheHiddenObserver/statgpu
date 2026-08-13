@@ -33,6 +33,62 @@ from statgpu.panel._utils import (
 )
 
 
+def _two_way_component_maps(entity_codes, time_codes, entity_labels, time_labels):
+    """Return fitted entity/time incidence-component maps for prediction guards."""
+    entity = np.asarray(_to_numpy(entity_codes), dtype=np.int64).ravel()
+    time = np.asarray(_to_numpy(time_codes), dtype=np.int64).ravel()
+    if entity.shape != time.shape:
+        raise ValueError("entity/time codes must have matching observation counts")
+    n_entities = int(len(entity_labels))
+    n_times = int(len(time_labels))
+    total = n_entities + n_times
+    parent = np.arange(total, dtype=np.int64)
+    rank = np.zeros(total, dtype=np.int8)
+
+    def find(node):
+        node = int(node)
+        root = node
+        while int(parent[root]) != root:
+            root = int(parent[root])
+        while int(parent[node]) != node:
+            nxt = int(parent[node])
+            parent[node] = root
+            node = nxt
+        return root
+
+    def union(left, right):
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if rank[left_root] < rank[right_root]:
+            left_root, right_root = right_root, left_root
+        parent[right_root] = left_root
+        if rank[left_root] == rank[right_root]:
+            rank[left_root] += 1
+
+    for entity_code, time_code in zip(entity, time):
+        union(int(entity_code), n_entities + int(time_code))
+
+    root_to_component = {}
+
+    def component(node):
+        root = find(node)
+        if root not in root_to_component:
+            root_to_component[root] = len(root_to_component)
+        return int(root_to_component[root])
+
+    entity_map = {
+        label: component(index)
+        for index, label in enumerate(entity_labels)
+    }
+    time_map = {
+        label: component(n_entities + index)
+        for index, label in enumerate(time_labels)
+    }
+    return entity_map, time_map, len(root_to_component)
+
+
 class PanelOLS(BasePanelModel):
     """Fixed effects estimator for panel data."""
 
@@ -90,6 +146,8 @@ class PanelOLS(BasePanelModel):
         self._scale = None
         self._entity_effects_map = {}
         self._time_effects_map = {}
+        self._two_way_entity_components = {}
+        self._two_way_time_components = {}
         self._pooling_f_result = None
         self._panel_diagnostic_identity = None
         self._predict_constant_index = None
@@ -238,6 +296,29 @@ class PanelOLS(BasePanelModel):
             time_codes=time_arr,
             rank_x=fit_rank,
         )
+
+        self._two_way_entity_components = {}
+        self._two_way_time_components = {}
+        if (
+            self.entity_effects
+            and self.time_effects
+            and entity_arr is not None
+            and time_arr is not None
+        ):
+            (
+                self._two_way_entity_components,
+                self._two_way_time_components,
+                component_count,
+            ) = _two_way_component_maps(
+                entity_arr,
+                time_arr,
+                entity_labels,
+                time_labels,
+            )
+            if component_count != int(diagnostic_df["incidence_components"]):
+                raise RuntimeError(
+                    "two-way incidence component metadata disagrees with diagnostic rank"
+                )
 
         n_effects = 0
         if self.entity_effects:
@@ -457,14 +538,35 @@ class PanelOLS(BasePanelModel):
         )
         self._predict_backend_name = backend.name
 
-        def _effect_values(ids, mapping, name):
-            if not mapping or ids is None:
+        entity_ids_np = None if entity_ids is None else np.asarray(_to_numpy(entity_ids)).ravel()
+        time_ids_np = None if time_ids is None else np.asarray(_to_numpy(time_ids)).ravel()
+        if entity_ids_np is not None and entity_ids_np.shape[0] != int(prediction.shape[0]):
+            raise ValueError("entity_ids must have one value per prediction row")
+        if time_ids_np is not None and time_ids_np.shape[0] != int(prediction.shape[0]):
+            raise ValueError("time_ids must have one value per prediction row")
+
+        if (
+            self._two_way_entity_components
+            and self._two_way_time_components
+            and entity_ids_np is not None
+            and time_ids_np is not None
+        ):
+            for entity_value, time_value in zip(entity_ids_np, time_ids_np):
+                entity_component = self._two_way_entity_components.get(entity_value)
+                time_component = self._two_way_time_components.get(time_value)
+                if (
+                    entity_component is not None
+                    and time_component is not None
+                    and entity_component != time_component
+                ):
+                    raise ValueError(
+                        "two-way fixed-effect prediction is not identified for "
+                        "entity/time labels from different disconnected incidence components"
+                    )
+
+        def _effect_values(ids_np, mapping):
+            if not mapping or ids_np is None:
                 return None
-            ids_np = np.asarray(_to_numpy(ids)).ravel()
-            if ids_np.shape[0] != int(prediction.shape[0]):
-                raise ValueError(
-                    f"{name} must have one value per prediction row"
-                )
             values = np.fromiter(
                 (float(mapping.get(value, 0.0)) for value in ids_np),
                 dtype=np.float64,
@@ -474,14 +576,10 @@ class PanelOLS(BasePanelModel):
                 values, dtype=xp.float64, xp=xp, ref_arr=prediction
             )
 
-        entity_effect = _effect_values(
-            entity_ids, self._entity_effects_map, "entity_ids"
-        )
+        entity_effect = _effect_values(entity_ids_np, self._entity_effects_map)
         if entity_effect is not None:
             prediction = prediction + entity_effect
-        time_effect = _effect_values(
-            time_ids, self._time_effects_map, "time_ids"
-        )
+        time_effect = _effect_values(time_ids_np, self._time_effects_map)
         if time_effect is not None:
             prediction = prediction + time_effect
 
