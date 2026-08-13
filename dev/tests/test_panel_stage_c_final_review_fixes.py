@@ -83,6 +83,21 @@ def test_omitted_nonunit_explicit_constant_restores_exact_training_value(estimat
     assert_allclose(actual, expected, rtol=0, atol=3e-12)
 
 
+def test_short_prediction_with_constant_still_present_is_rejected_as_ambiguous():
+    rng = np.random.default_rng(202608171)
+    n = 70
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    X_full = np.column_stack([np.full(n, 3.0), x1, x2])
+    y = 0.4 + 0.7 * x1 - 0.2 * x2 + rng.normal(scale=0.08, size=n)
+    model = PanelOLS().fit(X_full, y)
+
+    # This matrix did not omit the constant; it omitted x2.  It must not be
+    # reinterpreted as an omitted-constant prediction by shape alone.
+    with pytest.raises(ValueError, match="ambiguous"):
+        model.predict(X_full[:9, :2])
+
+
 def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     X, y, entity, time = _unbalanced_two_way()
     model = PanelOLS(entity_effects=True, time_effects=True).fit(
