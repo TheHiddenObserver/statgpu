@@ -22,10 +22,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Guard exact parent checkpoint
+      - name: Guard exact checkpoint lineage
         run: |
-          test "$(git rev-parse HEAD^)" = "e9a8d315ce9cf07cdd366763c635ecb5991489c5"
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/pr126-round7-transactional-refit-fix.yml"
+          base='e9a8d315ce9cf07cdd366763c635ecb5991489c5'
+          test "$(git diff --name-only "$base" HEAD)" = ".github/workflows/pr126-round7-transactional-refit-fix.yml"
       - name: Install focused dependencies
         run: |
           python -m pip install --upgrade pip
@@ -44,70 +44,137 @@ jobs:
               p.write_text(text.replace(old, new, expected), encoding='utf-8')
 
           panel = 'statgpu/panel/_fixed_effects.py'
-          old_fit = '''    def fit(
-              self,
-              X=None,
-              y=None,
-              entity_ids=None,
-              time_ids=None,
-              cluster=None,
-              formula=None,
-              data=None,
-          ):
-              """Fit the fixed effects model."""
-              self._reset_fit_state()
-              (
-          '''
-          new_fit = '''    def fit(
-              self,
-              X=None,
-              y=None,
-              entity_ids=None,
-              time_ids=None,
-              cluster=None,
-              formula=None,
-              data=None,
-          ):
-              """Fit the fixed effects model transactionally."""
-              self._reset_fit_state()
-              try:
-                  return self._fit_impl(
-                      X=X,
-                      y=y,
-                      entity_ids=entity_ids,
-                      time_ids=time_ids,
-                      cluster=cluster,
-                      formula=formula,
-                      data=data,
-                  )
-              except BaseException:
-                  # No failed fit may expose a mixture of the previous result and
-                  # partially written metadata from the failed new request.
-                  self._reset_fit_state()
-                  raise
-
-              
-          '''
-          # Preserve normal indentation while introducing the implementation
-          # method immediately after the public transactional wrapper.
-          new_fit = new_fit.rstrip() + '''\n\n    def _fit_impl(\n        self,\n        X=None,\n        y=None,\n        entity_ids=None,\n        time_ids=None,\n        cluster=None,\n        formula=None,\n        data=None,\n    ):\n        """Internal implementation; :meth:`fit` owns state cleanup."""\n        (\n'''
+          old_fit = "\n".join([
+              "    def fit(",
+              "        self,",
+              "        X=None,",
+              "        y=None,",
+              "        entity_ids=None,",
+              "        time_ids=None,",
+              "        cluster=None,",
+              "        formula=None,",
+              "        data=None,",
+              "    ):",
+              "        \"\"\"Fit the fixed effects model.\"\"\"",
+              "        self._reset_fit_state()",
+              "        (",
+          ]) + "\n"
+          new_fit = "\n".join([
+              "    def fit(",
+              "        self,",
+              "        X=None,",
+              "        y=None,",
+              "        entity_ids=None,",
+              "        time_ids=None,",
+              "        cluster=None,",
+              "        formula=None,",
+              "        data=None,",
+              "    ):",
+              "        \"\"\"Fit the fixed effects model transactionally.\"\"\"",
+              "        self._reset_fit_state()",
+              "        try:",
+              "            return self._fit_impl(",
+              "                X=X,",
+              "                y=y,",
+              "                entity_ids=entity_ids,",
+              "                time_ids=time_ids,",
+              "                cluster=cluster,",
+              "                formula=formula,",
+              "                data=data,",
+              "            )",
+              "        except BaseException:",
+              "            # No failed fit may expose a mixture of the previous result and",
+              "            # partially written metadata from the failed new request.",
+              "            self._reset_fit_state()",
+              "            raise",
+              "",
+              "    def _fit_impl(",
+              "        self,",
+              "        X=None,",
+              "        y=None,",
+              "        entity_ids=None,",
+              "        time_ids=None,",
+              "        cluster=None,",
+              "        formula=None,",
+              "        data=None,",
+              "    ):",
+              "        \"\"\"Internal implementation; :meth:`fit` owns state cleanup.\"\"\"",
+              "        (",
+          ]) + "\n"
           replace_exact(panel, old_fit, new_fit)
 
           replace_exact(
               panel,
-              '''    def summary(self):\n        """Print and return the existing structured coefficient summary."""\n        k = len(self._params)\n''',
-              '''    def summary(self):\n        """Print and return the existing structured coefficient summary."""\n        self._check_is_fitted()\n        k = len(self._params)\n''',
+              '    def summary(self):\n        """Print and return the existing structured coefficient summary."""\n        k = len(self._params)\n',
+              '    def summary(self):\n        """Print and return the existing structured coefficient summary."""\n        self._check_is_fitted()\n        k = len(self._params)\n',
           )
 
           test_path = 'dev/tests/test_panel_stage_c_final_review_fixes.py'
           replace_exact(
               test_path,
-              '''    assert model._panel_cov_params_raw is None\n    assert model._covariance_metadata == {}\n    assert model.entity_effects is True  # constructor contract restored\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.predict(X[:3], entity_ids=entity[:3])\n''',
-              '''    assert model._panel_cov_params_raw is None\n    assert model._covariance_metadata == {}\n    assert model._backend_name is None\n    assert model._predict_backend_name is None\n    assert model.nobs is None\n    assert model._panel_index_info is None\n    assert model.entity_effects is True  # constructor contract restored\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.predict(X[:3], entity_ids=entity[:3])\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.summary()\n''',
+              '    assert model._panel_cov_params_raw is None\n    assert model._covariance_metadata == {}\n    assert model.entity_effects is True  # constructor contract restored\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.predict(X[:3], entity_ids=entity[:3])\n',
+              '    assert model._panel_cov_params_raw is None\n    assert model._covariance_metadata == {}\n    assert model._backend_name is None\n    assert model._predict_backend_name is None\n    assert model.nobs is None\n    assert model._panel_index_info is None\n    assert model.entity_effects is True  # constructor contract restored\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.predict(X[:3], entity_ids=entity[:3])\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.summary()\n',
           )
 
-          marker = '''\ndef test_panel_failed_formula_refit_clears_prior_formula_metadata():\n'''
-          added = '''\ndef test_panel_late_failed_refit_clears_backend_index_and_effect_state():\n    rng = np.random.default_rng(2026082501)\n    entity = np.repeat(np.arange(8), 5)\n    X = rng.normal(size=(entity.size, 2))\n    y = X @ np.array([0.55, -0.3]) + rng.normal(scale=0.1, size=entity.size)\n    model = PanelOLS(entity_effects=True, cov_type="clustered").fit(\n        X, y, entity_ids=entity, cluster=entity\n    )\n    assert model._fitted is True\n    assert model._backend_name == "numpy"\n    assert model._panel_index_info is not None\n\n    with pytest.raises(ValueError, match="cluster length"):\n        model.fit(\n            X, y, entity_ids=entity, cluster=np.arange(entity.size - 1)\n        )\n\n    assert model._fitted is False\n    assert model.coef_ is None\n    assert model.nobs is None\n    assert model._backend_name is None\n    assert model._predict_backend_name is None\n    assert model._panel_index_info is None\n    assert model._entity_effects_map == {}\n    assert model._time_effects_map == {}\n    assert model._inference_result is None\n    assert model._panel_cov_params_raw is None\n    assert model._covariance_metadata == {}\n    assert model.entity_effects is True\n    assert model.time_effects is False\n    assert model.get_params()["entity_effects"] is True\n    with pytest.raises(RuntimeError, match="not fitted"):\n        model.summary()\n\n\ndef test_failed_effects_only_formula_restores_constructor_effect_flags():\n    pd = pytest.importorskip("pandas")\n    pytest.importorskip("patsy")\n    rng = np.random.default_rng(2026082502)\n    n = 24\n    data = pd.DataFrame({\n        "y": rng.normal(size=n),\n        "x": rng.normal(size=n),\n        "entity": np.repeat(np.arange(6), 4),\n    })\n    model = PanelOLS().fit(data[["x"]].to_numpy(), data["y"].to_numpy())\n    with pytest.raises(ValueError, match="effects-only formulas are not supported"):\n        model.fit(formula="y ~ 1 | entity", data=data)\n    assert model._fitted is False\n    assert model.entity_effects is False\n    assert model.time_effects is False\n    assert model.get_params()["entity_effects"] is False\n    assert model.get_params()["time_effects"] is False\n    assert model._design_info is None\n    assert model._feature_names is None\n\n'''
+          marker = '\ndef test_panel_failed_formula_refit_clears_prior_formula_metadata():\n'
+          added = '''
+def test_panel_late_failed_refit_clears_backend_index_and_effect_state():
+    rng = np.random.default_rng(2026082501)
+    entity = np.repeat(np.arange(8), 5)
+    X = rng.normal(size=(entity.size, 2))
+    y = X @ np.array([0.55, -0.3]) + rng.normal(scale=0.1, size=entity.size)
+    model = PanelOLS(entity_effects=True, cov_type="clustered").fit(
+        X, y, entity_ids=entity, cluster=entity
+    )
+    assert model._fitted is True
+    assert model._backend_name == "numpy"
+    assert model._panel_index_info is not None
+
+    with pytest.raises(ValueError, match="cluster length"):
+        model.fit(
+            X, y, entity_ids=entity, cluster=np.arange(entity.size - 1)
+        )
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.nobs is None
+    assert model._backend_name is None
+    assert model._predict_backend_name is None
+    assert model._panel_index_info is None
+    assert model._entity_effects_map == {}
+    assert model._time_effects_map == {}
+    assert model._inference_result is None
+    assert model._panel_cov_params_raw is None
+    assert model._covariance_metadata == {}
+    assert model.entity_effects is True
+    assert model.time_effects is False
+    assert model.get_params()["entity_effects"] is True
+    with pytest.raises(RuntimeError, match="not fitted"):
+        model.summary()
+
+
+def test_failed_effects_only_formula_restores_constructor_effect_flags():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026082502)
+    n = 24
+    data = pd.DataFrame({
+        "y": rng.normal(size=n),
+        "x": rng.normal(size=n),
+        "entity": np.repeat(np.arange(6), 4),
+    })
+    model = PanelOLS().fit(data[["x"]].to_numpy(), data["y"].to_numpy())
+    with pytest.raises(ValueError, match="effects-only formulas are not supported"):
+        model.fit(formula="y ~ 1 | entity", data=data)
+    assert model._fitted is False
+    assert model.entity_effects is False
+    assert model.time_effects is False
+    assert model.get_params()["entity_effects"] is False
+    assert model.get_params()["time_effects"] is False
+    assert model._design_info is None
+    assert model._feature_names is None
+
+'''
           replace_exact(test_path, marker, added + marker)
           PY
       - name: Run focused regressions
@@ -122,7 +189,6 @@ jobs:
           git diff --check
           changed="$(git status --short | awk '{print $2}' | sort)"
           expected="$(printf '%s\n' \
-            .github/workflows/pr126-round7-transactional-refit-fix.yml \
             dev/tests/test_panel_stage_c_final_review_fixes.py \
             statgpu/panel/_fixed_effects.py | sort)"
           test "$changed" = "$expected"
