@@ -197,6 +197,59 @@ def _remap_to_contiguous(groups, xp):
     return indices, n_groups, unique_labels
 
 
+def _prepare_group_projection(groups, xp):
+    """Factorize one group vector once and cache backend-native projection data."""
+    groups = xp_asarray(groups, xp=xp).ravel()
+    idx, n_groups, labels = _remap_to_contiguous(groups, xp)
+    ones = xp_ones(int(idx.shape[0]), xp.float64, xp, idx)
+    counts = _scatter_add(xp, idx, ones, n_groups)
+    inv_counts = 1.0 / xp_maximum(counts, 1.0, xp)
+    return idx, n_groups, labels, counts, inv_counts
+
+
+def _compact_group_means(values, projection, xp):
+    idx, n_groups, _labels, _counts, inv_counts = projection
+    sums = _scatter_add(xp, idx, values, n_groups)
+    return sums * inv_counts
+
+
+def _within_preindexed(values, projection, xp):
+    means = _compact_group_means(values, projection, xp)
+    return values - means[projection[0]]
+
+
+def _within_matrix_preindexed(matrix, projection, xp):
+    result = matrix.copy() if hasattr(matrix, "copy") else matrix.clone()
+    for j in range(int(matrix.shape[1])):
+        result[:, j] = _within_preindexed(matrix[:, j], projection, xp)
+    return result
+
+
+def _column_max_abs(matrix, xp):
+    if getattr(xp, "__name__", "") == "torch":
+        return xp.max(xp.abs(matrix), dim=0).values
+    return xp.max(xp.abs(matrix), axis=0)
+
+
+def _matrix_group_mean_max(matrix, projection, xp):
+    values = xp_zeros(
+        int(matrix.shape[1]), matrix.dtype, xp, matrix
+    )
+    for j in range(int(matrix.shape[1])):
+        means = _compact_group_means(matrix[:, j], projection, xp)
+        values[j] = xp.max(xp.abs(means))
+    return values
+
+
+def _convergence_allowance(current_scale, level_scale, tol, xp):
+    """Return relative tolerance unless a transformed direction is numerically absorbed."""
+    tiny = np.finfo(np.float64).tiny
+    level_scale = xp_maximum(level_scale, tiny, xp)
+    roundoff_floor = 8.0 * np.finfo(np.float64).eps * level_scale
+    relative = float(tol) * xp_maximum(current_scale, tiny, xp)
+    return xp.where(current_scale > roundoff_floor, relative, roundoff_floor)
+
+
 def validate_panel_alpha(alpha):
     """Validate the confidence-interval significance level."""
     if not np.isfinite(float(alpha)) or not 0.0 < float(alpha) < 1.0:
@@ -318,11 +371,8 @@ def within_transform(y, groups, xp=None):
 
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
-    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
-    group_sums = _scatter_add(xp, idx, y, n_groups)
-    group_counts = _scatter_add(xp, idx, xp.ones_like(y), n_groups)
-    group_means = group_sums / xp_maximum(group_counts, 1.0, xp)
-    return y - group_means[idx]
+    projection = _prepare_group_projection(groups, xp)
+    return _within_preindexed(y, projection, xp)
 
 
 def make_group_dummies(groups, xp=None):
@@ -349,19 +399,8 @@ def make_group_dummies(groups, xp=None):
 
 def _within_transform_matrix(M, groups, xp):
     """Remove group means from each column of matrix M (batched)."""
-    n, k = M.shape
-    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
-    ones_col = xp_ones(n, M.dtype, xp, M)
-    group_counts = _scatter_add(xp, idx, ones_col, n_groups)
-    inv_counts = 1.0 / xp_maximum(group_counts, 1.0, xp)
-
-    result = M.copy() if hasattr(M, "copy") else M.clone()
-    for j in range(k):
-        col = M[:, j]
-        group_sums_j = _scatter_add(xp, idx, col, n_groups)
-        group_means_j = group_sums_j * inv_counts
-        result[:, j] = col - group_means_j[idx]
-    return result
+    projection = _prepare_group_projection(groups, xp)
+    return _within_matrix_preindexed(M, projection, xp)
 
 
 def demean_variables(
@@ -370,12 +409,27 @@ def demean_variables(
     entity_ids,
     time_ids=None,
     xp=None,
-    max_iter=100,
+    max_iter=1_000_000,
     tol=1e-10,
 ):
-    """Demean *y* and *X* for fixed-effects estimation."""
+    """Demean *y* and *X* for one- or two-way fixed-effects estimation.
+
+    Two-way projections factorize group metadata once, keep all iterative
+    projection state on the selected backend, and stop only when residual means
+    are small for *both* effect dimensions.  A scale-aware roundoff floor is used
+    only for directions that are themselves numerically absorbed by the fixed
+    effects, avoiding both premature convergence from large removable levels and
+    non-termination of exactly absorbed columns.
+    """
     if xp is None:
         xp = np
+    if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
+        max_iter, (int, np.integer)
+    ) or int(max_iter) <= 0:
+        raise ValueError("max_iter must be a positive integer")
+    if not np.isfinite(float(tol)) or float(tol) <= 0.0:
+        raise ValueError("tol must be finite and positive")
+    max_iter = int(max_iter)
 
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     if X.ndim == 1:
@@ -389,56 +443,143 @@ def demean_variables(
         if hasattr(X, "clone")
         else X - 0.0
     )
+    y_level_scale = xp.max(xp.abs(y_d))
+    X_level_scale = _column_max_abs(X_d, xp)
 
-    if entity_ids is not None:
-        y_d = within_transform(y_d, entity_ids, xp)
-        X_d = _within_transform_matrix(X_d, entity_ids, xp)
+    entity_projection = (
+        None if entity_ids is None else _prepare_group_projection(entity_ids, xp)
+    )
+    time_projection = (
+        None if time_ids is None else _prepare_group_projection(time_ids, xp)
+    )
 
-    if time_ids is not None:
-        converged = False
-        max_change = float("inf")
-        tiny = np.finfo(np.float64).tiny
-        for _iteration in range(max_iter):
-            y_d_old = y_d.copy() if hasattr(y_d, "copy") else y_d.clone()
-            X_d_old = X_d.copy() if hasattr(X_d, "copy") else X_d.clone()
+    if entity_projection is not None:
+        y_d = _within_preindexed(y_d, entity_projection, xp)
+        X_d = _within_matrix_preindexed(X_d, entity_projection, xp)
 
-            # Use the scale of the current transformed iterate.  A fixed scale
-            # from level data, or even from an earlier partially transformed
-            # iterate, can be dominated by effects that later projections remove
-            # and can therefore accept materially non-zero remaining group means.
-            y_scale_ref = xp_maximum(xp.max(xp.abs(y_d_old)), tiny, xp)
-            if getattr(xp, "__name__", "") == "torch":
-                X_scale_ref = xp.max(xp.abs(X_d_old), dim=0).values
-            else:
-                X_scale_ref = xp.max(xp.abs(X_d_old), axis=0)
-            X_scale_ref = xp_maximum(X_scale_ref, tiny, xp)
+    if time_projection is None:
+        return y_d, X_d
 
-            if entity_ids is not None:
-                y_d = within_transform(y_d, entity_ids, xp)
-                X_d = _within_transform_matrix(X_d, entity_ids, xp)
-            y_d = within_transform(y_d, time_ids, xp)
-            X_d = _within_transform_matrix(X_d, time_ids, xp)
-            y_change = xp.max(xp.abs(y_d - y_d_old))
-            if getattr(xp, "__name__", "") == "torch":
-                X_change_columns = xp.max(xp.abs(X_d - X_d_old), dim=0).values
-            else:
-                X_change_columns = xp.max(xp.abs(X_d - X_d_old), axis=0)
-            y_relative_change = y_change / y_scale_ref
-            X_relative_change = xp.max(X_change_columns / X_scale_ref)
-            max_change = _to_float_scalar(
-                xp.maximum(y_relative_change, X_relative_change)
-            )
-            if max_change < tol:
-                converged = True
-                break
-        if not converged:
-            raise RuntimeError(
-                "two-way fixed-effect demeaning did not converge within "
-                f"max_iter={max_iter}; final max relative change={max_change:.6e}, "
-                f"tol={tol:.6e}"
-            )
+    # A one-way time effect is an exact single projection. Alternation is needed
+    # only when both entity and time effects are present.
+    if entity_projection is None:
+        y_d = _within_preindexed(y_d, time_projection, xp)
+        X_d = _within_matrix_preindexed(X_d, time_projection, xp)
+        return y_d, X_d
+
+    converged = False
+    final_metric = float("inf")
+    for _iteration in range(max_iter):
+        y_d = _within_preindexed(y_d, entity_projection, xp)
+        X_d = _within_matrix_preindexed(X_d, entity_projection, xp)
+        y_d = _within_preindexed(y_d, time_projection, xp)
+        X_d = _within_matrix_preindexed(X_d, time_projection, xp)
+
+        entity_y_means = _compact_group_means(y_d, entity_projection, xp)
+        time_y_means = _compact_group_means(y_d, time_projection, xp)
+        y_violation = xp.maximum(
+            xp.max(xp.abs(entity_y_means)), xp.max(xp.abs(time_y_means))
+        )
+        entity_X_violation = _matrix_group_mean_max(
+            X_d, entity_projection, xp
+        )
+        time_X_violation = _matrix_group_mean_max(X_d, time_projection, xp)
+        X_violation = xp.maximum(entity_X_violation, time_X_violation)
+
+        y_scale = xp.max(xp.abs(y_d))
+        X_scale = _column_max_abs(X_d, xp)
+        y_allowance = _convergence_allowance(
+            y_scale, y_level_scale, tol, xp
+        )
+        X_allowance = _convergence_allowance(
+            X_scale, X_level_scale, tol, xp
+        )
+        y_metric = y_violation / xp_maximum(
+            y_allowance, np.finfo(np.float64).tiny, xp
+        )
+        X_metric = xp.max(
+            X_violation
+            / xp_maximum(X_allowance, np.finfo(np.float64).tiny, xp)
+        )
+        final_metric = _to_float_scalar(xp.maximum(y_metric, X_metric))
+        if final_metric <= 1.0:
+            converged = True
+            break
+
+    if not converged:
+        raise RuntimeError(
+            "two-way fixed-effect demeaning did not converge within "
+            f"max_iter={max_iter}; final normalized group-mean violation="
+            f"{final_metric:.6e}"
+        )
 
     return y_d, X_d
+
+
+def _recover_two_way_effects(
+    values,
+    entity_ids,
+    time_ids,
+    xp,
+    *,
+    max_iter=1_000_000,
+    tol=1e-10,
+):
+    """Recover additive two-way effects by backend-native alternating least squares.
+
+    The returned compact entity/time effects reproduce the joint least-squares
+    projection on observed cells.  The time effects are normalized to have zero
+    observation-weighted mean, with the compensating shift applied to entity
+    effects so fitted values are unchanged.
+    """
+    values = xp_asarray(values, dtype=xp.float64, xp=xp).ravel()
+    entity_projection = _prepare_group_projection(entity_ids, xp)
+    time_projection = _prepare_group_projection(time_ids, xp)
+    e_idx, n_entities, _e_labels, _e_counts, _e_inv = entity_projection
+    t_idx, n_times, _t_labels, t_counts, _t_inv = time_projection
+    entity_effects = xp_zeros(n_entities, xp.float64, xp, values)
+    time_effects = xp_zeros(n_times, xp.float64, xp, values)
+    level_scale = xp.max(xp.abs(values))
+
+    converged = False
+    final_metric = float("inf")
+    for _iteration in range(int(max_iter)):
+        entity_effects = _compact_group_means(
+            values - time_effects[t_idx], entity_projection, xp
+        )
+        time_effects = _compact_group_means(
+            values - entity_effects[e_idx], time_projection, xp
+        )
+
+        shift = xp.sum(time_effects * t_counts) / float(values.shape[0])
+        time_effects = time_effects - shift
+        entity_effects = entity_effects + shift
+
+        residual = values - entity_effects[e_idx] - time_effects[t_idx]
+        entity_means = _compact_group_means(residual, entity_projection, xp)
+        time_means = _compact_group_means(residual, time_projection, xp)
+        violation = xp.maximum(
+            xp.max(xp.abs(entity_means)), xp.max(xp.abs(time_means))
+        )
+        residual_scale = xp.max(xp.abs(residual))
+        allowance = _convergence_allowance(
+            residual_scale, level_scale, tol, xp
+        )
+        final_metric = _to_float_scalar(
+            violation
+            / xp_maximum(allowance, np.finfo(np.float64).tiny, xp)
+        )
+        if final_metric <= 1.0:
+            converged = True
+            break
+
+    if not converged:
+        raise RuntimeError(
+            "two-way fixed-effect recovery did not converge within "
+            f"max_iter={int(max_iter)}; final normalized group-mean violation="
+            f"{final_metric:.6e}"
+        )
+    return entity_effects, time_effects
 
 
 def group_means(y, groups, xp=None):
@@ -448,11 +589,9 @@ def group_means(y, groups, xp=None):
 
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
-    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
-    group_sums = _scatter_add(xp, idx, y, n_groups)
-    group_counts = _scatter_add(xp, idx, xp.ones_like(y), n_groups)
-    means = group_sums / xp_maximum(group_counts, 1.0, xp)
-    return means[idx]
+    projection = _prepare_group_projection(groups, xp)
+    means = _compact_group_means(y, projection, xp)
+    return means[projection[0]]
 
 
 def group_sizes(groups, xp=None):
@@ -461,10 +600,8 @@ def group_sizes(groups, xp=None):
         xp = np
 
     groups = xp_asarray(groups, xp=xp).ravel()
-    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
-    ones = xp_ones(len(groups), xp.float64, xp, groups)
-    counts = _scatter_add(xp, idx, ones, n_groups)
-    return counts[idx]
+    projection = _prepare_group_projection(groups, xp)
+    return projection[3][projection[0]]
 
 
 def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
