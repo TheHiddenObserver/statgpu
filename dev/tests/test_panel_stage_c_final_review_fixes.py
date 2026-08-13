@@ -193,6 +193,9 @@ def test_torch_cpu_two_way_projection_and_prediction_match_numpy():
     entity_t = torch.as_tensor(entity, dtype=torch.int64)
     time_t = torch.as_tensor(time, dtype=torch.int64)
 
+    # The maintained CPU gate exercises the backend-neutral projection kernels
+    # directly with xp=torch.  Explicit device="torch" is intentionally CUDA-
+    # only by project contract and must not be used in a CPU-only environment.
     y_np, X_np = demean_variables(y, X, entity, time, xp=np, tol=1e-11)
     y_t_out, X_t_out = demean_variables(
         y_t, X_t, entity_t, time_t, xp=torch, tol=1e-11
@@ -200,17 +203,18 @@ def test_torch_cpu_two_way_projection_and_prediction_match_numpy():
     assert_allclose(y_t_out.detach().cpu().numpy(), y_np, rtol=0, atol=3e-11)
     assert_allclose(X_t_out.detach().cpu().numpy(), X_np, rtol=0, atol=3e-11)
 
+    # Estimator integration follows the existing Torch-CPU suite convention:
+    # Torch tensors are accepted without pretending that a CUDA Torch device is
+    # available.  The direct kernel checks above carry the Torch parity claim.
     expected = PanelOLS(entity_effects=True, time_effects=True).fit(
         X, y, entity_ids=entity, time_ids=time
     )
-    actual = PanelOLS(
-        entity_effects=True, time_effects=True, device="torch"
-    ).fit(X_t, y_t, entity_ids=entity_t, time_ids=time_t)
+    actual = PanelOLS(entity_effects=True, time_effects=True).fit(
+        X_t, y_t, entity_ids=entity_t, time_ids=time_t
+    )
     expected_prediction = expected.predict(X, entity_ids=entity, time_ids=time)
     actual_prediction = actual.predict(
         X_t, entity_ids=entity_t, time_ids=time_t
     )
     assert_allclose(actual.coef_, expected.coef_, rtol=2e-9, atol=2e-11)
     assert_allclose(actual_prediction, expected_prediction, rtol=2e-9, atol=2e-10)
-    assert actual._backend_name == "torch"
-    assert actual._predict_backend_name == "torch"
