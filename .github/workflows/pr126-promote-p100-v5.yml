@@ -28,14 +28,16 @@ jobs:
           base='c578f9af48c4322a6deec126f0e1440bb3519852'
           test "$(git rev-parse ${base}^)" = '5f0cea9216321361842bc3c438219084a4cf5538'
           actual="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' '.github/scripts/pr126_promote_p100_v5.py' '.github/workflows/pr126-promote-p100-v5.yml' | sort)"
+          expected="$(printf '%s\n' '.github/scripts/pr126_promote_p100_v5.py' '.github/scripts/pr126_update_v5_snapshot_tests.py' '.github/workflows/pr126-promote-p100-v5.yml' | sort)"
           test "$actual" = "$expected"
       - name: Install focused dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . pytest 'jsonschema[format]'
       - name: Audit and stage v5 promotion
-        run: python .github/scripts/pr126_promote_p100_v5.py
+        run: |
+          python .github/scripts/pr126_promote_p100_v5.py
+          python .github/scripts/pr126_update_v5_snapshot_tests.py
       - name: Generate deterministic benchmark assets
         run: |
           python dev/benchmarks/generate_benchmark_data.py \
@@ -70,7 +72,7 @@ jobs:
           done
           changed="$(git status --porcelain | sed 's/^...//' | sort)"
           printf '%s\n' "$changed"
-          bad="$(printf '%s\n' "$changed" | grep -Ev '^(CHANGELOG.md|\.github/(scripts/pr126_promote_p100_v5.py|workflows/(benchmark-frontend.yml|pr126-promote-p100-v5.yml))|dev/benchmarks/(benchmark_coverage_matrix.json|frontend_sources.json|frontend_data/parsers/(__init__\.py|panel_stage_c_final\.py)|frontend_data/registry\.py)|dev/tests/test_panel_stage_c_frontend_source\.py|docs/assets/benchmarks/.*|frontend/public/data/.*|results/pr126_p100_fresh/SHA256SUMS)$' || true)"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(CHANGELOG.md|\.github/(scripts/(pr126_promote_p100_v5.py|pr126_update_v5_snapshot_tests.py)|workflows/(benchmark-frontend.yml|pr126-promote-p100-v5.yml))|dev/benchmarks/(benchmark_coverage_matrix.json|frontend_sources.json|frontend_data/parsers/(__init__\.py|panel_stage_c_final\.py)|frontend_data/registry\.py)|dev/tests/(test_panel_stage_c_frontend_source\.py|test_benchmark_catalog\.py|test_benchmark_inventory_v2\.py|test_benchmark_frontend_data\.py)|docs/assets/benchmarks/.*|frontend/public/data/.*|results/pr126_p100_fresh/SHA256SUMS)$' || true)"
           if [ -n "$bad" ]; then
             echo 'Unexpected promotion scope:'
             printf '%s\n' "$bad"
@@ -80,6 +82,7 @@ jobs:
         run: |
           rm .github/workflows/pr126-promote-p100-v5.yml
           rm .github/scripts/pr126_promote_p100_v5.py
+          rm .github/scripts/pr126_update_v5_snapshot_tests.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
