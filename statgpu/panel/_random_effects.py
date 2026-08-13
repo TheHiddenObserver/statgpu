@@ -87,6 +87,8 @@ class RandomEffects(BasePanelModel):
         self._params = None
         self._scale = None
         self._panel_diagnostic_identity = None
+        self._predict_constant_index = None
+        self._predict_constant_value = None
 
     def fit(
         self,
@@ -180,6 +182,12 @@ class RandomEffects(BasePanelModel):
 
         constant_index = explicit_constant_column(X_arr, xp=xp)
         has_constant = constant_index is not None
+        self._predict_constant_index = constant_index
+        self._predict_constant_value = (
+            None
+            if constant_index is None
+            else _to_float_scalar(X_arr[0, int(constant_index)])
+        )
 
         self._panel_diagnostic_identity = (
             build_diagnostic_identity(
@@ -468,22 +476,14 @@ class RandomEffects(BasePanelModel):
         """Predict on the selected numerical backend and return NumPy output."""
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")
-        try:
-            prediction = self._panel_predict_linear(
-                X,
-                model_has_intercept=False,
-                add_intercept=False,
-                return_numpy=False,
-            )
-        except ValueError as exc:
-            if str(exc) != "X has an incompatible feature count":
-                raise
-            prediction = self._panel_predict_linear(
-                X,
-                model_has_intercept=False,
-                add_intercept=True,
-                return_numpy=False,
-            )
+        prediction = self._panel_predict_linear(
+            X,
+            model_has_intercept=False,
+            add_intercept=False,
+            return_numpy=False,
+            omitted_constant_index=self._predict_constant_index,
+            omitted_constant_value=self._predict_constant_value,
+        )
         self._predict_backend_name = backend.name
         return np.asarray(_to_numpy(prediction), dtype=np.float64)
 
