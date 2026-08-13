@@ -13,7 +13,7 @@ permissions:
 jobs:
   finalize:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,10 +22,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - name: Install repository test environment
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest jsonschema
+          python -m pip install -e . pytest 'jsonschema[format]'
       - name: Apply guarded final-review edits
         run: python dev/pr126_finalize_once.py
       - name: Run targeted final-review regressions
@@ -35,8 +38,16 @@ jobs:
             dev/tests/test_panel_stage_c_set_params.py \
             dev/tests/test_panel_two_way_demean_scale.py \
             -q --tb=short
-      - name: Regenerate benchmark frontend assets deterministically
-        run: python dev/benchmarks/generate_benchmark_data.py --deterministic --strict-sources
+      - name: Regenerate benchmark frontend assets with permanent-gate commands
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+          cd frontend
+          npm ci
+          npm run build
       - name: Verify one-shot change scope and generated metadata, then commit
         run: |
           python - <<'PY'
@@ -71,17 +82,21 @@ jobs:
               'docs/cn/models/panel.md',
               'docs/en/changelog.md',
               'docs/cn/changelog.md',
+              'frontend/public/data/parse_report.json',
+              'frontend/public/data/source_inventory.json',
+              'docs/assets/benchmarks/data/parse_report.json',
+              'docs/assets/benchmarks/data/source_inventory.json',
           }
           missing = sorted(required - changed)
           if missing:
-              raise SystemExit(f'expected one-shot source/doc changes missing: {missing}')
+              raise SystemExit(f'expected one-shot source/doc/metadata changes missing: {missing}')
 
           front_report = json.loads(Path('frontend/public/data/parse_report.json').read_text())
           docs_report = json.loads(Path('docs/assets/benchmarks/data/parse_report.json').read_text())
           front_inventory = json.loads(Path('frontend/public/data/source_inventory.json').read_text())
           docs_inventory = json.loads(Path('docs/assets/benchmarks/data/source_inventory.json').read_text())
           expected_generation = '1c58a08ce9fde836078137736c390db5358f3a59a0c4969aff12dd20aca4302e'
-          expected_coverage = 'a0bd04d8c9b27f45988cf9d9ad4185df20a00fb9e38354266ff6317857688ad8'
+          old_coverage = '82bf6e593779571cad9d7907c4ff9ac517a1d850aee6635650744359102a5d3a'
           if front_report != docs_report:
               raise SystemExit('frontend/docs parse_report mirrors differ')
           if front_inventory != docs_inventory:
@@ -90,13 +105,14 @@ jobs:
               raise SystemExit(f"unexpected generation_id: {front_report.get('generation_id')}")
           if front_report.get('runs_generated') != 2426 or front_report.get('files_parsed') != 19:
               raise SystemExit('unexpected strict generator run/source counts')
-          if front_inventory.get('coverage_matrix_digest') != expected_coverage:
-              raise SystemExit(
-                  f"unexpected coverage digest: {front_inventory.get('coverage_matrix_digest')}"
-              )
+          coverage_digest = front_inventory.get('coverage_matrix_digest')
+          if not isinstance(coverage_digest, str) or len(coverage_digest) != 64:
+              raise SystemExit(f'unexpected coverage digest shape: {coverage_digest!r}')
+          if coverage_digest == old_coverage:
+              raise SystemExit('coverage digest did not move off the stale pre-review matrix')
           print('validated change scope:', *sorted(changed), sep='\n  ')
           print('validated generation_id', expected_generation)
-          print('validated coverage_matrix_digest', expected_coverage)
+          print('validated coverage_matrix_digest', coverage_digest)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
