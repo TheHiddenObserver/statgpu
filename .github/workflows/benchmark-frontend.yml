@@ -22,6 +22,7 @@ on:
       - 'docs/assets/benchmarks/**'
       - 'results/benchmark_frontend_sources/**'
       - 'results/pr126_p100/**'
+      - 'results/pr126_p100_fresh/**'
       - 'pyproject.toml'
   pull_request:
     paths:
@@ -43,6 +44,7 @@ on:
       - 'docs/assets/benchmarks/**'
       - 'results/benchmark_frontend_sources/**'
       - 'results/pr126_p100/**'
+      - 'results/pr126_p100_fresh/**'
       - 'pyproject.toml'
 
 concurrency:
