@@ -126,6 +126,41 @@ def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     _assert_two_way_means_zero(residual, entity, time)
 
 
+def test_disconnected_two_way_prediction_rejects_cross_component_effect_sum():
+    rng = np.random.default_rng(202608172)
+    # Two disconnected incidence components: entities 0/1 only meet times 0/1,
+    # while entities 2/3 only meet times 2/3.
+    entity = np.array([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+    time = np.array([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+    X = rng.normal(size=(entity.size, 1))
+    alpha = np.array([0.5, -0.2, 1.1, -0.7])
+    tau = np.array([0.25, -0.15, 0.6, -0.4])
+    y = 0.8 * X[:, 0] + alpha[entity] + tau[time]
+
+    model = PanelOLS(entity_effects=True, time_effects=True).fit(
+        X, y, entity_ids=entity, time_ids=time
+    )
+    observed = model.predict(X, entity_ids=entity, time_ids=time)
+    assert np.all(np.isfinite(observed))
+    assert model.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 2
+
+    with pytest.raises(ValueError, match="different disconnected incidence components"):
+        model.predict(
+            X[:1],
+            entity_ids=np.array([0]),
+            time_ids=np.array([2]),
+        )
+
+    # A not-yet-observed entity/time pair inside one connected component remains
+    # identified by the additive two-way fit and is therefore allowed.
+    within_component = model.predict(
+        X[:1],
+        entity_ids=np.array([1]),
+        time_ids=np.array([1]),
+    )
+    assert np.all(np.isfinite(within_component))
+
+
 def test_weakly_connected_two_way_panel_converges_beyond_legacy_100_iterations():
     rng = np.random.default_rng(20260818)
     n_entities = 20
