@@ -77,13 +77,44 @@ def _split_panel_formula(formula: str) -> Tuple[str, List[str]]:
     return main, fe_vars
 
 
-def _top_level_panel_token_spans(formula: str, token: str):
-    """Return top-level RHS spans where ``token`` is a complete identifier."""
-    i = 0
+def _top_level_formula_rhs_start(formula: str):
+    """Return the index after the top-level formula separator, if present."""
     depth = 0
     quote = None
     escaped = False
-    in_rhs = False
+    for i, ch in enumerate(formula):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            continue
+        if ch in "([{":
+            depth += 1
+            continue
+        if ch in ")]}":
+            depth = max(depth - 1, 0)
+            continue
+        if depth == 0 and ch == "~":
+            return i + 1
+    return None
+
+
+def _top_level_panel_token_spans(formula: str, token: str):
+    """Return top-level RHS spans where ``token`` is a complete identifier."""
+    rhs_start = _top_level_formula_rhs_start(formula)
+    if rhs_start is None:
+        return []
+
+    i = rhs_start
+    depth = 0
+    quote = None
+    escaped = False
     spans = []
     while i < len(formula):
         ch = formula[i]
@@ -108,12 +139,7 @@ def _top_level_panel_token_spans(formula: str, token: str):
             depth = max(depth - 1, 0)
             i += 1
             continue
-        if depth == 0 and ch == "~":
-            if not in_rhs:
-                in_rhs = True
-            i += 1
-            continue
-        if in_rhs and depth == 0 and formula.startswith(token, i):
+        if depth == 0 and formula.startswith(token, i):
             left = formula[i - 1] if i > 0 else ""
             j = i + len(token)
             right = formula[j] if j < len(formula) else ""
@@ -163,8 +189,9 @@ def _strip_panel_tokens(formula: str) -> Tuple[str, bool, bool]:
                 clean = clean[:token_start] + clean[token_end:]
 
     clean = clean.strip()
-    if "~" in clean:
-        rhs = clean.split("~", 1)[1].strip()
+    rhs_start = _top_level_formula_rhs_start(clean)
+    if rhs_start is not None:
+        rhs = clean[rhs_start:].strip()
         if not rhs or rhs in ("+", "-", "*", "/"):
             raise ValueError(
                 "Formula has no predictors after removing panel tokens. "

@@ -143,6 +143,10 @@ class TestStripPanelTokens:
         assert entity is False
         assert time is False
 
+    def test_quoted_response_tilde_does_not_hide_effects_only_failure(self):
+        with pytest.raises(ValueError, match="no predictors after removing panel tokens"):
+            _strip_panel_tokens('Q("y~value") ~ EntityEffects')
+
 
 # ============================================================================
 # PanelOLS formula tests
