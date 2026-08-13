@@ -115,6 +115,67 @@ def test_random_effects_formula_prediction_all_one_slope_is_not_intercept_ambigu
     assert_allclose(actual, expected, rtol=0, atol=3e-12)
 
 
+def test_panel_failed_refit_invalidates_previous_fitted_state():
+    rng = np.random.default_rng(2026082301)
+    entity = np.repeat(np.arange(8), 5)
+    X = rng.normal(size=(entity.size, 2))
+    y = X @ np.array([0.6, -0.2]) + rng.normal(scale=0.1, size=entity.size)
+    model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
+    assert model._fitted is True
+    assert model.coef_ is not None
+
+    with pytest.raises(ValueError, match="entity_ids is required"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.fit_statistics_ is None
+    assert model.entity_effects is True  # constructor contract restored
+    with pytest.raises(RuntimeError, match="not fitted"):
+        model.predict(X[:3], entity_ids=entity[:3])
+
+
+def test_panel_failed_formula_refit_clears_prior_formula_metadata():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026082302)
+    n = 30
+    data = pd.DataFrame(
+        {
+            "y": rng.normal(size=n),
+            "x": rng.normal(size=n),
+            "entity": np.repeat(np.arange(6), 5),
+            "time": np.tile(np.arange(5), 6),
+            "industry": np.repeat(np.arange(3), 10),
+        }
+    )
+    model = PanelOLS().fit(formula="y ~ x | entity", data=data)
+    assert model._design_info is not None
+
+    with pytest.raises(ValueError, match="at most two"):
+        model.fit(formula="y ~ x | entity + time + industry", data=data)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model._design_info is None
+    assert model.entity_effects is False
+    assert model.time_effects is False
+
+
+def test_panel_effects_only_formula_has_explicit_failure_mode():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    n = 24
+    data = pd.DataFrame(
+        {
+            "y": np.linspace(-1.0, 1.0, n),
+            "entity": np.repeat(np.arange(6), 4),
+        }
+    )
+    with pytest.raises(ValueError, match="effects-only formulas are not supported"):
+        PanelOLS().fit(formula="y ~ 1 | entity", data=data)
+
+
 def test_panel_formula_without_fixed_effects_preserves_patsy_intercept():
     pd = pytest.importorskip("pandas")
     pytest.importorskip("patsy")

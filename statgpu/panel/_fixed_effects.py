@@ -163,6 +163,50 @@ class PanelOLS(BasePanelModel):
         self._predict_constant_index = None
         self._predict_constant_value = None
 
+    def _reset_fit_state(self):
+        """Clear derived fit state so failed refits cannot expose stale results."""
+        configured = getattr(self, "_constructor_params_raw", {})
+        self.entity_effects = bool(
+            configured.get("entity_effects", self.entity_effects)
+        )
+        self.time_effects = bool(
+            configured.get("time_effects", self.time_effects)
+        )
+        self._fitted = False
+        for name in (
+            "coef_",
+            "bse_",
+            "tvalues_",
+            "pvalues_",
+            "conf_int_",
+            "rsquared_within",
+            "fit_statistics_",
+            "nobs",
+            "df_resid",
+            "_params",
+            "_scale",
+            "_pooling_f_result",
+            "_panel_diagnostic_identity",
+            "_predict_constant_index",
+            "_predict_constant_value",
+            "_grand_mean",
+            "_design_info",
+            "_feature_names",
+            "_formula_has_intercept",
+            "_backend_name",
+            "_predict_backend_name",
+            "_panel_index_info",
+            "_panel_cov_params_raw",
+            "_coefficient_inference_reason",
+        ):
+            setattr(self, name, None)
+        self._coefficient_inference_available = False
+        self._covariance_metadata = {}
+        self._entity_effects_map = {}
+        self._time_effects_map = {}
+        self._two_way_entity_components = {}
+        self._two_way_time_components = {}
+
     def fit(
         self,
         X=None,
@@ -174,6 +218,7 @@ class PanelOLS(BasePanelModel):
         data=None,
     ):
         """Fit the fixed effects model."""
+        self._reset_fit_state()
         (
             y_data,
             X_data,
@@ -222,6 +267,16 @@ class PanelOLS(BasePanelModel):
                 [np.ones(len(y_data), dtype=np.float64), np.asarray(X_data)]
             )
             self._feature_names = ["Intercept", *list(self._feature_names or [])]
+
+        if (
+            formula is not None
+            and (self.entity_effects or self.time_effects)
+            and int(np.asarray(X_data).shape[1]) == 0
+        ):
+            raise ValueError(
+                "PanelOLS fixed-effect formulas require at least one "
+                "non-intercept regressor; effects-only formulas are not supported"
+            )
 
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
@@ -518,7 +573,11 @@ class PanelOLS(BasePanelModel):
             f_params=coef,
             f_has_constant=has_level_constant,
             metadata={
-                "fit_space": "fixed-effect transformed regression",
+                "fit_space": (
+                    "fixed-effect transformed regression"
+                    if self.entity_effects or self.time_effects
+                    else "level regression"
+                ),
                 "legacy_df_resid": int(legacy_df_resid),
                 "public_df_resid_basis": public_df_basis,
                 "diagnostic_df": dict(diagnostic_df),

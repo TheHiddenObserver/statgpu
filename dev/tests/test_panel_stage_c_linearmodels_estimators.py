@@ -82,6 +82,27 @@ def _re_fit_space(X, y, entity, model):
     return X_star, y_star, params, resid
 
 
+def test_panel_no_effect_level_constant_matches_statsmodels_ols():
+    rng = np.random.default_rng(20260823)
+    n = 100
+    x = rng.normal(size=n)
+    X = np.column_stack([np.ones(n), x])
+    y = 1.2 + 0.7 * x + rng.normal(scale=0.18, size=n)
+
+    sg = PanelOLS(cov_type="nonrobust").fit(X, y)
+    reference = statsmodels.OLS(y, X).fit()
+
+    assert_allclose(sg.coef_, reference.params, rtol=2e-11, atol=2e-12)
+    assert_allclose(sg._panel_cov_params_raw, reference.cov_params(), rtol=2e-10, atol=2e-12)
+    assert_allclose(sg.bse_, reference.bse, rtol=2e-10, atol=2e-12)
+    assert_allclose(sg.fit_statistics_.rsquared_overall, reference.rsquared, rtol=0, atol=3e-12)
+    assert_allclose(sg.fit_statistics_.rsquared_adj, reference.rsquared_adj, rtol=0, atol=3e-12)
+    assert_allclose(sg.fit_statistics_.f_statistic, reference.fvalue, rtol=2e-10, atol=2e-12)
+    assert_allclose(sg.fit_statistics_.f_pvalue, reference.f_pvalue, rtol=2e-10, atol=2e-12)
+    assert sg.fit_statistics_.f_df == (1.0, float(reference.df_resid))
+    assert sg.fit_statistics_.metadata["fit_space"] == "level regression"
+
+
 def test_pooled_dk_estimator_matches_linearmodels_full_integration():
     X, y, entity, time = _panel(12721)
     y_lm, X_lm = _lm_data(X, y, entity, time, constant=True)

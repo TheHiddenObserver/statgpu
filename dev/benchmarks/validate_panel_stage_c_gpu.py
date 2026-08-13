@@ -465,6 +465,15 @@ def _level_constant_contract_audit(backend, *, rtol=5e-6, atol=5e-7):
         "df_resid": int(panel.df_resid),
         "f_df": list(panel_fit.f_df) if panel_fit.f_df is not None else None,
         "max_abs_differences_vs_pooled": differences,
+        "values": {
+            "coef": _array(panel.coef_).tolist(),
+            "bse": _array(panel.bse_).tolist(),
+            "prediction": _array(panel_prediction).tolist(),
+            "rsquared_overall": float(panel_fit.rsquared_overall),
+            "rsquared_adj": float(panel_fit.rsquared_adj),
+            "f_statistic": float(panel_fit.f_statistic),
+            "f_pvalue": float(panel_fit.f_pvalue),
+        },
     }
 
 
@@ -808,6 +817,26 @@ def main():
             rtol=0,
             atol=0,
         )
+        numpy_diffs = {}
+        for field in ("coef", "bse", "prediction"):
+            actual = np.asarray(level_constant_audit["values"][field], dtype=np.float64)
+            expected = np.asarray(level_constant_reference["values"][field], dtype=np.float64)
+            np.testing.assert_allclose(
+                actual, expected, rtol=args.rtol, atol=args.atol,
+                err_msg=f"level_constant.numpy.{field}"
+            )
+            numpy_diffs[field] = _max_abs(actual, expected)
+        for field in ("rsquared_overall", "rsquared_adj", "f_statistic", "f_pvalue"):
+            numpy_diffs[field] = _scalar_diff(
+                level_constant_audit["values"][field],
+                level_constant_reference["values"][field],
+                rtol=args.rtol,
+                atol=args.atol,
+                label=f"level_constant.numpy.{field}",
+            )
+        if level_constant_audit["f_df"] != level_constant_reference["f_df"]:
+            raise AssertionError("level-constant F degrees of freedom drifted from NumPy")
+        level_constant_audit["max_abs_differences_vs_numpy"] = numpy_diffs
         payload["level_constant_contract"] = level_constant_audit
 
         primitive_values = _public_primitive_cases(
