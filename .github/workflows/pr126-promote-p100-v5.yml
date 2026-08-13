@@ -78,13 +78,14 @@ jobs:
             printf '%s\n' "$bad"
             exit 1
           fi
-      - name: Commit promotion without temporary runner
+      - name: Commit validated promotion without workflow-file changes
         run: |
-          rm .github/workflows/pr126-promote-p100-v5.yml
+          git checkout HEAD -- .github/workflows/benchmark-frontend.yml
           rm .github/scripts/pr126_promote_p100_v5.py
           rm .github/scripts/pr126_update_v5_snapshot_tests.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'benchmark: promote PR126 fresh P100 evidence as v5'
+          test -z "$(git diff --name-only HEAD^ HEAD | grep '^\.github/workflows/' || true)"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
