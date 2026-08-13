@@ -1,0 +1,161 @@
+name: PR126 guarded round6 two-way and R2 fix v2
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-round6-two-way-r2-fix-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  two-way-r2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pandas patsy 'linearmodels==7.0' 'statsmodels==0.14.6'
+      - name: Apply exact reviewed fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected}, found {count}: {old!r}')
+              p.write_text(text.replace(old, new, expected), encoding='utf-8')
+
+          panel = 'statgpu/panel/_fixed_effects.py'
+          old_guard = '''        if self._two_way_entity_components and self._two_way_time_components:\n            component_ids = set(self._two_way_entity_components.values()) | set(\n                self._two_way_time_components.values()\n            )\n            if len(component_ids) > 1:\n                n_rows = int(prediction.shape[0])\n                for row in range(n_rows):\n                    entity_value = None if entity_ids_np is None else entity_ids_np[row]\n                    time_value = None if time_ids_np is None else time_ids_np[row]\n                    entity_component = (\n                        None\n                        if entity_value is None\n                        else self._two_way_entity_components.get(entity_value)\n                    )\n                    time_component = (\n                        None\n                        if time_value is None\n                        else self._two_way_time_components.get(time_value)\n                    )\n                    # Both labels unknown preserves the historical zero-effect\n                    # fallback.  Once either stored FE is used, however, its\n                    # component-specific normalization is not identified unless\n                    # the other side is also known in the same component.\n                    if entity_component is None and time_component is None:\n                        continue\n                    if (\n                        entity_component is None\n                        or time_component is None\n                        or entity_component != time_component\n                    ):\n                        raise ValueError(\n                            "two-way fixed-effect prediction is not identified on a "\n                            "disconnected incidence graph unless known entity/time "\n                            "labels belong to the same component"\n                        )\n'''
+          new_guard = '''        if self._two_way_entity_components and self._two_way_time_components:\n            n_rows = int(prediction.shape[0])\n            for row in range(n_rows):\n                entity_value = None if entity_ids_np is None else entity_ids_np[row]\n                time_value = None if time_ids_np is None else time_ids_np[row]\n                entity_component = (\n                    None\n                    if entity_value is None\n                    else self._two_way_entity_components.get(entity_value)\n                )\n                time_component = (\n                    None\n                    if time_value is None\n                    else self._two_way_time_components.get(time_value)\n                )\n                # Even on a connected graph, entity/time effects are separately\n                # identified only up to an opposite normalization shift.  A FE\n                # prediction therefore requires both known labels in one\n                # incidence component.  If both labels are unseen, no fitted FE\n                # is used and the documented linear-only fallback remains.\n                if entity_component is None and time_component is None:\n                    continue\n                if (\n                    entity_component is None\n                    or time_component is None\n                    or entity_component != time_component\n                ):\n                    raise ValueError(\n                        "two-way fixed-effect prediction is not identified unless "\n                        "both entity and time labels are known and belong to the "\n                        "same incidence component"\n                    )\n'''
+          replace_exact(panel, old_guard, new_guard)
+
+          # No-FE/no-intercept level regression uses the standard uncentered TSS.
+          replace_exact(
+              panel,
+              '''        ss_res = _to_float_scalar(xp.sum(resid ** 2))\n        y_d_mean = _to_float_scalar(xp.mean(y_d))\n        ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))\n        self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0\n''',
+              '''        ss_res = _to_float_scalar(xp.sum(resid ** 2))\n        if has_level_constant or self.entity_effects or self.time_effects:\n            y_d_mean = _to_float_scalar(xp.mean(y_d))\n            ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))\n        else:\n            ss_tot = _to_float_scalar(xp.sum(y_d ** 2))\n        self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0\n''',
+          )
+
+          test_path = 'dev/tests/test_panel_stage_c_final_review_fixes.py'
+          text = Path(test_path).read_text(encoding='utf-8')
+          old_match = 'match="not identified on a disconnected incidence graph"'
+          if text.count(old_match) != 5:
+              raise SystemExit(f'expected 5 old disconnected matchers, got {text.count(old_match)}')
+          Path(test_path).write_text(
+              text.replace(old_match, 'match="both entity and time labels are known"'),
+              encoding='utf-8',
+          )
+
+          marker = '''\ndef test_disconnected_two_way_prediction_rejects_cross_component_effect_sum():\n'''
+          connected_test = '''\ndef test_connected_two_way_prediction_rejects_one_sided_or_known_unknown_effects():\n    rng = np.random.default_rng(2026082401)\n    entity = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)\n    time = np.array([0, 1, 1, 2, 2, 0], dtype=np.int64)\n    X = rng.normal(size=(entity.size, 1))\n    alpha = np.array([0.4, -0.3, 0.8])\n    tau = np.array([0.25, -0.15, 0.45])\n    y = 0.75 * X[:, 0] + alpha[entity] + tau[time]\n    model = PanelOLS(entity_effects=True, time_effects=True).fit(\n        X, y, entity_ids=entity, time_ids=time\n    )\n    assert model.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 1\n    assert np.all(np.isfinite(model.predict(\n        X[:1], entity_ids=np.array([0]), time_ids=np.array([1])\n    )))\n    for kwargs in (\n        {"entity_ids": np.array([0])},\n        {"time_ids": np.array([0])},\n        {"entity_ids": np.array([0]), "time_ids": np.array([99])},\n        {"entity_ids": np.array([99]), "time_ids": np.array([0])},\n    ):\n        with pytest.raises(ValueError, match="both entity and time labels are known"):\n            model.predict(X[:1], **kwargs)\n    both_unseen = model.predict(\n        X[:1], entity_ids=np.array([98]), time_ids=np.array([99])\n    )\n    assert_allclose(both_unseen, X[:1] @ model.coef_, rtol=0, atol=3e-12)\n\n'''
+          replace_exact(test_path, marker, connected_test + marker)
+
+          marker_r2 = '''\ndef test_one_way_fixed_effect_prediction_restores_grand_mean_only_for_known_labels():\n'''
+          r2_test = '''\ndef test_panel_no_intercept_rsquared_within_uses_uncentered_tss():\n    rng = np.random.default_rng(2026082402)\n    x = rng.normal(loc=0.8, scale=1.1, size=90)\n    y = 2.0 + 0.65 * x + rng.normal(scale=0.2, size=x.size)\n    X = x[:, None]\n    model = PanelOLS().fit(X, y)\n    resid = y - X @ model.coef_\n    expected = 1.0 - float(resid @ resid) / float(y @ y)\n    assert_allclose(model.rsquared_within, expected, rtol=0, atol=3e-12)\n    assert_allclose(\n        model.fit_statistics_.rsquared_overall, expected, rtol=0, atol=3e-12\n    )\n\n'''
+          replace_exact(test_path, marker_r2, r2_test + marker_r2)
+
+          runner = 'dev/benchmarks/validate_panel_stage_c_gpu.py'
+          marker_runner = '''\ndef _disconnected_two_way_prediction_audit(backend):\n'''
+          connected_audit = '''\ndef _connected_two_way_prediction_audit(backend):\n    """Audit two-way normalization guards on a connected incidence graph."""\n    rng = np.random.default_rng(20260824)\n    entity = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)\n    time = np.array([0, 1, 1, 2, 2, 0], dtype=np.int64)\n    X = rng.normal(size=(entity.size, 1)).astype(np.float64)\n    alpha = np.array([0.4, -0.3, 0.8], dtype=np.float64)\n    tau = np.array([0.25, -0.15, 0.45], dtype=np.float64)\n    y = (0.75 * X[:, 0] + alpha[entity] + tau[time]).astype(np.float64)\n    Xb, yb, eb, tb = _to_backend(X, y, entity, time, backend)\n    model = PanelOLS(\n        entity_effects=True, time_effects=True, cov_type="hc0", device=_device(backend)\n    ).fit(Xb, yb, entity_ids=eb, time_ids=tb)\n    if _backend_name(model) != backend:\n        raise AssertionError("connected prediction audit fit backend provenance drifted")\n    diagnostic = model.fit_statistics_.metadata.get("diagnostic_df", {})\n    if int(diagnostic.get("incidence_components", -1)) != 1:\n        raise AssertionError("connected prediction audit fixture is not connected")\n    both_known = model.predict(\n        Xb[:1], entity_ids=np.array([0]), time_ids=np.array([1])\n    )\n    def guarded(label, **kwargs):\n        try:\n            model.predict(Xb[:1], **kwargs)\n        except ValueError as exc:\n            if "both entity and time labels are known" not in str(exc):\n                raise AssertionError(f"{label}: wrong two-way prediction failure: {exc}") from exc\n            return True\n        raise AssertionError(f"{label}: two-way partial-label prediction did not fail closed")\n    guards = {\n        "entity_only": guarded("entity_only", entity_ids=np.array([0])),\n        "time_only": guarded("time_only", time_ids=np.array([0])),\n        "known_entity_unknown_time": guarded(\n            "known_entity_unknown_time", entity_ids=np.array([0]), time_ids=np.array([99])\n        ),\n        "unknown_entity_known_time": guarded(\n            "unknown_entity_known_time", entity_ids=np.array([99]), time_ids=np.array([0])\n        ),\n    }\n    both_unseen = model.predict(\n        Xb[:1], entity_ids=np.array([98]), time_ids=np.array([99])\n    )\n    prediction_backend = getattr(model, "_predict_backend_name", None)\n    if prediction_backend != backend:\n        raise AssertionError("connected prediction audit backend provenance drifted")\n    return {\n        "status": "success",\n        "executed_backend": backend,\n        "prediction_backend": prediction_backend,\n        "both_known": _array(both_known),\n        "both_unseen": _array(both_unseen),\n        "guards": guards,\n    }\n\n'''
+          replace_exact(runner, marker_runner, connected_audit + marker_runner)
+          replace_exact(
+              runner,
+              '''            if "disconnected incidence graph" not in str(exc):\n''',
+              '''            if "both entity and time labels are known" not in str(exc):\n''',
+          )
+          replace_exact(
+              runner,
+              '''    prediction_reference = _disconnected_two_way_prediction_audit("numpy")\n    level_constant_reference = _level_constant_contract_audit(\n''',
+              '''    prediction_reference = _disconnected_two_way_prediction_audit("numpy")\n    connected_prediction_reference = _connected_two_way_prediction_audit("numpy")\n    level_constant_reference = _level_constant_contract_audit(\n''',
+          )
+          replace_exact(
+              runner,
+              '''        payload["prediction_contracts"]["two_way_disconnected"] = {\n            "status": "success",\n            "executed_backend": prediction_audit["executed_backend"],\n            "prediction_backend": prediction_audit["prediction_backend"],\n            "guards": dict(prediction_audit["guards"]),\n            "max_abs_differences": prediction_diffs,\n        }\n\n        level_constant_audit = _level_constant_contract_audit(\n''',
+              '''        payload["prediction_contracts"]["two_way_disconnected"] = {\n            "status": "success",\n            "executed_backend": prediction_audit["executed_backend"],\n            "prediction_backend": prediction_audit["prediction_backend"],\n            "guards": dict(prediction_audit["guards"]),\n            "max_abs_differences": prediction_diffs,\n        }\n\n        connected_audit = _connected_two_way_prediction_audit(backend)\n        if connected_audit["executed_backend"] != backend or connected_audit["prediction_backend"] != backend:\n            raise AssertionError("connected prediction backend provenance drifted")\n        if not all(connected_audit["guards"].values()):\n            raise AssertionError("connected prediction partial-label guards did not fail closed")\n        connected_diffs = {}\n        for field in ("both_known", "both_unseen"):\n            np.testing.assert_allclose(\n                connected_audit[field], connected_prediction_reference[field],\n                rtol=args.rtol, atol=args.atol,\n                err_msg=f"two_way_connected_prediction.{field}",\n            )\n            connected_diffs[field] = _max_abs(\n                connected_audit[field], connected_prediction_reference[field]\n            )\n        payload["prediction_contracts"]["two_way_connected_partial_labels"] = {\n            "status": "success",\n            "executed_backend": connected_audit["executed_backend"],\n            "prediction_backend": connected_audit["prediction_backend"],\n            "guards": dict(connected_audit["guards"]),\n            "max_abs_differences": connected_diffs,\n        }\n\n        level_constant_audit = _level_constant_contract_audit(\n''',
+          )
+          replace_exact(
+              test_path,
+              '''    audit = module._disconnected_two_way_prediction_audit("numpy")\n    assert audit["executed_backend"] == "numpy"\n''',
+              '''    connected_audit = module._connected_two_way_prediction_audit("numpy")\n    assert connected_audit["status"] == "success"\n    assert connected_audit["executed_backend"] == "numpy"\n    assert connected_audit["prediction_backend"] == "numpy"\n    assert all(connected_audit["guards"].values())\n    assert np.all(np.isfinite(connected_audit["both_known"]))\n    assert np.all(np.isfinite(connected_audit["both_unseen"]))\n\n    audit = module._disconnected_two_way_prediction_audit("numpy")\n    assert audit["executed_backend"] == "numpy"\n''',
+          )
+
+          # Pinned external no-intercept R2 baseline.
+          external = 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
+          marker_external = '''\ndef test_panel_no_effect_level_constant_matches_statsmodels_ols():\n'''
+          external_test = '''\ndef test_panel_no_effect_no_intercept_rsquared_matches_statsmodels():\n    rng = np.random.default_rng(20260824)\n    n = 95\n    x = rng.normal(loc=0.7, scale=1.0, size=n)\n    X = x[:, None]\n    y = 1.8 + 0.6 * x + rng.normal(scale=0.2, size=n)\n    sg = PanelOLS(cov_type="nonrobust").fit(X, y)\n    reference = statsmodels.OLS(y, X, hasconst=False).fit()\n    assert_allclose(sg.coef_, reference.params, rtol=2e-11, atol=2e-12)\n    assert_allclose(sg.rsquared_within, reference.rsquared, rtol=0, atol=3e-12)\n    assert_allclose(sg.fit_statistics_.rsquared_overall, reference.rsquared, rtol=0, atol=3e-12)\n\n'''
+          replace_exact(external, marker_external, external_test + marker_external)
+
+          en = 'docs/en/models/panel.md'
+          replace_exact(
+              en,
+              '''If the observed entity-time incidence graph is disconnected, a prediction that uses a stored fixed effect is identified only when both entity and time labels are known and belong to the same component; cross-component pairs and one-sided/known-plus-unknown effect combinations raise instead of exposing arbitrary component normalizations. If all supplied fixed-effect labels are unseen, the historical zero-effect fallback remains the linear-only prediction.''',
+              '''For any fitted two-way fixed-effect model, a prediction that uses stored fixed effects is identified only when both entity and time labels are known; the pair must also belong to the same incidence component. One-sided labels, known-plus-unknown pairs, and cross-component pairs fail closed rather than exposing arbitrary fixed-effect normalizations. If both fixed-effect labels are unseen, the historical zero-effect fallback remains the linear-only prediction.''',
+          )
+          cn = 'docs/cn/models/panel.md'
+          replace_exact(
+              cn,
+              '''若已观察 entity-time incidence graph 不连通，只要 prediction 使用了已拟合 fixed effect，就要求 entity/time 两侧都为已知 label 且属于同一 component；跨 component、单边 label、或“已知一侧 + 未知另一侧”的组合都会明确报错，避免暴露任意 component normalization。若所提供的 fixed-effect label 全部未见过，则仍保留历史 zero-effect fallback，仅返回 linear prediction。''',
+              '''对于任何已拟合的 two-way fixed-effect model，只要 prediction 使用 stored fixed effects，就要求 entity/time 两侧 label 都已知，并且二者属于同一 incidence component。单边 label、“已知一侧 + 未知另一侧”以及跨 component 组合都会 fail closed，避免暴露任意 fixed-effect normalization。若两侧 fixed-effect label 都未见过，则仍保留历史 zero-effect fallback，仅返回 linear prediction。''',
+          )
+
+          # Detailed changelogs record the corrected no-intercept R2 semantics.
+          replace_exact(
+              'docs/en/changelog.md',
+              '''and no-FE `PanelOLS` formulas preserve Patsy/R default-intercept semantics (with `0 +` / `-1` retaining the explicit no-intercept path). ''',
+              '''and no-FE `PanelOLS` formulas preserve Patsy/R default-intercept semantics (with `0 +` / `-1` retaining the explicit no-intercept path); no-intercept `rsquared_within` now uses the standard uncentered total sum of squares. ''',
+          )
+          replace_exact(
+              'docs/cn/changelog.md',
+              '''而无 FE 的 `PanelOLS` formula 会保留 Patsy/R 默认 intercept（`0 +` / `-1` 继续表示显式 no-intercept）。''',
+              '''而无 FE 的 `PanelOLS` formula 会保留 Patsy/R 默认 intercept（`0 +` / `-1` 继续表示显式 no-intercept）；no-intercept 的 `rsquared_within` 现在使用标准 uncentered total sum of squares。''',
+          )
+          PY
+      - name: Run focused regressions and external baseline
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            dev/tests/test_panel_stage_a_golden.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            -q --tb=short
+      - name: Verify scope and commit without temporary workflows
+        run: |
+          git rm .github/workflows/pr126-round6-two-way-predict-fix.yml
+          git rm .github/workflows/pr126-round6-two-way-r2-fix-v2.yml
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              '.github/workflows/pr126-round6-two-way-predict-fix.yml',
+              '.github/workflows/pr126-round6-two-way-r2-fix-v2.yml',
+              'statgpu/panel/_fixed_effects.py',
+              'dev/benchmarks/validate_panel_stage_c_gpu.py',
+              'dev/tests/test_panel_stage_c_final_review_fixes.py',
+              'dev/tests/test_panel_stage_c_linearmodels_estimators.py',
+              'docs/en/models/panel.md',
+              'docs/cn/models/panel.md',
+              'docs/en/changelog.md',
+              'docs/cn/changelog.md',
+          }
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only', 'HEAD'], text=True).splitlines())
+          if changed != allowed:
+              raise SystemExit(f'unexpected round6 two-way-r2 scope: {sorted(changed)}')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(panel): close two-way prediction and no-intercept R2 semantics'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
