@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from statgpu.panel import PanelOLS, RandomEffects
+from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._utils import demean_variables
 
 
@@ -113,6 +113,71 @@ def test_random_effects_formula_prediction_all_one_slope_is_not_intercept_ambigu
     actual = model.predict(new_data)
     expected = np.full(7, model.coef_[0] + model.coef_[1], dtype=np.float64)
     assert_allclose(actual, expected, rtol=0, atol=3e-12)
+
+
+def test_panel_formula_without_fixed_effects_preserves_patsy_intercept():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026082201)
+    x = rng.normal(size=90)
+    y = 1.35 + 0.72 * x + rng.normal(scale=0.12, size=x.size)
+    data = pd.DataFrame({"y": y, "x": x})
+
+    panel = PanelOLS(cov_type="nonrobust").fit(formula="y ~ x", data=data)
+    pooled = PooledOLS(cov_type="nonrobust").fit(formula="y ~ x", data=data)
+
+    assert panel._feature_names == ["Intercept", "x"]
+    assert panel._predict_constant_index == 0
+    assert_allclose(panel.coef_, pooled.coef_, rtol=0, atol=3e-12)
+    assert_allclose(panel.bse_, pooled.bse_, rtol=0, atol=3e-12)
+    assert_allclose(panel.predict(data.iloc[:12]), pooled.predict(data.iloc[:12]), rtol=0, atol=3e-12)
+    for field in ("rsquared_overall", "rsquared_adj", "f_statistic", "f_pvalue"):
+        assert_allclose(
+            getattr(panel.fit_statistics_, field),
+            getattr(pooled.fit_statistics_, field),
+            rtol=0,
+            atol=3e-12,
+        )
+    assert panel.fit_statistics_.f_df == pooled.fit_statistics_.f_df
+    assert panel.df_resid == pooled.df_resid
+    assert panel.fit_statistics_.metadata["diagnostic_df"]["df_total"] == x.size - 1
+
+
+def test_panel_formula_explicit_no_intercept_remains_no_intercept():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026082202)
+    x = rng.normal(size=70)
+    y = 0.8 * x + rng.normal(scale=0.1, size=x.size)
+    data = pd.DataFrame({"y": y, "x": x})
+
+    formula_model = PanelOLS().fit(formula="y ~ 0 + x", data=data)
+    array_model = PanelOLS().fit(x[:, None], y)
+    assert formula_model._feature_names == ["x"]
+    assert formula_model._predict_constant_index is None
+    assert_allclose(formula_model.coef_, array_model.coef_, rtol=0, atol=3e-12)
+    assert_allclose(formula_model.predict(data.iloc[:10]), array_model.predict(x[:10, None]), rtol=0, atol=3e-12)
+
+
+def test_panel_explicit_level_constant_fit_statistics_match_pooled():
+    rng = np.random.default_rng(2026082203)
+    x = rng.normal(size=84)
+    y = -0.9 + 0.55 * x + rng.normal(scale=0.14, size=x.size)
+    X_full = np.column_stack([np.ones(x.size), x])
+    panel = PanelOLS(cov_type="nonrobust").fit(X_full, y)
+    pooled = PooledOLS(cov_type="nonrobust").fit(x[:, None], y)
+
+    assert_allclose(panel.coef_, pooled.coef_, rtol=0, atol=3e-12)
+    assert_allclose(panel.bse_, pooled.bse_, rtol=0, atol=3e-12)
+    for field in ("rsquared_overall", "rsquared_adj", "f_statistic", "f_pvalue"):
+        assert_allclose(
+            getattr(panel.fit_statistics_, field),
+            getattr(pooled.fit_statistics_, field),
+            rtol=0,
+            atol=3e-12,
+        )
+    assert panel.fit_statistics_.f_df == pooled.fit_statistics_.f_df
+    assert panel.fit_statistics_.metadata["diagnostic_df"]["df_total"] == x.size - 1
 
 
 def test_one_way_fixed_effect_prediction_restores_grand_mean_only_for_known_labels():
@@ -390,6 +455,15 @@ def test_physical_stage_c_runner_covers_new_prediction_contracts_on_numpy():
         rtol=0,
         atol=3e-12,
     )
+
+    constant_audit = module._level_constant_contract_audit(
+        "numpy", rtol=0, atol=3e-12
+    )
+    assert constant_audit["status"] == "success"
+    assert constant_audit["executed_backend"] == "numpy"
+    assert constant_audit["prediction_backend"] == "numpy"
+    assert constant_audit["constant_index"] == 0
+    assert constant_audit["constant_value"] == 1.0
 
     audit = module._disconnected_two_way_prediction_audit("numpy")
     assert audit["executed_backend"] == "numpy"

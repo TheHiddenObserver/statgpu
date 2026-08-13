@@ -209,6 +209,20 @@ class PanelOLS(BasePanelModel):
         )
         self.entity_effects = configured_entity_effects or bool(fe_entity_effects)
         self.time_effects = configured_time_effects or bool(fe_time_effects)
+
+        # Patsy/R formulas include an intercept by default.  Fixed-effect fits
+        # absorb that common intercept into the nuisance-effect space, but a
+        # no-FE PanelOLS fit is an ordinary level regression and must retain it.
+        if (
+            formula is not None
+            and bool(self._formula_has_intercept)
+            and not (self.entity_effects or self.time_effects)
+        ):
+            X_data = np.column_stack(
+                [np.ones(len(y_data), dtype=np.float64), np.asarray(X_data)]
+            )
+            self._feature_names = ["Intercept", *list(self._feature_names or [])]
+
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
         cluster = aligned["cluster"]
@@ -303,6 +317,14 @@ class PanelOLS(BasePanelModel):
             if constant_index is None
             else _to_float_scalar(X_arr[0, int(constant_index)])
         )
+        # A level constant is identified only when no FE space absorbs it.
+        # FE-transformed constants are rank-zero columns and continue to use the
+        # historical/standard nuisance-rank conventions below.
+        has_level_constant = (
+            constant_index is not None
+            and not self.entity_effects
+            and not self.time_effects
+        )
 
         diagnostic_df = fixed_effect_diagnostic_df(
             X_d,
@@ -312,7 +334,7 @@ class PanelOLS(BasePanelModel):
             n_times=n_times,
             entity_effects=self.entity_effects,
             time_effects=self.time_effects,
-            has_constant=False,
+            has_constant=has_level_constant,
             entity_codes=entity_arr,
             time_codes=time_arr,
             rank_x=fit_rank,
@@ -475,14 +497,18 @@ class PanelOLS(BasePanelModel):
         ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
-        ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
+        if has_level_constant:
+            y_d_centered = y_d - xp.mean(y_d)
+            ss_tot_diag = _to_float_scalar(xp.sum(y_d_centered * y_d_centered))
+        else:
+            ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
             X_arr,
             coef,
             xp=xp,
             entity_codes=entity_arr,
-            has_constant=False,
+            has_constant=has_level_constant,
             rss_fit=ss_res,
             tss_fit=ss_tot_diag,
             df_resid=diagnostic_df["df_resid"],
@@ -490,7 +516,7 @@ class PanelOLS(BasePanelModel):
             f_y=y_d,
             f_X=X_d,
             f_params=coef,
-            f_has_constant=False,
+            f_has_constant=has_level_constant,
             metadata={
                 "fit_space": "fixed-effect transformed regression",
                 "legacy_df_resid": int(legacy_df_resid),

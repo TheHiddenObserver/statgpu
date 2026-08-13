@@ -401,6 +401,73 @@ def _fit_cases(X, y, entity, time, clusters, backend):
     return cases
 
 
+def _level_constant_contract_audit(backend, *, rtol=5e-6, atol=5e-7):
+    """Audit no-FE PanelOLS level-intercept inference against PooledOLS."""
+    rng = np.random.default_rng(20260822)
+    n = 96
+    x = rng.normal(size=n).astype(np.float64)
+    y = (1.15 + 0.65 * x + rng.normal(scale=0.15, size=n)).astype(np.float64)
+    X_full = np.column_stack([np.ones(n), x]).astype(np.float64)
+    X_slope = x[:, None]
+    dummy_entity = np.arange(n, dtype=np.int64)
+    dummy_time = np.arange(n, dtype=np.int64)
+    X_full_b, yb, _eb, _tb = _to_backend(
+        X_full, y, dummy_entity, dummy_time, backend
+    )
+    X_slope_b, _yb2, _eb2, _tb2 = _to_backend(
+        X_slope, y, dummy_entity, dummy_time, backend
+    )
+    device = _device(backend)
+    panel = PanelOLS(cov_type="nonrobust", device=device).fit(X_full_b, yb)
+    pooled = PooledOLS(cov_type="nonrobust", device=device).fit(X_slope_b, yb)
+    if _backend_name(panel) != backend or _backend_name(pooled) != backend:
+        raise AssertionError("level-constant audit fit backend provenance drifted")
+
+    panel_prediction = panel.predict(X_full_b[:12])
+    pooled_prediction = pooled.predict(X_slope_b[:12])
+    if getattr(panel, "_predict_backend_name", None) != backend:
+        raise AssertionError("level-constant audit prediction backend provenance drifted")
+    if panel._predict_constant_index != 0 or float(panel._predict_constant_value) != 1.0:
+        raise AssertionError("level-constant audit did not retain the fitted constant")
+
+    numeric = {
+        "coef": (_array(panel.coef_), _array(pooled.coef_)),
+        "bse": (_array(panel.bse_), _array(pooled.bse_)),
+        "prediction": (_array(panel_prediction), _array(pooled_prediction)),
+    }
+    differences = {}
+    for field, (actual, expected) in numeric.items():
+        np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol, err_msg=field)
+        differences[field] = _max_abs(actual, expected)
+
+    panel_fit = panel.fit_statistics_
+    pooled_fit = pooled.fit_statistics_
+    for field in ("rsquared_overall", "rsquared_adj", "f_statistic", "f_pvalue"):
+        actual = getattr(panel_fit, field)
+        expected = getattr(pooled_fit, field)
+        differences[field] = _scalar_diff(
+            actual, expected, rtol=rtol, atol=atol, label=f"level_constant.{field}"
+        )
+    if panel_fit.f_df != pooled_fit.f_df:
+        raise AssertionError(f"level_constant.f_df: {panel_fit.f_df!r} != {pooled_fit.f_df!r}")
+    if int(panel.df_resid) != int(pooled.df_resid):
+        raise AssertionError("level_constant residual df differs from PooledOLS")
+    diagnostic_df = panel_fit.metadata.get("diagnostic_df", {})
+    if int(diagnostic_df.get("df_total", -1)) != n - 1:
+        raise AssertionError("level_constant adjusted-R2 total df did not account for intercept")
+
+    return {
+        "status": "success",
+        "executed_backend": backend,
+        "prediction_backend": getattr(panel, "_predict_backend_name", None),
+        "constant_index": int(panel._predict_constant_index),
+        "constant_value": float(panel._predict_constant_value),
+        "df_resid": int(panel.df_resid),
+        "f_df": list(panel_fit.f_df) if panel_fit.f_df is not None else None,
+        "max_abs_differences_vs_pooled": differences,
+    }
+
+
 def _disconnected_two_way_prediction_audit(backend):
     """Exercise disconnected two-way prediction identifiability on one backend."""
     rng = np.random.default_rng(20260820)
@@ -615,6 +682,9 @@ def main():
     reference_models = _fit_cases(X, y, entity, time, clusters, "numpy")
     reference = {name: _snapshot(model) for name, model in reference_models.items()}
     prediction_reference = _disconnected_two_way_prediction_audit("numpy")
+    level_constant_reference = _level_constant_contract_audit(
+        "numpy", rtol=args.rtol, atol=args.atol
+    )
     primitive_reference = {
         name: _array(value)
         for name, value in _public_primitive_cases(
@@ -647,6 +717,7 @@ def main():
             "cases": {},
             "public_primitives": {},
             "prediction_contracts": {},
+            "level_constant_contract": {},
         }
         if set(models) != set(reference):
             raise AssertionError(f"{backend}: physical case set differs from NumPy reference")
@@ -721,6 +792,23 @@ def main():
             "guards": dict(prediction_audit["guards"]),
             "max_abs_differences": prediction_diffs,
         }
+
+        level_constant_audit = _level_constant_contract_audit(
+            backend, rtol=args.rtol, atol=args.atol
+        )
+        if level_constant_audit["executed_backend"] != backend:
+            raise AssertionError("level-constant fit backend provenance drifted")
+        if level_constant_audit["prediction_backend"] != backend:
+            raise AssertionError("level-constant prediction backend provenance drifted")
+        if level_constant_audit["constant_index"] != level_constant_reference["constant_index"]:
+            raise AssertionError("level-constant fitted constant index drifted")
+        np.testing.assert_allclose(
+            level_constant_audit["constant_value"],
+            level_constant_reference["constant_value"],
+            rtol=0,
+            atol=0,
+        )
+        payload["level_constant_contract"] = level_constant_audit
 
         primitive_values = _public_primitive_cases(
             X, y, entity, time, clusters, backend

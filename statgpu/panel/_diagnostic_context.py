@@ -152,7 +152,10 @@ def fixed_effect_diagnostic_df(
         n_components=n_components,
     )
     df_resid = int(nobs) - int(rank_x) - int(effect_rank)
-    df_total = int(nobs) - int(effect_rank)
+    level_constant_rank = int(
+        bool(has_constant) and not entity_effects and not time_effects
+    )
+    df_total = int(nobs) - int(effect_rank) - level_constant_rank
     return {
         "rank_x": int(rank_x),
         "effect_rank": int(effect_rank),
