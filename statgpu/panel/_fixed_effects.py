@@ -198,6 +198,12 @@ class PanelOLS(BasePanelModel):
             "_panel_index_info",
             "_panel_cov_params_raw",
             "_coefficient_inference_reason",
+            "_inference_result",
+            "_bse",
+            "_tvalues",
+            "_zvalues",
+            "_pvalues",
+            "_conf_int",
         ):
             setattr(self, name, None)
         self._coefficient_inference_available = False

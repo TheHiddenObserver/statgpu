@@ -123,6 +123,12 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
     assert model._fitted is True
     assert model.coef_ is not None
+    assert model._inference_result is not None
+    assert model._bse is not None
+    assert model._tvalues is not None
+    assert model._zvalues is not None
+    assert model._pvalues is not None
+    assert model._conf_int is not None
 
     with pytest.raises(ValueError, match="entity_ids is required"):
         model.fit(X, y)
@@ -130,6 +136,14 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     assert model._fitted is False
     assert model.coef_ is None
     assert model.fit_statistics_ is None
+    assert model._inference_result is None
+    assert model._bse is None
+    assert model._tvalues is None
+    assert model._zvalues is None
+    assert model._pvalues is None
+    assert model._conf_int is None
+    assert model._panel_cov_params_raw is None
+    assert model._covariance_metadata == {}
     assert model.entity_effects is True  # constructor contract restored
     with pytest.raises(RuntimeError, match="not fitted"):
         model.predict(X[:3], entity_ids=entity[:3])
