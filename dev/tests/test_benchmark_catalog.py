@@ -132,6 +132,8 @@ def test_coverage_matrix_is_referentially_complete(coverage_matrix, manifest):
         "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
         "panel-stage-c-identifiability-validation-pr126-20260812-2d929bccf1c7",
         "panel-stage-c-identifiability-performance-pr126-20260812-2238002d491f",
+        "panel-stage-c-final-validation-pr126-20260813-62fbf89e58fb",
+        "panel-stage-c-final-performance-pr126-20260813-980ffe9bd392",
     ]
     assert rows["distribution-api"]["issue"] == "#101"
     assert rows["feature-selection-knockoff"]["issue"] == "#103"
@@ -155,9 +157,9 @@ def test_inventory_v2_reconciles_literal_counts(
     assert inventory["inventory_version"] == "2.0"
     assert inventory["discovered_json_artifacts"] == len(entries)
     assert inventory["classified_candidate_sources"] == len(entries)
-    assert inventory["registered_sources"] == len(manifest["sources"]) == 19
-    assert inventory["available_registered_sources"] == 19
-    assert inventory["parsed_registered_sources"] == 19
+    assert inventory["registered_sources"] == len(manifest["sources"]) == 21
+    assert inventory["available_registered_sources"] == 21
+    assert inventory["parsed_registered_sources"] == 21
     assert inventory["eligible_sources"] == (
         inventory["registered_sources"]
         + inventory["eligible_unregistered_sources"]

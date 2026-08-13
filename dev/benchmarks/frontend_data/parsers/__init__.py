@@ -35,6 +35,10 @@ from .panel_stage_c_identifiability import (
     parse_panel_stage_c_identifiability_physical_validation,
     parse_panel_stage_c_identifiability_performance,
 )
+from .panel_stage_c_final import (
+    parse_panel_stage_c_final_physical_validation,
+    parse_panel_stage_c_final_performance,
+)
 
 __all__ = [
     "parse_penalized_glm_bench_perf",
@@ -62,4 +66,6 @@ __all__ = [
     "parse_panel_stage_c_rank_df_performance",
     "parse_panel_stage_c_identifiability_physical_validation",
     "parse_panel_stage_c_identifiability_performance",
+    "parse_panel_stage_c_final_physical_validation",
+    "parse_panel_stage_c_final_performance",
 ]

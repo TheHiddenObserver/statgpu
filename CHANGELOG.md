@@ -8,7 +8,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance across NumPy, CuPy, and Torch.
 - Preserved the existing HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient-estimation, and panel fit-statistic contracts.
 - Hardened fixed-effect convergence and level prediction, PanelOLS formula/refit/intercept semantics, rank-deficient inference, FirstDifference time validation, and covariance numerical stability.
-- Added maintained Python/R external-definition checks plus exact physical CuPy/Torch correctness and synchronized performance validation.
+- Added maintained Python/R external-definition checks plus exact physical CuPy/Torch correctness and synchronized performance validation; final fresh Tesla P100 acceptance on `5f0cea9216321361842bc3c438219084a4cf5538` passes 47/47 checks per backend and the synchronized 60-row performance matrix under immutable v5 source identities.
 
 ## 2026-08-08
 

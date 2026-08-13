@@ -34,6 +34,10 @@ from .parsers import (
     parse_panel_stage_c_identifiability_physical_validation,
     parse_panel_stage_c_identifiability_performance,
 )
+from .parsers import (
+    parse_panel_stage_c_final_physical_validation,
+    parse_panel_stage_c_final_performance,
+)
 
 MINIMUM_DASHBOARD_SOURCE_DATE = date(2026, 6, 1)
 
@@ -87,6 +91,14 @@ PARSER_FUNCTIONS.update(
         "panel_stage_c_identifiability_performance": (
             parse_panel_stage_c_identifiability_performance
         ),
+    }
+)
+PARSER_FUNCTIONS.update(
+    {
+        "panel_stage_c_final_physical_validation": (
+            parse_panel_stage_c_final_physical_validation
+        ),
+        "panel_stage_c_final_performance": parse_panel_stage_c_final_performance,
     }
 )
 

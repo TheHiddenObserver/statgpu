@@ -271,3 +271,70 @@ def test_rank_df_performance_parser_fails_closed_on_median_drift(tmp_path):
     broken.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="reported median does not match raw samples"):
         parse_panel_stage_c_rank_df_performance(broken, RANK_DF_ENV_ID)
+
+
+# PR126 final fresh-P100 v5 canonical source
+from dev.benchmarks.frontend_data.parsers.panel_stage_c_final import (
+    parse_panel_stage_c_final_performance,
+    parse_panel_stage_c_final_physical_validation,
+)
+
+FINAL_CORRECTNESS = ROOT / "results/pr126_p100_fresh/panel_stage_c_correctness_p100.json"
+FINAL_PERFORMANCE = ROOT / "results/pr126_p100_fresh/panel_stage_c_performance_p100.json"
+FINAL_ENV_ID = "remote-p100-pr126-final-20260813"
+
+
+def test_final_stage_c_v5_validation_emits_47_checks_per_backend():
+    runs, models, warnings = parse_panel_stage_c_final_physical_validation(
+        FINAL_CORRECTNESS, FINAL_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 94
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 24
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "5f0cea9216321361842bc3c438219084a4cf5538"
+        for run in runs
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_final_stage_c_v5_performance_emits_60_synchronized_rows():
+    runs, models, warnings = parse_panel_stage_c_final_performance(
+        FINAL_PERFORMANCE, FINAL_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 60
+    assert len([run for run in runs if run["parameters"]["scenario"] == "base"]) == 54
+    assert len([run for run in runs if run["parameters"]["scenario"] == "high_t_qs"]) == 4
+    assert len([run for run in runs if run["parameters"]["scenario"] == "two_way_unbalanced"]) == 2
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects"
+    }
+
+
+def test_final_stage_c_v5_fails_closed_on_prediction_guard_drift(tmp_path):
+    data = json.loads(FINAL_CORRECTNESS.read_text(encoding="utf-8"))
+    data["backends"]["cupy"]["prediction_contracts"]["two_way_disconnected"]["guards"][
+        "cross_component"
+    ] = False
+    broken = tmp_path / "broken_final_prediction.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="prediction contract drifted"):
+        parse_panel_stage_c_final_physical_validation(broken, FINAL_ENV_ID)
+
+
+def test_final_stage_c_v5_fails_closed_on_level_constant_backend_drift(tmp_path):
+    data = json.loads(FINAL_CORRECTNESS.read_text(encoding="utf-8"))
+    data["backends"]["torch"]["level_constant_contract"]["prediction_backend"] = "numpy"
+    broken = tmp_path / "broken_final_level_constant.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="level-constant contract drifted"):
+        parse_panel_stage_c_final_physical_validation(broken, FINAL_ENV_ID)
