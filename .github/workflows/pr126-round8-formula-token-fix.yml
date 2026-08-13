@@ -1,0 +1,204 @@
+name: PR126 guarded round8 formula token fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-round8-formula-token-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  formula-token-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Guard exact checkpoint lineage
+        run: |
+          base='2f6b00f6759d2be7d16494fb9ac71587ef28f59d'
+          test "$(git diff --name-only "$base" HEAD)" = ".github/workflows/pr126-round8-formula-token-fix.yml"
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pandas patsy
+      - name: Apply exact formula token fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected}, found {count}: {old!r}')
+              p.write_text(text.replace(old, new, expected), encoding='utf-8')
+
+          formula = Path('statgpu/panel/_formula.py')
+          text = formula.read_text(encoding='utf-8')
+          start = text.index('def _strip_panel_tokens(')
+          end = text.index('\ndef parse_panel_formula', start)
+          new_helper = '''def _top_level_panel_token_spans(formula: str, token: str):
+              """Return top-level RHS spans where ``token`` is a complete identifier."""
+              tilde = formula.find("~")
+              i = tilde + 1 if tilde >= 0 else 0
+              depth = 0
+              quote = None
+              escaped = False
+              spans = []
+              while i < len(formula):
+                  ch = formula[i]
+                  if quote is not None:
+                      if escaped:
+                          escaped = False
+                      elif ch == "\\\\":
+                          escaped = True
+                      elif ch == quote:
+                          quote = None
+                      i += 1
+                      continue
+                  if ch in {"'", '"'}:
+                      quote = ch
+                      i += 1
+                      continue
+                  if ch in "([{":
+                      depth += 1
+                      i += 1
+                      continue
+                  if ch in ")]}":
+                      depth = max(depth - 1, 0)
+                      i += 1
+                      continue
+                  if depth == 0 and formula.startswith(token, i):
+                      left = formula[i - 1] if i > 0 else ""
+                      j = i + len(token)
+                      right = formula[j] if j < len(formula) else ""
+                      left_ok = not (left.isalnum() or left == "_")
+                      right_ok = not (right.isalnum() or right == "_")
+                      if left_ok and right_ok:
+                          spans.append((i, j))
+                          i = j
+                          continue
+                  i += 1
+              return spans
+
+
+def _strip_panel_tokens(formula: str) -> Tuple[str, bool, bool]:
+              """Detect top-level linearmodels effect tokens without substring rewriting.
+
+              Magic tokens are recognized only as complete identifiers at the top level
+              of the main formula RHS.  Identifiers such as ``EntityEffectsScore`` and
+              occurrences inside transforms such as ``C(EntityEffects)`` remain ordinary
+              Patsy expressions rather than being rewritten by string substitution.
+              """
+              entity_effects = False
+              time_effects = False
+              clean = formula
+
+              for token in _PANEL_TOKENS:
+                  spans = _top_level_panel_token_spans(clean, token)
+                  if not spans:
+                      continue
+                  if token in ("EntityEffects", "FixedEffects"):
+                      entity_effects = True
+                  elif token == "TimeEffects":
+                      time_effects = True
+
+                  # Remove from right to left so earlier spans remain valid. Prefer
+                  # consuming an adjacent top-level '+'; otherwise remove only the
+                  # reserved token and let Patsy validate the remaining expression.
+                  for token_start, token_end in reversed(spans):
+                      left = token_start - 1
+                      while left >= 0 and clean[left].isspace():
+                          left -= 1
+                      right = token_end
+                      while right < len(clean) and clean[right].isspace():
+                          right += 1
+                      if left >= 0 and clean[left] == "+":
+                          clean = clean[:left] + clean[token_end:]
+                      elif right < len(clean) and clean[right] == "+":
+                          clean = clean[:token_start] + clean[right + 1:]
+                      else:
+                          clean = clean[:token_start] + clean[token_end:]
+
+              clean = clean.strip()
+              if "~" in clean:
+                  rhs = clean.split("~", 1)[1].strip()
+                  if not rhs or rhs in ("+", "-", "*", "/"):
+                      raise ValueError(
+                          "Formula has no predictors after removing panel tokens. "
+                          f"Original: {formula!r}, cleaned: {clean!r}"
+                      )
+              return clean, entity_effects, time_effects
+
+'''
+          text = text[:start] + new_helper + text[end + 1:]
+          formula.write_text(text, encoding='utf-8')
+
+          replace_exact(
+              'statgpu/panel/_formula.py',
+              '''    # Step 1: Strip linearmodels-style tokens\n    clean_formula, token_entity, token_time = _strip_panel_tokens(formula)\n\n    # Step 2: Split on | (fixest syntax)\n    main_formula, fe_vars = _split_panel_formula(clean_formula)\n\n    # Merge token-based and pipe-based FE specifications\n''',
+              '''    # Step 1: isolate the fixest pipe before interpreting magic tokens.\n    # Tokens apply only to the main Patsy formula, never to FE variable names.\n    main_formula, fe_vars = _split_panel_formula(formula)\n\n    # Step 2: detect linearmodels-style tokens in the main formula only.\n    clean_formula, token_entity, token_time = _strip_panel_tokens(main_formula)\n    if fe_vars and (token_entity or token_time):\n        raise ValueError(\n            "Panel formulas cannot combine linearmodels-style effect tokens "\n            "with fixest pipe fixed effects; choose one fixed-effect syntax"\n        )\n    main_formula = clean_formula\n\n    # Merge the selected FE specification into the fit request.\n''',
+          )
+
+          tests = 'dev/tests/test_panel_formula.py'
+          replace_exact(
+              tests,
+              '''    def test_no_tokens(self):\n        clean, entity, time = _strip_panel_tokens("y ~ x1 + x2")\n        assert entity is False\n        assert time is False\n        assert clean == "y ~ x1 + x2"\n''',
+              '''    def test_no_tokens(self):\n        clean, entity, time = _strip_panel_tokens("y ~ x1 + x2")\n        assert entity is False\n        assert time is False\n        assert clean == "y ~ x1 + x2"\n\n    @pytest.mark.parametrize(\n        "name", ["EntityEffectsScore", "TimeEffectsTrend", "FixedEffectsWeight"]\n    )\n    def test_magic_token_substrings_remain_ordinary_identifiers(self, name):\n        formula = f"y ~ x1 + {name}"\n        clean, entity, time = _strip_panel_tokens(formula)\n        assert clean == formula\n        assert entity is False\n        assert time is False\n\n    def test_magic_token_inside_transform_is_not_rewritten(self):\n        formula = "y ~ x1 + C(EntityEffects)"\n        clean, entity, time = _strip_panel_tokens(formula)\n        assert clean == formula\n        assert entity is False\n        assert time is False\n''',
+          )
+          replace_exact(
+              tests,
+              '''    def test_formula_enables_effects(self, panel_df):\n        """Formula with | should automatically enable entity_effects."""\n        m = PanelOLS()  # entity_effects=False by default\n        m.fit(formula="y ~ x1 + x2 | entity + time", data=panel_df)\n        assert m.entity_effects is True\n        assert m.time_effects is True\n''',
+              '''    def test_formula_enables_effects(self, panel_df):\n        """Formula with | should automatically enable entity_effects."""\n        m = PanelOLS()  # entity_effects=False by default\n        m.fit(formula="y ~ x1 + x2 | entity + time", data=panel_df)\n        assert m.entity_effects is True\n        assert m.time_effects is True\n\n    def test_magic_token_prefix_regressor_is_not_silently_rewritten(self, panel_df):\n        data = panel_df.copy()\n        data["Score"] = np.linspace(-1.5, 1.5, len(data))\n        data["EntityEffectsScore"] = 0.4 * data["x1"] - 0.2 * data["x2"]\n        actual = PanelOLS().fit(formula="y ~ EntityEffectsScore", data=data)\n        expected_X = np.column_stack(\n            [np.ones(len(data)), data["EntityEffectsScore"].to_numpy()]\n        )\n        expected = PanelOLS().fit(expected_X, data["y"].to_numpy())\n        assert actual.entity_effects is False\n        assert actual.time_effects is False\n        assert actual._feature_names == ["Intercept", "EntityEffectsScore"]\n        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)\n\n    @pytest.mark.parametrize(\n        "formula",\n        [\n            "y ~ x1 + EntityEffects | time",\n            "y ~ x1 + TimeEffects | entity",\n        ],\n    )\n    def test_token_and_pipe_fixed_effect_syntax_cannot_be_mixed(self, panel_df, formula):\n        with pytest.raises(ValueError, match="cannot combine.*effect tokens.*pipe"):\n            PanelOLS().fit(formula=formula, data=panel_df)\n''',
+          )
+
+          en = 'docs/en/models/panel.md'
+          replace_exact(
+              en,
+              '''Formula input can also request one-way or two-way effects through the existing pipe syntax, for example `"y ~ x1 + x2 | entity"`; formulas requesting more than two fixed-effect variables fail closed rather than silently dropping additional effects, and effects-only fixed-effect formulas without a non-intercept regressor are explicitly unsupported.''',
+              '''Formula input can request fixed effects either with linearmodels-style additive tokens (`EntityEffects`, `TimeEffects`, `FixedEffects`) or through the existing pipe syntax, for example `"y ~ x1 + x2 | entity"`; these two fixed-effect syntaxes are alternatives and cannot be combined in one formula. Magic tokens are recognized only as complete top-level identifiers, so regressor names such as `EntityEffectsScore` remain ordinary Patsy variables. Formulas requesting more than two fixed-effect variables fail closed rather than silently dropping additional effects, and effects-only fixed-effect formulas without a non-intercept regressor are explicitly unsupported.''',
+          )
+          cn = 'docs/cn/models/panel.md'
+          replace_exact(
+              cn,
+              '''formula 输入可通过已有 pipe syntax 请求 one-way 或 two-way effects，例如 `"y ~ x1 + x2 | entity"`；若请求超过两个 fixed-effect 变量会 fail closed，而不会静默丢弃后续 effect；仅包含 fixed effect、没有 non-intercept regressor 的 effects-only formula 也会明确报不支持。''',
+              '''formula 输入可以使用 linearmodels-style additive tokens（`EntityEffects`、`TimeEffects`、`FixedEffects`）或已有 pipe syntax（例如 `"y ~ x1 + x2 | entity"`）请求 fixed effects；这两种 fixed-effect 语法互为替代方案，不能在同一 formula 中混用。magic token 只在顶层完整 identifier 位置识别，因此 `EntityEffectsScore` 等 regressor 名仍按普通 Patsy 变量处理。若请求超过两个 fixed-effect 变量会 fail closed，而不会静默丢弃后续 effect；仅包含 fixed effect、没有 non-intercept regressor 的 effects-only formula 也会明确报不支持。''',
+          )
+          PY
+      - name: Run focused formula regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_formula.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            -q --tb=short
+          python -m compileall -q statgpu/panel
+      - name: Verify scope and commit without temporary workflow
+        run: |
+          git diff --check
+          changed="$(git status --short | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' \
+            dev/tests/test_panel_formula.py \
+            docs/cn/models/panel.md \
+            docs/en/models/panel.md \
+            statgpu/panel/_formula.py | sort)"
+          test "$changed" = "$expected"
+          git rm .github/workflows/pr126-round8-formula-token-fix.yml
+          git add \
+            statgpu/panel/_formula.py \
+            dev/tests/test_panel_formula.py \
+            docs/en/models/panel.md \
+            docs/cn/models/panel.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(panel): make formula effect tokens unambiguous'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
