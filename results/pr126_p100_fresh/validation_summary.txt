@@ -1,0 +1,13 @@
+PR126 PHYSICAL VALIDATION AUDIT: PASS
+
+expected_sha: 5f0cea9216321361842bc3c438219084a4cf5538
+correctness schema: 2
+correctness cases/backend: 35
+correctness primitives/backend: 12
+correctness GPU: Tesla P100-SXM2-16GB
+
+performance schema: 3
+performance rows: 60
+backend rows: {'cupy': 30, 'torch': 30}
+scenario rows: {'base': 54, 'high_t_qs': 4, 'two_way_unbalanced': 2}
+performance GPUs: {'cupy': 'Tesla P100-SXM2-16GB', 'torch': 'Tesla P100-SXM2-16GB'}
