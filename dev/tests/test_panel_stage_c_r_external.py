@@ -66,6 +66,9 @@ args <- commandArgs(trailingOnly=TRUE)
 d <- read.csv(args[1])
 prefix <- args[2]
 
+stopifnot(as.character(utils::packageVersion("plm")) == "2.6.7")
+stopifnot(as.character(utils::packageVersion("sandwich")) == "3.1.3")
+
 fit_lm <- lm(y ~ x1 + x2, data=d)
 for (kind in c("HC0", "HC2", "HC3")) {
   value <- sandwich::vcovHC(fit_lm, type=kind)
@@ -137,5 +140,5 @@ writeLines(
     assert_allclose(fe.coef_, expected_fe, rtol=5e-10, atol=5e-11)
 
     versions = Path(f"{prefix}_versions.txt").read_text(encoding="utf-8")
-    assert "plm=" in versions
-    assert "sandwich=" in versions
+    assert "plm=2.6.7" in versions
+    assert "sandwich=3.1.3" in versions
