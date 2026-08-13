@@ -119,6 +119,23 @@ class TestStripPanelTokens:
         assert time is False
         assert clean == "y ~ x1 + x2"
 
+    @pytest.mark.parametrize(
+        "name", ["EntityEffectsScore", "TimeEffectsTrend", "FixedEffectsWeight"]
+    )
+    def test_magic_token_substrings_remain_ordinary_identifiers(self, name):
+        formula = f"y ~ x1 + {name}"
+        clean, entity, time = _strip_panel_tokens(formula)
+        assert clean == formula
+        assert entity is False
+        assert time is False
+
+    def test_magic_token_inside_transform_is_not_rewritten(self):
+        formula = "y ~ x1 + C(EntityEffects)"
+        clean, entity, time = _strip_panel_tokens(formula)
+        assert clean == formula
+        assert entity is False
+        assert time is False
+
 
 # ============================================================================
 # PanelOLS formula tests
@@ -167,6 +184,31 @@ class TestPanelOLSFormula:
         m.fit(formula="y ~ x1 + x2 | entity + time", data=panel_df)
         assert m.entity_effects is True
         assert m.time_effects is True
+
+    def test_magic_token_prefix_regressor_is_not_silently_rewritten(self, panel_df):
+        data = panel_df.copy()
+        data["Score"] = np.linspace(-1.5, 1.5, len(data))
+        data["EntityEffectsScore"] = 0.4 * data["x1"] - 0.2 * data["x2"]
+        actual = PanelOLS().fit(formula="y ~ EntityEffectsScore", data=data)
+        expected_X = np.column_stack(
+            [np.ones(len(data)), data["EntityEffectsScore"].to_numpy()]
+        )
+        expected = PanelOLS().fit(expected_X, data["y"].to_numpy())
+        assert actual.entity_effects is False
+        assert actual.time_effects is False
+        assert actual._feature_names == ["Intercept", "EntityEffectsScore"]
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
+    @pytest.mark.parametrize(
+        "formula",
+        [
+            "y ~ x1 + EntityEffects | time",
+            "y ~ x1 + TimeEffects | entity",
+        ],
+    )
+    def test_token_and_pipe_fixed_effect_syntax_cannot_be_mixed(self, panel_df, formula):
+        with pytest.raises(ValueError, match="cannot combine.*effect tokens.*pipe"):
+            PanelOLS().fit(formula=formula, data=panel_df)
 
     def test_predict_with_dataframe(self, panel_df):
         """After fitting with formula, predict(df) should work."""

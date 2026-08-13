@@ -77,52 +77,95 @@ def _split_panel_formula(formula: str) -> Tuple[str, List[str]]:
     return main, fe_vars
 
 
+def _top_level_panel_token_spans(formula: str, token: str):
+    """Return top-level RHS spans where ``token`` is a complete identifier."""
+    tilde = formula.find("~")
+    i = tilde + 1 if tilde >= 0 else 0
+    depth = 0
+    quote = None
+    escaped = False
+    spans = []
+    while i < len(formula):
+        ch = formula[i]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            i += 1
+            continue
+        if ch in "([{":
+            depth += 1
+            i += 1
+            continue
+        if ch in ")]}":
+            depth = max(depth - 1, 0)
+            i += 1
+            continue
+        if depth == 0 and formula.startswith(token, i):
+            left = formula[i - 1] if i > 0 else ""
+            j = i + len(token)
+            right = formula[j] if j < len(formula) else ""
+            left_ok = not (left.isalnum() or left == "_")
+            right_ok = not (right.isalnum() or right == "_")
+            if left_ok and right_ok:
+                spans.append((i, j))
+                i = j
+                continue
+        i += 1
+    return spans
+
+
 def _strip_panel_tokens(formula: str) -> Tuple[str, bool, bool]:
-    """Detect and strip linearmodels-style tokens from a formula.
+    """Detect top-level linearmodels effect tokens without substring rewriting.
 
-    Parameters
-    ----------
-    formula : str
-        Formula string, e.g. ``"y ~ x1 + EntityEffects + TimeEffects"``.
-
-    Returns
-    -------
-    clean_formula : str
-        Formula with tokens removed.
-    entity_effects : bool
-        True if ``EntityEffects`` or ``FixedEffects`` token was present.
-    time_effects : bool
-        True if ``TimeEffects`` token was present.
+    Magic tokens are recognized only as complete identifiers at the top level
+    of the main formula RHS. Identifiers such as ``EntityEffectsScore`` and
+    occurrences inside transforms such as ``C(EntityEffects)`` remain ordinary
+    Patsy expressions rather than being rewritten by string substitution.
     """
     entity_effects = False
     time_effects = False
-
     clean = formula
+
     for token in _PANEL_TOKENS:
-        if token in clean:
-            if token in ("EntityEffects", "FixedEffects"):
-                entity_effects = True
-            elif token == "TimeEffects":
-                time_effects = True
-            # Remove the token and surrounding + signs
-            clean = clean.replace(f"+ {token}", "").replace(f"+{token}", "")
-            clean = clean.replace(f"{token} +", "").replace(f"{token}+", "")
-            clean = clean.replace(token, "")
+        spans = _top_level_panel_token_spans(clean, token)
+        if not spans:
+            continue
+        if token in ("EntityEffects", "FixedEffects"):
+            entity_effects = True
+        elif token == "TimeEffects":
+            time_effects = True
 
-    # Clean up whitespace
-    clean = ' '.join(clean.split())
+        for token_start, token_end in reversed(spans):
+            left = token_start - 1
+            while left >= 0 and clean[left].isspace():
+                left -= 1
+            right = token_end
+            while right < len(clean) and clean[right].isspace():
+                right += 1
+            if left >= 0 and clean[left] == "+":
+                clean = clean[:left] + clean[token_end:]
+            elif right < len(clean) and clean[right] == "+":
+                clean = clean[:token_start] + clean[right + 1:]
+            else:
+                clean = clean[:token_start] + clean[token_end:]
 
-    # Validate that formula has at least one predictor after token removal
-    if '~' in clean:
-        rhs = clean.split('~', 1)[1].strip()
-        if not rhs or rhs in ('+', '-', '*', '/'):
+    clean = clean.strip()
+    if "~" in clean:
+        rhs = clean.split("~", 1)[1].strip()
+        if not rhs or rhs in ("+", "-", "*", "/"):
             raise ValueError(
-                f"Formula has no predictors after removing panel tokens. "
-                f"Original: '{formula}', cleaned: '{clean}'"
+                "Formula has no predictors after removing panel tokens. "
+                f"Original: {formula!r}, cleaned: {clean!r}"
             )
-
     return clean, entity_effects, time_effects
-
 
 def parse_panel_formula(formula, data):
     """Parse a panel formula (fixest pipe or linearmodels tokens).
@@ -153,13 +196,20 @@ def parse_panel_formula(formula, data):
     feature_names : list of str
         Names of regressor columns.
     """
-    # Step 1: Strip linearmodels-style tokens
-    clean_formula, token_entity, token_time = _strip_panel_tokens(formula)
+    # Step 1: isolate the fixest pipe before interpreting magic tokens.
+    # Tokens apply only to the main Patsy formula, never to FE variable names.
+    main_formula, fe_vars = _split_panel_formula(formula)
 
-    # Step 2: Split on | (fixest syntax)
-    main_formula, fe_vars = _split_panel_formula(clean_formula)
+    # Step 2: detect linearmodels-style tokens in the main formula only.
+    clean_formula, token_entity, token_time = _strip_panel_tokens(main_formula)
+    if fe_vars and (token_entity or token_time):
+        raise ValueError(
+            "Panel formulas cannot combine linearmodels-style effect tokens "
+            "with fixest pipe fixed effects; choose one fixed-effect syntax"
+        )
+    main_formula = clean_formula
 
-    # Merge token-based and pipe-based FE specifications
+    # Merge the selected FE specification into the fit request.
     entity_effects = token_entity
     time_effects = token_time
 
