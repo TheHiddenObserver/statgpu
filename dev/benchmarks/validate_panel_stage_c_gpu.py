@@ -268,6 +268,7 @@ def _snapshot(model):
         ),
         "prediction": _optional_array(getattr(model, "_physical_prediction", None)),
         "prediction_backend": getattr(model, "_predict_backend_name", None),
+        "prediction_contract": getattr(model, "_physical_prediction_contract", None),
         "nobs": int(model.nobs),
         "df_resid": int(model.df_resid),
         "fit_statistics": fit_payload,
@@ -308,9 +309,18 @@ def _fit_cases(X, y, entity, time, clusters, backend):
             cases[f"panel_entity_{cov}"]._physical_prediction = cases[
                 f"panel_entity_{cov}"
             ].predict(Xb[:8], entity_ids=eb[:8])
+            cases[f"panel_entity_{cov}"]._physical_prediction_contract = (
+                "entity_effect_prediction"
+            )
     cases["panel_two_way_hc3"] = PanelOLS(
         entity_effects=True, time_effects=True, cov_type="hc3", device=device
     ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
+    cases["panel_two_way_hc3"]._physical_prediction = cases[
+        "panel_two_way_hc3"
+    ].predict(Xb[:8], entity_ids=eb[:8], time_ids=tb[:8])
+    cases["panel_two_way_hc3"]._physical_prediction_contract = (
+        "two_way_effect_prediction"
+    )
     cases["panel_two_way_cluster_group_debias"] = PanelOLS(
         entity_effects=True,
         time_effects=True,
@@ -333,9 +343,15 @@ def _fit_cases(X, y, entity, time, clusters, backend):
             cov_type=cov, device=device
         ).fit(Xcb, ycb, entity_ids=ecb)
         if cov == "hc0":
+            # Deliberately omit the fitted explicit constant.  This exercises the
+            # shared backend-native constant restoration path rather than only
+            # predicting with the already-complete design matrix.
             cases[f"random_effects_explicit_constant_{cov}"]._physical_prediction = cases[
                 f"random_effects_explicit_constant_{cov}"
-            ].predict(Xcb[:8])
+            ].predict(Xb[:8])
+            cases[f"random_effects_explicit_constant_{cov}"]._physical_prediction_contract = (
+                "omitted_explicit_constant"
+            )
     cases["random_effects_cluster_two_way"] = RandomEffects(
         cov_type="clustered", group_debias=True, device=device
     ).fit(Xcb, ycb, entity_ids=ecb, cluster=clusters)
@@ -385,6 +401,77 @@ def _fit_cases(X, y, entity, time, clusters, backend):
     return cases
 
 
+def _disconnected_two_way_prediction_audit(backend):
+    """Exercise disconnected two-way prediction identifiability on one backend."""
+    rng = np.random.default_rng(20260820)
+    entity = np.array([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+    time = np.array([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+    X = rng.normal(size=(entity.size, 1)).astype(np.float64)
+    alpha = np.array([0.5, -0.2, 1.1, -0.7], dtype=np.float64)
+    tau = np.array([0.25, -0.15, 0.6, -0.4], dtype=np.float64)
+    y = (0.8 * X[:, 0] + alpha[entity] + tau[time]).astype(np.float64)
+    Xb, yb, eb, tb = _to_backend(X, y, entity, time, backend)
+    model = PanelOLS(
+        entity_effects=True, time_effects=True, cov_type="hc0", device=_device(backend)
+    ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
+    executed = _backend_name(model)
+    if executed != backend:
+        raise AssertionError(
+            f"disconnected prediction audit requested {backend}, executed {executed}"
+        )
+
+    observed = model.predict(Xb, entity_ids=eb, time_ids=tb)
+    same_component = model.predict(
+        Xb[:1], entity_ids=np.array([1]), time_ids=np.array([1])
+    )
+
+    def guarded(label, **kwargs):
+        try:
+            model.predict(Xb[:1], **kwargs)
+        except ValueError as exc:
+            if "disconnected incidence graph" not in str(exc):
+                raise AssertionError(
+                    f"{label}: wrong disconnected-prediction failure: {exc}"
+                ) from exc
+            return True
+        raise AssertionError(f"{label}: disconnected prediction did not fail closed")
+
+    guards = {
+        "cross_component": guarded(
+            "cross_component", entity_ids=np.array([0]), time_ids=np.array([2])
+        ),
+        "entity_only": guarded("entity_only", entity_ids=np.array([0])),
+        "time_only": guarded("time_only", time_ids=np.array([0])),
+        "known_entity_unknown_time": guarded(
+            "known_entity_unknown_time",
+            entity_ids=np.array([0]),
+            time_ids=np.array([99]),
+        ),
+        "unknown_entity_known_time": guarded(
+            "unknown_entity_known_time",
+            entity_ids=np.array([99]),
+            time_ids=np.array([0]),
+        ),
+    }
+    both_unseen = model.predict(
+        Xb[:1], entity_ids=np.array([98]), time_ids=np.array([99])
+    )
+    prediction_backend = getattr(model, "_predict_backend_name", None)
+    if prediction_backend != backend:
+        raise AssertionError(
+            "disconnected prediction audit did not persist requested prediction backend: "
+            f"{prediction_backend!r} != {backend!r}"
+        )
+    return {
+        "executed_backend": executed,
+        "prediction_backend": prediction_backend,
+        "observed": _array(observed),
+        "same_component": _array(same_component),
+        "both_unseen": _array(both_unseen),
+        "guards": guards,
+    }
+
+
 def _max_abs(actual, expected):
     if actual.size == 0:
         return 0.0
@@ -416,7 +503,12 @@ def _compare(reference, candidate, *, rtol, atol, label):
             actual, expected, rtol=rtol, atol=atol, err_msg=f"{label}.{field}"
         )
         differences[field] = _max_abs(actual, expected)
-    for field in ("coefficient_inference_applicable", "coefficient_inference_reason", "prediction_backend"):
+    for field in (
+        "coefficient_inference_applicable",
+        "coefficient_inference_reason",
+        "prediction_backend",
+        "prediction_contract",
+    ):
         actual = candidate[field]
         expected = reference[field]
         if field == "prediction_backend" and expected == "numpy" and actual is not None:
@@ -522,6 +614,7 @@ def main():
     X, y, entity, time, clusters = _dataset()
     reference_models = _fit_cases(X, y, entity, time, clusters, "numpy")
     reference = {name: _snapshot(model) for name, model in reference_models.items()}
+    prediction_reference = _disconnected_two_way_prediction_audit("numpy")
     primitive_reference = {
         name: _array(value)
         for name, value in _public_primitive_cases(
@@ -553,6 +646,7 @@ def main():
             "requested_backend": backend,
             "cases": {},
             "public_primitives": {},
+            "prediction_contracts": {},
         }
         if set(models) != set(reference):
             raise AssertionError(f"{backend}: physical case set differs from NumPy reference")
@@ -578,6 +672,7 @@ def main():
                     )
             if name in {
                 "panel_entity_hc0",
+                "panel_two_way_hc3",
                 "random_effects_explicit_constant_hc0",
             } and snapshot["prediction_backend"] != backend:
                 raise AssertionError(
@@ -597,7 +692,36 @@ def main():
                     "coefficient_inference_reason"
                 ],
                 "prediction_backend": snapshot["prediction_backend"],
+                "prediction_contract": snapshot["prediction_contract"],
             }
+
+        prediction_audit = _disconnected_two_way_prediction_audit(backend)
+        if prediction_audit["executed_backend"] != backend:
+            raise AssertionError("disconnected prediction fit backend provenance drifted")
+        if prediction_audit["prediction_backend"] != backend:
+            raise AssertionError("disconnected prediction execution backend provenance drifted")
+        if not all(prediction_audit["guards"].values()):
+            raise AssertionError("disconnected prediction guard audit did not fail closed")
+        prediction_diffs = {}
+        for field in ("observed", "same_component", "both_unseen"):
+            np.testing.assert_allclose(
+                prediction_audit[field],
+                prediction_reference[field],
+                rtol=args.rtol,
+                atol=args.atol,
+                err_msg=f"two_way_disconnected_prediction.{field}",
+            )
+            prediction_diffs[field] = _max_abs(
+                prediction_audit[field], prediction_reference[field]
+            )
+        payload["prediction_contracts"]["two_way_disconnected"] = {
+            "status": "success",
+            "executed_backend": prediction_audit["executed_backend"],
+            "prediction_backend": prediction_audit["prediction_backend"],
+            "guards": dict(prediction_audit["guards"]),
+            "max_abs_differences": prediction_diffs,
+        }
+
         primitive_values = _public_primitive_cases(
             X, y, entity, time, clusters, backend
         )

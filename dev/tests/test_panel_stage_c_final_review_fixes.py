@@ -305,6 +305,43 @@ def test_numerically_absorbed_two_way_direction_terminates_without_relative_zero
     assert np.max(np.abs(X_d)) < 5e-14
 
 
+def test_physical_stage_c_runner_covers_new_prediction_contracts_on_numpy():
+    import importlib.util
+    from pathlib import Path
+
+    runner_path = Path(__file__).parents[1] / "benchmarks" / "validate_panel_stage_c_gpu.py"
+    spec = importlib.util.spec_from_file_location("stage_c_gpu_validation_review", runner_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    X, y, entity, time, clusters = module._dataset()
+    models = module._fit_cases(X, y, entity, time, clusters, "numpy")
+    assert models["panel_entity_hc0"]._physical_prediction_contract == (
+        "entity_effect_prediction"
+    )
+    assert models["panel_two_way_hc3"]._physical_prediction_contract == (
+        "two_way_effect_prediction"
+    )
+    re_model = models["random_effects_explicit_constant_hc0"]
+    assert re_model._physical_prediction_contract == "omitted_explicit_constant"
+    assert re_model._predict_constant_index == 0
+    assert_allclose(
+        re_model._physical_prediction,
+        re_model.predict(X[:8]),
+        rtol=0,
+        atol=3e-12,
+    )
+
+    audit = module._disconnected_two_way_prediction_audit("numpy")
+    assert audit["executed_backend"] == "numpy"
+    assert audit["prediction_backend"] == "numpy"
+    assert all(audit["guards"].values())
+    assert np.all(np.isfinite(audit["observed"]))
+    assert np.all(np.isfinite(audit["same_component"]))
+    assert np.all(np.isfinite(audit["both_unseen"]))
+
+
 def test_torch_cpu_two_way_projection_and_prediction_match_numpy():
     torch = pytest.importorskip("torch")
     X, y, entity, time = _unbalanced_two_way(20260819)
