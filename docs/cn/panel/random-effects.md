@@ -86,4 +86,6 @@ model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 
 `entity_ids` 必需；Driscoll-Kraay 需要 `time_ids`，clustered covariance 需要 `cluster`。主要选项为 `cov_type`、`bandwidth`、`kernel`、`group_debias`、`alpha` 和 `device`。
 
+Formula 保留正常的 R/Patsy intercept；`0 +` 或 `-1` 表示 no-intercept random-effects model。
+
 `variance_components_` 保存 $\widehat\sigma_e^2$ 与 $\widehat\sigma_a^2$。Classical FE-versus-RE Hausman 检验见 [面板 diagnostics](diagnostics.md)。

@@ -14,8 +14,6 @@ B=(Z^\top Z)^+,
 \psi_i=Bz_i e_i.
 $$
 
-The fit space is model-specific:
-
 | Model | $Z$ |
 |---|---|
 | `PooledOLS` | level design |
@@ -24,7 +22,7 @@ The fit space is model-specific:
 | `BetweenOLS` | entity-mean design |
 | `FirstDifferenceOLS` | first-difference design |
 
-`FamaMacBeth` instead uses covariance of its coefficient time series.
+`FamaMacBeth` instead uses covariance of its coefficient time series. For exact rank deficiency, OLS-style panel models retain fitted values and fit-space quantities, but coordinate-wise BSE/test/p-value/CI output is unavailable because the original coefficient representation is not unique.
 
 ## Nonrobust and HC covariance
 
@@ -53,7 +51,7 @@ $$
 =\sum_i\frac{\psi_i\psi_i^\top}{(1-h_i)^2}.
 $$
 
-A numerically unit leverage makes HC2/HC3 undefined and raises.
+A numerically unit leverage makes HC2/HC3 undefined and raises. Nonrobust coefficient inference uses the maintained Student-t reference; HC/cluster/DK inference uses the maintained asymptotic-normal reference.
 
 ## Clustered covariance
 
@@ -104,3 +102,7 @@ At full column rank $r_Z$ is the number of columns of $Z$; in the documented ran
 ## Legacy pooled HAC
 
 `PooledOLS(cov_type="hac")` is deliberately separate from Driscoll-Kraay: it applies Bartlett/Newey-West HAC directly to row-ordered influence scores, using `time_index` to define stable order.
+
+## References
+
+White (1980); Newey and West (1987); Andrews (1991); Driscoll and Kraay (1998).

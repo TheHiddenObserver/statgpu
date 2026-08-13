@@ -86,4 +86,6 @@ model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 
 `entity_ids` is required. Driscoll-Kraay requires `time_ids`; clustered covariance requires `cluster`. Main options are `cov_type`, `bandwidth`, `kernel`, `group_debias`, `alpha`, and `device`.
 
+Formula input retains the normal R/Patsy intercept; `0 +` or `-1` requests a no-intercept random-effects model.
+
 `variance_components_` stores $\widehat\sigma_e^2$ and $\widehat\sigma_a^2$. Classical FE-versus-RE Hausman testing is described in [Panel diagnostics](diagnostics.md).

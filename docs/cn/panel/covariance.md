@@ -16,6 +16,8 @@ $$
 
 不同模型对应：`PooledOLS` 使用 level design；`PanelOLS` 使用 within-transformed design；`RandomEffects` 使用 quasi-demeaned $X^*$；`BetweenOLS` 使用 entity-mean design；`FirstDifferenceOLS` 使用 first-difference design。`FamaMacBeth` 使用独立的 coefficient-series covariance。
 
+精确 rank deficient 时，OLS-style panel model 的 fitted values 与 fit-space quantities 仍有效，但原始 coefficient coordinate 不唯一，因此 BSE/test/p-value/CI 不可用。
+
 ## Nonrobust 与 HC
 
 $$
@@ -41,7 +43,7 @@ $$
 =\sum_i\frac{\psi_i\psi_i^\top}{(1-h_i)^2}.
 $$
 
-leverage 在数值上等于 1 时 HC2/HC3 无定义并直接报错。
+leverage 在数值上等于 1 时 HC2/HC3 无定义并直接报错。nonrobust coefficient inference 使用维护的 Student-t reference；HC/cluster/DK 使用维护的 asymptotic-normal reference。
 
 ## Clustered covariance
 
@@ -92,3 +94,7 @@ $$
 ## Legacy pooled HAC
 
 `PooledOLS(cov_type="hac")` 与 Driscoll-Kraay 分开定义：它直接在按 `time_index` 稳定排序后的 influence score 上计算 Bartlett/Newey-West HAC。
+
+## References
+
+White (1980)；Newey and West (1987)；Andrews (1991)；Driscoll and Kraay (1998)。

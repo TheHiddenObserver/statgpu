@@ -60,6 +60,8 @@ model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
 
 Main options are `entity_effects`, `time_effects`, `cov_type`, `bandwidth`, `kernel`, `group_debias`, `demean_max_iter`, `demean_tol`, `alpha`, and `device`.
 
-Formula input supports either additive `EntityEffects` / `TimeEffects` tokens or pipe fixed-effect syntax; the two syntaxes cannot be mixed. Prediction using stored two-way effects requires identified entity-time labels in the same fitted incidence component.
+Formula input supports either additive `EntityEffects` / `TimeEffects` tokens or pipe fixed-effect syntax; the two syntaxes cannot be mixed. With no fixed effects, the normal formula intercept is retained and `0 +` / `-1` requests a no-intercept level regression; with fixed effects, the common intercept is absorbed by the effect space.
+
+Prediction using stored two-way effects requires identified entity-time labels in the same fitted incidence component. One-sided, known-plus-unknown, and cross-component combinations fail closed; if both labels are unseen, prediction uses the linear-only fallback.
 
 Pooling F and Hausman tests are documented in [Panel diagnostics](diagnostics.md).

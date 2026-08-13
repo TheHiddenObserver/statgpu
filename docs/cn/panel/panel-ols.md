@@ -60,6 +60,8 @@ model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
 
 主要选项为 `entity_effects`、`time_effects`、`cov_type`、`bandwidth`、`kernel`、`group_debias`、`demean_max_iter`、`demean_tol`、`alpha` 和 `device`。
 
-Formula 可使用 additive `EntityEffects` / `TimeEffects` token 或 pipe fixed-effect syntax，但不能混用。双向 stored-effect prediction 要求 entity/time label 可识别并属于同一个 fitted incidence component。
+Formula 可使用 additive `EntityEffects` / `TimeEffects` token 或 pipe fixed-effect syntax，但不能混用。无 fixed effects 时普通 formula intercept 会被保留，`0 +` / `-1` 表示 no-intercept level regression；有 fixed effects 时公共 intercept 被 effect space 吸收。
+
+双向 stored-effect prediction 要求 entity/time label 可识别并属于同一个 fitted incidence component。单边、known-plus-unknown 与 cross-component 组合 fail closed；若两个 label 都未见过，则使用 linear-only fallback。
 
 Pooling F 与 Hausman 见 [面板 diagnostics](diagnostics.md)。
