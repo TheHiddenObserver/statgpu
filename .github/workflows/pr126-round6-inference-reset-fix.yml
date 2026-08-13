@@ -1,0 +1,85 @@
+name: PR126 guarded round6 inference reset fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-round6-inference-reset-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inference-reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pandas patsy
+      - name: Apply exact inference reset fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected}, found {count}: {old!r}')
+              p.write_text(text.replace(old, new, expected), encoding='utf-8')
+
+          path = 'statgpu/panel/_fixed_effects.py'
+          replace_exact(
+              path,
+              '''            "_panel_cov_params_raw",\n            "_coefficient_inference_reason",\n        ):\n''',
+              '''            "_panel_cov_params_raw",\n            "_coefficient_inference_reason",\n            "_inference_result",\n            "_bse",\n            "_tvalues",\n            "_zvalues",\n            "_pvalues",\n            "_conf_int",\n        ):\n''',
+          )
+
+          test_path = 'dev/tests/test_panel_stage_c_final_review_fixes.py'
+          replace_exact(
+              test_path,
+              '''    model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)\n    assert model._fitted is True\n    assert model.coef_ is not None\n\n    with pytest.raises(ValueError, match="entity_ids is required"):\n''',
+              '''    model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)\n    assert model._fitted is True\n    assert model.coef_ is not None\n    assert model._inference_result is not None\n    assert model._bse is not None\n    assert model._tvalues is not None\n    assert model._zvalues is not None\n    assert model._pvalues is not None\n    assert model._conf_int is not None\n\n    with pytest.raises(ValueError, match="entity_ids is required"):\n''',
+          )
+          replace_exact(
+              test_path,
+              '''    assert model.coef_ is None\n    assert model.fit_statistics_ is None\n    assert model.entity_effects is True  # constructor contract restored\n    with pytest.raises(RuntimeError, match="not fitted"):\n''',
+              '''    assert model.coef_ is None\n    assert model.fit_statistics_ is None\n    assert model._inference_result is None\n    assert model._bse is None\n    assert model._tvalues is None\n    assert model._zvalues is None\n    assert model._pvalues is None\n    assert model._conf_int is None\n    assert model._panel_cov_params_raw is None\n    assert model._covariance_metadata == {}\n    assert model.entity_effects is True  # constructor contract restored\n    with pytest.raises(RuntimeError, match="not fitted"):\n''',
+          )
+          PY
+      - name: Run focused inference/refit regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
+            -q --tb=short
+      - name: Verify scope and commit without temporary workflow
+        run: |
+          git rm .github/workflows/pr126-round6-inference-reset-fix.yml
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              '.github/workflows/pr126-round6-inference-reset-fix.yml',
+              'statgpu/panel/_fixed_effects.py',
+              'dev/tests/test_panel_stage_c_final_review_fixes.py',
+          }
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only', 'HEAD'], text=True).splitlines())
+          if changed != allowed:
+              raise SystemExit(f'unexpected round6 inference-reset scope: {sorted(changed)}')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(panel): clear inference state on failed refit'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
