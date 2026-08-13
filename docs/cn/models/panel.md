@@ -329,7 +329,7 @@ PanelOLS(
 model.fit(X, y, entity_ids=entity_ids, time_ids=time_ids, cluster=cluster)
 ```
 
-formula 输入也可使用已有 pipe syntax，例如 `"y ~ x1 + x2 | entity"`。formula 的 missing-row filtering 会同步对齐 observation-level side arrays。对于 two-way fixed effects，`demean_max_iter` 与 `demean_tol` 控制 fail-closed、backend-native 的 projection solver；收敛判据直接检查残余 entity/time group mean，而不是只比较相邻 iterate。group code 只在迭代前 factorize 一次并反复复用。unbalanced panel 的 two-way fixed effects 会联合恢复；若已观察 entity-time incidence graph 不连通，则来自不同 component 的已知 entity/time label 组合不可识别，prediction 会明确报错，而不会把任意 component normalization 相加。
+formula 输入也可使用已有 pipe syntax，例如 `"y ~ x1 + x2 | entity"`。formula 的 missing-row filtering 会同步对齐 observation-level side arrays。对于 two-way fixed effects，`demean_max_iter` 与 `demean_tol` 控制 fail-closed、backend-native 的 projection solver；收敛判据直接检查残余 entity/time group mean，而不是只比较相邻 iterate。group code 只在迭代前 factorize 一次并反复复用。unbalanced panel 的 two-way fixed effects 会联合恢复；若已观察 entity-time incidence graph 不连通，只要 prediction 使用了已拟合 fixed effect，就要求 entity/time 两侧都为已知 label 且属于同一 component；跨 component、单边 label、或“已知一侧 + 未知另一侧”的组合都会明确报错，避免暴露任意 component normalization。若两侧 label 都未见过，则仍保留历史 zero-effect fallback，仅返回 linear prediction。
 
 ### `PooledOLS`
 

@@ -182,6 +182,17 @@ class BasePanelModel(BaseEstimator):
         self._check_is_fitted()
         from statgpu.panel._formula import _formula_predict
 
+        # A formula-generated prediction matrix carries column identity through
+        # Patsy.  When the fitted formula had an intercept, _formula_predict()
+        # deterministically strips that intercept just as fit() did, so a slope
+        # column that happens to be constant on this prediction batch must not be
+        # mistaken for an explicitly supplied intercept.
+        formula_omitted_intercept = (
+            getattr(self, "_design_info", None) is not None
+            and hasattr(X, "columns")
+            and bool(getattr(self, "_formula_has_intercept", False))
+        )
+
         X_data = _formula_predict(
             X,
             getattr(self, "_design_info", None),
@@ -225,7 +236,7 @@ class BasePanelModel(BaseEstimator):
             # the supplied short matrix already contains the fitted constant,
             # inserting another constant would silently reinterpret a missing
             # slope as an omitted intercept.  Reject that ambiguous case.
-            if int(X_arr.shape[1]) > 0:
+            if int(X_arr.shape[1]) > 0 and not formula_omitted_intercept:
                 delta = xp.abs(X_arr - float(omitted_constant_value))
                 if getattr(xp, "__name__", "") == "torch":
                     max_delta = xp.max(delta, dim=0).values

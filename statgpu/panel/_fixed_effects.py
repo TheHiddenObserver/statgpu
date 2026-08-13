@@ -559,24 +559,41 @@ class PanelOLS(BasePanelModel):
         if time_ids_np is not None and time_ids_np.shape[0] != int(prediction.shape[0]):
             raise ValueError("time_ids must have one value per prediction row")
 
-        if (
-            self._two_way_entity_components
-            and self._two_way_time_components
-            and entity_ids_np is not None
-            and time_ids_np is not None
-        ):
-            for entity_value, time_value in zip(entity_ids_np, time_ids_np):
-                entity_component = self._two_way_entity_components.get(entity_value)
-                time_component = self._two_way_time_components.get(time_value)
-                if (
-                    entity_component is not None
-                    and time_component is not None
-                    and entity_component != time_component
-                ):
-                    raise ValueError(
-                        "two-way fixed-effect prediction is not identified for "
-                        "entity/time labels from different disconnected incidence components"
+        if self._two_way_entity_components and self._two_way_time_components:
+            component_ids = set(self._two_way_entity_components.values()) | set(
+                self._two_way_time_components.values()
+            )
+            if len(component_ids) > 1:
+                n_rows = int(prediction.shape[0])
+                for row in range(n_rows):
+                    entity_value = None if entity_ids_np is None else entity_ids_np[row]
+                    time_value = None if time_ids_np is None else time_ids_np[row]
+                    entity_component = (
+                        None
+                        if entity_value is None
+                        else self._two_way_entity_components.get(entity_value)
                     )
+                    time_component = (
+                        None
+                        if time_value is None
+                        else self._two_way_time_components.get(time_value)
+                    )
+                    # Both labels unknown preserves the historical zero-effect
+                    # fallback.  Once either stored FE is used, however, its
+                    # component-specific normalization is not identified unless
+                    # the other side is also known in the same component.
+                    if entity_component is None and time_component is None:
+                        continue
+                    if (
+                        entity_component is None
+                        or time_component is None
+                        or entity_component != time_component
+                    ):
+                        raise ValueError(
+                            "two-way fixed-effect prediction is not identified on a "
+                            "disconnected incidence graph unless known entity/time "
+                            "labels belong to the same component"
+                        )
 
         def _effect_values(ids_np, mapping):
             if not mapping or ids_np is None:

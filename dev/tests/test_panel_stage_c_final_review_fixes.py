@@ -98,6 +98,23 @@ def test_short_prediction_with_constant_still_present_is_rejected_as_ambiguous()
         model.predict(X_full[:9, :2])
 
 
+def test_random_effects_formula_prediction_all_one_slope_is_not_intercept_ambiguous():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026081701)
+    entity = np.repeat(np.arange(10), 5)
+    x = rng.normal(size=entity.size)
+    alpha = np.repeat(rng.normal(scale=0.2, size=10), 5)
+    y = 0.6 + 0.8 * x + alpha + rng.normal(scale=0.08, size=entity.size)
+    data = pd.DataFrame({"y": y, "x": x, "entity": entity})
+    model = RandomEffects().fit(formula="y ~ x | entity", data=data)
+
+    new_data = pd.DataFrame({"x": np.ones(7, dtype=np.float64)})
+    actual = model.predict(new_data)
+    expected = np.full(7, model.coef_[0] + model.coef_[1], dtype=np.float64)
+    assert_allclose(actual, expected, rtol=0, atol=3e-12)
+
+
 def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     X, y, entity, time = _unbalanced_two_way()
     model = PanelOLS(entity_effects=True, time_effects=True).fit(
@@ -144,12 +161,35 @@ def test_disconnected_two_way_prediction_rejects_cross_component_effect_sum():
     assert np.all(np.isfinite(observed))
     assert model.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 2
 
-    with pytest.raises(ValueError, match="different disconnected incidence components"):
+    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
         model.predict(
             X[:1],
             entity_ids=np.array([0]),
             time_ids=np.array([2]),
         )
+    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+        model.predict(X[:1], entity_ids=np.array([0]))
+    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+        model.predict(X[:1], time_ids=np.array([0]))
+    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+        model.predict(
+            X[:1],
+            entity_ids=np.array([0]),
+            time_ids=np.array([99]),
+        )
+    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+        model.predict(
+            X[:1],
+            entity_ids=np.array([99]),
+            time_ids=np.array([0]),
+        )
+
+    # If both labels are unseen, no fitted fixed effect is used and the historical
+    # zero-effect fallback remains a well-defined linear prediction.
+    unknown_pair = model.predict(
+        X[:1], entity_ids=np.array([98]), time_ids=np.array([99])
+    )
+    assert np.all(np.isfinite(unknown_pair))
 
     # A not-yet-observed entity/time pair inside one connected component remains
     # identified by the additive two-way fit and is therefore allowed.
