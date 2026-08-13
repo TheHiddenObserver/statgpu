@@ -25,7 +25,7 @@ jobs:
       - name: Install repository test environment
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+          python -m pip install -e . pytest jsonschema
       - name: Apply guarded final-review edits
         run: python dev/pr126_finalize_once.py
       - name: Run targeted final-review regressions
