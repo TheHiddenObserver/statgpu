@@ -223,8 +223,35 @@ class PanelOLS(BasePanelModel):
         formula=None,
         data=None,
     ):
-        """Fit the fixed effects model."""
+        """Fit the fixed effects model transactionally."""
         self._reset_fit_state()
+        try:
+            return self._fit_impl(
+                X=X,
+                y=y,
+                entity_ids=entity_ids,
+                time_ids=time_ids,
+                cluster=cluster,
+                formula=formula,
+                data=data,
+            )
+        except BaseException:
+            # A failed fit must not expose partially written state from
+            # either the previous result or the failed new request.
+            self._reset_fit_state()
+            raise
+
+    def _fit_impl(
+        self,
+        X=None,
+        y=None,
+        entity_ids=None,
+        time_ids=None,
+        cluster=None,
+        formula=None,
+        data=None,
+    ):
+        """Internal implementation; :meth:`fit` owns state cleanup."""
         (
             y_data,
             X_data,
@@ -746,6 +773,7 @@ class PanelOLS(BasePanelModel):
 
     def summary(self):
         """Print and return the existing structured coefficient summary."""
+        self._check_is_fitted()
         k = len(self._params)
         feature_names_override = (
             None

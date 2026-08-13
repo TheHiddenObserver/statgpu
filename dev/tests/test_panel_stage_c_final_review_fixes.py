@@ -120,7 +120,9 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     entity = np.repeat(np.arange(8), 5)
     X = rng.normal(size=(entity.size, 2))
     y = X @ np.array([0.6, -0.2]) + rng.normal(scale=0.1, size=entity.size)
-    model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
+    model = PanelOLS(entity_effects=True, cov_type="clustered").fit(
+        X, y, entity_ids=entity, cluster=entity
+    )
     assert model._fitted is True
     assert model.coef_ is not None
     assert model._inference_result is not None
@@ -130,8 +132,10 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     assert model._pvalues is not None
     assert model._conf_int is not None
 
-    with pytest.raises(ValueError, match="entity_ids is required"):
-        model.fit(X, y)
+    with pytest.raises(ValueError, match="cluster length"):
+        model.fit(
+            X, y, entity_ids=entity, cluster=np.arange(entity.size - 1)
+        )
 
     assert model._fitted is False
     assert model.coef_ is None
@@ -144,9 +148,17 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     assert model._conf_int is None
     assert model._panel_cov_params_raw is None
     assert model._covariance_metadata == {}
+    assert model._backend_name is None
+    assert model._predict_backend_name is None
+    assert model.nobs is None
+    assert model._panel_index_info is None
+    assert model._entity_effects_map == {}
+    assert model._time_effects_map == {}
     assert model.entity_effects is True  # constructor contract restored
     with pytest.raises(RuntimeError, match="not fitted"):
         model.predict(X[:3], entity_ids=entity[:3])
+    with pytest.raises(RuntimeError, match="not fitted"):
+        model.summary()
 
 
 def test_panel_failed_formula_refit_clears_prior_formula_metadata():
@@ -186,8 +198,17 @@ def test_panel_effects_only_formula_has_explicit_failure_mode():
             "entity": np.repeat(np.arange(6), 4),
         }
     )
+    model = PanelOLS().fit(np.linspace(-0.5, 0.5, n)[:, None], data["y"].to_numpy())
     with pytest.raises(ValueError, match="effects-only formulas are not supported"):
-        PanelOLS().fit(formula="y ~ 1 | entity", data=data)
+        model.fit(formula="y ~ 1 | entity", data=data)
+    assert model._fitted is False
+    assert model.entity_effects is False
+    assert model.time_effects is False
+    assert model.get_params()["entity_effects"] is False
+    assert model.get_params()["time_effects"] is False
+    assert model._backend_name is None
+    assert model.nobs is None
+    assert model._design_info is None
 
 
 def test_panel_formula_without_fixed_effects_preserves_patsy_intercept():
