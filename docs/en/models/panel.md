@@ -4,7 +4,7 @@
 > Last updated: 2026-08-13  
 > Switch: [Chinese](../../cn/models/panel.md)
 
-`statgpu.panel` provides six panel estimators. Detailed equations and API notes live on the model pages.
+`statgpu.panel` provides six panel-data estimators. This page is intentionally navigation-only; equations and API details live on the linked pages.
 
 | Estimator | Model |
 |---|---|
@@ -15,6 +15,6 @@
 | [FirstDifferenceOLS](../panel/first-difference-ols.md) | First differences |
 | [FamaMacBeth](../panel/fama-macbeth.md) | Period-wise cross-sectional regression |
 
-Shared definitions: [covariance](../panel/covariance.md) and [diagnostics](../panel/diagnostics.md).
+Shared references: [covariance](../panel/covariance.md), [fit statistics](../panel/fit-statistics.md), and [diagnostics](../panel/diagnostics.md).
 
 Numerical paths use NumPy, CuPy CUDA, or Torch CUDA. Formula evaluation and categorical labels are CPU metadata boundaries; explicit GPU requests do not silently fall back to CPU.
