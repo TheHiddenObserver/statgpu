@@ -79,11 +79,11 @@ def _split_panel_formula(formula: str) -> Tuple[str, List[str]]:
 
 def _top_level_panel_token_spans(formula: str, token: str):
     """Return top-level RHS spans where ``token`` is a complete identifier."""
-    tilde = formula.find("~")
-    i = tilde + 1 if tilde >= 0 else 0
+    i = 0
     depth = 0
     quote = None
     escaped = False
+    in_rhs = False
     spans = []
     while i < len(formula):
         ch = formula[i]
@@ -108,7 +108,12 @@ def _top_level_panel_token_spans(formula: str, token: str):
             depth = max(depth - 1, 0)
             i += 1
             continue
-        if depth == 0 and formula.startswith(token, i):
+        if depth == 0 and ch == "~":
+            if not in_rhs:
+                in_rhs = True
+            i += 1
+            continue
+        if in_rhs and depth == 0 and formula.startswith(token, i):
             left = formula[i - 1] if i > 0 else ""
             j = i + len(token)
             right = formula[j] if j < len(formula) else ""
@@ -166,6 +171,7 @@ def _strip_panel_tokens(formula: str) -> Tuple[str, bool, bool]:
                 f"Original: {formula!r}, cleaned: {clean!r}"
             )
     return clean, entity_effects, time_effects
+
 
 def parse_panel_formula(formula, data):
     """Parse a panel formula (fixest pipe or linearmodels tokens).

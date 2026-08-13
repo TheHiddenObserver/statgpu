@@ -136,6 +136,13 @@ class TestStripPanelTokens:
         assert entity is False
         assert time is False
 
+    def test_magic_token_inside_quoted_response_name_is_not_rewritten(self):
+        formula = 'Q("y~EntityEffects") ~ x1'
+        clean, entity, time = _strip_panel_tokens(formula)
+        assert clean == formula
+        assert entity is False
+        assert time is False
+
 
 # ============================================================================
 # PanelOLS formula tests
@@ -184,6 +191,19 @@ class TestPanelOLSFormula:
         m.fit(formula="y ~ x1 + x2 | entity + time", data=panel_df)
         assert m.entity_effects is True
         assert m.time_effects is True
+
+    def test_quoted_response_name_with_tilde_and_magic_token_is_not_rewritten(self, panel_df):
+        data = panel_df.copy()
+        data["y~EntityEffects"] = data["y"].to_numpy()
+        actual = PanelOLS().fit(formula='Q("y~EntityEffects") ~ x1', data=data)
+        expected_X = np.column_stack(
+            [np.ones(len(data)), data["x1"].to_numpy()]
+        )
+        expected = PanelOLS().fit(expected_X, data["y~EntityEffects"].to_numpy())
+        assert actual.entity_effects is False
+        assert actual.time_effects is False
+        assert actual._feature_names == ["Intercept", "x1"]
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
 
     def test_magic_token_prefix_regressor_is_not_silently_rewritten(self, panel_df):
         data = panel_df.copy()
