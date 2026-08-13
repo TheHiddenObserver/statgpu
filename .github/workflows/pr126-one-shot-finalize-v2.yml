@@ -37,10 +37,13 @@ jobs:
             -q --tb=short
       - name: Regenerate benchmark frontend assets deterministically
         run: python dev/benchmarks/generate_benchmark_data.py --deterministic --strict-sources
-      - name: Verify one-shot change scope and commit
+      - name: Verify one-shot change scope and generated metadata, then commit
         run: |
           python - <<'PY'
+          import json
           import subprocess
+          from pathlib import Path
+
           allowed = {
               'statgpu/panel/_fixed_effects.py',
               'dev/tests/test_panel_stage_c_final_review_fixes.py',
@@ -66,13 +69,34 @@ jobs:
               'dev/tests/test_panel_stage_c_final_review_fixes.py',
               'docs/en/models/panel.md',
               'docs/cn/models/panel.md',
-              'frontend/public/data/benchmark_data.json',
-              'docs/assets/benchmarks/data/benchmark_data.json',
+              'docs/en/changelog.md',
+              'docs/cn/changelog.md',
           }
           missing = sorted(required - changed)
           if missing:
-              raise SystemExit(f'expected one-shot changes missing: {missing}')
+              raise SystemExit(f'expected one-shot source/doc changes missing: {missing}')
+
+          front_report = json.loads(Path('frontend/public/data/parse_report.json').read_text())
+          docs_report = json.loads(Path('docs/assets/benchmarks/data/parse_report.json').read_text())
+          front_inventory = json.loads(Path('frontend/public/data/source_inventory.json').read_text())
+          docs_inventory = json.loads(Path('docs/assets/benchmarks/data/source_inventory.json').read_text())
+          expected_generation = '1c58a08ce9fde836078137736c390db5358f3a59a0c4969aff12dd20aca4302e'
+          expected_coverage = 'a0bd04d8c9b27f45988cf9d9ad4185df20a00fb9e38354266ff6317857688ad8'
+          if front_report != docs_report:
+              raise SystemExit('frontend/docs parse_report mirrors differ')
+          if front_inventory != docs_inventory:
+              raise SystemExit('frontend/docs source_inventory mirrors differ')
+          if front_report.get('generation_id') != expected_generation:
+              raise SystemExit(f"unexpected generation_id: {front_report.get('generation_id')}")
+          if front_report.get('runs_generated') != 2426 or front_report.get('files_parsed') != 19:
+              raise SystemExit('unexpected strict generator run/source counts')
+          if front_inventory.get('coverage_matrix_digest') != expected_coverage:
+              raise SystemExit(
+                  f"unexpected coverage digest: {front_inventory.get('coverage_matrix_digest')}"
+              )
           print('validated change scope:', *sorted(changed), sep='\n  ')
+          print('validated generation_id', expected_generation)
+          print('validated coverage_matrix_digest', expected_coverage)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
