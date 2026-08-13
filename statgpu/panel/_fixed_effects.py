@@ -554,8 +554,11 @@ class PanelOLS(BasePanelModel):
         )
 
         ss_res = _to_float_scalar(xp.sum(resid ** 2))
-        y_d_mean = _to_float_scalar(xp.mean(y_d))
-        ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
+        if has_level_constant or self.entity_effects or self.time_effects:
+            y_d_mean = _to_float_scalar(xp.mean(y_d))
+            ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
+        else:
+            ss_tot = _to_float_scalar(xp.sum(y_d ** 2))
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
         if has_level_constant:
@@ -660,40 +663,37 @@ class PanelOLS(BasePanelModel):
             raise ValueError("time_ids must have one value per prediction row")
 
         if self._two_way_entity_components and self._two_way_time_components:
-            component_ids = set(self._two_way_entity_components.values()) | set(
-                self._two_way_time_components.values()
-            )
-            if len(component_ids) > 1:
-                n_rows = int(prediction.shape[0])
-                for row in range(n_rows):
-                    entity_value = None if entity_ids_np is None else entity_ids_np[row]
-                    time_value = None if time_ids_np is None else time_ids_np[row]
-                    entity_component = (
-                        None
-                        if entity_value is None
-                        else self._two_way_entity_components.get(entity_value)
+            n_rows = int(prediction.shape[0])
+            for row in range(n_rows):
+                entity_value = None if entity_ids_np is None else entity_ids_np[row]
+                time_value = None if time_ids_np is None else time_ids_np[row]
+                entity_component = (
+                    None
+                    if entity_value is None
+                    else self._two_way_entity_components.get(entity_value)
+                )
+                time_component = (
+                    None
+                    if time_value is None
+                    else self._two_way_time_components.get(time_value)
+                )
+                # Even on a connected graph, entity/time effects are separately
+                # identified only up to an opposite normalization shift.  A FE
+                # prediction therefore requires both known labels in one
+                # incidence component.  If both labels are unseen, no fitted FE
+                # is used and the documented linear-only fallback remains.
+                if entity_component is None and time_component is None:
+                    continue
+                if (
+                    entity_component is None
+                    or time_component is None
+                    or entity_component != time_component
+                ):
+                    raise ValueError(
+                        "two-way fixed-effect prediction is not identified unless "
+                        "both entity and time labels are known and belong to the "
+                        "same incidence component"
                     )
-                    time_component = (
-                        None
-                        if time_value is None
-                        else self._two_way_time_components.get(time_value)
-                    )
-                    # Both labels unknown preserves the historical zero-effect
-                    # fallback.  Once either stored FE is used, however, its
-                    # component-specific normalization is not identified unless
-                    # the other side is also known in the same component.
-                    if entity_component is None and time_component is None:
-                        continue
-                    if (
-                        entity_component is None
-                        or time_component is None
-                        or entity_component != time_component
-                    ):
-                        raise ValueError(
-                            "two-way fixed-effect prediction is not identified on a "
-                            "disconnected incidence graph unless known entity/time "
-                            "labels belong to the same component"
-                        )
 
         n_rows = int(prediction.shape[0])
         uses_fitted_effect = np.zeros(n_rows, dtype=bool)

@@ -255,6 +255,20 @@ def test_panel_explicit_level_constant_fit_statistics_match_pooled():
     assert panel.fit_statistics_.metadata["diagnostic_df"]["df_total"] == x.size - 1
 
 
+def test_panel_no_intercept_rsquared_within_uses_uncentered_tss():
+    rng = np.random.default_rng(2026082402)
+    x = rng.normal(loc=0.8, scale=1.1, size=90)
+    y = 2.0 + 0.65 * x + rng.normal(scale=0.2, size=x.size)
+    X = x[:, None]
+    model = PanelOLS().fit(X, y)
+    resid = y - X @ model.coef_
+    expected = 1.0 - float(resid @ resid) / float(y @ y)
+    assert_allclose(model.rsquared_within, expected, rtol=0, atol=3e-12)
+    assert_allclose(
+        model.fit_statistics_.rsquared_overall, expected, rtol=0, atol=3e-12
+    )
+
+
 def test_one_way_fixed_effect_prediction_restores_grand_mean_only_for_known_labels():
     rng = np.random.default_rng(2026082101)
     entity = np.repeat(np.arange(8), 5)
@@ -341,6 +355,35 @@ def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     _assert_two_way_means_zero(residual, entity, time)
 
 
+def test_connected_two_way_prediction_rejects_one_sided_or_known_unknown_effects():
+    rng = np.random.default_rng(2026082401)
+    entity = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    time = np.array([0, 1, 1, 2, 2, 0], dtype=np.int64)
+    X = rng.normal(size=(entity.size, 1))
+    alpha = np.array([0.4, -0.3, 0.8])
+    tau = np.array([0.25, -0.15, 0.45])
+    y = 0.75 * X[:, 0] + alpha[entity] + tau[time]
+    model = PanelOLS(entity_effects=True, time_effects=True).fit(
+        X, y, entity_ids=entity, time_ids=time
+    )
+    assert model.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 1
+    assert np.all(np.isfinite(model.predict(
+        X[:1], entity_ids=np.array([0]), time_ids=np.array([1])
+    )))
+    for kwargs in (
+        {"entity_ids": np.array([0])},
+        {"time_ids": np.array([0])},
+        {"entity_ids": np.array([0]), "time_ids": np.array([99])},
+        {"entity_ids": np.array([99]), "time_ids": np.array([0])},
+    ):
+        with pytest.raises(ValueError, match="both entity and time labels are known"):
+            model.predict(X[:1], **kwargs)
+    both_unseen = model.predict(
+        X[:1], entity_ids=np.array([98]), time_ids=np.array([99])
+    )
+    assert_allclose(both_unseen, X[:1] @ model.coef_, rtol=0, atol=3e-12)
+
+
 def test_disconnected_two_way_prediction_rejects_cross_component_effect_sum():
     rng = np.random.default_rng(202608172)
     # Two disconnected incidence components: entities 0/1 only meet times 0/1,
@@ -359,23 +402,23 @@ def test_disconnected_two_way_prediction_rejects_cross_component_effect_sum():
     assert np.all(np.isfinite(observed))
     assert model.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 2
 
-    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+    with pytest.raises(ValueError, match="both entity and time labels are known"):
         model.predict(
             X[:1],
             entity_ids=np.array([0]),
             time_ids=np.array([2]),
         )
-    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+    with pytest.raises(ValueError, match="both entity and time labels are known"):
         model.predict(X[:1], entity_ids=np.array([0]))
-    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+    with pytest.raises(ValueError, match="both entity and time labels are known"):
         model.predict(X[:1], time_ids=np.array([0]))
-    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+    with pytest.raises(ValueError, match="both entity and time labels are known"):
         model.predict(
             X[:1],
             entity_ids=np.array([0]),
             time_ids=np.array([99]),
         )
-    with pytest.raises(ValueError, match="not identified on a disconnected incidence graph"):
+    with pytest.raises(ValueError, match="both entity and time labels are known"):
         model.predict(
             X[:1],
             entity_ids=np.array([99]),
@@ -539,6 +582,14 @@ def test_physical_stage_c_runner_covers_new_prediction_contracts_on_numpy():
     assert constant_audit["prediction_backend"] == "numpy"
     assert constant_audit["constant_index"] == 0
     assert constant_audit["constant_value"] == 1.0
+
+    connected_audit = module._connected_two_way_prediction_audit("numpy")
+    assert connected_audit["status"] == "success"
+    assert connected_audit["executed_backend"] == "numpy"
+    assert connected_audit["prediction_backend"] == "numpy"
+    assert all(connected_audit["guards"].values())
+    assert np.all(np.isfinite(connected_audit["both_known"]))
+    assert np.all(np.isfinite(connected_audit["both_unseen"]))
 
     audit = module._disconnected_two_way_prediction_audit("numpy")
     assert audit["executed_backend"] == "numpy"

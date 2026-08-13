@@ -82,6 +82,19 @@ def _re_fit_space(X, y, entity, model):
     return X_star, y_star, params, resid
 
 
+def test_panel_no_effect_no_intercept_rsquared_matches_statsmodels():
+    rng = np.random.default_rng(20260824)
+    n = 95
+    x = rng.normal(loc=0.7, scale=1.0, size=n)
+    X = x[:, None]
+    y = 1.8 + 0.6 * x + rng.normal(scale=0.2, size=n)
+    sg = PanelOLS(cov_type="nonrobust").fit(X, y)
+    reference = statsmodels.OLS(y, X, hasconst=False).fit()
+    assert_allclose(sg.coef_, reference.params, rtol=2e-11, atol=2e-12)
+    assert_allclose(sg.rsquared_within, reference.rsquared, rtol=0, atol=3e-12)
+    assert_allclose(sg.fit_statistics_.rsquared_overall, reference.rsquared, rtol=0, atol=3e-12)
+
+
 def test_panel_no_effect_level_constant_matches_statsmodels_ols():
     rng = np.random.default_rng(20260823)
     n = 100

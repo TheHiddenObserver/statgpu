@@ -477,6 +477,61 @@ def _level_constant_contract_audit(backend, *, rtol=5e-6, atol=5e-7):
     }
 
 
+def _connected_two_way_prediction_audit(backend):
+    """Audit two-way normalization guards on a connected incidence graph."""
+    rng = np.random.default_rng(20260824)
+    entity = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    time = np.array([0, 1, 1, 2, 2, 0], dtype=np.int64)
+    X = rng.normal(size=(entity.size, 1)).astype(np.float64)
+    alpha = np.array([0.4, -0.3, 0.8], dtype=np.float64)
+    tau = np.array([0.25, -0.15, 0.45], dtype=np.float64)
+    y = (0.75 * X[:, 0] + alpha[entity] + tau[time]).astype(np.float64)
+    Xb, yb, eb, tb = _to_backend(X, y, entity, time, backend)
+    model = PanelOLS(
+        entity_effects=True, time_effects=True, cov_type="hc0", device=_device(backend)
+    ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
+    if _backend_name(model) != backend:
+        raise AssertionError("connected prediction audit fit backend provenance drifted")
+    diagnostic = model.fit_statistics_.metadata.get("diagnostic_df", {})
+    if int(diagnostic.get("incidence_components", -1)) != 1:
+        raise AssertionError("connected prediction audit fixture is not connected")
+    both_known = model.predict(
+        Xb[:1], entity_ids=np.array([0]), time_ids=np.array([1])
+    )
+    def guarded(label, **kwargs):
+        try:
+            model.predict(Xb[:1], **kwargs)
+        except ValueError as exc:
+            if "both entity and time labels are known" not in str(exc):
+                raise AssertionError(f"{label}: wrong two-way prediction failure: {exc}") from exc
+            return True
+        raise AssertionError(f"{label}: two-way partial-label prediction did not fail closed")
+    guards = {
+        "entity_only": guarded("entity_only", entity_ids=np.array([0])),
+        "time_only": guarded("time_only", time_ids=np.array([0])),
+        "known_entity_unknown_time": guarded(
+            "known_entity_unknown_time", entity_ids=np.array([0]), time_ids=np.array([99])
+        ),
+        "unknown_entity_known_time": guarded(
+            "unknown_entity_known_time", entity_ids=np.array([99]), time_ids=np.array([0])
+        ),
+    }
+    both_unseen = model.predict(
+        Xb[:1], entity_ids=np.array([98]), time_ids=np.array([99])
+    )
+    prediction_backend = getattr(model, "_predict_backend_name", None)
+    if prediction_backend != backend:
+        raise AssertionError("connected prediction audit backend provenance drifted")
+    return {
+        "status": "success",
+        "executed_backend": backend,
+        "prediction_backend": prediction_backend,
+        "both_known": _array(both_known),
+        "both_unseen": _array(both_unseen),
+        "guards": guards,
+    }
+
+
 def _disconnected_two_way_prediction_audit(backend):
     """Exercise disconnected two-way prediction identifiability on one backend."""
     rng = np.random.default_rng(20260820)
@@ -505,7 +560,7 @@ def _disconnected_two_way_prediction_audit(backend):
         try:
             model.predict(Xb[:1], **kwargs)
         except ValueError as exc:
-            if "disconnected incidence graph" not in str(exc):
+            if "both entity and time labels are known" not in str(exc):
                 raise AssertionError(
                     f"{label}: wrong disconnected-prediction failure: {exc}"
                 ) from exc
@@ -691,6 +746,7 @@ def main():
     reference_models = _fit_cases(X, y, entity, time, clusters, "numpy")
     reference = {name: _snapshot(model) for name, model in reference_models.items()}
     prediction_reference = _disconnected_two_way_prediction_audit("numpy")
+    connected_prediction_reference = _connected_two_way_prediction_audit("numpy")
     level_constant_reference = _level_constant_contract_audit(
         "numpy", rtol=args.rtol, atol=args.atol
     )
@@ -800,6 +856,29 @@ def main():
             "prediction_backend": prediction_audit["prediction_backend"],
             "guards": dict(prediction_audit["guards"]),
             "max_abs_differences": prediction_diffs,
+        }
+
+        connected_audit = _connected_two_way_prediction_audit(backend)
+        if connected_audit["executed_backend"] != backend or connected_audit["prediction_backend"] != backend:
+            raise AssertionError("connected prediction backend provenance drifted")
+        if not all(connected_audit["guards"].values()):
+            raise AssertionError("connected prediction partial-label guards did not fail closed")
+        connected_diffs = {}
+        for field in ("both_known", "both_unseen"):
+            np.testing.assert_allclose(
+                connected_audit[field], connected_prediction_reference[field],
+                rtol=args.rtol, atol=args.atol,
+                err_msg=f"two_way_connected_prediction.{field}",
+            )
+            connected_diffs[field] = _max_abs(
+                connected_audit[field], connected_prediction_reference[field]
+            )
+        payload["prediction_contracts"]["two_way_connected_partial_labels"] = {
+            "status": "success",
+            "executed_backend": connected_audit["executed_backend"],
+            "prediction_backend": connected_audit["prediction_backend"],
+            "guards": dict(connected_audit["guards"]),
+            "max_abs_differences": connected_diffs,
         }
 
         level_constant_audit = _level_constant_contract_audit(
