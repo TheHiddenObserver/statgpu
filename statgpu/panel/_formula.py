@@ -166,6 +166,12 @@ def parse_panel_formula(formula, data):
     entity_ids = None
     time_ids = None
 
+    if len(fe_vars) > 2:
+        raise ValueError(
+            "Panel formula fixed effects support at most two variables "
+            "(entity and time); high-dimensional FE (>2) is not supported"
+        )
+
     if fe_vars:
         # Map FE variables to entity/time
         # Convention: first FE var = entity, second = time (if present)
@@ -177,17 +183,6 @@ def parse_panel_formula(formula, data):
             time_effects = True
             if fe_vars[1] in data.columns:
                 time_ids = data[fe_vars[1]].values
-        if len(fe_vars) > 2:
-            # For >2 FE vars, we still extract entity and time
-            # but warn that high-dim FE is not yet supported
-            import warnings
-            warnings.warn(
-                f"Formula has {len(fe_vars)} fixed effect variables. "
-                f"Only the first two are used as entity/time effects. "
-                f"High-dimensional FE (>2) is not yet supported.",
-                UserWarning,
-                stacklevel=3,
-            )
 
     # Step 3: Parse the main formula with patsy
     from statgpu.core.formula import FormulaParser

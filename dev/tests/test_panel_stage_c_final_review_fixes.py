@@ -115,6 +115,70 @@ def test_random_effects_formula_prediction_all_one_slope_is_not_intercept_ambigu
     assert_allclose(actual, expected, rtol=0, atol=3e-12)
 
 
+def test_one_way_fixed_effect_prediction_restores_grand_mean_only_for_known_labels():
+    rng = np.random.default_rng(2026082101)
+    entity = np.repeat(np.arange(8), 5)
+    X = rng.normal(size=(entity.size, 2))
+    alpha = rng.normal(loc=1.4, scale=0.3, size=8)
+    y = 0.7 * X[:, 0] - 0.25 * X[:, 1] + alpha[entity]
+    model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
+
+    known = model.predict(X, entity_ids=entity)
+    dummies = np.column_stack(
+        [(entity == level).astype(np.float64) for level in np.unique(entity)]
+    )
+    design = np.column_stack([X, dummies])
+    reference = design @ np.linalg.lstsq(design, y, rcond=None)[0]
+    assert_allclose(known, reference, rtol=0, atol=2e-9)
+
+    # Unknown FE labels retain the documented linear-only fallback; the grand
+    # mean is restored only for rows that actually use a fitted FE value.
+    unknown = model.predict(X[:4], entity_ids=np.full(4, 999))
+    assert_allclose(unknown, X[:4] @ model.coef_, rtol=0, atol=3e-12)
+
+
+def test_formula_enabled_effects_do_not_leak_into_later_refit():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026082102)
+    entity = np.repeat(np.arange(8), 4)
+    time = np.tile(np.arange(4), 8)
+    x = rng.normal(size=entity.size)
+    y = 0.8 * x + rng.normal(scale=0.1, size=entity.size)
+    data = pd.DataFrame({"y": y, "x": x, "entity": entity, "time": time})
+
+    model = PanelOLS()
+    model.fit(formula="y ~ x | entity + time", data=data)
+    assert model.entity_effects is True
+    assert model.time_effects is True
+
+    model.fit(X=x[:, None], y=y)
+    assert model.entity_effects is False
+    assert model.time_effects is False
+    assert model.coef_ is not None
+
+
+def test_formula_more_than_two_fixed_effects_fails_closed():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    rng = np.random.default_rng(2026082103)
+    n = 24
+    data = pd.DataFrame(
+        {
+            "y": rng.normal(size=n),
+            "x": rng.normal(size=n),
+            "entity": np.repeat(np.arange(6), 4),
+            "time": np.tile(np.arange(4), 6),
+            "industry": np.repeat(np.arange(3), 8),
+        }
+    )
+    with pytest.raises(ValueError, match="at most two"):
+        PanelOLS().fit(
+            formula="y ~ x | entity + time + industry",
+            data=data,
+        )
+
+
 def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     X, y, entity, time = _unbalanced_two_way()
     model = PanelOLS(entity_effects=True, time_effects=True).fit(
@@ -122,9 +186,8 @@ def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     )
     prediction = model.predict(X, entity_ids=entity, time_ids=time)
 
-    # PanelOLS historically excludes the separately stored grand mean from
-    # predict().  After adding it back, fitted values must equal the joint
-    # least-squares projection on X plus the two fixed-effect dummy spaces.
+    # Level prediction must equal the joint least-squares projection on X
+    # plus the two fixed-effect dummy spaces, including the common grand mean.
     entity_levels = np.unique(entity)
     time_levels = np.unique(time)
     dummies = [X]
@@ -132,14 +195,9 @@ def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
     dummies.extend((time == level).astype(np.float64)[:, None] for level in time_levels)
     design = np.column_stack(dummies)
     reference = design @ np.linalg.lstsq(design, y, rcond=None)[0]
-    assert_allclose(
-        prediction + model._grand_mean,
-        reference,
-        rtol=0,
-        atol=2e-9,
-    )
+    assert_allclose(prediction, reference, rtol=0, atol=2e-9)
 
-    residual = y - model._grand_mean - prediction
+    residual = y - prediction
     _assert_two_way_means_zero(residual, entity, time)
 
 

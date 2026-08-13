@@ -196,10 +196,19 @@ class PanelOLS(BasePanelModel):
             },
         )
 
-        if fe_entity_effects:
-            self.entity_effects = True
-        if fe_time_effects:
-            self.time_effects = True
+        # Formula effects are fit-time requests, not persistent constructor
+        # mutations.  Rebuild the effective FE configuration from the captured
+        # constructor parameters on every fit so a formula-enabled FE fit cannot
+        # leak into a later array/no-FE refit of the same estimator.
+        configured = getattr(self, "_constructor_params_raw", {})
+        configured_entity_effects = bool(
+            configured.get("entity_effects", self.entity_effects)
+        )
+        configured_time_effects = bool(
+            configured.get("time_effects", self.time_effects)
+        )
+        self.entity_effects = configured_entity_effects or bool(fe_entity_effects)
+        self.time_effects = configured_time_effects or bool(fe_time_effects)
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
         cluster = aligned["cluster"]
@@ -595,24 +604,52 @@ class PanelOLS(BasePanelModel):
                             "labels belong to the same component"
                         )
 
+        n_rows = int(prediction.shape[0])
+        uses_fitted_effect = np.zeros(n_rows, dtype=bool)
+
         def _effect_values(ids_np, mapping):
             if not mapping or ids_np is None:
-                return None
+                return None, None
+            known = np.fromiter(
+                (value in mapping for value in ids_np),
+                dtype=bool,
+                count=ids_np.shape[0],
+            )
             values = np.fromiter(
                 (float(mapping.get(value, 0.0)) for value in ids_np),
                 dtype=np.float64,
                 count=ids_np.shape[0],
             )
-            return xp_asarray(
-                values, dtype=xp.float64, xp=xp, ref_arr=prediction
+            return (
+                xp_asarray(values, dtype=xp.float64, xp=xp, ref_arr=prediction),
+                known,
             )
 
-        entity_effect = _effect_values(entity_ids_np, self._entity_effects_map)
+        entity_effect, entity_known = _effect_values(
+            entity_ids_np, self._entity_effects_map
+        )
         if entity_effect is not None:
             prediction = prediction + entity_effect
-        time_effect = _effect_values(time_ids_np, self._time_effects_map)
+            uses_fitted_effect |= entity_known
+        time_effect, time_known = _effect_values(
+            time_ids_np, self._time_effects_map
+        )
         if time_effect is not None:
             prediction = prediction + time_effect
+            uses_fitted_effect |= time_known
+
+        # Fixed-effect maps are recovered after centering the level residual by
+        # its grand mean.  Whenever a row actually uses a stored fitted effect,
+        # restore that common level component exactly once.  Rows whose labels
+        # are wholly unseen preserve the documented linear-only fallback.
+        if np.any(uses_fitted_effect):
+            grand_mean = xp_asarray(
+                uses_fitted_effect.astype(np.float64) * float(self._grand_mean),
+                dtype=xp.float64,
+                xp=xp,
+                ref_arr=prediction,
+            )
+            prediction = prediction + grand_mean
 
         return np.asarray(_to_numpy(prediction), dtype=np.float64)
 
