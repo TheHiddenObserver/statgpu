@@ -1,0 +1,91 @@
+name: PR126 one-shot finalization sync v2
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-one-shot-finalize-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install repository test environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Apply guarded final-review edits
+        run: python dev/pr126_finalize_once.py
+      - name: Run targeted final-review regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            dev/tests/test_panel_stage_c_set_params.py \
+            dev/tests/test_panel_two_way_demean_scale.py \
+            -q --tb=short
+      - name: Regenerate benchmark frontend assets deterministically
+        run: python dev/benchmarks/generate_benchmark_data.py --deterministic --strict-sources
+      - name: Verify one-shot change scope and commit
+        run: |
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              'statgpu/panel/_fixed_effects.py',
+              'dev/tests/test_panel_stage_c_final_review_fixes.py',
+              'docs/en/models/panel.md',
+              'docs/cn/models/panel.md',
+              'docs/en/changelog.md',
+              'docs/cn/changelog.md',
+              'frontend/public/data/benchmark_data.json',
+              'frontend/public/data/parse_report.json',
+              'frontend/public/data/source_inventory.json',
+              'docs/assets/benchmarks/data/benchmark_data.json',
+              'docs/assets/benchmarks/data/parse_report.json',
+              'docs/assets/benchmarks/data/source_inventory.json',
+          }
+          changed = set(
+              subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          )
+          unexpected = sorted(changed - allowed)
+          if unexpected:
+              raise SystemExit(f'unexpected one-shot changes: {unexpected}')
+          required = {
+              'statgpu/panel/_fixed_effects.py',
+              'dev/tests/test_panel_stage_c_final_review_fixes.py',
+              'docs/en/models/panel.md',
+              'docs/cn/models/panel.md',
+              'frontend/public/data/benchmark_data.json',
+              'docs/assets/benchmarks/data/benchmark_data.json',
+          }
+          missing = sorted(required - changed)
+          if missing:
+              raise SystemExit(f'expected one-shot changes missing: {missing}')
+          print('validated change scope:', *sorted(changed), sep='\n  ')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            statgpu/panel/_fixed_effects.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            docs/en/models/panel.md docs/cn/models/panel.md \
+            docs/en/changelog.md docs/cn/changelog.md \
+            frontend/public/data/benchmark_data.json \
+            frontend/public/data/parse_report.json \
+            frontend/public/data/source_inventory.json \
+            docs/assets/benchmarks/data/benchmark_data.json \
+            docs/assets/benchmarks/data/parse_report.json \
+            docs/assets/benchmarks/data/source_inventory.json
+          git commit -m 'fix(panel): close final review and sync benchmark assets'
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
