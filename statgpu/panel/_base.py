@@ -169,8 +169,16 @@ class BasePanelModel(BaseEstimator):
         add_intercept: bool,
         return_numpy: bool,
         params=None,
+        omitted_constant_index=None,
+        omitted_constant_value=None,
     ):
-        """Shared formula-aware linear prediction with explicit return contract."""
+        """Shared formula-aware linear prediction with explicit return contract.
+
+        A one-column-short prediction matrix is accepted only when ``fit``
+        persisted an actual explicit constant column.  The exact fitted constant
+        value and its original position are restored; arbitrary shape mismatches
+        never silently turn into an intercept model.
+        """
         self._check_is_fitted()
         from statgpu.panel._formula import _formula_predict
 
@@ -200,7 +208,29 @@ class BasePanelModel(BaseEstimator):
         params_dev = xp_asarray(
             value, dtype=xp.float64, xp=xp, ref_arr=X_arr
         ).ravel()
-        if int(X_arr.shape[1]) != int(params_dev.shape[0]):
+        target_columns = int(params_dev.shape[0])
+        if (
+            int(X_arr.shape[1]) == target_columns - 1
+            and omitted_constant_index is not None
+        ):
+            constant_index = int(omitted_constant_index)
+            if not 0 <= constant_index < target_columns:
+                raise ValueError("stored prediction constant index is out of range")
+            if omitted_constant_value is None or not np.isfinite(
+                float(omitted_constant_value)
+            ):
+                raise ValueError("stored prediction constant value must be finite")
+            constant = xp_ones(
+                (int(X_arr.shape[0]), 1), xp.float64, xp, X_arr
+            ) * float(omitted_constant_value)
+            left = X_arr[:, :constant_index]
+            right = X_arr[:, constant_index:]
+            if getattr(xp, "__name__", "") == "torch":
+                X_arr = xp.cat([left, constant, right], dim=1)
+            else:
+                X_arr = xp.concatenate([left, constant, right], axis=1)
+
+        if int(X_arr.shape[1]) != target_columns:
             raise ValueError("X has an incompatible feature count")
         prediction = X_arr @ params_dev
         return _to_numpy(prediction) if return_numpy else prediction
