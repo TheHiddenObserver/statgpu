@@ -13,7 +13,7 @@ from typing import Dict, Optional
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from statgpu.backends import _to_numpy, xp_asarray, xp_maximum, xp_ones
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_maximum, xp_ones
 from statgpu.panel._results import build_panel_index_info
 from statgpu.panel._utils import (
     PanelSummary,
@@ -220,6 +220,32 @@ class BasePanelModel(BaseEstimator):
                 float(omitted_constant_value)
             ):
                 raise ValueError("stored prediction constant value must be finite")
+
+            # Shape alone cannot prove which training column was omitted.  If
+            # the supplied short matrix already contains the fitted constant,
+            # inserting another constant would silently reinterpret a missing
+            # slope as an omitted intercept.  Reject that ambiguous case.
+            if int(X_arr.shape[1]) > 0:
+                delta = xp.abs(X_arr - float(omitted_constant_value))
+                if getattr(xp, "__name__", "") == "torch":
+                    max_delta = xp.max(delta, dim=0).values
+                else:
+                    max_delta = xp.max(delta, axis=0)
+                constant_tol = (
+                    256.0
+                    * np.finfo(np.float64).eps
+                    * abs(float(omitted_constant_value))
+                )
+                contains_fitted_constant = _to_float_scalar(
+                    xp.any(max_delta <= constant_tol)
+                ) > 0.0
+                if contains_fitted_constant:
+                    raise ValueError(
+                        "X has an incompatible feature count; the supplied short "
+                        "matrix already contains the fitted constant, so the "
+                        "omitted training feature is ambiguous"
+                    )
+
             constant = xp_ones(
                 (int(X_arr.shape[0]), 1), xp.float64, xp, X_arr
             ) * float(omitted_constant_value)
