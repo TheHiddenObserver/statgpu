@@ -7,6 +7,7 @@ on:
       - 'statgpu/panel/**'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
+      - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
       - '.github/workflows/panel-stage-c-torch-cpu.yml'
   push:
     branches: [master]
@@ -14,6 +15,7 @@ on:
       - 'statgpu/panel/**'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
+      - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
       - '.github/workflows/panel-stage-c-torch-cpu.yml'
 
 permissions:
@@ -47,4 +49,5 @@ jobs:
           python -m pytest \
             dev/tests/test_panel_stage_c_torch_cpu.py \
             dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
             -q --tb=short
