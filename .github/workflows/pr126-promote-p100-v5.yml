@@ -49,7 +49,7 @@ jobs:
             dev/benchmarks/frontend_data/parsers/panel_stage_c_final.py \
             dev/benchmarks/frontend_data/parsers/__init__.py \
             dev/benchmarks/frontend_data/registry.py
-          pytest \
+          python -m pytest \
             dev/tests/test_panel_stage_c_frontend_source.py \
             dev/tests/test_benchmark_catalog.py \
             dev/tests/test_benchmark_inventory_v2.py \
