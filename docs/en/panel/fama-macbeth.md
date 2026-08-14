@@ -124,4 +124,5 @@ Three-backend physical parity for the `fama_macbeth_newey_west` case is exercise
 
 ## References
 
-Fama and MacBeth (1973), *Risk, Return, and Equilibrium: Empirical Tests*; Newey and West (1987).
+- Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium: Empirical tests. *Journal of Political Economy*, 81(3), 607-636. [https://doi.org/10.1086/260061](https://doi.org/10.1086/260061)
+- Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708. [https://doi.org/10.2307/1913610](https://doi.org/10.2307/1913610)

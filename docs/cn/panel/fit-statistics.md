@@ -50,6 +50,8 @@ $$
 
 panel fit-statistic regressions 由 full CPU suite 与 estimator-level external alignment 覆盖。robust covariance choice 不会被解释为 robust-Wald model F；该契约与 covariance construction 分开测试。
 
-## References
+## 参考（References）
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*；model-specific conventions 见各 estimator 页面。
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
+
+model-specific conventions 见各 estimator 页面。

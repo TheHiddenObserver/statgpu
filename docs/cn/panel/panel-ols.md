@@ -96,6 +96,8 @@ torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entit
 
 Stage-C 物理 runner 另行使用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy/Torch 与 NumPy；实际 `max_abs_differences` 保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
-## References
+## 参考（References）
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*；covariance 与 diagnostic 参考文献见 [面板 covariance](covariance.md) 和 [面板 diagnostics](diagnostics.md)。
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
+
+covariance 与 diagnostic 专门参考文献见 [面板 covariance](covariance.md) 和 [面板 diagnostics](diagnostics.md)。

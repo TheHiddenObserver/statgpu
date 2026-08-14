@@ -98,4 +98,6 @@ The Stage-C physical runner separately compares CuPy and Torch with the NumPy im
 
 ## References
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*; see also the covariance and diagnostic references in [Panel covariance](covariance.md) and [Panel diagnostics](diagnostics.md).
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
+
+For covariance- and diagnostic-specific sources, see [Panel covariance](covariance.md) and [Panel diagnostics](diagnostics.md).

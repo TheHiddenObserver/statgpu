@@ -60,4 +60,6 @@ Specification and covariance-adjacent behavior is checked against maintained Pyt
 
 ## References
 
-Hausman (1978), *Specification Tests in Econometrics*; Breusch and Pagan (1980), *The Lagrange Multiplier Test and Its Applications to Model Specification*; Baltagi and Li (1990), incomplete-panel error-components LM test.
+- Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica*, 46(6), 1251-1271. [https://doi.org/10.2307/1913827](https://doi.org/10.2307/1913827)
+- Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications to model specification in econometrics. *The Review of Economic Studies*, 47(1), 239-253. [https://doi.org/10.2307/2297111](https://doi.org/10.2307/2297111)
+- Baltagi, B. H., & Li, Q. (1990). A Lagrange multiplier test for the error components model with incomplete panels. *Econometric Reviews*, 9(1), 103-107. [https://doi.org/10.1080/07474939008800180](https://doi.org/10.1080/07474939008800180)

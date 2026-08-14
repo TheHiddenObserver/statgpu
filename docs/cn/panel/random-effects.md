@@ -122,6 +122,7 @@ variance components 与 coefficient estimate 不随 covariance choice 改变。�
 
 Stage-C 物理 runner 另行用默认 `rtol=5e-6, atol=5e-7` 检查 RandomEffects 的 CuPy/Torch 输出相对 NumPy；实际差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
-## References
+## 参考（References）
 
-Swamy and Arora (1972), error-components feasible GLS；Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*。
+- Swamy, P. A. V. B., & Arora, S. S. (1972). The exact finite sample properties of the estimators of coefficients in the error components regression models. *Econometrica*, 40(2), 261-275. [https://doi.org/10.2307/1909405](https://doi.org/10.2307/1909405)
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.

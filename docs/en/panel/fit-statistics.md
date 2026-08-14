@@ -52,4 +52,6 @@ Panel fit-statistic regressions are exercised in the full CPU suite and estimato
 
 ## References
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*; model-specific conventions are documented on the estimator pages.
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
+
+Model-specific conventions are documented on the estimator pages.

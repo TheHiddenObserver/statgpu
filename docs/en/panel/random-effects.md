@@ -124,4 +124,5 @@ The Stage-C physical runner separately checks RandomEffects CuPy/Torch outputs a
 
 ## References
 
-Swamy and Arora (1972), error-components feasible GLS; Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*.
+- Swamy, P. A. V. B., & Arora, S. S. (1972). The exact finite sample properties of the estimators of coefficients in the error components regression models. *Econometrica*, 40(2), 261-275. [https://doi.org/10.2307/1909405](https://doi.org/10.2307/1909405)
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.

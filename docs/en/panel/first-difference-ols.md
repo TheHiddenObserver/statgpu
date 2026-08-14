@@ -81,4 +81,4 @@ The Stage-C physical runner separately compares FirstDifferenceOLS CuPy/Torch ca
 
 ## References
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*.
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.

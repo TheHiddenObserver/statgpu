@@ -78,4 +78,6 @@ The Stage-C physical runner separately compares PooledOLS CuPy/Torch cases with 
 
 ## References
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*; covariance references are collected in [Panel covariance](covariance.md).
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
+
+Covariance-specific sources are collected in [Panel covariance](covariance.md).

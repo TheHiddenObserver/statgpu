@@ -76,6 +76,8 @@ public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`
 
 Stage-C 物理 runner 另行使用默认 `rtol=5e-6, atol=5e-7` 比较 PooledOLS 的 CuPy/Torch 与 NumPy；实际 `max_abs_differences` 保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
-## References
+## 参考（References）
 
-Wooldridge (2010), *Econometric Analysis of Cross Section and Panel Data*；covariance references 见 [面板 covariance](covariance.md)。
+- Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
+
+covariance 专门参考文献见 [面板 covariance](covariance.md)。

@@ -58,6 +58,8 @@ re.hausman_test(fe)
 
 在定义重合处，specification 与 covariance-adjacent behavior 会与维护的 Python/R references 比较。pinned external workflow 使用 `linearmodels==7.0`、`statsmodels==0.14.6`、R `plm==2.6-7` 与 `sandwich==3.1-3`；见 `dev/tests/test_panel_stage_c_r_external.py` 与相关 panel diagnostic tests。
 
-## References
+## 参考（References）
 
-Hausman (1978), *Specification Tests in Econometrics*；Breusch and Pagan (1980), *The Lagrange Multiplier Test and Its Applications to Model Specification*；Baltagi and Li (1990), incomplete-panel error-components LM test。
+- Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica*, 46(6), 1251-1271. [https://doi.org/10.2307/1913827](https://doi.org/10.2307/1913827)
+- Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications to model specification in econometrics. *The Review of Economic Studies*, 47(1), 239-253. [https://doi.org/10.2307/2297111](https://doi.org/10.2307/2297111)
+- Baltagi, B. H., & Li, Q. (1990). A Lagrange multiplier test for the error components model with incomplete panels. *Econometric Reviews*, 9(1), 103-107. [https://doi.org/10.1080/07474939008800180](https://doi.org/10.1080/07474939008800180)

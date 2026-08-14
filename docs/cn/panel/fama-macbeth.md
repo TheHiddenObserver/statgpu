@@ -122,6 +122,7 @@ public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`
 
 `dev/benchmarks/validate_panel_stage_a_gpu.py` 中的 `fama_macbeth_newey_west` case 会用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy/Torch 与 NumPy。Stage-C residual-covariance physical matrix 是另一套 gate，不包含 FamaMacBeth。
 
-## References
+## 参考（References）
 
-Fama and MacBeth (1973), *Risk, Return, and Equilibrium: Empirical Tests*；Newey and West (1987)。
+- Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium: Empirical tests. *Journal of Political Economy*, 81(3), 607-636. [https://doi.org/10.1086/260061](https://doi.org/10.1086/260061)
+- Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708. [https://doi.org/10.2307/1913610](https://doi.org/10.2307/1913610)
