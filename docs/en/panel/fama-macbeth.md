@@ -14,7 +14,7 @@ Implementation: `statgpu/panel/_fama_macbeth.py`.
 
 ## Objective and Estimator
 
-For each retained period,
+For each retained period, let $X_t$ denote the intercept-augmented period design. Then
 
 $$
 \widehat\beta_t
@@ -70,7 +70,7 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `be
 
 ## Numerical and Strict Behavior
 
-At least two periods must remain after filtering. The Newey-West path uses asymptotic-normal coefficient inference; the nonrobust path uses a Student-t reference with $T-1$ degrees of freedom. Explicit GPU requests do not silently fall back to CPU.
+At least two periods must remain after filtering. The Newey-West path uses asymptotic-normal coefficient inference; the nonrobust path uses a Student-t reference with $T-1$ degrees of freedom. There is no separate approximate estimator or inference path, and explicit GPU requests do not silently fall back to CPU.
 
 ## FAQ
 

@@ -14,7 +14,7 @@
 
 ## Objective and Estimator
 
-对每个保留时期，
+对每个保留时期，令 $X_t$ 表示**已加入自动 intercept** 的 period design，则
 
 $$
 \widehat\beta_t
@@ -70,7 +70,7 @@ public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`
 
 ## Numerical and Strict Behavior
 
-过滤后至少需要两个 period。Newey-West 路径使用 asymptotic-normal coefficient inference；nonrobust 路径使用自由度 $T-1$ 的 Student-t reference。显式 GPU 请求不会静默 fallback 到 CPU。
+过滤后至少需要两个 period。Newey-West 路径使用 asymptotic-normal coefficient inference；nonrobust 路径使用自由度 $T-1$ 的 Student-t reference。不存在 separate approximate estimator/inference path，显式 GPU 请求也不会静默 fallback 到 CPU。
 
 ## FAQ
 
