@@ -44,16 +44,19 @@ where $C$ is the number of connected components of the observed entity-time inci
 
 ## Parameters
 
-| Parameter | Meaning |
-|---|---|
-| `entity_effects`, `time_effects` | Select fixed-effect dimensions. |
-| `cov_type` | `nonrobust`, HC0/1/2/3, `clustered`, or Driscoll-Kraay aliases. |
-| `bandwidth`, `kernel` | Driscoll-Kraay controls. |
-| `group_debias` | Small-group cluster correction. |
-| `demean_max_iter`, `demean_tol` | Two-way alternating-projection controls. |
-| `alpha` | Confidence-interval significance level. |
-| `device` | `auto`, `cpu`, `cuda`, or `torch`. |
-| `n_jobs` | Shared parallelism hint. |
+| Parameter | Default | Allowed / Constraint | Meaning |
+|---|---:|---|---|
+| `entity_effects` | `False` | boolean | Include entity fixed effects. |
+| `time_effects` | `False` | boolean | Include time fixed effects. |
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `driscoll-kraay`/`dk`/`kernel` | Covariance estimator. |
+| `alpha` | `0.05` | Significance level; `0.05` gives 95% confidence intervals. | Confidence-interval level control. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
+| `bandwidth` | `None` | `None` or a non-negative integer; DK only | Driscoll-Kraay smoothing bandwidth. `None` uses the documented automatic rule. |
+| `kernel` | `"bartlett"` | Bartlett/Newey-West, Parzen/Gallant, or QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel. |
+| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-group cluster correction. |
+| `demean_max_iter` | `1_000_000` | positive integer | Maximum iterations for two-way alternating projection. |
+| `demean_tol` | `1e-10` | finite and positive | Convergence tolerance for two-way alternating projection. |
 
 ```python
 model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
@@ -89,7 +92,9 @@ There is no silent approximate-inference fallback. Exact rank deficiency keeps f
 
 ## External Validation
 
-Where definitions overlap, maintained tests compare against `linearmodels==7.0`, `statsmodels==0.14.6`, and R `plm==2.6-7` / `sandwich==3.1-3`; see `dev/tests/test_panel_stage_c_linearmodels_estimators.py` and `dev/tests/test_panel_stage_c_r_external.py`. Physical CuPy/Torch acceptance is recorded in `results/pr126_p100_fresh/validation_summary.txt`.
+External-framework parity and physical backend precision are separate gates. `linearmodels==7.0` checks one- and two-way FE Driscoll-Kraay integration with coefficient tolerance `rtol=2e-10, atol=2e-11` and covariance/BSE tolerance `rtol=5e-9, atol=5e-11`. `statsmodels==0.14.6` checks the no-FE level-OLS path, while R `plm==2.6-7` checks one-way FE coefficients. Shared covariance-definition and R tolerances are summarized in the [validation matrix](covariance.md#validation-matrix).
+
+The Stage-C physical runner separately compares CuPy and Torch with the NumPy implementation using default `rtol=5e-6, atol=5e-7`; actual maximum absolute differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
 
 ## References
 

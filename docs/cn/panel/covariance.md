@@ -88,11 +88,25 @@ $$
 
 ## Public API and Aliases
 
-public helpers 包括 `ols_covariance`、`clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。`hc1` alias `robust`；`dk` 与 `kernel` alias `driscoll-kraay`。`PooledOLS(cov_type="hac")` 继续表示独立的 row-order Bartlett/Newey-West path。
+public helpers 包括 `ols_covariance`、`clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。`hc1` alias `robust`；`dk` 与 `kernel` alias `driscoll-kraay`。DK kernel aliases 为 Bartlett/Newey-West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews。`PooledOLS(cov_type="hac")` 继续表示独立的 row-order Bartlett/Newey-West path。
 
-## External Validation
+## Validation Matrix
 
-pinned Python references 为 `linearmodels==7.0` 与 `statsmodels==0.14.6`；pinned R references 为 `plm==2.6-7` 与 `sandwich==3.1-3`。维护检查位于 `dev/tests/test_panel_stage_c_external.py`、`dev/tests/test_panel_stage_c_external_defaults.py`、`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。CuPy/Torch 物理验证见 `results/pr126_p100_fresh/validation_summary.txt`。
+外部框架精度对齐与物理 backend 精度属于不同 validation layer。
+
+| Layer | Reference | 维护的比较内容 | Assertion tolerance |
+|---|---|---|---|
+| HC primitives | `statsmodels==0.14.6` | full-rank OLS fit space 上的 HC2/HC3 | `rtol=5e-12`, `atol=5e-14` |
+| Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased cluster；Bartlett/Parzen/QS weights 与 DK covariance；default bandwidth 与 `extra_df` | covariance `rtol=5e-12`, `atol=5e-14`；weights `rtol=5e-14`, `atol=5e-15` |
+| Estimator integration | `linearmodels==7.0`, `statsmodels==0.14.6` | PooledOLS、PanelOLS、RandomEffects fit-space covariance、BetweenOLS、FirstDifferenceOLS | coefficient 通常为 `rtol=2e-10` 或 `5e-10`；covariance/BSE 为 `rtol=5e-9`, `atol=5e-11` |
+| R external gate | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance 与单向 FE coefficient | covariance `rtol=5e-9`, `atol=5e-11`；FE coefficient `rtol=5e-10`, `atol=5e-11` |
+| Physical GPU | NumPy reference | 每个 CuPy/Torch backend 包含 35 个 estimator cases + 12 个 public covariance primitives | 默认 `rtol=5e-6`, `atol=5e-7` |
+
+ill-conditioned full-rank stress test 使用与数值尺度相适应的 tolerance：HC0 对 statsmodels 为 `rtol=2e-6, atol=5e-3`；stable HC2/HC3 leverage 检查为 `rtol=5e-11, atol=5e-3`，因为 variance 可能超过 $10^{10}$。
+
+external CI 中的 tolerance 是 pass/fail assertion threshold，并不是持久化的 observed-error summary。物理 P100 payload 则会保存每个字段的 `max_abs_differences`，位于 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`；audit summary 位于 `results/pr126_p100_fresh/validation_summary.txt`。
+
+维护的 external tests 为 `dev/tests/test_panel_stage_c_external.py`、`dev/tests/test_panel_stage_c_external_defaults.py`、`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。
 
 ## References
 

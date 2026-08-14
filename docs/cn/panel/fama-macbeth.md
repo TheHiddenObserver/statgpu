@@ -28,25 +28,63 @@ $$
 
 ## Covariance and Inference
 
-令 $u_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}$。当 `cov_type="nonrobust"` 时，
+令
 
 $$
-\widehat V_{\mathrm{FM}}
-=\frac{1}{T}\left[\frac{1}{T-1}\sum_{t=1}^T u_tu_t^\top\right].
+u_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}.
 $$
 
-`cov_type="newey-west"` 将括号内替换为 coefficient series 的 Bartlett HAC long-run covariance。该路径与 [面板 covariance](covariance.md) 中的 residual-based 定义刻意分离。
+当 `cov_type="nonrobust"` 时，
+
+$$
+\widehat V_{\mathrm{nonrobust}}
+=\frac{1}{T(T-1)}\sum_{t=1}^T u_tu_t^\top.
+$$
+
+当 `cov_type="newey-west"` 时，定义 lag-$\ell$ coefficient covariance
+
+$$
+\widehat\Gamma_\ell
+=\frac{1}{T}\sum_{t=\ell+1}^{T}u_tu_{t-\ell}^\top,
+\qquad \ell=0,\ldots,L,
+$$
+
+以及 Bartlett weight
+
+$$
+w_\ell=1-\frac{\ell}{L+1}.
+$$
+
+则 coefficient-series long-run covariance 与 Fama-MacBeth 平均 coefficient 的 covariance 分别为
+
+$$
+\widehat\Omega_{\mathrm{NW}}
+=\widehat\Gamma_0+
+\sum_{\ell=1}^{L}w_\ell
+\left(\widehat\Gamma_\ell+\widehat\Gamma_\ell^\top\right),
+\qquad
+\widehat V_{\mathrm{NW}}(\widehat\beta_{\mathrm{FM}})
+=\frac{1}{T}\widehat\Omega_{\mathrm{NW}}.
+$$
+
+若 `bandwidth=None`，实现先取
+
+$$
+L=\left\lfloor4(T/100)^{2/9}\right\rfloor,
+$$
+
+再截断到 $0\le L\le T-1$。该 coefficient-series HAC 路径与 [面板 covariance](covariance.md) 中的 residual-based 定义不同。
 
 ## Parameters
 
-| 参数 | 含义 |
-|---|---|
-| `cov_type` | `nonrobust` 或 `newey-west`。 |
-| `bandwidth` | coefficient-series Bartlett HAC bandwidth。 |
-| `min_obs_per_period` | design-size filtering 前的最小 period sample size。 |
-| `alpha` | 置信区间显著性水平。 |
-| `device` | `auto`、`cpu`、`cuda` 或 `torch`。 |
-| `n_jobs` | 共享并行参数。 |
+| 参数 | 默认值 | 可选值 / 约束 | 含义 |
+|---|---:|---|---|
+| `cov_type` | `"newey-west"` | `nonrobust` 或 `newey-west` | coefficient-series covariance estimator。 |
+| `bandwidth` | `None` | `None` 或非负整数；最终不超过 $T-1$ | Bartlett HAC bandwidth $L$。 |
+| `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
+| `min_obs_per_period` | `1` | 正整数 | 初步的最小 period size；最终保留时期还必须满足 $n_t\ge k+1$，其中 $k$ 是含 intercept 的 design width。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
+| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
 
 ```python
 model.fit(X, y, time_ids=time_ids, entity_ids=None)
@@ -80,7 +118,9 @@ public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`
 
 ## External Validation
 
-`dev/tests/test_panel_p2.py` 维护 estimator、covariance、filtering 与 prediction regressions，formula coverage 位于 `dev/tests/test_panel_formula.py`。Stage-C residual-covariance external suite **不宣称**本 estimator 与 `linearmodels` parity，因为当前 beta-series covariance 是 estimator-specific contract。
+当前没有针对该 estimator beta-series covariance 的 maintained external-framework parity gate，因此文档不宣称其与 `linearmodels` 或其他 package 一致。`dev/tests/test_panel_p2.py` 维护 estimator/covariance/filtering regression，formula coverage 位于 `dev/tests/test_panel_formula.py`。
+
+`dev/benchmarks/validate_panel_stage_a_gpu.py` 中的 `fama_macbeth_newey_west` case 会用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy/Torch 与 NumPy。Stage-C residual-covariance physical matrix 是另一套 gate，不包含 FamaMacBeth。
 
 ## References
 

@@ -28,14 +28,15 @@ covariance 使用 level design $Z$，见 [面板 covariance](covariance.md)。`c
 
 ## Parameters
 
-| 参数 | 含义 |
-|---|---|
-| `cov_type` | nonrobust、HC、clustered、legacy HAC 或 DK。 |
-| `bandwidth`, `kernel` | 适用时的 HAC/DK 参数。 |
-| `group_debias` | cluster small-group correction。 |
-| `alpha` | 置信区间显著性水平。 |
-| `device` | `auto`、`cpu`、`cuda` 或 `torch`。 |
-| `n_jobs` | 共享并行参数。 |
+| 参数 | 默认值 | 可选值 / 约束 | 含义 |
+|---|---:|---|---|
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`hac`、`driscoll-kraay`/`dk`/`kernel` | covariance estimator。 |
+| `alpha` | `0.05` | 显著性水平；`0.05` 对应 95% 置信区间。 | 置信区间 level 控制。 |
+| `bandwidth` | `None` | `None` 或非负整数 | HAC/DK bandwidth。legacy HAC 的有效 lag 最多为 $n-1$；DK 使用 [面板 covariance](covariance.md) 中的 observed-period 规则。 |
+| `kernel` | `"bartlett"` | `hac` 只允许 Bartlett；DK 还支持 Parzen 与 QS aliases | HAC/DK kernel。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
+| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
+| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | small-group cluster correction。 |
 
 ```python
 model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
@@ -71,7 +72,9 @@ public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`
 
 ## External Validation
 
-Estimator-level DK 与 clustered covariance 在 `dev/tests/test_panel_stage_c_linearmodels_estimators.py` 中与 `linearmodels==7.0` 比较；重合的 OLS 定义也使用 `statsmodels==0.14.6`。R `plm==2.6-7` / `sandwich==3.1-3` 检查位于 `dev/tests/test_panel_stage_c_r_external.py`。GPU 物理验证见 `results/pr126_p100_fresh/validation_summary.txt`。
+`linearmodels==7.0` 检查 public estimator 的 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。definition-level HC、cluster、DK、default-bandwidth 与 R `sandwich` 检查见 [validation matrix](covariance.md#validation-matrix)。
+
+Stage-C 物理 runner 另行使用默认 `rtol=5e-6, atol=5e-7` 比较 PooledOLS 的 CuPy/Torch 与 NumPy；实际 `max_abs_differences` 保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
 ## References
 

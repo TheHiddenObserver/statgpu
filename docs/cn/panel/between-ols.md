@@ -36,12 +36,12 @@ covariance 在 entity-mean fit space 上计算。nonrobust 与 HC0/1/2/3 见 [�
 
 ## Parameters
 
-| 参数 | 含义 |
-|---|---|
-| `cov_type` | `nonrobust`、HC0/1/2/3。 |
-| `alpha` | 置信区间显著性水平。 |
-| `device` | `auto`、`cpu`、`cuda` 或 `torch`。 |
-| `n_jobs` | 共享并行参数。 |
+| 参数 | 默认值 | 可选值 / 约束 | 含义 |
+|---|---:|---|---|
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3` | entity-mean fit space 上的 covariance estimator。 |
+| `alpha` | `0.05` | 显著性水平；`0.05` 对应 95% 置信区间。 | 置信区间 level 控制。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
+| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
 
 ```python
 model.fit(X, y, entity_ids=entity_ids)
@@ -75,7 +75,9 @@ public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`
 
 ## External Validation
 
-HC0/HC2/HC3 的 coefficient 与 covariance 在 `dev/tests/test_panel_stage_c_linearmodels_estimators.py` 中与同一 entity-mean design 上的 `statsmodels==0.14.6` 比较。通用 estimator regressions 还由 `dev/tests/test_panel_p2.py` 覆盖。
+`statsmodels==0.14.6` 在相同 entity-mean design 上检查 HC0/HC2/HC3。coefficient 使用 `rtol=5e-10, atol=5e-12`；covariance 与 BSE 使用 `rtol=5e-9, atol=5e-11`。共享 covariance definition 检查见 [validation matrix](covariance.md#validation-matrix)。
+
+Stage-C 物理 runner 另行使用默认 `rtol=5e-6, atol=5e-7` 比较 BetweenOLS 的 CuPy/Torch 与 NumPy。
 
 ## References
 

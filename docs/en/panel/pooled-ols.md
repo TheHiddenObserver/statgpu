@@ -28,14 +28,15 @@ Covariance uses the level design $Z$; see [Panel covariance](covariance.md). `co
 
 ## Parameters
 
-| Parameter | Meaning |
-|---|---|
-| `cov_type` | Nonrobust, HC, clustered, legacy HAC, or Driscoll-Kraay. |
-| `bandwidth`, `kernel` | HAC/DK controls where applicable. |
-| `group_debias` | Small-group cluster correction. |
-| `alpha` | Confidence-interval significance level. |
-| `device` | `auto`, `cpu`, `cuda`, or `torch`. |
-| `n_jobs` | Shared parallelism hint. |
+| Parameter | Default | Allowed / Constraint | Meaning |
+|---|---:|---|---|
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `hac`, `driscoll-kraay`/`dk`/`kernel` | Covariance estimator. |
+| `alpha` | `0.05` | Significance level; `0.05` gives 95% confidence intervals. | Confidence-interval level control. |
+| `bandwidth` | `None` | `None` or a non-negative integer | HAC/DK bandwidth. Legacy HAC caps the effective lag at $n-1$; DK uses the observed-period rule in [Panel covariance](covariance.md). |
+| `kernel` | `"bartlett"` | `hac` requires Bartlett; DK also accepts Parzen and QS aliases | HAC/DK kernel control. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
+| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-group cluster correction. |
 
 ```python
 model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
@@ -71,7 +72,9 @@ There is no approximate fallback for unsupported covariance inputs: missing requ
 
 ## External Validation
 
-Estimator-level DK and clustered covariance are compared with `linearmodels==7.0` in `dev/tests/test_panel_stage_c_linearmodels_estimators.py`; overlapping OLS definitions also use `statsmodels==0.14.6`. R `plm==2.6-7` / `sandwich==3.1-3` checks are maintained in `dev/tests/test_panel_stage_c_r_external.py`. Physical GPU acceptance is in `results/pr126_p100_fresh/validation_summary.txt`.
+`linearmodels==7.0` checks the public estimator's Driscoll-Kraay coefficients, covariance, and BSE plus group-debiased clustered covariance. Coefficients use `rtol=2e-10, atol=2e-11`; covariance/BSE use `rtol=5e-9, atol=5e-11`. Definition-level HC, cluster, DK, default-bandwidth, and R `sandwich` checks are summarized in the [validation matrix](covariance.md#validation-matrix).
+
+The Stage-C physical runner separately compares PooledOLS CuPy/Torch cases with NumPy at default `rtol=5e-6, atol=5e-7`; actual maximum absolute differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
 
 ## References
 

@@ -74,14 +74,15 @@ HC0/1/2/3, clustered, and Driscoll-Kraay use [Panel covariance](covariance.md) w
 
 ## Parameters
 
-| Parameter | Meaning |
-|---|---|
-| `cov_type` | `nonrobust`, HC0/1/2/3, `clustered`, or Driscoll-Kraay aliases. |
-| `bandwidth`, `kernel` | Driscoll-Kraay controls. |
-| `group_debias` | Small-group cluster correction. |
-| `alpha` | Confidence-interval significance level. |
-| `device` | `auto`, `cpu`, `cuda`, or `torch`. |
-| `n_jobs` | Shared parallelism hint. |
+| Parameter | Default | Allowed / Constraint | Meaning |
+|---|---:|---|---|
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `driscoll-kraay`/`dk`/`kernel` | Covariance estimator on the quasi-demeaned fit space. |
+| `alpha` | `0.05` | Significance level; `0.05` gives 95% confidence intervals. | Confidence-interval level control. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
+| `bandwidth` | `None` | `None` or a non-negative integer; DK only | Driscoll-Kraay smoothing bandwidth. |
+| `kernel` | `"bartlett"` | Bartlett/Newey-West, Parzen/Gallant, or QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel. |
+| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-group cluster correction. |
 
 ```python
 model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
@@ -117,7 +118,9 @@ Variance components and coefficients are covariance-invariant. There is no silen
 
 ## External Validation
 
-`dev/tests/test_panel_stage_c_linearmodels_estimators.py` checks HC/cluster/DK covariance on statgpu's own Swamy-Arora fit space against pinned `linearmodels==7.0` and `statsmodels==0.14.6` definitions. R panel covariance checks are maintained separately, and physical CuPy/Torch acceptance is recorded in `results/pr126_p100_fresh/validation_summary.txt`.
+The maintained external gate does **not** assert direct RandomEffects coefficient parity with another package, because statgpu keeps its own Swamy-Arora variance-component construction. Instead, `linearmodels==7.0` checks robust and Driscoll-Kraay covariance on statgpu's reconstructed $X^*,y^*$ fit space, while `statsmodels==0.14.6` checks HC2/HC3 on that same fit space; covariance assertions use `rtol=5e-9, atol=5e-11`. See the shared [validation matrix](covariance.md#validation-matrix).
+
+The Stage-C physical runner separately checks RandomEffects CuPy/Torch outputs against NumPy at default `rtol=5e-6, atol=5e-7`; observed differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
 
 ## References
 

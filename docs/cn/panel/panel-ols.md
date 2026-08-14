@@ -44,16 +44,19 @@ $$
 
 ## Parameters
 
-| 参数 | 含义 |
-|---|---|
-| `entity_effects`, `time_effects` | 选择 fixed-effect 维度。 |
-| `cov_type` | `nonrobust`、HC0/1/2/3、`clustered` 或 DK aliases。 |
-| `bandwidth`, `kernel` | Driscoll-Kraay 参数。 |
-| `group_debias` | cluster small-group correction。 |
-| `demean_max_iter`, `demean_tol` | 双向 alternating projection 控制。 |
-| `alpha` | 置信区间显著性水平。 |
-| `device` | `auto`、`cpu`、`cuda` 或 `torch`。 |
-| `n_jobs` | 共享并行参数。 |
+| 参数 | 默认值 | 可选值 / 约束 | 含义 |
+|---|---:|---|---|
+| `entity_effects` | `False` | boolean | 是否加入 entity fixed effects。 |
+| `time_effects` | `False` | boolean | 是否加入 time fixed effects。 |
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`driscoll-kraay`/`dk`/`kernel` | covariance estimator。 |
+| `alpha` | `0.05` | 显著性水平；`0.05` 对应 95% 置信区间。 | 置信区间 level 控制。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
+| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
+| `bandwidth` | `None` | `None` 或非负整数；仅 DK 使用 | Driscoll-Kraay smoothing bandwidth；`None` 使用文档中的自动规则。 |
+| `kernel` | `"bartlett"` | Bartlett/Newey-West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel。 |
+| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | small-group cluster correction。 |
+| `demean_max_iter` | `1_000_000` | 正整数 | 双向 alternating projection 的最大迭代次数。 |
+| `demean_tol` | `1e-10` | 有限且严格为正 | 双向 alternating projection 的收敛容差。 |
 
 ```python
 model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
@@ -89,7 +92,9 @@ torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entit
 
 ## External Validation
 
-在定义重合处，维护测试与 `linearmodels==7.0`、`statsmodels==0.14.6` 以及 R `plm==2.6-7` / `sandwich==3.1-3` 对齐；见 `dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。CuPy/Torch 物理验证见 `results/pr126_p100_fresh/validation_summary.txt`。
+外部框架对齐与物理 GPU backend 精度是两套独立 gate。`linearmodels==7.0` 检查单向/双向 FE Driscoll-Kraay integration：coefficient 使用 `rtol=2e-10, atol=2e-11`，covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。`statsmodels==0.14.6` 检查 no-FE level OLS；R `plm==2.6-7` 检查单向 FE coefficient。共享 covariance definition 与 R tolerance 见 [validation matrix](covariance.md#validation-matrix)。
+
+Stage-C 物理 runner 另行使用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy/Torch 与 NumPy；实际 `max_abs_differences` 保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
 ## References
 

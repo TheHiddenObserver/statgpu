@@ -36,12 +36,12 @@ Covariance uses $Z=\Delta X$; see [Panel covariance](covariance.md). Supported c
 
 ## Parameters
 
-| Parameter | Meaning |
-|---|---|
-| `cov_type` | `nonrobust`, HC0/1/2/3. |
-| `alpha` | Confidence-interval significance level. |
-| `device` | `auto`, `cpu`, `cuda`, or `torch`. |
-| `n_jobs` | Shared parallelism hint. |
+| Parameter | Default | Allowed / Constraint | Meaning |
+|---|---:|---|---|
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3` | Covariance estimator on the differenced fit space. |
+| `alpha` | `0.05` | Significance level; `0.05` gives 95% confidence intervals. | Confidence-interval level control. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 
 ```python
 model.fit(X, y, entity_ids=entity_ids, time_ids=None)
@@ -75,7 +75,9 @@ The maintained transformation never invents missing calendar periods. Duplicate 
 
 ## External Validation
 
-HC0/HC2/HC3 behavior is compared with `statsmodels==0.14.6` on the same differenced fit space in `dev/tests/test_panel_stage_c_linearmodels_estimators.py`; transformation and prediction regressions are also maintained in `dev/tests/test_panel_p2.py`.
+`statsmodels==0.14.6` is fit on the identical differenced sample for HC0/HC2/HC3. Coefficients are asserted with `rtol=5e-10, atol=5e-12`; covariance and BSE use `rtol=5e-9, atol=5e-11`. Shared covariance-definition checks are listed in the [validation matrix](covariance.md#validation-matrix).
+
+The Stage-C physical runner separately compares FirstDifferenceOLS CuPy/Torch cases with NumPy at default `rtol=5e-6, atol=5e-7`.
 
 ## References
 

@@ -28,25 +28,63 @@ Periods below `min_obs_per_period` or without enough observations for the period
 
 ## Covariance and Inference
 
-Let $u_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}$. With `cov_type="nonrobust"`,
+Let
 
 $$
-\widehat V_{\mathrm{FM}}
-=\frac{1}{T}\left[\frac{1}{T-1}\sum_{t=1}^T u_tu_t^\top\right].
+u_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}.
 $$
 
-`cov_type="newey-west"` replaces the bracketed term with a Bartlett HAC long-run covariance of the coefficient series. This path is intentionally distinct from [Panel covariance](covariance.md).
+With `cov_type="nonrobust"`,
+
+$$
+\widehat V_{\mathrm{nonrobust}}
+=\frac{1}{T(T-1)}\sum_{t=1}^T u_tu_t^\top.
+$$
+
+For `cov_type="newey-west"`, define the lag-$\ell$ coefficient covariance
+
+$$
+\widehat\Gamma_\ell
+=\frac{1}{T}\sum_{t=\ell+1}^{T}u_tu_{t-\ell}^\top,
+\qquad \ell=0,\ldots,L,
+$$
+
+with Bartlett weights
+
+$$
+w_\ell=1-\frac{\ell}{L+1}.
+$$
+
+The coefficient-series long-run covariance and the covariance of the Fama-MacBeth mean are
+
+$$
+\widehat\Omega_{\mathrm{NW}}
+=\widehat\Gamma_0+
+\sum_{\ell=1}^{L}w_\ell
+\left(\widehat\Gamma_\ell+\widehat\Gamma_\ell^\top\right),
+\qquad
+\widehat V_{\mathrm{NW}}(\widehat\beta_{\mathrm{FM}})
+=\frac{1}{T}\widehat\Omega_{\mathrm{NW}}.
+$$
+
+If `bandwidth=None`, the implementation starts from
+
+$$
+L=\left\lfloor4(T/100)^{2/9}\right\rfloor
+$$
+
+and clips it to $0\le L\le T-1$. This coefficient-series HAC path is distinct from the residual-based definitions in [Panel covariance](covariance.md).
 
 ## Parameters
 
-| Parameter | Meaning |
-|---|---|
-| `cov_type` | `nonrobust` or `newey-west`. |
-| `bandwidth` | Bartlett HAC bandwidth for the coefficient series. |
-| `min_obs_per_period` | Minimum period sample size before design-size filtering. |
-| `alpha` | Confidence-interval significance level. |
-| `device` | `auto`, `cpu`, `cuda`, or `torch`. |
-| `n_jobs` | Shared parallelism hint. |
+| Parameter | Default | Allowed / Constraint | Meaning |
+|---|---:|---|---|
+| `cov_type` | `"newey-west"` | `nonrobust` or `newey-west` | Coefficient-series covariance estimator. |
+| `bandwidth` | `None` | `None` or a non-negative integer; clipped to at most $T-1$ | Bartlett HAC bandwidth $L$. |
+| `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
+| `min_obs_per_period` | `1` | positive integer | Preliminary minimum period size. A retained period must also satisfy $n_t\ge k+1$, where $k$ is the intercept-augmented design width. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 
 ```python
 model.fit(X, y, time_ids=time_ids, entity_ids=None)
@@ -80,7 +118,9 @@ At least two periods must remain after filtering. The Newey-West path uses asymp
 
 ## External Validation
 
-Maintained estimator, covariance, filtering, and prediction regressions are in `dev/tests/test_panel_p2.py` and formula coverage is in `dev/tests/test_panel_formula.py`. The Stage-C residual-covariance external suite does **not** claim `linearmodels` parity for this estimator because the maintained beta-series covariance is estimator-specific.
+There is currently no maintained external-framework parity gate for this estimator's beta-series covariance, so the documentation does not claim `linearmodels` or another package matches it. Maintained estimator/covariance/filtering regressions are in `dev/tests/test_panel_p2.py`, with formula coverage in `dev/tests/test_panel_formula.py`.
+
+Three-backend physical parity for the `fama_macbeth_newey_west` case is exercised by `dev/benchmarks/validate_panel_stage_a_gpu.py` against NumPy with default `rtol=5e-6, atol=5e-7`. The Stage-C residual-covariance physical matrix is separate and does not include FamaMacBeth.
 
 ## References
 

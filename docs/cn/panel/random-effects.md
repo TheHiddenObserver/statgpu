@@ -74,14 +74,15 @@ HC0/1/2/3、clustered 与 Driscoll-Kraay 使用 [面板 covariance](covariance.m
 
 ## Parameters
 
-| 参数 | 含义 |
-|---|---|
-| `cov_type` | `nonrobust`、HC0/1/2/3、`clustered` 或 DK aliases。 |
-| `bandwidth`, `kernel` | Driscoll-Kraay 参数。 |
-| `group_debias` | cluster small-group correction。 |
-| `alpha` | 置信区间显著性水平。 |
-| `device` | `auto`、`cpu`、`cuda` 或 `torch`。 |
-| `n_jobs` | 共享并行参数。 |
+| 参数 | 默认值 | 可选值 / 约束 | 含义 |
+|---|---:|---|---|
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`driscoll-kraay`/`dk`/`kernel` | quasi-demeaned fit space 上的 covariance estimator。 |
+| `alpha` | `0.05` | 显著性水平；`0.05` 对应 95% 置信区间。 | 置信区间 level 控制。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
+| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
+| `bandwidth` | `None` | `None` 或非负整数；仅 DK 使用 | Driscoll-Kraay smoothing bandwidth。 |
+| `kernel` | `"bartlett"` | Bartlett/Newey-West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel。 |
+| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | small-group cluster correction。 |
 
 ```python
 model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
@@ -117,7 +118,9 @@ variance components 与 coefficient estimate 不随 covariance choice 改变。�
 
 ## External Validation
 
-`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 在 statgpu 自身 Swamy-Arora fit space 上，将 HC/cluster/DK covariance 与 pinned `linearmodels==7.0` 和 `statsmodels==0.14.6` 定义比较。R panel covariance 检查独立维护；CuPy/Torch 物理验证见 `results/pr126_p100_fresh/validation_summary.txt`。
+当前 external gate **不宣称** RandomEffects coefficient 与其他 package 直接一致，因为 statgpu 保留自身 Swamy-Arora variance-component construction。`linearmodels==7.0` 在 statgpu 重构的 $X^*,y^*$ fit space 上检查 robust 与 Driscoll-Kraay covariance；`statsmodels==0.14.6` 在同一 fit space 上检查 HC2/HC3，covariance assertion 使用 `rtol=5e-9, atol=5e-11`。见共享 [validation matrix](covariance.md#validation-matrix)。
+
+Stage-C 物理 runner 另行用默认 `rtol=5e-6, atol=5e-7` 检查 RandomEffects 的 CuPy/Torch 输出相对 NumPy；实际差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
 ## References
 

@@ -88,11 +88,25 @@ At full column rank $r_Z$ is the number of columns of $Z$; in the rank-deficient
 
 ## Public API and Aliases
 
-Public covariance helpers include `ols_covariance`, `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. `hc1` aliases `robust`; `dk` and `kernel` alias `driscoll-kraay`. `PooledOLS(cov_type="hac")` remains the separate row-order Bartlett/Newey-West path.
+Public covariance helpers include `ols_covariance`, `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. `hc1` aliases `robust`; `dk` and `kernel` alias `driscoll-kraay`. DK kernel aliases are Bartlett/Newey-West, Parzen/Gallant, and QS/Quadratic-Spectral/Andrews. `PooledOLS(cov_type="hac")` remains the separate row-order Bartlett/Newey-West path.
 
-## External Validation
+## Validation Matrix
 
-Pinned Python references are `linearmodels==7.0` and `statsmodels==0.14.6`; pinned R references are `plm==2.6-7` and `sandwich==3.1-3`. Maintained checks live in `dev/tests/test_panel_stage_c_external.py`, `dev/tests/test_panel_stage_c_external_defaults.py`, `dev/tests/test_panel_stage_c_linearmodels_estimators.py`, and `dev/tests/test_panel_stage_c_r_external.py`. Physical CuPy/Torch validation is summarized in `results/pr126_p100_fresh/validation_summary.txt`.
+External-framework accuracy and physical backend precision are distinct validation layers.
+
+| Layer | Reference | Maintained comparison | Assertion tolerance |
+|---|---|---|---|
+| HC primitives | `statsmodels==0.14.6` | HC2/HC3 on full-rank OLS fit space | `rtol=5e-12`, `atol=5e-14` |
+| Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased cluster; Bartlett/Parzen/QS weights and DK covariance; default bandwidth and `extra_df` | covariance `rtol=5e-12`, `atol=5e-14`; weights `rtol=5e-14`, `atol=5e-15` |
+| Estimator integration | `linearmodels==7.0`, `statsmodels==0.14.6` | PooledOLS, PanelOLS, RandomEffects fit-space covariance, BetweenOLS, FirstDifferenceOLS | coefficients typically `rtol=2e-10` or `5e-10`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| R external gate | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance and one-way FE coefficients | covariance `rtol=5e-9`, `atol=5e-11`; FE coefficient `rtol=5e-10`, `atol=5e-11` |
+| Physical GPU | NumPy reference | 35 estimator cases + 12 public covariance primitives per CuPy/Torch backend | default `rtol=5e-6`, `atol=5e-7` |
+
+The ill-conditioned full-rank stress tests intentionally use scale-aware tolerances: HC0 against statsmodels uses `rtol=2e-6, atol=5e-3`, while stable HC2/HC3 leverage checks use `rtol=5e-11, atol=5e-3` because variances can exceed $10^{10}$.
+
+The external CI assertions are pass/fail tolerances; they are not persisted as observed error summaries. The physical P100 payload does persist per-field `max_abs_differences` in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`, with the audit summary in `results/pr126_p100_fresh/validation_summary.txt`.
+
+Maintained external tests are `dev/tests/test_panel_stage_c_external.py`, `dev/tests/test_panel_stage_c_external_defaults.py`, `dev/tests/test_panel_stage_c_linearmodels_estimators.py`, and `dev/tests/test_panel_stage_c_r_external.py`.
 
 ## References
 
