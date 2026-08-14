@@ -42,13 +42,13 @@ H=(\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}})^\top
 (\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}}).
 $$
 
-The classical comparison requires one-way entity FE, nonrobust FE and RE covariance, and matched aligned samples/designs. A materially indefinite covariance difference is reported as inapplicable. A singular positive-semidefinite difference uses the documented identified-range generalized-inverse extension only when the coefficient difference lies in that range.
-
 ```python
 fe.hausman_test(re)
 # or
 re.hausman_test(fe)
 ```
+
+> **Note:** The maintained `hausman_test()` implements the classical FE-versus-RE comparison. It therefore requires one-way entity fixed effects, `cov_type="nonrobust"` for both FE and RE, and matched aligned estimation samples/designs. Let $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$. If $D$ has a materially negative eigenvalue, the classical Hausman quadratic form is reported as `inapplicable`. If $D$ is singular positive semidefinite, the Moore-Penrose generalized inverse $D^+$ is used only when $\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}}\in\operatorname{range}(D)$.
 
 ## Outputs and Strict Behavior
 
