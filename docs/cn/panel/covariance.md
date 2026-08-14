@@ -112,6 +112,10 @@ external CI 中的 tolerance 是 pass/fail assertion threshold，并不是持久
 
 维护的 external tests 为 `dev/tests/test_panel_stage_c_external.py`、`dev/tests/test_panel_stage_c_external_defaults.py`、`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。
 
-## References
+## 参考（References）
 
-White (1980)；Newey and West (1987)；Andrews (1991)；Driscoll and Kraay (1998)；Cameron, Gelbach, and Miller (2011)。
+- White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator and a direct test for heteroskedasticity. *Econometrica*, 48(4), 817-838. [https://doi.org/10.2307/1912934](https://doi.org/10.2307/1912934)
+- Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708. [https://doi.org/10.2307/1913610](https://doi.org/10.2307/1913610)
+- Andrews, D. W. K. (1991). Heteroskedasticity and autocorrelation consistent covariance matrix estimation. *Econometrica*, 59(3), 817-858. [https://doi.org/10.2307/2938229](https://doi.org/10.2307/2938229)
+- Driscoll, J. C., & Kraay, A. C. (1998). Consistent covariance matrix estimation with spatially dependent panel data. *The Review of Economics and Statistics*, 80(4), 549-560. [https://doi.org/10.1162/003465398557825](https://doi.org/10.1162/003465398557825)
+- Cameron, A. C., Gelbach, J. B., & Miller, D. L. (2011). Robust inference with multiway clustering. *Journal of Business & Economic Statistics*, 29(2), 238-249. [https://doi.org/10.1198/jbes.2010.07136](https://doi.org/10.1198/jbes.2010.07136)
