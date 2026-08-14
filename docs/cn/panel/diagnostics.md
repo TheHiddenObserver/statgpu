@@ -42,13 +42,13 @@ H=(\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}})^\top
 (\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}}).
 $$
 
-classical comparison 要求 one-way entity FE、FE/RE 都使用 nonrobust covariance，并且 aligned sample/design 匹配。materially indefinite covariance difference 返回 inapplicable。若 difference 为 singular PSD，仅在 coefficient difference 位于 identified range 时使用 documented generalized-inverse extension。
-
 ```python
 fe.hausman_test(re)
 # 或
 re.hausman_test(fe)
 ```
+
+> **注意：** 当前 `hausman_test()` 实现 classical FE-versus-RE comparison，因此要求 `PanelOLS` 为 one-way entity fixed effects，且 FE 与 RE 均使用 `cov_type="nonrobust"`，同时两者必须基于匹配并对齐的 estimation sample/design。令 $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$。若 $D$ 存在 materially negative eigenvalue，则 classical Hausman quadratic form 返回 `inapplicable`。若 $D$ 为 singular positive semidefinite，则仅当 $\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}}\in\operatorname{range}(D)$ 时使用 Moore-Penrose generalized inverse $D^+$。
 
 ## Outputs and Strict Behavior
 
