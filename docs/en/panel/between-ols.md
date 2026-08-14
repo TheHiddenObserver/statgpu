@@ -39,7 +39,7 @@ Covariance is computed on the entity-mean fit space. Nonrobust and HC0/1/2/3 are
 | Parameter | Default | Allowed / Constraint | Meaning |
 |---|---:|---|---|
 | `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3` | Covariance estimator on the entity-mean fit space. |
-| `alpha` | `0.05` | Significance level; `0.05` gives 95% confidence intervals. | Confidence-interval level control. |
+| `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 

@@ -31,7 +31,7 @@ covariance 使用 level design $Z$，见 [面板 covariance](covariance.md)。`c
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
 | `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`hac`、`driscoll-kraay`/`dk`/`kernel` | covariance estimator。 |
-| `alpha` | `0.05` | 显著性水平；`0.05` 对应 95% 置信区间。 | 置信区间 level 控制。 |
+| `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
 | `bandwidth` | `None` | `None` 或非负整数 | HAC/DK bandwidth。legacy HAC 的有效 lag 最多为 $n-1$；DK 使用 [面板 covariance](covariance.md) 中的 observed-period 规则。 |
 | `kernel` | `"bartlett"` | `hac` 只允许 Bartlett；DK 还支持 Parzen 与 QS aliases | HAC/DK kernel。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |

@@ -77,7 +77,7 @@ HC0/1/2/3、clustered 与 Driscoll-Kraay 使用 [面板 covariance](covariance.m
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
 | `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`driscoll-kraay`/`dk`/`kernel` | quasi-demeaned fit space 上的 covariance estimator。 |
-| `alpha` | `0.05` | 显著性水平；`0.05` 对应 95% 置信区间。 | 置信区间 level 控制。 |
+| `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
 | `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
 | `bandwidth` | `None` | `None` 或非负整数；仅 DK 使用 | Driscoll-Kraay smoothing bandwidth。 |

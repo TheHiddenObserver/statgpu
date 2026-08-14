@@ -31,7 +31,7 @@ Covariance uses the level design $Z$; see [Panel covariance](covariance.md). `co
 | Parameter | Default | Allowed / Constraint | Meaning |
 |---|---:|---|---|
 | `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `hac`, `driscoll-kraay`/`dk`/`kernel` | Covariance estimator. |
-| `alpha` | `0.05` | Significance level; `0.05` gives 95% confidence intervals. | Confidence-interval level control. |
+| `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
 | `bandwidth` | `None` | `None` or a non-negative integer | HAC/DK bandwidth. Legacy HAC caps the effective lag at $n-1$; DK uses the observed-period rule in [Panel covariance](covariance.md). |
 | `kernel` | `"bartlett"` | `hac` requires Bartlett; DK also accepts Parzen and QS aliases | HAC/DK kernel control. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
