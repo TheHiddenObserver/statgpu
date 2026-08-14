@@ -98,9 +98,13 @@ External-framework accuracy and physical backend precision are distinct validati
 |---|---|---|---|
 | HC primitives | `statsmodels==0.14.6` | HC2/HC3 on full-rank OLS fit space | `rtol=5e-12`, `atol=5e-14` |
 | Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased cluster; Bartlett/Parzen/QS weights and DK covariance; default bandwidth and `extra_df` | covariance `rtol=5e-12`, `atol=5e-14`; weights `rtol=5e-14`, `atol=5e-15` |
-| Estimator integration | `linearmodels==7.0`, `statsmodels==0.14.6` | PooledOLS, PanelOLS, RandomEffects fit-space covariance, BetweenOLS, FirstDifferenceOLS | coefficients typically `rtol=2e-10` or `5e-10`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| PooledOLS / PanelOLS integration | `linearmodels==7.0` | coefficients plus DK covariance/BSE; PooledOLS group-debiased cluster covariance | coefficient `rtol=2e-10`, `atol=2e-11`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| BetweenOLS / FirstDifferenceOLS integration | `statsmodels==0.14.6` | coefficients plus HC0/HC2/HC3 covariance/BSE on identical transformed fit spaces | coefficient `rtol=5e-10`, `atol=5e-12`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| RandomEffects fit-space integration | `linearmodels==7.0`, `statsmodels==0.14.6` | robust/HC2/HC3/DK covariance on statgpu's own Swamy-Arora $X^*,y^*$ fit space; no coefficient-parity claim | covariance `rtol=5e-9`, `atol=5e-11` |
 | R external gate | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance and one-way FE coefficients | covariance `rtol=5e-9`, `atol=5e-11`; FE coefficient `rtol=5e-10`, `atol=5e-11` |
 | Physical GPU | NumPy reference | 35 estimator cases + 12 public covariance primitives per CuPy/Torch backend | default `rtol=5e-6`, `atol=5e-7` |
+
+The no-FE level-OLS `PanelOLS` regression is also checked against `statsmodels==0.14.6`, including coefficients, covariance/BSE, $R^2$, adjusted $R^2$, and model F statistics.
 
 The ill-conditioned full-rank stress tests intentionally use scale-aware tolerances: HC0 against statsmodels uses `rtol=2e-6, atol=5e-3`, while stable HC2/HC3 leverage checks use `rtol=5e-11, atol=5e-3` because variances can exceed $10^{10}$.
 

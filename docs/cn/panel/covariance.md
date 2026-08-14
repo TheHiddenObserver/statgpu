@@ -98,9 +98,13 @@ public helpers 包括 `ols_covariance`、`clustered_covariance`、`two_way_clust
 |---|---|---|---|
 | HC primitives | `statsmodels==0.14.6` | full-rank OLS fit space 上的 HC2/HC3 | `rtol=5e-12`, `atol=5e-14` |
 | Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased cluster；Bartlett/Parzen/QS weights 与 DK covariance；default bandwidth 与 `extra_df` | covariance `rtol=5e-12`, `atol=5e-14`；weights `rtol=5e-14`, `atol=5e-15` |
-| Estimator integration | `linearmodels==7.0`, `statsmodels==0.14.6` | PooledOLS、PanelOLS、RandomEffects fit-space covariance、BetweenOLS、FirstDifferenceOLS | coefficient 通常为 `rtol=2e-10` 或 `5e-10`；covariance/BSE 为 `rtol=5e-9`, `atol=5e-11` |
+| PooledOLS / PanelOLS integration | `linearmodels==7.0` | coefficient、DK covariance/BSE，以及 PooledOLS group-debiased cluster covariance | coefficient `rtol=2e-10`, `atol=2e-11`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| BetweenOLS / FirstDifferenceOLS integration | `statsmodels==0.14.6` | 相同 transformed fit space 上的 coefficient 与 HC0/HC2/HC3 covariance/BSE | coefficient `rtol=5e-10`, `atol=5e-12`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| RandomEffects fit-space integration | `linearmodels==7.0`, `statsmodels==0.14.6` | statgpu 自身 Swamy-Arora $X^*,y^*$ fit space 上的 robust/HC2/HC3/DK covariance；不宣称 coefficient parity | covariance `rtol=5e-9`, `atol=5e-11` |
 | R external gate | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance 与单向 FE coefficient | covariance `rtol=5e-9`, `atol=5e-11`；FE coefficient `rtol=5e-10`, `atol=5e-11` |
 | Physical GPU | NumPy reference | 每个 CuPy/Torch backend 包含 35 个 estimator cases + 12 个 public covariance primitives | 默认 `rtol=5e-6`, `atol=5e-7` |
+
+no-FE level-OLS `PanelOLS` 还会与 `statsmodels==0.14.6` 比较 coefficient、covariance/BSE、$R^2$、adjusted $R^2$ 与 model F statistics。
 
 ill-conditioned full-rank stress test 使用与数值尺度相适应的 tolerance：HC0 对 statsmodels 为 `rtol=2e-6, atol=5e-3`；stable HC2/HC3 leverage 检查为 `rtol=5e-11, atol=5e-3`，因为 variance 可能超过 $10^{10}$。
 
