@@ -4,16 +4,20 @@
 > Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/models/panel.md)
 
-`statgpu.panel` provides six panel-data estimators. Use this page to choose a model, then follow the linked page for the model definition, parameters, formula examples, CPU/GPU usage, inference, and diagnostics.
+`statgpu.panel` provides six panel-data estimators. These estimators should not be read as six unrelated data-generating processes. Several of them can be applied to the same underlying panel model but use different assumptions or different sources of variation to identify the coefficient of interest.
 
-| Estimator | When to use it |
-|---|---|
-| [PanelOLS](../panel/panel-ols.md) | Linear panel regression with entity and/or time fixed effects. |
-| [RandomEffects](../panel/random-effects.md) | One-way random-intercept model using the Swamy-Arora estimator. |
-| [PooledOLS](../panel/pooled-ols.md) | One common OLS relationship for all stacked panel observations. |
-| [BetweenOLS](../panel/between-ols.md) | Regression of entity averages; focuses on differences between entities. |
-| [FirstDifferenceOLS](../panel/first-difference-ols.md) | Regression of within-entity changes between consecutive observed periods. |
-| [FamaMacBeth](../panel/fama-macbeth.md) | Separate cross-sectional regressions by period followed by coefficient averaging. |
+A useful way to distinguish them is:
+
+| Estimator | Statistical view | Main source of identification / extra condition |
+|---|---|---|
+| [PanelOLS](../panel/panel-ols.md) | Entity and/or time effects are fixed but unknown nuisance parameters. | Uses variation remaining after the selected fixed effects are removed; no orthogonality between the fixed effects and regressor history is required. |
+| [FirstDifferenceOLS](../panel/first-difference-ols.md) | The same fixed-parameter entity-effect model can be differenced to eliminate a time-invariant entity effect. | Uses within-entity changes between consecutive observed periods. |
+| [RandomEffects](../panel/random-effects.md) | The entity effect is modeled as a random component. | Classical RE interpretation requires the random effect to be orthogonal to the regressor history, for example $E(a_i\mid X_i)=0$. |
+| [BetweenOLS](../panel/between-ols.md) | Averages a panel model to one observation per entity. | Uses between-entity variation; recovering the same structural slope requires the averaged composite error to be orthogonal to the averaged regressors. |
+| [PooledOLS](../panel/pooled-ols.md) | One common conditional-mean relationship is fitted to all stacked observations. | Uses all stacked variation; the combined regression error must be exogenous with respect to the regressors. |
+| [FamaMacBeth](../panel/fama-macbeth.md) | Each time period has its own cross-sectional regression. | Targets the average of the retained period-specific slopes and bases uncertainty on their time-series variation. |
+
+Each estimator page separates the **statistical model and identification assumptions** from the **numerical estimator**. The assumptions describe when the reported coefficient has the usual panel-econometric interpretation; the software can evaluate an estimator mechanically even when those substantive assumptions are not credible in a particular application.
 
 Shared statistical definitions are collected in [covariance](../panel/covariance.md), [fit statistics](../panel/fit-statistics.md), and [diagnostics](../panel/diagnostics.md).
 
