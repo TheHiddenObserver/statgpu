@@ -1,7 +1,7 @@
 # RandomEffects
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/random-effects.md)
 
 ## Overview
@@ -88,7 +88,7 @@ HC0/1/2/3、clustered 与 Driscoll-Kraay 使用 [面板 covariance](covariance.m
 model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 ```
 
-`entity_ids` 必需；Driscoll-Kraay 需要 `time_ids`，clustered covariance 需要 `cluster`。Formula 保留正常 R/Patsy intercept；`0 +` 或 `-1` 表示 no-intercept random-effects model。
+`entity_ids` 必需；Driscoll-Kraay 需要 `time_ids`，clustered covariance 需要 `cluster`。
 
 ## CPU and GPU Example
 
@@ -101,6 +101,24 @@ torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
 ```
 
 显式 GPU 请求要求对应 backend 可用，不会静默 fallback 到 CPU。
+
+## Formula Example
+
+假设 `df` 包含 `y`、`x1`、`x2` 与 `entity` 列。
+
+```python
+from statgpu.panel import RandomEffects
+
+with_intercept = RandomEffects().fit(
+    formula="y ~ x1 + x2 | entity",
+    data=df,
+)
+
+without_intercept = RandomEffects().fit(
+    formula="y ~ 0 + x1 + x2 | entity",
+    data=df,
+)
+```
 
 ## Outputs
 

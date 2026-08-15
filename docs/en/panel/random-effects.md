@@ -1,7 +1,7 @@
 # RandomEffects
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/random-effects.md)
 
 ## Overview
@@ -88,7 +88,7 @@ HC0/1/2/3, clustered, and Driscoll-Kraay use [Panel covariance](covariance.md) w
 model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 ```
 
-`entity_ids` is required. Driscoll-Kraay requires `time_ids`; clustered covariance requires `cluster`. Formula input retains the normal R/Patsy intercept; `0 +` or `-1` requests a no-intercept random-effects model.
+`entity_ids` is required. Driscoll-Kraay requires `time_ids`; clustered covariance requires `cluster`.
 
 ## CPU and GPU Example
 
@@ -101,6 +101,24 @@ torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
 ```
 
 Explicit GPU requests require the requested backend and do not silently fall back to CPU.
+
+## Formula Example
+
+Assume `df` contains `y`, `x1`, `x2`, and `entity` columns.
+
+```python
+from statgpu.panel import RandomEffects
+
+with_intercept = RandomEffects().fit(
+    formula="y ~ x1 + x2 | entity",
+    data=df,
+)
+
+without_intercept = RandomEffects().fit(
+    formula="y ~ 0 + x1 + x2 | entity",
+    data=df,
+)
+```
 
 ## Outputs
 

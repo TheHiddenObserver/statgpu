@@ -1,7 +1,7 @@
 # PooledOLS
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/pooled-ols.md)
 
 ## Overview
@@ -42,7 +42,7 @@ Covariance uses the level design $Z$; see [Panel covariance](covariance.md). `co
 model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
 ```
 
-`cluster` is required for clustered covariance and `time_index` for Driscoll-Kraay. `entity_ids` enables standardized within/between $R^2$ and the Breusch-Pagan LM test. Formula input must retain the model intercept.
+`cluster` is required for clustered covariance and `time_index` for Driscoll-Kraay. `entity_ids` enables standardized within/between $R^2$ and the Breusch-Pagan LM test.
 
 ## CPU and GPU Example
 
@@ -55,6 +55,21 @@ torch = PooledOLS(device="torch").fit(X, y)
 ```
 
 Explicit GPU requests do not silently fall back to CPU.
+
+## Formula Example
+
+Assume `df` contains `y`, `x1`, and `x2` columns.
+
+```python
+from statgpu.panel import PooledOLS
+
+model = PooledOLS().fit(
+    formula="y ~ x1 + x2",
+    data=df,
+)
+```
+
+`PooledOLS` always includes an intercept, so explicit no-intercept formulas are rejected.
 
 ## Outputs
 

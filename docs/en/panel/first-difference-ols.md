@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/first-difference-ols.md)
 
 ## Overview
@@ -58,6 +58,23 @@ cpu = FirstDifferenceOLS(device="cpu").fit(X, y, entity_ids=entity_ids, time_ids
 cuda = FirstDifferenceOLS(device="cuda").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
 torch = FirstDifferenceOLS(device="torch").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
 ```
+
+## Formula Example
+
+Assume `df` contains `y`, `x1`, `x2`, `entity`, and `time` columns.
+
+```python
+from statgpu.panel import FirstDifferenceOLS
+
+model = FirstDifferenceOLS().fit(
+    formula="y ~ x1 + x2 - 1",
+    data=df,
+    entity_ids=df["entity"],
+    time_ids=df["time"],
+)
+```
+
+The formula omits the intercept because the maintained first-difference estimator fits the differenced design without one.
 
 ## Outputs
 

@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/first-difference-ols.md)
 
 ## Overview
@@ -58,6 +58,23 @@ cpu = FirstDifferenceOLS(device="cpu").fit(X, y, entity_ids=entity_ids, time_ids
 cuda = FirstDifferenceOLS(device="cuda").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
 torch = FirstDifferenceOLS(device="torch").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
 ```
+
+## Formula Example
+
+假设 `df` 包含 `y`、`x1`、`x2`、`entity` 与 `time` 列。
+
+```python
+from statgpu.panel import FirstDifferenceOLS
+
+model = FirstDifferenceOLS().fit(
+    formula="y ~ x1 + x2 - 1",
+    data=df,
+    entity_ids=df["entity"],
+    time_ids=df["time"],
+)
+```
+
+这里显式去掉 intercept，因为当前 first-difference estimator 在 differenced design 上不估计截距。
 
 ## Outputs
 

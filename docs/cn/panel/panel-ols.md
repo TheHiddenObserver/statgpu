@@ -1,7 +1,7 @@
 # PanelOLS
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/panel-ols.md)
 
 ## Overview
@@ -62,8 +62,6 @@ $$
 model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
 ```
 
-Formula 可使用 additive `EntityEffects` / `TimeEffects` token 或 pipe fixed-effect syntax，但不能混用。无 fixed effects 时普通 formula intercept 会保留，`0 +` / `-1` 表示 no-intercept level regression；有 fixed effects 时公共 intercept 被 effect space 吸收。
-
 ## CPU and GPU Example
 
 ```python
@@ -76,13 +74,41 @@ torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entit
 
 `cuda` 需要 CuPy/CUDA，`torch` 需要 Torch CUDA；显式 GPU 请求不会静默 fallback 到 CPU。
 
+## Formula Example
+
+假设 `df` 包含 `y`、`x1`、`x2`、`entity` 与 `time` 列。
+
+```python
+from statgpu.panel import PanelOLS
+
+# 使用 pipe syntax 的双向 fixed effects。
+two_way = PanelOLS().fit(
+    formula="y ~ x1 + x2 | entity + time",
+    data=df,
+)
+
+# 使用 effect token 表示相同的 fixed-effect structure。
+two_way_tokens = PanelOLS().fit(
+    formula="y ~ x1 + x2 + EntityEffects + TimeEffects",
+    data=df,
+)
+
+# 无截距的普通 level regression。
+level_no_intercept = PanelOLS().fit(
+    formula="y ~ 0 + x1 + x2",
+    data=df,
+)
+```
+
+fixed effects 可使用 pipe syntax 或 effect token，但同一个 formula 中不能混用；pipe syntax 最多接受两个 fixed-effect variables。
+
 ## Outputs
 
 常用 public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared_within`、`fit_statistics_`、`nobs` 与 `df_resid`。`summary()` 返回 panel summary。Pooling F 与 Hausman 见 [面板 diagnostics](diagnostics.md)。
 
 ## Numerical and Strict Behavior
 
-不存在 silent approximate-inference fallback。精确 rank deficient 时保留 fit-space quantities，但 coefficient coordinate inference 不可用，见 [面板 covariance](covariance.md)。双向 stored-effect prediction 要求 entity/time labels 已识别且属于同一个 fitted incidence component；单边、known-plus-unknown 与 cross-component 组合 fail closed；若两个 label 都未见过，则使用 linear-only fallback。
+不存在 silent approximate-inference fallback。精确 rank deficient 时保留 fit-space quantities，但 coefficient coordinate inference 不可用，见 [面板 covariance](covariance.md)。双向 stored-effect prediction 要求 entity/time labels 已识别且属于同一个 fitted incidence component；单边、known-plus-unknown 与 cross-component 组合 fail closed；若两个 label 都未见过，则使用 linear-only fallback。Formula parsing 也会 fail closed：不能混用 pipe 与 effect-token syntax，不能通过 pipe 指定超过两个 fixed effects，fixed-effect formula 也不能只包含 effects 而没有 non-intercept regressor。
 
 ## FAQ
 

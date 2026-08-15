@@ -1,7 +1,7 @@
 # PooledOLS
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/pooled-ols.md)
 
 ## Overview
@@ -42,7 +42,7 @@ covariance 使用 level design $Z$，见 [面板 covariance](covariance.md)。`c
 model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
 ```
 
-clustered covariance 需要 `cluster`；Driscoll-Kraay 需要 `time_index`。`entity_ids` 用于 standardized within/between $R^2$ 与 Breusch-Pagan LM。Formula 必须保留模型截距。
+clustered covariance 需要 `cluster`；Driscoll-Kraay 需要 `time_index`。`entity_ids` 用于 standardized within/between $R^2$ 与 Breusch-Pagan LM。
 
 ## CPU and GPU Example
 
@@ -55,6 +55,21 @@ torch = PooledOLS(device="torch").fit(X, y)
 ```
 
 显式 GPU 请求不会静默 fallback 到 CPU。
+
+## Formula Example
+
+假设 `df` 包含 `y`、`x1` 与 `x2` 列。
+
+```python
+from statgpu.panel import PooledOLS
+
+model = PooledOLS().fit(
+    formula="y ~ x1 + x2",
+    data=df,
+)
+```
+
+`PooledOLS` 始终包含截距，因此显式 no-intercept formula 会被拒绝。
 
 ## Outputs
 

@@ -1,7 +1,7 @@
 # FamaMacBeth
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/fama-macbeth.md)
 
 ## Overview
@@ -100,6 +100,20 @@ from statgpu.panel import FamaMacBeth
 cpu = FamaMacBeth(device="cpu").fit(X, y, time_ids=time_ids)
 cuda = FamaMacBeth(device="cuda").fit(X, y, time_ids=time_ids)
 torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
+```
+
+## Formula Example
+
+Assume `df` contains `y`, `x1`, `x2`, and `time` columns.
+
+```python
+from statgpu.panel import FamaMacBeth
+
+model = FamaMacBeth().fit(
+    formula="y ~ x1 + x2",
+    data=df,
+    time_ids=df["time"],
+)
 ```
 
 ## Outputs

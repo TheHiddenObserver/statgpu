@@ -1,7 +1,7 @@
 # BetweenOLS
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/between-ols.md)
 
 ## Overview
@@ -47,7 +47,7 @@ Covariance is computed on the entity-mean fit space. Nonrobust and HC0/1/2/3 are
 model.fit(X, y, entity_ids=entity_ids)
 ```
 
-`entity_ids` is required. The model always includes an intercept; explicit no-intercept formulas are rejected.
+`entity_ids` is required.
 
 ## CPU and GPU Example
 
@@ -58,6 +58,22 @@ cpu = BetweenOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
 cuda = BetweenOLS(device="cuda").fit(X, y, entity_ids=entity_ids)
 torch = BetweenOLS(device="torch").fit(X, y, entity_ids=entity_ids)
 ```
+
+## Formula Example
+
+Assume `df` contains `y`, `x1`, `x2`, and `entity` columns.
+
+```python
+from statgpu.panel import BetweenOLS
+
+model = BetweenOLS().fit(
+    formula="y ~ x1 + x2",
+    data=df,
+    entity_ids=df["entity"],
+)
+```
+
+`BetweenOLS` always includes an intercept; explicit no-intercept formulas are rejected.
 
 ## Outputs
 

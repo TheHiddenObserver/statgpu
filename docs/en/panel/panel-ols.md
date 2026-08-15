@@ -1,7 +1,7 @@
 # PanelOLS
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/panel-ols.md)
 
 ## Overview
@@ -62,8 +62,6 @@ where $C$ is the number of connected components of the observed entity-time inci
 model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
 ```
 
-Formula input supports additive `EntityEffects` / `TimeEffects` tokens or pipe fixed-effect syntax, but not both. With no fixed effects, the normal formula intercept is retained and `0 +` / `-1` requests a no-intercept level regression; with fixed effects, the common intercept is absorbed by the effect space.
-
 ## CPU and GPU Example
 
 ```python
@@ -76,13 +74,41 @@ torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entit
 
 `cuda` requires CuPy/CUDA and `torch` requires Torch CUDA; explicit GPU requests do not silently fall back to CPU.
 
+## Formula Example
+
+Assume `df` contains `y`, `x1`, `x2`, `entity`, and `time` columns.
+
+```python
+from statgpu.panel import PanelOLS
+
+# Two-way fixed effects with pipe syntax.
+two_way = PanelOLS().fit(
+    formula="y ~ x1 + x2 | entity + time",
+    data=df,
+)
+
+# The same fixed-effect structure with effect tokens.
+two_way_tokens = PanelOLS().fit(
+    formula="y ~ x1 + x2 + EntityEffects + TimeEffects",
+    data=df,
+)
+
+# Ordinary level regression without an intercept.
+level_no_intercept = PanelOLS().fit(
+    formula="y ~ 0 + x1 + x2",
+    data=df,
+)
+```
+
+Use either pipe syntax or effect tokens for fixed effects, not both. Pipe syntax accepts at most two fixed-effect variables.
+
 ## Outputs
 
 Common public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared_within`, `fit_statistics_`, `nobs`, and `df_resid`. `summary()` returns the panel summary object. Pooling F and Hausman are described in [Panel diagnostics](diagnostics.md).
 
 ## Numerical and Strict Behavior
 
-There is no silent approximate-inference fallback. Exact rank deficiency keeps fitted-space quantities but makes coordinate-wise coefficient inference unavailable; see [Panel covariance](covariance.md). Two-way stored-effect prediction requires identified entity/time labels in the same fitted incidence component: one-sided, known-plus-unknown, and cross-component combinations fail closed; if both labels are unseen, prediction uses the linear-only fallback.
+There is no silent approximate-inference fallback. Exact rank deficiency keeps fitted-space quantities but makes coordinate-wise coefficient inference unavailable; see [Panel covariance](covariance.md). Two-way stored-effect prediction requires identified entity/time labels in the same fitted incidence component: one-sided, known-plus-unknown, and cross-component combinations fail closed; if both labels are unseen, prediction uses the linear-only fallback. Formula parsing also fails closed when pipe and effect-token syntax are mixed, more than two pipe fixed effects are requested, or a fixed-effect formula has no non-intercept regressor.
 
 ## FAQ
 
