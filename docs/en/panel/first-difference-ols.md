@@ -6,15 +6,39 @@
 
 ## Overview
 
-`FirstDifferenceOLS` removes time-invariant entity effects by subtracting each entity's previous **observed** value from its current observed value. It then regresses the differenced outcome on the differenced predictors without an intercept.
+`FirstDifferenceOLS` removes a time-invariant entity effect by subtracting each entity's previous **observed** value from its current observed value. It then regresses the differenced outcome on the differenced predictors without an intercept.
 
-This model is useful when identification comes from changes within an entity over time rather than differences in levels across entities.
+This estimator can be applied to the same one-way fixed-parameter entity-effect model as a fixed-effects estimator; the difference is the transformation used to eliminate the entity effect.
 
 ## Path
 
 Implementation: `statgpu/panel/_first_diff.py`.
 
-## Objective and Estimator
+## Statistical Model and Identification
+
+Start from the one-way fixed-parameter panel model
+
+$$
+y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it},
+$$
+
+where $a_i$ is a fixed but unknown time-invariant entity effect. As with the fixed-effects model, $a_i$ need not be orthogonal to the regressor history. A common sufficient exogeneity condition for a static model is
+
+$$
+E\!\left(\varepsilon_{it}\mid X_i,a_i\right)=0,
+\qquad
+X_i=(x_{i1},\ldots,x_{iT_i}).
+$$
+
+Taking first differences removes $a_i$ exactly:
+
+$$
+\Delta y_{it}=\Delta x_{it}^{\top}\beta+\Delta\varepsilon_{it}.
+$$
+
+The slope is therefore identified from within-entity changes. A regressor that is constant over time within an entity differences to zero and cannot identify a slope in this specification. A common intercept in the level model is also removed by differencing, which is why the final regression has no intercept.
+
+## Estimator
 
 For consecutive observed periods within entity $i$,
 
@@ -37,6 +61,8 @@ Here $t^-$ means the previous **observed** time for that entity. Missing calenda
 ## Covariance and Inference
 
 Standard errors are computed from the differenced regression $(\Delta y,\Delta X)$. Supported choices are nonrobust and HC0/HC1/HC2/HC3; see [Panel covariance](covariance.md).
+
+Changing the covariance estimator changes uncertainty for the differenced regression; it does not replace the exogeneity condition needed for the usual first-difference interpretation of $\beta$.
 
 ## Parameters
 

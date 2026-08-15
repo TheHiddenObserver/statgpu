@@ -6,13 +6,39 @@
 
 ## Overview
 
-`FamaMacBeth` fits a separate cross-sectional regression in each time period and then averages the period-specific coefficient estimates. This is different from the other panel estimators on these pages: its standard errors are based on how the estimated coefficients vary **across time**, not on one pooled residual covariance matrix.
+`FamaMacBeth` fits a separate cross-sectional regression in each time period and then averages the period-specific coefficient estimates. This is different from the other panel estimators on these pages: its target is an average cross-sectional slope, and its standard errors are based on how the estimated slopes vary **across time**.
 
 ## Path
 
 Implementation: `statgpu/panel/_fama_macbeth.py`.
 
-## Objective and Estimator
+## Statistical Model and Target
+
+A natural period-specific model is
+
+$$
+y_{it}=\alpha_t+x_{it}^{\top}\beta_t+\varepsilon_{it},
+$$
+
+where both the intercept and slope may vary by period. For the usual cross-sectional regression interpretation, a common sufficient condition within each period is
+
+$$
+E(\varepsilon_{it}\mid x_{it},t)=0,
+$$
+
+or, more generally, the corresponding cross-sectional orthogonality condition that defines $\beta_t$ as the period-$t$ linear projection coefficient.
+
+For the $T$ periods retained by the estimator, the direct target is the equally weighted retained-period average
+
+$$
+\beta_{\mathrm{FM}}=\frac{1}{T}\sum_{t=1}^{T}\beta_t.
+$$
+
+No probability model for the sequence $\{\beta_t\}$ is needed to define this target. If the retained periods are additionally viewed as draws from a time superpopulation, the same average can be given a population interpretation such as $E_t(\beta_t)$ under the corresponding sampling assumptions. The constant-slope model $\beta_t\equiv\beta$ is a special case.
+
+This coefficient interpretation presumes that each period-specific coefficient vector is identified by its cross-sectional design. The implementation filters periods by observation count and uses a numerical solve or Moore-Penrose solution as needed; if a retained period's design is rank deficient, a numerical coefficient vector still exists but its individual coordinates are not uniquely identified.
+
+## Estimator
 
 For each retained period, let $X_t$ denote the intercept-augmented period design. Then
 
@@ -24,14 +50,14 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-A period is used only when it meets `min_obs_per_period` and has enough observations to estimate that period's regression. The final coefficient is the simple average over the retained periods.
+A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The final coefficient is the simple average over the retained period estimates.
 
 ## Covariance and Inference
 
 Define the deviation of each period estimate from the final average as
 
 $$
-u_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}.
+\nu_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}.
 $$
 
 With `cov_type="nonrobust"`,

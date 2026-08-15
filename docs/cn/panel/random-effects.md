@@ -6,7 +6,7 @@
 
 ## Overview
 
-`RandomEffects` 使用 Swamy-Arora 方法估计单向 random-intercept model 的 variance components，再通过 feasible GLS 得到 coefficient。与 fixed effects 不同，它把 entity-specific effect 看作随机成分，而不是为每个 entity 单独估计一个固定截距。
+`RandomEffects` 使用 Swamy-Arora 方法估计单向 random-intercept panel model 的 variance components，再通过 feasible GLS 得到 coefficient。与 fixed effects 不同，它把 entity-specific effect 建模为随机成分，而不是为每个 entity 设置一个 unrestricted fixed parameter。
 
 `cov_type` 只改变 GLS 拟合之后报告的 standard error 和检验，不会改变 Swamy-Arora variance components，也不会改变 coefficient estimate。
 
@@ -14,15 +14,44 @@
 
 实现：`statgpu/panel/_random_effects.py`。
 
-## Model and Estimator
+## Statistical Model and Identification
+
+标准的 one-way random-effects model 可以写成
 
 $$
 y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it},
+$$
+
+其中 $x_{it}$ 可以包含常数项。这里的 entity effect $a_i$ 是随机变量，而不是 fixed nuisance parameter。经典 error-components interpretation 使用
+
+$$
+E(a_i)=0,
 \qquad
 \operatorname{Var}(a_i)=\sigma_a^2,
 \qquad
 \operatorname{Var}(\varepsilon_{it})=\sigma_e^2.
 $$
+
+与 fixed effects 最关键的区别，是 random effect 需要满足与 regressors 的正交条件。一个常见的充分条件是
+
+$$
+E(a_i\mid X_i)=0,
+\qquad
+E(\varepsilon_{it}\mid X_i,a_i)=0,
+$$
+
+其中 $X_i=(x_{i1},\ldots,x_{iT_i})$。经典 one-way error-components covariance structure 还把同一 entity 内不同时间的 idiosyncratic errors 看作 serially uncorrelated，例如
+
+$$
+\operatorname{Cov}(\varepsilon_{it},\varepsilon_{is}\mid X_i)=0,
+\qquad t\ne s,
+$$
+
+并要求 random effect 与 idiosyncratic error 正交。这些条件给出了标准 random-intercept covariance structure，也是 Swamy-Arora variance-component transformation 的经典出发点。
+
+在这个统计模型下，within-entity 和 between-entity variation 都可以用于估计同一个公共 slope $\beta$。如果 $a_i$ 与 regressor history 存在系统性关系，random-effects GLS 在数值上仍然可以计算，但其 coefficient 一般不再保证识别与 fixed-effects estimator 相同的 structural $\beta$。这也是 classical FE-versus-RE Hausman comparison 背后的实质区别。
+
+## Estimator
 
 Swamy-Arora 先估计
 
@@ -75,6 +104,8 @@ $$
 $$
 
 其中 $e^*=y^*-X^*\widehat\beta_{\mathrm{RE}}$。HC0/1/2/3、clustered 与 Driscoll-Kraay 也都在同一个 transformed regression 上计算；见 [面板 covariance](covariance.md)。
+
+robust covariance 可以放宽**完成 GLS transformation 以后所报告 covariance** 的部分假设，但不会改变 Swamy-Arora transformation 本身，也不能消除 usual random-effects interpretation 对 $E(a_i\mid X_i)=0$ 的要求。如果该 mean-model orthogonality 失效，换用 robust standard error 并不会自动解决 coefficient 的识别问题。
 
 ## Parameters
 

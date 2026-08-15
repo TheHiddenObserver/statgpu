@@ -6,15 +6,39 @@
 
 ## Overview
 
-`FirstDifferenceOLS` 对同一 entity 的相邻**已观测**时期做一阶差分，用当前值减去上一条已观测值，从而消除不随时间变化的 entity effect；随后对差分后的 outcome 和 predictors 做无截距 OLS。
+`FirstDifferenceOLS` 对同一 entity 的相邻**已观测**时期做一阶差分，用当前值减去上一条已观测值，从而消除 time-invariant entity effect；随后对差分后的 outcome 和 predictors 做无截距 OLS。
 
-它适合利用“同一 entity 随时间发生的变化”来识别 coefficient，而不是依赖不同 entity 之间的 level 差异。
+它可以和 fixed-effects estimator 从同一个 one-way fixed-parameter entity-effect model 出发；两者的区别在于使用什么 transformation 来消除 entity effect。
 
 ## Path
 
 实现：`statgpu/panel/_first_diff.py`。
 
-## Objective and Estimator
+## Statistical Model and Identification
+
+从 one-way fixed-parameter panel model 出发：
+
+$$
+y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it},
+$$
+
+其中 $a_i$ 是 fixed but unknown、且不随时间变化的 entity effect。与 fixed-effects model 一样，不要求 $a_i$ 与 regressor history 正交。对于 static model，一个常见的充分外生性条件是
+
+$$
+E\!\left(\varepsilon_{it}\mid X_i,a_i\right)=0,
+\qquad
+X_i=(x_{i1},\ldots,x_{iT_i}).
+$$
+
+做一阶差分后，$a_i$ 被精确消除：
+
+$$
+\Delta y_{it}=\Delta x_{it}^{\top}\beta+\Delta\varepsilon_{it}.
+$$
+
+因此 slope 由同一 entity 内随时间发生的变化识别。一个在 entity 内始终不变的 regressor 差分后恒为 0，无法在该 specification 中识别 slope。level model 中的公共 intercept 也会被差分消掉，所以最终回归不估计 intercept。
+
+## Estimator
 
 对 entity $i$ 内相邻的已观测时期，
 
@@ -37,6 +61,8 @@ $$
 ## Covariance and Inference
 
 standard error 基于差分后的回归 $(\Delta y,\Delta X)$ 计算。支持 nonrobust 以及 HC0/HC1/HC2/HC3；统一公式见 [面板 covariance](covariance.md)。
+
+改变 covariance estimator 只改变 differenced regression 的 uncertainty，并不能替代将 $\beta$ 解释为基础 panel model slope 时所需的外生性条件。
 
 ## Parameters
 

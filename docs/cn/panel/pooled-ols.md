@@ -6,7 +6,7 @@
 
 ## Overview
 
-`PooledOLS` 把所有 panel observation 直接堆叠起来，拟合一个具有公共截距和公共斜率的普通线性回归。它**不会**去除 entity effect 或 time effect，因此适用于本来就希望所有观测共享同一条回归关系的场景。
+`PooledOLS` 把所有 panel observation 直接堆叠起来，拟合一个具有公共截距和公共斜率的普通线性回归。它**不会**去除 entity effect 或 time effect，因此适用于本来就希望所有观测共享同一个 pooled conditional-mean relationship 的场景。
 
 `entity_ids` 是可选的：提供它不会改变 coefficient estimate，但可以额外计算 panel-specific fit statistics，并启用 Breusch-Pagan LM diagnostic。
 
@@ -14,7 +14,33 @@
 
 实现：`statgpu/panel/_pooled.py`。
 
-## Objective and Estimator
+## Statistical Model and Identification
+
+Pooled linear model 可以写成
+
+$$
+y_{it}=\alpha+x_{it}^{\top}\beta+u_{it}.
+$$
+
+要把 $\beta$ 解释为 pooled conditional-mean slope，一个常见的充分条件是
+
+$$
+E(u_{it}\mid X_i)=0,
+$$
+
+其中 $X_i=(x_{i1},\ldots,x_{iT_i})$。因此，任何没有显式建模的 entity 或 time heterogeneity 都会被并入 composite error $u_{it}$。
+
+例如，如果真实数据满足
+
+$$
+y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it},
+$$
+
+那么 pooled OLS 并不会消除 $a_i$。若希望仍然识别同一个 structural $\beta$，combined error $a_i+\varepsilon_{it}$ 必须与 regressors 正交。如果 entity heterogeneity 与 regressor history 相关，pooled OLS 一般不会识别与 fixed-effects estimator 相同的 slope。
+
+HC、clustered、HAC 或 Driscoll-Kraay 等 covariance choice 只改变 uncertainty 的计算方式，不能修复 mean model 中外生性条件失效造成的识别问题。
+
+## Estimator
 
 令 $Z=[\mathbf 1,X]$，则
 

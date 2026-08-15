@@ -14,7 +14,33 @@ Because every retained entity contributes one averaged observation, the effectiv
 
 Implementation: `statgpu/panel/_between.py`.
 
-## Objective and Estimator
+## Statistical Model and Identification
+
+The algebra of the between transformation can be seen by starting from the one-way entity-effect equation
+
+$$
+y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it}.
+$$
+
+Averaging over time within entity gives
+
+$$
+\bar y_i=\alpha+\bar x_i^{\top}\beta+a_i+\bar\varepsilon_i.
+$$
+
+If $a_i$ is treated as an unrestricted fixed parameter, as in the classical fixed-effects formulation, averaging does **not** eliminate it. Therefore the fixed-parameter model alone does not justify interpreting the between-regression slope as the same structural $\beta$.
+
+To give the between slope a population interpretation across entities, one typically adds a superpopulation or cross-sectional moment assumption. For example, if $(a_i,\bar x_i,\bar\varepsilon_i)$ are viewed as varying randomly across entities, a common sufficient condition is
+
+$$
+E\!\left(a_i+\bar\varepsilon_i\mid \bar x_i\right)=0.
+$$
+
+A weaker route, sufficient for identifying the corresponding linear-projection slope, is to impose the relevant orthogonality moment directly, for example $E[\bar x_i(a_i+\bar\varepsilon_i)]=0$ after handling the intercept. Under such an additional restriction, the between regression can recover the same $\beta$ in the underlying panel equation.
+
+If persistent entity heterogeneity is related to the entity's average regressors, `BetweenOLS` still estimates the cross-sectional linear projection of $\bar y_i$ on $\bar x_i$, but that projection generally differs from the fixed-effects or first-difference slope.
+
+## Estimator
 
 For entity $i$,
 
@@ -37,6 +63,8 @@ In other words, the original panel is reduced to an ordinary cross-sectional reg
 ## Covariance and Inference
 
 Standard errors are computed from that entity-mean regression. `cov_type="nonrobust"` uses the usual homoskedastic OLS covariance; `robust`/`hc1` and HC0/HC2/HC3 provide heteroskedasticity-consistent alternatives. The shared formulas are given in [Panel covariance](covariance.md).
+
+These covariance choices change inference for the between regression; they do not replace the orthogonality condition needed to interpret its slope as the structural $\beta$ from the underlying panel model.
 
 ## Parameters
 

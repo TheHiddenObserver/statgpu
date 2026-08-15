@@ -6,21 +6,35 @@
 
 ## Overview
 
-`PanelOLS` 可以拟合无 fixed effects、单向 fixed effects 或双向 fixed effects 的线性面板回归。加入 fixed effects 后，coefficient 主要由“去除相应 entity/time 平均水平之后仍剩下的变动”来识别。
+`PanelOLS` 可以拟合无 fixed effects、单向 fixed effects 或双向 fixed effects 的线性面板回归。加入 fixed effects 后，coefficient 由去除所选 entity 和/或 time effects 后仍然存在的 variation 来识别。
 
-实现时 statgpu 直接对数据做相应的去均值变换，而不是显式生成大量 dummy columns；统计含义仍然是通常的 fixed-effect regression。
+实现时 statgpu 直接对数据做相应变换，而不是显式生成大量 dummy columns。这只改变数值实现方式，不改变 fixed-effects model 的统计含义。
 
 ## Path
 
 实现：`statgpu/panel/_fixed_effects.py`。
 
-## Model and Objective
+## Statistical Model and Identification
 
-对 entity 与 time effects，
+对于 entity 与 time fixed effects，经典 fixed-parameter model 写为
 
 $$
-y_{it}=x_{it}^{\top}\beta+\alpha_i+\gamma_t+\varepsilon_{it}.
+y_{it}=x_{it}^{\top}\beta+a_i+\gamma_t+\varepsilon_{it}.
 $$
+
+这里的 $a_i$ 与 $\gamma_t$ 是 **fixed but unknown nuisance parameters**。它们不需要来自某个概率分布，fixed-effects model 也不要求这些 nuisance effects 与 regressor history $X_i=(x_{i1},\ldots,x_{iT_i})$ 正交。
+
+对于 static linear panel model，一个常见的充分外生性条件是
+
+$$
+E\!\left(\varepsilon_{it}\mid X_i,a_i,\gamma_1,\ldots,\gamma_T\right)=0.
+$$
+
+在 fixed-parameter formulation 下，这里的条件期望理解为给定已经包含在模型中的 fixed effects。核心限制因此落在 idiosyncratic error $\varepsilon_{it}$ 上，而不是要求 $a_i$ 与 regressors 独立或不相关。
+
+$\beta$ 只能由去除 fixed effects 后仍然存在的 regressor variation 识别。例如，在 entity fixed effects 下，完全不随时间变化的 regressor 会被 entity effect 吸收，因此无法单独识别其 slope。当 `entity_effects=False` 且 `time_effects=False` 时，模型退化为普通 level regression，此时上面的 fixed-effects interpretation 不再适用。
+
+## Estimator
 
 令 $F$ 为包含的 fixed-effect design，$M_F=I-F(F^\top F)^+F^\top$。则
 
@@ -30,7 +44,7 @@ $$
 =(X^\top M_FX)^+X^\top M_Fy.
 $$
 
-只有 entity fixed effects 时，这就是通常的 within demeaning。双向 fixed effects 时，statgpu 会反复去除 entity mean 与 time mean，直到满足 `demean_tol`。如果在 `demean_max_iter` 次迭代内仍未收敛，`.fit()` 会直接报错，而不是返回尚未充分去均值的近似结果。
+只有 entity fixed effects 时，这就是通常的 within-entity demeaning。双向 fixed effects 时，statgpu 会反复去除 entity mean 与 time mean，直到满足 `demean_tol`。如果在 `demean_max_iter` 次迭代内仍未收敛，`.fit()` 会直接报错，而不是返回尚未充分去均值的近似结果。
 
 ## Covariance and Inference
 

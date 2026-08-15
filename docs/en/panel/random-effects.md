@@ -6,7 +6,7 @@
 
 ## Overview
 
-`RandomEffects` fits a one-way random-intercept panel model using the Swamy-Arora variance-component estimator followed by feasible GLS. The model treats the entity-specific effect as a random component rather than estimating a separate fixed intercept for every entity.
+`RandomEffects` fits a one-way random-intercept panel model using the Swamy-Arora variance-component estimator followed by feasible GLS. Unlike fixed effects, the entity-specific effect is modeled as a random component rather than as one unrestricted fixed parameter per entity.
 
 The chosen `cov_type` changes the reported standard errors and tests after the GLS fit; it does not change the Swamy-Arora variance components or the coefficient estimate.
 
@@ -14,15 +14,44 @@ The chosen `cov_type` changes the reported standard errors and tests after the G
 
 Implementation: `statgpu/panel/_random_effects.py`.
 
-## Model and Estimator
+## Statistical Model and Identification
+
+A standard one-way random-effects model is
 
 $$
 y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it},
+$$
+
+where $x_{it}$ may include a constant. The entity effect $a_i$ is now a random variable rather than a fixed nuisance parameter. The classical error-components interpretation uses
+
+$$
+E(a_i)=0,
 \qquad
 \operatorname{Var}(a_i)=\sigma_a^2,
 \qquad
 \operatorname{Var}(\varepsilon_{it})=\sigma_e^2.
 $$
+
+A key distinction from fixed effects is the orthogonality restriction on the random effect. A common sufficient condition is
+
+$$
+E(a_i\mid X_i)=0,
+\qquad
+E(\varepsilon_{it}\mid X_i,a_i)=0,
+$$
+
+where $X_i=(x_{i1},\ldots,x_{iT_i})$. The classical one-way error-components covariance structure additionally treats the idiosyncratic errors as serially uncorrelated within entity, for example
+
+$$
+\operatorname{Cov}(\varepsilon_{it},\varepsilon_{is}\mid X_i)=0,
+\qquad t\ne s,
+$$
+
+with the random effect orthogonal to the idiosyncratic error. These assumptions produce the familiar random-intercept covariance structure that motivates the Swamy-Arora variance-component transformation.
+
+Under this interpretation, both within-entity and between-entity variation can be used to estimate the common slope $\beta$. If $a_i$ is systematically related to the regressor history, the random-effects GLS calculation can still be carried out numerically, but its coefficient generally need not identify the same structural $\beta$ as a fixed-effects estimator. This is the substantive distinction behind the classical FE-versus-RE Hausman comparison.
+
+## Estimator
 
 Swamy-Arora first estimates
 
@@ -75,6 +104,8 @@ $$
 $$
 
 where $e^*=y^*-X^*\widehat\beta_{\mathrm{RE}}$. HC0/1/2/3, clustered, and Driscoll-Kraay alternatives use the same transformed regression; see [Panel covariance](covariance.md).
+
+Robust covariance choices can relax assumptions used to estimate the **reported covariance after the GLS transformation**, but they do not change the Swamy-Arora transformation itself and do not remove the mean-model orthogonality condition $E(a_i\mid X_i)=0$ needed for the usual random-effects interpretation of $\beta$.
 
 ## Parameters
 

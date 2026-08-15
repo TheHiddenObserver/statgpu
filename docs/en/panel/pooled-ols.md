@@ -6,7 +6,7 @@
 
 ## Overview
 
-`PooledOLS` stacks all panel observations and fits one ordinary linear regression with a common intercept and common slopes. It does **not** remove entity or time effects, so it is appropriate when a single pooled relationship is the intended model.
+`PooledOLS` stacks all panel observations and fits one ordinary linear regression with a common intercept and common slopes. It does **not** remove entity or time effects, so it is appropriate when a single pooled conditional-mean relationship is the intended model.
 
 `entity_ids` is optional: supplying it does not change the coefficient estimates, but it enables panel-specific fit statistics and the Breusch-Pagan LM diagnostic.
 
@@ -14,7 +14,33 @@
 
 Implementation: `statgpu/panel/_pooled.py`.
 
-## Objective and Estimator
+## Statistical Model and Identification
+
+The pooled linear model can be written as
+
+$$
+y_{it}=\alpha+x_{it}^{\top}\beta+u_{it}.
+$$
+
+A common sufficient condition for interpreting $\beta$ as the pooled conditional-mean slope is
+
+$$
+E(u_{it}\mid X_i)=0,
+$$
+
+where $X_i=(x_{i1},\ldots,x_{iT_i})$. The model therefore treats any unmodeled entity or time heterogeneity as part of the composite error $u_{it}$.
+
+For example, if the underlying data satisfy
+
+$$
+y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it},
+$$
+
+then pooled OLS does not remove $a_i$. To recover the same structural $\beta$, the combined error $a_i+\varepsilon_{it}$ must still be orthogonal to the regressors. If entity heterogeneity is correlated with the regressor history, pooled OLS generally does not identify the same slope as a fixed-effects estimator.
+
+Covariance choices such as HC, clustering, HAC, or Driscoll-Kraay change how uncertainty is estimated; they do not repair a failure of this mean-model exogeneity condition.
+
+## Estimator
 
 With $Z=[\mathbf 1,X]$,
 

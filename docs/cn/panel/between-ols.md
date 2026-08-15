@@ -14,7 +14,33 @@
 
 实现：`statgpu/panel/_between.py`。
 
-## Objective and Estimator
+## Statistical Model and Identification
+
+Between transformation 的代数关系可以从 one-way entity-effect equation 出发：
+
+$$
+y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it}.
+$$
+
+在 entity 内对时间取平均后，得到
+
+$$
+\bar y_i=\alpha+\bar x_i^{\top}\beta+a_i+\bar\varepsilon_i.
+$$
+
+如果像经典 fixed-effects formulation 那样把 $a_i$ 看成 unrestricted fixed parameter，那么取平均并**不会**消除它。因此，仅仅依靠 fixed-parameter model 本身，并不能推出 between regression 的 slope 就等于同一个 structural $\beta$。
+
+要给 between slope 一个跨 entity 的 population interpretation，通常还需要额外采用 superpopulation 或 cross-sectional moment assumption。例如，把 $(a_i,\bar x_i,\bar\varepsilon_i)$ 看成在 entities 之间随机变化时，一个常见的充分条件是
+
+$$
+E\!\left(a_i+\bar\varepsilon_i\mid \bar x_i\right)=0.
+$$
+
+更弱地，如果只需要识别相应的 linear-projection slope，也可以直接施加对应的正交矩条件，例如在处理 intercept 后要求 $E[\bar x_i(a_i+\bar\varepsilon_i)]=0$。在这样的额外限制下，between regression 才可以恢复基础 panel equation 中相同的 $\beta$。
+
+如果 persistent entity heterogeneity 与该 entity 的 average regressors 相关，`BetweenOLS` 在数值上仍然是在估计 $\bar y_i$ 对 $\bar x_i$ 的横截面 linear projection，但这个 projection 一般不会等于 fixed-effects 或 first-difference slope。
+
+## Estimator
 
 对 entity $i$，
 
@@ -37,6 +63,8 @@ $$
 ## Covariance and Inference
 
 标准误直接基于这个 entity-mean 回归计算。`cov_type="nonrobust"` 使用通常的同方差 OLS covariance；`robust`/`hc1` 以及 HC0/HC2/HC3 提供异方差稳健版本。统一公式见 [面板 covariance](covariance.md)。
+
+这些 covariance choice 只改变 between regression 的 inference，并不能替代将其 slope 解释为基础 panel model structural $\beta$ 时所需的正交条件。
 
 ## Parameters
 

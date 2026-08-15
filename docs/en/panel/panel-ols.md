@@ -6,21 +6,35 @@
 
 ## Overview
 
-`PanelOLS` fits linear panel regressions with no fixed effects, one-way fixed effects, or two-way fixed effects. With fixed effects, the coefficient estimate is identified from variation left after removing the selected entity and/or time means.
+`PanelOLS` fits linear panel regressions with no fixed effects, one-way fixed effects, or two-way fixed effects. With fixed effects, the coefficient estimate is identified from variation left after removing the selected entity and/or time effects.
 
-The implementation performs these transformations directly rather than constructing a large dummy-variable matrix, which keeps the same fixed-effect regression interpretation while avoiding a dense set of dummy columns.
+The implementation performs these transformations directly rather than constructing a large dummy-variable matrix. This changes the numerical representation, not the statistical fixed-effects model.
 
 ## Path
 
 Implementation: `statgpu/panel/_fixed_effects.py`.
 
-## Model and Objective
+## Statistical Model and Identification
 
-For entity and time effects,
+For entity and time fixed effects, the classical fixed-parameter model is
 
 $$
-y_{it}=x_{it}^{\top}\beta+\alpha_i+\gamma_t+\varepsilon_{it}.
+y_{it}=x_{it}^{\top}\beta+a_i+\gamma_t+\varepsilon_{it}.
 $$
+
+Here $a_i$ and $\gamma_t$ are **fixed but unknown nuisance parameters**. They are not assigned a probability distribution, and the fixed-effects model does not require an orthogonality assumption between these nuisance effects and the regressor history $X_i=(x_{i1},\ldots,x_{iT_i})$.
+
+For a static linear panel model, a common sufficient exogeneity condition for the usual fixed-effects interpretation is
+
+$$
+E\!\left(\varepsilon_{it}\mid X_i,a_i,\gamma_1,\ldots,\gamma_T\right)=0.
+$$
+
+In the fixed-parameter formulation this expectation is understood conditional on the included effects. The key restriction is therefore on the idiosyncratic error $\varepsilon_{it}$, not on the relationship between $a_i$ and the regressors.
+
+The slope $\beta$ is identified only from regressor variation that remains after the included effects are removed. For example, a time-invariant regressor is absorbed by entity fixed effects and cannot have a separately identified slope in that specification. When both `entity_effects=False` and `time_effects=False`, the model reduces to an ordinary level regression and the fixed-effects interpretation above no longer applies.
+
+## Estimator
 
 Let $F$ denote the included fixed-effect design and $M_F=I-F(F^\top F)^+F^\top$. The slope estimate solves
 

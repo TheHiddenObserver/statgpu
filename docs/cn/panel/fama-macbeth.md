@@ -6,13 +6,39 @@
 
 ## Overview
 
-`FamaMacBeth` 在每个 time period 分别做一次 cross-sectional regression，再对这些 period-specific coefficient 取平均。它与其他 panel estimator 的一个关键区别是：standard error 来自 **coefficient 随时间的波动**，而不是来自一个 pooled regression 的 residual covariance。
+`FamaMacBeth` 在每个 time period 分别做一次 cross-sectional regression，再对这些 period-specific coefficient 取平均。它与其他 panel estimator 的一个关键区别是：目标参数是平均 cross-sectional slope，standard error 则来自这些 slope **随时间的波动**。
 
 ## Path
 
 实现：`statgpu/panel/_fama_macbeth.py`。
 
-## Objective and Estimator
+## Statistical Model and Target
+
+一个自然的 period-specific model 是
+
+$$
+y_{it}=\alpha_t+x_{it}^{\top}\beta_t+\varepsilon_{it},
+$$
+
+其中 intercept 与 slope 都允许随时期变化。为了赋予每个 cross-sectional regression 通常的统计解释，一个常见的充分条件是
+
+$$
+E(\varepsilon_{it}\mid x_{it},t)=0,
+$$
+
+或者更一般地，使用相应的 cross-sectional orthogonality condition，将 $\beta_t$ 定义为 period-$t$ 的 linear projection coefficient。
+
+对 estimator 最终保留的 $T$ 个时期，直接目标是 retained-period 的等权平均
+
+$$
+\beta_{\mathrm{FM}}=\frac{1}{T}\sum_{t=1}^{T}\beta_t.
+$$
+
+定义这个 target 并不要求先给 sequence $\{\beta_t\}$ 指定概率模型。如果进一步把这些 retained periods 看成从某个 time superpopulation 中抽取，那么在相应 sampling assumptions 下，这个平均量还可以获得类似 $E_t(\beta_t)$ 的 population interpretation。constant-slope model $\beta_t\equiv\beta$ 是其中的特殊情况。
+
+上述 coefficient interpretation 还要求每个 period 的 cross-sectional design 能够识别相应的 coefficient vector。实现会按 observation count 过滤 period，并在需要时使用 numerical solve 或 Moore-Penrose solution；若某个保留时期的 design rank deficient，数值 coefficient vector 仍然存在，但其各个 coordinate 并不唯一识别。
+
+## Estimator
 
 对每个保留时期，令 $X_t$ 表示已加入 intercept 的 period design，则
 
@@ -24,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-只有同时满足 `min_obs_per_period`，且 observation 数足以估计该 period regression 的时期才会保留。最终 `coef_` 是所有保留时期 coefficient 的简单平均。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。最终 `coef_` 是所有保留时期 coefficient 的简单平均。
 
 ## Covariance and Inference
 
