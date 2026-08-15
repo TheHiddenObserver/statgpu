@@ -1,7 +1,7 @@
 # FamaMacBeth
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-08-16  
 > Switch: [Chinese](../../cn/panel/fama-macbeth.md)
 
 ## Overview
@@ -36,21 +36,21 @@ $$
 
 No probability model for the sequence $\{\beta_t\}$ is needed to define this target. If the retained periods are additionally viewed as draws from a time superpopulation, the same average can be given a population interpretation such as $E_t(\beta_t)$ under the corresponding sampling assumptions. The constant-slope model $\beta_t\equiv\beta$ is a special case.
 
-This coefficient interpretation presumes that each period-specific coefficient vector is identified by its cross-sectional design. The implementation filters periods by observation count and uses a numerical solve or Moore-Penrose solution as needed; if a retained period's design is rank deficient, a numerical coefficient vector still exists but its individual coordinates are not uniquely identified.
+This coefficient interpretation requires every retained period-specific coefficient vector to be identified by its cross-sectional design. After the observation-count filter is applied, statgpu checks the intercept-augmented $X_t$ with the shared panel SVD rank policy. If a retained period is rank deficient, `.fit()` raises a `ValueError` before coefficient averaging or inference rather than reporting coordinate-level results from a non-unique coefficient representation.
 
 ## Estimator
 
-For each retained period, let $X_t$ denote the intercept-augmented period design. Then
+For each retained period, let $X_t$ denote the intercept-augmented period design. Under the required full-column-rank contract,
 
 $$
 \widehat\beta_t
 =\arg\min_\beta\|y_t-X_t\beta\|_2^2
-=(X_t^\top X_t)^+X_t^\top y_t,
+=(X_t^\top X_t)^{-1}X_t^\top y_t,
 \qquad
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The final coefficient is the simple average over the retained period estimates.
+A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The full-rank check is then applied to each retained period. The final coefficient is the simple average over the retained period estimates.
 
 ## Covariance and Inference
 
@@ -101,6 +101,8 @@ $$
 
 and clips it to $0\le L\le T-1$. This Newey-West calculation is applied to the sequence of period coefficients, so it is different from the residual-based HAC/Driscoll-Kraay estimators described in [Panel covariance](covariance.md).
 
+The order of the retained coefficient series follows `time_ids`. Numeric and datetime labels use their natural order. Ordered pandas categoricals preserve the category order explicitly declared by the user; they are not converted to lexical string order before the Newey-West lag covariance is formed.
+
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |
@@ -108,7 +110,7 @@ and clips it to $0\le L\le T-1$. This Newey-West calculation is applied to the s
 | `cov_type` | `"newey-west"` | `nonrobust` or `newey-west` | Whether period-to-period coefficient dependence is ignored or adjusted with Newey-West. |
 | `bandwidth` | `None` | `None` or a non-negative integer; clipped to at most $T-1$ | Bartlett Newey-West bandwidth $L$. |
 | `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
-| `min_obs_per_period` | `1` | positive integer | Preliminary minimum period size. A retained period must also satisfy $n_t\ge k+1$, where $k$ is the intercept-augmented design width. |
+| `min_obs_per_period` | `1` | positive integer | Preliminary minimum period size. A retained period must also satisfy $n_t\ge k+1$, where $k$ is the intercept-augmented design width, and must have full column rank. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Where numerical computation runs. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 
@@ -144,13 +146,15 @@ model = FamaMacBeth().fit(
 )
 ```
 
+`FamaMacBeth` always includes a period-specific intercept, matching its array API. Explicit no-intercept formulas such as `y ~ 0 + x1 + x2` and `y ~ x1 + x2 - 1` are therefore rejected with a clear `ValueError` instead of being silently reinterpreted as intercept models.
+
 ## Outputs
 
 Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `betas_`, `cov_params_`, `fit_statistics_`, `nobs`, `n_periods`, and `df_resid`. `betas_` contains the retained period-by-period coefficient estimates, while `coef_` is their average.
 
 ## Numerical and Strict Behavior
 
-At least two valid periods must remain after filtering; otherwise `.fit()` raises an error because the variability of the coefficient series cannot be estimated from fewer than two periods.
+At least two valid periods must remain after filtering; otherwise `.fit()` raises an error because the variability of the coefficient series cannot be estimated from fewer than two periods. Every retained period must also have full column rank under the shared panel SVD cutoff; a rank-deficient retained period fails closed before inference.
 
 With `cov_type="newey-west"`, coefficient inference uses the asymptotic normal distribution. With `cov_type="nonrobust"`, it uses a Student-t reference with $T-1$ degrees of freedom. There is no hidden alternative inference method if these requirements are not met.
 
@@ -162,11 +166,13 @@ An explicit `device="cuda"` or `device="torch"` request also requires that backe
 
 **What happens to undersized periods?**  They are excluded before the coefficient average is formed. If fewer than two valid periods remain, the fit raises an error.
 
+**What happens if a retained period is rank deficient?**  The fit raises a `ValueError`. statgpu does not average a non-unique period coefficient vector and then report coordinate-level standard errors for it.
+
 ## External Validation
 
-There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Estimator, covariance, filtering, and formula behavior are covered by the panel regression tests in `dev/tests/`.
+There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Maintained regression tests cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, and Torch-CPU parity for that rank contract.
 
-GPU consistency for the `fama_macbeth_newey_west` case is tested separately by `dev/benchmarks/validate_panel_stage_a_gpu.py`, which compares CuPy and Torch with NumPy using default `rtol=5e-6, atol=5e-7`. Fama-MacBeth is not part of the Stage-C residual-covariance matrix because its covariance is defined from the coefficient series instead.
+GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested separately by `dev/benchmarks/validate_panel_stage_a_gpu.py`, which compares CuPy and Torch with NumPy using default `rtol=5e-6, atol=5e-7`. Fama-MacBeth is not part of the Stage-C residual-covariance matrix because its covariance is defined from the coefficient series instead.
 
 ## References
 

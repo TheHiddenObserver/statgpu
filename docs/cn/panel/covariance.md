@@ -1,7 +1,7 @@
 # 面板 Covariance Estimators
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-16  
 > 切换：[English](../../en/panel/covariance.md)
 
 ## Overview and Path
@@ -26,9 +26,9 @@ $$
 | `BetweenOLS` | 每个 entity 一个均值观测的 regression |
 | `FirstDifferenceOLS` | first-differenced regression |
 
-`FamaMacBeth` 不使用这套 residual-based covariance；它根据各时期 coefficient 的 time series 计算 uncertainty，见 [FamaMacBeth](fama-macbeth.md)。
+`FamaMacBeth` 不使用这套 residual-based covariance；它根据各时期 coefficient 的 time series 计算 uncertainty，见 [FamaMacBeth](fama-macbeth.md)。它要求每个 retained period design 都 full column rank，不满足时会 fail closed。
 
-如果 design 精确 rank deficient，fitted values 仍可能是唯一的，但 coefficient vector 不唯一。此时 statgpu 会保留可解释的 fitted result，同时对该次拟合整体关闭 coefficient-level BSE、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
+对于上表中的 residual-OLS families，如果 fit-space design 精确 rank deficient，fitted values 仍可能是唯一的，但 coefficient vector 不唯一。此时 statgpu 会保留可解释的 fitted result，同时对该次拟合整体关闭 coefficient-level BSE、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
 
 实现：`statgpu/panel/_covariance.py`。
 
@@ -108,7 +108,7 @@ time ordering 会影响 Driscoll-Kraay。numeric 和 datetime labels 使用自�
 
 ## Public API and Aliases
 
-public covariance helpers 包括 `ols_covariance`、`clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。
+`statgpu.panel` 公开导出的 covariance helpers 是 `clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。`ols_covariance` 是 panel estimator 内部复用的 shared dispatcher，不属于公开的 `statgpu.panel` export surface。
 
 在 estimator 的 `cov_type` 中，`hc1` 是 `robust` 的 alias；`dk` 与 `kernel` 是 `driscoll-kraay` 的 alias。Driscoll-Kraay kernel aliases 包括 Bartlett/Newey-West、Parzen/Gallant 与 QS/Quadratic-Spectral/Andrews。`PooledOLS(cov_type="hac")` 仍是独立的 ordered-sequence Bartlett/Newey-West calculation，不应与 Driscoll-Kraay 混为一谈；若提供 `time_index`，PooledOLS 会先按该 index 排序再计算 HAC。
 
@@ -124,7 +124,7 @@ public covariance helpers 包括 `ols_covariance`、`clustered_covariance`、`tw
 | BetweenOLS / FirstDifferenceOLS | `statsmodels==0.14.6` | 使用相同 averaging/differencing transformation 后的 coefficient 与 HC0/HC2/HC3 covariance/BSE | coefficient `rtol=5e-10`, `atol=5e-12`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
 | RandomEffects transformed regression | `linearmodels==7.0`, `statsmodels==0.14.6` | statgpu Swamy-Arora quasi-demeaned $X^*,y^*$ 上的 robust/HC2/HC3/DK covariance；不宣称 coefficient parity | covariance `rtol=5e-9`, `atol=5e-11` |
 | R external checks | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance 与 one-way FE coefficient | covariance `rtol=5e-9`, `atol=5e-11`；FE coefficient `rtol=5e-10`, `atol=5e-11` |
-| Physical GPU | NumPy reference | 每个 CuPy/Torch backend 的 35 个 estimator cases + 12 个 public covariance-helper cases | 默认 `rtol=5e-6`, `atol=5e-7` |
+| Physical GPU | NumPy reference | 每个 CuPy/Torch backend 的 35 个 estimator cases + 12 个 covariance-primitive cases | 默认 `rtol=5e-6`, `atol=5e-7` |
 
 无 fixed effects 的 `PanelOLS` level regression 还会与 `statsmodels==0.14.6` 比较 coefficient、covariance/BSE、$R^2$、adjusted $R^2$ 与 model F statistics。
 

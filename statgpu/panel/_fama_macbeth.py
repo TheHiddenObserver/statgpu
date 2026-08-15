@@ -13,13 +13,13 @@ from statgpu.backends import (
     _LINALG_ERRORS,
     _get_xp,
     _to_float_scalar,
-    _to_numpy,
     xp_asarray,
     xp_ones,
 )
 from statgpu.covariance._empirical import _detect_backend
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._utils import factorize_panel_labels
+from statgpu.panel._linalg import panel_matrix_rank
+from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
 def _stack(values, xp, axis=0):
@@ -139,14 +139,24 @@ class FamaMacBeth(BasePanelModel):
         )
         time_ids = aligned["time_ids"]
         entity_ids = aligned["entity_ids"]
+        if formula is not None:
+            if not bool(self._formula_has_intercept):
+                raise ValueError(
+                    "FamaMacBeth always includes a period intercept; explicit "
+                    "no-intercept formulas are not supported"
+                )
+            self._feature_names = [
+                "Intercept",
+                *list(self._feature_names or []),
+            ]
 
         backend_name, xp, X_arr, y_arr = self._prepare_backend_arrays(X_data, y_data)
         n_orig = int(X_arr.shape[0])
-        tids_np = np.asarray(_to_numpy(time_ids)).ravel()
-        if tids_np.shape[0] != n_orig:
-            raise ValueError("time_ids must have one entry per observation")
-        if np.any(np.asarray([x is None for x in tids_np], dtype=bool)):
-            raise ValueError("time_ids must not contain missing values")
+        time_labels, time_codes = factorize_panel_metadata(
+            time_ids,
+            name="time_ids",
+            expected_n=n_orig,
+        )
 
         entity_codes = None
         if entity_ids is not None:
@@ -158,10 +168,9 @@ class FamaMacBeth(BasePanelModel):
                 expected_n=n_orig,
             )
         self._panel_set_index_info(
-            n_orig, entity_ids=entity_ids, time_ids=tids_np
+            n_orig, entity_ids=entity_ids, time_ids=time_ids
         )
 
-        _, time_codes = np.unique(tids_np, return_inverse=True)
         counts = np.bincount(time_codes)
         intercept = xp_ones((n_orig, 1), xp.float64, xp, X_arr)
         X_design = (
@@ -178,6 +187,13 @@ class FamaMacBeth(BasePanelModel):
             idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
             X_t = X_design[idx]
             y_t = y_arr[idx]
+            rank_t = panel_matrix_rank(X_t, xp)
+            if rank_t < k:
+                raise ValueError(
+                    "FamaMacBeth requires full column rank in every retained period; "
+                    f"retained time period {time_labels[code]!r} is rank deficient "
+                    f"(rank={rank_t}, columns={k})"
+                )
             try:
                 beta_t = xp.linalg.solve(X_t.T @ X_t, X_t.T @ y_t)
             except _LINALG_ERRORS:

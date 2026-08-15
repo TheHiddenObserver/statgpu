@@ -1,7 +1,7 @@
 # Panel Covariance Estimators
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-08-16  
 > Switch: [Chinese](../../cn/panel/covariance.md)
 
 ## Overview and Path
@@ -26,9 +26,9 @@ For each estimator, $Z$ means:
 | `BetweenOLS` | one entity-mean observation per entity |
 | `FirstDifferenceOLS` | first-differenced design |
 
-`FamaMacBeth` is different: its uncertainty is computed from the time series of period-specific coefficient estimates, as described on the [FamaMacBeth](fama-macbeth.md) page.
+`FamaMacBeth` is different: its uncertainty is computed from the time series of period-specific coefficient estimates, as described on the [FamaMacBeth](fama-macbeth.md) page. It requires every retained period design to have full column rank and fails closed if that condition is not met.
 
-If a regression design is exactly rank deficient, fitted values can still be well defined even though the coefficient vector is not unique. In that situation statgpu keeps the fitted results but disables coefficient-level BSE, tests, p-values, and confidence intervals for that fit rather than reporting inference from an arbitrary coefficient representation.
+For the residual-OLS families listed in the table above, an exactly rank-deficient fit-space design can still have uniquely defined fitted values even though its coefficient vector is not unique. In that situation statgpu keeps the fitted results but disables coefficient-level BSE, tests, p-values, and confidence intervals for that fit rather than reporting inference from an arbitrary coefficient representation.
 
 Implementation: `statgpu/panel/_covariance.py`.
 
@@ -108,7 +108,7 @@ Time order matters. Numeric and datetime labels use their natural order. Ordered
 
 ## Public API and Aliases
 
-Public covariance helpers include `ols_covariance`, `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`.
+The public covariance helpers exported by `statgpu.panel` are `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. `ols_covariance` is an internal shared dispatcher used by panel estimators; it is not part of the public `statgpu.panel` export surface.
 
 For estimator `cov_type` values, `hc1` is an alias of `robust`; `dk` and `kernel` are aliases of `driscoll-kraay`. Driscoll-Kraay kernel aliases include Bartlett/Newey-West, Parzen/Gallant, and QS/Quadratic-Spectral/Andrews. `PooledOLS(cov_type="hac")` remains a separate ordered-sequence Bartlett/Newey-West calculation and should not be confused with Driscoll-Kraay; when `time_index` is supplied, PooledOLS sorts the sequence by that index before applying HAC.
 
@@ -124,7 +124,7 @@ The table below records how the statistical definitions are checked against inde
 | BetweenOLS / FirstDifferenceOLS | `statsmodels==0.14.6` | coefficients plus HC0/HC2/HC3 covariance/BSE after applying the same averaging/differencing transformation | coefficient `rtol=5e-10`, `atol=5e-12`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
 | RandomEffects transformed regression | `linearmodels==7.0`, `statsmodels==0.14.6` | robust/HC2/HC3/DK covariance on statgpu's Swamy-Arora quasi-demeaned $X^*,y^*$; no coefficient-parity claim | covariance `rtol=5e-9`, `atol=5e-11` |
 | R external checks | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance and one-way FE coefficients | covariance `rtol=5e-9`, `atol=5e-11`; FE coefficient `rtol=5e-10`, `atol=5e-11` |
-| Physical GPU | NumPy reference | 35 estimator cases + 12 public covariance-helper cases for each of CuPy and Torch | default `rtol=5e-6`, `atol=5e-7` |
+| Physical GPU | NumPy reference | 35 estimator cases + 12 covariance-primitive cases for each of CuPy and Torch | default `rtol=5e-6`, `atol=5e-7` |
 
 The no-fixed-effect `PanelOLS` level regression is also compared with `statsmodels==0.14.6`, including coefficients, covariance/BSE, $R^2$, adjusted $R^2$, and model F statistics.
 

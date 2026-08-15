@@ -1,7 +1,7 @@
 # FamaMacBeth
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-16  
 > 切换：[English](../../en/panel/fama-macbeth.md)
 
 ## Overview
@@ -36,21 +36,21 @@ $$
 
 定义这个 target 并不要求先给 sequence $\{\beta_t\}$ 指定概率模型。如果进一步把这些 retained periods 看成从某个 time superpopulation 中抽取，那么在相应 sampling assumptions 下，这个平均量还可以获得类似 $E_t(\beta_t)$ 的 population interpretation。constant-slope model $\beta_t\equiv\beta$ 是其中的特殊情况。
 
-上述 coefficient interpretation 还要求每个 period 的 cross-sectional design 能够识别相应的 coefficient vector。实现会按 observation count 过滤 period，并在需要时使用 numerical solve 或 Moore-Penrose solution；若某个保留时期的 design rank deficient，数值 coefficient vector 仍然存在，但其各个 coordinate 并不唯一识别。
+上述 coefficient interpretation 要求每个最终保留时期的 cross-sectional design 都能唯一识别相应 coefficient vector。完成 observation-count filtering 后，statgpu 会按照共享的 panel SVD rank policy 检查加入 intercept 后的 $X_t$。如果某个 retained period rank deficient，`.fit()` 会在 coefficient averaging 与 inference 之前直接抛出 `ValueError`，而不会基于非唯一的 coefficient representation 继续做 coordinate-level inference。
 
 ## Estimator
 
-对每个保留时期，令 $X_t$ 表示已加入 intercept 的 period design，则
+对每个保留时期，令 $X_t$ 表示已加入 intercept 的 period design。在要求 full column rank 的契约下，
 
 $$
 \widehat\beta_t
 =\arg\min_\beta\|y_t-X_t\beta\|_2^2
-=(X_t^\top X_t)^+X_t^\top y_t,
+=(X_t^\top X_t)^{-1}X_t^\top y_t,
 \qquad
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。最终 `coef_` 是所有保留时期 coefficient 的简单平均。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。最终 `coef_` 是所有保留时期 coefficient 的简单平均。
 
 ## Covariance and Inference
 
@@ -101,6 +101,8 @@ $$
 
 再截断到 $0\le L\le T-1$。这里的 Newey-West 是作用在 period coefficient sequence 上，因此与 [面板 covariance](covariance.md) 中基于 observation residual 的 HAC/Driscoll-Kraay 不同。
 
+retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetime labels 使用自然顺序；ordered pandas categorical 会保留用户明确声明的 category order，不会在形成 Newey-West lag covariance 之前被转换为字符串字典序。
+
 ## Parameters
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
@@ -108,7 +110,7 @@ $$
 | `cov_type` | `"newey-west"` | `nonrobust` 或 `newey-west` | 是否忽略 period coefficient 的跨期相关性，或用 Newey-West 进行修正。 |
 | `bandwidth` | `None` | `None` 或非负整数；最终不超过 $T-1$ | Bartlett Newey-West bandwidth $L$。 |
 | `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
-| `min_obs_per_period` | `1` | 正整数 | 初步的最小 period size；最终保留时期还必须满足 $n_t\ge k+1$，其中 $k$ 是含 intercept 的 design width。 |
+| `min_obs_per_period` | `1` | 正整数 | 初步的最小 period size；最终保留时期还必须满足 $n_t\ge k+1$，其中 $k$ 是含 intercept 的 design width，并且必须 full column rank。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值计算运行在哪个 backend/device。 |
 | `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
 
@@ -144,13 +146,15 @@ model = FamaMacBeth().fit(
 )
 ```
 
+`FamaMacBeth` 与 array API 一致，始终包含 period-specific intercept。因此 `y ~ 0 + x1 + x2` 或 `y ~ x1 + x2 - 1` 这类显式 no-intercept formula 会得到清晰的 `ValueError`，而不会被静默改写成带 intercept 的模型。
+
 ## Outputs
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`betas_`、`cov_params_`、`fit_statistics_`、`nobs`、`n_periods` 与 `df_resid`。`betas_` 保存各保留时期的 coefficient，`coef_` 则是这些 coefficient 的平均。
 
 ## Numerical and Strict Behavior
 
-过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。
+过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。
 
 `cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。如果这些条件不满足，statgpu 不会在后台切换成另一套 inference 方法。
 
@@ -162,11 +166,13 @@ model = FamaMacBeth().fit(
 
 **样本过少的 period 如何处理？**  在形成 coefficient average 之前排除。若最终不足两个有效 period，fit 会报错。
 
+**如果某个 retained period rank deficient 会怎样？**  fit 会抛出 `ValueError`。statgpu 不会把非唯一的 period coefficient vector 纳入平均后再给出 coordinate-level standard error。
+
 ## External Validation
 
-目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。estimator、covariance、period filtering 与 formula behavior 由 `dev/tests/` 下的 panel regression tests 覆盖。
+目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。maintained regression tests 覆盖 formula intercept contract、array/formula 两条路径上的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection，以及该 rank contract 的 Torch-CPU parity。
 
-`fama_macbeth_newey_west` 的 GPU 一致性由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 单独验证，使用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy、Torch 与 NumPy。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
+标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 单独做 GPU consistency 验证，使用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy、Torch 与 NumPy。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
 
 ## 参考（References）
 
