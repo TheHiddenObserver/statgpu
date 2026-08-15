@@ -6,7 +6,9 @@
 
 ## Overview
 
-`PooledOLS` 对 stacked panel 拟合一个公共线性回归，并始终包含截距。`entity_ids` 只是 panel fit statistics 与 diagnostics 的可选 metadata，不参与 coefficient estimation。
+`PooledOLS` 把所有 panel observation 直接堆叠起来，拟合一个具有公共截距和公共斜率的普通线性回归。它**不会**去除 entity effect 或 time effect，因此适用于本来就希望所有观测共享同一条回归关系的场景。
+
+`entity_ids` 是可选的：提供它不会改变 coefficient estimate，但可以额外计算 panel-specific fit statistics，并启用 Breusch-Pagan LM diagnostic。
 
 ## Path
 
@@ -22,27 +24,34 @@ $$
 =(Z^\top Z)^+Z^\top y.
 $$
 
+因此，coefficient estimate 就是把所有 panel rows 当作一个普通回归样本后得到的 OLS 结果。
+
 ## Covariance and Inference
 
-covariance 使用 level design $Z$，见 [面板 covariance](covariance.md)。`cov_type="hac"` 是 legacy row-order Bartlett/Newey-West HAC；Driscoll-Kraay 则先按 `time_index` 聚合 influence score。
+`cov_type` 只改变 standard error 的计算方式，不改变 OLS coefficient estimate。除了 nonrobust 和 HC covariance 外，`PooledOLS` 还支持 clustered covariance，以及两种考虑时间相关性的方式：
+
+- `cov_type="hac"` 把 observations 看作一条有顺序的序列并应用 Bartlett/Newey-West HAC。若提供 `time_index`，会先按它排序；否则直接使用输入数据的行顺序。
+- `cov_type="driscoll-kraay"` 按 `time_index` 将 observations 分到各 period，并先在 period 内聚合其 covariance contribution，再对跨期 lag 加权。
+
+因此这两种 covariance 不能互换理解。完整公式见 [面板 covariance](covariance.md)。
 
 ## Parameters
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
-| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`hac`、`driscoll-kraay`/`dk`/`kernel` | covariance estimator。 |
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`hac`、`driscoll-kraay`/`dk`/`kernel` | coefficient standard error 的计算方式。 |
 | `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
-| `bandwidth` | `None` | `None` 或非负整数 | HAC/DK bandwidth。legacy HAC 的有效 lag 最多为 $n-1$；DK 使用 [面板 covariance](covariance.md) 中的 observed-period 规则。 |
-| `kernel` | `"bartlett"` | `hac` 只允许 Bartlett；DK 还支持 Parzen 与 QS aliases | HAC/DK kernel。 |
-| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值 backend/device。 |
+| `bandwidth` | `None` | `None` 或非负整数 | HAC/DK 的 lag 或 smoothing bandwidth。legacy HAC 最多使用 $n-1$ 个 lag；DK 的规则见 [面板 covariance](covariance.md)。 |
+| `kernel` | `"bartlett"` | `hac` 只允许 Bartlett；DK 还支持 Parzen 与 QS aliases | HAC/DK 使用的 kernel。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值计算运行在哪个 backend/device。 |
 | `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
-| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | small-group cluster correction。 |
+| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | 是否应用 small-number-of-clusters correction。 |
 
 ```python
 model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
 ```
 
-clustered covariance 需要 `cluster`；Driscoll-Kraay 需要 `time_index`。`entity_ids` 用于 standardized within/between $R^2$ 与 Breusch-Pagan LM。
+使用 clustered covariance 时传入 `cluster`；使用 Driscoll-Kraay 时必须传入 `time_index`。对 legacy HAC，`time_index` 是可选的；提供后，它决定 HAC 使用的 observation ordering。若还希望得到 standardized within/between $R^2$ 或 Breusch-Pagan LM test，则提供 `entity_ids`。
 
 ## CPU and GPU Example
 
@@ -54,7 +63,7 @@ cuda = PooledOLS(device="cuda").fit(X, y)
 torch = PooledOLS(device="torch").fit(X, y)
 ```
 
-显式 GPU 请求不会静默 fallback 到 CPU。
+若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。
 
 ## Formula Example
 
@@ -73,23 +82,27 @@ model = PooledOLS().fit(
 
 ## Outputs
 
-public 结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared`、`fit_statistics_`、`nobs` 与 `df_resid`。提供 `entity_ids` 后可调用 `breusch_pagan_lm_test()`；见 [面板 diagnostics](diagnostics.md)。
+常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared`、`fit_statistics_`、`nobs` 与 `df_resid`。提供 `entity_ids` 后还可调用 `breusch_pagan_lm_test()`；见 [面板 diagnostics](diagnostics.md)。
 
 ## Numerical and Strict Behavior
 
-不支持的 covariance 输入不会走 approximate fallback：缺少所需 `cluster`/`time_index`、cluster shape 无效或显式 GPU backend 不可用都会报错。精确 rank deficiency 使用 [面板 covariance](covariance.md) 的统一 inference 契约。
+covariance 所需的附加信息会在计算前检查。例如，clustered covariance 缺少 `cluster`、Driscoll-Kraay 缺少 `time_index`，或 cluster 数组长度/形状不匹配时，都会直接报错，而不会自动改用另一种 covariance。
+
+如果 design matrix 精确 rank deficient，模型仍可能得到 fitted values，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断；详见 [面板 covariance](covariance.md)。
+
+显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用，否则直接报错而不是切换到 CPU。
 
 ## FAQ
 
-**提供 `entity_ids` 会改变 coefficient 吗？**  不会，只启用 panel-aware statistics 与 diagnostics。
+**提供 `entity_ids` 会改变 coefficient 吗？**  不会；它只额外启用 panel-aware fit statistics 与 diagnostics。
 
-**`hac` 与 Driscoll-Kraay 相同吗？**  不同。legacy HAC 是 row-order Newey-West；DK 先按时间标签聚合 score。
+**`hac` 与 Driscoll-Kraay 相同吗？**  不同。HAC 把 observations 当作一条有顺序的序列；Driscoll-Kraay 则先在用户提供的各 time period 内聚合 observation contribution。
 
 ## External Validation
 
-`linearmodels==7.0` 检查 public estimator 的 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。definition-level HC、cluster、DK、default-bandwidth 与 R `sandwich` 检查见 [validation matrix](covariance.md#validation-matrix)。
+我们将 `PooledOLS` 与 `linearmodels==7.0` 比较，覆盖 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。HC、cluster、Driscoll-Kraay、default bandwidth 与 R `sandwich` 的定义级检查见 [validation matrix](covariance.md#validation-matrix)。
 
-Stage-C 物理 runner 另行使用默认 `rtol=5e-6, atol=5e-7` 比较 PooledOLS 的 CuPy/Torch 与 NumPy；实际 `max_abs_differences` 保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
+GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际最大差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
 
 ## 参考（References）
 

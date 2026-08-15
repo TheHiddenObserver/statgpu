@@ -1,12 +1,14 @@
 # Panel Covariance Estimators
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/covariance.md)
 
 ## Overview and Path
 
-Shared residual-based panel covariance is implemented in `statgpu/panel/_covariance.py`. Let $Z$ be the estimator's actual fit-space design, $e$ its residual vector, and
+The panel estimators do not all run OLS on the same data representation: fixed effects use demeaned data, random effects use quasi-demeaned data, and first differences use differenced data. Covariance must therefore be computed from the **same transformed regression that produced the coefficients**.
+
+To write the shared formulas once, let $Z$ denote that model-specific regression design and $e$ its residual vector, and define
 
 $$
 B=(Z^\top Z)^+,
@@ -14,17 +16,25 @@ B=(Z^\top Z)^+,
 \psi_i=Bz_i e_i.
 $$
 
-| Model | $Z$ |
-|---|---|
-| `PooledOLS` | level design |
-| `PanelOLS` | within-transformed design |
-| `RandomEffects` | quasi-demeaned $X^*$ |
-| `BetweenOLS` | entity-mean design |
-| `FirstDifferenceOLS` | first-difference design |
+For each estimator, $Z$ means:
 
-`FamaMacBeth` instead uses covariance of its coefficient time series. For exact rank deficiency, OLS-style panel models retain fitted values and fit-space quantities, but coordinate-wise BSE/test/p-value/CI output is unavailable because the original coefficient representation is not unique.
+| Model | Regression used for covariance |
+|---|---|
+| `PooledOLS` | original level design |
+| `PanelOLS` | design after removing the selected fixed effects |
+| `RandomEffects` | quasi-demeaned design $X^*$ |
+| `BetweenOLS` | one entity-mean observation per entity |
+| `FirstDifferenceOLS` | first-differenced design |
+
+`FamaMacBeth` is different: its uncertainty is computed from the time series of period-specific coefficient estimates, as described on the [FamaMacBeth](fama-macbeth.md) page.
+
+If a regression design is exactly rank deficient, fitted values can still be well defined even though the coefficient vector is not unique. In that situation statgpu keeps the fitted results but disables coefficient-level BSE, tests, p-values, and confidence intervals for that fit rather than reporting inference from an arbitrary coefficient representation.
+
+Implementation: `statgpu/panel/_covariance.py`.
 
 ## Nonrobust and HC Covariance
+
+`nonrobust` is the usual homoskedastic OLS covariance. HC0-HC3 are heteroskedasticity-consistent alternatives that progressively adjust the contribution of observations with high leverage.
 
 $$
 \widehat V_{\mathrm{nonrobust}}=\widehat\sigma^2 B,
@@ -46,23 +56,25 @@ $$
 \widehat V_{\mathrm{HC3}}=\sum_i\frac{\psi_i\psi_i^\top}{(1-h_i)^2}.
 $$
 
-A numerically unit leverage makes HC2/HC3 undefined and raises. Nonrobust coefficient inference uses the maintained Student-t reference; HC/cluster/DK inference uses the maintained asymptotic-normal reference.
+HC2 and HC3 require $1-h_i$ to be numerically positive. If an observation has leverage effectively equal to 1, these corrections are undefined and statgpu raises an error rather than returning an infinite or unstable variance.
+
+Nonrobust coefficient inference uses a Student-t reference. HC, clustered, and Driscoll-Kraay inference use the asymptotic normal reference used by the panel API.
 
 ## Clustered Covariance
 
-For cluster $g$, define $s_g=\sum_{i\in g}\psi_i$. Then
+Clustered covariance allows observations within the same supplied cluster to have correlated errors. For cluster $g$, define $s_g=\sum_{i\in g}\psi_i$. Then
 
 $$
 \widehat V_G=\sum_g s_gs_g^\top.
 $$
 
-With `group_debias=True`, each cluster component is multiplied by
+With `group_debias=True`, each cluster component is multiplied by the small-number-of-clusters correction
 
 $$
 \frac{G}{G-1}\frac{n-1}{n}.
 $$
 
-Two-way clustering uses exact paired-label inclusion-exclusion,
+Two-way clustering combines the two one-way cluster covariances and subtracts the covariance for the paired cluster labels:
 
 $$
 \widehat V_{1,2}=\widehat V_1+\widehat V_2-\widehat V_{12}.
@@ -70,7 +82,13 @@ $$
 
 ## Driscoll-Kraay
 
-Aggregate influence scores by ordered observed time, $g_t=\sum_{i:t_i=t}\psi_i$. For kernel weights $w_\ell$,
+Driscoll-Kraay is a time-indexed covariance estimator for panel regressions. statgpu first combines observation contributions within each observed period,
+
+$$
+g_t=\sum_{i:t_i=t}\psi_i,
+$$
+
+and then applies kernel weights across time lags. For weights $w_\ell$,
 
 $$
 \widehat V_{\mathrm{DK}}=
@@ -82,35 +100,39 @@ $$
 \right].
 $$
 
-At full column rank $r_Z$ is the number of columns of $Z$; in the rank-deficient extension it is $\operatorname{rank}(Z)$. `PanelOLS` supplies the fixed-effect nuisance rank as `extra_df`; `PooledOLS` and `RandomEffects` use zero.
+Here $r_Z$ is the number of identified regression directions: it equals the number of columns of $Z$ at full column rank and $\operatorname{rank}(Z)$ otherwise. `PanelOLS` also counts the absorbed fixed effects through `extra_df`; `PooledOLS` and `RandomEffects` use zero for this term.
 
-`bandwidth=None` uses $\lfloor4(T/100)^{2/9}\rfloor$. Bartlett and Parzen are truncated at the bandwidth. Quadratic Spectral treats bandwidth as a smoothing scale and weights all observed lags when positive. Numeric/datetime labels use natural order; ordered pandas categoricals preserve declared chronology.
+With `bandwidth=None`, statgpu uses $\lfloor4(T/100)^{2/9}\rfloor$. Bartlett and Parzen kernels assign zero weight beyond the bandwidth. Quadratic Spectral instead treats bandwidth as a smoothing scale and, when positive, gives weights to all observed lags.
+
+Time order matters. Numeric and datetime labels use their natural order. Ordered pandas categoricals use the category order declared by the user.
 
 ## Public API and Aliases
 
-Public covariance helpers include `ols_covariance`, `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. `hc1` aliases `robust`; `dk` and `kernel` alias `driscoll-kraay`. DK kernel aliases are Bartlett/Newey-West, Parzen/Gallant, and QS/Quadratic-Spectral/Andrews. `PooledOLS(cov_type="hac")` remains the separate row-order Bartlett/Newey-West path.
+Public covariance helpers include `ols_covariance`, `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`.
+
+For estimator `cov_type` values, `hc1` is an alias of `robust`; `dk` and `kernel` are aliases of `driscoll-kraay`. Driscoll-Kraay kernel aliases include Bartlett/Newey-West, Parzen/Gallant, and QS/Quadratic-Spectral/Andrews. `PooledOLS(cov_type="hac")` remains a separate ordered-sequence Bartlett/Newey-West calculation and should not be confused with Driscoll-Kraay; when `time_index` is supplied, PooledOLS sorts the sequence by that index before applying HAC.
 
 ## Validation Matrix
 
-External-framework accuracy and physical backend precision are distinct validation layers.
+The table below records how the statistical definitions are checked against independent implementations. GPU consistency is tested separately against NumPy so that agreement with another statistics package and agreement across hardware backends are not conflated.
 
-| Layer | Reference | Maintained comparison | Assertion tolerance |
+| Layer | Reference | What is compared | Assertion tolerance |
 |---|---|---|---|
-| HC primitives | `statsmodels==0.14.6` | HC2/HC3 on full-rank OLS fit space | `rtol=5e-12`, `atol=5e-14` |
-| Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased cluster; Bartlett/Parzen/QS weights and DK covariance; default bandwidth and `extra_df` | covariance `rtol=5e-12`, `atol=5e-14`; weights `rtol=5e-14`, `atol=5e-15` |
-| PooledOLS / PanelOLS integration | `linearmodels==7.0` | coefficients plus DK covariance/BSE; PooledOLS group-debiased cluster covariance | coefficient `rtol=2e-10`, `atol=2e-11`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
-| BetweenOLS / FirstDifferenceOLS integration | `statsmodels==0.14.6` | coefficients plus HC0/HC2/HC3 covariance/BSE on identical transformed fit spaces | coefficient `rtol=5e-10`, `atol=5e-12`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
-| RandomEffects fit-space integration | `linearmodels==7.0`, `statsmodels==0.14.6` | robust/HC2/HC3/DK covariance on statgpu's own Swamy-Arora $X^*,y^*$ fit space; no coefficient-parity claim | covariance `rtol=5e-9`, `atol=5e-11` |
-| R external gate | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance and one-way FE coefficients | covariance `rtol=5e-9`, `atol=5e-11`; FE coefficient `rtol=5e-10`, `atol=5e-11` |
-| Physical GPU | NumPy reference | 35 estimator cases + 12 public covariance primitives per CuPy/Torch backend | default `rtol=5e-6`, `atol=5e-7` |
+| HC primitives | `statsmodels==0.14.6` | HC2/HC3 on a full-rank OLS regression | `rtol=5e-12`, `atol=5e-14` |
+| Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased clustering; Bartlett/Parzen/QS weights and DK covariance; default bandwidth and fixed-effect df adjustment | covariance `rtol=5e-12`, `atol=5e-14`; weights `rtol=5e-14`, `atol=5e-15` |
+| PooledOLS / PanelOLS | `linearmodels==7.0` | coefficients plus DK covariance/BSE; PooledOLS group-debiased cluster covariance | coefficient `rtol=2e-10`, `atol=2e-11`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| BetweenOLS / FirstDifferenceOLS | `statsmodels==0.14.6` | coefficients plus HC0/HC2/HC3 covariance/BSE after applying the same averaging/differencing transformation | coefficient `rtol=5e-10`, `atol=5e-12`; covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| RandomEffects transformed regression | `linearmodels==7.0`, `statsmodels==0.14.6` | robust/HC2/HC3/DK covariance on statgpu's Swamy-Arora quasi-demeaned $X^*,y^*$; no coefficient-parity claim | covariance `rtol=5e-9`, `atol=5e-11` |
+| R external checks | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance and one-way FE coefficients | covariance `rtol=5e-9`, `atol=5e-11`; FE coefficient `rtol=5e-10`, `atol=5e-11` |
+| Physical GPU | NumPy reference | 35 estimator cases + 12 public covariance-helper cases for each of CuPy and Torch | default `rtol=5e-6`, `atol=5e-7` |
 
-The no-FE level-OLS `PanelOLS` regression is also checked against `statsmodels==0.14.6`, including coefficients, covariance/BSE, $R^2$, adjusted $R^2$, and model F statistics.
+The no-fixed-effect `PanelOLS` level regression is also compared with `statsmodels==0.14.6`, including coefficients, covariance/BSE, $R^2$, adjusted $R^2$, and model F statistics.
 
-The ill-conditioned full-rank stress tests intentionally use scale-aware tolerances: HC0 against statsmodels uses `rtol=2e-6, atol=5e-3`, while stable HC2/HC3 leverage checks use `rtol=5e-11, atol=5e-3` because variances can exceed $10^{10}$.
+Ill-conditioned full-rank stress tests use scale-aware tolerances because the covariance entries can become very large: HC0 against statsmodels uses `rtol=2e-6, atol=5e-3`, while the stable HC2/HC3 leverage checks use `rtol=5e-11, atol=5e-3` when variances can exceed $10^{10}$.
 
-The external CI assertions are pass/fail tolerances; they are not persisted as observed error summaries. The physical P100 payload does persist per-field `max_abs_differences` in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`, with the audit summary in `results/pr126_p100_fresh/validation_summary.txt`.
+CI tolerances in this table are pass/fail thresholds, not observed error measurements. The physical P100 validation additionally records the actual per-field `max_abs_differences` in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`; its summary is in `results/pr126_p100_fresh/validation_summary.txt`.
 
-Maintained external tests are `dev/tests/test_panel_stage_c_external.py`, `dev/tests/test_panel_stage_c_external_defaults.py`, `dev/tests/test_panel_stage_c_linearmodels_estimators.py`, and `dev/tests/test_panel_stage_c_r_external.py`.
+The corresponding external tests are `dev/tests/test_panel_stage_c_external.py`, `dev/tests/test_panel_stage_c_external_defaults.py`, `dev/tests/test_panel_stage_c_linearmodels_estimators.py`, and `dev/tests/test_panel_stage_c_r_external.py`.
 
 ## References
 

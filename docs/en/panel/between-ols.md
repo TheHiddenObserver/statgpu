@@ -6,7 +6,9 @@
 
 ## Overview
 
-`BetweenOLS` collapses the panel to entity means and runs an intercept-including OLS regression across entities. Its effective sample size is the number of retained entities.
+`BetweenOLS` first averages each variable within entity, leaving one observation per entity, and then runs an OLS regression with an intercept. It is useful when the relationship of interest is driven by differences **between** entities rather than changes within the same entity over time.
+
+Because every retained entity contributes one averaged observation, the effective sample size is the number of retained entities, not the number of original panel rows.
 
 ## Path
 
@@ -30,24 +32,26 @@ $$
 =(\bar Z^\top\bar Z)^+\bar Z^\top\bar y.
 $$
 
+In other words, the original panel is reduced to an ordinary cross-sectional regression of entity means.
+
 ## Covariance and Inference
 
-Covariance is computed on the entity-mean fit space. Nonrobust and HC0/1/2/3 are defined in [Panel covariance](covariance.md).
+Standard errors are computed from that entity-mean regression. `cov_type="nonrobust"` uses the usual homoskedastic OLS covariance; `robust`/`hc1` and HC0/HC2/HC3 provide heteroskedasticity-consistent alternatives. The shared formulas are given in [Panel covariance](covariance.md).
 
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |
 |---|---:|---|---|
-| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3` | Covariance estimator on the entity-mean fit space. |
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3` | How coefficient standard errors are computed after entity averaging. |
 | `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
-| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Where numerical computation runs. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 
 ```python
 model.fit(X, y, entity_ids=entity_ids)
 ```
 
-`entity_ids` is required.
+`entity_ids` is required so the observations can be averaged within entity.
 
 ## CPU and GPU Example
 
@@ -58,6 +62,8 @@ cpu = BetweenOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
 cuda = BetweenOLS(device="cuda").fit(X, y, entity_ids=entity_ids)
 torch = BetweenOLS(device="torch").fit(X, y, entity_ids=entity_ids)
 ```
+
+If `device="cuda"` or `device="torch"` is requested but that GPU backend is unavailable, `.fit()` raises an error rather than switching to CPU.
 
 ## Formula Example
 
@@ -77,23 +83,25 @@ model = BetweenOLS().fit(
 
 ## Outputs
 
-Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared`, `fit_statistics_`, `nobs`, and `df_resid`.
+Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared`, `fit_statistics_`, `nobs`, and `df_resid`. Here `nobs` is the number of entity means used in the final regression.
 
 ## Numerical and Strict Behavior
 
-The regression is solved in the entity-mean fit space with rank-aware linear algebra. There is no silent approximate-inference or backend fallback; unsupported covariance choices and unavailable explicit GPU backends raise.
+If the entity-level regressors are exactly collinear, statgpu can still compute fitted values using a least-squares solution, but the coefficient vector is not unique. For that fit, coefficient-level standard errors, tests, p-values, and confidence intervals are disabled rather than being computed from an arbitrary coefficient representation.
+
+Invalid covariance choices raise an error. Likewise, an explicitly requested GPU backend must be available; statgpu does not silently run the model on CPU instead.
 
 ## FAQ
 
 **Why is `nobs` smaller than the original row count?**  `nobs` is the number of entity-mean observations used in the between regression.
 
-**Are larger entities automatically weighted more heavily?**  No. The maintained estimator runs OLS on one mean observation per entity.
+**Are entities with more time observations automatically weighted more heavily?**  No. Each retained entity contributes one mean observation to the final OLS regression.
 
 ## External Validation
 
-`statsmodels==0.14.6` is fit on the same entity-mean design for HC0/HC2/HC3. Coefficients are asserted with `rtol=5e-10, atol=5e-12`; covariance and BSE use `rtol=5e-9, atol=5e-11`. Shared covariance-definition checks are listed in the [validation matrix](covariance.md#validation-matrix).
+We compare `BetweenOLS` with `statsmodels==0.14.6` after constructing the same entity-mean regression in both packages. The checks cover coefficients and HC0/HC2/HC3 standard errors/covariances: coefficients use `rtol=5e-10, atol=5e-12`, and covariance/BSE use `rtol=5e-9, atol=5e-11`. Shared covariance checks are summarized in the [validation matrix](covariance.md#validation-matrix).
 
-The Stage-C physical runner separately compares BetweenOLS CuPy/Torch cases with NumPy at default `rtol=5e-6, atol=5e-7`.
+GPU consistency is tested separately by comparing CuPy and Torch results with NumPy using the Stage-C physical validation tolerance `rtol=5e-6, atol=5e-7`.
 
 ## References
 

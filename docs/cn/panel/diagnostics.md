@@ -1,40 +1,48 @@
 # 面板 Diagnostics
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/diagnostics.md)
 
 ## Overview and Path
 
-panel specification tests 返回 `PanelTestResult`，实现位于 `statgpu/panel/_diagnostics.py` 及共享 diagnostic-context helpers。
+panel diagnostics 用来回答“是否需要 fixed effects”“pooled error structure 是否足够”“random-effects specification 是否与 fixed-effects estimate 相容”等模型选择问题。每个检验都返回 `PanelTestResult`，其中包含 statistic、p-value、reference distribution，以及可直接阅读的 null/alternative hypothesis。
+
+实现：`statgpu/panel/_diagnostics.py` 及共享 diagnostic-context helpers。
 
 ## Pooling F
+
+Pooling F test 检验 `PanelOLS` 中加入的 fixed effects 是否可以整体去掉。原假设是所有 included fixed effects 联合为 0；如果不能拒绝原假设，则 pooled specification 相对于该 fixed-effect alternative 更有支持。
 
 $$
 F=\frac{(RSS_R-RSS_U)/q}{RSS_U/df_U},
 $$
 
-其中 $q$ 为 effective restriction rank；原假设为包含的 fixed effects 联合为 0。
+其中 $q$ 是可以独立检验的 fixed-effect restrictions 数。
 
 ```python
-fe.pooling_f_test()
+result = fe.pooling_f_test()
+print(result.statistic, result.pvalue)
 ```
 
 ## Breusch-Pagan LM
 
-对提供 `entity_ids` 的 `PooledOLS`，one-way panel error-components LM 检验
+对提供 `entity_ids` 的 `PooledOLS`，one-way Breusch-Pagan LM test 检验是否需要 entity-level random component：
 
 $$
 H_0:\sigma_a^2=0.
 $$
 
-维护的定义包含 incomplete/unbalanced panel 的 Baltagi-Li 形式。
+较小的 p-value 表示 pooled error structure 可能不足，更支持存在 entity error component。实现还支持 incomplete/unbalanced panel 使用的 Baltagi-Li 形式。
 
 ```python
-pooled.breusch_pagan_lm_test()
+result = pooled.breusch_pagan_lm_test()
+print(result.statistic, result.pvalue)
 ```
 
 ## Hausman FE versus RE
+
+Hausman test 比较 fixed-effects 与 random-effects coefficient estimates。classical null 下 random-effects estimator 应当 consistent 且 efficient；若 RE 与 FE 的 coefficient 存在系统性差异，则说明该 random-effects specification 可能不合适。
 
 $$
 H=(\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}})^\top
@@ -43,20 +51,22 @@ H=(\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}})^\top
 $$
 
 ```python
-fe.hausman_test(re)
+result = fe.hausman_test(re)
 # 或
-re.hausman_test(fe)
+result = re.hausman_test(fe)
 ```
 
-> **注意：** 当前 `hausman_test()` 实现 classical FE-versus-RE comparison，因此要求 `PanelOLS` 为 one-way entity fixed effects，且 FE 与 RE 均使用 `cov_type="nonrobust"`，同时两者必须基于匹配并对齐的 estimation sample/design。令 $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$。若 $D$ 存在 materially negative eigenvalue，则 classical Hausman quadratic form 返回 `inapplicable`。若 $D$ 为 singular positive semidefinite，则仅当 $\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}}\in\operatorname{range}(D)$ 时使用 Moore-Penrose generalized inverse $D^+$。
+> **适用条件：** `hausman_test()` 实现的是 classical one-way entity FE-versus-RE comparison。FE 与 RE 都必须使用 `cov_type="nonrobust"`，并且必须基于同一组对齐后的 observation 与 coefficient design。如果不满足这些条件，结果会返回 `applicable=False` 并说明原因，而不会在同一个方法名下悄悄换成另一种 Hausman test。
+>
+> 数值上令 $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$。如果 $D$ 存在明显的 negative eigenvalue，classical quadratic form 不再适用，因此 test 会标记为 inapplicable。如果 $D$ 是 singular positive semidefinite，则只有当 coefficient difference 位于 $\operatorname{range}(D)$ 时，statgpu 才使用 Moore-Penrose inverse $D^+$。
 
 ## Outputs and Strict Behavior
 
-`PanelTestResult` 包含 statistic、p-value、reference distribution、degrees of freedom、null/alternative、applicability、reason 与 metadata。不支持的 Hausman configuration 返回 inapplicable，不会静默改换 test definition。
+`PanelTestResult` 提供 `statistic`、`pvalue`、reference distribution、degrees of freedom、null/alternative text 与 `applicable` flag。若某个检验在文档定义下无法计算，可以查看 `reason` 了解具体原因；statgpu 不会用同一个 method name 返回另一种 test。
 
 ## External Validation
 
-在定义重合处，specification 与 covariance-adjacent behavior 会与维护的 Python/R references 比较。pinned external workflow 使用 `linearmodels==7.0`、`statsmodels==0.14.6`、R `plm==2.6-7` 与 `sandwich==3.1-3`；见 `dev/tests/test_panel_stage_c_r_external.py` 与相关 panel diagnostic tests。
+在定义可直接对齐的部分，diagnostics 及其依赖的 covariance calculation 会与 pinned Python/R implementations 比较：`linearmodels==7.0`、`statsmodels==0.14.6`、R `plm==2.6-7` 与 `sandwich==3.1-3`。对应 checks 位于 panel diagnostic tests 与 `dev/tests/test_panel_stage_c_r_external.py`。
 
 ## 参考（References）
 

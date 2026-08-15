@@ -1,40 +1,48 @@
 # Panel Diagnostics
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/diagnostics.md)
 
 ## Overview and Path
 
-Panel specification tests return `PanelTestResult` and are implemented in `statgpu/panel/_diagnostics.py` plus the shared diagnostic context helpers.
+Panel diagnostics help answer model-selection questions such as whether fixed effects are needed or whether a random-effects specification is compatible with the fixed-effects estimate. Each test returns a `PanelTestResult` containing the statistic, p-value, reference distribution, and a readable statement of the null and alternative hypotheses.
+
+Implementation: `statgpu/panel/_diagnostics.py` plus the shared diagnostic-context helpers.
 
 ## Pooling F
+
+The pooling F test asks whether the fixed effects included in a `PanelOLS` model are jointly unnecessary. Its null hypothesis is that all included fixed effects are zero, so failure to reject supports the pooled specification relative to that fixed-effect alternative.
 
 $$
 F=\frac{(RSS_R-RSS_U)/q}{RSS_U/df_U},
 $$
 
-where $q$ is the effective restriction rank. It tests whether the included fixed effects are jointly zero.
+where $q$ is the number of independently testable fixed-effect restrictions.
 
 ```python
-fe.pooling_f_test()
+result = fe.pooling_f_test()
+print(result.statistic, result.pvalue)
 ```
 
 ## Breusch-Pagan LM
 
-For `PooledOLS` with `entity_ids`, the one-way panel error-components LM tests
+For `PooledOLS` with `entity_ids`, the one-way Breusch-Pagan LM test asks whether an entity-level random component is needed:
 
 $$
 H_0:\sigma_a^2=0.
 $$
 
-The maintained definition includes the incomplete/unbalanced Baltagi-Li form.
+A small p-value is evidence against the pooled error structure in favor of an entity error component. The implementation also supports the Baltagi-Li form used for incomplete or unbalanced panels.
 
 ```python
-pooled.breusch_pagan_lm_test()
+result = pooled.breusch_pagan_lm_test()
+print(result.statistic, result.pvalue)
 ```
 
 ## Hausman FE versus RE
+
+The Hausman test compares fixed-effects and random-effects coefficient estimates. Under the classical null, the random-effects estimator is consistent and efficient; systematic disagreement with fixed effects is evidence against that random-effects specification.
 
 $$
 H=(\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}})^\top
@@ -43,20 +51,22 @@ H=(\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}})^\top
 $$
 
 ```python
-fe.hausman_test(re)
+result = fe.hausman_test(re)
 # or
-re.hausman_test(fe)
+result = re.hausman_test(fe)
 ```
 
-> **Note:** The maintained `hausman_test()` implements the classical FE-versus-RE comparison. It therefore requires one-way entity fixed effects, `cov_type="nonrobust"` for both FE and RE, and matched aligned estimation samples/designs. Let $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$. If $D$ has a materially negative eigenvalue, the classical Hausman quadratic form is reported as `inapplicable`. If $D$ is singular positive semidefinite, the Moore-Penrose generalized inverse $D^+$ is used only when $\widehat\beta_{\mathrm{FE}}-\widehat\beta_{\mathrm{RE}}\in\operatorname{range}(D)$.
+> **Applicability:** `hausman_test()` implements the classical one-way entity FE-versus-RE comparison. Both models must use `cov_type="nonrobust"` and must be fitted to the same aligned sample and coefficient design. If these requirements are not met, the result is returned with `applicable=False` and a reason instead of silently switching to a different Hausman variant.
+>
+> Numerically, let $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$. If $D$ has a materially negative eigenvalue, the classical quadratic form is not valid and the test is reported as inapplicable. If $D$ is singular but positive semidefinite, statgpu uses the Moore-Penrose inverse $D^+$ only when the coefficient difference lies in $\operatorname{range}(D)$.
 
 ## Outputs and Strict Behavior
 
-`PanelTestResult` reports the statistic, p-value, reference distribution, degrees of freedom, null/alternative text, applicability flag, reason, and metadata. Unsupported Hausman configurations return inapplicable rather than silently changing the test definition.
+`PanelTestResult` reports `statistic`, `pvalue`, the reference distribution, degrees of freedom, null and alternative text, and an `applicable` flag. When a test cannot be computed under its documented definition, inspect `reason` to see why; statgpu does not return a different test under the same method name.
 
 ## External Validation
 
-Specification and covariance-adjacent behavior is checked against maintained Python/R references where definitions overlap. The pinned external workflow uses `linearmodels==7.0`, `statsmodels==0.14.6`, R `plm==2.6-7`, and `sandwich==3.1-3`; see `dev/tests/test_panel_stage_c_r_external.py` and the maintained panel diagnostic tests.
+Where definitions overlap, the diagnostic and supporting covariance calculations are compared with pinned Python and R references: `linearmodels==7.0`, `statsmodels==0.14.6`, R `plm==2.6-7`, and `sandwich==3.1-3`. The corresponding checks live in the panel diagnostic tests and `dev/tests/test_panel_stage_c_r_external.py`.
 
 ## References
 

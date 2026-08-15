@@ -1,12 +1,18 @@
 # 面板 Fit Statistics
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/fit-statistics.md)
 
 ## Overview and Path
 
-标准化 panel fit statistics 通过 `fit_statistics_` 暴露，并由 `statgpu/panel/` 下的 diagnostic/statistics helpers 实现。
+panel estimator 通过统一的 `fit_statistics_` 对象提供 goodness-of-fit 统计量。within、between 与 overall $R^2$ 回答的是三个不同问题：
+
+- **overall $R^2$**：模型对实际 outcome level 的解释程度；
+- **between $R^2$**：模型对不同 entity 平均水平差异的解释程度；
+- **within $R^2$**：模型对同一 entity 围绕自身平均水平变化的解释程度。
+
+这些计算由 `statgpu/panel/` 下的 panel diagnostic/statistics helpers 实现。
 
 ## Definitions
 
@@ -22,17 +28,19 @@ R^2_{\mathrm{between}}
 =1-\frac{\sum_i(\bar y_i-\bar x_i^\top\widehat\beta)^2}{TSS_{\mathrm{between}}},
 $$
 
-$R^2_{\mathrm{within}}$ 对 entity-demeaned $y,X$ 使用同一定义。只有实际 level design 含 identified constant 时，overall/between TSS 才中心化。
+$R^2_{\mathrm{within}}$ 使用同样的定义，但先从 $y$ 与 $X$ 中减去各 entity 的均值。
 
-OLS-style estimator 的 primary fit space 上，
+只有实际拟合的 level regression 中存在可识别的 constant 时，total sum of squares 才围绕均值中心化。这样 intercept model 与 no-intercept model 使用各自一致的 $R^2$ 定义。
+
+对 OLS-style estimator，`fit_statistics_` 中的 model F statistic 是 fitted regression 与 restricted regression 的 classical comparison：
 
 $$
 F=\frac{(RSS_R-RSS_U)/q}{RSS_U/df_{\mathrm{resid}}},
 $$
 
-其中 $q$ 为 effective restriction rank。robust covariance 不会把该字段改成 robust Wald statistic。
+其中 $q$ 是可独立检验的 restriction 数。选择 robust covariance 会改变 coefficient standard error，但**不会**把 `fit_statistics_.f_statistic` 自动改成 robust Wald test。
 
-`PanelOLS` 的 standardized diagnostics 使用
+对 `PanelOLS`，fixed effects 也会占用 degrees of freedom。standardized diagnostic 使用
 
 $$
 df_{\mathrm{resid,diag}}=n-r_X-r_F,
@@ -40,18 +48,22 @@ df_{\mathrm{resid,diag}}=n-r_X-r_F,
 df_{\mathrm{total,diag}}=n-r_F,
 $$
 
-其中 fixed-effect nuisance rank $r_F$ 依次为 $N$、$T$ 或 $N+T-C$。历史 public `PanelOLS.df_resid` 与 `PanelOLS.rsquared_within` 继续作为 compatibility fields，不会被静默重定义。
+其中 entity effects 时 $r_F=N$，time effects 时 $r_F=T$，双向 effects 时 $r_F=N+T-C$；$C$ 是观测 entity-time graph 的 connected-component 数。
+
+为保持 backward compatibility，历史 public fields `PanelOLS.df_resid` 与 `PanelOLS.rsquared_within` 保持原有含义。标准化后的统计量单独放在 `fit_statistics_` 中，而不是静默改变旧字段的定义。
 
 ## Availability and Outputs
 
-在所需 entity metadata 存在时，`fit_statistics_` 提供 standardized within/between/overall $R^2$；具有相应 residual-OLS fit-space 定义的 estimator 还提供 adjusted $R^2$ 与 classical model-F fields。`FamaMacBeth` 提供 parameter-based within/between/overall $R^2$，但不提供 residual-OLS adjusted $R^2$ 或 model F。
+提供 entity metadata 后，`fit_statistics_` 可以给出 standardized within、between 与 overall $R^2$。对具有普通 residual-OLS 定义的 estimator，还会提供 adjusted $R^2$ 与 classical model F statistic。
+
+`FamaMacBeth` 提供 parameter-based within/between/overall $R^2$，但不报告 residual-OLS adjusted $R^2$ 或 model F，因为它的 estimator 是多个 period regressions 的 coefficient average，而不是单个 pooled residual regression。
 
 ## Validation
 
-panel fit-statistic regressions 由 full CPU suite 与 estimator-level external alignment 覆盖。robust covariance choice 不会被解释为 robust-Wald model F；该契约与 covariance construction 分开测试。
+这些统计量由完整 CPU regression suite 与 estimator-level external comparison 覆盖。tests 会特别确认：选择 robust covariance 只改变 coefficient inference，不会悄悄改变 classical model F statistic 的定义。
 
 ## 参考（References）
 
 - Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
 
-model-specific conventions 见各 estimator 页面。
+各模型的特殊约定见对应 estimator 页面。

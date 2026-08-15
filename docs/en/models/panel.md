@@ -1,20 +1,20 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-08-13  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/models/panel.md)
 
-`statgpu.panel` provides six panel-data estimators. This page is intentionally navigation-only; equations and API details live on the linked pages.
+`statgpu.panel` provides six panel-data estimators. Use this page to choose a model, then follow the linked page for the model definition, parameters, formula examples, CPU/GPU usage, inference, and diagnostics.
 
-| Estimator | Model |
+| Estimator | When to use it |
 |---|---|
-| [PanelOLS](../panel/panel-ols.md) | Fixed effects |
-| [RandomEffects](../panel/random-effects.md) | Swamy-Arora random effects |
-| [PooledOLS](../panel/pooled-ols.md) | Pooled OLS |
-| [BetweenOLS](../panel/between-ols.md) | Between regression |
-| [FirstDifferenceOLS](../panel/first-difference-ols.md) | First differences |
-| [FamaMacBeth](../panel/fama-macbeth.md) | Period-wise cross-sectional regression |
+| [PanelOLS](../panel/panel-ols.md) | Linear panel regression with entity and/or time fixed effects. |
+| [RandomEffects](../panel/random-effects.md) | One-way random-intercept model using the Swamy-Arora estimator. |
+| [PooledOLS](../panel/pooled-ols.md) | One common OLS relationship for all stacked panel observations. |
+| [BetweenOLS](../panel/between-ols.md) | Regression of entity averages; focuses on differences between entities. |
+| [FirstDifferenceOLS](../panel/first-difference-ols.md) | Regression of within-entity changes between consecutive observed periods. |
+| [FamaMacBeth](../panel/fama-macbeth.md) | Separate cross-sectional regressions by period followed by coefficient averaging. |
 
-Shared references: [covariance](../panel/covariance.md), [fit statistics](../panel/fit-statistics.md), and [diagnostics](../panel/diagnostics.md).
+Shared statistical definitions are collected in [covariance](../panel/covariance.md), [fit statistics](../panel/fit-statistics.md), and [diagnostics](../panel/diagnostics.md).
 
-Numerical paths use NumPy, CuPy CUDA, or Torch CUDA. Formula evaluation and categorical labels are CPU metadata boundaries; explicit GPU requests do not silently fall back to CPU.
+All six estimators support NumPy CPU, CuPy CUDA, and Torch CUDA through the `device` parameter. Each estimator page includes CPU/GPU and formula examples. If `device="cuda"` or `device="torch"` is requested explicitly but that backend is unavailable, statgpu raises an error instead of silently switching to CPU.

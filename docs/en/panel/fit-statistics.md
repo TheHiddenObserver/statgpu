@@ -1,12 +1,18 @@
 # Panel Fit Statistics
 
 > Language: English  
-> Last updated: 2026-08-14  
+> Last updated: 2026-08-15  
 > Switch: [Chinese](../../cn/panel/fit-statistics.md)
 
 ## Overview and Path
 
-Standardized panel fit statistics are exposed through `fit_statistics_` and implemented through the panel diagnostic/statistics helpers under `statgpu/panel/`.
+Panel estimators expose a common `fit_statistics_` object so that within-, between-, and overall goodness of fit can be interpreted consistently across models. These quantities answer different questions:
+
+- **overall $R^2$** measures fit to the observed outcome levels;
+- **between $R^2$** measures fit to differences in entity means;
+- **within $R^2$** measures fit to changes around each entity's own mean.
+
+The calculations are implemented by the panel diagnostic/statistics helpers under `statgpu/panel/`.
 
 ## Definitions
 
@@ -22,17 +28,19 @@ R^2_{\mathrm{between}}
 =1-\frac{\sum_i(\bar y_i-\bar x_i^\top\widehat\beta)^2}{TSS_{\mathrm{between}}},
 $$
 
-and $R^2_{\mathrm{within}}$ applies the same definition to entity-demeaned $y$ and $X$. Overall/between TSS is centered only when the actual level design contains an identified constant.
+and $R^2_{\mathrm{within}}$ applies the same idea after subtracting entity means from $y$ and $X$.
 
-For an OLS-style estimator's primary fit space,
+The total sum of squares is centered around a mean only when the fitted level regression actually contains an identified constant. This keeps the $R^2$ definition consistent with intercept and no-intercept models.
+
+For OLS-style estimators, the reported model F statistic is the classical comparison of the fitted regression with a restricted regression:
 
 $$
 F=\frac{(RSS_R-RSS_U)/q}{RSS_U/df_{\mathrm{resid}}},
 $$
 
-where $q$ is the effective restriction rank. Robust covariance choices do not turn this field into a robust Wald statistic.
+where $q$ is the number of independently testable restrictions. Choosing a robust covariance estimator changes coefficient standard errors, but it does **not** convert `fit_statistics_.f_statistic` into a robust Wald test.
 
-For `PanelOLS`, standardized diagnostics use
+For `PanelOLS`, fixed effects also consume degrees of freedom. The standardized diagnostic counts use
 
 $$
 df_{\mathrm{resid,diag}}=n-r_X-r_F,
@@ -40,15 +48,19 @@ df_{\mathrm{resid,diag}}=n-r_X-r_F,
 df_{\mathrm{total,diag}}=n-r_F,
 $$
 
-with fixed-effect nuisance rank $r_F=N$, $T$, or $N+T-C$ as appropriate. Legacy public `PanelOLS.df_resid` and `PanelOLS.rsquared_within` remain compatibility fields and are not silently redefined.
+where $r_F=N$ for entity effects, $T$ for time effects, and $N+T-C$ for two-way effects, with $C$ the number of connected components in the observed entity-time graph.
+
+For backward compatibility, the legacy public fields `PanelOLS.df_resid` and `PanelOLS.rsquared_within` keep their established meanings. The standardized values in `fit_statistics_` are provided separately rather than silently changing those older fields.
 
 ## Availability and Outputs
 
-`fit_statistics_` provides standardized within/between/overall $R^2$ where the required entity metadata exists, plus adjusted $R^2$ and classical model-F fields where the estimator has the corresponding residual-OLS fit-space definition. `FamaMacBeth` reports parameter-based within/between/overall $R^2$ but not residual-OLS adjusted $R^2$ or model F.
+When entity metadata are available, `fit_statistics_` provides standardized within, between, and overall $R^2$. OLS-style estimators also report adjusted $R^2$ and the classical model F statistic when those quantities are defined for the fitted regression.
+
+`FamaMacBeth` reports parameter-based within, between, and overall $R^2$, but it does not report the residual-OLS adjusted $R^2$ or model F because its estimator is an average of period-by-period regressions rather than one pooled residual regression.
 
 ## Validation
 
-Panel fit-statistic regressions are exercised in the full CPU suite and estimator-level external alignment. No robust-Wald interpretation is inferred from a robust covariance choice; this is tested as a separate contract from covariance construction.
+These statistics are covered by the full CPU regression suite and by estimator-level comparisons with external packages. In particular, tests verify that selecting a robust covariance estimator changes coefficient inference without silently changing the meaning of the classical model F statistic.
 
 ## References
 

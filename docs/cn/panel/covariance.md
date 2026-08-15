@@ -1,12 +1,14 @@
 # 面板 Covariance Estimators
 
 > 语言：中文  
-> 最后更新：2026-08-14  
+> 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/covariance.md)
 
 ## Overview and Path
 
-共享 residual-based panel covariance 实现在 `statgpu/panel/_covariance.py`。令 $Z$ 为 estimator 实际 fit-space design，$e$ 为 residual，并定义
+不同 panel estimator 实际用于回归的数据并不相同：fixed effects 会先去均值，random effects 会做 quasi-demeaning，first difference 会先做差分。因此 standard error 也必须基于**真正用于 coefficient estimation 的那组 transformed data**计算，而不是统一拿原始 $X$ 和 $y$ 计算。
+
+为了用一套符号写出共享公式，下面用 $Z$ 表示某个模型实际用于最终回归的 design，用 $e$ 表示对应 residual，并定义
 
 $$
 B=(Z^\top Z)^+,
@@ -14,17 +16,25 @@ B=(Z^\top Z)^+,
 \psi_i=Bz_i e_i.
 $$
 
-| 模型 | $Z$ |
-|---|---|
-| `PooledOLS` | level design |
-| `PanelOLS` | within-transformed design |
-| `RandomEffects` | quasi-demeaned $X^*$ |
-| `BetweenOLS` | entity-mean design |
-| `FirstDifferenceOLS` | first-difference design |
+对不同模型，$Z$ 分别表示：
 
-`FamaMacBeth` 使用独立的 coefficient-series covariance。精确 rank deficient 时，OLS-style panel model 的 fitted values 与 fit-space quantities 仍有效，但原始 coefficient coordinate 不唯一，因此 BSE/test/p-value/CI 不可用。
+| 模型 | 用于 covariance 的回归 |
+|---|---|
+| `PooledOLS` | 原始 level regression |
+| `PanelOLS` | 去除所选 fixed effects 后的 regression |
+| `RandomEffects` | quasi-demeaned design $X^*$ |
+| `BetweenOLS` | 每个 entity 一个均值观测的 regression |
+| `FirstDifferenceOLS` | first-differenced regression |
+
+`FamaMacBeth` 不使用这套 residual-based covariance；它根据各时期 coefficient 的 time series 计算 uncertainty，见 [FamaMacBeth](fama-macbeth.md)。
+
+如果 design 精确 rank deficient，fitted values 仍可能是唯一的，但 coefficient vector 不唯一。此时 statgpu 会保留可解释的 fitted result，同时对该次拟合整体关闭 coefficient-level BSE、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
+
+实现：`statgpu/panel/_covariance.py`。
 
 ## Nonrobust and HC Covariance
+
+`nonrobust` 是通常的同方差 OLS covariance。HC0-HC3 是异方差稳健版本；HC2/HC3 会进一步调整 high-leverage observation 的影响。
 
 $$
 \widehat V_{\mathrm{nonrobust}}=\widehat\sigma^2B,
@@ -38,7 +48,7 @@ $$
 \widehat V_{\mathrm{HC1}}=\frac{n}{df_{\mathrm{resid}}}\widehat V_{\mathrm{HC0}}.
 $$
 
-若 $h_i=z_i^\top Bz_i$，
+令 leverage 为 $h_i=z_i^\top Bz_i$，则
 
 $$
 \widehat V_{\mathrm{HC2}}=\sum_i\frac{\psi_i\psi_i^\top}{1-h_i},
@@ -46,23 +56,25 @@ $$
 \widehat V_{\mathrm{HC3}}=\sum_i\frac{\psi_i\psi_i^\top}{(1-h_i)^2}.
 $$
 
-leverage 在数值上等于 1 时 HC2/HC3 无定义并报错。nonrobust coefficient inference 使用 Student-t reference；HC/cluster/DK 使用 asymptotic-normal reference。
+HC2/HC3 要求 $1-h_i$ 在数值上为正。如果某个 observation 的 leverage 实际等于 1，这两个 correction 无法定义，statgpu 会报错，而不是返回无穷大或数值不稳定的 variance。
+
+nonrobust coefficient inference 使用 Student-t reference；HC、clustered 与 Driscoll-Kraay 使用 panel API 中的 asymptotic-normal reference。
 
 ## Clustered Covariance
 
-对 cluster $g$，令 $s_g=\sum_{i\in g}\psi_i$，则
+clustered covariance 允许同一用户指定 cluster 内的 observations 具有相关误差。对 cluster $g$，令 $s_g=\sum_{i\in g}\psi_i$，则
 
 $$
 \widehat V_G=\sum_gs_gs_g^\top.
 $$
 
-`group_debias=True` 时每个 cluster component 乘以
+`group_debias=True` 时会应用 small-number-of-clusters correction：
 
 $$
 \frac{G}{G-1}\frac{n-1}{n}.
 $$
 
-双向 clustering 使用 exact paired-label inclusion-exclusion：
+双向 clustering 将两个 one-way cluster covariance 相加，再减去 paired cluster labels 对应的 covariance：
 
 $$
 \widehat V_{1,2}=\widehat V_1+\widehat V_2-\widehat V_{12}.
@@ -70,7 +82,13 @@ $$
 
 ## Driscoll-Kraay
 
-先按有序观测时间聚合 $g_t=\sum_{i:t_i=t}\psi_i$。对 kernel weights $w_\ell$，
+Driscoll-Kraay 是按 time index 构造的 panel covariance。statgpu 先把同一 observed period 内各 observation 对 covariance 的贡献聚合起来：
+
+$$
+g_t=\sum_{i:t_i=t}\psi_i,
+$$
+
+再通过 kernel weights 对不同 time lags 加权。对权重 $w_\ell$，
 
 $$
 \widehat V_{\mathrm{DK}}=
@@ -82,35 +100,39 @@ $$
 \right].
 $$
 
-满列秩时 $r_Z$ 为 $Z$ 的列数；rank-deficient extension 使用 $\operatorname{rank}(Z)$。`PanelOLS` 将 fixed-effect nuisance rank 传入 `extra_df`；`PooledOLS` 与 `RandomEffects` 使用 0。
+这里 $r_Z$ 表示回归中实际可识别的 regression directions：满列秩时等于 $Z$ 的列数，rank deficient 时等于 $\operatorname{rank}(Z)$。`PanelOLS` 还需要通过 `extra_df` 计入被吸收的 fixed effects；`PooledOLS` 与 `RandomEffects` 的该项为 0。
 
-`bandwidth=None` 使用 $\lfloor4(T/100)^{2/9}\rfloor$。Bartlett/Parzen 在 bandwidth 处截断；Quadratic Spectral 在 bandwidth 为正时对全部观测 lag 赋权。numeric/datetime label 使用自然顺序；ordered pandas categorical 保留声明 chronology。
+`bandwidth=None` 时使用 $\lfloor4(T/100)^{2/9}\rfloor$。Bartlett 与 Parzen kernel 在 bandwidth 之外权重为 0；Quadratic Spectral 将 bandwidth 作为 smoothing scale，在 bandwidth 为正时会对全部 observed lags 赋权。
+
+time ordering 会影响 Driscoll-Kraay。numeric 和 datetime labels 使用自然顺序；ordered pandas categorical 使用用户声明的 category 顺序。
 
 ## Public API and Aliases
 
-public helpers 包括 `ols_covariance`、`clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。`hc1` alias `robust`；`dk` 与 `kernel` alias `driscoll-kraay`。DK kernel aliases 为 Bartlett/Newey-West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews。`PooledOLS(cov_type="hac")` 继续表示独立的 row-order Bartlett/Newey-West path。
+public covariance helpers 包括 `ols_covariance`、`clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。
+
+在 estimator 的 `cov_type` 中，`hc1` 是 `robust` 的 alias；`dk` 与 `kernel` 是 `driscoll-kraay` 的 alias。Driscoll-Kraay kernel aliases 包括 Bartlett/Newey-West、Parzen/Gallant 与 QS/Quadratic-Spectral/Andrews。`PooledOLS(cov_type="hac")` 仍是独立的 ordered-sequence Bartlett/Newey-West calculation，不应与 Driscoll-Kraay 混为一谈；若提供 `time_index`，PooledOLS 会先按该 index 排序再计算 HAC。
 
 ## Validation Matrix
 
-外部框架精度对齐与物理 backend 精度属于不同 validation layer。
+下表记录这些 statistical definitions 如何与独立实现进行比较。GPU consistency 另外与 NumPy 比较，这样“和外部统计 package 的定义一致”与“CPU/GPU 计算一致”不会混在同一个 validation 中。
 
-| Layer | Reference | 维护的比较内容 | Assertion tolerance |
+| Layer | Reference | 比较内容 | Assertion tolerance |
 |---|---|---|---|
-| HC primitives | `statsmodels==0.14.6` | full-rank OLS fit space 上的 HC2/HC3 | `rtol=5e-12`, `atol=5e-14` |
-| Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased cluster；Bartlett/Parzen/QS weights 与 DK covariance；default bandwidth 与 `extra_df` | covariance `rtol=5e-12`, `atol=5e-14`；weights `rtol=5e-14`, `atol=5e-15` |
-| PooledOLS / PanelOLS integration | `linearmodels==7.0` | coefficient、DK covariance/BSE，以及 PooledOLS group-debiased cluster covariance | coefficient `rtol=2e-10`, `atol=2e-11`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
-| BetweenOLS / FirstDifferenceOLS integration | `statsmodels==0.14.6` | 相同 transformed fit space 上的 coefficient 与 HC0/HC2/HC3 covariance/BSE | coefficient `rtol=5e-10`, `atol=5e-12`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
-| RandomEffects fit-space integration | `linearmodels==7.0`, `statsmodels==0.14.6` | statgpu 自身 Swamy-Arora $X^*,y^*$ fit space 上的 robust/HC2/HC3/DK covariance；不宣称 coefficient parity | covariance `rtol=5e-9`, `atol=5e-11` |
-| R external gate | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance 与单向 FE coefficient | covariance `rtol=5e-9`, `atol=5e-11`；FE coefficient `rtol=5e-10`, `atol=5e-11` |
-| Physical GPU | NumPy reference | 每个 CuPy/Torch backend 包含 35 个 estimator cases + 12 个 public covariance primitives | 默认 `rtol=5e-6`, `atol=5e-7` |
+| HC primitives | `statsmodels==0.14.6` | full-rank OLS regression 上的 HC2/HC3 | `rtol=5e-12`, `atol=5e-14` |
+| Cluster / DK primitives | `linearmodels==7.0` | one-/two-way group-debiased clustering；Bartlett/Parzen/QS weights 与 DK covariance；default bandwidth 与 fixed-effect df adjustment | covariance `rtol=5e-12`, `atol=5e-14`；weights `rtol=5e-14`, `atol=5e-15` |
+| PooledOLS / PanelOLS | `linearmodels==7.0` | coefficient、DK covariance/BSE，以及 PooledOLS group-debiased cluster covariance | coefficient `rtol=2e-10`, `atol=2e-11`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| BetweenOLS / FirstDifferenceOLS | `statsmodels==0.14.6` | 使用相同 averaging/differencing transformation 后的 coefficient 与 HC0/HC2/HC3 covariance/BSE | coefficient `rtol=5e-10`, `atol=5e-12`；covariance/BSE `rtol=5e-9`, `atol=5e-11` |
+| RandomEffects transformed regression | `linearmodels==7.0`, `statsmodels==0.14.6` | statgpu Swamy-Arora quasi-demeaned $X^*,y^*$ 上的 robust/HC2/HC3/DK covariance；不宣称 coefficient parity | covariance `rtol=5e-9`, `atol=5e-11` |
+| R external checks | `plm==2.6-7`, `sandwich==3.1-3` | HC0/HC2/HC3 covariance 与 one-way FE coefficient | covariance `rtol=5e-9`, `atol=5e-11`；FE coefficient `rtol=5e-10`, `atol=5e-11` |
+| Physical GPU | NumPy reference | 每个 CuPy/Torch backend 的 35 个 estimator cases + 12 个 public covariance-helper cases | 默认 `rtol=5e-6`, `atol=5e-7` |
 
-no-FE level-OLS `PanelOLS` 还会与 `statsmodels==0.14.6` 比较 coefficient、covariance/BSE、$R^2$、adjusted $R^2$ 与 model F statistics。
+无 fixed effects 的 `PanelOLS` level regression 还会与 `statsmodels==0.14.6` 比较 coefficient、covariance/BSE、$R^2$、adjusted $R^2$ 与 model F statistics。
 
-ill-conditioned full-rank stress test 使用与数值尺度相适应的 tolerance：HC0 对 statsmodels 为 `rtol=2e-6, atol=5e-3`；stable HC2/HC3 leverage 检查为 `rtol=5e-11, atol=5e-3`，因为 variance 可能超过 $10^{10}$。
+ill-conditioned 但 full-rank 的 stress tests 使用 scale-aware tolerance，因为 covariance entries 可能非常大：HC0 对 statsmodels 使用 `rtol=2e-6, atol=5e-3`；stable HC2/HC3 leverage checks 在 variance 可能超过 $10^{10}$ 时使用 `rtol=5e-11, atol=5e-3`。
 
-external CI 中的 tolerance 是 pass/fail assertion threshold，并不是持久化的 observed-error summary。物理 P100 payload 则会保存每个字段的 `max_abs_differences`，位于 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`；audit summary 位于 `results/pr126_p100_fresh/validation_summary.txt`。
+表中的 CI tolerance 是 pass/fail threshold，不是实际观测误差。P100 physical validation 另外保存每个字段实际的 `max_abs_differences`，位于 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`；summary 位于 `results/pr126_p100_fresh/validation_summary.txt`。
 
-维护的 external tests 为 `dev/tests/test_panel_stage_c_external.py`、`dev/tests/test_panel_stage_c_external_defaults.py`、`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。
+对应的 external tests 为 `dev/tests/test_panel_stage_c_external.py`、`dev/tests/test_panel_stage_c_external_defaults.py`、`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。
 
 ## 参考（References）
 

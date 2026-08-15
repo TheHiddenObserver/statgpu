@@ -6,7 +6,9 @@
 
 ## Overview
 
-`RandomEffects` implements the one-way Swamy-Arora error-components estimator followed by feasible GLS. Covariance choices affect inference on the quasi-demeaned fit space, not the variance-component construction.
+`RandomEffects` fits a one-way random-intercept panel model using the Swamy-Arora variance-component estimator followed by feasible GLS. The model treats the entity-specific effect as a random component rather than estimating a separate fixed intercept for every entity.
+
+The chosen `cov_type` changes the reported standard errors and tests after the GLS fit; it does not change the Swamy-Arora variance components or the coefficient estimate.
 
 ## Path
 
@@ -37,7 +39,9 @@ $$
 \max\left\{0,\frac{RSS_B/df_B-\widehat\sigma_e^2}{\bar T_H}\right\}.
 $$
 
-Here $df_W=n-r_W-r_E$, with $r_E=N$ when the level design has an explicit constant and $r_E=N-1$ otherwise; $df_B=N-r_B$. For entity $i$,
+Here $df_W=n-r_W-r_E$, with $r_E=N$ when the level design has an explicit constant and $r_E=N-1$ otherwise; $df_B=N-r_B$. If an auxiliary regression contains redundant columns, the numerical rank is used so those redundant directions are not counted as additional degrees of freedom.
+
+For entity $i$,
 
 $$
 \theta_i=1-\sqrt{\frac{\widehat\sigma_e^2}{\widehat\sigma_e^2+T_i\widehat\sigma_a^2}},
@@ -49,7 +53,9 @@ y_{it}^*=y_{it}-\theta_i\bar y_i,
 x_{it}^*=x_{it}-\theta_i\bar x_i.
 $$
 
-The feasible-GLS objective and estimator are
+This quasi-demeaning subtracts part of each entity mean. The amount depends on the estimated within-entity and between-entity variance components and on the entity's number of observations.
+
+The feasible-GLS estimator is then
 
 $$
 \widehat\beta_{\mathrm{RE}}
@@ -57,38 +63,36 @@ $$
 =(X^{*\top}X^*)^+X^{*\top}y^*.
 $$
 
-The rank-deficient extension replaces raw auxiliary-regression column counts by identified numerical ranks.
-
 ## Covariance and Inference
 
-All residual-based covariance uses $Z=X^*$ and $e^*=y^*-X^*\widehat\beta_{\mathrm{RE}}$. In particular,
+Standard errors are based on the quasi-demeaned data $(y^*,X^*)$ used in the GLS regression. In particular,
 
 $$
 \widehat V_{\mathrm{nonrobust}}
 =\widehat\sigma_*^2(X^{*\top}X^*)^+,
 \qquad
-\widehat\sigma_*^2=\frac{e^{*\top}e^*}{n-\operatorname{rank}(X^*)}.
+\widehat\sigma_*^2=\frac{e^{*\top}e^*}{n-\operatorname{rank}(X^*)},
 $$
 
-HC0/1/2/3, clustered, and Driscoll-Kraay use [Panel covariance](covariance.md) with $X^*$ as the fit-space design.
+where $e^*=y^*-X^*\widehat\beta_{\mathrm{RE}}$. HC0/1/2/3, clustered, and Driscoll-Kraay alternatives use the same transformed regression; see [Panel covariance](covariance.md).
 
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |
 |---|---:|---|---|
-| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `driscoll-kraay`/`dk`/`kernel` | Covariance estimator on the quasi-demeaned fit space. |
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `driscoll-kraay`/`dk`/`kernel` | How standard errors are computed after the random-effects GLS transformation. |
 | `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
-| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Where numerical computation runs. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 | `bandwidth` | `None` | `None` or a non-negative integer; DK only | Driscoll-Kraay smoothing bandwidth. |
 | `kernel` | `"bartlett"` | Bartlett/Newey-West, Parzen/Gallant, or QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel. |
-| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-group cluster correction. |
+| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-number-of-clusters correction. |
 
 ```python
 model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 ```
 
-`entity_ids` is required. Driscoll-Kraay requires `time_ids`; clustered covariance requires `cluster`.
+`entity_ids` is required because the variance components and quasi-demeaning are entity-specific. Driscoll-Kraay additionally requires `time_ids`; clustered covariance requires `cluster`.
 
 ## CPU and GPU Example
 
@@ -100,7 +104,7 @@ cuda = RandomEffects(device="cuda").fit(X, y, entity_ids=entity_ids)
 torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
 ```
 
-Explicit GPU requests require the requested backend and do not silently fall back to CPU.
+If an explicitly requested GPU backend is unavailable, `.fit()` raises an error rather than switching to CPU.
 
 ## Formula Example
 
@@ -122,23 +126,27 @@ without_intercept = RandomEffects().fit(
 
 ## Outputs
 
-Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `theta_`, `variance_components_`, `fit_statistics_`, `nobs`, and `df_resid`. `variance_components_` stores $\widehat\sigma_e^2$ and $\widehat\sigma_a^2$.
+Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `theta_`, `variance_components_`, `fit_statistics_`, `nobs`, and `df_resid`. `variance_components_` stores $\widehat\sigma_e^2$ and $\widehat\sigma_a^2$. `theta_` is the entity-count-weighted average of the per-entity quasi-demeaning factors used in the fit.
 
 ## Numerical and Strict Behavior
 
-Variance components and coefficients are covariance-invariant. There is no silent approximate-inference fallback. Exact rank deficiency uses the documented identified-rank extension; coordinate-wise inference still requires an identifiable coefficient representation. Classical FE-versus-RE Hausman is restricted to its documented applicability conditions.
+Changing `cov_type` does not refit the random-effects model: the variance components and coefficients stay the same, while the reported uncertainty changes.
+
+If the transformed design is exactly rank deficient, fitted values may still be available but the coefficient vector is not uniquely identified. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation.
+
+The classical Hausman comparison is available only under the conditions documented in [Panel diagnostics](diagnostics.md). Invalid covariance inputs or unavailable explicitly requested GPU backends raise errors.
 
 ## FAQ
 
-**Does `cov_type` change the Swamy-Arora coefficient estimate?**  No. It changes inference after the quasi-demeaned GLS fit.
+**Does `cov_type` change the Swamy-Arora coefficient estimate?**  No. It changes only the standard errors and related inference reported after the GLS fit.
 
-**Why can $\widehat\sigma_a^2$ be zero?**  The maintained estimator truncates the raw variance-component estimate at zero.
+**Why can $\widehat\sigma_a^2$ be zero?**  The raw Swamy-Arora estimate can be negative in finite samples; statgpu truncates that variance estimate at zero because a variance cannot be negative.
 
 ## External Validation
 
-The maintained external gate does **not** assert direct RandomEffects coefficient parity with another package, because statgpu keeps its own Swamy-Arora variance-component construction. Instead, `linearmodels==7.0` checks robust and Driscoll-Kraay covariance on statgpu's reconstructed $X^*,y^*$ fit space, while `statsmodels==0.14.6` checks HC2/HC3 on that same fit space; covariance assertions use `rtol=5e-9, atol=5e-11`. See the shared [validation matrix](covariance.md#validation-matrix).
+Random-effects coefficient estimates are **not** claimed to match another package exactly because statgpu uses its own Swamy-Arora variance-component construction. Instead, we take statgpu's quasi-demeaned $(X^*,y^*)$ regression and compare the resulting robust and Driscoll-Kraay covariance with `linearmodels==7.0`, and HC2/HC3 covariance with `statsmodels==0.14.6`. Covariance comparisons use `rtol=5e-9, atol=5e-11`; see the shared [validation matrix](covariance.md#validation-matrix).
 
-The Stage-C physical runner separately checks RandomEffects CuPy/Torch outputs against NumPy at default `rtol=5e-6, atol=5e-7`; observed differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
+GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
 
 ## References
 

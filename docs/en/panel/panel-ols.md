@@ -6,7 +6,9 @@
 
 ## Overview
 
-`PanelOLS` estimates level, one-way fixed-effect, or two-way fixed-effect linear panel regressions. Fixed effects are removed in the fitted numerical space rather than represented as a dense dummy matrix.
+`PanelOLS` fits linear panel regressions with no fixed effects, one-way fixed effects, or two-way fixed effects. With fixed effects, the coefficient estimate is identified from variation left after removing the selected entity and/or time means.
+
+The implementation performs these transformations directly rather than constructing a large dummy-variable matrix, which keeps the same fixed-effect regression interpretation while avoiding a dense set of dummy columns.
 
 ## Path
 
@@ -28,39 +30,41 @@ $$
 =(X^\top M_FX)^+X^\top M_Fy.
 $$
 
-One-way entity effects reduce to within demeaning. Two-way effects use backend-native alternating projection and fail closed if `demean_tol` is not reached within `demean_max_iter`.
+For one-way entity effects, this is ordinary within-entity demeaning. For two-way effects, statgpu repeatedly removes entity and time means until the requested tolerance is reached. If that iteration does not converge within `demean_max_iter`, `.fit()` raises an error instead of returning a partially demeaned regression.
 
 ## Covariance and Inference
 
-The fit space is $Z=M_FX$ with residual $e=M_F(y-X\widehat\beta_{\mathrm{FE}})$. Shared nonrobust, HC, clustered, and Driscoll-Kraay formulas are in [Panel covariance](covariance.md).
+Standard errors are computed from the same transformed regressors and residuals used to estimate $\widehat\beta_{\mathrm{FE}}$. Writing the transformed design as $Z=M_FX$ and the transformed residual as $e=M_F(y-X\widehat\beta_{\mathrm{FE}})$, the shared nonrobust, HC, clustered, and Driscoll-Kraay formulas are given in [Panel covariance](covariance.md).
 
-For Driscoll-Kraay, the fixed-effect nuisance rank is
+For Driscoll-Kraay, the degrees-of-freedom adjustment must also count the fixed effects. The corresponding fixed-effect rank is
 
 $$
 r_F=\begin{cases}N,&\text{entity only},\\T,&\text{time only},\\N+T-C,&\text{two way},\end{cases}
 $$
 
-where $C$ is the number of connected components of the observed entity-time incidence graph.
+where $C$ is the number of connected components in the observed entity-time incidence graph.
 
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |
 |---|---:|---|---|
-| `entity_effects` | `False` | boolean | Include entity fixed effects. |
-| `time_effects` | `False` | boolean | Include time fixed effects. |
-| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `driscoll-kraay`/`dk`/`kernel` | Covariance estimator. |
+| `entity_effects` | `False` | boolean | Remove entity-specific level effects. |
+| `time_effects` | `False` | boolean | Remove time-specific level effects. |
+| `cov_type` | `"nonrobust"` | `nonrobust`, `robust`/`hc1`, `hc0`, `hc2`, `hc3`, `clustered`, `driscoll-kraay`/`dk`/`kernel` | How coefficient standard errors are computed. |
 | `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
-| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Where numerical computation runs. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 | `bandwidth` | `None` | `None` or a non-negative integer; DK only | Driscoll-Kraay smoothing bandwidth. `None` uses the documented automatic rule. |
 | `kernel` | `"bartlett"` | Bartlett/Newey-West, Parzen/Gallant, or QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel. |
-| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-group cluster correction. |
-| `demean_max_iter` | `1_000_000` | positive integer | Maximum iterations for two-way alternating projection. |
-| `demean_tol` | `1e-10` | finite and positive | Convergence tolerance for two-way alternating projection. |
+| `group_debias` | `False` | boolean; clustered covariance only | Apply the small-number-of-clusters correction. |
+| `demean_max_iter` | `1_000_000` | positive integer | Maximum iterations allowed for two-way demeaning. |
+| `demean_tol` | `1e-10` | finite and positive | Convergence tolerance for two-way demeaning. |
 
 ```python
 model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
 ```
+
+When an effect is enabled through constructor arguments, provide the matching `entity_ids` and/or `time_ids`. Clustered covariance additionally needs `cluster`, and Driscoll-Kraay needs `time_ids`.
 
 ## CPU and GPU Example
 
@@ -72,7 +76,7 @@ cuda = PanelOLS(entity_effects=True, device="cuda").fit(X, y, entity_ids=entity_
 torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entity_ids)
 ```
 
-`cuda` requires CuPy/CUDA and `torch` requires Torch CUDA; explicit GPU requests do not silently fall back to CPU.
+`device="cuda"` requires CuPy/CUDA and `device="torch"` requires Torch CUDA. If the requested backend is unavailable, `.fit()` raises an error rather than switching to CPU.
 
 ## Formula Example
 
@@ -104,23 +108,29 @@ Use either pipe syntax or effect tokens for fixed effects, not both. Pipe syntax
 
 ## Outputs
 
-Common public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared_within`, `fit_statistics_`, `nobs`, and `df_resid`. `summary()` returns the panel summary object. Pooling F and Hausman are described in [Panel diagnostics](diagnostics.md).
+Common public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared_within`, `fit_statistics_`, `nobs`, and `df_resid`. `summary()` returns the panel summary object. Pooling F and Hausman tests are described in [Panel diagnostics](diagnostics.md).
 
 ## Numerical and Strict Behavior
 
-There is no silent approximate-inference fallback. Exact rank deficiency keeps fitted-space quantities but makes coordinate-wise coefficient inference unavailable; see [Panel covariance](covariance.md). Two-way stored-effect prediction requires identified entity/time labels in the same fitted incidence component: one-sided, known-plus-unknown, and cross-component combinations fail closed; if both labels are unseen, prediction uses the linear-only fallback. Formula parsing also fails closed when pipe and effect-token syntax are mixed, more than two pipe fixed effects are requested, or a fixed-effect formula has no non-intercept regressor.
+Two-way demeaning must actually converge. If the requested tolerance is not reached within `demean_max_iter`, statgpu raises an error instead of using the last iterate as an approximate fit.
+
+If the transformed regressors are exactly collinear, fitted values remain well defined but the coefficient vector is not unique. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation; see [Panel covariance](covariance.md).
+
+For two-way fixed-effect prediction, stored entity and time effects can be combined only when the requested labels are identified by the fitted data. A known label paired with an unknown label, or labels from incompatible fitted components, raises an error. If both labels are unseen, prediction falls back to the linear $X\widehat\beta$ part because no fitted fixed effect is available for either label.
+
+Formula parsing also raises clear errors for unsupported requests: mixing pipe and effect-token syntax, specifying more than two pipe fixed effects, or supplying a fixed-effect formula with no non-intercept regressor.
 
 ## FAQ
 
-**Why can two-way demeaning raise instead of returning the last iterate?**  The estimator treats the convergence tolerance as part of the numerical contract and fails closed when it is not met.
+**Why can two-way demeaning raise instead of returning the last iterate?**  Because using a non-converged transformation would change the fitted regression. The requested tolerance is therefore enforced before results are returned.
 
-**Does robust covariance change `fit_statistics_.f_statistic` into a robust Wald test?**  No. The standardized model F remains the classical fit-space joint-slope statistic; see [fit statistics](fit-statistics.md).
+**Does robust covariance change `fit_statistics_.f_statistic` into a robust Wald test?**  No. This field remains the classical joint test of the fitted slope regressors; see [fit statistics](fit-statistics.md).
 
 ## External Validation
 
-External-framework parity and physical backend precision are separate gates. `linearmodels==7.0` checks one- and two-way FE Driscoll-Kraay integration with coefficient tolerance `rtol=2e-10, atol=2e-11` and covariance/BSE tolerance `rtol=5e-9, atol=5e-11`. `statsmodels==0.14.6` checks the no-FE level-OLS path, while R `plm==2.6-7` checks one-way FE coefficients. Shared covariance-definition and R tolerances are summarized in the [validation matrix](covariance.md#validation-matrix).
+We compare one- and two-way fixed-effect Driscoll-Kraay results with `linearmodels==7.0`: coefficients use `rtol=2e-10, atol=2e-11`, and covariance/BSE use `rtol=5e-9, atol=5e-11`. The no-fixed-effect OLS path is compared with `statsmodels==0.14.6`, and one-way fixed-effect coefficients are also checked against R `plm==2.6-7`. Shared covariance and R tolerances are summarized in the [validation matrix](covariance.md#validation-matrix).
 
-The Stage-C physical runner separately compares CuPy and Torch with the NumPy implementation using default `rtol=5e-6, atol=5e-7`; actual maximum absolute differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
+GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy using default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
 
 ## References
 

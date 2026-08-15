@@ -6,7 +6,7 @@
 
 ## Overview
 
-`FamaMacBeth` runs a cross-sectional regression in each retained period and averages the period-specific coefficient vectors. Its inference is based on the coefficient time series, not residual-based panel covariance.
+`FamaMacBeth` fits a separate cross-sectional regression in each time period and then averages the period-specific coefficient estimates. This is different from the other panel estimators on these pages: its standard errors are based on how the estimated coefficients vary **across time**, not on one pooled residual covariance matrix.
 
 ## Path
 
@@ -24,11 +24,11 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-Periods below `min_obs_per_period` or without enough observations for the period design are omitted.
+A period is used only when it meets `min_obs_per_period` and has enough observations to estimate that period's regression. The final coefficient is the simple average over the retained periods.
 
 ## Covariance and Inference
 
-Let
+Define the deviation of each period estimate from the final average as
 
 $$
 u_t=\widehat\beta_t-\widehat\beta_{\mathrm{FM}}.
@@ -38,14 +38,14 @@ With `cov_type="nonrobust"`,
 
 $$
 \widehat V_{\mathrm{nonrobust}}
-=\frac{1}{T(T-1)}\sum_{t=1}^T u_tu_t^\top.
+=\frac{1}{T(T-1)}\sum_{t=1}^T \nu_t\nu_t^\top.
 $$
 
-For `cov_type="newey-west"`, define the lag-$\ell$ coefficient covariance
+This treats the retained period estimates as an independent coefficient series. With `cov_type="newey-west"`, serial dependence in that coefficient series is allowed. Define
 
 $$
 \widehat\Gamma_\ell
-=\frac{1}{T}\sum_{t=\ell+1}^{T}u_tu_{t-\ell}^\top,
+=\frac{1}{T}\sum_{t=\ell+1}^{T}\nu_t\nu_{t-\ell}^\top,
 \qquad \ell=0,\ldots,L,
 $$
 
@@ -55,7 +55,7 @@ $$
 w_\ell=1-\frac{\ell}{L+1}.
 $$
 
-The coefficient-series long-run covariance and the covariance of the Fama-MacBeth mean are
+The long-run covariance of the coefficient series and the covariance of the Fama-MacBeth average are
 
 $$
 \widehat\Omega_{\mathrm{NW}}
@@ -67,30 +67,30 @@ $$
 =\frac{1}{T}\widehat\Omega_{\mathrm{NW}}.
 $$
 
-If `bandwidth=None`, the implementation starts from
+If `bandwidth=None`, statgpu starts from
 
 $$
 L=\left\lfloor4(T/100)^{2/9}\right\rfloor
 $$
 
-and clips it to $0\le L\le T-1$. This coefficient-series HAC path is distinct from the residual-based definitions in [Panel covariance](covariance.md).
+and clips it to $0\le L\le T-1$. This Newey-West calculation is applied to the sequence of period coefficients, so it is different from the residual-based HAC/Driscoll-Kraay estimators described in [Panel covariance](covariance.md).
 
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |
 |---|---:|---|---|
-| `cov_type` | `"newey-west"` | `nonrobust` or `newey-west` | Coefficient-series covariance estimator. |
-| `bandwidth` | `None` | `None` or a non-negative integer; clipped to at most $T-1$ | Bartlett HAC bandwidth $L$. |
+| `cov_type` | `"newey-west"` | `nonrobust` or `newey-west` | Whether period-to-period coefficient dependence is ignored or adjusted with Newey-West. |
+| `bandwidth` | `None` | `None` or a non-negative integer; clipped to at most $T-1$ | Bartlett Newey-West bandwidth $L$. |
 | `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
 | `min_obs_per_period` | `1` | positive integer | Preliminary minimum period size. A retained period must also satisfy $n_t\ge k+1$, where $k$ is the intercept-augmented design width. |
-| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Numerical backend/device. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Where numerical computation runs. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 
 ```python
 model.fit(X, y, time_ids=time_ids, entity_ids=None)
 ```
 
-`time_ids` is required. `entity_ids` only enables standardized within/between $R^2$.
+`time_ids` is required to define the cross-sectional regressions. `entity_ids` is optional and is used only for standardized within/between $R^2$ calculations.
 
 ## CPU and GPU Example
 
@@ -101,6 +101,8 @@ cpu = FamaMacBeth(device="cpu").fit(X, y, time_ids=time_ids)
 cuda = FamaMacBeth(device="cuda").fit(X, y, time_ids=time_ids)
 torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
 ```
+
+If an explicitly requested GPU backend is unavailable, `.fit()` raises an error rather than switching to CPU.
 
 ## Formula Example
 
@@ -118,23 +120,27 @@ model = FamaMacBeth().fit(
 
 ## Outputs
 
-Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `betas_`, `cov_params_`, `fit_statistics_`, `nobs`, `n_periods`, and `df_resid`.
+Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `betas_`, `cov_params_`, `fit_statistics_`, `nobs`, `n_periods`, and `df_resid`. `betas_` contains the retained period-by-period coefficient estimates, while `coef_` is their average.
 
 ## Numerical and Strict Behavior
 
-At least two periods must remain after filtering. The Newey-West path uses asymptotic-normal coefficient inference; the nonrobust path uses a Student-t reference with $T-1$ degrees of freedom. There is no separate approximate estimator or inference path, and explicit GPU requests do not silently fall back to CPU.
+At least two valid periods must remain after filtering; otherwise `.fit()` raises an error because the variability of the coefficient series cannot be estimated from fewer than two periods.
+
+With `cov_type="newey-west"`, coefficient inference uses the asymptotic normal distribution. With `cov_type="nonrobust"`, it uses a Student-t reference with $T-1$ degrees of freedom. There is no hidden alternative inference method if these requirements are not met.
+
+An explicit `device="cuda"` or `device="torch"` request also requires that backend to be available; statgpu does not silently switch to CPU.
 
 ## FAQ
 
-**Why is this covariance not listed with HC/cluster/DK?**  Fama-MacBeth inference is constructed from the time series of $\widehat\beta_t$, not observation residuals.
+**Why is this covariance not listed with HC/cluster/Driscoll-Kraay?**  Those methods are built from observation-level regression residuals. Fama-MacBeth inference is instead built from the time series of period-specific coefficient estimates $\widehat\beta_t$.
 
-**What happens to undersized periods?**  They are excluded before the coefficient average; the fit raises if no valid periods or fewer than two retained periods remain.
+**What happens to undersized periods?**  They are excluded before the coefficient average is formed. If fewer than two valid periods remain, the fit raises an error.
 
 ## External Validation
 
-There is currently no maintained external-framework parity gate for this estimator's beta-series covariance, so the documentation does not claim `linearmodels` or another package matches it. Maintained estimator/covariance/filtering regressions are in `dev/tests/test_panel_p2.py`, with formula coverage in `dev/tests/test_panel_formula.py`.
+There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Estimator, covariance, filtering, and formula behavior are covered by the panel regression tests in `dev/tests/`.
 
-Three-backend physical parity for the `fama_macbeth_newey_west` case is exercised by `dev/benchmarks/validate_panel_stage_a_gpu.py` against NumPy with default `rtol=5e-6, atol=5e-7`. The Stage-C residual-covariance physical matrix is separate and does not include FamaMacBeth.
+GPU consistency for the `fama_macbeth_newey_west` case is tested separately by `dev/benchmarks/validate_panel_stage_a_gpu.py`, which compares CuPy and Torch with NumPy using default `rtol=5e-6, atol=5e-7`. Fama-MacBeth is not part of the Stage-C residual-covariance matrix because its covariance is defined from the coefficient series instead.
 
 ## References
 
