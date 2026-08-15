@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
       - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
@@ -13,6 +14,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
       - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
@@ -47,6 +49,7 @@ jobs:
       - name: Run Stage C Torch CPU covariance parity
         run: |
           python -m pytest \
+            dev/tests/test_fama_macbeth_review_fixes.py \
             dev/tests/test_panel_stage_c_torch_cpu.py \
             dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
             dev/tests/test_panel_stage_c_final_review_fixes.py \
