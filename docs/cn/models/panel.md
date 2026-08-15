@@ -4,16 +4,20 @@
 > 最后更新：2026-08-15  
 > 切换：[English](../../en/models/panel.md)
 
-`statgpu.panel` 提供六类面板估计器。可以先根据下表选择模型，再进入对应页面查看模型定义、参数、formula 示例、CPU/GPU 用法、统计推断和 diagnostics。
+`statgpu.panel` 提供六类面板估计器。它们不应理解成六个彼此无关的数据生成过程。多个 estimator 可以从同一个基础 panel model 出发，只是在对未观测异质性的假设、用于识别 coefficient 的 variation，或目标参数上有所不同。
 
-| 估计器 | 适用场景 |
-|---|---|
-| [PanelOLS](../panel/panel-ols.md) | 带 entity 和/或 time fixed effects 的线性面板回归。 |
-| [RandomEffects](../panel/random-effects.md) | 使用 Swamy-Arora 方法的单向 random-intercept model。 |
-| [PooledOLS](../panel/pooled-ols.md) | 所有 panel observations 共享同一组 OLS coefficient。 |
-| [BetweenOLS](../panel/between-ols.md) | 对 entity 均值做回归，关注 entity 之间的长期平均差异。 |
-| [FirstDifferenceOLS](../panel/first-difference-ols.md) | 对同一 entity 相邻已观测时期的变化做回归。 |
-| [FamaMacBeth](../panel/fama-macbeth.md) | 每个时期分别做横截面回归，再对 coefficient 取平均。 |
+可以按下面的统计结构来区分：
+
+| 估计器 | 统计视角 | 主要识别来源 / 额外条件 |
+|---|---|---|
+| [PanelOLS](../panel/panel-ols.md) | entity 和/或 time effects 被视为 fixed but unknown nuisance parameters。 | 使用去除所选 fixed effects 后剩余的 variation；不要求 fixed effects 与 regressor history 正交。 |
+| [FirstDifferenceOLS](../panel/first-difference-ols.md) | 可以从同一个 fixed-parameter entity-effect model 出发，通过差分消除 time-invariant entity effect。 | 使用同一 entity 在相邻已观测时期之间的变化。 |
+| [RandomEffects](../panel/random-effects.md) | entity effect 被建模为随机成分。 | 经典 RE 解释要求 random effect 与 regressor history 正交，例如 $E(a_i\mid X_i)=0$。 |
+| [BetweenOLS](../panel/between-ols.md) | 将 panel 在 entity 内取平均，得到每个 entity 一条观测。 | 使用 entity 之间的 variation；若要恢复基础 panel model 中相同的 structural slope，需要 averaged composite error 与 averaged regressors 正交。 |
+| [PooledOLS](../panel/pooled-ols.md) | 所有 stacked observations 共享一个公共 conditional-mean relationship。 | 使用全部 stacked variation；combined regression error 必须对 regressors 外生。 |
+| [FamaMacBeth](../panel/fama-macbeth.md) | 每个 time period 有自己的 cross-sectional regression。 | 目标是保留时期的 period-specific slope 平均值，并根据这些 slope 的 time-series variation 做 inference。 |
+
+每个 estimator 页面现在都会把 **statistical model 与 identification assumptions** 和 **numerical estimator** 分开说明。前者回答“什么条件下 coefficient 具有通常的 panel-econometric interpretation”；软件本身仍然可以机械地计算 estimator，因此这些统计假设需要由用户结合实际问题判断，而不是由 `.fit()` 自动验证。
 
 共享统计定义见 [covariance](../panel/covariance.md)、[fit statistics](../panel/fit-statistics.md) 与 [diagnostics](../panel/diagnostics.md)。
 
