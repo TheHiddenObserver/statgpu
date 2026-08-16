@@ -159,3 +159,26 @@ def test_fama_macbeth_torch_cpu_distribution_inference_is_vectorized_and_backend
         assert pvalue_input_shapes == []
         assert distribution_calls == []
     assert np.all(np.isfinite(_to_numpy(model.pvalues_)))
+
+
+def test_exact_t2_tail_remains_nonzero_for_extreme_torch_statistic():
+    """Use the rationalized exact t(2) tail rather than a cancelling subtraction."""
+    torch = pytest.importorskip("torch")
+    statistic = torch.as_tensor([1.0e10], dtype=torch.float64)
+    pvalues, critical = reference_distribution.two_sided_reference_inference(
+        statistic,
+        distribution="t",
+        alpha=0.05,
+        backend="torch",
+        xp=torch,
+        df=2,
+        device="cpu",
+    )
+
+    root = np.sqrt(1.0e20 + 2.0)
+    expected = 2.0 / (root * (root + 1.0e10))
+    observed = float(pvalues.item())
+    assert observed > 0.0
+    np.testing.assert_allclose(observed, expected, rtol=2e-15, atol=0.0)
+    assert torch.is_tensor(critical)
+    assert critical.device.type == "cpu"
