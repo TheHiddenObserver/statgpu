@@ -8,6 +8,7 @@ on:
       - 'statgpu/inference/_reference_distribution.py'
       - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
+      - 'dev/tests/test_fama_macbeth_batched_solver.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
       - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
@@ -19,6 +20,7 @@ on:
       - 'statgpu/inference/_reference_distribution.py'
       - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
+      - 'dev/tests/test_fama_macbeth_batched_solver.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
       - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
@@ -55,6 +57,7 @@ jobs:
           python -m pytest \
             dev/tests/test_fama_macbeth_review_fixes.py \
             dev/tests/test_fama_macbeth_inference_matrix.py \
+            dev/tests/test_fama_macbeth_batched_solver.py \
             dev/tests/test_panel_stage_c_torch_cpu.py \
             dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
             dev/tests/test_panel_stage_c_final_review_fixes.py \
