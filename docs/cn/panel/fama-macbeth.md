@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。当前实现对每个 retained period 只执行一次共享的 rank-revealing SVD，并直接复用这些 factor 同时得到 numerical rank 与 least-squares coefficient vector。singular-value cutoff 保持在 active backend 上，只把最终 integer rank 提取给 fail-closed 的 Python control flow；least-squares 路径也不会构造 residual-OLS covariance 才需要的额外 bread。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。NumPy reference path 保留原有的 serial rank-revealing SVD policy；CuPy/Torch 则在保持完全相同 rank cutoff 的前提下，对相同 $n_t$ 的 retained periods 做 exact-size batched SVD。balanced panel 因而可以一次完成所有 retained-period SVD；unbalanced panel 则按照实际 period size 分桶。实现**不使用 zero padding**，所以每个时期仍采用与 serial path 相同的 $\max(n_t,k)\epsilon s_{\max,t}$ cutoff。SVD factors 同时用于 numerical rank 与 least-squares coefficient；GPU 路径只需每个 size bucket 回传一次完整 rank vector，而不再每个 retained period 同步一个 scalar rank。
 
 ## Covariance and Inference
 
@@ -103,7 +103,7 @@ $$
 
 retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetime labels 使用自然顺序；ordered pandas categorical 会保留用户明确声明的 category order，不会在形成 Newey-West lag covariance 之前被转换为字符串字典序。
 
-成功拟合还会发布 inference-capable statgpu estimator 共用的 `ParameterInferenceResult`。公开的 `coef_`、`bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 继续保持 backend-native。distribution inference 跟随实际 fit backend：NumPy 使用 NumPy inference backend，CuPy 使用 CuPy inference backend，Torch 则在实际 tensor device 上使用 Torch inference backend。`_inference_result` 以及 `_params`、`_bse`、`_tvalues`/`_zvalues`、`_pvalues`、`_conf_int` 保存的 NumPy snapshot 仅用于统一 inference/reporting contract，不参与 p-value 或 confidence interval 的数值计算。`newey-west` 标记为 `z`/normal inference，`nonrobust` 标记为自由度 $T-1$ 的 Student-t inference。
+成功拟合还会发布 inference-capable statgpu estimator 共用的 `ParameterInferenceResult`。公开的 `coef_`、`bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 继续保持 backend-native。distribution inference 跟随实际 fit backend：NumPy 使用 NumPy inference backend，CuPy 使用 CuPy inference backend，Torch 则在实际 tensor device 上使用 Torch inference backend。`_inference_result` 以及 `_params`、`_bse`、`_tvalues`/`_zvalues`、`_pvalues`、`_conf_int` 保存的 NumPy snapshot 仅用于统一 inference/reporting contract，不参与 p-value 或 confidence interval 的数值计算。对于 GPU fit，reporting fields 会先在 active backend 上打包，再在 numerical inference 完成后一次性形成小型 NumPy snapshot。`newey-west` 标记为 `z`/normal inference，`nonrobust` 标记为自由度 $T-1$ 的 Student-t inference。
 
 ## Parameters
 
@@ -156,11 +156,13 @@ model = FamaMacBeth().fit(
 
 ## Numerical and Strict Behavior
 
-过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。rank check 与 coefficient solve 共享同一次 SVD，因此在保持完全相同 rank policy 的同时避免重复的第二次数值分解。
+过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。rank check 与 coefficient solve 共享同一组 SVD factors。CuPy/Torch batching 只改变等形状 period regression 的调度方式：不会 padding period、不会改变 rank threshold，也不会改变最终 `betas_` 的 chronological order。如果多个 size bucket 中都存在 rank-deficient period，公开错误仍会定位 chronology 上最早的 deficient retained period。
 
-当前 retained period 仍由 Python 串行处理；每个 period 通常只是一个较小的 SVD，而且在继续拟合前必须把最终 rank 暴露给 Python。因此当 regressor 很少或每期 cross section 很小时，GPU kernel launch 与 synchronization overhead 可能超过线性代数本身，`device="cuda"` 或 `device="torch"` **不代表普遍更快**。如果性能重要，应针对实际 panel shape 做 benchmark。focused physical gate 会在完全相同的 workload 上同时记录同步后的 NumPy 与 GPU timing，并报告 GPU/NumPy median-time ratio；ratio 大于 1 表示该 GPU backend 在这个 fixture 上比 NumPy 慢，而不是 correctness failure。
+原来的 physical performance fixture 被**刻意保留为 micro/launch-overhead regime**：64 periods × 每期 128 observations × 4 regressors，总计 8,192 rows；加入 intercept 后每期 design width 为 5。即使采用 batching，如此小的 cross-sectional regression 仍可能受到 GPU launch、synchronization、validation 和 reporting 等固定成本支配，所以 `device="cuda"` 或 `device="torch"` **不代表普遍更快**。性能判断应覆盖实际 panel scale，而不能只看一个小 fixture。
 
-p-value 与 critical value 现在通过所选 inference backend 计算，不再把 statistic vector 转到 NumPy/SciPy。normal inference 使用 backend 的 two-sided normal routine；一般 Student-t inference 使用 backend Student-t routine。小自由度边界同样保持 backend-native：df=1 使用精确 Cauchy identity，df=2 使用精确的 elementary two-sided tail 与 quantile 公式，从而避免缺少 native `betainc` 的 Torch 版本降低维护中的高精度契约。只有 inference 已经完成之后，为统一 `ParameterInferenceResult` reporting contract 才会保存 NumPy snapshot。
+因此新增 `dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py`，在保留 micro case 的同时记录 resident-array scaling matrix：micro（64×128×4）、medium（128×1,024×8）和 large（128×4,096×16）。runner 会记录同步后的 NumPy/CuPy/Torch median time、rows/sec、GPU/NumPy ratio、speedup、solver mode/batch count、numerical parity、backend version 以及 thread-environment provenance。GPU input array 在 warmup/timing 之前已经转移到 device，因此这里测量的是 resident-array `fit()` 性能，并明确**不包含** host-to-device input-transfer time。ratio 小于 1 表示该规模上 GPU fit 快于 serial NumPy reference；ratio 大于 1 会如实记录，而不是被当成 correctness failure。
+
+p-value 与 critical value 通过所选 inference backend 计算，不再把 statistic vector 转到 NumPy/SciPy。normal inference 使用 backend 的 two-sided normal routine；一般 Student-t inference 使用 backend Student-t routine。小自由度边界同样保持 backend-native：df=1 使用精确 Cauchy identity，df=2 使用精确的 elementary two-sided tail 与 quantile 公式，从而避免缺少 native `betainc` 的 Torch 版本降低维护中的高精度契约。只有 inference 已经完成之后，为统一 `ParameterInferenceResult` reporting contract 才会保存 NumPy snapshot。
 
 `cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。如果这些条件不满足，statgpu 不会在后台切换成另一套 inference 方法。
 
@@ -184,9 +186,9 @@ p-value 与 critical value 现在通过所选 inference backend 计算，不再�
 
 对 `cov_type="newey-west"`，external gate 使用 linearmodels `cov_type="kernel", kernel="bartlett", bandwidth=L, debiased=False`，并固定完全相同的 $L$。此时 coefficient-series kernel covariance 与 normal-reference inference 都对齐，因此会继续比较 covariance、standard error、test statistic、p-value 和 confidence interval。专用 `Panel Stage C external covariance` workflow 会安装固定 reference 版本，并在相关 PR/source change 上运行该测试。
 
-内部 maintained regression 还覆盖 formula intercept、array/formula 两条路径的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、failed-refit invalidation、single-factorization solve contract、backend-native rank-cutoff behavior、Torch CPU 上的两种 covariance mode、backend-native distribution routing，以及 df=1/df=2 的精确小自由度 inference boundary。
+内部 maintained regression 还覆盖 formula intercept、array/formula 两条路径的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、failed-refit invalidation、single-factorization solve contract、backend-native rank-cutoff behavior、Torch CPU 上的两种 covariance mode、backend-native distribution routing、df=1/df=2 的精确小自由度 inference boundary、balanced batched solve、shuffled unbalanced exact-size bucketing、chronological rank-error reporting，以及 packed reporting snapshot。
 
-标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、两种 covariance mode、标准 inference container/private aliases、requested/executed fit 与 inference backend identity、实际 public-output array backend，以及 `betas_`、coefficient、covariance、standard error、test statistic、p-value、confidence interval 与 prediction 的完整 parity。它的 performance 部分会记录相同 workload 下同步后的 NumPy 与 CuPy/Torch sample、median-time ratio，以及包含 distribution-inference routing 的明确 optimization notes，并且不宣称通用 GPU speedup。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
+标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、两种 covariance mode、标准 inference container/private aliases、requested/executed fit 与 inference backend identity、实际 public-output array backend，以及 `betas_`、coefficient、covariance、standard error、test statistic、p-value、confidence interval 与 prediction 的完整 parity。optimized source 的 performance/crossover evidence 则由 `dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py` 单独记录；不会再根据 focused micro fixture 宣称普遍 GPU speedup。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
 
 ## 参考（References）
 
