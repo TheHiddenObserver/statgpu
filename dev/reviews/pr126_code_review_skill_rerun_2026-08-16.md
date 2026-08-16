@@ -65,25 +65,39 @@ Fix:
 
 ## Validation boundary
 
-Hosted checks must be rerun on the final exact head because production source, tests, workflow, benchmark runner, and docs changed.
+Hosted checks must be rerun on the final executable tree because production source, tests, workflow, benchmark runner, and docs changed.
 
-The numerical Fama-MacBeth implementation changed after accepted physical source `464b587e...`, so the physical gate is reopened. Before restoring COMPLETE, run on one clean final SHA:
+The numerical Fama-MacBeth implementation changed after accepted physical source `464b587e...`, so the physical gate is reopened. Both physical runners require a clean worktree at startup; therefore their outputs must first be written outside the repository. Run both against one clean final SHA, then copy the successful artifacts into `results/`:
 
 ```bash
+FULL_SHA="$(git rev-parse HEAD)"
+SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+test -z "$(git status --porcelain)" || exit 1
+
 python dev/benchmarks/validate_panel_stage_c_gpu.py \
-  --out results/pr126_p100_fama_fix/panel_stage_c_correctness_<shortsha>.json \
-  --expected-sha <full-sha>
+  --out "/tmp/panel_stage_c_correctness_${SHORT_SHA}.json" \
+  --expected-sha "${FULL_SHA}"
+
+test -z "$(git status --porcelain)" || exit 1
 
 python dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py \
-  --out results/pr126_p100_fama_fix/fama_macbeth_review_fix_<shortsha>.json \
-  --expected-sha <full-sha>
+  --out "/tmp/fama_macbeth_review_fix_${SHORT_SHA}.json" \
+  --expected-sha "${FULL_SHA}"
+
+test -z "$(git status --porcelain)" || exit 1
+
+mkdir -p results/pr126_p100_fama_fix
+cp "/tmp/panel_stage_c_correctness_${SHORT_SHA}.json" \
+  "results/pr126_p100_fama_fix/panel_stage_c_correctness_${SHORT_SHA}.json"
+cp "/tmp/fama_macbeth_review_fix_${SHORT_SHA}.json" \
+  "results/pr126_p100_fama_fix/fama_macbeth_review_fix_${SHORT_SHA}.json"
 ```
 
-Both default to physical CuPy + Torch validation. The focused runner additionally records synchronized timing samples for the single-factorization path.
+Both default to physical CuPy + Torch validation. The focused runner additionally records synchronized timing samples and NumPy numerical parity for the single-factorization path. Adding the evidence JSONs intentionally changes the benchmark source inventory; regenerate deterministic frontend/docs benchmark assets before the evidence commit is finalized so the staleness gate remains current.
 
 ## Current exit state
 
-Until current-head hosted workflows and the two physical commands above pass:
+Until the current executable-tree hosted workflows and the two physical commands above pass:
 
 `PARTIAL_REMOTE_PENDING`
 
