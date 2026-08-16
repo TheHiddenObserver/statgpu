@@ -3,8 +3,8 @@
 
 This is performance evidence, not a correctness acceptance replacement.  The
 historical 64x128x4 fixture is retained as the micro/launch-overhead regime and
-larger balanced panels show whether the batched period solver reaches a useful
-GPU crossover on resident device arrays.
+larger balanced panels show whether backend-specific period scheduling reaches
+a useful GPU crossover on resident device arrays.
 """
 
 from __future__ import annotations
@@ -19,9 +19,6 @@ from pathlib import Path
 
 import numpy as np
 
-# Direct execution sets sys.path[0] to dev/benchmarks rather than the repository
-# root.  Add the root explicitly so the runner can reuse the maintained focused
-# GPU validation helpers without relying on an editable-install side effect.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -82,6 +79,14 @@ def _timing_summary(samples, n_rows):
     }
 
 
+def _solver_provenance(model):
+    return {
+        "solver_mode": model._period_solver_mode,
+        "solver_batches": int(model._period_solver_batches),
+        "rank_syncs": int(model._period_rank_syncs),
+    }
+
+
 def _case(name, spec, backends, warmup, repeats):
     X, y, time_ids = _fixture(name, spec)
     n_rows = int(X.shape[0])
@@ -97,8 +102,7 @@ def _case(name, spec, backends, warmup, repeats):
         },
         "numpy": {
             **numpy_summary,
-            "solver_mode": reference._period_solver_mode,
-            "solver_batches": int(reference._period_solver_batches),
+            **_solver_provenance(reference),
         },
         "backends": {},
     }
@@ -127,8 +131,7 @@ def _case(name, spec, backends, warmup, repeats):
             "speedup_over_numpy": float(
                 numpy_summary["median_seconds"] / summary["median_seconds"]
             ),
-            "solver_mode": candidate._period_solver_mode,
-            "solver_batches": int(candidate._period_solver_batches),
+            **_solver_provenance(candidate),
             "max_abs_differences_vs_numpy": diffs,
         }
     return results
