@@ -1,18 +1,18 @@
 {
   "inventory_version": "2.0",
   "catalog_version": "2.0",
-  "catalog_digest": "45f62fbad0dfb72c4db67dc3f325881945e474bde9b70198b2046880204be47e",
+  "catalog_digest": "d2e766a67e0356606bb79aa02e0a28746f3ce9a267571f1e6326dd2e8a749e2f",
   "coverage_matrix_version": "1.0",
   "coverage_matrix_digest": "44ea148dbac2201b88464e32d998810fac7452c33f3844bce3fa3a8ea4cf4ebf",
-  "discovered_json_artifacts": 115,
-  "classified_candidate_sources": 115,
+  "discovered_json_artifacts": 117,
+  "classified_candidate_sources": 117,
   "eligible_sources": 21,
   "registered_sources": 21,
   "available_registered_sources": 21,
   "parsed_registered_sources": 21,
   "eligible_unregistered_sources": 0,
   "not_canonical_ready_sources": 45,
-  "historical_or_excluded_sources": 49,
+  "historical_or_excluded_sources": 51,
   "superseded_or_duplicate_sources": 10,
   "unrelated_json_artifacts": 0,
   "unclassified_artifacts": 0,
@@ -1639,6 +1639,42 @@
       "rule_id": "undated-json"
     },
     {
+      "path": "results/pr126_p100_fama_fix/fama_macbeth_review_fix_0222ff8a.json",
+      "artifact_type": "json",
+      "source_date": null,
+      "classification": "historical_or_excluded",
+      "canonical_eligible": false,
+      "registered": false,
+      "source_id": null,
+      "parser": null,
+      "parser_version": null,
+      "provenance_status": "incomplete_date",
+      "timing_protocol_status": "unknown",
+      "statistical_alignment_status": "unknown",
+      "reason": "Artifact has no deterministically recoverable result date and is excluded pending explicit provenance review.",
+      "superseded_by": null,
+      "issue": "#100",
+      "rule_id": "undated-json"
+    },
+    {
+      "path": "results/pr126_p100_fama_fix/panel_stage_c_correctness_0222ff8a.json",
+      "artifact_type": "json",
+      "source_date": null,
+      "classification": "historical_or_excluded",
+      "canonical_eligible": false,
+      "registered": false,
+      "source_id": null,
+      "parser": null,
+      "parser_version": null,
+      "provenance_status": "incomplete_date",
+      "timing_protocol_status": "unknown",
+      "statistical_alignment_status": "unknown",
+      "reason": "Artifact has no deterministically recoverable result date and is excluded pending explicit provenance review.",
+      "superseded_by": null,
+      "issue": "#100",
+      "rule_id": "undated-json"
+    },
+    {
       "path": "results/pr126_p100_fama_fix/panel_stage_c_correctness_464b587e.json",
       "artifact_type": "json",
       "source_date": null,
@@ -2095,5 +2131,5 @@
     "current_evidence_not_canonical_ready": 2,
     "partial_canonical": 7
   },
-  "generation_id": "999293ca4f805301c6f3d912ce433d15ef707b87e63b929aab448a23654b4272"
+  "generation_id": "e66e68ce70ef027404e8fd027d0b0b45736267234d619b054f719e81324c7a02"
 }
