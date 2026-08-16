@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import statgpu.inference._distributions_backend as distribution_backend
+import statgpu.inference._reference_distribution as reference_distribution
 from statgpu.inference._results import ParameterInferenceResult
 from statgpu.panel import FamaMacBeth
 
@@ -96,9 +96,9 @@ def test_fama_macbeth_torch_cpu_covariance_inference_matrix(
     "cov_type,expected_distribution_name,expected_pvalue_calls",
     [
         ("newey-west", "norm", 1),
-        # The fixture has T=3, hence df=2. That exact Student-t boundary uses
-        # the elementary backend-native tail identity rather than approximate
-        # beta-function numerics on Torch versions without native betainc.
+        # The fixture has T=3, hence df=2. The centralized inference helper uses
+        # the exact backend-native tail identity instead of approximate beta
+        # numerics on Torch versions without native betainc.
         ("nonrobust", None, 0),
     ],
 )
@@ -108,7 +108,7 @@ def test_fama_macbeth_torch_cpu_distribution_inference_is_vectorized_and_backend
     """Distribution inference must not scalar-sync through a NumPy/SciPy path."""
     torch = pytest.importorskip("torch")
     X, y, time_ids = _fixture()
-    original_get_distribution = distribution_backend.get_distribution
+    original_get_distribution = reference_distribution.get_distribution
     pvalue_input_shapes = []
     distribution_calls = []
 
@@ -137,7 +137,7 @@ def test_fama_macbeth_torch_cpu_distribution_inference_is_vectorized_and_backend
         )
 
     monkeypatch.setattr(
-        distribution_backend,
+        reference_distribution,
         "get_distribution",
         tracked_get_distribution,
     )
