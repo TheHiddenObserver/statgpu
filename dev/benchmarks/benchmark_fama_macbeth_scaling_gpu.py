@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -28,6 +29,7 @@ if str(_REPO_ROOT) not in sys.path:
 from dev.benchmarks.validate_fama_macbeth_review_fix_gpu import (
     _assert_inference_descriptors,
     _assert_snapshot,
+    _environment,
     _inference_descriptor,
     _snapshot,
     _timed_fit,
@@ -39,6 +41,12 @@ FIXTURES = {
     "medium": {"n_times": 128, "observations_per_period": 1024, "n_features": 8},
     "large": {"n_times": 128, "observations_per_period": 4096, "n_features": 16},
 }
+_THREAD_ENV_NAMES = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
 
 
 def _git_sha():
@@ -154,9 +162,23 @@ def main():
         "schema_version": 1,
         "git_sha": sha,
         "status": "success",
+        "environment": _environment(backends),
+        "thread_environment": {
+            name: os.environ.get(name) for name in _THREAD_ENV_NAMES
+        },
+        "timing_protocol": {
+            "warmup": int(args.warmup),
+            "repeats": int(args.repeats),
+            "input_residency": (
+                "NumPy arrays resident on host; CuPy/Torch arrays transferred to GPU "
+                "before warmup/timed samples"
+            ),
+            "synchronization": "GPU synchronized immediately before and after every timed fit",
+        },
         "timing_scope": (
             "resident-array end-to-end FamaMacBeth.fit timing with explicit GPU "
-            "synchronization before and after each sample"
+            "synchronization before and after each sample; host-to-device input transfer "
+            "is intentionally excluded"
         ),
         "interpretation": (
             "backend_over_numpy_median_ratio < 1 (speedup_over_numpy > 1) means "
