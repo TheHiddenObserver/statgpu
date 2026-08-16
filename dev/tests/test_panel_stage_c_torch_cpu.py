@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from statgpu.backends import get_backend
 from statgpu.panel import BetweenOLS, FirstDifferenceOLS, PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._covariance import driscoll_kraay_covariance, ols_covariance, two_way_clustered_covariance
 
@@ -37,7 +38,17 @@ def _torch_arrays(X, y, entity, time):
     )
 
 
+def _torch_cpu_estimator(model):
+    """Inject Torch CPU internally without weakening public ``device='torch'`` CUDA strictness."""
+    torch_cpu_backend = get_backend(backend="torch", device="cpu")
+    model._get_backend = lambda backend="auto": torch_cpu_backend
+    return model
+
+
 def _assert_inference(actual, expected, *, rtol=2e-8, atol=2e-10):
+    assert actual._backend_name == "torch"
+    assert actual._inference_backend_name == "torch"
+    assert actual._inference_result.metadata["inference_backend"] == "torch"
     assert_allclose(actual.coef_, expected.coef_, rtol=rtol, atol=atol)
     assert_allclose(actual.bse_, expected.bse_, rtol=rtol, atol=atol)
     assert_allclose(actual.tvalues_, expected.tvalues_, rtol=rtol, atol=atol)
@@ -135,7 +146,9 @@ def test_stage_c_pooled_torch_cpu_hc_matches_numpy(cov_type):
     X, y, entity, time = _panel(12904)
     X_t, y_t, entity_t, _ = _torch_arrays(X, y, entity, time)
     expected = PooledOLS(cov_type=cov_type).fit(X, y, entity_ids=entity)
-    actual = PooledOLS(cov_type=cov_type).fit(X_t, y_t, entity_ids=entity_t)
+    actual = _torch_cpu_estimator(PooledOLS(cov_type=cov_type)).fit(
+        X_t, y_t, entity_ids=entity_t
+    )
     _assert_inference(actual, expected)
 
 
@@ -144,7 +157,9 @@ def test_stage_c_panel_fe_torch_cpu_hc_matches_numpy(cov_type):
     X, y, entity, time = _panel(12905)
     X_t, y_t, entity_t, _ = _torch_arrays(X, y, entity, time)
     expected = PanelOLS(entity_effects=True, cov_type=cov_type).fit(X, y, entity_ids=entity)
-    actual = PanelOLS(entity_effects=True, cov_type=cov_type).fit(X_t, y_t, entity_ids=entity_t)
+    actual = _torch_cpu_estimator(
+        PanelOLS(entity_effects=True, cov_type=cov_type)
+    ).fit(X_t, y_t, entity_ids=entity_t)
     _assert_inference(actual, expected)
 
 
@@ -154,9 +169,9 @@ def test_stage_c_panel_dk_torch_cpu_matches_numpy_and_effect_rank_metadata():
     expected = PanelOLS(entity_effects=True, cov_type="dk", bandwidth=2).fit(
         X, y, entity_ids=entity, time_ids=time
     )
-    actual = PanelOLS(entity_effects=True, cov_type="dk", bandwidth=2).fit(
-        X_t, y_t, entity_ids=entity_t, time_ids=time_t
-    )
+    actual = _torch_cpu_estimator(
+        PanelOLS(entity_effects=True, cov_type="dk", bandwidth=2)
+    ).fit(X_t, y_t, entity_ids=entity_t, time_ids=time_t)
     _assert_inference(actual, expected)
     assert actual._covariance_metadata["extra_df"] == expected._covariance_metadata["extra_df"]
     assert actual._covariance_metadata["design_rank"] == expected._covariance_metadata["design_rank"]
@@ -168,7 +183,9 @@ def test_stage_c_random_effects_torch_cpu_covariance_matches_numpy(cov_type):
     X = np.column_stack([np.ones(len(y)), X])
     X_t, y_t, entity_t, _ = _torch_arrays(X, y, entity, time)
     expected = RandomEffects(cov_type=cov_type).fit(X, y, entity_ids=entity)
-    actual = RandomEffects(cov_type=cov_type).fit(X_t, y_t, entity_ids=entity_t)
+    actual = _torch_cpu_estimator(RandomEffects(cov_type=cov_type)).fit(
+        X_t, y_t, entity_ids=entity_t
+    )
     _assert_inference(actual, expected, rtol=5e-8, atol=5e-10)
     assert_allclose(
         [actual.variance_components_["sigma2_e"], actual.variance_components_["sigma2_a"]],
@@ -184,9 +201,9 @@ def test_stage_c_random_effects_dk_torch_cpu_matches_numpy():
     expected = RandomEffects(cov_type="dk", bandwidth=2, kernel="qs").fit(
         X, y, entity_ids=entity, time_ids=time
     )
-    actual = RandomEffects(cov_type="dk", bandwidth=2, kernel="qs").fit(
-        X_t, y_t, entity_ids=entity_t, time_ids=time_t
-    )
+    actual = _torch_cpu_estimator(
+        RandomEffects(cov_type="dk", bandwidth=2, kernel="qs")
+    ).fit(X_t, y_t, entity_ids=entity_t, time_ids=time_t)
     _assert_inference(actual, expected, rtol=5e-8, atol=5e-10)
     assert actual._covariance_metadata["all_observed_lags_weighted"] is True
 
@@ -198,12 +215,14 @@ def test_stage_c_between_and_fd_torch_cpu_hc_match_numpy(estimator, cov_type):
     X_t, y_t, entity_t, time_t = _torch_arrays(X, y, entity, time)
     if estimator is BetweenOLS:
         expected = estimator(cov_type=cov_type).fit(X, y, entity_ids=entity)
-        actual = estimator(cov_type=cov_type).fit(X_t, y_t, entity_ids=entity_t)
+        actual = _torch_cpu_estimator(estimator(cov_type=cov_type)).fit(
+            X_t, y_t, entity_ids=entity_t
+        )
     else:
         expected = estimator(cov_type=cov_type).fit(
             X, y, entity_ids=entity, time_ids=time
         )
-        actual = estimator(cov_type=cov_type).fit(
+        actual = _torch_cpu_estimator(estimator(cov_type=cov_type)).fit(
             X_t, y_t, entity_ids=entity_t, time_ids=time_t
         )
     _assert_inference(actual, expected, rtol=5e-8, atol=5e-10)
@@ -268,11 +287,12 @@ def test_panel_rank_boundary_fit_and_dk_torch_cpu_match_shared_policy():
     expected = PanelOLS(cov_type="dk", bandwidth=2).fit(
         X, y, time_ids=time
     )
-    actual = PanelOLS(cov_type="dk", bandwidth=2).fit(
+    actual = _torch_cpu_estimator(PanelOLS(cov_type="dk", bandwidth=2)).fit(
         torch.as_tensor(X, dtype=torch.float64),
         torch.as_tensor(y, dtype=torch.float64),
         time_ids=torch.as_tensor(time, dtype=torch.int64),
     )
+    assert actual._backend_name == "torch"
     assert_allclose(expected.coef_, expected_coef, rtol=5e-11, atol=5e-13)
     assert_allclose(actual.coef_, expected.coef_, rtol=5e-9, atol=5e-11)
     assert_allclose(
@@ -300,15 +320,11 @@ def test_stage_c_pooled_nonrobust_df2_torch_cpu_matches_numpy_high_precision():
     y = np.asarray([-0.6, 0.2, 1.1, 1.55], dtype=np.float64)
 
     expected = PooledOLS(cov_type="nonrobust", device="cpu").fit(X, y)
-    actual = PooledOLS(cov_type="nonrobust").fit(
+    actual = _torch_cpu_estimator(PooledOLS(cov_type="nonrobust")).fit(
         torch.as_tensor(X, dtype=torch.float64),
         torch.as_tensor(y, dtype=torch.float64),
     )
 
     assert expected.df_resid == 2
     assert actual.df_resid == 2
-    assert actual._backend_name == "torch"
-    assert actual._inference_backend_name == "torch"
-    assert actual._inference_result.metadata["inference_backend"] == "torch"
-    assert_allclose(actual.pvalues_, expected.pvalues_, rtol=2e-12, atol=2e-14)
-    assert_allclose(actual.conf_int_, expected.conf_int_, rtol=2e-12, atol=2e-14)
+    _assert_inference(actual, expected, rtol=2e-12, atol=2e-14)
