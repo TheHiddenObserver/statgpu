@@ -76,6 +76,7 @@ class BasePanelModel(BaseEstimator):
             "_conf_int",
             "_inference_result",
             "_backend_name",
+            "_predict_backend_name",
             "_panel_index_info",
             "_design_info",
             "_feature_names",
