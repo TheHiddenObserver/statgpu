@@ -25,6 +25,50 @@ from statgpu.panel._utils import (
 class BasePanelModel(BaseEstimator):
     """Internal base class for statistically neutral panel-model lifecycle code."""
 
+    def _reset_fit_state(self):
+        """Invalidate common panel fit/inference outputs before a new fit."""
+        self._fitted = False
+        for name in (
+            "coef_",
+            "bse_",
+            "tvalues_",
+            "pvalues_",
+            "conf_int_",
+            "betas_",
+            "cov_params_",
+            "nobs",
+            "n_periods",
+            "df_resid",
+            "rank_",
+            "rsquared",
+            "rsquared_within",
+            "theta_",
+            "variance_components_",
+            "_params",
+            "_bse",
+            "_tvalues",
+            "_zvalues",
+            "_pvalues",
+            "_conf_int",
+            "_inference_result",
+            "_backend_name",
+            "_panel_index_info",
+            "_design_info",
+            "_feature_names",
+            "_formula_has_intercept",
+            "_panel_cov_params_raw",
+            "_covariance_metadata",
+            "_coefficient_inference_available",
+            "_coefficient_inference_reason",
+            "_bp_lm_result",
+            "_panel_diagnostic_identity",
+            "_predict_constant_index",
+            "_predict_constant_value",
+            "_scale",
+        ):
+            self.__dict__.pop(name, None)
+        self.fit_statistics_ = None
+
     def _panel_prepare_formula_fit(
         self,
         formula,
@@ -36,6 +80,11 @@ class BasePanelModel(BaseEstimator):
         support_pipe: bool = False,
         side_arrays: Optional[Dict[str, object]] = None,
     ):
+        # Formula parsing and side-array alignment can fail before numerical
+        # fitting starts. Clear the prior public fit surface first so a failed
+        # refit never combines new metadata with stale coefficients/inference.
+        BasePanelModel._reset_fit_state(self)
+
         from statgpu.panel._formula import (
             _align_formula_side_array,
             _prepare_formula_fit,
