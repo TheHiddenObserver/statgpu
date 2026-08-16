@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from statgpu.backends import _to_numpy
+from statgpu.backends import _is_cupy_array, _is_torch_array, _to_numpy
 from statgpu.panel import FamaMacBeth
 
 SCHEMA_VERSION = 3
@@ -118,6 +118,51 @@ def _public_array(value):
     return np.asarray(_to_numpy(value), dtype=np.float64)
 
 
+def _array_backend_name(value):
+    if _is_cupy_array(value):
+        return "cupy"
+    if _is_torch_array(value):
+        return "torch"
+    return "numpy"
+
+
+def _assert_backend_native_value(value, expected_backend: str, label: str):
+    actual_backend = _array_backend_name(value)
+    if actual_backend != expected_backend:
+        raise AssertionError(
+            f"{label}: expected backend {expected_backend}, got {actual_backend}"
+        )
+    if expected_backend == "torch":
+        device = getattr(value, "device", None)
+        if device is None or str(device).split(":", 1)[0] != "cuda":
+            raise AssertionError(f"{label}: Torch output is not CUDA-resident: {device}")
+
+
+def _assert_backend_native_outputs(model):
+    expected = model._backend_name
+    for name in (
+        "coef_",
+        "betas_",
+        "bse_",
+        "tvalues_",
+        "pvalues_",
+        "conf_int_",
+        "cov_params_",
+    ):
+        _assert_backend_native_value(getattr(model, name), expected, name)
+    inference_backend = getattr(model, "_inference_backend_name", None)
+    if inference_backend != expected:
+        raise AssertionError(
+            f"inference backend provenance mismatch: {inference_backend} != {expected}"
+        )
+    result = getattr(model, "_inference_result", None)
+    metadata_backend = None if result is None else result.metadata.get("inference_backend")
+    if metadata_backend != expected:
+        raise AssertionError(
+            f"inference result metadata backend mismatch: {metadata_backend} != {expected}"
+        )
+
+
 def _inference_descriptor(model):
     result = getattr(model, "_inference_result", None)
     if result is None:
@@ -163,26 +208,34 @@ def _inference_descriptor(model):
         "covariance_source": result.metadata.get("covariance_source"),
         "n_periods": result.metadata.get("n_periods"),
         "effective_bandwidth": result.metadata.get("effective_bandwidth"),
+        "inference_backend": result.metadata.get("inference_backend"),
     }
 
 
 def _assert_inference_descriptors(reference, actual):
-    if actual != reference:
+    semantic_keys = set(reference).union(actual) - {"inference_backend"}
+    reference_semantic = {key: reference.get(key) for key in semantic_keys}
+    actual_semantic = {key: actual.get(key) for key in semantic_keys}
+    if actual_semantic != reference_semantic:
         raise AssertionError(
-            f"standard inference descriptor mismatch: actual={actual}, reference={reference}"
+            "standard inference descriptor mismatch: "
+            f"actual={actual_semantic}, reference={reference_semantic}"
         )
     return actual
 
 
 def _snapshot(model, prediction_input):
     # Validate the common inference container and private aliases every time a
-    # numerical snapshot is taken; public arrays remain backend-native.
+    # numerical snapshot is taken; public arrays must remain on the fit backend.
     _inference_descriptor(model)
+    _assert_backend_native_outputs(model)
     fit_ref = getattr(model, "_fit_ref_", None)
     if fit_ref is None or tuple(fit_ref.shape) != (0,):
         raise AssertionError(
             "FamaMacBeth must retain only a zero-length prediction device anchor"
         )
+    prediction = model.predict(prediction_input)
+    _assert_backend_native_value(prediction, model._backend_name, "prediction")
     return {
         "coef": _public_array(model.coef_),
         "betas": _public_array(model.betas_),
@@ -191,7 +244,7 @@ def _snapshot(model, prediction_input):
         "pvalues": _public_array(model.pvalues_),
         "conf_int": _public_array(model.conf_int_),
         "cov_params": _public_array(model.cov_params_),
-        "prediction": _public_array(model.predict(prediction_input)),
+        "prediction": _public_array(prediction),
     }
 
 
@@ -234,6 +287,7 @@ def _chronology_case(backend: str):
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
+        "inference_backend": actual._inference_backend_name,
         "inference_result": inference_result,
         "max_abs_differences": _assert_snapshot(
             _snapshot(ref, prediction_X), _snapshot(actual, prediction_X)
@@ -266,6 +320,7 @@ def _formula_case(backend: str):
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
+        "inference_backend": actual._inference_backend_name,
         "inference_result": inference_result,
         "max_abs_differences": _assert_snapshot(
             _snapshot(ref, prediction_data), _snapshot(actual, prediction_data)
@@ -297,6 +352,7 @@ def _nonrobust_case(backend: str):
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
+        "inference_backend": actual._inference_backend_name,
         "inference_result": inference_result,
         "max_abs_differences": _assert_snapshot(
             _snapshot(ref, prediction_X), _snapshot(actual, prediction_X)
@@ -382,6 +438,11 @@ def _timed_fit(X, y, time_ids, backend: str, warmup: int, repeats: int):
         raise AssertionError(
             f"requested {backend}, executed {getattr(last, '_backend_name', None)}"
         )
+    if last._inference_backend_name != backend:
+        raise AssertionError(
+            f"requested {backend} inference, executed {last._inference_backend_name}"
+        )
+    _assert_backend_native_outputs(last)
     return last, samples
 
 
@@ -412,6 +473,7 @@ def _timing_case(backend: str, warmup: int, repeats: int):
     return {
         "status": "success",
         "executed_backend": candidate._backend_name,
+        "inference_backend": candidate._inference_backend_name,
         "inference_result": inference_result,
         "n_times": 64,
         "observations_per_period": 128,
@@ -436,6 +498,11 @@ def _timing_case(backend: str, warmup: int, repeats: int):
             "rank_cutoff": (
                 "singular-value cutoff remains on the active backend; only the final "
                 "integer rank is extracted for fail-closed Python control flow"
+            ),
+            "distribution_inference": (
+                "p-values and critical values use the selected NumPy/CuPy/Torch "
+                "inference backend directly; GPU fits do not round-trip the statistic "
+                "vector through NumPy/SciPy for distribution evaluation"
             ),
             "remaining_structure": (
                 "retained periods are processed serially in Python, so small "
@@ -505,12 +572,14 @@ def main():
         nonrobust = _nonrobust_case(backend)
         if any(
             case["executed_backend"] != backend
+            or case["inference_backend"] != backend
             for case in (chronology, formula, nonrobust)
         ):
-            raise AssertionError(f"{backend}: backend provenance mismatch")
+            raise AssertionError(f"{backend}: fit/inference backend provenance mismatch")
         results[backend] = {
             "status": "success",
             "executed_backend": backend,
+            "inference_backend": backend,
             "array_ordered_categorical": chronology,
             "formula_ordered_categorical_alignment": formula,
             "nonrobust_inference": nonrobust,
