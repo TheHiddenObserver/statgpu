@@ -489,6 +489,7 @@ class RandomEffects(BasePanelModel):
 
     def summary(self):
         """Print and return the structured coefficient summary."""
+        self._check_is_fitted()
         k = len(self._params)
         feature_names_override = (
             None
