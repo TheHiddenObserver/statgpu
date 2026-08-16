@@ -275,13 +275,28 @@ class FamaMacBeth(BasePanelModel):
             else None
         )
         if dist_name == "t" and df == 1:
-            # Student-t(1) is exactly Cauchy.  Keep the df=1 boundary on the
-            # selected inference backend without invoking an inverse-beta edge.
+            # Student-t(1) is exactly Cauchy. Keep this small-df boundary on the
+            # selected backend without invoking inverse-beta numerics.
             distribution = get_distribution(
                 "cauchy", backend=backend_name, device=inference_device
             )
             pvalues = 2.0 * distribution.sf(xp.abs(tvalues))
             critical = distribution.isf(float(self.alpha) / 2.0)
+        elif dist_name == "t" and df == 2:
+            # Student-t(2) has an elementary two-sided tail. This exact identity
+            # preserves the historical high-precision inference contract on
+            # Torch versions that lack native betainc while keeping the whole
+            # statistic-vector calculation on the selected backend.
+            statistic_abs = xp.abs(tvalues)
+            pvalues = 1.0 - statistic_abs / xp.sqrt(
+                statistic_abs * statistic_abs + 2.0
+            )
+            alpha = float(self.alpha)
+            critical = (
+                np.sqrt(2.0)
+                * (1.0 - alpha)
+                / np.sqrt(alpha * (2.0 - alpha))
+            )
         elif dist_name == "t":
             distribution = get_distribution(
                 "t", backend=backend_name, device=inference_device
