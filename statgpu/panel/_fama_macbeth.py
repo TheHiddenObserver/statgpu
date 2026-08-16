@@ -17,6 +17,7 @@ from statgpu.backends import (
     xp_ones,
 )
 from statgpu.covariance._empirical import _detect_backend
+from statgpu.inference._reference_distribution import two_sided_reference_inference
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
@@ -148,12 +149,8 @@ class FamaMacBeth(BasePanelModel):
         data=None,
         entity_ids=None,
     ):
-        # Refit is transactional: a failed new fit must never leave the prior
-        # model/inference surface appearing valid for the attempted dataset.
         self._reset_fit_state()
         self._validate_parameters()
-        # Preserve current public behavior: time_ids must be explicitly supplied;
-        # FamaMacBeth does not infer it from formula tokens in Stage B.
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
@@ -223,9 +220,6 @@ class FamaMacBeth(BasePanelModel):
             idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
             X_t = X_design[idx]
             y_t = y_arr[idx]
-            # The fail-closed rank contract requires a rank-revealing
-            # factorization. Reuse that same SVD to obtain beta_t rather than
-            # performing a second normal-equation decomposition afterwards.
             beta_t, rank_t = panel_lstsq(X_t, y_t, xp)
             if rank_t < k:
                 raise ValueError(
@@ -266,49 +260,21 @@ class FamaMacBeth(BasePanelModel):
         tvalues = avg_beta / bse
         df = T - 1
 
-        from statgpu.inference._distributions_backend import get_distribution
-
-        dist_name = "norm" if self._cov_type == "newey-west" else "t"
+        dist_name = "normal" if self._cov_type == "newey-west" else "t"
         inference_device = (
             str(avg_beta.device)
             if backend_name == "torch" and hasattr(avg_beta, "device")
             else None
         )
-        if dist_name == "t" and df == 1:
-            # Student-t(1) is exactly Cauchy. Keep this small-df boundary on the
-            # selected backend without invoking inverse-beta numerics.
-            distribution = get_distribution(
-                "cauchy", backend=backend_name, device=inference_device
-            )
-            pvalues = 2.0 * distribution.sf(xp.abs(tvalues))
-            critical = distribution.isf(float(self.alpha) / 2.0)
-        elif dist_name == "t" and df == 2:
-            # Student-t(2) has an elementary two-sided tail. This exact identity
-            # preserves the historical high-precision inference contract on
-            # Torch versions that lack native betainc while keeping the whole
-            # statistic-vector calculation on the selected backend.
-            statistic_abs = xp.abs(tvalues)
-            pvalues = 1.0 - statistic_abs / xp.sqrt(
-                statistic_abs * statistic_abs + 2.0
-            )
-            alpha = float(self.alpha)
-            critical = (
-                np.sqrt(2.0)
-                * (1.0 - alpha)
-                / np.sqrt(alpha * (2.0 - alpha))
-            )
-        elif dist_name == "t":
-            distribution = get_distribution(
-                "t", backend=backend_name, device=inference_device
-            )
-            pvalues = distribution.two_sided_pvalue(xp.abs(tvalues), df)
-            critical = distribution.two_sided_critical_value(self.alpha, df)
-        else:
-            distribution = get_distribution(
-                "norm", backend=backend_name, device=inference_device
-            )
-            pvalues = distribution.two_sided_pvalue(xp.abs(tvalues))
-            critical = distribution.two_sided_critical_value(self.alpha)
+        pvalues, critical = two_sided_reference_inference(
+            xp.abs(tvalues),
+            distribution=dist_name,
+            alpha=self.alpha,
+            backend=backend_name,
+            xp=xp,
+            df=None if dist_name == "normal" else df,
+            device=inference_device,
+        )
         conf_int = _stack(
             [avg_beta - critical * bse, avg_beta + critical * bse], xp, axis=1
         )
@@ -326,15 +292,8 @@ class FamaMacBeth(BasePanelModel):
         self._backend_name = backend_name
         self._inference_backend_name = backend_name
         self._xp = xp
-        # Prediction only needs a dtype/device anchor. Retaining the full
-        # training design here would pin O(nk) GPU memory for the estimator's
-        # lifetime even though prediction never reuses the training values.
         self._fit_ref_ = xp_asarray([], dtype=xp.float64, xp=xp, ref_arr=X_arr)
 
-        # Keep public fit outputs backend-native while also publishing the
-        # standard inference container/aliases required by the common estimator
-        # contract. ParameterInferenceResult owns NumPy snapshots only; this
-        # does not change coef_/bse_/... device semantics for CuPy/Torch users.
         from statgpu.inference._results import ParameterInferenceResult
 
         feature_names = getattr(self, "_feature_names", None)
@@ -352,12 +311,12 @@ class FamaMacBeth(BasePanelModel):
             params=np.asarray(_to_numpy(avg_beta), dtype=np.float64),
             bse=np.asarray(_to_numpy(bse), dtype=np.float64),
             statistic=np.asarray(_to_numpy(tvalues), dtype=np.float64),
-            statistic_name="z" if dist_name == "norm" else "t",
+            statistic_name="z" if dist_name == "normal" else "t",
             pvalues=np.asarray(_to_numpy(pvalues), dtype=np.float64),
             conf_int=np.asarray(_to_numpy(conf_int), dtype=np.float64),
             cov_type=self._cov_type,
-            distribution="normal" if dist_name == "norm" else "t",
-            df=None if dist_name == "norm" else float(df),
+            distribution="normal" if dist_name == "normal" else "t",
+            df=None if dist_name == "normal" else float(df),
         )
         inference.apply_to(self)
 
