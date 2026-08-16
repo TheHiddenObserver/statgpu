@@ -2,10 +2,10 @@
 """Exact-head physical GPU validation for the PR126 Fama-MacBeth review fixes.
 
 This runner verifies correctness/backend provenance for chronology, formula,
-rank, no-intercept behavior, and the standard inference result surface. It also
-records synchronized timing for the rank-revealing retained-period solve against
-the same-workload NumPy baseline. Timing is audit evidence only; no universal
-speedup claim is derived from it.
+rank, no-intercept behavior, both covariance modes, and the standard inference
+result surface. It also records synchronized timing for the rank-revealing
+retained-period solve against the same-workload NumPy baseline. Timing is audit
+evidence only; no universal speedup claim is derived from it.
 """
 
 from __future__ import annotations
@@ -268,6 +268,37 @@ def _formula_case(backend: str):
     }
 
 
+def _nonrobust_case(backend: str):
+    X, y, _labels, numeric = _chronology_fixture()
+    ref = FamaMacBeth(cov_type="nonrobust", device="cpu").fit(
+        X, y, time_ids=numeric
+    )
+    Xb, yb = _arrays(X, y, backend)
+    actual = FamaMacBeth(cov_type="nonrobust", device=_device(backend)).fit(
+        Xb, yb, time_ids=numeric
+    )
+    prediction_X = X[:3]
+    inference_result = _assert_inference_descriptors(
+        _inference_descriptor(ref), _inference_descriptor(actual)
+    )
+    if inference_result["statistic_name"] != "t":
+        raise AssertionError("nonrobust inference must use t statistics")
+    if inference_result["distribution"] != "t":
+        raise AssertionError("nonrobust inference must use the t distribution")
+    if inference_result["df"] != float(actual.n_periods - 1):
+        raise AssertionError("nonrobust inference df must equal T-1")
+    if inference_result["effective_bandwidth"] is not None:
+        raise AssertionError("nonrobust inference must not report a Newey-West bandwidth")
+    return {
+        "status": "success",
+        "executed_backend": actual._backend_name,
+        "inference_result": inference_result,
+        "max_abs_differences": _assert_snapshot(
+            _snapshot(ref, prediction_X), _snapshot(actual, prediction_X)
+        ),
+    }
+
+
 def _rank_fixture():
     x = np.concatenate(
         [
@@ -464,13 +495,18 @@ def main():
     for backend in backends:
         chronology = _chronology_case(backend)
         formula = _formula_case(backend)
-        if chronology["executed_backend"] != backend or formula["executed_backend"] != backend:
+        nonrobust = _nonrobust_case(backend)
+        if any(
+            case["executed_backend"] != backend
+            for case in (chronology, formula, nonrobust)
+        ):
             raise AssertionError(f"{backend}: backend provenance mismatch")
         results[backend] = {
             "status": "success",
             "executed_backend": backend,
             "array_ordered_categorical": chronology,
             "formula_ordered_categorical_alignment": formula,
+            "nonrobust_inference": nonrobust,
             "rank_deficient_retained_period_rejected": _rank_rejection(backend),
             "no_intercept_formula_rejections": _no_intercept_rejections(backend),
             "performance": _timing_case(backend, args.warmup, args.repeats),
