@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Exact-head physical GPU validation for the PR126 Fama-MacBeth review fixes.
 
-This runner verifies correctness/backend provenance for the chronology, formula,
-rank, and no-intercept fixes and records a synchronized timing sample for the
-rank-revealing retained-period solve. Timing is evidence only; no speedup claim
-is derived from it.
+This runner verifies correctness/backend provenance for chronology, formula,
+rank, and no-intercept behavior.  It also records synchronized timing for the
+rank-revealing retained-period solve against the same-workload NumPy baseline.
+Timing is audit evidence only; no universal speedup claim is derived from it.
 """
 
 from __future__ import annotations
@@ -23,7 +23,18 @@ import numpy as np
 from statgpu.backends import _to_numpy
 from statgpu.panel import FamaMacBeth
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+_REQUIRED_BACKENDS = {"cupy", "torch"}
+_SNAPSHOT_KEYS = (
+    "coef",
+    "betas",
+    "bse",
+    "tvalues",
+    "pvalues",
+    "conf_int",
+    "cov_params",
+    "prediction",
+)
 
 
 def _git_sha() -> str:
@@ -75,6 +86,15 @@ def _sync(backend: str):
         torch.cuda.synchronize()
 
 
+def _validate_acceptance_backends(backends):
+    normalized = [value.strip() for value in backends if value.strip()]
+    if len(normalized) != 2 or set(normalized) != _REQUIRED_BACKENDS:
+        raise ValueError(
+            "physical acceptance requires exactly both GPU backends: cupy,torch"
+        )
+    return normalized
+
+
 def _chronology_fixture():
     x_period = np.asarray([-2.0, -0.75, 0.25, 1.25, 2.5])
     period_params = ((0.2, 0.4), (1.1, -0.8), (-0.7, 0.3))
@@ -93,11 +113,18 @@ def _ordered(labels):
     return pd.Categorical(labels, categories=["t1", "t2", "t10"], ordered=True)
 
 
-def _snapshot(model):
+def _snapshot(model, prediction_input):
     return {
         "coef": np.asarray(_to_numpy(model.coef_), dtype=np.float64),
+        "betas": np.asarray(_to_numpy(model.betas_), dtype=np.float64),
         "bse": np.asarray(_to_numpy(model.bse_), dtype=np.float64),
+        "tvalues": np.asarray(_to_numpy(model.tvalues_), dtype=np.float64),
+        "pvalues": np.asarray(_to_numpy(model.pvalues_), dtype=np.float64),
+        "conf_int": np.asarray(_to_numpy(model.conf_int_), dtype=np.float64),
         "cov_params": np.asarray(_to_numpy(model.cov_params_), dtype=np.float64),
+        "prediction": np.asarray(
+            _to_numpy(model.predict(prediction_input)), dtype=np.float64
+        ),
     }
 
 
@@ -106,8 +133,10 @@ def _max_abs(left, right):
 
 
 def _assert_snapshot(reference, actual, *, rtol=5e-6, atol=5e-7):
+    if set(reference) != set(_SNAPSHOT_KEYS) or set(actual) != set(_SNAPSHOT_KEYS):
+        raise AssertionError("focused Fama-MacBeth snapshot schema is incomplete")
     diffs = {}
-    for key in ("coef", "bse", "cov_params"):
+    for key in _SNAPSHOT_KEYS:
         np.testing.assert_allclose(actual[key], reference[key], rtol=rtol, atol=atol)
         diffs[key] = _max_abs(actual[key], reference[key])
     return diffs
@@ -131,10 +160,13 @@ def _chronology_case(backend: str):
         atol=1e-12,
     ):
         raise AssertionError("chronology negative control lost power")
+    prediction_X = X[:3]
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
-        "max_abs_differences": _assert_snapshot(_snapshot(ref), _snapshot(actual)),
+        "max_abs_differences": _assert_snapshot(
+            _snapshot(ref, prediction_X), _snapshot(actual, prediction_X)
+        ),
     }
 
 
@@ -152,10 +184,13 @@ def _formula_case(backend: str):
     actual = FamaMacBeth(bandwidth=1, device=_device(backend)).fit(
         formula="y ~ x", data=data, time_ids=ordered
     )
+    prediction_data = pd.DataFrame({"x": [-1.0, 0.0, 1.0]})
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
-        "max_abs_differences": _assert_snapshot(_snapshot(ref), _snapshot(actual)),
+        "max_abs_differences": _assert_snapshot(
+            _snapshot(ref, prediction_data), _snapshot(actual, prediction_data)
+        ),
     }
 
 
@@ -215,16 +250,13 @@ def _timing_fixture():
     return X.astype(np.float64), y.astype(np.float64), time_ids
 
 
-def _timing_case(backend: str, warmup: int, repeats: int):
-    X, y, time_ids = _timing_fixture()
-    reference = FamaMacBeth(bandwidth=2, device="cpu").fit(
-        X, y, time_ids=time_ids
-    )
+def _timed_fit(X, y, time_ids, backend: str, warmup: int, repeats: int):
     Xb, yb = _arrays(X, y, backend)
     device = _device(backend)
     for _ in range(warmup):
         FamaMacBeth(bandwidth=2, device=device).fit(Xb, yb, time_ids=time_ids)
         _sync(backend)
+
     samples = []
     last = None
     for _ in range(repeats):
@@ -235,22 +267,71 @@ def _timing_case(backend: str, warmup: int, repeats: int):
         )
         _sync(backend)
         samples.append(time.perf_counter() - start)
+
     if last is None or last._backend_name != backend:
-        raise AssertionError(f"requested {backend}, executed {getattr(last, '_backend_name', None)}")
-    numerical_differences = _assert_snapshot(
-        _snapshot(reference), _snapshot(last)
+        raise AssertionError(
+            f"requested {backend}, executed {getattr(last, '_backend_name', None)}"
+        )
+    return last, samples
+
+
+def _timing_case(backend: str, warmup: int, repeats: int):
+    X, y, time_ids = _timing_fixture()
+    reference, numpy_samples = _timed_fit(
+        X, y, time_ids, "numpy", warmup=warmup, repeats=repeats
     )
+    if backend == "numpy":
+        candidate = reference
+        backend_samples = list(numpy_samples)
+    else:
+        candidate, backend_samples = _timed_fit(
+            X, y, time_ids, backend, warmup=warmup, repeats=repeats
+        )
+
+    prediction_X = X[:16]
+    numerical_differences = _assert_snapshot(
+        _snapshot(reference, prediction_X), _snapshot(candidate, prediction_X)
+    )
+    numpy_median = float(statistics.median(numpy_samples))
+    backend_median = float(statistics.median(backend_samples))
+    ratio = backend_median / numpy_median
+
     return {
         "status": "success",
-        "executed_backend": last._backend_name,
+        "executed_backend": candidate._backend_name,
         "n_times": 64,
         "observations_per_period": 128,
         "n_features": 4,
         "warmup": warmup,
         "repeats": repeats,
-        "samples_seconds": samples,
-        "median_seconds": float(statistics.median(samples)),
+        "numpy_baseline": {
+            "samples_seconds": numpy_samples,
+            "median_seconds": numpy_median,
+        },
+        "backend_timing": {
+            "samples_seconds": backend_samples,
+            "median_seconds": backend_median,
+        },
+        "backend_over_numpy_median_ratio": float(ratio),
         "max_abs_differences_vs_numpy": numerical_differences,
+        "optimization_notes": {
+            "period_solver": (
+                "one rank-revealing SVD per retained period; panel_lstsq uses the "
+                "SVD factors directly without materializing an unused covariance bread"
+            ),
+            "rank_cutoff": (
+                "singular-value cutoff remains on the active backend; only the final "
+                "integer rank is extracted for fail-closed Python control flow"
+            ),
+            "remaining_structure": (
+                "retained periods are processed serially in Python, so small "
+                "per-period regressions can remain launch/synchronization dominated"
+            ),
+            "interpretation": (
+                "ratio > 1 means the requested backend is slower than NumPy on this "
+                "fixture; no universal GPU speedup claim is made"
+            ),
+        },
     }
 
 
@@ -259,6 +340,8 @@ def _environment(backends):
     if "cupy" in backends:
         import cupy as cp
 
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            raise RuntimeError("CuPy CUDA is unavailable")
         props = cp.cuda.runtime.getDeviceProperties(0)
         name = props["name"]
         gpu_by_backend["cupy"] = name.decode() if isinstance(name, bytes) else name
@@ -292,15 +375,13 @@ def main():
     sha = _git_sha()
     if sha != args.expected_sha:
         raise RuntimeError(f"wrong source head: {sha} != {args.expected_sha}")
-    if not _git_clean():
+    clean_before = _git_clean()
+    if not clean_before:
         raise RuntimeError("physical acceptance requires a clean working tree")
     if args.warmup < 0 or args.repeats < 1:
         raise ValueError("warmup must be non-negative and repeats must be positive")
 
-    backends = [value.strip() for value in args.backends.split(",") if value.strip()]
-    if not backends or any(value not in {"cupy", "torch"} for value in backends):
-        raise ValueError("--backends must contain cupy and/or torch")
-
+    backends = _validate_acceptance_backends(args.backends.split(","))
     results = {}
     for backend in backends:
         chronology = _chronology_case(backend)
@@ -317,13 +398,24 @@ def main():
             "performance": _timing_case(backend, args.warmup, args.repeats),
         }
 
+    clean_after_checks = _git_clean()
+    if not clean_after_checks:
+        raise RuntimeError("working tree changed during physical validation")
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "git_sha": sha,
-        "working_tree_clean": True,
+        "required_backends": sorted(_REQUIRED_BACKENDS),
+        "validated_backends": backends,
+        "working_tree_clean_before": clean_before,
+        "working_tree_clean_after_checks": clean_after_checks,
         "status": "success",
+        "validation_tier": "remote-full",
         "environment": _environment(backends),
-        "timing_claim": "raw synchronized timing only; no speedup claim",
+        "timing_claim": (
+            "same-workload synchronized NumPy/GPU timing for audit only; "
+            "no universal speedup claim"
+        ),
         "backends": results,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
