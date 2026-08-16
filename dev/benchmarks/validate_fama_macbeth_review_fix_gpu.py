@@ -217,6 +217,9 @@ def _timing_fixture():
 
 def _timing_case(backend: str, warmup: int, repeats: int):
     X, y, time_ids = _timing_fixture()
+    reference = FamaMacBeth(bandwidth=2, device="cpu").fit(
+        X, y, time_ids=time_ids
+    )
     Xb, yb = _arrays(X, y, backend)
     device = _device(backend)
     for _ in range(warmup):
@@ -234,6 +237,9 @@ def _timing_case(backend: str, warmup: int, repeats: int):
         samples.append(time.perf_counter() - start)
     if last is None or last._backend_name != backend:
         raise AssertionError(f"requested {backend}, executed {getattr(last, '_backend_name', None)}")
+    numerical_differences = _assert_snapshot(
+        _snapshot(reference), _snapshot(last)
+    )
     return {
         "status": "success",
         "executed_backend": last._backend_name,
@@ -244,6 +250,7 @@ def _timing_case(backend: str, warmup: int, repeats: int):
         "repeats": repeats,
         "samples_seconds": samples,
         "median_seconds": float(statistics.median(samples)),
+        "max_abs_differences_vs_numpy": numerical_differences,
     }
 
 
