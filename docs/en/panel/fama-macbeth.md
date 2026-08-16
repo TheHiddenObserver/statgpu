@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The full-rank check is then applied to each retained period. The final coefficient is the simple average over the retained period estimates.
+A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The full-rank check is then applied to each retained period. The implementation uses one shared rank-revealing SVD per retained period and reuses that factorization to obtain both the numerical rank and the least-squares coefficient vector; it does not perform a separate normal-equation solve after the rank check.
 
 ## Covariance and Inference
 
@@ -154,7 +154,7 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `be
 
 ## Numerical and Strict Behavior
 
-At least two valid periods must remain after filtering; otherwise `.fit()` raises an error because the variability of the coefficient series cannot be estimated from fewer than two periods. Every retained period must also have full column rank under the shared panel SVD cutoff; a rank-deficient retained period fails closed before inference.
+At least two valid periods must remain after filtering; otherwise `.fit()` raises an error because the variability of the coefficient series cannot be estimated from fewer than two periods. Every retained period must also have full column rank under the shared panel SVD cutoff; a rank-deficient retained period fails closed before inference. The rank check and coefficient solve share the same SVD, which avoids a redundant second matrix decomposition while preserving the exact rank policy.
 
 With `cov_type="newey-west"`, coefficient inference uses the asymptotic normal distribution. With `cov_type="nonrobust"`, it uses a Student-t reference with $T-1$ degrees of freedom. There is no hidden alternative inference method if these requirements are not met.
 
@@ -170,9 +170,9 @@ An explicit `device="cuda"` or `device="torch"` request also requires that backe
 
 ## External Validation
 
-There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Maintained regression tests cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, and Torch-CPU parity for that rank contract.
+There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Maintained regression tests cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, the single-factorization solve contract, and Torch-CPU parity for the rank contract.
 
-GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested separately by `dev/benchmarks/validate_panel_stage_a_gpu.py`, which compares CuPy and Torch with NumPy using default `rtol=5e-6, atol=5e-7`. Fama-MacBeth is not part of the Stage-C residual-covariance matrix because its covariance is defined from the coefficient series instead.
+GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested by `dev/benchmarks/validate_panel_stage_a_gpu.py`. The focused exact-head gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` additionally checks ordered-categorical chronology, formula/missing-row alignment, rank rejection, both no-intercept spellings, requested/executed backend identity, and synchronized raw timing on CuPy and Torch. Fama-MacBeth remains outside the Stage-C residual-covariance case matrix because its covariance is defined from the coefficient series rather than observation-level residual scores.
 
 ## References
 
