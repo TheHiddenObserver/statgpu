@@ -269,14 +269,21 @@ class FamaMacBeth(BasePanelModel):
 
         dist_name = "norm" if self._cov_type == "newey-west" else "t"
         distribution = get_distribution(dist_name, backend="numpy")
-        pvalues_py = []
-        for value in xp.abs(tvalues):
-            scalar = _to_float_scalar(value)
-            if dist_name == "t":
-                pvalues_py.append(2.0 * _to_float_scalar(distribution.sf(scalar, df)))
-            else:
-                pvalues_py.append(2.0 * _to_float_scalar(distribution.sf(scalar)))
-        pvalues = xp_asarray(pvalues_py, dtype=xp.float64, xp=xp, ref_arr=avg_beta)
+        # Distribution evaluation is CPU-backed for this estimator. Transfer the
+        # full statistic vector once rather than synchronizing one GPU scalar per
+        # parameter, then cast the vectorized p-values back to the fit backend.
+        statistic_abs_np = np.asarray(
+            _to_numpy(xp.abs(tvalues)), dtype=np.float64
+        )
+        if dist_name == "t":
+            pvalues_np = 2.0 * np.asarray(
+                distribution.sf(statistic_abs_np, df), dtype=np.float64
+            )
+        else:
+            pvalues_np = 2.0 * np.asarray(
+                distribution.sf(statistic_abs_np), dtype=np.float64
+            )
+        pvalues = xp_asarray(pvalues_np, dtype=xp.float64, xp=xp, ref_arr=avg_beta)
         if dist_name == "t":
             critical = _to_float_scalar(distribution.isf(float(self.alpha) / 2.0, df))
         else:
