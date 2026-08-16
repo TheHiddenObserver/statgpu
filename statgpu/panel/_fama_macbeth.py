@@ -149,8 +149,12 @@ class FamaMacBeth(BasePanelModel):
         data=None,
         entity_ids=None,
     ):
+        # Refit is transactional: a failed new fit must never leave the prior
+        # model/inference surface appearing valid for the attempted dataset.
         self._reset_fit_state()
         self._validate_parameters()
+        # Preserve current public behavior: time_ids must be explicitly supplied;
+        # FamaMacBeth does not infer it from formula tokens in Stage B.
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
@@ -220,6 +224,9 @@ class FamaMacBeth(BasePanelModel):
             idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
             X_t = X_design[idx]
             y_t = y_arr[idx]
+            # The fail-closed rank contract requires a rank-revealing
+            # factorization. Reuse that same SVD to obtain beta_t rather than
+            # performing a second normal-equation decomposition afterwards.
             beta_t, rank_t = panel_lstsq(X_t, y_t, xp)
             if rank_t < k:
                 raise ValueError(
@@ -266,6 +273,9 @@ class FamaMacBeth(BasePanelModel):
             if backend_name == "torch" and hasattr(avg_beta, "device")
             else None
         )
+        # Reference-distribution policy belongs to the inference layer. This
+        # keeps Fama-MacBeth free of backend-specific special-function fallbacks
+        # while preserving exact df=1/df=2 boundaries where needed.
         pvalues, critical = two_sided_reference_inference(
             xp.abs(tvalues),
             distribution=dist_name,
@@ -292,8 +302,15 @@ class FamaMacBeth(BasePanelModel):
         self._backend_name = backend_name
         self._inference_backend_name = backend_name
         self._xp = xp
+        # Prediction only needs a dtype/device anchor. Retaining the full
+        # training design here would pin O(nk) GPU memory for the estimator's
+        # lifetime even though prediction never reuses the training values.
         self._fit_ref_ = xp_asarray([], dtype=xp.float64, xp=xp, ref_arr=X_arr)
 
+        # Keep public fit outputs backend-native while also publishing the
+        # standard inference container/aliases required by the common estimator
+        # contract. ParameterInferenceResult owns NumPy snapshots only; this
+        # does not change coef_/bse_/... device semantics for CuPy/Torch users.
         from statgpu.inference._results import ParameterInferenceResult
 
         feature_names = getattr(self, "_feature_names", None)
