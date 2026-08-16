@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-13<br>
+> 最后更新：2026-08-16<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -11,7 +11,7 @@ Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator
 
 本次还系统强化了 two-way fixed-effect 的收敛与 prediction。entity/time projection metadata 只在迭代前 factorize 一次，并在所选 backend 上复用；收敛判据直接检查两个 effect 维度的 residual group mean，对数值上被固定效应完全吸收的方向使用 scale-aware roundoff floor，同时公开 fail-closed 的 `demean_max_iter`/`demean_tol` 控制以处理弱连通 panel。unbalanced panel 的 two-way fixed effects 改为联合恢复；若已知 entity/time label 分属 disconnected incidence graph 的不同 component，则该预测不可识别并明确报错。prediction 也不再把任意少一列的矩阵猜成“省略 intercept”，只有与拟合设计一致时才按原位置和原数值恢复显式 non-unit constant。已知 fixed-effect label 的预测现在会恢复 centered level grand mean，使 `PanelOLS.predict()` 返回完整的 fixed-effect level projection；formula 临时启用的 effect 不再泄漏到后续 refit，超过两个 fixed-effect 变量的 formula 会 fail closed，而无 FE 的 `PanelOLS` formula 会保留 Patsy/R 默认 intercept（`0 +` / `-1` 继续表示显式 no-intercept）；no-intercept 的 `rsquared_within` 现在使用标准 uncentered total sum of squares。其余强化还包括 rank-deficient coefficient identifiability、`FirstDifferenceOLS` duplicate/time 语义、HC2/HC3 leverage 稳定性、metadata alignment、CuPy scatter-add、RandomEffects formula intercept/name 行为以及 quadratic-spectral weight。外部定义固定对齐 `statsmodels==0.14.6`、`linearmodels==7.0`、R `plm==2.6-7` 与 R `sandwich==3.1-3`。
 
-`a99726e1...` 上的 exact-clean Tesla P100 验证曾通过 CuPy 13.6.0 **47/47**、Torch 2.0.0 **47/47** correctness case（每个 backend 35 个 estimator integration + 12 个 public covariance primitive），requested/executed backend identity 一致且无静默 CPU fallback；同步 performance source 为 **60/60** 行，包括 54 行 base、4 行 `N=10,000, k=2, T=200` bounded high-T QS 与 2 行 `N=10,000, k=2, T=20` unbalanced two-way-FE。由于随后 transformed-fit-space convergence-scale 修复改变了 production numerical behavior，这两份 artifact 继续作为前一 numerical tree 的不可变证据保留，而当前 exact-head physical acceptance 需要重新执行 P100 验证。可审计 source：`results/pr126_p100/panel_stage_c_gpu_validation_a99726e1.json` 与 `results/pr126_p100/panel_stage_c_performance_a99726e1.json`。
+物理验证现在按照明确的 evidence chain 记录，而不是保留一个已经过期的单一 head 状态。历史 Stage-C v5 acceptance 在 CuPy 与 Torch 上各通过 **47/47** correctness check，并通过同步的 **60-row** performance matrix。随后 Fama-MacBeth correctness source `464b587e83b234d78b5449666488d7f2f8ad367c` 又在 Tesla P100 上重新验证：Stage-C matrix 在每个 backend 上均通过 35 个 estimator integration + 12 个 covariance primitive；focused CuPy/Torch 检查也通过 ordered-categorical chronology、formula/missing-row alignment、lexical-order negative control、retained-period rank rejection 以及两个显式 no-intercept spelling。原始证据保存在 `results/pr126_p100_fama_fix/`。之后按 `.claude/skills/code-review.md` 重新审查时发现 retained-period rank guard 会先做一次 SVD，再做第二次 normal-equation solve；当前实现已改为复用同一个共享 rank-revealing SVD，同时得到 `beta_t` 与 rank，并增加 maintained regression 锁定每个 retained period 只做一次 SVD。由于这一优化在已接受的 `464b587e...` 之后再次修改了 `statgpu/panel/_fama_macbeth.py`，当前 exact-head physical GPU acceptance **重新打开**：在恢复 COMPLETE 之前，需要在新的 clean head 上重新执行 Stage-C physical runner 与 `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py`。focused runner 只记录同步后的原始 timing，不宣称 speedup。
 
 ## 2026-08-08
 
