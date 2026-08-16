@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Measure Fama-MacBeth NumPy/GPU crossover across panel scales.
+
+This is performance evidence, not a correctness acceptance replacement.  The
+historical 64x128x4 fixture is retained as the micro/launch-overhead regime and
+larger balanced panels show whether the batched period solver reaches a useful
+GPU crossover on resident device arrays.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import statistics
+import subprocess
+from pathlib import Path
+
+import numpy as np
+
+from dev.benchmarks.validate_fama_macbeth_review_fix_gpu import (
+    _assert_inference_descriptors,
+    _assert_snapshot,
+    _inference_descriptor,
+    _snapshot,
+    _timed_fit,
+)
+
+
+FIXTURES = {
+    "micro": {"n_times": 64, "observations_per_period": 128, "n_features": 4},
+    "medium": {"n_times": 128, "observations_per_period": 1024, "n_features": 8},
+    "large": {"n_times": 128, "observations_per_period": 4096, "n_features": 16},
+}
+
+
+def _git_sha():
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+
+def _git_clean():
+    return not subprocess.check_output(
+        ["git", "status", "--porcelain"], text=True
+    ).strip()
+
+
+def _fixture(name, spec):
+    seed = 20260817 + list(FIXTURES).index(name)
+    rng = np.random.default_rng(seed)
+    n_times = int(spec["n_times"])
+    per_period = int(spec["observations_per_period"])
+    p = int(spec["n_features"])
+    time_ids = np.repeat(np.arange(n_times), per_period)
+    X = rng.normal(size=(n_times * per_period, p))
+    beta = rng.normal(scale=0.45, size=p)
+    period_shift = np.repeat(rng.normal(scale=0.3, size=n_times), per_period)
+    y = 0.5 + X @ beta + period_shift + rng.normal(scale=0.4, size=X.shape[0])
+    return X.astype(np.float64), y.astype(np.float64), time_ids
+
+
+def _timing_summary(samples, n_rows):
+    median = float(statistics.median(samples))
+    return {
+        "samples_seconds": [float(value) for value in samples],
+        "median_seconds": median,
+        "rows_per_second": float(n_rows / median),
+    }
+
+
+def _case(name, spec, backends, warmup, repeats):
+    X, y, time_ids = _fixture(name, spec)
+    n_rows = int(X.shape[0])
+    reference, numpy_samples = _timed_fit(
+        X, y, time_ids, "numpy", warmup=warmup, repeats=repeats
+    )
+    numpy_summary = _timing_summary(numpy_samples, n_rows)
+    results = {
+        "shape": {
+            **spec,
+            "n_rows": n_rows,
+            "design_columns_with_intercept": int(X.shape[1] + 1),
+        },
+        "numpy": {
+            **numpy_summary,
+            "solver_mode": reference._period_solver_mode,
+            "solver_batches": int(reference._period_solver_batches),
+        },
+        "backends": {},
+    }
+
+    prediction_X = X[:16]
+    reference_snapshot = _snapshot(reference, prediction_X)
+    reference_inference = _inference_descriptor(reference)
+    for backend in backends:
+        candidate, samples = _timed_fit(
+            X, y, time_ids, backend, warmup=warmup, repeats=repeats
+        )
+        _assert_inference_descriptors(
+            reference_inference,
+            _inference_descriptor(candidate),
+        )
+        diffs = _assert_snapshot(
+            reference_snapshot,
+            _snapshot(candidate, prediction_X),
+        )
+        summary = _timing_summary(samples, n_rows)
+        results["backends"][backend] = {
+            **summary,
+            "backend_over_numpy_median_ratio": float(
+                summary["median_seconds"] / numpy_summary["median_seconds"]
+            ),
+            "speedup_over_numpy": float(
+                numpy_summary["median_seconds"] / summary["median_seconds"]
+            ),
+            "solver_mode": candidate._period_solver_mode,
+            "solver_batches": int(candidate._period_solver_batches),
+            "max_abs_differences_vs_numpy": diffs,
+        }
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--expected-sha", required=True)
+    parser.add_argument("--backends", default="cupy,torch")
+    parser.add_argument("--warmup", type=int, default=2)
+    parser.add_argument("--repeats", type=int, default=5)
+    args = parser.parse_args()
+
+    sha = _git_sha()
+    if sha != args.expected_sha:
+        raise RuntimeError(f"wrong source head: {sha} != {args.expected_sha}")
+    if not _git_clean():
+        raise RuntimeError("scaling benchmark requires a clean working tree")
+    if args.warmup < 0 or args.repeats < 1:
+        raise ValueError("warmup must be non-negative and repeats must be positive")
+    backends = [value.strip() for value in args.backends.split(",") if value.strip()]
+    if not backends or any(value not in {"cupy", "torch"} for value in backends):
+        raise ValueError("backends must be a non-empty subset of cupy,torch")
+
+    cases = {
+        name: _case(name, spec, backends, args.warmup, args.repeats)
+        for name, spec in FIXTURES.items()
+    }
+    payload = {
+        "schema_version": 1,
+        "git_sha": sha,
+        "status": "success",
+        "timing_scope": (
+            "resident-array end-to-end FamaMacBeth.fit timing with explicit GPU "
+            "synchronization before and after each sample"
+        ),
+        "interpretation": (
+            "backend_over_numpy_median_ratio < 1 (speedup_over_numpy > 1) means "
+            "the GPU backend is faster than the serial NumPy reference on that scale"
+        ),
+        "fixtures": cases,
+    }
+    if not _git_clean():
+        raise RuntimeError("working tree changed during scaling benchmark")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(payload, indent=2))
+    print(f"PASS — Fama-MacBeth scaling benchmark: {args.out}")
+
+
+if __name__ == "__main__":
+    main()
