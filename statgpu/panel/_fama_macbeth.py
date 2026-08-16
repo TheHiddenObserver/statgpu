@@ -10,7 +10,6 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import (
-    _LINALG_ERRORS,
     _get_xp,
     _to_float_scalar,
     xp_asarray,
@@ -18,7 +17,7 @@ from statgpu.backends import (
 )
 from statgpu.covariance._empirical import _detect_backend
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_matrix_rank
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
@@ -187,17 +186,16 @@ class FamaMacBeth(BasePanelModel):
             idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
             X_t = X_design[idx]
             y_t = y_arr[idx]
-            rank_t = panel_matrix_rank(X_t, xp)
+            # The fail-closed rank contract requires a rank-revealing
+            # factorization. Reuse that same SVD to obtain beta_t rather than
+            # performing a second normal-equation decomposition afterwards.
+            beta_t, rank_t = panel_lstsq(X_t, y_t, xp)
             if rank_t < k:
                 raise ValueError(
                     "FamaMacBeth requires full column rank in every retained period; "
                     f"retained time period {time_labels[code]!r} is rank deficient "
                     f"(rank={rank_t}, columns={k})"
                 )
-            try:
-                beta_t = xp.linalg.solve(X_t.T @ X_t, X_t.T @ y_t)
-            except _LINALG_ERRORS:
-                beta_t = xp.linalg.pinv(X_t) @ y_t
             betas_list.append(beta_t)
 
         if not betas_list:
