@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""Optimized-source physical GPU gate for Fama-MacBeth.
+
+The long-standing focused PR126 runner remains the correctness oracle for its
+chronology/formula/rank/inference matrix.  This wrapper executes that runner on
+the same exact head, then adds machine-auditable solver provenance for the new
+batched GPU period solver and replaces the legacy serial-performance notes in
+the emitted artifact.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from dev.benchmarks import validate_fama_macbeth_review_fix_gpu as focused
+
+SCHEMA_VERSION = 4
+
+
+def _run_focused(temp_out: Path, *, expected_sha: str, backends: str, warmup: int, repeats: int):
+    runner = Path(focused.__file__).resolve()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(runner),
+            "--out",
+            str(temp_out),
+            "--expected-sha",
+            expected_sha,
+            "--backends",
+            backends,
+            "--warmup",
+            str(warmup),
+            "--repeats",
+            str(repeats),
+        ],
+        cwd=_REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "focused Fama-MacBeth physical runner failed\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+
+
+def _solver_provenance(backend: str):
+    X, y, time_ids = focused._timing_fixture()
+    model, _samples = focused._timed_fit(
+        X,
+        y,
+        time_ids,
+        backend,
+        warmup=0,
+        repeats=1,
+    )
+    return {
+        "solver_mode": getattr(model, "_period_solver_mode", None),
+        "solver_batches": int(getattr(model, "_period_solver_batches", -1)),
+        "n_periods": int(model.n_periods),
+    }
+
+
+def _rewrite_performance(payload, backends):
+    numpy_solver = _solver_provenance("numpy")
+    if numpy_solver != {
+        "solver_mode": "serial",
+        "solver_batches": 64,
+        "n_periods": 64,
+    }:
+        raise AssertionError(f"unexpected NumPy timing solver provenance: {numpy_solver}")
+
+    for backend in backends:
+        provenance = _solver_provenance(backend)
+        if provenance != {
+            "solver_mode": "batched",
+            "solver_batches": 1,
+            "n_periods": 64,
+        }:
+            raise AssertionError(
+                f"{backend}: balanced timing fixture did not use one batched solver bucket: "
+                f"{provenance}"
+            )
+        performance = payload["backends"][backend]["performance"]
+        performance["solver_provenance"] = {
+            "numpy": numpy_solver,
+            backend: provenance,
+        }
+        performance["optimization_notes"] = {
+            "period_solver": (
+                "NumPy remains the serial reference; CuPy/Torch solve equal-sized "
+                "retained periods with one batched rank-revealing SVD per exact-size bucket. "
+                "The balanced 64x128 timing fixture therefore uses one GPU solver batch."
+            ),
+            "rank_cutoff": (
+                "no zero padding is used; each period keeps the serial "
+                "max(n_t,k)*eps*s_max cutoff, and one complete rank vector crosses "
+                "to the host per size bucket rather than one scalar per period"
+            ),
+            "distribution_inference": (
+                "p-values and critical values use the selected NumPy/CuPy/Torch "
+                "inference backend directly; GPU fits do not round-trip the statistic "
+                "vector through NumPy/SciPy for distribution evaluation"
+            ),
+            "reporting_snapshot": (
+                "Fama-MacBeth packs coefficient/BSE/statistic/p-value/CI reporting fields "
+                "on the active backend and performs one small NumPy reporting snapshot "
+                "after numerical inference"
+            ),
+            "remaining_structure": (
+                "very small panels can still be dominated by fixed validation, launch, "
+                "synchronization and reporting overhead; use the separate scaling runner "
+                "to locate the empirical GPU/NumPy crossover"
+            ),
+            "interpretation": (
+                "ratio > 1 means the requested backend is slower than NumPy on the micro "
+                "fixture; no universal GPU speedup claim is made"
+            ),
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--expected-sha", required=True)
+    parser.add_argument("--backends", default="cupy,torch")
+    parser.add_argument("--warmup", type=int, default=2)
+    parser.add_argument("--repeats", type=int, default=5)
+    args = parser.parse_args()
+
+    if focused._git_sha() != args.expected_sha:
+        raise RuntimeError(
+            f"wrong source head: {focused._git_sha()} != {args.expected_sha}"
+        )
+    if not focused._git_clean():
+        raise RuntimeError("physical acceptance requires a clean working tree")
+    backends = focused._validate_acceptance_backends(args.backends.split(","))
+
+    with tempfile.TemporaryDirectory(prefix="statgpu_fmb_optimized_") as temp_dir:
+        temp_out = Path(temp_dir) / "focused.json"
+        _run_focused(
+            temp_out,
+            expected_sha=args.expected_sha,
+            backends=",".join(backends),
+            warmup=args.warmup,
+            repeats=args.repeats,
+        )
+        payload = json.loads(temp_out.read_text(encoding="utf-8"))
+
+    _rewrite_performance(payload, backends)
+    payload["schema_version"] = SCHEMA_VERSION
+    payload["optimized_wrapper"] = True
+    payload["focused_runner_schema_version"] = focused.SCHEMA_VERSION
+    payload["performance_interpretation"] = (
+        "micro timing remains comparable with historical PR126 focused evidence; "
+        "scaling/crossover conclusions must use benchmark_fama_macbeth_scaling_gpu.py"
+    )
+
+    if not focused._git_clean():
+        raise RuntimeError("working tree changed during optimized physical validation")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(payload, indent=2))
+    print(f"PASS — optimized Fama-MacBeth GPU validation: {args.out}")
+
+
+if __name__ == "__main__":
+    main()
