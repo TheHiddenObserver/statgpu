@@ -1,7 +1,7 @@
 # PooledOLS
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-16  
 > 切换：[English](../../en/panel/pooled-ols.md)
 
 ## Overview
@@ -56,7 +56,7 @@ $$
 
 `cov_type` 只改变 standard error 的计算方式，不改变 OLS coefficient estimate。除了 nonrobust 和 HC covariance 外，`PooledOLS` 还支持 clustered covariance，以及两种考虑时间相关性的方式：
 
-- `cov_type="hac"` 把 observations 看作一条有顺序的序列并应用 Bartlett/Newey-West HAC。若提供 `time_index`，会先按它排序；否则直接使用输入数据的行顺序。
+- `cov_type="hac"` 把 observations 看作一条有顺序的序列并应用 Bartlett/Newey-West HAC。若提供 `time_index`，会先按其时间顺序排序；否则直接使用输入数据的行顺序。numeric 与 datetime label 使用自然顺序；ordered pandas categorical 使用用户声明的 category order，因此 `t1, t2, t10` 这类标签不会被静默改成字符串词典序。
 - `cov_type="driscoll-kraay"` 按 `time_index` 将 observations 分到各 period，并先在 period 内聚合其 covariance contribution，再对跨期 lag 加权。
 
 因此这两种 covariance 不能互换理解。完整公式见 [面板 covariance](covariance.md)。
@@ -112,7 +112,9 @@ model = PooledOLS().fit(
 
 ## Numerical and Strict Behavior
 
-covariance 所需的附加信息会在计算前检查。例如，clustered covariance 缺少 `cluster`、Driscoll-Kraay 缺少 `time_index`，或 cluster 数组长度/形状不匹配时，都会直接报错，而不会自动改用另一种 covariance。
+covariance 所需的附加信息会在计算前检查。例如，clustered covariance 缺少 `cluster`、Driscoll-Kraay 缺少 `time_index`，或 cluster 数组长度/形状不匹配时，都会直接报错，而不会自动改用另一种 covariance。legacy HAC 的 time metadata 若含 missing/non-finite value 也会 fail closed，而不会猜测排序。
+
+每次新的 `fit()` 都会先失效上一轮 fitted/inference state。如果 refit 在后续任意阶段失败，已经部分写入的新输出也会被清理；此后 `predict()` 与 `summary()` 会把 estimator 视为未拟合状态。
 
 如果 design matrix 精确 rank deficient，模型仍可能得到 fitted values，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断；详见 [面板 covariance](covariance.md)。
 
@@ -128,7 +130,7 @@ covariance 所需的附加信息会在计算前检查。例如，clustered covar
 
 我们将 `PooledOLS` 与 `linearmodels==7.0` 比较，覆盖 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。HC、cluster、Driscoll-Kraay、default bandwidth 与 R `sandwich` 的定义级检查见 [validation matrix](covariance.md#validation-matrix)。
 
-GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际最大差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
+GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际最大差异保存在 PR #126 的 physical validation artifacts 中。专用的 `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate 还会在最终 exact source 上验证 ordered-categorical legacy-HAC chronology、lexical-order negative control、formula missing-row alignment，以及 requested/executed CuPy/Torch backend identity。
 
 ## 参考（References）
 
