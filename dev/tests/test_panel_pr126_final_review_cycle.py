@@ -187,6 +187,46 @@ def test_random_effects_failed_refit_clears_previous_inference():
     assert not hasattr(model, "variance_components_")
 
 
+@pytest.mark.parametrize("kind", ["pooled", "between", "first_difference", "random_effects"])
+def test_late_refit_failure_clears_partial_new_inference(monkeypatch, kind):
+    """Even an exception after inference storage must leave the model unfitted."""
+    X, y, entity, time = _panel(seed=12700)
+
+    if kind == "pooled":
+        model = PooledOLS(cov_type="hc0")
+        fit_kwargs = {}
+    elif kind == "between":
+        model = BetweenOLS(cov_type="hc0")
+        fit_kwargs = {"entity_ids": entity}
+    elif kind == "first_difference":
+        model = FirstDifferenceOLS(cov_type="hc0")
+        fit_kwargs = {"entity_ids": entity, "time_ids": time}
+    else:
+        model = RandomEffects(cov_type="hc0")
+        fit_kwargs = {"entity_ids": entity}
+
+    model.fit(X, y, **fit_kwargs)
+    assert model._inference_result is not None
+
+    import statgpu.panel._diagnostic_context as diagnostic_context
+
+    def _late_failure(*args, **kwargs):
+        raise RuntimeError("forced late panel fit failure")
+
+    monkeypatch.setattr(
+        diagnostic_context,
+        "build_model_fit_statistics",
+        _late_failure,
+    )
+    with pytest.raises(RuntimeError, match="forced late panel fit failure"):
+        model.fit(X, y, **fit_kwargs)
+
+    _assert_failed_refit_clears_public_surface(model, X)
+    if kind == "random_effects":
+        assert not hasattr(model, "theta_")
+        assert not hasattr(model, "variance_components_")
+
+
 def test_fama_macbeth_keeps_only_zero_length_prediction_device_anchor():
     X, y, _entity, time = _panel(seed=12697, n_entities=12, n_times=4)
     model = FamaMacBeth(device="cpu", bandwidth=1).fit(X, y, time_ids=time)
