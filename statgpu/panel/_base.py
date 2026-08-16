@@ -76,6 +76,7 @@ class BasePanelModel(BaseEstimator):
             "_conf_int",
             "_inference_result",
             "_backend_name",
+            "_inference_backend_name",
             "_predict_backend_name",
             "_panel_index_info",
             "_design_info",
@@ -251,11 +252,6 @@ class BasePanelModel(BaseEstimator):
         self._check_is_fitted()
         from statgpu.panel._formula import _formula_predict
 
-        # A formula-generated prediction matrix carries column identity through
-        # Patsy.  When the fitted formula had an intercept, _formula_predict()
-        # deterministically strips that intercept just as fit() did, so a slope
-        # column that happens to be constant on this prediction batch must not be
-        # mistaken for an explicitly supplied intercept.
         formula_omitted_intercept = (
             getattr(self, "_design_info", None) is not None
             and hasattr(X, "columns")
@@ -301,10 +297,6 @@ class BasePanelModel(BaseEstimator):
             ):
                 raise ValueError("stored prediction constant value must be finite")
 
-            # Shape alone cannot prove which training column was omitted.  If
-            # the supplied short matrix already contains the fitted constant,
-            # inserting another constant would silently reinterpret a missing
-            # slope as an omitted intercept.  Reject that ambiguous case.
             if int(X_arr.shape[1]) > 0 and not formula_omitted_intercept:
                 delta = xp.abs(X_arr - float(omitted_constant_value))
                 if getattr(xp, "__name__", "") == "torch":
@@ -456,18 +448,11 @@ class BasePanelModel(BaseEstimator):
             return cov_params
 
         diag_np = np.diag(cov_np).astype(np.float64, copy=False)
-        # A variance is invalid whenever it is strictly negative. There is no
-        # dimensionally valid generic tolerance that can distinguish a small
-        # negative variance from cancellation using only the final covariance:
-        # outcome and regressor rescaling transform covariance entries at
-        # different rates. IEEE negative zero compares equal to zero and is
-        # normalized below without weakening this fail-closed rule.
         if np.any(diag_np < 0.0):
             raise ValueError(
                 "covariance has materially negative diagonal variance; "
                 "inference is not numerically valid"
             )
-        # Normalize signed zero before any historical diagonal floor is used.
         diag = xp_maximum(diag, 0.0, xp)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)
@@ -482,18 +467,30 @@ class BasePanelModel(BaseEstimator):
 
         dist_name = "t" if canonical_cov_type == "nonrobust" else "norm"
         df = int(df_resid if distribution_df is None else distribution_df)
+        inference_device = (
+            str(params.device)
+            if backend.name == "torch" and hasattr(params, "device")
+            else None
+        )
         if dist_name == "t" and df == 1:
-            distribution = get_distribution("cauchy", backend=backend.name)
-            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
+            distribution = get_distribution(
+                "cauchy", backend=backend.name, device=inference_device
+            )
+            pvalues_dev = 2.0 * distribution.sf(xp.abs(tvalues_dev))
             critical = distribution.isf(float(self.alpha) / 2)
         elif dist_name == "t":
-            distribution = get_distribution("t", backend=backend.name)
-            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev), df)
-            critical = distribution.isf(float(self.alpha) / 2, df)
+            distribution = get_distribution(
+                "t", backend=backend.name, device=inference_device
+            )
+            pvalues_dev = distribution.two_sided_pvalue(xp.abs(tvalues_dev), df)
+            critical = distribution.two_sided_critical_value(self.alpha, df)
         else:
-            distribution = get_distribution("norm", backend=backend.name)
-            pvalues_dev = 2 * distribution.sf(xp.abs(tvalues_dev))
-            critical = distribution.isf(float(self.alpha) / 2)
+            distribution = get_distribution(
+                "norm", backend=backend.name, device=inference_device
+            )
+            pvalues_dev = distribution.two_sided_pvalue(xp.abs(tvalues_dev))
+            critical = distribution.two_sided_critical_value(self.alpha)
+        self._inference_backend_name = backend.name
         critical = xp_asarray(
             critical, dtype=params.dtype, xp=xp, ref_arr=params
         )
@@ -514,7 +511,10 @@ class BasePanelModel(BaseEstimator):
         inference = ParameterInferenceResult(
             method="panel_ols",
             feature_names=feature_names,
-            metadata={"covariance": dict(covariance_metadata)},
+            metadata={
+                "covariance": dict(covariance_metadata),
+                "inference_backend": backend.name,
+            },
             params=self.coef_,
             bse=self.bse_,
             statistic=self.tvalues_,
