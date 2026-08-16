@@ -53,6 +53,69 @@ def panel_lstsq(X, y, xp):
     return Vh.T @ scaled, rank
 
 
+def panel_lstsq_batched(X, y, xp):
+    """Solve a batch of equal-shaped panel least-squares problems with one SVD call.
+
+    Parameters
+    ----------
+    X : array-like, shape (batch, n_obs, n_features)
+        Equal-shaped design matrices resident on the active backend.
+    y : array-like, shape (batch, n_obs) or (batch, n_obs, n_targets)
+        Matching responses.
+    xp : module
+        NumPy, CuPy, or Torch numerical namespace.
+
+    Returns
+    -------
+    params : array-like
+        Batched minimum-norm solutions.
+    ranks : array-like, shape (batch,)
+        Backend-native numerical ranks.  Callers can transfer the complete rank
+        vector once per batch instead of synchronizing one scalar per period.
+
+    Notes
+    -----
+    The singular-value cutoff is exactly the same policy as :func:`panel_lstsq`,
+    applied independently to each matrix in the batch.
+    """
+    if getattr(X, "ndim", None) != 3:
+        raise ValueError("batched panel design must have shape (batch, n_obs, n_features)")
+    if int(X.shape[-1]) == 0:
+        raise ValueError("panel design must contain at least one column")
+    if getattr(y, "ndim", None) not in (2, 3):
+        raise ValueError("batched panel response must have shape (batch, n_obs[, n_targets])")
+    if int(y.shape[0]) != int(X.shape[0]) or int(y.shape[1]) != int(X.shape[1]):
+        raise ValueError("batched panel design and response shapes are incompatible")
+
+    U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
+    cutoff_scale = (
+        max(int(X.shape[-2]), int(X.shape[-1]))
+        * np.finfo(np.float64).eps
+    )
+    if getattr(xp, "__name__", "") == "torch":
+        largest = xp.max(singular_values, dim=-1, keepdim=True).values
+        ranks = xp.sum(singular_values > largest * float(cutoff_scale), dim=-1)
+    else:
+        largest = xp.max(singular_values, axis=-1, keepdims=True)
+        ranks = xp.sum(
+            singular_values > largest * float(cutoff_scale),
+            axis=-1,
+        )
+    retained = singular_values > largest * float(cutoff_scale)
+    safe_values = xp.where(retained, singular_values, xp.ones_like(singular_values))
+    inverse_values = xp.where(
+        retained, 1.0 / safe_values, xp.zeros_like(singular_values)
+    )
+
+    rhs = y[..., None] if getattr(y, "ndim", None) == 2 else y
+    projected = xp.matmul(xp.swapaxes(U, -2, -1), rhs)
+    scaled = inverse_values[..., None] * projected
+    params = xp.matmul(xp.swapaxes(Vh, -2, -1), scaled)
+    if getattr(y, "ndim", None) == 2:
+        params = params[..., 0]
+    return params, ranks
+
+
 def panel_matrix_rank(X, xp):
     """Return numerical rank using exactly the panel pseudoinverse cutoff."""
     if getattr(xp, "__name__", "") == "torch":
