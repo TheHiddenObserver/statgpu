@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pytest
+from scipy import stats
 
 pd = pytest.importorskip("pandas")
 
@@ -238,3 +241,45 @@ def test_fama_macbeth_keeps_only_zero_length_prediction_device_anchor():
     prediction = np.asarray(model.predict(X[:6]), dtype=np.float64)
     expected = np.column_stack([np.ones(6), X[:6]]) @ np.asarray(model.coef_)
     np.testing.assert_allclose(prediction, expected, rtol=2e-12, atol=2e-13)
+
+
+def test_fama_macbeth_routes_distribution_inference_through_fit_backend():
+    """Do not reintroduce the old hard-coded NumPy distribution path."""
+    source = inspect.getsource(FamaMacBeth.fit)
+    assert 'get_distribution(dist_name, backend="numpy")' not in source
+    assert "two_sided_pvalue" in source
+
+    X, y, _entity, time = _panel(seed=12701, n_entities=12, n_times=4)
+    model = FamaMacBeth(device="cpu", bandwidth=1).fit(X, y, time_ids=time)
+    assert model._backend_name == "numpy"
+    assert model._inference_backend_name == "numpy"
+    assert model._inference_result.metadata["inference_backend"] == "numpy"
+
+
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0"])
+def test_shared_panel_inference_records_selected_backend(cov_type):
+    X, y, _entity, _time = _panel(seed=12702)
+    model = PooledOLS(cov_type=cov_type, device="cpu").fit(X, y)
+    assert model._backend_name == "numpy"
+    assert model._inference_backend_name == "numpy"
+    assert model._inference_result.metadata["inference_backend"] == "numpy"
+
+
+def test_fama_macbeth_df1_uses_exact_cauchy_boundary():
+    """T=2 gives df=1, where Student-t inference is exactly Cauchy."""
+    X, y, _entity, time = _panel(seed=12703, n_entities=16, n_times=2)
+    model = FamaMacBeth(cov_type="nonrobust", device="cpu").fit(
+        X, y, time_ids=time
+    )
+
+    assert model.df_resid == 1
+    expected_pvalues = 2.0 * stats.cauchy.sf(np.abs(np.asarray(model.tvalues_)))
+    critical = stats.cauchy.isf(model.alpha / 2.0)
+    expected_ci = np.column_stack(
+        [
+            np.asarray(model.coef_) - critical * np.asarray(model.bse_),
+            np.asarray(model.coef_) + critical * np.asarray(model.bse_),
+        ]
+    )
+    np.testing.assert_allclose(model.pvalues_, expected_pvalues, rtol=2e-13, atol=2e-15)
+    np.testing.assert_allclose(model.conf_int_, expected_ci, rtol=2e-13, atol=2e-15)
