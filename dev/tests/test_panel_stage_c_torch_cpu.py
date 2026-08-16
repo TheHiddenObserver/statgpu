@@ -292,3 +292,23 @@ def test_panel_rank_boundary_fit_and_dk_torch_cpu_match_shared_policy():
     assert actual._covariance_metadata["design_rank"] == 2
     assert expected.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2
     assert actual.fit_statistics_.metadata["diagnostic_df"]["rank_x"] == 2
+
+
+def test_stage_c_pooled_nonrobust_df2_torch_cpu_matches_numpy_high_precision():
+    """The shared reference-inference helper preserves the exact t(2) boundary."""
+    X = np.asarray([[-1.5], [-0.25], [0.75], [2.0]], dtype=np.float64)
+    y = np.asarray([-0.6, 0.2, 1.1, 1.55], dtype=np.float64)
+
+    expected = PooledOLS(cov_type="nonrobust", device="cpu").fit(X, y)
+    actual = PooledOLS(cov_type="nonrobust").fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+    )
+
+    assert expected.df_resid == 2
+    assert actual.df_resid == 2
+    assert actual._backend_name == "torch"
+    assert actual._inference_backend_name == "torch"
+    assert actual._inference_result.metadata["inference_backend"] == "torch"
+    assert_allclose(actual.pvalues_, expected.pvalues_, rtol=2e-12, atol=2e-14)
+    assert_allclose(actual.conf_int_, expected.conf_int_, rtol=2e-12, atol=2e-14)
