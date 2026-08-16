@@ -62,6 +62,38 @@ class FamaMacBeth(BasePanelModel):
             raise ValueError("cov_type must be 'nonrobust' or 'newey-west'")
         self.fit_statistics_ = None
 
+    def _reset_fit_state(self):
+        """Invalidate all fit/inference outputs before a new fit attempt."""
+        self._fitted = False
+        self.fit_statistics_ = None
+        for name in (
+            "coef_",
+            "bse_",
+            "tvalues_",
+            "pvalues_",
+            "conf_int_",
+            "betas_",
+            "cov_params_",
+            "nobs",
+            "n_periods",
+            "df_resid",
+            "_params",
+            "_bse",
+            "_tvalues",
+            "_zvalues",
+            "_pvalues",
+            "_conf_int",
+            "_inference_result",
+            "_backend_name",
+            "_xp",
+            "_fit_ref_",
+            "_panel_index_info",
+            "_design_info",
+            "_feature_names",
+            "_formula_has_intercept",
+        ):
+            self.__dict__.pop(name, None)
+
     def _validate_parameters(self):
         if self._cov_type not in ("nonrobust", "newey-west"):
             raise ValueError("cov_type must be 'nonrobust' or 'newey-west'")
@@ -115,6 +147,9 @@ class FamaMacBeth(BasePanelModel):
         data=None,
         entity_ids=None,
     ):
+        # Refit is transactional: a failed new fit must never leave the prior
+        # model/inference surface appearing valid for the attempted dataset.
+        self._reset_fit_state()
         self._validate_parameters()
         # Preserve current public behavior: time_ids must be explicitly supplied;
         # FamaMacBeth does not infer it from formula tokens in Stage B.
@@ -266,7 +301,7 @@ class FamaMacBeth(BasePanelModel):
 
         # Keep public fit outputs backend-native while also publishing the
         # standard inference container/aliases required by the common estimator
-        # contract.  ParameterInferenceResult owns NumPy snapshots only; this
+        # contract. ParameterInferenceResult owns NumPy snapshots only; this
         # does not change coef_/bse_/... device semantics for CuPy/Torch users.
         from statgpu.inference._results import ParameterInferenceResult
 
