@@ -76,6 +76,7 @@ class BetweenOLS(BasePanelModel):
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the between OLS model."""
+        self._reset_fit_state()
         if entity_ids is None:
             raise ValueError("entity_ids is required for BetweenOLS")
 
