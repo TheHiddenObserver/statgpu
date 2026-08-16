@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。最终 `coef_` 是所有保留时期 coefficient 的简单平均。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。当前实现对每个 retained period 只执行一次共享的 rank-revealing SVD，并复用该 factorization 同时得到 numerical rank 与 least-squares coefficient vector；rank check 之后不会再做第二次 normal-equation solve。
 
 ## Covariance and Inference
 
@@ -154,7 +154,7 @@ model = FamaMacBeth().fit(
 
 ## Numerical and Strict Behavior
 
-过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。
+过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。rank check 与 coefficient solve 共享同一次 SVD，因此在保持完全相同 rank policy 的同时避免重复的第二次数值分解。
 
 `cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。如果这些条件不满足，statgpu 不会在后台切换成另一套 inference 方法。
 
@@ -170,9 +170,9 @@ model = FamaMacBeth().fit(
 
 ## External Validation
 
-目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。maintained regression tests 覆盖 formula intercept contract、array/formula 两条路径上的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection，以及该 rank contract 的 Torch-CPU parity。
+目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。maintained regression tests 覆盖 formula intercept contract、array/formula 两条路径上的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、single-factorization solve contract，以及该 rank contract 的 Torch-CPU parity。
 
-标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 单独做 GPU consistency 验证，使用默认 `rtol=5e-6, atol=5e-7` 比较 CuPy、Torch 与 NumPy。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
+标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。新增的 exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、requested/executed backend identity，以及 CuPy/Torch 的同步 raw timing。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
 
 ## 参考（References）
 
