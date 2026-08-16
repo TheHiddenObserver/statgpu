@@ -6,6 +6,9 @@ on:
     paths:
       - 'statgpu/panel/**'
       - 'statgpu/inference/_reference_distribution.py'
+      - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py'
       - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
       - 'dev/tests/test_fama_macbeth_batched_solver.py'
@@ -18,6 +21,9 @@ on:
     paths:
       - 'statgpu/panel/**'
       - 'statgpu/inference/_reference_distribution.py'
+      - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py'
       - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
       - 'dev/tests/test_fama_macbeth_batched_solver.py'
