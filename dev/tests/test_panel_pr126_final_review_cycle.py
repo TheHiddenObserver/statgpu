@@ -106,7 +106,11 @@ def test_pooled_legacy_hac_rejects_missing_ordered_categorical_time():
         ordered=True,
     )
 
-    with pytest.raises(ValueError, match="must not contain missing or non-finite"):
+    # The repository-wide public finite guard may reject this before the
+    # panel-specific chronology factorizer runs. Both paths are deliberately
+    # fail-closed, so assert the public contract rather than one internal layer's
+    # exact wording.
+    with pytest.raises(ValueError, match="finite|missing"):
         PooledOLS(cov_type="hac", bandwidth=1).fit(
             X,
             y,
