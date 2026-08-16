@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "git_sha": "5fd9bcf214b1ba2abc5282c3922b6807fb6162ee",
+  "working_tree_clean_before": true,
+  "working_tree_clean_after_checks": true,
+  "required_backends": [
+    "cupy",
+    "torch"
+  ],
+  "validated_backends": [
+    "cupy",
+    "torch"
+  ],
+  "status": "success",
+  "validation_tier": "remote-full",
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "numpy": "1.24.2",
+    "pandas": "2.0.0",
+    "gpu_by_backend": {
+      "cupy": "Tesla P100-SXM2-16GB",
+      "torch": "Tesla P100-SXM2-16GB"
+    },
+    "cupy": "13.6.0",
+    "torch": "2.0.0+cu117"
+  },
+  "backends": {
+    "cupy": {
+      "status": "success",
+      "requested_backend": "cupy",
+      "executed_backend": "cupy",
+      "inference_backend": "cupy",
+      "array_ordered_vs_numeric_max_abs": {
+        "coef": 0.0,
+        "bse": 0.0,
+        "tvalues": 0.0,
+        "pvalues": 0.0,
+        "conf_int": 0.0
+      },
+      "formula_ordered_vs_numeric_max_abs": {
+        "coef": 0.0,
+        "bse": 0.0,
+        "tvalues": 0.0,
+        "pvalues": 0.0,
+        "conf_int": 0.0
+      },
+      "lexical_negative_control_bse_max_abs": 0.014326587684218656,
+      "shared_nonrobust_student_t": {
+        "status": "success",
+        "requested_backend": "cupy",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "df_resid": 21,
+        "max_abs_differences_vs_numpy": {
+          "coef": 5.551115123125783e-16,
+          "bse": 2.0816681711721685e-17,
+          "tvalues": 1.4210854715202004e-14,
+          "pvalues": 1.1709383462843448e-17,
+          "conf_int": 5.551115123125783e-16
+        }
+      }
+    },
+    "torch": {
+      "status": "success",
+      "requested_backend": "torch",
+      "executed_backend": "torch",
+      "inference_backend": "torch",
+      "array_ordered_vs_numeric_max_abs": {
+        "coef": 0.0,
+        "bse": 0.0,
+        "tvalues": 0.0,
+        "pvalues": 0.0,
+        "conf_int": 0.0
+      },
+      "formula_ordered_vs_numeric_max_abs": {
+        "coef": 0.0,
+        "bse": 0.0,
+        "tvalues": 0.0,
+        "pvalues": 0.0,
+        "conf_int": 0.0
+      },
+      "lexical_negative_control_bse_max_abs": 0.014326587684218586,
+      "shared_nonrobust_student_t": {
+        "status": "success",
+        "requested_backend": "torch",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "df_resid": 21,
+        "max_abs_differences_vs_numpy": {
+          "coef": 5.828670879282072e-16,
+          "bse": 3.469446951953614e-17,
+          "tvalues": 9.325873406851315e-15,
+          "pvalues": 2.498538325020061e-10,
+          "conf_int": 3.4809871651830804e-10
+        }
+      }
+    }
+  }
+}
