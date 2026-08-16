@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -147,3 +151,18 @@ def test_balanced_torch_reporting_uses_one_rank_snapshot_and_one_reporting_snaps
     # One host synchronization for the complete rank vector and one for the
     # packed reporting matrix. Numerical inference itself remains on Torch.
     assert shapes == [(6,), (6, 3)]
+
+
+def test_fama_macbeth_scaling_runner_is_directly_executable():
+    repo_root = Path(__file__).resolve().parents[2]
+    runner = repo_root / "dev" / "benchmarks" / "benchmark_fama_macbeth_scaling_gpu.py"
+    completed = subprocess.run(
+        [sys.executable, str(runner), "--help"],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "Fama-MacBeth" in completed.stdout
+    assert "--expected-sha" in completed.stdout
