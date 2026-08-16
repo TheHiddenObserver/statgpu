@@ -1,4 +1,4 @@
-"""Regression coverage for Fama-MacBeth formula, chronology, rank, and solve contracts."""
+"""Regression coverage for Fama-MacBeth formula, chronology, rank, and inference."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import pytest
 
 import statgpu.panel._linalg as panel_linalg
 from dev.benchmarks import validate_fama_macbeth_review_fix_gpu as fmb_gpu_gate
+from statgpu.inference._results import ParameterInferenceResult
 from statgpu.panel import FamaMacBeth
 
 
@@ -31,6 +32,64 @@ def _ordered_time(labels):
         categories=["t1", "t2", "t10"],
         ordered=True,
     )
+
+
+def _to_numpy(value):
+    try:
+        import torch
+
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().numpy()
+    except ImportError:
+        pass
+    return np.asarray(value)
+
+
+def _assert_standard_inference_surface(
+    model,
+    *,
+    statistic_name,
+    distribution,
+    df,
+    feature_names=None,
+):
+    assert isinstance(model._inference_result, ParameterInferenceResult)
+    result = model._inference_result
+    assert result.method == "fama_macbeth"
+    assert result.statistic_name == statistic_name
+    assert result.distribution == distribution
+    assert result.cov_type == model._cov_type
+    assert result.df == df
+    expected_names = None if feature_names is None else list(feature_names)
+    actual_names = None if result.feature_names is None else list(result.feature_names)
+    assert actual_names == expected_names
+    assert result.metadata["covariance_source"] == "period_coefficient_series"
+    assert result.metadata["n_periods"] == model.n_periods
+    expected_bandwidth = model.bandwidth
+    if model._cov_type == "newey-west" and expected_bandwidth is None:
+        expected_bandwidth = int(np.floor(4.0 * (model.n_periods / 100.0) ** (2.0 / 9.0)))
+        expected_bandwidth = max(0, min(expected_bandwidth, model.n_periods - 1))
+    if model._cov_type == "nonrobust":
+        expected_bandwidth = None
+    assert result.metadata["effective_bandwidth"] == expected_bandwidth
+
+    public_pairs = (
+        (model.coef_, model._params),
+        (model.bse_, model._bse),
+        (model.tvalues_, model._tvalues),
+        (model.pvalues_, model._pvalues),
+        (model.conf_int_, model._conf_int),
+    )
+    for public, internal in public_pairs:
+        np.testing.assert_allclose(_to_numpy(public), np.asarray(internal), rtol=0, atol=0)
+    np.testing.assert_allclose(
+        _to_numpy(model.tvalues_), np.asarray(model._zvalues), rtol=0, atol=0
+    )
+    np.testing.assert_allclose(result.params, model._params, rtol=0, atol=0)
+    np.testing.assert_allclose(result.bse, model._bse, rtol=0, atol=0)
+    np.testing.assert_allclose(result.statistic, model._tvalues, rtol=0, atol=0)
+    np.testing.assert_allclose(result.pvalues, model._pvalues, rtol=0, atol=0)
+    np.testing.assert_allclose(result.conf_int, model._conf_int, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("formula", ["y ~ 0 + x", "y ~ x - 1"])
@@ -70,6 +129,12 @@ def test_fama_macbeth_ordered_categorical_chronology_matches_numeric_array():
         actual.cov_params_, expected.cov_params_, rtol=2e-13, atol=2e-15
     )
     assert not np.allclose(actual.cov_params_, lexical.cov_params_, rtol=1e-10, atol=1e-12)
+    _assert_standard_inference_surface(
+        actual,
+        statistic_name="z",
+        distribution="normal",
+        df=None,
+    )
 
 
 def test_fama_macbeth_ordered_categorical_chronology_survives_formula_alignment():
@@ -103,6 +168,66 @@ def test_fama_macbeth_ordered_categorical_chronology_survives_formula_alignment(
         actual.cov_params_, expected.cov_params_, rtol=2e-13, atol=2e-15
     )
     assert not np.allclose(actual.cov_params_, lexical.cov_params_, rtol=1e-10, atol=1e-12)
+    _assert_standard_inference_surface(
+        actual,
+        statistic_name="z",
+        distribution="normal",
+        df=None,
+        feature_names=["Intercept", "x"],
+    )
+    summary = actual.summary().to_dict()
+    assert summary["feature_names"] == ["Intercept", "x"]
+    np.testing.assert_allclose(summary["coef"], actual._params, rtol=0, atol=0)
+    np.testing.assert_allclose(summary["bse"], actual._bse, rtol=0, atol=0)
+    np.testing.assert_allclose(summary["pvalues"], actual._pvalues, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    "cov_type,statistic_name,distribution,expected_df",
+    [
+        ("newey-west", "z", "normal", None),
+        ("nonrobust", "t", "t", 2.0),
+    ],
+)
+def test_fama_macbeth_standard_inference_result_numpy(
+    cov_type, statistic_name, distribution, expected_df
+):
+    x, y, _labels, numeric = _chronology_fixture()
+    model = FamaMacBeth(cov_type=cov_type, bandwidth=1, device="cpu").fit(
+        x[:, None], y, time_ids=numeric
+    )
+    _assert_standard_inference_surface(
+        model,
+        statistic_name=statistic_name,
+        distribution=distribution,
+        df=expected_df,
+    )
+
+
+def test_fama_macbeth_standard_inference_result_torch_cpu_matches_numpy():
+    torch = pytest.importorskip("torch")
+    x, y, _labels, numeric = _chronology_fixture()
+    expected = FamaMacBeth(bandwidth=1, device="cpu").fit(
+        x[:, None], y, time_ids=numeric
+    )
+    actual = FamaMacBeth(bandwidth=1).fit(
+        torch.as_tensor(x[:, None], dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(numeric, dtype=torch.int64),
+    )
+    _assert_standard_inference_surface(
+        actual,
+        statistic_name="z",
+        distribution="normal",
+        df=None,
+    )
+    for name in ("coef_", "bse_", "tvalues_", "pvalues_", "conf_int_"):
+        np.testing.assert_allclose(
+            _to_numpy(getattr(actual, name)),
+            _to_numpy(getattr(expected, name)),
+            rtol=2e-12,
+            atol=2e-14,
+        )
 
 
 def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypatch):
