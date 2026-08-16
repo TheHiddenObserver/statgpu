@@ -153,9 +153,9 @@ def test_balanced_torch_reporting_uses_one_rank_snapshot_and_one_reporting_snaps
     assert shapes == [(6,), (6, 3)]
 
 
-def test_fama_macbeth_scaling_runner_is_directly_executable():
+def _assert_runner_help(filename):
     repo_root = Path(__file__).resolve().parents[2]
-    runner = repo_root / "dev" / "benchmarks" / "benchmark_fama_macbeth_scaling_gpu.py"
+    runner = repo_root / "dev" / "benchmarks" / filename
     completed = subprocess.run(
         [sys.executable, str(runner), "--help"],
         cwd=repo_root,
@@ -166,3 +166,49 @@ def test_fama_macbeth_scaling_runner_is_directly_executable():
     assert completed.returncode == 0, completed.stderr
     assert "Fama-MacBeth" in completed.stdout
     assert "--expected-sha" in completed.stdout
+
+
+def test_fama_macbeth_scaling_runner_is_directly_executable():
+    _assert_runner_help("benchmark_fama_macbeth_scaling_gpu.py")
+
+
+def test_fama_macbeth_optimized_wrapper_is_directly_executable():
+    _assert_runner_help("validate_fama_macbeth_optimized_gpu.py")
+
+
+def test_optimized_wrapper_rewrites_legacy_serial_notes(monkeypatch):
+    from dev.benchmarks import validate_fama_macbeth_optimized_gpu as optimized
+
+    assert optimized.SCHEMA_VERSION == 4
+
+    def fake_provenance(backend):
+        if backend == "numpy":
+            return {
+                "solver_mode": "serial",
+                "solver_batches": 64,
+                "n_periods": 64,
+            }
+        return {
+            "solver_mode": "batched",
+            "solver_batches": 1,
+            "n_periods": 64,
+        }
+
+    monkeypatch.setattr(optimized, "_solver_provenance", fake_provenance)
+    payload = {
+        "backends": {
+            "cupy": {"performance": {"optimization_notes": {"remaining_structure": "serial"}}},
+            "torch": {"performance": {"optimization_notes": {"remaining_structure": "serial"}}},
+        }
+    }
+    optimized._rewrite_performance(payload, ["cupy", "torch"])
+
+    for backend in ("cupy", "torch"):
+        performance = payload["backends"][backend]["performance"]
+        assert performance["solver_provenance"][backend]["solver_mode"] == "batched"
+        assert performance["solver_provenance"][backend]["solver_batches"] == 1
+        notes = performance["optimization_notes"]
+        assert "batched" in notes["period_solver"]
+        assert "one complete rank vector" in notes["rank_cutoff"]
+        assert "scaling runner" in notes["remaining_structure"]
+        assert "serially in Python" not in " ".join(notes.values())
