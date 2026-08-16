@@ -56,7 +56,12 @@ def two_sided_reference_inference(
     if not np.isfinite(alpha_f) or not 0.0 < alpha_f < 1.0:
         raise ValueError("alpha must be finite and strictly between 0 and 1")
 
-    statistic_abs = xp_asarray(statistic_abs, dtype=xp.float64, xp=xp)
+    statistic_abs = xp_asarray(
+        statistic_abs,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=statistic_abs,
+    )
 
     if name in {"normal", "norm", "z"}:
         dist = get_distribution("norm", backend=backend, device=device)
