@@ -150,44 +150,58 @@ Fix:
 - EN/CN Fama-MacBeth pages document the remaining serial-per-period performance boundary, vectorized p-value transfer, standardized inference result, failure-safe refit, and the exact linearmodels 7.0 alignment boundary;
 - docs explicitly distinguish the nonrobust covariance/BSE alignment from its intentionally different p-value reference df, so external matching cannot silently redefine statgpu inference.
 
-## Validation boundary
+## Hosted validation
 
-Historical P100 evidence on `464b587e83b234d78b5449666488d7f2f8ad367c` remains immutable evidence for that source only. The second rerun changes `_linalg.py`, `_fama_macbeth.py`, maintained inference/external tests, the focused physical runner, and Torch/external workflows, so fresh physical acceptance is required for the final numerical source.
+The final numerical/test/workflow source `0222ff8a338cc319ddf43b3295db63b69f37f40f` passed all seven permanent hosted workflows before physical promotion:
 
-The last executable/test/workflow commit before model-document/review-note-only synchronization is `44f11533263562f558df0ab7b7ee86b93e515108`. Hosted acceptance for the final candidate must be grounded on this unchanged executable/test/workflow tree (or a later tree if any executable/test/workflow file changes again). The pinned Python external-definition job on this tree already passed the new linearmodels Fama-MacBeth tests; all remaining permanent hosted jobs must also complete successfully before `HOSTED_GREEN` is restored.
+- Tests — SUCCESS (`31941035360`)
+- Panel Stage C Torch CPU — SUCCESS (`31941035399`)
+- Panel Stage C external covariance — SUCCESS (`31941035332`), including pinned Python definitions, the linearmodels Fama-MacBeth alignment, and R `plm`/`sandwich`
+- Benchmark Frontend CI — SUCCESS (`31941035344`)
+- Maintenance compatibility — SUCCESS (`31941035356`)
+- Release notes validation — SUCCESS (`31941035368`)
+- Release package validation — SUCCESS (`31941035511`)
 
-Both physical runners require a clean worktree at startup. Run both against one clean final SHA with outputs outside the repository, then copy successful artifacts into `results/`:
+## Fresh physical GPU acceptance
 
-```bash
-FULL_SHA="$(git rev-parse HEAD)"
-SHORT_SHA="$(git rev-parse --short=8 HEAD)"
-test -z "$(git status --porcelain)" || exit 1
+Physical promotion commit `114adfa0b3ccd1f8f2c97c96d8581ab3ea5ff1c4` has parent `0222ff8a338cc319ddf43b3295db63b69f37f40f` and adds only the two physical evidence JSON files below. It does not change production code, maintained tests, workflows, benchmark runners, package metadata, or model documentation.
 
-python dev/benchmarks/validate_panel_stage_c_gpu.py \
-  --out "/tmp/panel_stage_c_correctness_${SHORT_SHA}.json" \
-  --expected-sha "${FULL_SHA}"
+Accepted evidence:
 
-test -z "$(git status --porcelain)" || exit 1
+- `results/pr126_p100_fama_fix/panel_stage_c_correctness_0222ff8a.json`
+  - schema 2, exact `git_sha=0222ff8a338cc319ddf43b3295db63b69f37f40f`;
+  - clean source tree and `status=success`;
+  - Tesla P100-SXM2-16GB, NumPy 1.24.2, SciPy 1.10.1, CuPy 13.6.0, Torch 2.0.0;
+  - CuPy 35 estimator cases + 12 public covariance primitives and Torch 35 + 12 all passed with requested/executed backend provenance.
+- `results/pr126_p100_fama_fix/fama_macbeth_review_fix_0222ff8a.json`
+  - schema 3, exact `git_sha=0222ff8a338cc319ddf43b3295db63b69f37f40f`;
+  - both required GPU backends validated, clean before/after checks, `validation_tier=remote-full`, `status=success`;
+  - Newey-West and nonrobust inference, standard inference aliases, chronology, formula/missing-row behavior, rank rejection, both no-intercept spellings, prediction/output parity, and backend provenance passed;
+  - same-workload synchronized NumPy/GPU timing is audit evidence only and explicitly makes no universal speedup claim.
 
-python dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py \
-  --out "/tmp/fama_macbeth_review_fix_${SHORT_SHA}.json" \
-  --expected-sha "${FULL_SHA}"
+The focused artifact reports `environment.cupy=null` because its generic package-distribution lookup asks for distribution name `cupy`, while this environment installs the CUDA-specific CuPy distribution. This is a non-blocking metadata representation issue: the companion Stage-C artifact on the same exact numerical source records CuPy 13.6.0, and the focused artifact independently proves executed backend `cupy` on Tesla P100. It does not invalidate physical correctness or backend acceptance.
 
-test -z "$(git status --porcelain)" || exit 1
+Therefore the physical hard gate for numerical source `0222ff8a...` is **accepted**.
 
-mkdir -p results/pr126_p100_fama_fix
-cp "/tmp/panel_stage_c_correctness_${SHORT_SHA}.json" \
-  "results/pr126_p100_fama_fix/panel_stage_c_correctness_${SHORT_SHA}.json"
-cp "/tmp/fama_macbeth_review_fix_${SHORT_SHA}.json" \
-  "results/pr126_p100_fama_fix/fama_macbeth_review_fix_${SHORT_SHA}.json"
-```
+## Generated benchmark-asset boundary
 
-The focused runner requires both CuPy and Torch, exercises Newey-West and nonrobust inference, checks the standard inference result/private aliases and full public output/prediction parity, and records same-workload synchronized NumPy/GPU timing evidence. Adding the evidence JSONs intentionally changes the benchmark source inventory; regenerate deterministic frontend/docs benchmark assets before finalizing the evidence commit.
+Adding the two accepted JSON evidence files changes the recursive benchmark source inventory. Clean-checkout Benchmark Frontend CI run `31947948950` correctly generated an updated deterministic bundle and failed only the staleness check because the committed generated JSONs still reflected the previous inventory.
+
+The clean-CI bundle reports:
+
+- generation id `e66e68ce70ef027404e8fd027d0b0b45736267234d619b054f719e81324c7a02`;
+- catalog digest `d2e766a67e0356606bb79aa02e0a28746f3ce9a267571f1e6326dd2e8a749e2f`;
+- 117 discovered/classified JSON artifacts (115 prior + the two new physical evidence files);
+- 21 eligible / registered / parsed canonical sources;
+- 51 historical-or-excluded sources;
+- 2580 generated benchmark runs.
+
+Both new evidence JSONs are intentionally classified `historical_or_excluded` / `undated-json`, so they do not change the canonical benchmark run set. The six generated JSON assets must be synchronized from CI artifact `benchmark-generated-assets` (artifact ID `9263828575`, SHA-256 `fb23bede519d7bc25ba007fe1d4537abdd4a44e1b302963052e7feb92819707e`) rather than regenerated from a local checkout containing git-ignored historical `results/` files.
 
 ## Current exit state
 
-Until the final executable/test/workflow hosted matrix and both fresh physical commands pass:
+The statistical/code-review and physical GPU gates are closed. The only remaining gate is deterministic generated-asset synchronization from the clean CI artifact followed by the resulting exact-head hosted recheck:
 
-`PARTIAL_REMOTE_PENDING`
+`PHYSICAL_GPU_ACCEPTED / REVIEW_CLEAN / GENERATED_ASSETS_PENDING`
 
 No merge action is part of these review/fix loops.
