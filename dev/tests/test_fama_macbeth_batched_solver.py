@@ -1,4 +1,4 @@
-"""Regression coverage for batched Fama-MacBeth backend period solves."""
+"""Regression coverage for optimized Fama-MacBeth backend period solves."""
 
 from __future__ import annotations
 
@@ -61,6 +61,18 @@ def test_panel_lstsq_batched_preserves_serial_rank_cutoff_boundary():
     assert np.asarray(batched_ranks, dtype=np.int64).tolist() == serial_ranks
 
 
+def test_panel_lstsq_batched_does_not_assume_undocumented_cupy_stacked_svd():
+    class FakeCuPy:
+        __name__ = "cupy"
+
+    with pytest.raises(NotImplementedError, match="documented stacked-SVD"):
+        panel_lstsq_batched(
+            np.zeros((2, 8, 3), dtype=np.float64),
+            np.zeros((2, 8), dtype=np.float64),
+            FakeCuPy(),
+        )
+
+
 def test_fama_macbeth_torch_cpu_batches_balanced_periods_and_matches_numpy():
     torch = pytest.importorskip("torch")
     X, y, time = _balanced_fixture()
@@ -76,8 +88,10 @@ def test_fama_macbeth_torch_cpu_batches_balanced_periods_and_matches_numpy():
     assert actual._inference_backend_name == "torch"
     assert actual._period_solver_mode == "batched"
     assert actual._period_solver_batches == 1
+    assert actual._period_rank_syncs == 1
     assert expected._period_solver_mode == "serial"
     assert expected._period_solver_batches == expected.n_periods
+    assert expected._period_rank_syncs == expected.n_periods
     for name in ("coef_", "betas_", "bse_", "tvalues_", "pvalues_", "conf_int_"):
         value = getattr(actual, name).detach().cpu().numpy()
         np.testing.assert_allclose(
@@ -112,6 +126,7 @@ def test_fama_macbeth_torch_cpu_buckets_unbalanced_shuffled_periods():
 
     assert actual._period_solver_mode == "batched"
     assert actual._period_solver_batches == 3
+    assert actual._period_rank_syncs == 3
     np.testing.assert_allclose(
         actual.betas_.detach().cpu().numpy(),
         np.asarray(expected.betas_),
@@ -135,9 +150,6 @@ def test_batched_rank_rejection_reports_earliest_chronological_period():
     y = rng.normal(size=time.size)
 
     starts = np.concatenate([[0], np.cumsum(counts)])
-    # Period 1 belongs to the 32-row bucket and is rank deficient. Period 2 is
-    # also deficient but belongs to the 24-row bucket, which is solved first.
-    # The public error must nevertheless identify chronological period 1 first.
     sl1 = slice(int(starts[1]), int(starts[2]))
     X[sl1, 1] = X[sl1, 0]
     sl2 = slice(int(starts[2]), int(starts[3]))
@@ -171,8 +183,7 @@ def test_balanced_torch_reporting_uses_one_rank_snapshot_and_one_reporting_snaps
     )
 
     assert model._period_solver_batches == 1
-    # One host synchronization for the complete rank vector and one for the
-    # packed reporting matrix. Numerical inference itself remains on Torch.
+    assert model._period_rank_syncs == 1
     assert shapes == [(6,), (6, 3)]
 
 
@@ -199,23 +210,13 @@ def test_fama_macbeth_optimized_wrapper_is_directly_executable():
     _assert_runner_help("validate_fama_macbeth_optimized_gpu.py")
 
 
-def test_optimized_wrapper_rewrites_legacy_serial_notes(monkeypatch):
+def test_optimized_wrapper_rewrites_backend_specific_solver_notes(monkeypatch):
     from dev.benchmarks import validate_fama_macbeth_optimized_gpu as optimized
 
     assert optimized.SCHEMA_VERSION == 4
 
     def fake_provenance(backend):
-        if backend == "numpy":
-            return {
-                "solver_mode": "serial",
-                "solver_batches": 64,
-                "n_periods": 64,
-            }
-        return {
-            "solver_mode": "batched",
-            "solver_batches": 1,
-            "n_periods": 64,
-        }
+        return optimized._expected_provenance(backend)
 
     monkeypatch.setattr(optimized, "_solver_provenance", fake_provenance)
     payload = {
@@ -226,12 +227,17 @@ def test_optimized_wrapper_rewrites_legacy_serial_notes(monkeypatch):
     }
     optimized._rewrite_performance(payload, ["cupy", "torch"])
 
+    cupy_perf = payload["backends"]["cupy"]["performance"]
+    assert cupy_perf["solver_provenance"]["cupy"] == optimized._expected_provenance("cupy")
+    assert "two-dimensional" in cupy_perf["optimization_notes"]["period_solver"]
+    assert "one host" in cupy_perf["optimization_notes"]["period_solver"]
+
+    torch_perf = payload["backends"]["torch"]["performance"]
+    assert torch_perf["solver_provenance"]["torch"] == optimized._expected_provenance("torch")
+    assert "batched" in torch_perf["optimization_notes"]["period_solver"]
+    assert "one solver batch" in torch_perf["optimization_notes"]["period_solver"]
+
     for backend in ("cupy", "torch"):
-        performance = payload["backends"][backend]["performance"]
-        assert performance["solver_provenance"][backend]["solver_mode"] == "batched"
-        assert performance["solver_provenance"][backend]["solver_batches"] == 1
-        notes = performance["optimization_notes"]
-        assert "batched" in notes["period_solver"]
-        assert "one complete rank vector" in notes["rank_cutoff"]
+        notes = payload["backends"][backend]["performance"]["optimization_notes"]
         assert "scaling runner" in notes["remaining_structure"]
-        assert "serially in Python" not in " ".join(notes.values())
+        assert "NumPy/SciPy" in notes["distribution_inference"]
