@@ -55,6 +55,7 @@ def test_fama_macbeth_torch_cpu_covariance_inference_matrix(
     )
 
     assert actual._backend_name == "torch"
+    assert actual._inference_backend_name == "torch"
     assert isinstance(actual._inference_result, ParameterInferenceResult)
     result = actual._inference_result
     assert result.method == "fama_macbeth"
@@ -67,6 +68,7 @@ def test_fama_macbeth_torch_cpu_covariance_inference_matrix(
     assert result.metadata["effective_bandwidth"] == (
         1 if cov_type == "newey-west" else None
     )
+    assert result.metadata["inference_backend"] == "torch"
 
     for public_name, private_name in (
         ("coef_", "_params"),
@@ -90,27 +92,49 @@ def test_fama_macbeth_torch_cpu_covariance_inference_matrix(
     )
 
 
-@pytest.mark.parametrize("cov_type", ["newey-west", "nonrobust"])
-def test_fama_macbeth_torch_cpu_evaluates_pvalue_sf_once_per_fit(monkeypatch, cov_type):
-    """The CPU distribution receives one vector, not one synchronized scalar per term."""
+@pytest.mark.parametrize(
+    "cov_type,expected_distribution_name,expected_pvalue_calls",
+    [
+        ("newey-west", "norm", 1),
+        # The fixture has T=3, hence df=2. That exact Student-t boundary uses
+        # the elementary backend-native tail identity rather than approximate
+        # beta-function numerics on Torch versions without native betainc.
+        ("nonrobust", None, 0),
+    ],
+)
+def test_fama_macbeth_torch_cpu_distribution_inference_is_vectorized_and_backend_native(
+    monkeypatch, cov_type, expected_distribution_name, expected_pvalue_calls
+):
+    """Distribution inference must not scalar-sync through a NumPy/SciPy path."""
     torch = pytest.importorskip("torch")
     X, y, time_ids = _fixture()
     original_get_distribution = distribution_backend.get_distribution
-    sf_input_shapes = []
+    pvalue_input_shapes = []
+    distribution_calls = []
 
     class CountingDistribution:
         def __init__(self, base):
             self._base = base
 
+        def two_sided_pvalue(self, values, *args):
+            pvalue_input_shapes.append(tuple(values.shape))
+            return self._base.two_sided_pvalue(values, *args)
+
+        def two_sided_critical_value(self, *args):
+            return self._base.two_sided_critical_value(*args)
+
         def sf(self, values, *args):
-            sf_input_shapes.append(np.asarray(values).shape)
+            pvalue_input_shapes.append(tuple(values.shape))
             return self._base.sf(values, *args)
 
         def isf(self, *args):
             return self._base.isf(*args)
 
-    def tracked_get_distribution(name, backend="numpy"):
-        return CountingDistribution(original_get_distribution(name, backend=backend))
+    def tracked_get_distribution(name, backend="numpy", device=None):
+        distribution_calls.append((name, backend, device))
+        return CountingDistribution(
+            original_get_distribution(name, backend=backend, device=device)
+        )
 
     monkeypatch.setattr(
         distribution_backend,
@@ -125,5 +149,13 @@ def test_fama_macbeth_torch_cpu_evaluates_pvalue_sf_once_per_fit(monkeypatch, co
     )
 
     assert model._backend_name == "torch"
-    assert sf_input_shapes == [(2,)]
+    assert model._inference_backend_name == "torch"
+    assert model._inference_result.metadata["inference_backend"] == "torch"
+    assert len(pvalue_input_shapes) == expected_pvalue_calls
+    if expected_pvalue_calls:
+        assert pvalue_input_shapes == [(2,)]
+        assert distribution_calls == [(expected_distribution_name, "torch", "cpu")]
+    else:
+        assert pvalue_input_shapes == []
+        assert distribution_calls == []
     assert np.all(np.isfinite(_to_numpy(model.pvalues_)))
