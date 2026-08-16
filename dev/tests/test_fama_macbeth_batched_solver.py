@@ -38,6 +38,29 @@ def test_panel_lstsq_batched_matches_serial_numpy_rank_policy():
         assert int(ranks[i]) == expected_rank
 
 
+def test_panel_lstsq_batched_preserves_serial_rank_cutoff_boundary():
+    rng = np.random.default_rng(126210)
+    n, k = 40, 3
+    q_left, _ = np.linalg.qr(rng.normal(size=(n, k)))
+    q_right, _ = np.linalg.qr(rng.normal(size=(k, k)))
+    cutoff = max(n, k) * np.finfo(np.float64).eps * 10.0
+    singular_sets = (
+        np.asarray([10.0, 1.0, 0.5 * cutoff]),
+        np.asarray([10.0, 1.0, 2.0 * cutoff]),
+    )
+    X = np.stack(
+        [q_left @ np.diag(values) @ q_right.T for values in singular_sets],
+        axis=0,
+    )
+    y = rng.normal(size=(2, n))
+
+    _params, batched_ranks = panel_lstsq_batched(X, y, np)
+    serial_ranks = [panel_lstsq(X[i], y[i], np)[1] for i in range(2)]
+
+    assert serial_ranks == [2, 3]
+    assert np.asarray(batched_ranks, dtype=np.int64).tolist() == serial_ranks
+
+
 def test_fama_macbeth_torch_cpu_batches_balanced_periods_and_matches_numpy():
     torch = pytest.importorskip("torch")
     X, y, time = _balanced_fixture()
