@@ -304,7 +304,10 @@ class FamaMacBeth(BasePanelModel):
         self.df_resid = df
         self._backend_name = backend_name
         self._xp = xp
-        self._fit_ref_ = X_arr
+        # Prediction only needs a dtype/device anchor. Retaining the full
+        # training design here would pin O(nk) GPU memory for the estimator's
+        # lifetime even though prediction never reuses the training values.
+        self._fit_ref_ = xp_asarray([], dtype=xp.float64, xp=xp, ref_arr=X_arr)
 
         # Keep public fit outputs backend-native while also publishing the
         # standard inference container/aliases required by the common estimator
