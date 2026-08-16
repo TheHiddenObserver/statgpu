@@ -247,7 +247,7 @@ def test_fama_macbeth_routes_distribution_inference_through_fit_backend():
     """Do not reintroduce the old hard-coded NumPy distribution path."""
     source = inspect.getsource(FamaMacBeth.fit)
     assert 'get_distribution(dist_name, backend="numpy")' not in source
-    assert "two_sided_pvalue" in source
+    assert "two_sided_reference_inference" in source
 
     X, y, _entity, time = _panel(seed=12701, n_entities=12, n_times=4)
     model = FamaMacBeth(device="cpu", bandwidth=1).fit(X, y, time_ids=time)
