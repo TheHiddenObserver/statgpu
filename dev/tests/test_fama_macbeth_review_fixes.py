@@ -1,10 +1,11 @@
-"""Regression coverage for Fama-MacBeth formula, chronology, and rank contracts."""
+"""Regression coverage for Fama-MacBeth formula, chronology, rank, and solve contracts."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
+import statgpu.panel._linalg as panel_linalg
 from statgpu.panel import FamaMacBeth
 
 
@@ -101,6 +102,24 @@ def test_fama_macbeth_ordered_categorical_chronology_survives_formula_alignment(
         actual.cov_params_, expected.cov_params_, rtol=2e-13, atol=2e-15
     )
     assert not np.allclose(actual.cov_params_, lexical.cov_params_, rtol=1e-10, atol=1e-12)
+
+
+def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypatch):
+    x, y, _labels, numeric = _chronology_fixture()
+    calls = []
+    original = panel_linalg.panel_svd_pseudoinverse
+
+    def tracked(X, xp):
+        calls.append((int(X.shape[0]), int(X.shape[1])))
+        return original(X, xp)
+
+    monkeypatch.setattr(panel_linalg, "panel_svd_pseudoinverse", tracked)
+    model = FamaMacBeth(bandwidth=1, device="cpu").fit(
+        x[:, None], y, time_ids=numeric
+    )
+
+    assert model.n_periods == 3
+    assert calls == [(5, 2), (5, 2), (5, 2)]
 
 
 def _rank_deficient_fixture():
