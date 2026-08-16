@@ -20,10 +20,7 @@ on:
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_frontend_sources/**'
-      - 'results/pr126_p100/**'
-      - 'results/pr126_p100_fresh/**'
-      - 'results/pr126_p100_fama_fix/**'
+      - 'results/**/*.json'
       - 'pyproject.toml'
   pull_request:
     paths:
@@ -43,10 +40,7 @@ on:
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_frontend_sources/**'
-      - 'results/pr126_p100/**'
-      - 'results/pr126_p100_fresh/**'
-      - 'results/pr126_p100_fama_fix/**'
+      - 'results/**/*.json'
       - 'pyproject.toml'
 
 concurrency:
