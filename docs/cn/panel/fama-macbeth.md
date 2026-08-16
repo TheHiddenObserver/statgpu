@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。当前实现对每个 retained period 只执行一次共享的 rank-revealing SVD，并复用该 factorization 同时得到 numerical rank 与 least-squares coefficient vector；rank check 之后不会再做第二次 normal-equation solve。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width。随后每个 retained period 还必须通过 full-rank 检查。当前实现对每个 retained period 只执行一次共享的 rank-revealing SVD，并直接复用这些 factor 同时得到 numerical rank 与 least-squares coefficient vector。singular-value cutoff 保持在 active backend 上，只把最终 integer rank 提取给 fail-closed 的 Python control flow；least-squares 路径也不会构造 residual-OLS covariance 才需要的额外 bread。
 
 ## Covariance and Inference
 
@@ -156,6 +156,8 @@ model = FamaMacBeth().fit(
 
 过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。rank check 与 coefficient solve 共享同一次 SVD，因此在保持完全相同 rank policy 的同时避免重复的第二次数值分解。
 
+当前 retained period 仍由 Python 串行处理；每个 period 通常只是一个较小的 SVD，而且在继续拟合前必须把最终 rank 暴露给 Python。因此当 regressor 很少或每期 cross section 很小时，GPU kernel launch 与 synchronization overhead 可能超过线性代数本身，`device="cuda"` 或 `device="torch"` **不代表普遍更快**。如果性能重要，应针对实际 panel shape 做 benchmark。focused physical gate 会在完全相同的 workload 上同时记录同步后的 NumPy 与 GPU timing，并报告 GPU/NumPy median-time ratio；ratio 大于 1 表示该 GPU backend 在这个 fixture 上比 NumPy 慢，而不是 correctness failure。
+
 `cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。如果这些条件不满足，statgpu 不会在后台切换成另一套 inference 方法。
 
 显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用，否则直接报错而不是切换到 CPU。
@@ -170,9 +172,9 @@ model = FamaMacBeth().fit(
 
 ## External Validation
 
-目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。maintained regression tests 覆盖 formula intercept contract、array/formula 两条路径上的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、single-factorization solve contract，以及该 rank contract 的 Torch-CPU parity。
+目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。maintained regression tests 覆盖 formula intercept contract、array/formula 两条路径上的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、single-factorization solve contract、backend-native rank-cutoff behavior，以及该 rank contract 的 Torch-CPU parity。
 
-标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。新增的 exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、requested/executed backend identity，以及 CuPy/Torch 的同步 raw timing。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
+标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。新增的 exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、requested/executed backend identity，以及 `betas_`、coefficient、covariance、standard error、test statistic、p-value、confidence interval 与 prediction 的完整 parity。它的 performance 部分会记录相同 workload 下同步后的 NumPy 与 CuPy/Torch sample、median-time ratio 与明确的 optimization notes，并且不宣称通用 GPU speedup。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
 
 ## 参考（References）
 
