@@ -108,13 +108,13 @@ def test_fama_macbeth_ordered_categorical_chronology_survives_formula_alignment(
 def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypatch):
     x, y, _labels, numeric = _chronology_fixture()
     calls = []
-    original = panel_linalg.panel_svd_pseudoinverse
+    original = panel_linalg._svd_inverse_factors
 
     def tracked(X, xp):
         calls.append((int(X.shape[0]), int(X.shape[1])))
         return original(X, xp)
 
-    monkeypatch.setattr(panel_linalg, "panel_svd_pseudoinverse", tracked)
+    monkeypatch.setattr(panel_linalg, "_svd_inverse_factors", tracked)
     model = FamaMacBeth(bandwidth=1, device="cpu").fit(
         x[:, None], y, time_ids=numeric
     )
@@ -123,8 +123,44 @@ def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypa
     assert calls == [(5, 2), (5, 2), (5, 2)]
 
 
+def test_panel_lstsq_keeps_cutoff_backend_native_and_extracts_only_rank(monkeypatch):
+    X = np.asarray(
+        [
+            [1.0, -2.0],
+            [1.0, -0.5],
+            [1.0, 0.5],
+            [1.0, 1.5],
+            [1.0, 2.5],
+        ]
+    )
+    y = np.asarray([-0.5, 0.1, 0.8, 1.6, 2.4])
+    scalar_extractions = []
+    original = panel_linalg._to_float_scalar
+
+    def tracked(value):
+        scalar_extractions.append(value)
+        return original(value)
+
+    monkeypatch.setattr(panel_linalg, "_to_float_scalar", tracked)
+    params, rank = panel_linalg.panel_lstsq(X, y, np)
+
+    expected = np.linalg.lstsq(X, y, rcond=None)[0]
+    np.testing.assert_allclose(params, expected, rtol=1e-13, atol=1e-14)
+    assert rank == 2
+    # The singular-value maximum remains an ndarray scalar on the active
+    # backend; only the final integer rank crosses the backend boundary.
+    assert len(scalar_extractions) == 1
+
+
 def test_fama_macbeth_focused_gpu_runner_contract_executes_numpy_timing_case():
-    assert fmb_gpu_gate.SCHEMA_VERSION == 2
+    assert fmb_gpu_gate.SCHEMA_VERSION == 3
+    assert fmb_gpu_gate._validate_acceptance_backends(["cupy", "torch"]) == [
+        "cupy",
+        "torch",
+    ]
+    with pytest.raises(ValueError, match="requires exactly both GPU backends"):
+        fmb_gpu_gate._validate_acceptance_backends(["cupy"])
+
     X, y, time_ids = fmb_gpu_gate._timing_fixture()
     assert X.shape == (64 * 128, 4)
     assert y.shape == (64 * 128,)
@@ -136,8 +172,20 @@ def test_fama_macbeth_focused_gpu_runner_contract_executes_numpy_timing_case():
     assert result["n_times"] == 64
     assert result["observations_per_period"] == 128
     assert result["n_features"] == 4
-    assert result["median_seconds"] > 0.0
-    assert len(result["samples_seconds"]) == 1
+    assert result["numpy_baseline"]["median_seconds"] > 0.0
+    assert result["backend_timing"]["median_seconds"] > 0.0
+    assert len(result["numpy_baseline"]["samples_seconds"]) == 1
+    assert len(result["backend_timing"]["samples_seconds"]) == 1
+    assert result["backend_over_numpy_median_ratio"] == pytest.approx(1.0)
+    assert set(result["max_abs_differences_vs_numpy"]) == set(
+        fmb_gpu_gate._SNAPSHOT_KEYS
+    )
+    assert all(
+        value == pytest.approx(0.0)
+        for value in result["max_abs_differences_vs_numpy"].values()
+    )
+    assert "remaining_structure" in result["optimization_notes"]
+    assert "interpretation" in result["optimization_notes"]
 
 
 def _rank_deficient_fixture():
