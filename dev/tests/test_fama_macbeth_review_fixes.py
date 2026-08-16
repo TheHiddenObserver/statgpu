@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import statgpu.panel._linalg as panel_linalg
+from dev.benchmarks import validate_fama_macbeth_review_fix_gpu as fmb_gpu_gate
 from statgpu.panel import FamaMacBeth
 
 
@@ -120,6 +121,23 @@ def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypa
 
     assert model.n_periods == 3
     assert calls == [(5, 2), (5, 2), (5, 2)]
+
+
+def test_fama_macbeth_focused_gpu_runner_contract_executes_numpy_timing_case():
+    assert fmb_gpu_gate.SCHEMA_VERSION == 2
+    X, y, time_ids = fmb_gpu_gate._timing_fixture()
+    assert X.shape == (64 * 128, 4)
+    assert y.shape == (64 * 128,)
+    assert time_ids.shape == (64 * 128,)
+
+    result = fmb_gpu_gate._timing_case("numpy", warmup=0, repeats=1)
+    assert result["status"] == "success"
+    assert result["executed_backend"] == "numpy"
+    assert result["n_times"] == 64
+    assert result["observations_per_period"] == 128
+    assert result["n_features"] == 4
+    assert result["median_seconds"] > 0.0
+    assert len(result["samples_seconds"]) == 1
 
 
 def _rank_deficient_fixture():
