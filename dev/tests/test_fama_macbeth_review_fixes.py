@@ -230,6 +230,34 @@ def test_fama_macbeth_standard_inference_result_torch_cpu_matches_numpy():
         )
 
 
+def test_fama_macbeth_failed_refit_invalidates_previous_inference_state():
+    x, y, _labels, numeric = _chronology_fixture()
+    model = FamaMacBeth(bandwidth=1, device="cpu").fit(
+        x[:, None], y, time_ids=numeric
+    )
+    assert model._fitted is True
+    assert model._inference_result is not None
+
+    X_bad, y_bad, time_bad = _rank_deficient_fixture()
+    with pytest.raises(ValueError, match="rank deficient"):
+        model.fit(X_bad, y_bad, time_ids=time_bad)
+
+    assert model._fitted is False
+    assert model.fit_statistics_ is None
+    for name in (
+        "coef_",
+        "bse_",
+        "pvalues_",
+        "conf_int_",
+        "_params",
+        "_bse",
+        "_pvalues",
+        "_conf_int",
+        "_inference_result",
+    ):
+        assert not hasattr(model, name), name
+
+
 def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypatch):
     x, y, _labels, numeric = _chronology_fixture()
     calls = []
@@ -309,6 +337,9 @@ def test_fama_macbeth_focused_gpu_runner_contract_executes_numpy_timing_case():
         value == pytest.approx(0.0)
         for value in result["max_abs_differences_vs_numpy"].values()
     )
+    assert result["inference_result"]["result_type"] == "ParameterInferenceResult"
+    assert result["inference_result"]["statistic_name"] == "z"
+    assert result["inference_result"]["distribution"] == "normal"
     assert "remaining_structure" in result["optimization_notes"]
     assert "interpretation" in result["optimization_notes"]
 
