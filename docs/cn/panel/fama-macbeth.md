@@ -103,6 +103,8 @@ $$
 
 retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetime labels 使用自然顺序；ordered pandas categorical 会保留用户明确声明的 category order，不会在形成 Newey-West lag covariance 之前被转换为字符串字典序。
 
+成功拟合还会发布 inference-capable statgpu estimator 共用的 `ParameterInferenceResult`。公开的 `coef_`、`bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 继续保持 backend-native；`_inference_result` 以及 `_params`、`_bse`、`_tvalues`/`_zvalues`、`_pvalues`、`_conf_int` 则保存 NumPy snapshot，用于统一 inference/reporting contract。`newey-west` 标记为 `z`/normal inference，`nonrobust` 标记为自由度 $T-1$ 的 Student-t inference。
+
 ## Parameters
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
@@ -150,7 +152,7 @@ model = FamaMacBeth().fit(
 
 ## Outputs
 
-常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`betas_`、`cov_params_`、`fit_statistics_`、`nobs`、`n_periods` 与 `df_resid`。`betas_` 保存各保留时期的 coefficient，`coef_` 则是这些 coefficient 的平均。
+常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`betas_`、`cov_params_`、`fit_statistics_`、`nobs`、`n_periods` 与 `df_resid`。`betas_` 保存各保留时期的 coefficient，`coef_` 则是这些 coefficient 的平均；`_inference_result` 提供统一的 inference container，供 statgpu 的通用 reporting/downstream tooling 使用。
 
 ## Numerical and Strict Behavior
 
@@ -158,7 +160,11 @@ model = FamaMacBeth().fit(
 
 当前 retained period 仍由 Python 串行处理；每个 period 通常只是一个较小的 SVD，而且在继续拟合前必须把最终 rank 暴露给 Python。因此当 regressor 很少或每期 cross section 很小时，GPU kernel launch 与 synchronization overhead 可能超过线性代数本身，`device="cuda"` 或 `device="torch"` **不代表普遍更快**。如果性能重要，应针对实际 panel shape 做 benchmark。focused physical gate 会在完全相同的 workload 上同时记录同步后的 NumPy 与 GPU timing，并报告 GPU/NumPy median-time ratio；ratio 大于 1 表示该 GPU backend 在这个 fixture 上比 NumPy 慢，而不是 correctness failure。
 
+p-value 仍使用 CPU distribution 实现，但现在会把完整 statistic vector 一次性转到 NumPy 并向量化计算，不再为每个参数分别同步一个 GPU scalar；计算后的 p-value vector 再一次性复制回 active backend，因此公开输出的 device contract 保持不变。
+
 `cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。如果这些条件不满足，statgpu 不会在后台切换成另一套 inference 方法。
+
+每次新的 fit attempt 都会先失效旧的 fitted/inference state。如果新一次拟合失败，对象会保持 unfitted，而不会继续暴露上一份数据的 stale coefficient 或 standard error。
 
 显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用，否则直接报错而不是切换到 CPU。
 
@@ -172,9 +178,15 @@ model = FamaMacBeth().fit(
 
 ## External Validation
 
-目前没有针对该 estimator coefficient-series covariance 的 maintained cross-package comparison，因此文档不宣称 `linearmodels` 或其他 package 会产生完全相同的 Fama-MacBeth standard error。maintained regression tests 覆盖 formula intercept contract、array/formula 两条路径上的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、single-factorization solve contract、backend-native rank-cutoff behavior，以及该 rank contract 的 Torch-CPU parity。
+`dev/tests/test_fama_macbeth_linearmodels_external.py` 提供维护中的 pinned `linearmodels==7.0` definition-alignment gate。fixture 在两边使用相同的显式 period intercept、full-rank balanced panel、period ordering 与 coefficient set；两种 covariance mode 都会比较 period-by-period coefficient（`betas_` 对 `all_params`）以及最终平均 coefficient。
 
-标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。新增的 exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、requested/executed backend identity，以及 `betas_`、coefficient、covariance、standard error、test statistic、p-value、confidence interval 与 prediction 的完整 parity。它的 performance 部分会记录相同 workload 下同步后的 NumPy 与 CuPy/Torch sample、median-time ratio 与明确的 optimization notes，并且不宣称通用 GPU speedup。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
+对 `cov_type="nonrobust"`，statgpu covariance 对齐 linearmodels 的 `cov_type="unadjusted", debiased=True`：维护中的测试比较 covariance、standard error 和 coefficient t-statistic。这里**不会**强行比较 p-value/CI，因为虽然 covariance definition 对齐，两套 API 对 post-estimation inference 使用的 reference df 不同：statgpu 按 retained-period 定义使用 $T-1$，而 linearmodels 在 `debiased=True` 时使用 stacked-panel residual degrees of freedom。
+
+对 `cov_type="newey-west"`，external gate 使用 linearmodels `cov_type="kernel", kernel="bartlett", bandwidth=L, debiased=False`，并固定完全相同的 $L$。此时 coefficient-series kernel covariance 与 normal-reference inference 都对齐，因此会继续比较 covariance、standard error、test statistic、p-value 和 confidence interval。专用 `Panel Stage C external covariance` workflow 会安装固定 reference 版本，并在相关 PR/source change 上运行该测试。
+
+内部 maintained regression 还覆盖 formula intercept、array/formula 两条路径的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、failed-refit invalidation、single-factorization solve contract、backend-native rank-cutoff behavior、Torch CPU 上的两种 covariance mode，以及 vectorized p-value evaluation。
+
+标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。exact-head focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 进一步检查 ordered-categorical chronology、formula/missing-row alignment、rank rejection、两个 no-intercept spelling、两种 covariance mode、标准 inference container/private aliases、requested/executed backend identity，以及 `betas_`、coefficient、covariance、standard error、test statistic、p-value、confidence interval 与 prediction 的完整 parity。它的 performance 部分会记录相同 workload 下同步后的 NumPy 与 CuPy/Torch sample、median-time ratio 与明确的 optimization notes，并且不宣称通用 GPU speedup。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
 
 ## 参考（References）
 
