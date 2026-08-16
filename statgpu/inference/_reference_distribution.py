@@ -47,7 +47,7 @@ def two_sided_reference_inference(
     Notes
     -----
     General normal and Student-t calculations delegate to
-    :func:`get_distribution`.  Student-t df=1 and df=2 use exact identities.
+    :func:`get_distribution`. Student-t df=1 and df=2 use exact identities.
     The df=2 identity is important for maintained Torch versions without native
     ``betainc``: it preserves high precision without falling back to CPU/SciPy.
     """
@@ -79,11 +79,11 @@ def two_sided_reference_inference(
     if df_f == 2.0:
         # For T_2 and x >= 0,
         #   P(|T_2| >= x) = 1 - x / sqrt(x^2 + 2).
-        # Solving this tail equation at alpha gives the exact positive critical
-        # value sqrt(2) * (1-alpha) / sqrt(alpha * (2-alpha)).
-        pvalues = 1.0 - statistic_abs / xp.sqrt(
-            statistic_abs * statistic_abs + 2.0
-        )
+        # Evaluate the algebraically equivalent rationalized form below to avoid
+        # catastrophic cancellation when x is large:
+        #   2 / {sqrt(x^2+2) [sqrt(x^2+2) + x]}.
+        root = xp.sqrt(statistic_abs * statistic_abs + 2.0)
+        pvalues = 2.0 / (root * (root + statistic_abs))
         alpha_dev = xp_asarray(
             alpha_f,
             dtype=xp.float64,
