@@ -4,7 +4,8 @@
 The legacy HAC covariance treats rows as one ordered sequence.  Ordered pandas
 categoricals must therefore use their declared category chronology rather than
 lexical label order.  This runner validates that contract on both CuPy and Torch
-CUDA, including formula missing-row alignment and a lexical negative control.
+CUDA, including formula missing-row alignment, a lexical negative control, and
+shared Panel distribution-inference backend provenance.
 """
 
 from __future__ import annotations
@@ -79,6 +80,25 @@ def _snapshot(model):
     }
 
 
+def _assert_inference_backend(model, backend: str):
+    if model._backend_name != backend:
+        raise AssertionError(
+            f"requested {backend} but estimator executed {model._backend_name}"
+        )
+    inference_backend = getattr(model, "_inference_backend_name", None)
+    if inference_backend != backend:
+        raise AssertionError(
+            f"requested {backend} inference but executed {inference_backend}"
+        )
+    result = getattr(model, "_inference_result", None)
+    metadata_backend = None if result is None else result.metadata.get("inference_backend")
+    if metadata_backend != backend:
+        raise AssertionError(
+            "inference result metadata backend mismatch: "
+            f"{metadata_backend} != {backend}"
+        )
+
+
 def _max_abs(left, right):
     result = {}
     for key in left:
@@ -108,10 +128,7 @@ def _run_backend(backend: str):
     ).fit(X, y, time_index=np.asarray(ordered, dtype=object))
 
     for model in (ordered_fit, numeric_fit, lexical_fit):
-        if model._backend_name != backend:
-            raise AssertionError(
-                f"requested {backend} but estimator executed {model._backend_name}"
-            )
+        _assert_inference_backend(model, backend)
 
     ordered_snapshot = _snapshot(ordered_fit)
     numeric_snapshot = _snapshot(numeric_fit)
@@ -132,8 +149,8 @@ def _run_backend(backend: str):
     numeric_formula = PooledOLS(
         cov_type="hac", bandwidth=3, device=device
     ).fit(formula="y ~ x", data=data, time_index=numeric)
-    if ordered_formula._backend_name != backend or numeric_formula._backend_name != backend:
-        raise AssertionError(f"{backend}: formula backend provenance mismatch")
+    for model in (ordered_formula, numeric_formula):
+        _assert_inference_backend(model, backend)
     ordered_formula_snapshot = _snapshot(ordered_formula)
     numeric_formula_snapshot = _snapshot(numeric_formula)
     _assert_close(ordered_formula_snapshot, numeric_formula_snapshot)
@@ -142,6 +159,7 @@ def _run_backend(backend: str):
         "status": "success",
         "requested_backend": backend,
         "executed_backend": ordered_fit._backend_name,
+        "inference_backend": ordered_fit._inference_backend_name,
         "array_ordered_vs_numeric_max_abs": _max_abs(
             ordered_snapshot, numeric_snapshot
         ),
