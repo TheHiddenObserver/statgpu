@@ -1,7 +1,7 @@
 # PooledOLS
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-08-16  
 > Switch: [Chinese](../../cn/panel/pooled-ols.md)
 
 ## Overview
@@ -56,7 +56,7 @@ Thus the coefficient estimate is the same OLS fit you would obtain from treating
 
 `cov_type` changes the standard-error calculation, not the OLS coefficient estimate. In addition to nonrobust and HC covariance, `PooledOLS` supports clustered covariance and two time-dependent choices:
 
-- `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by it; otherwise the input row order is used.
+- `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by its chronology; otherwise the input row order is used. Numeric and datetime labels use their natural order. An ordered pandas categorical uses the category order declared by the user, so labels such as `t1, t2, t10` are not silently reinterpreted in lexical order.
 - `cov_type="driscoll-kraay"` groups observations by `time_index` and combines their contributions within each period before applying lag weights.
 
 These two choices are therefore not interchangeable. Full formulas are in [Panel covariance](covariance.md).
@@ -112,7 +112,9 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 ## Numerical and Strict Behavior
 
-Required metadata are checked before covariance is computed. For example, clustered covariance without `cluster`, Driscoll-Kraay without `time_index`, or a cluster array with the wrong shape raises an error rather than producing a different covariance estimator.
+Required metadata are checked before covariance is computed. For example, clustered covariance without `cluster`, Driscoll-Kraay without `time_index`, or a cluster array with the wrong shape raises an error rather than producing a different covariance estimator. Legacy HAC also rejects missing/non-finite time metadata instead of guessing an ordering.
+
+A new `fit()` attempt invalidates the previous fitted/inference state before work begins. If the refit fails at any later stage, partially written outputs are cleared as well; `predict()` and `summary()` then report the estimator as unfitted.
 
 If the design matrix is exactly rank deficient, fitted values can still be computed but the coefficient vector is not unique. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation; see [Panel covariance](covariance.md).
 
@@ -128,7 +130,7 @@ An explicit `device="cuda"` or `device="torch"` request also raises if that back
 
 We compare the public `PooledOLS` estimator with `linearmodels==7.0` for Driscoll-Kraay coefficients, covariance, and BSE, and for group-debiased clustered covariance. Coefficients use `rtol=2e-10, atol=2e-11`; covariance/BSE use `rtol=5e-9, atol=5e-11`. Definition-level HC, clustering, Driscoll-Kraay, default-bandwidth, and R `sandwich` checks are summarized in the [validation matrix](covariance.md#validation-matrix).
 
-GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
+GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in the PR #126 physical validation artifacts. The dedicated `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate additionally checks ordered-categorical legacy-HAC chronology, a lexical-order negative control, formula missing-row alignment, and requested/executed CuPy/Torch backend identity on the final exact source.
 
 ## References
 
