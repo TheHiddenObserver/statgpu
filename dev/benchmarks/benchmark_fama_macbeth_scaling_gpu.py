@@ -13,9 +13,17 @@ import argparse
 import json
 import statistics
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
+
+# Direct execution sets sys.path[0] to dev/benchmarks rather than the repository
+# root.  Add the root explicitly so the runner can reuse the maintained focused
+# GPU validation helpers without relying on an editable-install side effect.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from dev.benchmarks.validate_fama_macbeth_review_fix_gpu import (
     _assert_inference_descriptors,
