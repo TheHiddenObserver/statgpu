@@ -85,6 +85,7 @@ class FamaMacBeth(BasePanelModel):
             "_conf_int",
             "_inference_result",
             "_backend_name",
+            "_inference_backend_name",
             "_xp",
             "_fit_ref_",
             "_panel_index_info",
@@ -268,26 +269,31 @@ class FamaMacBeth(BasePanelModel):
         from statgpu.inference._distributions_backend import get_distribution
 
         dist_name = "norm" if self._cov_type == "newey-west" else "t"
-        distribution = get_distribution(dist_name, backend="numpy")
-        # Distribution evaluation is CPU-backed for this estimator. Transfer the
-        # full statistic vector once rather than synchronizing one GPU scalar per
-        # parameter, then cast the vectorized p-values back to the fit backend.
-        statistic_abs_np = np.asarray(
-            _to_numpy(xp.abs(tvalues)), dtype=np.float64
+        inference_device = (
+            str(avg_beta.device)
+            if backend_name == "torch" and hasattr(avg_beta, "device")
+            else None
         )
-        if dist_name == "t":
-            pvalues_np = 2.0 * np.asarray(
-                distribution.sf(statistic_abs_np, df), dtype=np.float64
+        if dist_name == "t" and df == 1:
+            # Student-t(1) is exactly Cauchy.  Keep the df=1 boundary on the
+            # selected inference backend without invoking an inverse-beta edge.
+            distribution = get_distribution(
+                "cauchy", backend=backend_name, device=inference_device
             )
-        else:
-            pvalues_np = 2.0 * np.asarray(
-                distribution.sf(statistic_abs_np), dtype=np.float64
+            pvalues = 2.0 * distribution.sf(xp.abs(tvalues))
+            critical = distribution.isf(float(self.alpha) / 2.0)
+        elif dist_name == "t":
+            distribution = get_distribution(
+                "t", backend=backend_name, device=inference_device
             )
-        pvalues = xp_asarray(pvalues_np, dtype=xp.float64, xp=xp, ref_arr=avg_beta)
-        if dist_name == "t":
-            critical = _to_float_scalar(distribution.isf(float(self.alpha) / 2.0, df))
+            pvalues = distribution.two_sided_pvalue(xp.abs(tvalues), df)
+            critical = distribution.two_sided_critical_value(self.alpha, df)
         else:
-            critical = _to_float_scalar(distribution.isf(float(self.alpha) / 2.0))
+            distribution = get_distribution(
+                "norm", backend=backend_name, device=inference_device
+            )
+            pvalues = distribution.two_sided_pvalue(xp.abs(tvalues))
+            critical = distribution.two_sided_critical_value(self.alpha)
         conf_int = _stack(
             [avg_beta - critical * bse, avg_beta + critical * bse], xp, axis=1
         )
@@ -303,6 +309,7 @@ class FamaMacBeth(BasePanelModel):
         self.n_periods = T
         self.df_resid = df
         self._backend_name = backend_name
+        self._inference_backend_name = backend_name
         self._xp = xp
         # Prediction only needs a dtype/device anchor. Retaining the full
         # training design here would pin O(nk) GPU memory for the estimator's
@@ -325,6 +332,7 @@ class FamaMacBeth(BasePanelModel):
                 "covariance_source": "period_coefficient_series",
                 "n_periods": T,
                 "effective_bandwidth": effective_bandwidth,
+                "inference_backend": backend_name,
             },
             params=np.asarray(_to_numpy(avg_beta), dtype=np.float64),
             bse=np.asarray(_to_numpy(bse), dtype=np.float64),
