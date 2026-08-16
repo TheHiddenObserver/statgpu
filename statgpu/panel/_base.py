@@ -42,6 +42,8 @@ class BasePanelModel(BaseEstimator):
             try:
                 return original_fit(self, *args, **kwargs)
             except BaseException:
+                # A failed fit must expose neither the previous successful fit
+                # nor partially written outputs from the failed new request.
                 self._reset_fit_state()
                 raise
 
@@ -165,6 +167,9 @@ class BasePanelModel(BaseEstimator):
         if validate_alpha and hasattr(self, "alpha"):
             validate_panel_alpha(self.alpha)
         validate_panel_numeric_data(X_arr, y_arr, xp)
+        # Persist the backend actually selected at the numerical fit boundary.
+        # Physical validation must not reconstruct this provenance later from
+        # the requested device, since that cannot detect a silent fallback.
         self._backend_name = backend.name
         return backend, xp, X_arr, y_arr
 
@@ -176,7 +181,15 @@ class BasePanelModel(BaseEstimator):
         return info
 
     def set_params(self, **params):
-        """Set estimator parameters and refresh panel covariance aliases."""
+        """Set estimator parameters and refresh panel covariance aliases.
+
+        ``BaseEstimator`` deliberately preserves the exact user-supplied public
+        constructor value for sklearn constructor identity.  Panel covariance
+        dispatch, however, uses the normalized private ``_cov_type`` runtime
+        value.  Refresh only that private value after sklearn-style parameter
+        updates so ``hc1``/``dk``/``kernel`` behave exactly like direct
+        construction without changing the public raw parameter.
+        """
         if "group_debias" in params and not isinstance(
             params["group_debias"], (bool, np.bool_)
         ):
@@ -190,7 +203,16 @@ class BasePanelModel(BaseEstimator):
 
     @property
     def _panel_cov_params(self):
-        """Return the small covariance matrix used by Stage-B diagnostics."""
+        """Return the small covariance matrix used by Stage-B diagnostics.
+
+        Existing Stage-A inference is computed and stored before this property is
+        consulted, so rescaling here cannot change public bse/t/p/CI values.
+        PanelOLS preserves a historical residual-df convention that is one rank
+        parameterization away from the standard fixed-effect model df used by
+        classical Hausman tests.  When Stage-B fit metadata provides both the
+        legacy and standard diagnostic df, convert only this internal covariance
+        copy to the standard homoskedastic scale.
+        """
         raw = getattr(self, "_panel_cov_params_raw", None)
         if raw is None:
             return None
@@ -221,10 +243,21 @@ class BasePanelModel(BaseEstimator):
         omitted_constant_index=None,
         omitted_constant_value=None,
     ):
-        """Shared formula-aware linear prediction with explicit return contract."""
+        """Shared formula-aware linear prediction with explicit return contract.
+
+        A one-column-short prediction matrix is accepted only when ``fit``
+        persisted an actual explicit constant column.  The exact fitted constant
+        value and its original position are restored; arbitrary shape mismatches
+        never silently turn into an intercept model.
+        """
         self._check_is_fitted()
         from statgpu.panel._formula import _formula_predict
 
+        # A formula-generated prediction matrix carries column identity through
+        # Patsy.  When the fitted formula had an intercept, _formula_predict()
+        # deterministically strips that intercept just as fit() did, so a slope
+        # column that happens to be constant on this prediction batch must not be
+        # mistaken for an explicitly supplied intercept.
         formula_omitted_intercept = (
             getattr(self, "_design_info", None) is not None
             and hasattr(X, "columns")
@@ -270,6 +303,10 @@ class BasePanelModel(BaseEstimator):
             ):
                 raise ValueError("stored prediction constant value must be finite")
 
+            # Shape alone cannot prove which training column was omitted.  If
+            # the supplied short matrix already contains the fitted constant,
+            # inserting another constant would silently reinterpret a missing
+            # slope as an omitted intercept.  Reject that ambiguous case.
             if int(X_arr.shape[1]) > 0 and not formula_omitted_intercept:
                 delta = xp.abs(X_arr - float(omitted_constant_value))
                 if getattr(xp, "__name__", "") == "torch":
@@ -420,11 +457,18 @@ class BasePanelModel(BaseEstimator):
             return cov_params
 
         diag_np = np.diag(cov_np).astype(np.float64, copy=False)
+        # A variance is invalid whenever it is strictly negative. There is no
+        # dimensionally valid generic tolerance that can distinguish a small
+        # negative variance from cancellation using only the final covariance:
+        # outcome and regressor rescaling transform covariance entries at
+        # different rates. IEEE negative zero compares equal to zero and is
+        # normalized below without weakening this fail-closed rule.
         if np.any(diag_np < 0.0):
             raise ValueError(
                 "covariance has materially negative diagonal variance; "
                 "inference is not numerically valid"
             )
+        # Normalize signed zero before any historical diagonal floor is used.
         diag = xp_maximum(diag, 0.0, xp)
         if diag_floor is not None:
             diag = xp_maximum(diag, float(diag_floor), xp)
