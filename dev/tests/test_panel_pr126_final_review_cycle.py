@@ -178,6 +178,8 @@ def test_random_effects_failed_refit_clears_previous_inference():
     X, y, entity, _time = _panel(seed=12696)
     model = RandomEffects(cov_type="hc0").fit(X, y, entity_ids=entity)
     assert model._inference_result is not None
+    model.predict(X[:3])
+    assert hasattr(model, "_predict_backend_name")
 
     with pytest.raises(ValueError, match="entity_ids is required"):
         model.fit(X, y)
@@ -185,6 +187,7 @@ def test_random_effects_failed_refit_clears_previous_inference():
     _assert_failed_refit_clears_public_surface(model, X)
     assert not hasattr(model, "theta_")
     assert not hasattr(model, "variance_components_")
+    assert not hasattr(model, "_predict_backend_name")
 
 
 @pytest.mark.parametrize("kind", ["pooled", "between", "first_difference", "random_effects"])
