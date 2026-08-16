@@ -8,6 +8,7 @@ an econometric transformation for subclasses.
 
 from __future__ import annotations
 
+import functools
 from typing import Dict, Optional
 
 import numpy as np
@@ -24,6 +25,29 @@ from statgpu.panel._utils import (
 
 class BasePanelModel(BaseEstimator):
     """Internal base class for statistically neutral panel-model lifecycle code."""
+
+    def __init_subclass__(cls, **kwargs):
+        """Wrap every public panel ``fit`` in a fail-closed state transaction."""
+        super().__init_subclass__(**kwargs)
+        original_fit = cls.__dict__.get("fit")
+        if original_fit is None or getattr(
+            original_fit, "__statgpu_panel_transactional_fit__", False
+        ):
+            return
+
+        @functools.wraps(original_fit)
+        def transactional_fit(self, *args, **kwargs):
+            self._reset_fit_state()
+            try:
+                return original_fit(self, *args, **kwargs)
+            except BaseException:
+                # A failed fit must expose neither the previous successful fit
+                # nor partially written outputs from the failed new request.
+                self._reset_fit_state()
+                raise
+
+        transactional_fit.__statgpu_panel_transactional_fit__ = True
+        cls.fit = transactional_fit
 
     def _reset_fit_state(self):
         """Invalidate common panel fit/inference outputs before a new fit."""
@@ -80,11 +104,6 @@ class BasePanelModel(BaseEstimator):
         support_pipe: bool = False,
         side_arrays: Optional[Dict[str, object]] = None,
     ):
-        # Formula parsing and side-array alignment can fail before numerical
-        # fitting starts. Clear the prior public fit surface first so a failed
-        # refit never combines new metadata with stale coefficients/inference.
-        BasePanelModel._reset_fit_state(self)
-
         from statgpu.panel._formula import (
             _align_formula_side_array,
             _prepare_formula_fit,
