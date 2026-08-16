@@ -12,7 +12,7 @@ from statgpu._config import Device
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
-from statgpu.panel._utils import factorize_panel_labels
+from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
 def _panel_lstsq(X, y, xp):
@@ -149,15 +149,18 @@ class PooledOLS(BasePanelModel):
         if bool(self.group_debias) and self._cov_type != "clustered":
             raise ValueError("group_debias=True requires cov_type='clustered'")
 
-        # Preserve the legacy HAC ordering exactly. Driscoll-Kraay deliberately
-        # does not use this row-order path: it aggregates scores by time label.
+        # Preserve the legacy ordered-sequence HAC contract, but derive the
+        # chronological ordering through the same metadata factorizer used by
+        # the other panel time-indexed paths. In particular, an ordered pandas
+        # categorical must follow its declared category order rather than the
+        # lexical order of the materialized labels.
         if self._cov_type == "hac" and time_index is not None:
-            time_values = np.asarray(_to_numpy(time_index))
-            if time_values.ndim != 1 or time_values.shape[0] != X_arr.shape[0]:
-                raise ValueError(
-                    "time_index must be one-dimensional with length n_samples"
-                )
-            order_np = np.argsort(time_values, kind="stable")
+            _time_labels, time_codes = factorize_panel_metadata(
+                time_index,
+                name="time_index",
+                expected_n=X_arr.shape[0],
+            )
+            order_np = np.argsort(time_codes, kind="stable")
             order = xp_asarray(order_np, dtype=xp.int64, xp=xp, ref_arr=X_arr)
             X_arr = X_arr[order]
             y_arr = y_arr[order]
