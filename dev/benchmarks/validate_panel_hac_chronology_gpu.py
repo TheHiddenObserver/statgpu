@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Physical GPU gate for PooledOLS legacy-HAC chronology semantics.
+"""Physical GPU gate for PooledOLS chronology and shared inference routing.
 
-The legacy HAC covariance treats rows as one ordered sequence.  Ordered pandas
+The legacy HAC covariance treats rows as one ordered sequence. Ordered pandas
 categoricals must therefore use their declared category chronology rather than
-lexical label order.  This runner validates that contract on both CuPy and Torch
-CUDA, including formula missing-row alignment, a lexical negative control, and
-shared Panel distribution-inference backend provenance.
+lexical label order. This runner validates that contract on both CuPy and Torch
+CUDA, including formula missing-row alignment and a lexical negative control.
+It also directly checks shared Panel normal/HAC and nonrobust Student-t
+reference-distribution inference against NumPy while proving the requested
+inference backend really executed.
 """
 
 from __future__ import annotations
@@ -112,6 +114,35 @@ def _assert_close(left, right):
         np.testing.assert_allclose(left[key], right[key], rtol=5e-6, atol=5e-7)
 
 
+def _shared_nonrobust_reference_case(backend: str):
+    """Exercise the shared general Student-t inference path on the GPU backend."""
+    rng = np.random.default_rng(12704)
+    X_np = rng.normal(size=(24, 2))
+    y_np = (
+        0.35
+        + 0.7 * X_np[:, 0]
+        - 0.25 * X_np[:, 1]
+        + rng.normal(scale=0.3, size=X_np.shape[0])
+    )
+    reference = PooledOLS(cov_type="nonrobust", device="cpu").fit(X_np, y_np)
+    X, y = _arrays(X_np, y_np, backend)
+    actual = PooledOLS(cov_type="nonrobust", device=_device(backend)).fit(X, y)
+    _assert_inference_backend(actual, backend)
+    reference_snapshot = _snapshot(reference)
+    actual_snapshot = _snapshot(actual)
+    _assert_close(reference_snapshot, actual_snapshot)
+    return {
+        "status": "success",
+        "requested_backend": backend,
+        "executed_backend": actual._backend_name,
+        "inference_backend": actual._inference_backend_name,
+        "df_resid": int(actual.df_resid),
+        "max_abs_differences_vs_numpy": _max_abs(
+            reference_snapshot, actual_snapshot
+        ),
+    }
+
+
 def _run_backend(backend: str):
     X_np, y_np, ordered, numeric = _fixture()
     X, y = _arrays(X_np, y_np, backend)
@@ -167,6 +198,7 @@ def _run_backend(backend: str):
             ordered_formula_snapshot, numeric_formula_snapshot
         ),
         "lexical_negative_control_bse_max_abs": lexical_bse_gap,
+        "shared_nonrobust_student_t": _shared_nonrobust_reference_case(backend),
     }
 
 
