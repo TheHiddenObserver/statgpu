@@ -12,6 +12,7 @@ from statgpu._config import Device
 from statgpu.backends import (
     _get_xp,
     _to_float_scalar,
+    _to_numpy,
     xp_asarray,
     xp_ones,
 )
@@ -207,6 +208,7 @@ class FamaMacBeth(BasePanelModel):
 
         avg_beta = xp.mean(betas, axis=0)
         beta_centered = betas - avg_beta
+        effective_bandwidth = None
         if self._cov_type == "nonrobust":
             covariance = (beta_centered.T @ beta_centered) / float(T - 1)
             cov_params = covariance / float(T)
@@ -215,6 +217,7 @@ class FamaMacBeth(BasePanelModel):
             if bandwidth is None:
                 bandwidth = int(np.floor(4.0 * (T / 100.0) ** (2.0 / 9.0)))
             bandwidth = max(0, min(int(bandwidth), T - 1))
+            effective_bandwidth = bandwidth
             long_run = beta_centered.T @ beta_centered / float(T)
             for lag in range(1, bandwidth + 1):
                 weight = 1.0 - lag / float(bandwidth + 1)
@@ -260,6 +263,35 @@ class FamaMacBeth(BasePanelModel):
         self._backend_name = backend_name
         self._xp = xp
         self._fit_ref_ = X_arr
+
+        # Keep public fit outputs backend-native while also publishing the
+        # standard inference container/aliases required by the common estimator
+        # contract.  ParameterInferenceResult owns NumPy snapshots only; this
+        # does not change coef_/bse_/... device semantics for CuPy/Torch users.
+        from statgpu.inference._results import ParameterInferenceResult
+
+        feature_names = getattr(self, "_feature_names", None)
+        if feature_names is not None and len(feature_names) != int(avg_beta.shape[0]):
+            feature_names = None
+        inference = ParameterInferenceResult(
+            method="fama_macbeth",
+            feature_names=feature_names,
+            metadata={
+                "covariance_source": "period_coefficient_series",
+                "n_periods": T,
+                "effective_bandwidth": effective_bandwidth,
+            },
+            params=np.asarray(_to_numpy(avg_beta), dtype=np.float64),
+            bse=np.asarray(_to_numpy(bse), dtype=np.float64),
+            statistic=np.asarray(_to_numpy(tvalues), dtype=np.float64),
+            statistic_name="z" if dist_name == "norm" else "t",
+            pvalues=np.asarray(_to_numpy(pvalues), dtype=np.float64),
+            conf_int=np.asarray(_to_numpy(conf_int), dtype=np.float64),
+            cov_type=self._cov_type,
+            distribution="normal" if dist_name == "norm" else "t",
+            df=None if dist_name == "norm" else float(df),
+        )
+        inference.apply_to(self)
 
         from statgpu.panel._diagnostics import _parameter_r2_components
         from statgpu.panel._results import PanelFitStatistics
