@@ -19,7 +19,11 @@ from statgpu.backends import (
 from statgpu.covariance._empirical import _detect_backend
 from statgpu.inference._reference_distribution import two_sided_reference_inference
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_lstsq, panel_lstsq_batched
+from statgpu.panel._linalg import (
+    panel_lstsq,
+    panel_lstsq_batched,
+    panel_lstsq_deferred_rank,
+)
 from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
@@ -37,34 +41,16 @@ def _finite_all(x, xp):
     return bool(_to_float_scalar(xp.all(xp.isfinite(x))))
 
 
-def _batched_period_betas(
-    X_design,
-    y_arr,
-    time_codes,
-    counts,
-    time_labels,
-    *,
-    min_obs_per_period,
-    xp,
-):
-    """Solve retained GPU periods in equal-size SVD batches.
-
-    Periods are first made contiguous in chronology order with at most one
-    backend gather.  Equal-sized periods then share one batched SVD, so a
-    balanced panel uses one SVD launch and one rank-vector synchronization
-    instead of one of each per period.  Unbalanced panels are bucketed by the
-    exact period row count; no padding is used, so the existing rank cutoff is
-    unchanged for every retained period.
-    """
-    k = int(X_design.shape[1])
-    eligible_codes = [
+def _eligible_period_codes(counts, *, min_obs_per_period, k):
+    return [
         int(code)
         for code, n_t in enumerate(counts)
-        if int(n_t) >= int(min_obs_per_period) and int(n_t) >= k + 1
+        if int(n_t) >= int(min_obs_per_period) and int(n_t) >= int(k) + 1
     ]
-    if not eligible_codes:
-        return None, 0
 
+
+def _group_period_rows(X_design, y_arr, time_codes, counts, xp):
+    """Return chronology-grouped rows plus period offsets with at most one gather."""
     grouped = bool(
         len(time_codes) < 2 or np.all(time_codes[:-1] <= time_codes[1:])
     )
@@ -79,7 +65,32 @@ def _batched_period_betas(
     offsets = np.empty(len(counts) + 1, dtype=np.int64)
     offsets[0] = 0
     offsets[1:] = np.cumsum(counts, dtype=np.int64)
+    return X_grouped, y_grouped, offsets
 
+
+def _torch_batched_period_betas(
+    X_design,
+    y_arr,
+    time_codes,
+    counts,
+    time_labels,
+    *,
+    min_obs_per_period,
+    xp,
+):
+    """Solve retained Torch periods in exact-size stacked-SVD batches."""
+    k = int(X_design.shape[1])
+    eligible_codes = _eligible_period_codes(
+        counts,
+        min_obs_per_period=min_obs_per_period,
+        k=k,
+    )
+    if not eligible_codes:
+        return None, 0
+
+    X_grouped, y_grouped, offsets = _group_period_rows(
+        X_design, y_arr, time_codes, counts, xp
+    )
     buckets = {}
     for code in eligible_codes:
         buckets.setdefault(int(counts[code]), []).append(code)
@@ -112,10 +123,8 @@ def _batched_period_betas(
             )
 
         beta_batch, ranks_backend = panel_lstsq_batched(X_batch, y_batch, xp)
-        # One rank-vector transfer per size bucket replaces one scalar device
-        # synchronization per retained period.  Check rank after every bucket has
-        # been solved so the reported failure remains the earliest chronological
-        # retained period, matching the serial contract.
+        # Torch documents stacked SVD, so one rank-vector transfer per size bucket
+        # replaces one scalar device synchronization per retained period.
         ranks = np.asarray(_to_numpy(ranks_backend), dtype=np.int64).reshape(-1)
         for position, code in enumerate(codes):
             beta_by_code[code] = beta_batch[position]
@@ -133,6 +142,63 @@ def _batched_period_betas(
     return _stack([beta_by_code[code] for code in eligible_codes], xp, axis=0), len(
         buckets
     )
+
+
+def _cupy_deferred_period_betas(
+    X_design,
+    y_arr,
+    time_codes,
+    counts,
+    time_labels,
+    *,
+    min_obs_per_period,
+    xp,
+):
+    """Solve CuPy periods with 2-D SVDs and one deferred rank-vector transfer.
+
+    CuPy's maintained public ``linalg.svd`` contract documents a two-dimensional
+    input matrix rather than stacked SVD input.  Keep that supported numerical
+    path, but remove per-period advanced indexing and defer all rank scalars to a
+    single host transfer after the SVD loop.
+    """
+    k = int(X_design.shape[1])
+    eligible_codes = _eligible_period_codes(
+        counts,
+        min_obs_per_period=min_obs_per_period,
+        k=k,
+    )
+    if not eligible_codes:
+        return None, 0
+
+    X_grouped, y_grouped, offsets = _group_period_rows(
+        X_design, y_arr, time_codes, counts, xp
+    )
+    betas = []
+    rank_scalars = []
+    for code in eligible_codes:
+        start = int(offsets[code])
+        stop = int(offsets[code + 1])
+        beta_t, rank_backend = panel_lstsq_deferred_rank(
+            X_grouped[start:stop],
+            y_grouped[start:stop],
+            xp,
+        )
+        betas.append(beta_t)
+        rank_scalars.append(rank_backend)
+
+    ranks = np.asarray(
+        _to_numpy(_stack(rank_scalars, xp, axis=0)),
+        dtype=np.int64,
+    ).reshape(-1)
+    for position, code in enumerate(eligible_codes):
+        rank = int(ranks[position])
+        if rank < k:
+            raise ValueError(
+                "FamaMacBeth requires full column rank in every retained period; "
+                f"retained time period {time_labels[code]!r} is rank deficient "
+                f"(rank={rank}, columns={k})"
+            )
+    return _stack(betas, xp, axis=0), len(eligible_codes)
 
 
 class FamaMacBeth(BasePanelModel):
@@ -187,6 +253,7 @@ class FamaMacBeth(BasePanelModel):
             "_inference_backend_name",
             "_period_solver_mode",
             "_period_solver_batches",
+            "_period_rank_syncs",
             "_xp",
             "_fit_ref_",
             "_panel_index_info",
@@ -317,8 +384,8 @@ class FamaMacBeth(BasePanelModel):
         )
         k = int(X_design.shape[1])
 
-        if backend_name in {"cupy", "torch"}:
-            betas, solver_batches = _batched_period_betas(
+        if backend_name == "torch":
+            betas, solver_batches = _torch_batched_period_betas(
                 X_design,
                 y_arr,
                 time_codes,
@@ -331,6 +398,22 @@ class FamaMacBeth(BasePanelModel):
                 raise ValueError("No time periods with enough observations")
             self._period_solver_mode = "batched"
             self._period_solver_batches = int(solver_batches)
+            self._period_rank_syncs = int(solver_batches)
+        elif backend_name == "cupy":
+            betas, solver_calls = _cupy_deferred_period_betas(
+                X_design,
+                y_arr,
+                time_codes,
+                counts,
+                time_labels,
+                min_obs_per_period=self.min_obs_per_period,
+                xp=xp,
+            )
+            if betas is None:
+                raise ValueError("No time periods with enough observations")
+            self._period_solver_mode = "serial-deferred-rank"
+            self._period_solver_batches = int(solver_calls)
+            self._period_rank_syncs = 1
         else:
             betas_list = []
             for code, n_t in enumerate(counts):
@@ -339,9 +422,6 @@ class FamaMacBeth(BasePanelModel):
                 idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
                 X_t = X_design[idx]
                 y_t = y_arr[idx]
-                # Keep the long-standing NumPy reference path serial.  GPU
-                # backends use the mathematically identical batched SVD path
-                # above to amortize launch and synchronization overhead.
                 beta_t, rank_t = panel_lstsq(X_t, y_t, xp)
                 if rank_t < k:
                     raise ValueError(
@@ -356,6 +436,7 @@ class FamaMacBeth(BasePanelModel):
             betas = _stack(betas_list, xp, axis=0)
             self._period_solver_mode = "serial"
             self._period_solver_batches = int(len(betas_list))
+            self._period_rank_syncs = int(len(betas_list))
 
         T = int(betas.shape[0])
         if T < 2:
@@ -391,9 +472,6 @@ class FamaMacBeth(BasePanelModel):
             if backend_name == "torch" and hasattr(avg_beta, "device")
             else None
         )
-        # Reference-distribution policy belongs to the inference layer. This
-        # keeps Fama-MacBeth free of backend-specific special-function fallbacks
-        # while preserving exact df=1/df=2 boundaries where needed.
         pvalues, critical = two_sided_reference_inference(
             xp.abs(tvalues),
             distribution=dist_name,
@@ -420,17 +498,8 @@ class FamaMacBeth(BasePanelModel):
         self._backend_name = backend_name
         self._inference_backend_name = backend_name
         self._xp = xp
-        # Prediction only needs a dtype/device anchor. Retaining the full
-        # training design here would pin O(nk) GPU memory for the estimator's
-        # lifetime even though prediction never reuses the training values.
         self._fit_ref_ = xp_asarray([], dtype=xp.float64, xp=xp, ref_arr=X_arr)
 
-        # Keep public fit outputs backend-native while also publishing the
-        # standard inference container/aliases required by the common estimator
-        # contract.  Pack the reporting fields on the active backend first so a
-        # GPU fit performs one small host snapshot rather than one synchronization
-        # for every field.  The snapshot is reporting-only and does not feed back
-        # into numerical inference.
         from statgpu.inference._results import ParameterInferenceResult
 
         reporting = _stack(
