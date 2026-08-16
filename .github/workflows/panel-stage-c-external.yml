@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'dev/tests/test_fama_macbeth_linearmodels_external.py'
       - 'dev/tests/test_panel_stage_c_external.py'
       - 'dev/tests/test_panel_stage_c_external_defaults.py'
       - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
@@ -14,6 +15,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'dev/tests/test_fama_macbeth_linearmodels_external.py'
       - 'dev/tests/test_panel_stage_c_external.py'
       - 'dev/tests/test_panel_stage_c_external_defaults.py'
       - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
@@ -48,6 +50,7 @@ jobs:
       - name: Run Stage C external covariance alignment
         run: |
           python -m pytest \
+            dev/tests/test_fama_macbeth_linearmodels_external.py \
             dev/tests/test_panel_stage_c_external.py \
             dev/tests/test_panel_stage_c_external_defaults.py \
             dev/tests/test_panel_stage_c_linearmodels_estimators.py \
