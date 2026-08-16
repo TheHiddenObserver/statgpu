@@ -15,6 +15,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_maximum, xp_ones
+from statgpu.inference._reference_distribution import two_sided_reference_inference
 from statgpu.panel._results import build_panel_index_info
 from statgpu.panel._utils import (
     PanelSummary,
@@ -41,8 +42,6 @@ class BasePanelModel(BaseEstimator):
             try:
                 return original_fit(self, *args, **kwargs)
             except BaseException:
-                # A failed fit must expose neither the previous successful fit
-                # nor partially written outputs from the failed new request.
                 self._reset_fit_state()
                 raise
 
@@ -166,9 +165,6 @@ class BasePanelModel(BaseEstimator):
         if validate_alpha and hasattr(self, "alpha"):
             validate_panel_alpha(self.alpha)
         validate_panel_numeric_data(X_arr, y_arr, xp)
-        # Persist the backend actually selected at the numerical fit boundary.
-        # Physical validation must not reconstruct this provenance later from
-        # the requested device, since that cannot detect a silent fallback.
         self._backend_name = backend.name
         return backend, xp, X_arr, y_arr
 
@@ -180,15 +176,7 @@ class BasePanelModel(BaseEstimator):
         return info
 
     def set_params(self, **params):
-        """Set estimator parameters and refresh panel covariance aliases.
-
-        ``BaseEstimator`` deliberately preserves the exact user-supplied public
-        constructor value for sklearn constructor identity.  Panel covariance
-        dispatch, however, uses the normalized private ``_cov_type`` runtime
-        value.  Refresh only that private value after sklearn-style parameter
-        updates so ``hc1``/``dk``/``kernel`` behave exactly like direct
-        construction without changing the public raw parameter.
-        """
+        """Set estimator parameters and refresh panel covariance aliases."""
         if "group_debias" in params and not isinstance(
             params["group_debias"], (bool, np.bool_)
         ):
@@ -202,16 +190,7 @@ class BasePanelModel(BaseEstimator):
 
     @property
     def _panel_cov_params(self):
-        """Return the small covariance matrix used by Stage-B diagnostics.
-
-        Existing Stage-A inference is computed and stored before this property is
-        consulted, so rescaling here cannot change public bse/t/p/CI values.
-        PanelOLS preserves a historical residual-df convention that is one rank
-        parameterization away from the standard fixed-effect model df used by
-        classical Hausman tests.  When Stage-B fit metadata provides both the
-        legacy and standard diagnostic df, convert only this internal covariance
-        copy to the standard homoskedastic scale.
-        """
+        """Return the small covariance matrix used by Stage-B diagnostics."""
         raw = getattr(self, "_panel_cov_params_raw", None)
         if raw is None:
             return None
@@ -242,13 +221,7 @@ class BasePanelModel(BaseEstimator):
         omitted_constant_index=None,
         omitted_constant_value=None,
     ):
-        """Shared formula-aware linear prediction with explicit return contract.
-
-        A one-column-short prediction matrix is accepted only when ``fit``
-        persisted an actual explicit constant column.  The exact fitted constant
-        value and its original position are restored; arbitrary shape mismatches
-        never silently turn into an intercept model.
-        """
+        """Shared formula-aware linear prediction with explicit return contract."""
         self._check_is_fitted()
         from statgpu.panel._formula import _formula_predict
 
@@ -356,7 +329,6 @@ class BasePanelModel(BaseEstimator):
         diag_floor=1e-30,
     ):
         """Store residual-based OLS inference from the shared covariance registry."""
-        from statgpu.inference._distributions_backend import get_distribution
         from statgpu.inference._results import BaseInferenceResult, ParameterInferenceResult
         from statgpu.panel._covariance import (
             normalize_covariance_type,
@@ -465,31 +437,22 @@ class BasePanelModel(BaseEstimator):
             )
             tvalues_dev = params / denominator
 
-        dist_name = "t" if canonical_cov_type == "nonrobust" else "norm"
+        dist_name = "t" if canonical_cov_type == "nonrobust" else "normal"
         df = int(df_resid if distribution_df is None else distribution_df)
         inference_device = (
             str(params.device)
             if backend.name == "torch" and hasattr(params, "device")
             else None
         )
-        if dist_name == "t" and df == 1:
-            distribution = get_distribution(
-                "cauchy", backend=backend.name, device=inference_device
-            )
-            pvalues_dev = 2.0 * distribution.sf(xp.abs(tvalues_dev))
-            critical = distribution.isf(float(self.alpha) / 2)
-        elif dist_name == "t":
-            distribution = get_distribution(
-                "t", backend=backend.name, device=inference_device
-            )
-            pvalues_dev = distribution.two_sided_pvalue(xp.abs(tvalues_dev), df)
-            critical = distribution.two_sided_critical_value(self.alpha, df)
-        else:
-            distribution = get_distribution(
-                "norm", backend=backend.name, device=inference_device
-            )
-            pvalues_dev = distribution.two_sided_pvalue(xp.abs(tvalues_dev))
-            critical = distribution.two_sided_critical_value(self.alpha)
+        pvalues_dev, critical = two_sided_reference_inference(
+            xp.abs(tvalues_dev),
+            distribution=dist_name,
+            alpha=self.alpha,
+            backend=backend.name,
+            xp=xp,
+            df=df if dist_name == "t" else None,
+            device=inference_device,
+        )
         self._inference_backend_name = backend.name
         critical = xp_asarray(
             critical, dtype=params.dtype, xp=xp, ref_arr=params
