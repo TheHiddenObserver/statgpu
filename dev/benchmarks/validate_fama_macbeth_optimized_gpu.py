@@ -3,9 +3,9 @@
 
 The long-standing focused PR126 runner remains the correctness oracle for its
 chronology/formula/rank/inference matrix.  This wrapper executes that runner on
-the same exact head, then adds machine-auditable solver provenance for the new
-batched GPU period solver and replaces the legacy serial-performance notes in
-the emitted artifact.
+the same exact head, then adds machine-auditable solver provenance for the
+backend-specific optimized period scheduling and replaces the legacy serial
+performance notes in the emitted artifact.
 """
 
 from __future__ import annotations
@@ -69,45 +69,73 @@ def _solver_provenance(backend: str):
     return {
         "solver_mode": getattr(model, "_period_solver_mode", None),
         "solver_batches": int(getattr(model, "_period_solver_batches", -1)),
+        "rank_syncs": int(getattr(model, "_period_rank_syncs", -1)),
         "n_periods": int(model.n_periods),
     }
 
 
+def _expected_provenance(backend: str):
+    if backend == "numpy":
+        return {
+            "solver_mode": "serial",
+            "solver_batches": 64,
+            "rank_syncs": 64,
+            "n_periods": 64,
+        }
+    if backend == "torch":
+        return {
+            "solver_mode": "batched",
+            "solver_batches": 1,
+            "rank_syncs": 1,
+            "n_periods": 64,
+        }
+    if backend == "cupy":
+        return {
+            "solver_mode": "serial-deferred-rank",
+            "solver_batches": 64,
+            "rank_syncs": 1,
+            "n_periods": 64,
+        }
+    raise ValueError(f"unsupported backend provenance request: {backend}")
+
+
 def _rewrite_performance(payload, backends):
     numpy_solver = _solver_provenance("numpy")
-    if numpy_solver != {
-        "solver_mode": "serial",
-        "solver_batches": 64,
-        "n_periods": 64,
-    }:
+    if numpy_solver != _expected_provenance("numpy"):
         raise AssertionError(f"unexpected NumPy timing solver provenance: {numpy_solver}")
 
     for backend in backends:
         provenance = _solver_provenance(backend)
-        if provenance != {
-            "solver_mode": "batched",
-            "solver_batches": 1,
-            "n_periods": 64,
-        }:
+        expected = _expected_provenance(backend)
+        if provenance != expected:
             raise AssertionError(
-                f"{backend}: balanced timing fixture did not use one batched solver bucket: "
-                f"{provenance}"
+                f"{backend}: unexpected optimized timing solver provenance: "
+                f"{provenance} != {expected}"
             )
         performance = payload["backends"][backend]["performance"]
         performance["solver_provenance"] = {
             "numpy": numpy_solver,
             backend: provenance,
         }
+        if backend == "torch":
+            solver_note = (
+                "Torch uses its documented stacked-SVD support: equal-sized retained "
+                "periods share one batched rank-revealing SVD per exact-size bucket. "
+                "The balanced 64x128 timing fixture therefore uses one solver batch."
+            )
+        else:
+            solver_note = (
+                "CuPy keeps the documented two-dimensional cupy.linalg.svd path. Rows "
+                "are grouped once in chronology order, each retained period uses a 2-D "
+                "SVD, and all backend-native rank scalars are packed before one host "
+                "rank-vector transfer. No undocumented stacked-SVD behavior is assumed."
+            )
         performance["optimization_notes"] = {
-            "period_solver": (
-                "NumPy remains the serial reference; CuPy/Torch solve equal-sized "
-                "retained periods with one batched rank-revealing SVD per exact-size bucket. "
-                "The balanced 64x128 timing fixture therefore uses one GPU solver batch."
-            ),
+            "period_solver": solver_note,
             "rank_cutoff": (
-                "no zero padding is used; each period keeps the serial "
-                "max(n_t,k)*eps*s_max cutoff, and one complete rank vector crosses "
-                "to the host per size bucket rather than one scalar per period"
+                "each period keeps the serial max(n_t,k)*eps*s_max cutoff; Torch transfers "
+                "one complete rank vector per exact-size batch, while CuPy transfers one "
+                "packed rank vector after the supported 2-D SVD loop"
             ),
             "distribution_inference": (
                 "p-values and critical values use the selected NumPy/CuPy/Torch "
@@ -121,8 +149,9 @@ def _rewrite_performance(payload, backends):
             ),
             "remaining_structure": (
                 "very small panels can still be dominated by fixed validation, launch, "
-                "synchronization and reporting overhead; use the separate scaling runner "
-                "to locate the empirical GPU/NumPy crossover"
+                "synchronization and reporting overhead. CuPy still launches one supported "
+                "2-D SVD per period; use the scaling runner to locate each backend's "
+                "empirical GPU/NumPy crossover"
             ),
             "interpretation": (
                 "ratio > 1 means the requested backend is slower than NumPy on the micro "
