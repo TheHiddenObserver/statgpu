@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "git_sha": "464b587e83b234d78b5449666488d7f2f8ad367c",
+  "working_tree_clean": true,
+  "status": "success",
+  "environment": {
+    "python": "3.9.16",
+    "numpy": "1.24.2",
+    "pandas": "2.0.0",
+    "patsy": "1.0.2",
+    "cupy": "13.6.0",
+    "torch": "2.0.0"
+  },
+  "chronology_negative_control": true,
+  "backends": {
+    "cupy": {
+      "status": "success",
+      "executed_backend": "cupy",
+      "array_ordered_categorical": {
+        "status": "success",
+        "max_abs_differences": {
+          "coef": 0.0,
+          "bse": 0.0,
+          "cov_params": 0.0
+        }
+      },
+      "formula_ordered_categorical_alignment": {
+        "status": "success",
+        "max_abs_differences": {
+          "coef": 0.0,
+          "bse": 0.0,
+          "cov_params": 0.0
+        }
+      },
+      "rank_deficient_retained_period_rejected": true,
+      "no_intercept_formula_rejections": {
+        "y ~ 0 + x": true,
+        "y ~ x - 1": true
+      }
+    },
+    "torch": {
+      "status": "success",
+      "executed_backend": "torch",
+      "array_ordered_categorical": {
+        "status": "success",
+        "max_abs_differences": {
+          "coef": 0.0,
+          "bse": 0.0,
+          "cov_params": 0.0
+        }
+      },
+      "formula_ordered_categorical_alignment": {
+        "status": "success",
+        "max_abs_differences": {
+          "coef": 0.0,
+          "bse": 0.0,
+          "cov_params": 0.0
+        }
+      },
+      "rank_deficient_retained_period_rejected": true,
+      "no_intercept_formula_rejections": {
+        "y ~ 0 + x": true,
+        "y ~ x - 1": true
+      }
+    }
+  }
+}
