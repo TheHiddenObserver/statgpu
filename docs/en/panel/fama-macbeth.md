@@ -1,7 +1,7 @@
 # FamaMacBeth
 
 > Language: English  
-> Last updated: 2026-08-16  
+> Last updated: 2026-08-17  
 > Switch: [Chinese](../../cn/panel/fama-macbeth.md)
 
 ## Overview
@@ -103,7 +103,7 @@ and clips it to $0\le L\le T-1$. This Newey-West calculation is applied to the s
 
 The order of the retained coefficient series follows `time_ids`. Numeric and datetime labels use their natural order. Ordered pandas categoricals preserve the category order explicitly declared by the user; they are not converted to lexical string order before the Newey-West lag covariance is formed.
 
-Successful fits also publish the shared `ParameterInferenceResult` surface used by inference-capable statgpu estimators. The public `coef_`, `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` arrays remain backend-native; `_inference_result` and the `_params`, `_bse`, `_tvalues`/`_zvalues`, `_pvalues`, and `_conf_int` aliases contain NumPy snapshots for the common inference/reporting contract. `newey-west` is labeled as `z`/normal inference, while `nonrobust` is labeled as Student-t inference with $T-1$ degrees of freedom.
+Successful fits also publish the shared `ParameterInferenceResult` surface used by inference-capable statgpu estimators. The public `coef_`, `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` arrays remain backend-native. Distribution inference follows the selected fit backend: NumPy uses the NumPy inference backend, CuPy uses the CuPy inference backend, and Torch uses the Torch inference backend on the actual tensor device. `_inference_result` and the `_params`, `_bse`, `_tvalues`/`_zvalues`, `_pvalues`, and `_conf_int` aliases contain NumPy snapshots only for the common inference/reporting contract; those snapshots are not used to calculate p-values or confidence intervals. `newey-west` is labeled as `z`/normal inference, while `nonrobust` is labeled as Student-t inference with $T-1$ degrees of freedom.
 
 ## Parameters
 
@@ -160,7 +160,7 @@ At least two valid periods must remain after filtering; otherwise `.fit()` raise
 
 The retained periods are currently processed serially in Python. Each period therefore performs a relatively small SVD and must expose the final rank to Python before the fit can continue. For small numbers of regressors or small cross sections, GPU kernel-launch and synchronization overhead can outweigh the linear-algebra work, so `device="cuda"` or `device="torch"` is **not** a universal speedup guarantee. Benchmark the actual panel shape when performance matters. The focused physical gate records synchronized NumPy and GPU timing on the same workload and reports the GPU/NumPy median-time ratio; a ratio above 1 means that GPU backend is slower on that fixture rather than being treated as a failed correctness result.
 
-P-value evaluation uses the CPU distribution implementation, but the full statistic vector is transferred once and evaluated vectorially rather than synchronizing one GPU scalar per parameter. The resulting p-value vector is then copied back to the active backend, preserving the public result device contract.
+P-values and critical values are evaluated through the selected inference backend instead of transferring the statistic vector to NumPy/SciPy. Normal inference uses the backend's two-sided normal routines; general Student-t inference uses the backend Student-t routines. The exact small-degree boundaries are kept backend-native as well: df=1 uses the Cauchy identity, and df=2 uses its elementary two-sided tail and quantile formulas so Torch versions without native `betainc` do not lose the maintained high-precision contract. Only the standardized `ParameterInferenceResult` reporting snapshot crosses to NumPy after inference has been completed.
 
 With `cov_type="newey-west"`, coefficient inference uses the asymptotic normal distribution. With `cov_type="nonrobust"`, it uses a Student-t reference with $T-1$ degrees of freedom. There is no hidden alternative inference method if these requirements are not met.
 
@@ -184,9 +184,9 @@ For `cov_type="nonrobust"`, statgpu's covariance is aligned with linearmodels `c
 
 For `cov_type="newey-west"`, the external gate uses linearmodels `cov_type="kernel", kernel="bartlett", bandwidth=L, debiased=False` with the same fixed $L$. This aligns both the coefficient-series kernel covariance and normal-reference inference, so covariance, standard errors, test statistics, p-values, and confidence intervals are compared. The dedicated `Panel Stage C external covariance` workflow installs the pinned reference and runs this test on every relevant PR/source change.
 
-Maintained internal regressions additionally cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, failed-refit invalidation, the single-factorization solve contract, backend-native rank-cutoff behavior, both covariance modes on Torch CPU, and vectorized p-value evaluation.
+Maintained internal regressions additionally cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, failed-refit invalidation, the single-factorization solve contract, backend-native rank-cutoff behavior, both covariance modes on Torch CPU, backend-native distribution routing, and exact df=1/df=2 small-degree inference boundaries.
 
-GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested by `dev/benchmarks/validate_panel_stage_a_gpu.py`. The focused exact-head gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` additionally checks ordered-categorical chronology, formula/missing-row alignment, rank rejection, both no-intercept spellings, both covariance modes, the standard inference container/private aliases, requested/executed backend identity, and full parity for `betas_`, coefficients, covariance, standard errors, test statistics, p-values, confidence intervals, and predictions. Its performance section records same-workload synchronized NumPy and CuPy/Torch samples, the median-time ratio, and explicit optimization notes; it makes no universal speedup claim. Fama-MacBeth remains outside the Stage-C residual-covariance case matrix because its covariance is defined from the coefficient series rather than observation-level residual scores.
+GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested by `dev/benchmarks/validate_panel_stage_a_gpu.py`. The focused exact-head gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` additionally checks ordered-categorical chronology, formula/missing-row alignment, rank rejection, both no-intercept spellings, both covariance modes, the standard inference container/private aliases, requested/executed fit and inference backend identity, actual public-output array backend, and full parity for `betas_`, coefficients, covariance, standard errors, test statistics, p-values, confidence intervals, and predictions. Its performance section records same-workload synchronized NumPy and CuPy/Torch samples, the median-time ratio, and explicit optimization notes including distribution-inference routing; it makes no universal speedup claim. Fama-MacBeth remains outside the Stage-C residual-covariance case matrix because its covariance is defined from the coefficient series rather than observation-level residual scores.
 
 ## References
 
