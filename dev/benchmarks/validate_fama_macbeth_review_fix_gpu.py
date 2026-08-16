@@ -178,6 +178,11 @@ def _snapshot(model, prediction_input):
     # Validate the common inference container and private aliases every time a
     # numerical snapshot is taken; public arrays remain backend-native.
     _inference_descriptor(model)
+    fit_ref = getattr(model, "_fit_ref_", None)
+    if fit_ref is None or tuple(fit_ref.shape) != (0,):
+        raise AssertionError(
+            "FamaMacBeth must retain only a zero-length prediction device anchor"
+        )
     return {
         "coef": _public_array(model.coef_),
         "betas": _public_array(model.betas_),
@@ -446,6 +451,7 @@ def _timing_case(backend: str, warmup: int, repeats: int):
 
 def _environment(backends):
     gpu_by_backend = {}
+    cupy_version = None
     if "cupy" in backends:
         import cupy as cp
 
@@ -454,6 +460,7 @@ def _environment(backends):
         props = cp.cuda.runtime.getDeviceProperties(0)
         name = props["name"]
         gpu_by_backend["cupy"] = name.decode() if isinstance(name, bytes) else name
+        cupy_version = cp.__version__
     if "torch" in backends:
         import torch
 
@@ -466,7 +473,7 @@ def _environment(backends):
         "numpy": _version("numpy"),
         "pandas": _version("pandas"),
         "patsy": _version("patsy"),
-        "cupy": _version("cupy"),
+        "cupy": cupy_version,
         "torch": _version("torch"),
         "gpu_by_backend": gpu_by_backend,
     }
