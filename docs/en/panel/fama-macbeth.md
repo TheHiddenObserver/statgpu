@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The full-rank check is then applied to each retained period. The implementation uses one shared rank-revealing SVD per retained period and reuses that factorization to obtain both the numerical rank and the least-squares coefficient vector; it does not perform a separate normal-equation solve after the rank check.
+A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The full-rank check is then applied to each retained period. The implementation uses one shared rank-revealing SVD per retained period and reuses those factors to obtain both the numerical rank and the least-squares coefficient vector. The singular-value cutoff remains on the active backend, only the final integer rank is extracted for fail-closed control flow, and the least-squares path does not materialize the covariance bread that residual-OLS inference needs.
 
 ## Covariance and Inference
 
@@ -156,6 +156,8 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `be
 
 At least two valid periods must remain after filtering; otherwise `.fit()` raises an error because the variability of the coefficient series cannot be estimated from fewer than two periods. Every retained period must also have full column rank under the shared panel SVD cutoff; a rank-deficient retained period fails closed before inference. The rank check and coefficient solve share the same SVD, which avoids a redundant second matrix decomposition while preserving the exact rank policy.
 
+The retained periods are currently processed serially in Python. Each period therefore performs a relatively small SVD and must expose the final rank to Python before the fit can continue. For small numbers of regressors or small cross sections, GPU kernel-launch and synchronization overhead can outweigh the linear-algebra work, so `device="cuda"` or `device="torch"` is **not** a universal speedup guarantee. Benchmark the actual panel shape when performance matters. The focused physical gate records synchronized NumPy and GPU timing on the same workload and reports the GPU/NumPy median-time ratio; a ratio above 1 means that GPU backend is slower on that fixture rather than being treated as a failed correctness result.
+
 With `cov_type="newey-west"`, coefficient inference uses the asymptotic normal distribution. With `cov_type="nonrobust"`, it uses a Student-t reference with $T-1$ degrees of freedom. There is no hidden alternative inference method if these requirements are not met.
 
 An explicit `device="cuda"` or `device="torch"` request also requires that backend to be available; statgpu does not silently switch to CPU.
@@ -170,9 +172,9 @@ An explicit `device="cuda"` or `device="torch"` request also requires that backe
 
 ## External Validation
 
-There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Maintained regression tests cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, the single-factorization solve contract, and Torch-CPU parity for the rank contract.
+There is currently no maintained cross-package comparison for this estimator's coefficient-series covariance, so the documentation does not claim that `linearmodels` or another package produces identical Fama-MacBeth standard errors. Maintained regression tests cover formula intercept behavior, ordered-categorical versus numeric chronology on both array and formula paths, missing-row formula alignment, retained-period rank rejection, the single-factorization solve contract, backend-native rank-cutoff behavior, and Torch-CPU parity for the rank contract.
 
-GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested by `dev/benchmarks/validate_panel_stage_a_gpu.py`. The focused exact-head gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` additionally checks ordered-categorical chronology, formula/missing-row alignment, rank rejection, both no-intercept spellings, requested/executed backend identity, and synchronized raw timing on CuPy and Torch. Fama-MacBeth remains outside the Stage-C residual-covariance case matrix because its covariance is defined from the coefficient series rather than observation-level residual scores.
+GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west` case is tested by `dev/benchmarks/validate_panel_stage_a_gpu.py`. The focused exact-head gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` additionally checks ordered-categorical chronology, formula/missing-row alignment, rank rejection, both no-intercept spellings, requested/executed backend identity, and full parity for `betas_`, coefficients, covariance, standard errors, test statistics, p-values, confidence intervals, and predictions. Its performance section records same-workload synchronized NumPy and CuPy/Torch samples, the median-time ratio, and explicit optimization notes; it makes no universal speedup claim. Fama-MacBeth remains outside the Stage-C residual-covariance case matrix because its covariance is defined from the coefficient series rather than observation-level residual scores.
 
 ## References
 
