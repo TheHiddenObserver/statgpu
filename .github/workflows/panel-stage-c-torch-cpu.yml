@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'statgpu/inference/_reference_distribution.py'
       - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
@@ -15,6 +16,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'statgpu/inference/_reference_distribution.py'
       - 'dev/tests/test_fama_macbeth_review_fixes.py'
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
