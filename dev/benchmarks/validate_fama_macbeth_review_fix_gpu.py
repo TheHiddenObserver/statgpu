@@ -2,9 +2,10 @@
 """Exact-head physical GPU validation for the PR126 Fama-MacBeth review fixes.
 
 This runner verifies correctness/backend provenance for chronology, formula,
-rank, and no-intercept behavior.  It also records synchronized timing for the
-rank-revealing retained-period solve against the same-workload NumPy baseline.
-Timing is audit evidence only; no universal speedup claim is derived from it.
+rank, no-intercept behavior, and the standard inference result surface. It also
+records synchronized timing for the rank-revealing retained-period solve against
+the same-workload NumPy baseline. Timing is audit evidence only; no universal
+speedup claim is derived from it.
 """
 
 from __future__ import annotations
@@ -113,18 +114,79 @@ def _ordered(labels):
     return pd.Categorical(labels, categories=["t1", "t2", "t10"], ordered=True)
 
 
-def _snapshot(model, prediction_input):
+def _public_array(value):
+    return np.asarray(_to_numpy(value), dtype=np.float64)
+
+
+def _inference_descriptor(model):
+    result = getattr(model, "_inference_result", None)
+    if result is None:
+        raise AssertionError("FamaMacBeth did not publish _inference_result")
+    if result.__class__.__name__ != "ParameterInferenceResult":
+        raise AssertionError(
+            f"unexpected inference result type: {result.__class__.__name__}"
+        )
+
+    public_internal = (
+        (model.coef_, getattr(model, "_params", None), "_params"),
+        (model.bse_, getattr(model, "_bse", None), "_bse"),
+        (model.tvalues_, getattr(model, "_tvalues", None), "_tvalues"),
+        (model.tvalues_, getattr(model, "_zvalues", None), "_zvalues"),
+        (model.pvalues_, getattr(model, "_pvalues", None), "_pvalues"),
+        (model.conf_int_, getattr(model, "_conf_int", None), "_conf_int"),
+    )
+    for public, internal, name in public_internal:
+        if internal is None:
+            raise AssertionError(f"standard inference alias missing: {name}")
+        np.testing.assert_allclose(
+            np.asarray(internal, dtype=np.float64),
+            _public_array(public),
+            rtol=0.0,
+            atol=0.0,
+        )
+
+    np.testing.assert_allclose(result.params, model._params, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(result.bse, model._bse, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(result.statistic, model._tvalues, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(result.pvalues, model._pvalues, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(result.conf_int, model._conf_int, rtol=0.0, atol=0.0)
+
+    feature_names = None if result.feature_names is None else list(result.feature_names)
     return {
-        "coef": np.asarray(_to_numpy(model.coef_), dtype=np.float64),
-        "betas": np.asarray(_to_numpy(model.betas_), dtype=np.float64),
-        "bse": np.asarray(_to_numpy(model.bse_), dtype=np.float64),
-        "tvalues": np.asarray(_to_numpy(model.tvalues_), dtype=np.float64),
-        "pvalues": np.asarray(_to_numpy(model.pvalues_), dtype=np.float64),
-        "conf_int": np.asarray(_to_numpy(model.conf_int_), dtype=np.float64),
-        "cov_params": np.asarray(_to_numpy(model.cov_params_), dtype=np.float64),
-        "prediction": np.asarray(
-            _to_numpy(model.predict(prediction_input)), dtype=np.float64
-        ),
+        "result_type": result.__class__.__name__,
+        "method": result.method,
+        "statistic_name": result.statistic_name,
+        "distribution": result.distribution,
+        "df": result.df,
+        "cov_type": result.cov_type,
+        "feature_names": feature_names,
+        "covariance_source": result.metadata.get("covariance_source"),
+        "n_periods": result.metadata.get("n_periods"),
+        "effective_bandwidth": result.metadata.get("effective_bandwidth"),
+    }
+
+
+def _assert_inference_descriptors(reference, actual):
+    if actual != reference:
+        raise AssertionError(
+            f"standard inference descriptor mismatch: actual={actual}, reference={reference}"
+        )
+    return actual
+
+
+def _snapshot(model, prediction_input):
+    # Validate the common inference container and private aliases every time a
+    # numerical snapshot is taken; public arrays remain backend-native.
+    _inference_descriptor(model)
+    return {
+        "coef": _public_array(model.coef_),
+        "betas": _public_array(model.betas_),
+        "bse": _public_array(model.bse_),
+        "tvalues": _public_array(model.tvalues_),
+        "pvalues": _public_array(model.pvalues_),
+        "conf_int": _public_array(model.conf_int_),
+        "cov_params": _public_array(model.cov_params_),
+        "prediction": _public_array(model.predict(prediction_input)),
     }
 
 
@@ -154,16 +216,20 @@ def _chronology_case(backend: str):
         X, y, time_ids=np.asarray(ordered, dtype=object)
     )
     if np.allclose(
-        np.asarray(_to_numpy(actual.cov_params_)),
-        np.asarray(_to_numpy(lexical.cov_params_)),
+        _public_array(actual.cov_params_),
+        _public_array(lexical.cov_params_),
         rtol=1e-10,
         atol=1e-12,
     ):
         raise AssertionError("chronology negative control lost power")
     prediction_X = X[:3]
+    inference_result = _assert_inference_descriptors(
+        _inference_descriptor(ref), _inference_descriptor(actual)
+    )
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
+        "inference_result": inference_result,
         "max_abs_differences": _assert_snapshot(
             _snapshot(ref, prediction_X), _snapshot(actual, prediction_X)
         ),
@@ -185,9 +251,17 @@ def _formula_case(backend: str):
         formula="y ~ x", data=data, time_ids=ordered
     )
     prediction_data = pd.DataFrame({"x": [-1.0, 0.0, 1.0]})
+    inference_result = _assert_inference_descriptors(
+        _inference_descriptor(ref), _inference_descriptor(actual)
+    )
+    if inference_result["feature_names"] != ["Intercept", "x"]:
+        raise AssertionError(
+            f"formula inference feature names drifted: {inference_result['feature_names']}"
+        )
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
+        "inference_result": inference_result,
         "max_abs_differences": _assert_snapshot(
             _snapshot(ref, prediction_data), _snapshot(actual, prediction_data)
         ),
@@ -289,6 +363,9 @@ def _timing_case(backend: str, warmup: int, repeats: int):
         )
 
     prediction_X = X[:16]
+    inference_result = _assert_inference_descriptors(
+        _inference_descriptor(reference), _inference_descriptor(candidate)
+    )
     numerical_differences = _assert_snapshot(
         _snapshot(reference, prediction_X), _snapshot(candidate, prediction_X)
     )
@@ -299,6 +376,7 @@ def _timing_case(backend: str, warmup: int, repeats: int):
     return {
         "status": "success",
         "executed_backend": candidate._backend_name,
+        "inference_result": inference_result,
         "n_times": 64,
         "observations_per_period": 128,
         "n_features": 4,
