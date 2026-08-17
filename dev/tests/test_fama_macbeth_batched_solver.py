@@ -10,7 +10,11 @@ import numpy as np
 import pytest
 
 from statgpu.panel import FamaMacBeth
-from statgpu.panel._linalg import panel_lstsq, panel_lstsq_batched
+from statgpu.panel._linalg import (
+    panel_lstsq,
+    panel_lstsq_batched,
+    panel_lstsq_gram_certified_batched,
+)
 
 
 def _balanced_fixture(seed=12620, *, n_times=8, per_period=32, p=3):
@@ -21,6 +25,24 @@ def _balanced_fixture(seed=12620, *, n_times=8, per_period=32, p=3):
     shift = np.repeat(rng.normal(scale=0.4, size=n_times), per_period)
     y = 0.3 + X @ beta + shift + rng.normal(scale=0.2, size=time.size)
     return X, y, time
+
+
+def _rank_boundary_batch(seed=126210):
+    rng = np.random.default_rng(seed)
+    n, k = 40, 3
+    q_left, _ = np.linalg.qr(rng.normal(size=(n, k)))
+    q_right, _ = np.linalg.qr(rng.normal(size=(k, k)))
+    cutoff = max(n, k) * np.finfo(np.float64).eps * 10.0
+    singular_sets = (
+        np.asarray([10.0, 1.0, 0.5 * cutoff]),
+        np.asarray([10.0, 1.0, 2.0 * cutoff]),
+    )
+    X = np.stack(
+        [q_left @ np.diag(values) @ q_right.T for values in singular_sets],
+        axis=0,
+    )
+    y = rng.normal(size=(2, n))
+    return X, y
 
 
 def test_panel_lstsq_batched_matches_serial_numpy_rank_policy():
@@ -38,27 +60,46 @@ def test_panel_lstsq_batched_matches_serial_numpy_rank_policy():
         assert int(ranks[i]) == expected_rank
 
 
+def test_panel_lstsq_gram_certified_matches_svd_for_well_conditioned_numpy():
+    rng = np.random.default_rng(126211)
+    X = rng.normal(size=(6, 64, 4))
+    y = rng.normal(size=(6, 64))
+
+    params, certified = panel_lstsq_gram_certified_batched(X, y, np)
+
+    assert np.asarray(certified, dtype=bool).tolist() == [True] * 6
+    for i in range(6):
+        expected_params, expected_rank = panel_lstsq(X[i], y[i], np)
+        assert expected_rank == 4
+        np.testing.assert_allclose(
+            params[i],
+            expected_params,
+            rtol=2e-12,
+            atol=2e-13,
+        )
+
+
 def test_panel_lstsq_batched_preserves_serial_rank_cutoff_boundary():
-    rng = np.random.default_rng(126210)
-    n, k = 40, 3
-    q_left, _ = np.linalg.qr(rng.normal(size=(n, k)))
-    q_right, _ = np.linalg.qr(rng.normal(size=(k, k)))
-    cutoff = max(n, k) * np.finfo(np.float64).eps * 10.0
-    singular_sets = (
-        np.asarray([10.0, 1.0, 0.5 * cutoff]),
-        np.asarray([10.0, 1.0, 2.0 * cutoff]),
-    )
-    X = np.stack(
-        [q_left @ np.diag(values) @ q_right.T for values in singular_sets],
-        axis=0,
-    )
-    y = rng.normal(size=(2, n))
+    X, y = _rank_boundary_batch()
 
     _params, batched_ranks = panel_lstsq_batched(X, y, np)
     serial_ranks = [panel_lstsq(X[i], y[i], np)[1] for i in range(2)]
 
     assert serial_ranks == [2, 3]
     assert np.asarray(batched_ranks, dtype=np.int64).tolist() == serial_ranks
+
+
+def test_gram_certificate_defers_both_sides_of_svd_rank_boundary():
+    X, y = _rank_boundary_batch()
+
+    _params, certified = panel_lstsq_gram_certified_batched(X, y, np)
+    serial_ranks = [panel_lstsq(X[i], y[i], np)[1] for i in range(2)]
+
+    # One matrix is below and one is just above the maintained SVD cutoff.  Both
+    # must remain outside the normal-equation fast path so the SVD remains the
+    # authority for the rank decision on either side of that boundary.
+    assert serial_ranks == [2, 3]
+    assert np.asarray(certified, dtype=bool).tolist() == [False, False]
 
 
 def test_panel_lstsq_batched_does_not_assume_undocumented_cupy_stacked_svd():
@@ -73,7 +114,7 @@ def test_panel_lstsq_batched_does_not_assume_undocumented_cupy_stacked_svd():
         )
 
 
-def test_fama_macbeth_torch_cpu_batches_balanced_periods_and_matches_numpy():
+def test_fama_macbeth_torch_cpu_certifies_balanced_periods_and_matches_numpy():
     torch = pytest.importorskip("torch")
     X, y, time = _balanced_fixture()
 
@@ -86,12 +127,14 @@ def test_fama_macbeth_torch_cpu_batches_balanced_periods_and_matches_numpy():
 
     assert actual._backend_name == "torch"
     assert actual._inference_backend_name == "torch"
-    assert actual._period_solver_mode == "batched"
+    assert actual._period_solver_mode == "gram-certified"
     assert actual._period_solver_batches == 1
     assert actual._period_rank_syncs == 1
+    assert actual._period_svd_fallbacks == 0
     assert expected._period_solver_mode == "serial"
     assert expected._period_solver_batches == expected.n_periods
     assert expected._period_rank_syncs == expected.n_periods
+    assert expected._period_svd_fallbacks == 0
     for name in ("coef_", "betas_", "bse_", "tvalues_", "pvalues_", "conf_int_"):
         value = getattr(actual, name).detach().cpu().numpy()
         np.testing.assert_allclose(
@@ -102,7 +145,7 @@ def test_fama_macbeth_torch_cpu_batches_balanced_periods_and_matches_numpy():
         )
 
 
-def test_fama_macbeth_torch_cpu_buckets_unbalanced_shuffled_periods():
+def test_fama_macbeth_torch_cpu_certifies_unbalanced_shuffled_periods():
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(12622)
     counts = np.asarray([24, 32, 24, 40], dtype=np.int64)
@@ -124,9 +167,10 @@ def test_fama_macbeth_torch_cpu_buckets_unbalanced_shuffled_periods():
         time_ids=time,
     )
 
-    assert actual._period_solver_mode == "batched"
+    assert actual._period_solver_mode == "gram-certified"
     assert actual._period_solver_batches == 3
     assert actual._period_rank_syncs == 3
+    assert actual._period_svd_fallbacks == 0
     np.testing.assert_allclose(
         actual.betas_.detach().cpu().numpy(),
         np.asarray(expected.betas_),
@@ -141,7 +185,7 @@ def test_fama_macbeth_torch_cpu_buckets_unbalanced_shuffled_periods():
     )
 
 
-def test_batched_rank_rejection_reports_earliest_chronological_period():
+def test_certified_path_rank_rejection_reports_earliest_chronological_period():
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(12623)
     counts = np.asarray([24, 32, 24], dtype=np.int64)
@@ -163,7 +207,9 @@ def test_batched_rank_rejection_reports_earliest_chronological_period():
         )
 
 
-def test_balanced_torch_reporting_uses_one_rank_snapshot_and_one_reporting_snapshot(monkeypatch):
+def test_balanced_torch_reporting_uses_one_certificate_snapshot_and_one_reporting_snapshot(
+    monkeypatch,
+):
     torch = pytest.importorskip("torch")
     import statgpu.panel._fama_macbeth as fmb_module
 
@@ -182,9 +228,24 @@ def test_balanced_torch_reporting_uses_one_rank_snapshot_and_one_reporting_snaps
         time_ids=time,
     )
 
+    assert model._period_solver_mode == "gram-certified"
     assert model._period_solver_batches == 1
     assert model._period_rank_syncs == 1
+    assert model._period_svd_fallbacks == 0
     assert shapes == [(6,), (6, 3)]
+
+
+def test_direct_fit_does_not_repeat_internal_finite_scan(monkeypatch):
+    import statgpu.panel._fama_macbeth as fmb_module
+
+    X, y, time = _balanced_fixture(seed=12625, n_times=4, per_period=24, p=2)
+
+    def unexpected_internal_scan(*_args, **_kwargs):
+        raise AssertionError("direct fit repeated FamaMacBeth internal finite scan")
+
+    monkeypatch.setattr(fmb_module, "_finite_all", unexpected_internal_scan)
+    model = FamaMacBeth(device="cpu", bandwidth=1).fit(X, y, time_ids=time)
+    assert model._fitted
 
 
 def _assert_runner_help(filename):
@@ -213,7 +274,7 @@ def test_fama_macbeth_optimized_wrapper_is_directly_executable():
 def test_optimized_wrapper_rewrites_backend_specific_solver_notes(monkeypatch):
     from dev.benchmarks import validate_fama_macbeth_optimized_gpu as optimized
 
-    assert optimized.SCHEMA_VERSION == 4
+    assert optimized.SCHEMA_VERSION == 5
 
     def fake_provenance(backend):
         return optimized._expected_provenance(backend)
@@ -221,23 +282,19 @@ def test_optimized_wrapper_rewrites_backend_specific_solver_notes(monkeypatch):
     monkeypatch.setattr(optimized, "_solver_provenance", fake_provenance)
     payload = {
         "backends": {
-            "cupy": {"performance": {"optimization_notes": {"remaining_structure": "serial"}}},
-            "torch": {"performance": {"optimization_notes": {"remaining_structure": "serial"}}},
+            "cupy": {"performance": {"optimization_notes": {"remaining_structure": "old"}}},
+            "torch": {"performance": {"optimization_notes": {"remaining_structure": "old"}}},
         }
     }
     optimized._rewrite_performance(payload, ["cupy", "torch"])
 
-    cupy_perf = payload["backends"]["cupy"]["performance"]
-    assert cupy_perf["solver_provenance"]["cupy"] == optimized._expected_provenance("cupy")
-    assert "two-dimensional" in cupy_perf["optimization_notes"]["period_solver"]
-    assert "one host" in cupy_perf["optimization_notes"]["period_solver"]
-
-    torch_perf = payload["backends"]["torch"]["performance"]
-    assert torch_perf["solver_provenance"]["torch"] == optimized._expected_provenance("torch")
-    assert "batched" in torch_perf["optimization_notes"]["period_solver"]
-    assert "one solver batch" in torch_perf["optimization_notes"]["period_solver"]
-
     for backend in ("cupy", "torch"):
-        notes = payload["backends"][backend]["performance"]["optimization_notes"]
+        performance = payload["backends"][backend]["performance"]
+        assert performance["solver_provenance"][backend] == optimized._expected_provenance(
+            backend
+        )
+        notes = performance["optimization_notes"]
+        assert "Gram" in notes["period_solver"]
+        assert "SVD" in notes["rank_cutoff"]
         assert "scaling runner" in notes["remaining_structure"]
         assert "NumPy/SciPy" in notes["distribution_inference"]
