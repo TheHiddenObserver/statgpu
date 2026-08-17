@@ -93,20 +93,29 @@ scaling statistic difference is below `4e-11`.
 These measurements are workload- and hardware-specific evidence, not a universal
 GPU speedup guarantee.
 
-## Canonical benchmark evidence boundary
+## Benchmark and historical-evidence retention boundary
 
-Historical Stage-C artifacts that are explicitly registered in
+Historical Stage-C artifacts explicitly registered in
 `dev/benchmarks/frontend_sources.json` remain immutable repository inputs and are
-not removed merely because later numerical sources exist. The manifest SHA256
-and parser/source identities are the authority for those canonical historical
-sources.
+protected by manifest SHA256 identities.
+
+The benchmark catalog also deliberately retains a small set of superseded,
+unregistered Stage-C measurements as historical audit evidence. The maintained
+`test_stage_c_superseded_artifacts_remain_historical` regression protects the
+`5ed763be`, `9c0b3050`, `aad53587`, and `c151550a` correctness/performance pairs.
+Those files therefore remain in the durable tree even though they are not
+canonical dashboard sources.
 
 The final `8c60db00` Fama-MacBeth/HAC physical artifacts are retained as direct
 PR acceptance evidence. They are intentionally not canonical dashboard sources
 unless a separate dated source-registration decision is made.
 
-Superseded, unregistered, undated intermediate physical artifacts are not part
-of the durable merge tree. Their history remains available through Git commits
+Pre-final Fama-MacBeth physical JSONs that are unregistered, undated, superseded
+by the exact-source `8c60db00` evidence, and not protected by an explicit
+repository retention contract were removed during final merge-tree cleanup.
+Duplicate `.log` copies of the registered PR126 final Stage-C JSON evidence were
+also removed; the JSON sources, environment metadata, and human-readable
+validation summary remain. Removed material remains recoverable from Git history
 and the PR timeline.
 
 ## Review-record policy

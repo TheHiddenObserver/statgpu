@@ -1,0 +1,1834 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-10T06:13:47.252297Z",
+  "git_sha": "c151550ab17bd9533a51599f86b6a4ea12a292e9",
+  "working_tree_clean": true,
+  "status": "success",
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "gpu": "Tesla P100-SXM2-16GB",
+    "packages": {
+      "statgpu": "0.2.4",
+      "numpy": "1.24.2",
+      "scipy": "1.10.1",
+      "cupy": null,
+      "torch": "2.0.0"
+    }
+  },
+  "tolerances": {
+    "rtol": 5e-06,
+    "atol": 5e-07
+  },
+  "dataset": {
+    "nobs": 74,
+    "n_entities": 10,
+    "n_times": 8,
+    "n_features": 2,
+    "unbalanced": true
+  },
+  "case_count_per_backend": 26,
+  "public_primitive_count_per_backend": 2,
+  "backends": {
+    "cupy": {
+      "status": "success",
+      "requested_backend": "cupy",
+      "cases": {
+        "pooled_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.469446951953614e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 3.729655473350135e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 3.2526065174565133e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3
+          }
+        },
+        "pooled_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-15,
+            "pvalues": 3.9898639947466563e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 2.303929616531697e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.014035716007961323,
+            "leverage_max": 0.23145706236692962
+          }
+        },
+        "pooled_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 3.9898639947466563e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.014035716007961323,
+            "leverage_max": 0.23145706236692962
+          }
+        },
+        "pooled_cluster_one_way": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 0.0,
+            "tvalues": 1.7763568394002505e-15,
+            "pvalues": 3.0531133177191805e-16,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 6.505213034913027e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 1,
+            "cluster_group_counts": [
+              10
+            ],
+            "group_debias": false,
+            "group_debias_factors": [
+              1.0
+            ]
+          }
+        },
+        "pooled_cluster_two_way_group_debias": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 2.0816681711721685e-17,
+            "tvalues": 2.4868995751603507e-14,
+            "pvalues": 3.0531133177191805e-16,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 1.734723475976807e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ]
+          }
+        },
+        "pooled_dk_bartlett": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.469446951953614e-18,
+            "tvalues": 2.842170943040401e-14,
+            "pvalues": 1.691355389077387e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605
+          }
+        },
+        "pooled_dk_qs": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 4.263256414560601e-14,
+            "pvalues": 6.938893903907228e-18,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "qs",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 7,
+            "all_observed_lags_weighted": true,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605
+          }
+        },
+        "pooled_legacy_hac": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 3.885780586188048e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.0658141036401503e-14,
+            "pvalues": 8.673617379884035e-18,
+            "conf_int": 3.885780586188048e-16,
+            "covariance": 2.0599841277224584e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.row_order_hac": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hac",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "row_order_hac": true
+          }
+        },
+        "panel_entity_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 1.734723475976807e-17,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 2.492586533261947e-65,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 9.75781955236954e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2
+          }
+        },
+        "panel_entity_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 2.0816681711721685e-17,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 4.861730685829017e-63,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.1926223897340549e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546323,
+            "leverage_max": 0.19529948562793317
+          }
+        },
+        "panel_entity_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 1.734723475976807e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 3.2235219139320714e-58,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 9.75781955236954e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546323,
+            "leverage_max": 0.19529948562793317
+          }
+        },
+        "panel_two_way_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 1.2234945877497233e-55,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 1.0842021724855044e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 3.410605131648481e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 5.421010862427522e-19,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.00046885308084601747,
+            "leverage_max": 0.15430313435907284
+          }
+        },
+        "panel_two_way_cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 2.7755575615628914e-17,
+            "tvalues": 1.0658141036401503e-14,
+            "pvalues": 1.40406782206742e-59,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 2.3852447794681098e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 3.410605131648481e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ]
+          }
+        },
+        "panel_two_way_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.5987211554602254e-14,
+            "pvalues": 3.3237964490925565e-67,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 5.963111948670274e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 3.410605131648481e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 17,
+            "design_rank": 2,
+            "design_columns": 2,
+            "rank_deficient_extension": false,
+            "df_scale": 1.3454545454545455
+          }
+        },
+        "random_effects_explicit_constant_robust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 4.5102810375396984e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 3.2526065174565133e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0422535211267605
+          }
+        },
+        "random_effects_explicit_constant_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-15,
+            "pvalues": 3.469446951953614e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 3.2526065174565133e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3
+          }
+        },
+        "random_effects_explicit_constant_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 6.938893903907228e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.01377346563636502,
+            "leverage_max": 0.23398280044939523
+          }
+        },
+        "random_effects_explicit_constant_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.469446951953614e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 7.112366251504909e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 3.2526065174565133e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.01377346563636502,
+            "leverage_max": 0.23398280044939523
+          }
+        },
+        "random_effects_cluster_two_way": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 2.7755575615628914e-17,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 1.3877787807814457e-16,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 5.204170427930421e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ]
+          }
+        },
+        "random_effects_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 2.0816681711721685e-17,
+            "tvalues": 8.526512829121202e-14,
+            "pvalues": 8.673617379884035e-19,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 1.3010426069826053e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "parzen",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605
+          }
+        },
+        "between_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 0.0,
+            "tvalues": 8.881784197001252e-16,
+            "pvalues": 9.71445146547012e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 6.938893903907228e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 3.552713678800501e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3
+          }
+        },
+        "first_difference_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 5.329070518200751e-15,
+            "pvalues": 2.895444548483232e-56,
+            "conf_int": 0.0,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2
+          }
+        },
+        "between_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 4.440892098500626e-16,
+            "pvalues": 2.220446049250313e-16,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 2.7755575615628914e-17,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 3.552713678800501e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 1.1102230246251565e-16
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631299,
+            "leverage_max": 0.49672782581248376
+          }
+        },
+        "first_difference_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 5.329070518200751e-15,
+            "pvalues": 2.251230041459491e-52,
+            "conf_int": 0.0,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143434,
+            "leverage_max": 0.20961579624221388
+          }
+        },
+        "between_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 8.326672684688674e-17,
+            "tvalues": 8.881784197001252e-16,
+            "pvalues": 2.498001805406602e-16,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 2.7755575615628914e-17,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 3.552713678800501e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 1.1102230246251565e-16
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631299,
+            "leverage_max": 0.49672782581248376
+          }
+        },
+        "first_difference_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 7.64410707086368e-49,
+            "conf_int": 0.0,
+            "covariance": 6.505213034913027e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143434,
+            "leverage_max": 0.20961579624221388
+          }
+        }
+      },
+      "public_primitives": {
+        "cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 8.673617379884035e-19
+        },
+        "driscoll_kraay_qs": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 4.336808689942018e-19
+        }
+      }
+    },
+    "torch": {
+      "status": "success",
+      "requested_backend": "torch",
+      "cases": {
+        "pooled_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.0658141036401503e-14,
+            "pvalues": 1.8214596497756474e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 8.673617379884035e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3
+          }
+        },
+        "pooled_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.4210854715202004e-14,
+            "pvalues": 1.1275702593849246e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 8.673617379884035e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.734723475976807e-18,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.014035716007961321,
+            "leverage_max": 0.23145706236692962
+          }
+        },
+        "pooled_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.4210854715202004e-14,
+            "pvalues": 1.0408340855860843e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.3010426069826053e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.734723475976807e-18,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.014035716007961321,
+            "leverage_max": 0.23145706236692962
+          }
+        },
+        "pooled_cluster_one_way": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 5.329070518200751e-15,
+            "pvalues": 2.309983271142056e-56,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.734723475976807e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 1,
+            "cluster_group_counts": [
+              10
+            ],
+            "group_debias": false,
+            "group_debias_factors": [
+              1.0
+            ]
+          }
+        },
+        "pooled_cluster_two_way_group_debias": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 5.204170427930421e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 5.551115123125783e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 2.6020852139652106e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ]
+          }
+        },
+        "pooled_dk_bartlett": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 3.8163916471489756e-17,
+            "tvalues": 2.7000623958883807e-13,
+            "pvalues": 5.919157109996828e-61,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.599198204416119e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605
+          }
+        },
+        "pooled_dk_qs": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 4.163336342344337e-17,
+            "tvalues": 2.984279490192421e-13,
+            "pvalues": 5.204170427930421e-18,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.6805133673525319e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "qs",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 7,
+            "all_observed_lags_weighted": true,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605
+          }
+        },
+        "pooled_legacy_hac": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 3.885780586188048e-16,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 6.678685382510707e-17,
+            "conf_int": 3.885780586188048e-16,
+            "covariance": 1.9244588561617704e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.row_order_hac": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hac",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "row_order_hac": true
+          }
+        },
+        "panel_entity_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.734723475976807e-17,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 2.492586533261947e-65,
+            "conf_int": 2.7755575615628914e-16,
+            "covariance": 8.673617379884035e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2
+          }
+        },
+        "panel_entity_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 1.0658141036401503e-14,
+            "pvalues": 8.234556349122897e-62,
+            "conf_int": 2.7755575615628914e-16,
+            "covariance": 6.505213034913027e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.2526065174565133e-19,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546327,
+            "leverage_max": 0.1952994856279332
+          }
+        },
+        "panel_entity_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 2.42861286636753e-17,
+            "tvalues": 1.4210854715202004e-14,
+            "pvalues": 6.098554972303919e-58,
+            "conf_int": 2.7755575615628914e-16,
+            "covariance": 1.0842021724855044e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.2526065174565133e-19,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546327,
+            "leverage_max": 0.1952994856279332
+          }
+        },
+        "panel_two_way_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 1.2234945877497233e-55,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 1.0842021724855044e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 3.410605131648481e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 6.505213034913027e-19,
+            "covariance_metadata.leverage_max": 5.551115123125783e-17
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.00046885308084601736,
+            "leverage_max": 0.1543031343590728
+          }
+        },
+        "panel_two_way_cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 4.163336342344337e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 1.40406782206742e-59,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 3.469446951953614e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.7053025658242404e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ]
+          }
+        },
+        "panel_two_way_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.5987211554602254e-14,
+            "pvalues": 3.3237964490925565e-67,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 7.047314121155779e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 3.410605131648481e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 17,
+            "design_rank": 2,
+            "design_columns": 2,
+            "rank_deficient_extension": false,
+            "df_scale": 1.3454545454545455
+          }
+        },
+        "random_effects_explicit_constant_robust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 2.42861286636753e-17,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 6.505213034913027e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0422535211267605
+          }
+        },
+        "random_effects_explicit_constant_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 2.949029909160572e-17,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 6.505213034913027e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3
+          }
+        },
+        "random_effects_explicit_constant_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 2.7755575615628914e-17,
+            "tvalues": 2.842170943040401e-14,
+            "pvalues": 1.0408340855860843e-17,
+            "conf_int": 5.551115123125783e-16,
+            "covariance": 1.951563910473908e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.469446951953614e-18,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.013773465636365017,
+            "leverage_max": 0.23398280044939523
+          }
+        },
+        "random_effects_explicit_constant_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 3.469446951953614e-18,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 1.3010426069826053e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.469446951953614e-18,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.013773465636365017,
+            "leverage_max": 0.23398280044939523
+          }
+        },
+        "random_effects_cluster_two_way": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 1.942890293094024e-16,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 7.806255641895632e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ]
+          }
+        },
+        "random_effects_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 4.163336342344337e-17,
+            "tvalues": 1.5631940186722204e-13,
+            "pvalues": 3.209238430557093e-17,
+            "conf_int": 5.551115123125783e-16,
+            "covariance": 2.6020852139652106e-18,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "parzen",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605
+          }
+        },
+        "between_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 4.440892098500626e-16,
+            "pvalues": 3.3306690738754696e-16,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 3.469446951953614e-17,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.329070518200751e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3
+          }
+        },
+        "first_difference_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 2.895444548483232e-56,
+            "conf_int": 0.0,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2
+          }
+        },
+        "between_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 4.440892098500626e-16,
+            "pvalues": 1.1102230246251565e-16,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 2.7755575615628914e-17,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.329070518200751e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.3877787807814457e-17,
+            "covariance_metadata.leverage_max": 5.551115123125783e-17
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631298,
+            "leverage_max": 0.4967278258124837
+          }
+        },
+        "first_difference_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 5.329070518200751e-15,
+            "pvalues": 2.251230041459491e-52,
+            "conf_int": 0.0,
+            "covariance": 4.336808689942018e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.0842021724855044e-19,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143433,
+            "leverage_max": 0.20961579624221388
+          }
+        },
+        "between_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.220446049250313e-16,
+            "bse": 1.1102230246251565e-16,
+            "tvalues": 4.440892098500626e-16,
+            "pvalues": 1.6653345369377348e-16,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 5.551115123125783e-17,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.329070518200751e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.3877787807814457e-17,
+            "covariance_metadata.leverage_max": 5.551115123125783e-17
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631298,
+            "leverage_max": 0.4967278258124837
+          }
+        },
+        "first_difference_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 7.64410707086368e-49,
+            "conf_int": 0.0,
+            "covariance": 6.505213034913027e-19,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.0842021724855044e-19,
+            "covariance_metadata.leverage_max": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143433,
+            "leverage_max": 0.20961579624221388
+          }
+        }
+      },
+      "public_primitives": {
+        "cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 8.673617379884035e-19
+        },
+        "driscoll_kraay_qs": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 4.336808689942018e-19
+        }
+      }
+    }
+  }
+}
