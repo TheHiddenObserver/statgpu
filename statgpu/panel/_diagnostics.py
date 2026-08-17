@@ -99,6 +99,28 @@ def _safe_r2(ss_res: float, ss_tot: float) -> Tuple[float, bool]:
     return 1.0 - ss_res / ss_tot, False
 
 
+def _scaled_residual_r2(resid, centered, xp) -> Tuple[float, bool]:
+    """Return R² from a common scale without overflow in squared reductions."""
+    resid_scale = xp.max(xp.abs(resid))
+    centered_scale = xp.max(xp.abs(centered))
+    scale = xp.maximum(resid_scale, centered_scale)
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0, True
+    resid_scaled = resid / scale
+    centered_scaled = centered / scale
+    ss_res = _to_float_scalar(xp.sum(resid_scaled * resid_scaled))
+    ss_tot = _to_float_scalar(xp.sum(centered_scaled * centered_scaled))
+    return _safe_r2(ss_res, ss_tot)
+
+
+def _scaled_mean(values, xp):
+    """Return a backend-native mean without overflowing the raw sum."""
+    scale = xp.max(xp.abs(values))
+    safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
+    return xp.mean(values / safe_scale) * safe_scale
+
+
 def _demean_matrix(X, entity_codes, xp):
     out = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
     for j in range(int(X.shape[1])):
@@ -130,10 +152,8 @@ def _parameter_r2_components(
     """
     params = params.ravel()
     overall_resid = y - X @ params
-    overall_center = y - xp.mean(y) if has_constant else y
-    overall_ss_res = _to_float_scalar(xp.sum(overall_resid * overall_resid))
-    overall_ss_tot = _to_float_scalar(xp.sum(overall_center * overall_center))
-    overall, deg_o = _safe_r2(overall_ss_res, overall_ss_tot)
+    overall_center = y - _scaled_mean(y, xp) if has_constant else y
+    overall, deg_o = _scaled_residual_r2(overall_resid, overall_center, xp)
 
     if entity_codes is None:
         return None, None, overall, {
@@ -150,17 +170,15 @@ def _parameter_r2_components(
     y_between = y_mean_aligned[first]
     X_between = X_mean_aligned[first]
     between_resid = y_between - X_between @ params
-    between_center = y_between - xp.mean(y_between) if has_constant else y_between
-    between_ss_res = _to_float_scalar(xp.sum(between_resid * between_resid))
-    between_ss_tot = _to_float_scalar(xp.sum(between_center * between_center))
-    between, deg_b = _safe_r2(between_ss_res, between_ss_tot)
+    between_center = (
+        y_between - _scaled_mean(y_between, xp) if has_constant else y_between
+    )
+    between, deg_b = _scaled_residual_r2(between_resid, between_center, xp)
 
     y_within = y - y_mean_aligned
     X_within = _demean_matrix(X, entity_codes, xp)
     within_resid = y_within - X_within @ params
-    within_ss_res = _to_float_scalar(xp.sum(within_resid * within_resid))
-    within_ss_tot = _to_float_scalar(xp.sum(y_within * y_within))
-    within, deg_w = _safe_r2(within_ss_res, within_ss_tot)
+    within, deg_w = _scaled_residual_r2(within_resid, y_within, xp)
 
     return within, between, overall, {
         "within": deg_w,

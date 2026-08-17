@@ -488,6 +488,83 @@ def _explicit_device_cross_container_case(backend: str):
     }
 
 
+def _numeric_stability_case(backend: str):
+    x_period = np.asarray([-1.0, 0.0, 1.0])
+    n_periods = 4
+    X = np.tile(x_period, n_periods)[:, None]
+    y = np.full(X.shape[0], 6.0e307, dtype=np.float64)
+    time_ids = np.repeat(np.arange(n_periods), x_period.size)
+
+    reference = FamaMacBeth(bandwidth=0, device="cpu").fit(
+        X, y, time_ids=time_ids
+    )
+    Xb, yb = _arrays(X, y, backend)
+    actual = FamaMacBeth(bandwidth=0, device=_device(backend)).fit(
+        Xb, yb, time_ids=time_ids
+    )
+    if actual._backend_name != backend:
+        raise AssertionError(
+            f"numeric stability case requested {backend}, executed {actual._backend_name}"
+        )
+    if int(actual._period_svd_fallbacks) != n_periods:
+        raise AssertionError(
+            "non-finite Gram RHS must force every retained period to SVD fallback: "
+            f"fallbacks={actual._period_svd_fallbacks}, periods={n_periods}"
+        )
+    for label, value in (
+        ("betas", actual.betas_),
+        ("coef", actual.coef_),
+        ("cov_params", actual.cov_params_),
+    ):
+        if not np.all(np.isfinite(_public_array(value))):
+            raise AssertionError(f"numeric stability {label} contains non-finite values")
+    np.testing.assert_allclose(
+        _public_array(actual.betas_)[:, 0],
+        _public_array(reference.betas_)[:, 0],
+        rtol=5e-13,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        _public_array(actual.coef_)[0],
+        _public_array(reference.coef_)[0],
+        rtol=5e-13,
+        atol=0.0,
+    )
+
+    # Separately exercise the scaled coefficient covariance at a magnitude
+    # where naive beta' beta overflows but the final covariance is representable.
+    slopes = np.asarray([-1.0e154, 0.0, 1.0e154])
+    X_cov = np.tile(x_period, slopes.size)[:, None]
+    y_cov = np.concatenate([slope * x_period for slope in slopes])
+    time_cov = np.repeat(np.arange(slopes.size), x_period.size)
+    ref_cov = FamaMacBeth(bandwidth=0, device="cpu").fit(
+        X_cov, y_cov, time_ids=time_cov
+    )
+    X_cov_b, y_cov_b = _arrays(X_cov, y_cov, backend)
+    actual_cov = FamaMacBeth(bandwidth=0, device=_device(backend)).fit(
+        X_cov_b, y_cov_b, time_ids=time_cov
+    )
+    if not np.all(np.isfinite(_public_array(actual_cov.cov_params_))):
+        raise AssertionError("scaled coefficient covariance is non-finite")
+    np.testing.assert_allclose(
+        _public_array(actual_cov.cov_params_),
+        _public_array(ref_cov.cov_params_),
+        rtol=2e-11,
+        atol=0.0,
+    )
+    return {
+        "status": "success",
+        "executed_backend": actual._backend_name,
+        "inference_backend": actual._inference_backend_name,
+        "gram_rhs_overflow_svd_fallbacks": int(actual._period_svd_fallbacks),
+        "n_periods": n_periods,
+        "common_intercept": float(_public_array(actual.coef_)[0]),
+        "scaled_covariance_slope_variance": float(
+            _public_array(actual_cov.cov_params_)[1, 1]
+        ),
+    }
+
+
 def _square_rank_rejection(backend: str):
     X, y, time_ids, _expected_betas = _exact_period_fixture()
     mask = time_ids == 0
@@ -705,6 +782,7 @@ def main():
             "rank_deficient_retained_period_rejected": _rank_rejection(backend),
             "exactly_identified_full_rank_period": _exact_period_case(backend),
             "explicit_device_overrides_foreign_input_container": _explicit_device_cross_container_case(backend),
+            "numeric_stability_and_gram_fallback": _numeric_stability_case(backend),
             "square_rank_deficient_retained_period_rejected": _square_rank_rejection(backend),
             "no_intercept_formula_rejections": _no_intercept_rejections(backend),
             "performance": _timing_case(backend, args.warmup, args.repeats),

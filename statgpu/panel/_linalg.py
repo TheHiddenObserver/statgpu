@@ -159,6 +159,12 @@ def panel_lstsq_gram_certified_batched(
     gram = xp.matmul(transpose, X)
     rhs_input = y[..., None] if getattr(y, "ndim", None) == 2 else y
     rhs = xp.matmul(transpose, rhs_input)
+    rhs_finite_view = xp.isfinite(rhs).reshape(int(rhs.shape[0]), -1)
+    rhs_finite = (
+        xp.all(rhs_finite_view, dim=1)
+        if namespace == "torch"
+        else xp.all(rhs_finite_view, axis=1)
+    )
 
     eigenvalues = xp.linalg.eigvalsh(gram)
     smallest = eigenvalues[..., 0]
@@ -168,6 +174,7 @@ def panel_lstsq_gram_certified_batched(
         & xp.isfinite(largest)
         & (largest > 0.0)
         & (smallest > largest * ratio)
+        & rhs_finite
     )
 
     k = int(X.shape[-1])
@@ -183,6 +190,14 @@ def panel_lstsq_gram_certified_batched(
         certified = certified & (info == 0)
     else:
         params = xp.linalg.solve(safe_gram, safe_rhs)
+
+    params_finite_view = xp.isfinite(params).reshape(int(params.shape[0]), -1)
+    params_finite = (
+        xp.all(params_finite_view, dim=1)
+        if namespace == "torch"
+        else xp.all(params_finite_view, axis=1)
+    )
+    certified = certified & params_finite
 
     if getattr(y, "ndim", None) == 2:
         params = params[..., 0]

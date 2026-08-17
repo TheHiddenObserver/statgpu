@@ -194,3 +194,5 @@ p-value 与 critical value 通过所选 inference backend 计算，不再把 sta
 
 - Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium: Empirical tests. *Journal of Political Economy*, 81(3), 607-636. [https://doi.org/10.1086/260061](https://doi.org/10.1086/260061)
 - Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708. [https://doi.org/10.2307/1913610](https://doi.org/10.2307/1913610)
+
+数值安全性：经认证的 Gram 快速路径若发现批量右端项或求解结果为非有限值，会将对应时期转入秩揭示 SVD 回退路径。时期系数均值与协方差采用缩放后的归约以避免可避免的 float64 溢出；若最终协方差本身仍为非有限值或出现负的对角方差，则推断会直接报错，而不会发布截断后或非有限的标准误。

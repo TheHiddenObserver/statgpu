@@ -182,3 +182,88 @@ def test_exact_t2_tail_remains_nonzero_for_extreme_torch_statistic():
     np.testing.assert_allclose(observed, expected, rtol=2e-15, atol=0.0)
     assert torch.is_tensor(critical)
     assert critical.device.type == "cpu"
+
+
+
+def _large_common_intercept_fixture(n_periods=4):
+    x_period = np.asarray([-1.0, 0.0, 1.0])
+    X = np.tile(x_period, n_periods)[:, None]
+    y = np.full(X.shape[0], 6.0e307, dtype=np.float64)
+    time_ids = np.repeat(np.arange(n_periods), x_period.size)
+    return X, y, time_ids
+
+
+def test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_back():
+    torch = pytest.importorskip("torch")
+    X, y, time_ids = _large_common_intercept_fixture()
+    expected = FamaMacBeth(bandwidth=0, device="cpu").fit(
+        X, y, time_ids=time_ids
+    )
+    actual = FamaMacBeth(bandwidth=0).fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(time_ids, dtype=torch.int64),
+    )
+
+    # X' y overflows in the Gram fast path even though the SVD projection and
+    # the true period coefficients are finite. Every period must therefore be
+    # routed to the rank-revealing fallback rather than certified with Inf beta.
+    assert actual._backend_name == "torch"
+    assert actual._period_svd_fallbacks == actual.n_periods == 4
+    assert np.all(np.isfinite(_to_numpy(actual.betas_)))
+    assert np.all(np.isfinite(_to_numpy(actual.coef_)))
+    assert np.all(np.isfinite(_to_numpy(actual.cov_params_)))
+    assert actual.fit_statistics_.rsquared_overall == 0.0
+    assert actual.fit_statistics_.metadata["degenerate_total_ss"]["overall"] is True
+    np.testing.assert_allclose(
+        _to_numpy(actual.betas_)[:, 0],
+        np.asarray(expected.betas_)[:, 0],
+        rtol=5e-14,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        _to_numpy(actual.coef_)[0],
+        np.asarray(expected.coef_)[0],
+        rtol=5e-14,
+        atol=0.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "cov_type,expected_slope_variance",
+    [
+        ("newey-west", (2.0 / 9.0) * 1.0e308),
+        ("nonrobust", (1.0 / 3.0) * 1.0e308),
+    ],
+)
+def test_fama_macbeth_scaled_coefficient_covariance_avoids_representable_overflow(
+    cov_type, expected_slope_variance
+):
+    x_period = np.asarray([-1.0, 0.0, 1.0])
+    slopes = np.asarray([-1.0e154, 0.0, 1.0e154])
+    X = np.tile(x_period, slopes.size)[:, None]
+    y = np.concatenate([slope * x_period for slope in slopes])
+    time_ids = np.repeat(np.arange(slopes.size), x_period.size)
+
+    model = FamaMacBeth(cov_type=cov_type, bandwidth=0, device="cpu").fit(
+        X, y, time_ids=time_ids
+    )
+    cov = np.asarray(model.cov_params_)
+    assert np.all(np.isfinite(cov))
+    np.testing.assert_allclose(
+        cov[1, 1], expected_slope_variance, rtol=5e-13, atol=0.0
+    )
+
+
+def test_fama_macbeth_unrepresentable_coefficient_covariance_fails_closed():
+    x_period = np.asarray([-1.0, 0.0, 1.0])
+    slopes = np.asarray([-1.0e155, 0.0, 1.0e155])
+    X = np.tile(x_period, slopes.size)[:, None]
+    y = np.concatenate([slope * x_period for slope in slopes])
+    time_ids = np.repeat(np.arange(slopes.size), x_period.size)
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="covariance contains non-finite values"):
+            FamaMacBeth(bandwidth=0, device="cpu").fit(
+                X, y, time_ids=time_ids
+            )

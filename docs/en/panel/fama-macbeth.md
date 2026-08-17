@@ -194,3 +194,5 @@ GPU consistency for the standard full-rank numeric-time `fama_macbeth_newey_west
 
 - Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium: Empirical tests. *Journal of Political Economy*, 81(3), 607-636. [https://doi.org/10.1086/260061](https://doi.org/10.1086/260061)
 - Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708. [https://doi.org/10.2307/1913610](https://doi.org/10.2307/1913610)
+
+Numerical safety: the certified Gram fast path treats a non-finite batched right-hand side or solution as unsafe and routes that period through the rank-revealing SVD fallback. The period-coefficient mean and covariance use scaled reductions to avoid avoidable float64 overflow; if the final covariance itself is non-finite or has a negative diagonal variance, inference fails closed instead of publishing clipped or non-finite standard errors.

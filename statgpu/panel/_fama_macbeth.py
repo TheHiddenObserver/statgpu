@@ -475,26 +475,77 @@ class FamaMacBeth(BasePanelModel):
         if T < 2:
             raise ValueError("FamaMacBeth requires at least 2 time periods after filtering")
 
-        avg_beta = xp.mean(betas, axis=0)
+        # Scale before averaging so a finite common coefficient level does not
+        # overflow merely because the raw reduction sums T copies first.
+        if xp.__name__ == "torch":
+            beta_scale = xp.max(xp.abs(betas), dim=0).values
+        else:
+            beta_scale = xp.max(xp.abs(betas), axis=0)
+        safe_beta_scale = xp.where(
+            beta_scale > 0.0, beta_scale, xp.ones_like(beta_scale)
+        )
+        avg_beta = xp.mean(betas / safe_beta_scale, axis=0) * safe_beta_scale
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(avg_beta)))):
+            raise ValueError(
+                "FamaMacBeth average coefficient is non-finite; the retained-period "
+                "coefficient scale exceeds float64 numerical range"
+            )
+
         beta_centered = betas - avg_beta
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(beta_centered)))):
+            raise ValueError(
+                "FamaMacBeth centered period coefficients are non-finite; covariance "
+                "cannot be represented reliably in float64"
+            )
+        centered_scale = xp.max(xp.abs(beta_centered))
+        safe_centered_scale = xp.where(
+            centered_scale > 0.0,
+            centered_scale,
+            xp.ones_like(centered_scale),
+        )
+        beta_centered_scaled = beta_centered / safe_centered_scale
+
         effective_bandwidth = None
         if self._cov_type == "nonrobust":
-            covariance = (beta_centered.T @ beta_centered) / float(T - 1)
-            cov_params = covariance / float(T)
+            cov_scaled = (
+                beta_centered_scaled.T @ beta_centered_scaled
+            ) / float(T * (T - 1))
         else:
             bandwidth = self.bandwidth
             if bandwidth is None:
                 bandwidth = int(np.floor(4.0 * (T / 100.0) ** (2.0 / 9.0)))
             bandwidth = max(0, min(int(bandwidth), T - 1))
             effective_bandwidth = bandwidth
-            long_run = beta_centered.T @ beta_centered / float(T)
+            cov_scaled = (
+                beta_centered_scaled.T @ beta_centered_scaled
+            ) / float(T * T)
             for lag in range(1, bandwidth + 1):
                 weight = 1.0 - lag / float(bandwidth + 1)
-                gamma_lag = beta_centered[lag:].T @ beta_centered[:-lag] / float(T)
-                long_run = long_run + weight * (gamma_lag + gamma_lag.T)
-            cov_params = long_run / float(T)
+                gamma_lag = (
+                    beta_centered_scaled[lag:].T
+                    @ beta_centered_scaled[:-lag]
+                ) / float(T * T)
+                cov_scaled = cov_scaled + weight * (gamma_lag + gamma_lag.T)
+
+        # Multiplying by the common scale one factor at a time avoids the
+        # avoidable overflow of forming scale**2 before the normalized
+        # covariance has reduced the magnitude. If the final covariance itself
+        # is outside float64 range, fail closed below rather than publishing
+        # Inf/NaN inference.
+        cov_params = (cov_scaled * safe_centered_scale) * safe_centered_scale
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(cov_params)))):
+            raise ValueError(
+                "FamaMacBeth covariance contains non-finite values; inference is "
+                "not numerically representable in float64"
+            )
 
         diagonal = xp.diag(cov_params)
+        diagonal_min = _to_float_scalar(xp.min(diagonal))
+        if diagonal_min < 0.0:
+            raise ValueError(
+                "FamaMacBeth covariance has negative diagonal variance; inference "
+                "is not numerically valid"
+            )
         bse = xp.sqrt(xp.maximum(diagonal, xp.zeros_like(diagonal)))
         tvalues = avg_beta / bse
         df = T - 1
