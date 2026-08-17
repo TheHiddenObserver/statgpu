@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure Fama-MacBeth NumPy/GPU crossover across panel scales.
 
-This is performance evidence, not a correctness acceptance replacement.  The
+This is performance evidence, not a correctness acceptance replacement. The
 historical 64x128x4 fixture is retained as the micro/launch-overhead regime and
 larger balanced panels show whether backend-specific period scheduling reaches
 a useful GPU crossover on resident device arrays.
@@ -84,6 +84,7 @@ def _solver_provenance(model):
         "solver_mode": model._period_solver_mode,
         "solver_batches": int(model._period_solver_batches),
         "rank_syncs": int(model._period_rank_syncs),
+        "svd_fallbacks": int(getattr(model, "_period_svd_fallbacks", 0)),
     }
 
 
@@ -162,7 +163,7 @@ def main():
         for name, spec in FIXTURES.items()
     }
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "git_sha": sha,
         "status": "success",
         "environment": _environment(backends),
@@ -186,6 +187,11 @@ def main():
         "interpretation": (
             "backend_over_numpy_median_ratio < 1 (speedup_over_numpy > 1) means "
             "the GPU backend is faster than the serial NumPy reference on that scale"
+        ),
+        "solver_interpretation": (
+            "GPU solver_mode=gram-certified means every retained period passed the "
+            "conservative Gram-spectrum certificate and svd_fallbacks=0; any uncertified "
+            "period must fall back to the maintained SVD rank policy"
         ),
         "fixtures": cases,
     }
