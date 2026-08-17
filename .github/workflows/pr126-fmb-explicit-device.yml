@@ -22,7 +22,18 @@ jobs:
         with:
           python-version: '3.11'
       - name: Apply review fix
-        run: python dev/validation/pr126_fmb_explicit_device_once.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('docs/cn/panel/fama-macbeth.md')
+          text = p.read_text(encoding='utf-8')
+          actual = '若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。'
+          expected = '如果显式请求的 GPU 后端不可用，`.fit()` 会报错，而不会切换到 CPU。'
+          if actual not in text:
+              raise RuntimeError('Chinese staging anchor not found')
+          p.write_text(text.replace(actual, expected, 1), encoding='utf-8')
+          PY
+          python dev/validation/pr126_fmb_explicit_device_once.py
       - name: Install maintained CPU/Torch environment
         run: |
           python -m pip install --upgrade pip
