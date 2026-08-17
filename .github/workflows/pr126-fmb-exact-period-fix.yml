@@ -48,3 +48,5 @@ jobs:
           git add -A
           git commit -m "fix: retain exactly identified Fama-MacBeth periods"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
+
+# rerun after staging-anchor correction
