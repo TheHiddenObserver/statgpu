@@ -459,13 +459,24 @@ def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept)
     """
     if design_info is not None and hasattr(X, 'columns'):
         import patsy
+
+        expected_rows = int(len(X))
         X_arr = patsy.build_design_matrices([design_info], X)[0]
+        if int(X_arr.shape[0]) != expected_rows:
+            raise ValueError(
+                "formula prediction must preserve one output row per input row; "
+                "missing or invalid modeled values caused Patsy to drop rows"
+            )
 
         # Always strip intercept if formula had one — it was stripped during fit
         col_names = list(design_info.column_names)
         if formula_has_intercept and "Intercept" in col_names:
             intercept_idx = col_names.index("Intercept")
             X_arr = np.delete(X_arr, intercept_idx, axis=1)
+
+        from statgpu.backends._validation import check_finite
+
+        check_finite(np.asarray(X_arr), name="formula prediction design")
     else:
         # Preserve NumPy/CuPy/Torch input. The estimator performs
         # backend-aware dtype/device conversion downstream.

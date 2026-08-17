@@ -544,6 +544,28 @@ class TestFamaMacBethFormula:
 
 class TestFormulaEdgeCases:
 
+    def test_formula_prediction_rejects_rows_dropped_by_patsy(self, panel_df):
+        model = PooledOLS().fit(formula="y ~ x1 + x2", data=panel_df)
+        prediction_data = panel_df.copy()
+        prediction_data.loc[prediction_data.index[7], "x1"] = np.nan
+        with pytest.raises(
+            ValueError,
+            match=r"preserve one output row per input row",
+        ):
+            model.predict(prediction_data)
+
+    def test_formula_prediction_rejects_nonfinite_transformed_design(self, panel_df):
+        data = panel_df.copy()
+        data["z"] = np.linspace(1.0, 2.0, len(data))
+        model = PooledOLS().fit(formula="y ~ I(1 / z)", data=data)
+        prediction_data = data.copy()
+        prediction_data.loc[prediction_data.index[3], "z"] = 0.0
+        with pytest.raises(
+            ValueError,
+            match=r"formula prediction design must contain only finite values",
+        ):
+            model.predict(prediction_data)
+
     def test_formula_without_data_raises(self):
         m = PooledOLS()
         with pytest.raises(ValueError, match="data is None"):

@@ -23,4 +23,4 @@
 
 六类 estimator 都可通过 `device` 使用 NumPy CPU、CuPy CUDA 或 Torch CUDA。每个模型页面都给出了 CPU/GPU 与 formula 示例。若显式指定 `device="cuda"` 或 `device="torch"`，但对应 backend 不可用，statgpu 会直接报错，而不是静默切换到 CPU。
 
-Panel 的 `fit()` 采用事务式生命周期。每次新的拟合尝试都会先失效上一轮 fitted/inference state；如果新拟合在任何阶段抛出异常，已经部分写入的新结果也会被清除后再重新抛出该异常。因此 failed refit 之后，`predict()` 与 `summary()` 会把 estimator 视为未拟合状态，而不会继续暴露上一份数据的 coefficient/inference，也不会暴露本次未完成拟合留下的中间结果。
+Panel 的 `fit()` 采用事务式生命周期。每次新的拟合尝试都会先失效上一轮 fitted/inference state；如果新拟合在任何阶段抛出异常，已经部分写入的新结果也会被清除后再重新抛出该异常。因此 failed refit 之后，`predict()` 与 `summary()` 会把 estimator 视为未拟合状态，而不会继续暴露上一份数据的 coefficient/inference，也不会暴露本次未完成拟合留下的中间结果。formula-based prediction 同样要求 row-preserving：如果 modeled value 缺失会导致 Patsy 删除 prediction row，或者 formula transformation 生成 NaN/Inf，prediction 会明确报错，而不会返回更短或非有限的结果。
