@@ -95,7 +95,7 @@ def test_gram_certificate_defers_both_sides_of_svd_rank_boundary():
     _params, certified = panel_lstsq_gram_certified_batched(X, y, np)
     serial_ranks = [panel_lstsq(X[i], y[i], np)[1] for i in range(2)]
 
-    # One matrix is below and one is just above the maintained SVD cutoff.  Both
+    # One matrix is below and one is just above the maintained SVD cutoff. Both
     # must remain outside the normal-equation fast path so the SVD remains the
     # authority for the rank decision on either side of that boundary.
     assert serial_ranks == [2, 3]
@@ -207,7 +207,7 @@ def test_certified_path_rank_rejection_reports_earliest_chronological_period():
         )
 
 
-def test_balanced_torch_reporting_uses_one_certificate_snapshot_and_one_reporting_snapshot(
+def test_balanced_torch_reporting_uses_one_control_snapshot_and_one_reporting_snapshot(
     monkeypatch,
 ):
     torch = pytest.importorskip("torch")
@@ -296,5 +296,6 @@ def test_optimized_wrapper_rewrites_backend_specific_solver_notes(monkeypatch):
         notes = performance["optimization_notes"]
         assert "Gram" in notes["period_solver"]
         assert "SVD" in notes["rank_cutoff"]
+        assert "control_syncs" in notes["control_synchronization"]
         assert "scaling runner" in notes["remaining_structure"]
         assert "NumPy/SciPy" in notes["distribution_inference"]
