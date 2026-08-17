@@ -158,6 +158,8 @@ model = FamaMacBeth().fit(
 
 过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。GPU 上的 Gram certificate 被刻意放在远离 numerical rank boundary 的区域，它只决定 coefficient solve 是否可以使用 fast path；uncertified periods 继续采用原有 SVD cutoff 与 fail-closed 语义。所有路径都保持 `betas_` chronology；若多个时期 rank deficient，公开错误仍定位 chronology 上最早的 deficient retained period。
 
+这一数值路径采用 fail-closed 语义。若批量 Gram 右端项或候选解出现非有限值，该时期会被视为 uncertified，并转入秩揭示 SVD 回退。时期系数均值与协方差使用缩放后的归约，避免有限且可表示的结果因为 float64 中间量的可避免溢出而丢失；若最终协方差本身仍为非有限值或出现负的对角方差，则 inference 会直接报错，而不会发布截断后或非有限的标准误。parameter-based overall、within 与 between $R^2$ 也采用同样的 scale-invariant 原则；提供 `entity_ids` 时，entity group mean 同样先缩放后聚合，从而避免有限的大量级 panel 把公开 fit statistics 变成由溢出造成的 `NaN`。
+
 维护中的 physical scaling matrix 保留三个 resident-array workload：micro（64×128×4；8,192 rows）、medium（128×1,024×8；131,072 rows）以及 large（128×4,096×16；524,288 rows）。在 numerical source `8c60db00f5ea986aed96b1f1dce3f5c3b4f0bcd4` 上的 fresh Tesla P100 evidence 中，CuPy/Torch 的 GPU-over-NumPy median-time ratio 分别为：micro **0.549/0.343**、medium **0.204/0.168**、large **0.114/0.109**，对应约 1.82×/2.92×、4.91×/5.97× 和 8.75×/9.16× speedup。所有 GPU backend × scale case 都是一个 `gram-certified` exact-size batch、一次 control synchronization、零 SVD fallback。这些结果说明维护中的 P100 resident-array protocol 已经在三个 scale 上全部 crossover；它们并不是对所有硬件与数据搬运场景的普遍性能承诺。
 
 `dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py` 记录同步后的 NumPy/CuPy/Torch median time、rows/sec、GPU/NumPy ratio、speedup、solver provenance、numerical parity、backend version 和 thread-environment provenance。GPU input array 在 warmup/timing 之前已经转移到 device，因此 benchmark 测量的是 resident-array `fit()` 性能，并明确**不包含** host-to-device input-transfer time。accepted P100 scaling artifact 的数值差异仍然很小：coefficient/beta/prediction 接近 machine precision，最大的 statistic difference 低于 $4\times10^{-11}$。
@@ -194,5 +196,3 @@ p-value 与 critical value 通过所选 inference backend 计算，不再把 sta
 
 - Fama, E. F., & MacBeth, J. D. (1973). Risk, return, and equilibrium: Empirical tests. *Journal of Political Economy*, 81(3), 607-636. [https://doi.org/10.1086/260061](https://doi.org/10.1086/260061)
 - Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708. [https://doi.org/10.2307/1913610](https://doi.org/10.2307/1913610)
-
-数值安全性：经认证的 Gram 快速路径若发现批量右端项或求解结果为非有限值，会将对应时期转入秩揭示 SVD 回退路径。时期系数均值与协方差采用缩放后的归约以避免可避免的 float64 溢出；若最终协方差本身仍为非有限值或出现负的对角方差，则推断会直接报错，而不会发布截断后或非有限的标准误。
