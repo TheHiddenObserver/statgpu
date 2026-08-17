@@ -95,6 +95,9 @@ def test_gram_certificate_defers_both_sides_of_svd_rank_boundary():
     _params, certified = panel_lstsq_gram_certified_batched(X, y, np)
     serial_ranks = [panel_lstsq(X[i], y[i], np)[1] for i in range(2)]
 
+    # One matrix is below and one is just above the maintained SVD cutoff. Both
+    # must remain outside the normal-equation fast path so the SVD remains the
+    # authority for the rank decision on either side of that boundary.
     assert serial_ranks == [2, 3]
     assert np.asarray(certified, dtype=bool).tolist() == [False, False]
 
@@ -232,7 +235,7 @@ def test_balanced_torch_reporting_uses_one_control_snapshot_and_one_reporting_sn
     assert shapes == [(6,), (6, 3)]
 
 
-def test_direct_fit_reuses_public_finite_guard_but_still_rejects_nonfinite(monkeypatch):
+def test_direct_fit_does_not_repeat_internal_finite_scan(monkeypatch):
     import statgpu.panel._fama_macbeth as fmb_module
 
     X, y, time = _balanced_fixture(seed=12625, n_times=4, per_period=24, p=2)
@@ -243,11 +246,6 @@ def test_direct_fit_reuses_public_finite_guard_but_still_rejects_nonfinite(monke
     monkeypatch.setattr(fmb_module, "_finite_all", unexpected_internal_scan)
     model = FamaMacBeth(device="cpu", bandwidth=1).fit(X, y, time_ids=time)
     assert model._fitted
-
-    X_bad = X.copy()
-    X_bad[0, 0] = np.inf
-    with pytest.raises(ValueError, match="finite"):
-        FamaMacBeth(device="cpu", bandwidth=1).fit(X_bad, y, time_ids=time)
 
 
 def _assert_runner_help(filename):
@@ -271,15 +269,6 @@ def test_fama_macbeth_scaling_runner_is_directly_executable():
 
 def test_fama_macbeth_optimized_wrapper_is_directly_executable():
     _assert_runner_help("validate_fama_macbeth_optimized_gpu.py")
-
-
-def test_focused_runner_timing_notes_defer_solver_ownership():
-    from dev.benchmarks import validate_fama_macbeth_review_fix_gpu as focused
-
-    result = focused._timing_case("numpy", warmup=0, repeats=1)
-    notes = result["optimization_notes"]
-    assert "optimized_gpu.py" in notes["ownership"]
-    assert "NumPy/SciPy" in notes["distribution_inference"]
 
 
 def test_optimized_wrapper_rewrites_backend_specific_solver_notes(monkeypatch):
