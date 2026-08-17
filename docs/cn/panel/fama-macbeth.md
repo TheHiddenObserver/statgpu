@@ -101,7 +101,7 @@ $$
 
 再截断到 $0\le L\le T-1$。这里的 Newey-West 是作用在 period coefficient sequence 上，因此与 [面板 covariance](covariance.md) 中基于 observation residual 的 HAC/Driscoll-Kraay 不同。
 
-retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetime labels 使用自然顺序；ordered pandas categorical 会保留用户明确声明的 category order。普通 string/object labels 按字符串字典序排序，因此 `t1, t2, t10` 这类语义标签若不应按字典序解释，应改用 ordered categorical 或 numeric/datetime key，再形成 Newey-West lag covariance。
+retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetime labels 使用自然顺序；ordered pandas categorical 会保留用户明确声明的 category order。普通 string labels 按字符串字典序排序；其他非 categorical object labels 按其可比较值排序，不能相互比较时会直接报错。因此 `t1, t2, t10` 这类字符串语义标签若不应按字典序解释，应改用 ordered categorical 或 numeric/datetime key，再形成 Newey-West lag covariance。
 
 成功拟合还会发布 inference-capable statgpu estimator 共用的 `ParameterInferenceResult`。公开的 `coef_`、`bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 继续保持 backend-native。distribution inference 跟随实际 fit backend：NumPy 使用 NumPy inference backend，CuPy 使用 CuPy inference backend，Torch 则在实际 tensor device 上使用 Torch inference backend。`_inference_result` 以及 `_params`、`_bse`、`_tvalues`/`_zvalues`、`_pvalues`、`_conf_int` 保存的 NumPy snapshot 仅用于统一 inference/reporting contract，不参与 p-value 或 confidence interval 的数值计算。对于 GPU fit，reporting fields 会先在 active backend 上打包，再在 numerical inference 完成后一次性形成小型 NumPy snapshot。`newey-west` 标记为 `z`/normal inference，`nonrobust` 标记为自由度 $T-1$ 的 Student-t inference。
 

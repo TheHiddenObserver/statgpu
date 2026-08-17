@@ -56,7 +56,7 @@ $$
 
 `cov_type` 只改变 standard error 的计算方式，不改变 OLS coefficient estimate。除了 nonrobust 和 HC covariance 外，`PooledOLS` 还支持 clustered covariance，以及两种考虑时间相关性的方式：
 
-- `cov_type="hac"` 把 observations 看作一条有顺序的序列并应用 Bartlett/Newey-West HAC。若提供 `time_index`，会先按其时间顺序排序；否则直接使用输入数据的行顺序。numeric 与 datetime label 使用自然顺序；ordered pandas categorical 使用用户声明的 category order。普通 string/object label 按字符串字典序排序，因此 `t1, t2, t10` 这类标签若不应按字典序解释，需要改用 ordered categorical 或 numeric/datetime key。
+- `cov_type="hac"` 把 observations 看作一条有顺序的序列并应用 Bartlett/Newey-West HAC。若提供 `time_index`，会先按其时间顺序排序；否则直接使用输入数据的行顺序。numeric 与 datetime label 使用自然顺序；ordered pandas categorical 使用用户声明的 category order。普通 string label 按字符串字典序排序；其他非 categorical object label 按其可比较值排序，不能相互比较时会直接报错。因此 `t1, t2, t10` 这类字符串标签若不应按字典序解释，需要改用 ordered categorical 或 numeric/datetime key。
 - `cov_type="driscoll-kraay"` 按 `time_index` 将 observations 分到各 period，并先在 period 内聚合其 covariance contribution，再对跨期 lag 加权。
 
 因此这两种 covariance 不能互换理解。完整公式见 [面板 covariance](covariance.md)。
