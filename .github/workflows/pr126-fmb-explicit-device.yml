@@ -32,6 +32,14 @@ jobs:
           if actual not in text:
               raise RuntimeError('Chinese staging anchor not found')
           p.write_text(text.replace(actual, expected, 1), encoding='utf-8')
+
+          helper = Path('dev/validation/pr126_fmb_explicit_device_once.py')
+          helper_text = helper.read_text(encoding='utf-8')
+          guessed = "marker = '- **Fama-MacBeth exact-period eligibility**'"
+          exact = "marker = '- Fixed `FamaMacBeth` period eligibility'"
+          if guessed not in helper_text:
+              raise RuntimeError('staging helper CHANGELOG marker assignment not found')
+          helper.write_text(helper_text.replace(guessed, exact, 1), encoding='utf-8')
           PY
           python dev/validation/pr126_fmb_explicit_device_once.py
       - name: Install maintained CPU/Torch environment
