@@ -11,7 +11,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import factorize_panel_labels, group_means
 
 

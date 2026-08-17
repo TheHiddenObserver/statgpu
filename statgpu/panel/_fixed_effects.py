@@ -22,7 +22,7 @@ from statgpu.backends import (
     xp_asarray,
 )
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import (
     _recover_two_way_effects,
     _scatter_add,
