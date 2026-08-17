@@ -257,10 +257,33 @@ def test_pipe_formula_rejects_missing_fixed_effect_labels(column, expected_name)
         )
 
 
-def test_formula_aligned_cluster_rejects_missing_labels():
+def test_formula_dropped_row_ignores_nonfinite_numpy_cluster_metadata():
     data = _frame(128032)
-    clusters = data["entity"].astype(object).to_numpy().copy()
-    clusters[4] = None
+    clusters = data["entity"].to_numpy(dtype=np.float64)
+    dropped = 4
+    data.loc[dropped, "z"] = np.nan
+    clusters[dropped] = np.nan
+
+    formula_model = PooledOLS(cov_type="clustered").fit(
+        formula="y ~ x + z",
+        data=data,
+        cluster=clusters,
+    )
+
+    keep = data[["y", "x", "z"]].notna().all(axis=1).to_numpy()
+    array_model = PooledOLS(cov_type="clustered").fit(
+        data.loc[keep, ["x", "z"]].to_numpy(),
+        data.loc[keep, "y"].to_numpy(),
+        cluster=clusters[keep],
+    )
+    assert_allclose(formula_model.coef_, array_model.coef_, rtol=2e-12, atol=2e-13)
+    assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
+
+
+def test_formula_aligned_cluster_rejects_missing_labels():
+    data = _frame(128039)
+    clusters = data["entity"].to_numpy(dtype=np.float64)
+    clusters[4] = np.nan
     with pytest.raises(ValueError, match="clusters.*missing or non-finite"):
         PooledOLS(cov_type="clustered").fit(
             formula="y ~ x + z",

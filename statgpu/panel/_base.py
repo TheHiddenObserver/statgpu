@@ -27,6 +27,15 @@ from statgpu.panel._utils import (
 class BasePanelModel(BaseEstimator):
     """Internal base class for statistically neutral panel-model lifecycle code."""
 
+    # Formula-facing panel estimators align these observation-level metadata
+    # arrays only after Patsy has established the retained fit rows.  The public
+    # finite-input guard must therefore defer validation until after alignment:
+    # a non-finite label on a row Patsy drops is irrelevant, while retained-row
+    # missing labels are still rejected by the panel metadata validators.
+    _FORMULA_OWNED_SIDE_ARRAYS = frozenset(
+        {"entity_ids", "time_ids", "time_index", "cluster"}
+    )
+
     def __init_subclass__(cls, **kwargs):
         """Wrap every public panel ``fit`` in a fail-closed state transaction."""
         super().__init_subclass__(**kwargs)

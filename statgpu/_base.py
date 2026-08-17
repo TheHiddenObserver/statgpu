@@ -351,8 +351,10 @@ class BaseEstimator(ABC):
                             and name == "X"
                             and getattr(self, "_design_info", None) is not None
                         )
-                        formula_owned_side_array = (
-                            formula_active and name == "sample_weight"
+                        formula_owned_side_array = formula_active and (
+                            name == "sample_weight"
+                            or name
+                            in getattr(self, "_FORMULA_OWNED_SIDE_ARRAYS", ())
                         )
                         if formula_owned_side_array or (
                             formula_owned_pandas
