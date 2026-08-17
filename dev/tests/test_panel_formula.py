@@ -88,6 +88,19 @@ class TestSplitPanelFormula:
         assert main == "y~x1+x2"
         assert fe == ["entity", "time"]
 
+    @pytest.mark.parametrize(
+        "formula",
+        [
+            'Q("y|raw") ~ x1 + x2',
+            'y ~ x1 + Q("x|raw")',
+            "Q('y|raw') ~ x1 + Q('x|raw')",
+        ],
+    )
+    def test_pipe_inside_quoted_name_is_not_panel_separator(self, formula):
+        main, fe = _split_panel_formula(formula)
+        assert main == formula
+        assert fe == []
+
 
 class TestStripPanelTokens:
 
@@ -207,6 +220,22 @@ class TestPanelOLSFormula:
         assert actual.entity_effects is False
         assert actual.time_effects is False
         assert actual._feature_names == ["Intercept", "x1"]
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
+    def test_quoted_pipe_column_names_remain_ordinary_patsy_terms(self, panel_df):
+        data = panel_df.copy()
+        data["y|raw"] = data["y"].to_numpy()
+        data["x|raw"] = data["x1"].to_numpy()
+        actual = PanelOLS().fit(
+            formula='Q("y|raw") ~ Q("x|raw")',
+            data=data,
+        )
+        expected_X = np.column_stack(
+            [np.ones(len(data)), data["x|raw"].to_numpy()]
+        )
+        expected = PanelOLS().fit(expected_X, data["y|raw"].to_numpy())
+        assert actual.entity_effects is False
+        assert actual.time_effects is False
         assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
 
     def test_magic_token_prefix_regressor_is_not_silently_rewritten(self, panel_df):

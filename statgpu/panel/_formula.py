@@ -47,14 +47,28 @@ def _split_panel_formula(formula: str) -> Tuple[str, List[str]]:
     >>> _split_panel_formula("y ~ x1 + x2")
     ('y ~ x1 + x2', [])
     """
-    # Find the top-level | (not inside parentheses)
+    # Find the top-level pipe separator without treating quoted column
+    # names or nested Patsy/Python expressions as fixed-effect syntax.
     depth = 0
+    quote = None
+    escaped = False
     pipe_pos = -1
     for i, ch in enumerate(formula):
-        if ch == '(':
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            continue
+        if ch in "([{":
             depth += 1
-        elif ch == ')':
-            depth -= 1
+        elif ch in ")]}":
+            depth = max(depth - 1, 0)
         elif ch == '|' and depth == 0:
             pipe_pos = i
             break
