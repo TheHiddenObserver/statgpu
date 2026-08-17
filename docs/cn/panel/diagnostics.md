@@ -56,7 +56,7 @@ result = fe.hausman_test(re)
 result = re.hausman_test(fe)
 ```
 
-> **适用条件：** `hausman_test()` 实现的是 classical one-way entity FE-versus-RE comparison。FE 与 RE 都必须使用 `cov_type="nonrobust"`，并且必须基于同一组对齐后的 observation 与 coefficient design。如果不满足这些条件，结果会返回 `applicable=False` 并说明原因，而不会在同一个方法名下悄悄换成另一种 Hausman test。
+> **适用条件：** `hausman_test()` 实现的是 classical one-way entity FE-versus-RE comparison。FE 与 RE 都必须使用 `cov_type="nonrobust"`，必须基于同一组对齐后的 observation 与 coefficient design，而且 coefficient vector 必须唯一可识别。如果任一 fitted design rank deficient，coefficient-level inference 本身不可用，Hausman 会返回 `applicable=False`，而不会基于任意 generalized-inverse coefficient representation 构造检验。如果不满足这些条件，结果会返回 `applicable=False` 并说明原因，而不会在同一个方法名下悄悄换成另一种 Hausman test。
 >
 > 数值上令 $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$。如果 $D$ 存在明显的 negative eigenvalue，classical quadratic form 不再适用，因此 test 会标记为 inapplicable。如果 $D$ 是 singular positive semidefinite，则只有当 coefficient difference 位于 $\operatorname{range}(D)$ 时，statgpu 才使用 Moore-Penrose inverse $D^+$。
 

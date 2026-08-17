@@ -56,7 +56,7 @@ result = fe.hausman_test(re)
 result = re.hausman_test(fe)
 ```
 
-> **Applicability:** `hausman_test()` implements the classical one-way entity FE-versus-RE comparison. Both models must use `cov_type="nonrobust"` and must be fitted to the same aligned sample and coefficient design. If these requirements are not met, the result is returned with `applicable=False` and a reason instead of silently switching to a different Hausman variant.
+> **Applicability:** `hausman_test()` implements the classical one-way entity FE-versus-RE comparison. Both models must use `cov_type="nonrobust"`, must be fitted to the same aligned sample and coefficient design, and must have uniquely identified coefficient vectors. If either fitted design is rank deficient, coefficient-level inference is unavailable and Hausman returns `applicable=False` rather than constructing a test from an arbitrary generalized-inverse coefficient representation. If these requirements are not met, the result is returned with `applicable=False` and a reason instead of silently switching to a different Hausman variant.
 >
 > Numerically, let $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$. If $D$ has a materially negative eigenvalue, the classical quadratic form is not valid and the test is reported as inapplicable. If $D$ is singular but positive semidefinite, statgpu uses the Moore-Penrose inverse $D^+$ only when the coefficient difference lies in $\operatorname{range}(D)$.
 

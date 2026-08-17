@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.panel import _covariance
+from statgpu.panel import PanelOLS, RandomEffects, _covariance
 from statgpu.panel._base import BasePanelModel
 
 
@@ -95,3 +95,36 @@ def test_negative_variance_guard_is_scale_equivariant(monkeypatch):
 def test_inference_rejects_nonfinite_covariance(monkeypatch, covariance):
     with pytest.raises(ValueError, match="covariance contains non-finite values"):
         _store_with_mock_covariance(monkeypatch, covariance)
+
+
+def test_hausman_rejects_rank_deficient_nonunique_coefficients():
+    rng = np.random.default_rng(12988)
+    n_entities, n_times = 14, 5
+    entity = np.repeat(np.arange(n_entities), n_times)
+    x = rng.normal(size=entity.size)
+    X_slopes = np.column_stack([x, 2.0 * x])
+    alpha = np.repeat(rng.normal(scale=0.35, size=n_entities), n_times)
+    y = 0.55 * x + alpha + rng.normal(scale=0.2, size=entity.size)
+
+    fe = PanelOLS(entity_effects=True).fit(
+        X_slopes, y, entity_ids=entity
+    )
+    re = RandomEffects().fit(
+        np.column_stack([np.ones(len(y)), X_slopes]),
+        y,
+        entity_ids=entity,
+    )
+
+    assert fe._coefficient_inference_available is False
+    assert re._coefficient_inference_available is False
+    assert fe._panel_diagnostic_identity["fingerprint"]["content_digest"] == (
+        re._panel_diagnostic_identity["fingerprint"]["content_digest"]
+    )
+
+    result = fe.hausman_test(re)
+    assert result.applicable is False
+    assert result.statistic is None
+    assert result.pvalue is None
+    assert "uniquely identified coefficient vectors" in result.reason
+    assert "rank deficient" in result.reason
+    assert len(result.metadata["coefficient_inference_unavailable"]) == 2

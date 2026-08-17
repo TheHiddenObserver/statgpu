@@ -827,6 +827,25 @@ def hausman_test(fe_model, re_model) -> PanelTestResult:
             reason="classical Hausman requires nonrobust RE covariance; robust auxiliary Hausman is not implemented in Stage C",
         )
 
+    unavailable = []
+    for label, model in (("FE", fe_model), ("RE", re_model)):
+        if not bool(getattr(model, "_coefficient_inference_available", True)):
+            model_reason = getattr(model, "_coefficient_inference_reason", None)
+            unavailable.append(
+                f"{label}: {model_reason or 'coefficient vector is not uniquely identified'}"
+            )
+    if unavailable:
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason=(
+                "classical Hausman requires uniquely identified coefficient vectors; "
+                + "; ".join(unavailable)
+            ),
+            metadata={"coefficient_inference_unavailable": tuple(unavailable)},
+        )
+
     left_id = getattr(fe_model, "_panel_diagnostic_identity", None)
     right_id = getattr(re_model, "_panel_diagnostic_identity", None)
     if not isinstance(left_id, dict) or not isinstance(right_id, dict):
