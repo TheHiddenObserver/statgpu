@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
       - name: Apply Fama-MacBeth exact-period fix
         run: python dev/validation/pr126_fmb_exact_period_fix_once.py
       - name: Install focused environment
@@ -49,4 +49,4 @@ jobs:
           git commit -m "fix: retain exactly identified Fama-MacBeth periods"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
 
-# rerun after staging-anchor correction
+# Python 3.10 is required by the pinned linearmodels 7.0 focused reference.
