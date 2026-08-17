@@ -480,18 +480,23 @@ def _level_constant_contract_audit(backend, *, rtol=5e-6, atol=5e-7):
 def _connected_two_way_prediction_audit(backend):
     """Audit two-way normalization guards on a connected incidence graph."""
     rng = np.random.default_rng(20260824)
-    entity = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
-    time = np.array([0, 1, 1, 2, 2, 0], dtype=np.int64)
+    # Use a connected, overidentified fixture. The former six-edge cycle was
+    # saturated once standard FE nuisance rank was counted correctly (df=0).
+    entity = np.repeat(np.arange(3, dtype=np.int64), 3)
+    time = np.tile(np.arange(3, dtype=np.int64), 3)
     X = rng.normal(size=(entity.size, 1)).astype(np.float64)
     alpha = np.array([0.4, -0.3, 0.8], dtype=np.float64)
     tau = np.array([0.25, -0.15, 0.45], dtype=np.float64)
-    y = (0.75 * X[:, 0] + alpha[entity] + tau[time]).astype(np.float64)
+    y = 0.75 * X[:, 0] + alpha[entity] + tau[time]
+    y = (y + rng.normal(scale=0.02, size=entity.size)).astype(np.float64)
     Xb, yb, eb, tb = _to_backend(X, y, entity, time, backend)
     model = PanelOLS(
         entity_effects=True, time_effects=True, cov_type="hc0", device=_device(backend)
     ).fit(Xb, yb, entity_ids=eb, time_ids=tb)
     if _backend_name(model) != backend:
         raise AssertionError("connected prediction audit fit backend provenance drifted")
+    if int(model.df_resid) <= 0:
+        raise AssertionError("connected prediction audit fixture has no residual df")
     diagnostic = model.fit_statistics_.metadata.get("diagnostic_df", {})
     if int(diagnostic.get("incidence_components", -1)) != 1:
         raise AssertionError("connected prediction audit fixture is not connected")

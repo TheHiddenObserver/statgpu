@@ -380,15 +380,20 @@ def test_unbalanced_two_way_prediction_uses_joint_fixed_effect_solution():
 
 def test_connected_two_way_prediction_rejects_one_sided_or_known_unknown_effects():
     rng = np.random.default_rng(2026082401)
-    entity = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
-    time = np.array([0, 1, 1, 2, 2, 0], dtype=np.int64)
+    # Keep this prediction-contract fixture away from a saturated FE model.
+    # With only the six cycle edges, N=T=3 plus one slope leaves zero standard
+    # residual df; the historical N-1/T-1 shortcut accidentally hid that fact.
+    entity = np.repeat(np.arange(3, dtype=np.int64), 3)
+    time = np.tile(np.arange(3, dtype=np.int64), 3)
     X = rng.normal(size=(entity.size, 1))
     alpha = np.array([0.4, -0.3, 0.8])
     tau = np.array([0.25, -0.15, 0.45])
     y = 0.75 * X[:, 0] + alpha[entity] + tau[time]
+    y = y + rng.normal(scale=0.02, size=entity.size)
     model = PanelOLS(entity_effects=True, time_effects=True).fit(
         X, y, entity_ids=entity, time_ids=time
     )
+    assert model.df_resid > 0
     assert model.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 1
     assert np.all(np.isfinite(model.predict(
         X[:1], entity_ids=np.array([0]), time_ids=np.array([1])
