@@ -1,0 +1,55 @@
+name: PR126 FMB physical exact-period staging
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-fmb-physical-exact-period.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Patch maintained physical validator
+        run: python dev/validation/pr126_fmb_physical_exact_period_once.py
+      - name: Install CPU smoke environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Exercise new physical-validator cases on NumPy
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path('dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py')
+          spec = importlib.util.spec_from_file_location('fmb_physical', path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          case = module._exact_period_case('numpy')
+          assert case['status'] == 'success'
+          assert case['period_observation_counts'] == [3, 5, 5]
+          assert case['design_columns_including_intercept'] == 3
+          assert module._square_rank_rejection('numpy') is True
+          print('PR126_FMB_EXACT_PERIOD_PHYSICAL_CPU_SMOKE_OK')
+          PY
+          python -m compileall -q dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py
+          git diff --check
+      - name: Commit only maintained validator change
+        run: |
+          git config user.name "statgpu-review-fix"
+          git config user.email "actions@users.noreply.github.com"
+          git add dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py
+          git commit -m "test: cover exact Fama-MacBeth periods on physical GPU"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
