@@ -1,0 +1,72 @@
+name: PR126 formula side-array post-align validation
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-formula-side-array-postalign.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply post-alignment finite validation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one target, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'statgpu/panel/_base.py',
+              '''        aligned = dict(side_arrays or {})\n        if formula is not None:\n            for name, value in list(aligned.items()):\n                aligned[name] = _align_formula_side_array(\n                    value, design_info, len(y_data), name\n                )\n''',
+              '''        aligned = dict(side_arrays or {})\n        if formula is not None:\n            from statgpu.backends._validation import check_finite\n\n            for name, value in list(aligned.items()):\n                aligned_value = _align_formula_side_array(\n                    value, design_info, len(y_data), name\n                )\n                if aligned_value is not None:\n                    # Public finite validation is intentionally deferred until\n                    # after Patsy row filtering for formula-owned metadata.\n                    # Reapply it here so retained rows keep the same finite-input\n                    # contract even when a later estimator path does not consume\n                    # the optional metadata.\n                    check_finite(aligned_value, name=name)\n                aligned[name] = aligned_value\n''',
+          )
+
+          test_path = Path('dev/tests/test_panel_stage_c_api_formula.py')
+          text = test_path.read_text(encoding='utf-8')
+          old = '''def test_formula_aligned_cluster_rejects_missing_labels():\n    data = _frame(128039)\n    clusters = data["entity"].to_numpy(dtype=np.float64)\n    clusters[4] = np.nan\n    with pytest.raises(ValueError, match="clusters.*missing or non-finite"):\n        PooledOLS(cov_type="clustered").fit(\n            formula="y ~ x + z",\n            data=data,\n            cluster=clusters,\n        )\n\n\n'''
+          new = '''def test_formula_aligned_cluster_rejects_missing_labels():\n    data = _frame(128039)\n    clusters = data["entity"].to_numpy(dtype=np.float64)\n    clusters[4] = np.nan\n    with pytest.raises(ValueError, match="cluster.*finite"):\n        PooledOLS(cov_type="clustered").fit(\n            formula="y ~ x + z",\n            data=data,\n            cluster=clusters,\n        )\n\n\ndef test_formula_aligned_unused_side_array_keeps_public_finite_contract():\n    data = _frame(128042)\n    clusters = data["entity"].to_numpy(dtype=np.float64)\n    clusters[4] = np.nan\n    with pytest.raises(ValueError, match="cluster.*finite"):\n        PooledOLS(cov_type="nonrobust").fit(\n            formula="y ~ x + z",\n            data=data,\n            cluster=clusters,\n        )\n\n\n'''
+          if text.count(old) != 1:
+              raise RuntimeError(f'test target count={text.count(old)}')
+          test_path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git diff --check
+          python -m compileall -q statgpu/panel/_base.py dev/tests/test_panel_stage_c_api_formula.py
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pandas patsy scipy statsmodels
+      - name: Run focused review regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_formula.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            -q --tb=short
+      - name: Commit fix and self-delete
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr126-formula-side-array-postalign.yml
+          git add statgpu/panel/_base.py dev/tests/test_panel_stage_c_api_formula.py
+          git diff --cached --check
+          git commit -m 'fix: validate aligned panel formula metadata'
+          git push origin HEAD:${GITHUB_REF_NAME}
