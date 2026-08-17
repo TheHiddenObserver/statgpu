@@ -344,8 +344,20 @@ def test_formula_aligned_cluster_rejects_missing_labels():
     data = _frame(128039)
     clusters = data["entity"].to_numpy(dtype=np.float64)
     clusters[4] = np.nan
-    with pytest.raises(ValueError, match="clusters.*missing or non-finite"):
+    with pytest.raises(ValueError, match="cluster.*finite"):
         PooledOLS(cov_type="clustered").fit(
+            formula="y ~ x + z",
+            data=data,
+            cluster=clusters,
+        )
+
+
+def test_formula_aligned_unused_side_array_keeps_public_finite_contract():
+    data = _frame(128042)
+    clusters = data["entity"].to_numpy(dtype=np.float64)
+    clusters[4] = np.nan
+    with pytest.raises(ValueError, match="cluster.*finite"):
+        PooledOLS(cov_type="nonrobust").fit(
             formula="y ~ x + z",
             data=data,
             cluster=clusters,

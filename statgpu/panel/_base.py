@@ -146,10 +146,20 @@ class BasePanelModel(BaseEstimator):
 
         aligned = dict(side_arrays or {})
         if formula is not None:
+            from statgpu.backends._validation import check_finite
+
             for name, value in list(aligned.items()):
-                aligned[name] = _align_formula_side_array(
+                aligned_value = _align_formula_side_array(
                     value, design_info, len(y_data), name
                 )
+                if aligned_value is not None:
+                    # Public finite validation is intentionally deferred until
+                    # after Patsy row filtering for formula-owned metadata.
+                    # Reapply it here so retained rows keep the same finite-input
+                    # contract even when a later estimator path does not consume
+                    # the optional metadata.
+                    check_finite(aligned_value, name=name)
+                aligned[name] = aligned_value
 
         return (
             y_data,
