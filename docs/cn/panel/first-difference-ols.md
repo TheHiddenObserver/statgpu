@@ -77,7 +77,7 @@ standard error 基于差分后的回归 $(\Delta y,\Delta X)$ 计算。支持 no
 model.fit(X, y, entity_ids=entity_ids, time_ids=None)
 ```
 
-`entity_ids` 必需。提供 `time_ids` 后，statgpu 会先按时间对每个 entity 的记录排序；此时每个 `(entity_id, time_id)` 组合必须唯一。若 `time_ids` 是 ordered categorical，则使用用户声明的 category 顺序。
+`entity_ids` 必需。提供 `time_ids` 后，statgpu 会先按时间对每个 entity 的记录排序；此时每个 `(entity_id, time_id)` 组合必须唯一。numeric/datetime `time_ids` 使用自然顺序，ordered categorical 使用用户声明的 category 顺序，普通 string/object labels 使用字符串字典序；若字典序不是实际 chronology，应改用 ordered categorical 或 numeric/datetime key。
 
 ## CPU and GPU Example
 

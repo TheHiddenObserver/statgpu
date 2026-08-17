@@ -131,6 +131,7 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     assert model._zvalues is not None
     assert model._pvalues is not None
     assert model._conf_int is not None
+    assert model._inference_backend_name == model._backend_name
 
     with pytest.raises(ValueError, match="cluster length"):
         model.fit(
@@ -149,6 +150,7 @@ def test_panel_failed_refit_invalidates_previous_fitted_state():
     assert model._panel_cov_params_raw is None
     assert model._covariance_metadata == {}
     assert model._backend_name is None
+    assert model._inference_backend_name is None
     assert model._predict_backend_name is None
     assert model.nobs is None
     assert model._panel_index_info is None

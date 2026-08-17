@@ -77,7 +77,7 @@ Changing the covariance estimator changes uncertainty for the differenced regres
 model.fit(X, y, entity_ids=entity_ids, time_ids=None)
 ```
 
-`entity_ids` is required. Supplying `time_ids` lets statgpu put each entity's rows in chronological order; each `(entity_id, time_id)` pair must then be unique. Ordered categorical time labels use their declared category order.
+`entity_ids` is required. Supplying `time_ids` lets statgpu put each entity's rows in chronological order; each `(entity_id, time_id)` pair must then be unique. Numeric and datetime time labels use natural order, ordered categoricals use their declared category order, and plain string/object labels use lexical order. Use an ordered categorical or numeric/datetime key when lexical string order is not the intended chronology.
 
 ## CPU and GPU Example
 

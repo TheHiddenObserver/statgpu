@@ -56,7 +56,7 @@ Thus the coefficient estimate is the same OLS fit you would obtain from treating
 
 `cov_type` changes the standard-error calculation, not the OLS coefficient estimate. In addition to nonrobust and HC covariance, `PooledOLS` supports clustered covariance and two time-dependent choices:
 
-- `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by its chronology; otherwise the input row order is used. Numeric and datetime labels use their natural order. An ordered pandas categorical uses the category order declared by the user, so labels such as `t1, t2, t10` are not silently reinterpreted in lexical order.
+- `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by its chronology; otherwise the input row order is used. Numeric and datetime labels use their natural order. An ordered pandas categorical uses the category order declared by the user. Plain string/object labels use lexical order, so labels such as `t1, t2, t10` should be supplied as an ordered categorical (or a numeric/datetime key) when that lexical order is not the intended chronology.
 - `cov_type="driscoll-kraay"` groups observations by `time_index` and combines their contributions within each period before applying lag weights.
 
 These two choices are therefore not interchangeable. Full formulas are in [Panel covariance](covariance.md).

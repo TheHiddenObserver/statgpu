@@ -104,7 +104,7 @@ Here $r_Z$ is the number of identified regression directions: it equals the numb
 
 With `bandwidth=None`, statgpu uses $\lfloor4(T/100)^{2/9}\rfloor$. Bartlett and Parzen kernels assign zero weight beyond the bandwidth. Quadratic Spectral instead treats bandwidth as a smoothing scale and, when positive, gives weights to all observed lags.
 
-Time order matters. Numeric and datetime labels use their natural order. Ordered pandas categoricals use the category order declared by the user.
+Time order matters. Numeric and datetime labels use their natural order. Ordered pandas categoricals use the category order declared by the user. Plain string/object labels use lexical order; when lexical order is not the intended chronology (for example, `t1, t2, t10`), supply a numeric/datetime key or an ordered categorical instead.
 
 ## Public API and Aliases
 

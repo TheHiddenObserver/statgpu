@@ -194,6 +194,7 @@ class PanelOLS(BasePanelModel):
             "_feature_names",
             "_formula_has_intercept",
             "_backend_name",
+            "_inference_backend_name",
             "_predict_backend_name",
             "_panel_index_info",
             "_panel_cov_params_raw",

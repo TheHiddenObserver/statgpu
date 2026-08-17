@@ -104,7 +104,7 @@ $$
 
 `bandwidth=None` 时使用 $\lfloor4(T/100)^{2/9}\rfloor$。Bartlett 与 Parzen kernel 在 bandwidth 之外权重为 0；Quadratic Spectral 将 bandwidth 作为 smoothing scale，在 bandwidth 为正时会对全部 observed lags 赋权。
 
-time ordering 会影响 Driscoll-Kraay。numeric 和 datetime labels 使用自然顺序；ordered pandas categorical 使用用户声明的 category 顺序。
+time ordering 会影响 Driscoll-Kraay。numeric 和 datetime labels 使用自然顺序；ordered pandas categorical 使用用户声明的 category 顺序。普通 string/object labels 按字符串字典序排序；如果字典序不是实际 chronology（例如 `t1, t2, t10`），应改用 numeric/datetime key 或 ordered categorical。
 
 ## Public API and Aliases
 
