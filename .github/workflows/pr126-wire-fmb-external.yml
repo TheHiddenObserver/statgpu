@@ -1,0 +1,46 @@
+name: PR126 wire FMB external matrix once
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-wire-fmb-external.yml
+
+permissions:
+  contents: write
+
+jobs:
+  wire-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Wire maintained external matrix
+        run: python dev/validation/pr126_wire_fmb_external_once.py
+      - name: Install external reference
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . "linearmodels==7.0" pytest
+      - name: Exercise maintained external command
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_b_linearmodels.py \
+            dev/tests/test_fama_macbeth_linearmodels_external.py \
+            dev/tests/test_panel_pr126_fmb_exact_period.py \
+            -q --tb=short
+          git diff --check
+      - name: Commit workflow wiring and remove staging helpers
+        run: |
+          rm .github/workflows/pr126-wire-fmb-external.yml
+          rm dev/validation/pr126_wire_fmb_external_once.py
+          git config user.name "statgpu-review-fix"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "ci: maintain Fama-MacBeth external alignment"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
