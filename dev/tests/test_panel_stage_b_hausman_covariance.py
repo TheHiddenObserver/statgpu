@@ -20,7 +20,7 @@ def _panel(seed=1250):
     return X, y, entity
 
 
-def test_hausman_uses_standard_fe_covariance_without_changing_legacy_inference():
+def test_hausman_and_public_inference_share_standard_fe_covariance():
     X, y, entity = _panel()
     fe = PanelOLS(entity_effects=True, cov_type="nonrobust").fit(
         X, y, entity_ids=entity
@@ -33,24 +33,20 @@ def test_hausman_uses_standard_fe_covariance_without_changing_legacy_inference()
     legacy_df = fe.fit_statistics_.metadata["legacy_df_resid"]
     standard_df = diag_meta["df_resid"]
 
-    # Stage A's historical FE inference denominator is intentionally retained.
-    assert legacy_df == fe.df_resid
-    assert standard_df == legacy_df - 1
+    # Public FE inference and diagnostics now use the same full nuisance rank.
+    assert standard_df == fe.df_resid
+    assert legacy_df == standard_df + 1
+    assert fe.fit_statistics_.metadata["public_df_resid_basis"] == "standard"
     assert_allclose(fe.bse_ ** 2, np.diag(raw_fe), rtol=1e-12, atol=1e-14)
-
-    # Classical Hausman, however, needs the full nuisance-effect model rank.
-    # Only the small diagnostic covariance copy is rescaled; public bse/CI above
-    # still come from the raw Stage-A covariance.
-    expected_fe_diagnostic = raw_fe * (legacy_df / standard_df)
+    expected_fe_diagnostic = raw_fe
     assert_allclose(
         fe._panel_cov_params,
         expected_fe_diagnostic,
-        rtol=1e-12,
-        atol=1e-14,
+        rtol=0,
+        atol=0,
     )
 
-    # RandomEffects has no legacy FE nuisance-df mismatch, so its diagnostic
-    # covariance is exactly the inference covariance.
+    # RandomEffects likewise exposes the same inference covariance to diagnostics.
     assert_allclose(re._panel_cov_params, raw_re, rtol=0, atol=0)
 
     # The Hausman entry point must consume the diagnostic matrices.  Whether the
