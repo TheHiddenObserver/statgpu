@@ -9,7 +9,7 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
 from statgpu.panel._utils import factorize_panel_labels, group_means
@@ -134,16 +134,7 @@ class BetweenOLS(BasePanelModel):
             X_mean_aligned[:, j] = group_means(X_full[:, j], eids, xp=xp)
         X_mean = X_mean_aligned[first_idx]
 
-        rank_mean = panel_matrix_rank(X_mean, xp)
-        if rank_mean < int(X_mean.shape[1]):
-            params, _ = panel_lstsq(X_mean, y_mean, xp)
-        else:
-            XtX = X_mean.T @ X_mean
-            Xty = X_mean.T @ y_mean
-            try:
-                params = xp.linalg.solve(XtX, Xty)
-            except _LINALG_ERRORS:
-                params, _ = panel_lstsq(X_mean, y_mean, xp)
+        params, rank_mean = panel_lstsq(X_mean, y_mean, xp)
 
         resid = y_mean - X_mean @ params
         n = n_groups

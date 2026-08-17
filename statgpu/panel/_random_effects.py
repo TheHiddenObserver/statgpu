@@ -9,15 +9,13 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import (
-    _LINALG_ERRORS,
     _to_float_scalar,
     _to_numpy,
     xp_asarray,
-    xp_cholesky_solve,
     xp_zeros,
 )
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import (
     factorize_panel_labels,
     group_means,
@@ -245,16 +243,9 @@ class RandomEffects(BasePanelModel):
         y_bar_unique = y_bar_i[first_idx_dev]
         X_bar_unique = X_bar_i[first_idx_dev]
 
-        rank_between = panel_matrix_rank(X_bar_unique, xp)
-        if rank_between < int(X_bar_unique.shape[1]):
-            beta_between, _ = panel_lstsq(X_bar_unique, y_bar_unique, xp)
-        else:
-            XtX_b = X_bar_unique.T @ X_bar_unique
-            Xty_b = X_bar_unique.T @ y_bar_unique
-            try:
-                beta_between = xp.linalg.solve(XtX_b, Xty_b)
-            except _LINALG_ERRORS:
-                beta_between, _ = panel_lstsq(X_bar_unique, y_bar_unique, xp)
+        beta_between, rank_between = panel_lstsq(
+            X_bar_unique, y_bar_unique, xp
+        )
         resid_between = y_bar_unique - X_bar_unique @ beta_between
         rss_between = float(xp.sum(resid_between ** 2))
 
@@ -280,25 +271,12 @@ class RandomEffects(BasePanelModel):
                     ref_arr=X_arr,
                 )
                 X_within_fit = X_within[:, slope_idx_dev]
-                rank_within = panel_matrix_rank(X_within_fit, xp)
-                if rank_within < int(X_within_fit.shape[1]):
-                    beta_within, _ = panel_lstsq(X_within_fit, y_within, xp)
-                else:
-                    XtX_w = X_within_fit.T @ X_within_fit
-                    Xty_w = X_within_fit.T @ y_within
-                    beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
+                beta_within, rank_within = panel_lstsq(
+                    X_within_fit, y_within, xp
+                )
                 resid_within = y_within - X_within_fit @ beta_within
         else:
-            rank_within = panel_matrix_rank(X_within, xp)
-            if rank_within < int(X_within.shape[1]):
-                beta_within, _ = panel_lstsq(X_within, y_within, xp)
-            else:
-                XtX_w = X_within.T @ X_within
-                Xty_w = X_within.T @ y_within
-                try:
-                    beta_within = xp.linalg.solve(XtX_w, Xty_w)
-                except _LINALG_ERRORS:
-                    beta_within, _ = panel_lstsq(X_within, y_within, xp)
+            beta_within, rank_within = panel_lstsq(X_within, y_within, xp)
             resid_within = y_within - X_within @ beta_within
         rss_within = float(xp.sum(resid_within ** 2))
 
@@ -372,19 +350,7 @@ class RandomEffects(BasePanelModel):
             X_star[:, j] = X_arr[:, j] - theta_arr * X_bar_i[:, j]
 
         # --- Step 5: OLS on transformed data ---
-        rank_star = panel_matrix_rank(X_star, xp)
-        if rank_star < int(X_star.shape[1]):
-            beta_gls, _ = panel_lstsq(X_star, y_star, xp)
-        else:
-            XtX_s = X_star.T @ X_star
-            Xty_s = X_star.T @ y_star
-            try:
-                beta_gls = xp_cholesky_solve(XtX_s, Xty_s, xp)
-            except _LINALG_ERRORS:
-                try:
-                    beta_gls = xp.linalg.solve(XtX_s, Xty_s)
-                except _LINALG_ERRORS:
-                    beta_gls, _ = panel_lstsq(X_star, y_star, xp)
+        beta_gls, rank_star = panel_lstsq(X_star, y_star, xp)
 
         resid_gls = y_star - X_star @ beta_gls
         # Full-rank behavior remains n-k. The rank-deficient extension uses
@@ -448,11 +414,9 @@ class RandomEffects(BasePanelModel):
         restricted_rank = 0
         if has_constant:
             restricted_X = X_star[:, constant_index : constant_index + 1]
-            restricted_rank = panel_matrix_rank(restricted_X, xp)
-            if restricted_rank < int(restricted_X.shape[1]):
-                restricted_params, _ = panel_lstsq(restricted_X, y_star, xp)
-            else:
-                restricted_params = xp.linalg.pinv(restricted_X) @ y_star
+            restricted_params, restricted_rank = panel_lstsq(
+                restricted_X, y_star, xp
+            )
             restricted_resid = y_star - restricted_X @ restricted_params
             ss_tot_diag = _to_float_scalar(
                 xp.sum(restricted_resid * restricted_resid)

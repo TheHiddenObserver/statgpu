@@ -16,10 +16,8 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import (
-    _LINALG_ERRORS,
     _to_float_scalar,
     _to_numpy,
-    xp_cholesky_solve,
     xp_maximum,
     xp_asarray,
 )
@@ -377,19 +375,10 @@ class PanelOLS(BasePanelModel):
             y_d = y_arr
             X_d = X_arr
 
-        fit_rank = panel_matrix_rank(X_d, xp)
-        if fit_rank < int(X_d.shape[1]):
-            coef, _ = panel_lstsq(X_d, y_d, xp)
-        else:
-            XtX = X_d.T @ X_d
-            Xty = X_d.T @ y_d
-            try:
-                coef = xp_cholesky_solve(XtX, Xty, xp)
-            except _LINALG_ERRORS:
-                try:
-                    coef = xp.linalg.solve(XtX, Xty)
-                except _LINALG_ERRORS:
-                    coef, _ = panel_lstsq(X_d, y_d, xp)
+        # Solve and rank from the same SVD policy. Full numerical rank does
+        # not certify normal equations: forming X'X squares the condition number
+        # and can silently corrupt coefficients well before the SVD rank cutoff.
+        coef, fit_rank = panel_lstsq(X_d, y_d, xp)
 
         n_entities = len(entity_labels) if entity_labels is not None else 0
         n_times = len(time_labels) if time_labels is not None else 0
