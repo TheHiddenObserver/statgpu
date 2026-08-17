@@ -70,6 +70,43 @@ def test_panel_lstsq_scales_large_finite_rhs_before_svd_projection():
     np.testing.assert_allclose(params[0], 6.0e307, rtol=5e-15, atol=0.0)
 
 
+def test_panel_lstsq_preserves_mixed_dynamic_range_identity_rhs():
+    X = np.eye(2, dtype=np.float64)
+    y = np.asarray([1.0e308, 1.0e-20], dtype=np.float64)
+    params, rank = panel_lstsq(X, y, np)
+    assert rank == 2
+    np.testing.assert_allclose(params[0], 1.0e308, rtol=5e-15, atol=0.0)
+    np.testing.assert_allclose(params[1], 1.0e-20, rtol=5e-15, atol=0.0)
+
+
+def test_panel_lstsq_deferred_rank_preserves_mixed_dynamic_range_identity_rhs():
+    from statgpu.panel._linalg import panel_lstsq_deferred_rank
+
+    X = np.eye(2, dtype=np.float64)
+    y = np.asarray([1.0e308, 1.0e-20], dtype=np.float64)
+    params, rank = panel_lstsq_deferred_rank(X, y, np)
+    assert int(rank) == 2
+    np.testing.assert_allclose(params[0], 1.0e308, rtol=5e-15, atol=0.0)
+    np.testing.assert_allclose(params[1], 1.0e-20, rtol=5e-15, atol=0.0)
+
+
+def test_panel_lstsq_batched_preserves_mixed_dynamic_range_identity_rhs():
+    torch = pytest.importorskip("torch")
+    X = torch.eye(2, dtype=torch.float64).repeat(2, 1, 1)
+    y = torch.tensor(
+        [[1.0e308, 1.0e-20], [-1.0e308, -1.0e-20]],
+        dtype=torch.float64,
+    )
+    params, ranks = panel_lstsq_batched(X, y, torch)
+    assert ranks.tolist() == [2, 2]
+    expected = np.asarray(
+        [[1.0e308, 1.0e-20], [-1.0e308, -1.0e-20]], dtype=np.float64
+    )
+    np.testing.assert_allclose(
+        params.detach().cpu().numpy(), expected, rtol=5e-15, atol=0.0
+    )
+
+
 def test_panel_lstsq_batched_scales_large_finite_rhs_before_projection():
     torch = pytest.importorskip("torch")
     n = 16
@@ -174,9 +211,9 @@ def test_fama_macbeth_torch_cpu_certifies_balanced_periods_and_matches_numpy():
     assert actual._period_solver_batches == 1
     assert actual._period_rank_syncs == 1
     assert actual._period_svd_fallbacks == 0
-    assert expected._period_solver_mode == "serial"
-    assert expected._period_solver_batches == expected.n_periods
-    assert expected._period_rank_syncs == expected.n_periods
+    assert expected._period_solver_mode == "gram-certified"
+    assert expected._period_solver_batches == 1
+    assert expected._period_rank_syncs == 1
     assert expected._period_svd_fallbacks == 0
     for name in ("coef_", "betas_", "bse_", "tvalues_", "pvalues_", "conf_int_"):
         value = getattr(actual, name).detach().cpu().numpy()

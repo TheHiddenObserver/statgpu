@@ -568,6 +568,43 @@ def _numeric_stability_case(backend: str):
         rtol=2e-11,
         atol=0.0,
     )
+    # A second, analytic fixture gives different coefficient coordinates
+    # radically different period-series scales while keeping the design exactly
+    # orthogonal. The small variance is representable and must not underflow to
+    # zero just because another coefficient varies near 1e154.
+    X_period = np.asarray(
+        [[2.0, 0.0], [-2.0, 0.0], [0.0, 1.0], [0.0, -1.0], [0.0, 0.0], [0.0, 0.0]],
+        dtype=np.float64,
+    )
+    expected_betas = np.asarray(
+        [[0.0, -1.0e154, -1.0e-10], [0.0, 0.0, 0.0], [0.0, 1.0e154, 1.0e-10]],
+        dtype=np.float64,
+    )
+    design = np.column_stack([np.ones(X_period.shape[0]), X_period])
+    X_mixed = np.tile(X_period, (3, 1))
+    y_mixed = np.concatenate([design @ beta for beta in expected_betas])
+    time_mixed = np.repeat(np.arange(3), X_period.shape[0])
+    expected_cov = np.asarray(
+        [[0.0, 0.0, 0.0], [0.0, 1.0e308 / 3.0, 1.0e144 / 3.0], [0.0, 1.0e144 / 3.0, 1.0e-20 / 3.0]],
+        dtype=np.float64,
+    )
+    X_mixed_b, y_mixed_b = _arrays(X_mixed, y_mixed, backend)
+    mixed = FamaMacBeth(cov_type="nonrobust", device=_device(backend)).fit(
+        X_mixed_b, y_mixed_b, time_ids=time_mixed
+    )
+    np.testing.assert_allclose(
+        _public_array(mixed.betas_), expected_betas, rtol=3e-12, atol=0.0
+    )
+    np.testing.assert_allclose(
+        _public_array(mixed.cov_params_), expected_cov, rtol=3e-12, atol=0.0
+    )
+    if _public_array(mixed.cov_params_)[2, 2] <= 0.0:
+        raise AssertionError("small coordinate variance underflowed to zero")
+    if not np.all(np.isfinite(_public_array(mixed.tvalues_))):
+        raise AssertionError("zero-variance coefficient leaked non-finite statistic")
+    if not np.all(np.isfinite(_public_array(mixed.pvalues_))):
+        raise AssertionError("zero-variance coefficient leaked non-finite p-value")
+
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
@@ -582,6 +619,12 @@ def _numeric_stability_case(backend: str):
         },
         "scaled_covariance_slope_variance": float(
             _public_array(actual_cov.cov_params_)[1, 1]
+        ),
+        "mixed_scale_small_variance": float(
+            _public_array(mixed.cov_params_)[2, 2]
+        ),
+        "mixed_scale_zero_variance_statistic": float(
+            _public_array(mixed.tvalues_)[0]
         ),
     }
 

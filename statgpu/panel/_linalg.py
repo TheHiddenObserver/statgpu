@@ -48,48 +48,59 @@ def _svd_inverse_factors(X, xp):
 
 
 def _scaled_lstsq_rhs(y, xp, *, batched: bool):
-    """Scale least-squares responses before orthogonal projection.
+    """Scale responses only enough to keep ``U.T @ y`` in float64 range.
 
-    The least-squares map is linear in ``y``.  Scaling each independent
-    response/target by its maximum absolute value prevents an otherwise
-    representable coefficient from being lost when the orthogonal projection
-    ``U.T @ y`` accumulates large finite observations beyond float64 range.
+    For an orthonormal SVD factor ``U``, every projected coordinate obeys
+    ``|u.T @ y| <= sqrt(n_obs) * max(abs(y))``.  Use this bound to apply only
+    the dimensionless down-scaling needed to keep the projection below half of
+    the float64 maximum.  Unlike normalizing every response by its maximum, the
+    scale factor is at most ``2 * sqrt(n_obs)`` for finite float64 input, so a
+    small but representable component is not needlessly collapsed merely
+    because another observation is very large.
     """
     namespace = getattr(xp, "__name__", "")
     ndim = int(getattr(y, "ndim", 0))
+    n_obs = int(y.shape[1] if batched else y.shape[0])
+    projection_limit = np.finfo(np.float64).max / (
+        2.0 * np.sqrt(float(max(n_obs, 1)))
+    )
+
+    def _safe_scale(max_abs):
+        required = max_abs / float(projection_limit)
+        return xp.where(required > 1.0, required, xp.ones_like(required))
+
     if batched:
         if ndim == 2:
-            scale = (
+            max_abs = (
                 xp.max(xp.abs(y), dim=1).values
                 if namespace == "torch"
                 else xp.max(xp.abs(y), axis=1)
             )
-            safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
+            safe_scale = _safe_scale(max_abs)
             return y / safe_scale[:, None], safe_scale[:, None]
         if ndim == 3:
-            scale = (
+            max_abs = (
                 xp.max(xp.abs(y), dim=1).values
                 if namespace == "torch"
                 else xp.max(xp.abs(y), axis=1)
             )
-            safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
+            safe_scale = _safe_scale(max_abs)
             return y / safe_scale[:, None, :], safe_scale[:, None, :]
         raise ValueError("batched panel response must have shape (batch, n_obs[, n_targets])")
 
     if ndim == 1:
-        scale = xp.max(xp.abs(y))
-        safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
+        max_abs = xp.max(xp.abs(y))
+        safe_scale = _safe_scale(max_abs)
         return y / safe_scale, safe_scale
     if ndim == 2:
-        scale = (
+        max_abs = (
             xp.max(xp.abs(y), dim=0).values
             if namespace == "torch"
             else xp.max(xp.abs(y), axis=0)
         )
-        safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
+        safe_scale = _safe_scale(max_abs)
         return y / safe_scale[None, :], safe_scale[None, :]
     raise ValueError("panel response must be one- or two-dimensional")
-
 
 def panel_svd_pseudoinverse(X, xp):
     """Return X+, (X'X)+, and rank from one explicit float64 SVD mask."""

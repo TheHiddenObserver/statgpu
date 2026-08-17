@@ -258,7 +258,7 @@ def test_fama_macbeth_failed_refit_invalidates_previous_inference_state():
         assert not hasattr(model, name), name
 
 
-def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypatch):
+def test_fama_macbeth_numpy_uses_certified_batch_before_svd_fallback(monkeypatch):
     x, y, _labels, numeric = _chronology_fixture()
     calls = []
     original = panel_linalg._svd_inverse_factors
@@ -273,7 +273,11 @@ def test_fama_macbeth_reuses_one_rank_revealing_svd_per_retained_period(monkeypa
     )
 
     assert model.n_periods == 3
-    assert calls == [(5, 2), (5, 2), (5, 2)]
+    assert model._period_solver_mode == "gram-certified"
+    assert model._period_solver_batches == 1
+    assert model._period_rank_syncs == 1
+    assert model._period_svd_fallbacks == 0
+    assert calls == []
 
 
 def test_panel_lstsq_keeps_cutoff_backend_native_and_extracts_only_rank(monkeypatch):
@@ -379,3 +383,78 @@ def test_fama_macbeth_rejects_rank_deficient_retained_period_torch_cpu():
         match=r"full column rank.*retained time period.*rank deficient.*rank=1, columns=2",
     ):
         FamaMacBeth().fit(X_t, y_t, time_ids=time_t)
+
+
+
+def _mixed_coefficient_scale_fixture():
+    X_period = np.asarray(
+        [
+            [2.0, 0.0],
+            [-2.0, 0.0],
+            [0.0, 1.0],
+            [0.0, -1.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    period_betas = np.asarray(
+        [
+            [0.0, -1.0e154, -1.0e-10],
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0e154, 1.0e-10],
+        ],
+        dtype=np.float64,
+    )
+    design = np.column_stack([np.ones(X_period.shape[0]), X_period])
+    X = np.tile(X_period, (period_betas.shape[0], 1))
+    y = np.concatenate([design @ beta for beta in period_betas])
+    time = np.repeat(np.arange(period_betas.shape[0]), X_period.shape[0])
+    expected_cov = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0e308 / 3.0, 1.0e144 / 3.0],
+            [0.0, 1.0e144 / 3.0, 1.0e-20 / 3.0],
+        ],
+        dtype=np.float64,
+    )
+    return X, y, time, period_betas, expected_cov
+
+
+def _assert_mixed_scale_fmb_result(model, period_betas, expected_cov):
+    np.testing.assert_allclose(
+        _to_numpy(model.betas_), period_betas, rtol=2e-13, atol=0.0
+    )
+    np.testing.assert_allclose(
+        _to_numpy(model.cov_params_), expected_cov, rtol=3e-13, atol=0.0
+    )
+    assert _to_numpy(model.cov_params_)[2, 2] > 0.0
+    assert np.all(np.isfinite(_to_numpy(model.tvalues_)))
+    assert np.all(np.isfinite(_to_numpy(model.pvalues_)))
+    assert _to_numpy(model.tvalues_)[0] == pytest.approx(0.0)
+    assert _to_numpy(model.pvalues_)[0] == pytest.approx(1.0)
+    np.testing.assert_allclose(
+        _to_numpy(model.conf_int_)[0], np.asarray([0.0, 0.0]), rtol=0.0, atol=0.0
+    )
+
+
+def test_fama_macbeth_preserves_coordinatewise_covariance_scale_numpy():
+    X, y, time, period_betas, expected_cov = _mixed_coefficient_scale_fixture()
+    model = FamaMacBeth(cov_type="nonrobust", device="cpu").fit(
+        X, y, time_ids=time
+    )
+    assert model._period_solver_mode == "gram-certified"
+    _assert_mixed_scale_fmb_result(model, period_betas, expected_cov)
+
+
+def test_fama_macbeth_preserves_coordinatewise_covariance_scale_torch_cpu():
+    torch = pytest.importorskip("torch")
+    X, y, time, period_betas, expected_cov = _mixed_coefficient_scale_fixture()
+    model = FamaMacBeth(cov_type="nonrobust").fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=time,
+    )
+    assert model._backend_name == "torch"
+    assert model._period_solver_mode == "gram-certified"
+    _assert_mixed_scale_fmb_result(model, period_betas, expected_cov)

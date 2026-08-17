@@ -98,7 +98,7 @@ def _period_batch(X_grouped, y_grouped, offsets, codes, n_t, k, xp):
     )
 
 
-def _gpu_certified_period_betas(
+def _certified_period_betas(
     X_design,
     y_arr,
     time_codes,
@@ -109,7 +109,7 @@ def _gpu_certified_period_betas(
     backend_name,
     xp,
 ):
-    """Solve GPU periods with a conservative Gram fast path and SVD fallback.
+    """Solve retained periods with a conservative Gram fast path and SVD fallback.
 
     Equal-sized periods are grouped into one batch.  A batch first receives a
     backend-native Gram-spectrum certificate.  Clearly well-conditioned periods
@@ -423,53 +423,28 @@ class FamaMacBeth(BasePanelModel):
         )
         k = int(X_design.shape[1])
 
-        if backend_name in {"torch", "cupy"}:
-            betas, solver_batches, rank_syncs, svd_fallbacks = (
-                _gpu_certified_period_betas(
-                    X_design,
-                    y_arr,
-                    time_codes,
-                    counts,
-                    time_labels,
-                    min_obs_per_period=self.min_obs_per_period,
-                    backend_name=backend_name,
-                    xp=xp,
-                )
+        betas, solver_batches, rank_syncs, svd_fallbacks = (
+            _certified_period_betas(
+                X_design,
+                y_arr,
+                time_codes,
+                counts,
+                time_labels,
+                min_obs_per_period=self.min_obs_per_period,
+                backend_name=backend_name,
+                xp=xp,
             )
-            if betas is None:
-                raise ValueError("No time periods with enough observations")
-            self._period_solver_mode = (
-                "gram-certified"
-                if int(svd_fallbacks) == 0
-                else "gram-certified+svd-fallback"
-            )
-            self._period_solver_batches = int(solver_batches)
-            self._period_rank_syncs = int(rank_syncs)
-            self._period_svd_fallbacks = int(svd_fallbacks)
-        else:
-            betas_list = []
-            for code, n_t in enumerate(counts):
-                if int(n_t) < int(self.min_obs_per_period) or int(n_t) < k:
-                    continue
-                idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
-                X_t = X_design[idx]
-                y_t = y_arr[idx]
-                beta_t, rank_t = panel_lstsq(X_t, y_t, xp)
-                if rank_t < k:
-                    raise ValueError(
-                        "FamaMacBeth requires full column rank in every retained period; "
-                        f"retained time period {time_labels[code]!r} is rank deficient "
-                        f"(rank={rank_t}, columns={k})"
-                    )
-                betas_list.append(beta_t)
-
-            if not betas_list:
-                raise ValueError("No time periods with enough observations")
-            betas = _stack(betas_list, xp, axis=0)
-            self._period_solver_mode = "serial"
-            self._period_solver_batches = int(len(betas_list))
-            self._period_rank_syncs = int(len(betas_list))
-            self._period_svd_fallbacks = 0
+        )
+        if betas is None:
+            raise ValueError("No time periods with enough observations")
+        self._period_solver_mode = (
+            "gram-certified"
+            if int(svd_fallbacks) == 0
+            else "gram-certified+svd-fallback"
+        )
+        self._period_solver_batches = int(solver_batches)
+        self._period_rank_syncs = int(rank_syncs)
+        self._period_svd_fallbacks = int(svd_fallbacks)
 
         T = int(betas.shape[0])
         if T < 2:
@@ -497,7 +472,13 @@ class FamaMacBeth(BasePanelModel):
                 "FamaMacBeth centered period coefficients are non-finite; covariance "
                 "cannot be represented reliably in float64"
             )
-        centered_scale = xp.max(xp.abs(beta_centered))
+        # Scale each coefficient coordinate independently. A single global
+        # scale can underflow a small coordinate's quadratic variation to zero
+        # when another coefficient varies at a much larger magnitude.
+        if xp.__name__ == "torch":
+            centered_scale = xp.max(xp.abs(beta_centered), dim=0).values
+        else:
+            centered_scale = xp.max(xp.abs(beta_centered), axis=0)
         safe_centered_scale = xp.where(
             centered_scale > 0.0,
             centered_scale,
@@ -532,7 +513,9 @@ class FamaMacBeth(BasePanelModel):
         # covariance has reduced the magnitude. If the final covariance itself
         # is outside float64 range, fail closed below rather than publishing
         # Inf/NaN inference.
-        cov_params = (cov_scaled * safe_centered_scale) * safe_centered_scale
+        cov_params = (
+            cov_scaled * safe_centered_scale[:, None]
+        ) * safe_centered_scale[None, :]
         if not bool(_to_float_scalar(xp.all(xp.isfinite(cov_params)))):
             raise ValueError(
                 "FamaMacBeth covariance contains non-finite values; inference is "
@@ -547,7 +530,15 @@ class FamaMacBeth(BasePanelModel):
                 "is not numerically valid"
             )
         bse = xp.sqrt(xp.maximum(diagonal, xp.zeros_like(diagonal)))
-        tvalues = avg_beta / bse
+        # Match the shared panel inference convention at an exactly zero
+        # estimated variance: 0/0 should not leak NaN into the public result
+        # surface. Positive standard errors are unchanged.
+        bse_for_stat = xp.where(
+            bse > 0.0,
+            bse,
+            xp.full_like(bse, np.finfo(np.float64).tiny),
+        )
+        tvalues = avg_beta / bse_for_stat
         df = T - 1
 
         dist_name = "normal" if self._cov_type == "newey-west" else "t"
