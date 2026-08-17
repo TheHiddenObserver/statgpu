@@ -58,6 +58,14 @@ $$
 
 其中 $C$ 是观测 entity-time incidence graph 的 connected-component 数。
 
+公开的 residual degrees of freedom 使用同一个 nuisance-effect rank：
+
+$$
+df_{\mathrm{resid}}=n-\operatorname{rank}(Z)-r_F.
+$$
+
+这一统一定义同时决定公开的 `df_resid`、nonrobust residual-variance scale、HC1 (`robust`) finite-sample correction，以及 nonrobust Student-$t$ inference。因此它与对应的显式 fixed-effect dummy regression 的 residual df 完全一致，而不是在 within transformation 后再使用 `N-1`/`T-1` 的简化计数。
+
 ## Parameters
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |

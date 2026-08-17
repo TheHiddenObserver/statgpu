@@ -58,6 +58,14 @@ $$
 
 where $C$ is the number of connected components in the observed entity-time incidence graph.
 
+The public residual degrees of freedom use this same nuisance-effect rank,
+
+$$
+df_{\mathrm{resid}}=n-\operatorname{rank}(Z)-r_F.
+$$
+
+This single definition drives the reported `df_resid`, the nonrobust residual-variance scale, the HC1 (`robust`) finite-sample correction, and nonrobust Student-$t$ inference. It is therefore identical to the residual df of the corresponding explicit fixed-effect dummy regression rather than an `N-1`/`T-1` shortcut applied after within transformation.
+
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |

@@ -276,11 +276,10 @@ class BasePanelModel(BaseEstimator):
 
         Existing Stage-A inference is computed and stored before this property is
         consulted, so rescaling here cannot change public bse/t/p/CI values.
-        PanelOLS preserves a historical residual-df convention that is one rank
-        parameterization away from the standard fixed-effect model df used by
-        classical Hausman tests.  When Stage-B fit metadata provides both the
-        legacy and standard diagnostic df, convert only this internal covariance
-        copy to the standard homoskedastic scale.
+        Current PanelOLS fits use the standard fixed-effect residual df directly.
+        The legacy branch is retained only for compatibility with an already
+        materialized result whose metadata explicitly records a legacy-scaled
+        homoskedastic covariance.
         """
         raw = getattr(self, "_panel_cov_params_raw", None)
         if raw is None:
@@ -289,9 +288,11 @@ class BasePanelModel(BaseEstimator):
         metadata = getattr(result, "metadata", {}) if result is not None else {}
         diagnostic_df = metadata.get("diagnostic_df")
         legacy_df = metadata.get("legacy_df_resid")
+        public_df_basis = metadata.get("public_df_resid_basis")
         cov_type = str(getattr(self, "_cov_type", "nonrobust")).lower()
         if (
             cov_type == "nonrobust"
+            and public_df_basis == "legacy"
             and isinstance(diagnostic_df, dict)
             and legacy_df is not None
         ):
@@ -443,36 +444,6 @@ class BasePanelModel(BaseEstimator):
 
         xp = backend.xp
         canonical_cov_type = normalize_covariance_type(cov_type)
-        covariance_metadata: dict = {}
-        cov_params = ols_covariance(
-            X,
-            resid,
-            cov_type=canonical_cov_type,
-            scale=scale,
-            df_resid=df_resid,
-            cluster=cluster,
-            time_ids=time_ids,
-            bandwidth=bandwidth,
-            kernel=kernel,
-            group_debias=group_debias,
-            extra_df=extra_df,
-            xp=xp,
-            allowed=allowed,
-            hc1_correction=hc1_correction,
-            metadata=covariance_metadata,
-        )
-        self._covariance_metadata = covariance_metadata
-        self._panel_cov_params_raw = np.asarray(
-            _to_numpy(cov_params), dtype=np.float64
-        )
-
-        diag = xp.diag(cov_params)
-        cov_np = self._panel_cov_params_raw
-        if not np.all(np.isfinite(cov_np)):
-            raise ValueError(
-                "covariance contains non-finite values; inference is not numerically valid"
-            )
-
         if fit_rank is None:
             from statgpu.panel._linalg import panel_matrix_rank
 
@@ -484,6 +455,50 @@ class BasePanelModel(BaseEstimator):
                 "fit_rank must identify a positive subspace no larger than the design"
             )
         rank_deficient = fit_rank < design_columns
+
+        covariance_metadata: dict = {}
+        # HC2/HC3 divide by (1-h_i).  A rank-deficient design can have h_i=1
+        # while still having positive residual df, so the coefficient covariance
+        # is undefined even though fitted values remain perfectly well defined.
+        # Since coordinate inference is unavailable for every rank-deficient fit
+        # anyway, do not let this secondary covariance invalidate the fit itself.
+        skip_rank_deficient_hc = rank_deficient and canonical_cov_type in {"hc2", "hc3"}
+        if skip_rank_deficient_hc:
+            covariance_metadata.update(
+                {
+                    "covariance": canonical_cov_type,
+                    "rank_deficient_covariance_unavailable": True,
+                }
+            )
+            cov_params = None
+            self._panel_cov_params_raw = None
+        else:
+            cov_params = ols_covariance(
+                X,
+                resid,
+                cov_type=canonical_cov_type,
+                scale=scale,
+                df_resid=df_resid,
+                cluster=cluster,
+                time_ids=time_ids,
+                bandwidth=bandwidth,
+                kernel=kernel,
+                group_debias=group_debias,
+                extra_df=extra_df,
+                xp=xp,
+                allowed=allowed,
+                hc1_correction=hc1_correction,
+                metadata=covariance_metadata,
+            )
+            self._panel_cov_params_raw = np.asarray(
+                _to_numpy(cov_params), dtype=np.float64
+            )
+            cov_np = self._panel_cov_params_raw
+            if not np.all(np.isfinite(cov_np)):
+                raise ValueError(
+                    "covariance contains non-finite values; inference is not numerically valid"
+                )
+        self._covariance_metadata = covariance_metadata
         self._coefficient_inference_available = not rank_deficient
         self._coefficient_inference_reason = None
         self._covariance_metadata["design_rank"] = fit_rank
@@ -525,6 +540,7 @@ class BasePanelModel(BaseEstimator):
             ).apply_to(self)
             return cov_params
 
+        diag = xp.diag(cov_params)
         diag_np = np.diag(cov_np).astype(np.float64, copy=False)
         # A variance is invalid whenever it is strictly negative. There is no
         # dimensionally valid generic tolerance that can distinguish a small

@@ -451,13 +451,7 @@ class PanelOLS(BasePanelModel):
             n_effects += n_times - 1
         legacy_df_resid = n - int(fit_rank) - n_effects
         standard_df_resid = int(diagnostic_df["df_resid"])
-        if legacy_df_resid > 0:
-            self.df_resid = legacy_df_resid
-            public_df_basis = "legacy"
-        elif standard_df_resid > 0:
-            self.df_resid = standard_df_resid
-            public_df_basis = "component-aware"
-        else:
+        if standard_df_resid <= 0:
             raise ValueError(
                 "Not enough observations after fixed-effect rank adjustment: "
                 f"n={n}, k={k}, legacy_n_effects={n_effects}, "
@@ -466,6 +460,12 @@ class PanelOLS(BasePanelModel):
                 f"incidence_components={diagnostic_df['incidence_components']}, "
                 f"df_resid={standard_df_resid}."
             )
+        # Public inference must count the full identified nuisance-effect rank.
+        # The older N-1/T-1 shortcut omitted one nuisance direction whenever FE
+        # were represented by within transformation without an explicit level
+        # constant, understating nonrobust scale and the HC1 correction.
+        self.df_resid = standard_df_resid
+        public_df_basis = "standard"
 
         y_pred = X_d @ coef
         resid = y_d - y_pred
