@@ -29,12 +29,12 @@ replace(
 for path in ("docs/en/panel/fama-macbeth.md", "docs/cn/panel/fama-macbeth.md"):
     replace(path, "n_t\\ge k+1", "n_t\\ge k")
 
-# Add a concise changelog note next to the current Panel Stage-C entries.
+# Add a concise changelog note under the current PR126 section.
 p = ROOT / "CHANGELOG.md"
 text = p.read_text(encoding="utf-8")
-needle = "## Unreleased\n"
+needle = "### PR #126 — Panel Tier-1 Stage C covariance\n"
 if needle not in text:
-    raise RuntimeError("CHANGELOG.md missing Unreleased section")
+    raise RuntimeError("CHANGELOG.md missing PR126 section")
 note = (
     "- Fixed `FamaMacBeth` period eligibility so exactly identified full-rank "
     "cross sections (`n_t == k`, including the period intercept) are retained; "
