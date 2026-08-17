@@ -215,6 +215,23 @@ def test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_bac
     assert np.all(np.isfinite(_to_numpy(actual.cov_params_)))
     assert actual.fit_statistics_.rsquared_overall == 0.0
     assert actual.fit_statistics_.metadata["degenerate_total_ss"]["overall"] is True
+
+    entity_ids = np.tile(np.arange(3, dtype=np.int64), 4)
+    entity_model = FamaMacBeth(bandwidth=0).fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(time_ids, dtype=torch.int64),
+        entity_ids=torch.as_tensor(entity_ids, dtype=torch.int64),
+    )
+    stats = entity_model.fit_statistics_
+    assert stats.rsquared_overall == 0.0
+    assert stats.rsquared_between == 0.0
+    assert stats.rsquared_within == 0.0
+    assert stats.metadata["degenerate_total_ss"] == {
+        "within": True,
+        "between": True,
+        "overall": True,
+    }
     np.testing.assert_allclose(
         _to_numpy(actual.betas_)[:, 0],
         np.asarray(expected.betas_)[:, 0],

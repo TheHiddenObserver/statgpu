@@ -121,10 +121,19 @@ def _scaled_mean(values, xp):
     return xp.mean(values / safe_scale) * safe_scale
 
 
+def _scaled_group_means(values, groups, xp):
+    """Return group means after one global scaling to protect group sums."""
+    scale = xp.max(xp.abs(values))
+    safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
+    return group_means(values / safe_scale, groups, xp=xp) * safe_scale
+
+
 def _demean_matrix(X, entity_codes, xp):
     out = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
     for j in range(int(X.shape[1])):
-        out[:, j] = X[:, j] - group_means(X[:, j], entity_codes, xp=xp)
+        out[:, j] = X[:, j] - _scaled_group_means(
+            X[:, j], entity_codes, xp
+        )
     return out
 
 
@@ -162,10 +171,12 @@ def _parameter_r2_components(
             "overall": deg_o,
         }
 
-    y_mean_aligned = group_means(y, entity_codes, xp=xp)
+    y_mean_aligned = _scaled_group_means(y, entity_codes, xp)
     X_mean_aligned = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
     for j in range(int(X.shape[1])):
-        X_mean_aligned[:, j] = group_means(X[:, j], entity_codes, xp=xp)
+        X_mean_aligned[:, j] = _scaled_group_means(
+            X[:, j], entity_codes, xp
+        )
     first = _first_group_indices(entity_codes, xp, X)
     y_between = y_mean_aligned[first]
     X_between = X_mean_aligned[first]

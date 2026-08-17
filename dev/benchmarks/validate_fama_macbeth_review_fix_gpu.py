@@ -531,6 +531,22 @@ def _numeric_stability_case(backend: str):
         atol=0.0,
     )
 
+    entity_ids = np.tile(np.arange(x_period.size, dtype=np.int64), n_periods)
+    entity_model = FamaMacBeth(bandwidth=0, device=_device(backend)).fit(
+        Xb, yb, time_ids=time_ids, entity_ids=entity_ids
+    )
+    stats = entity_model.fit_statistics_
+    if (
+        stats.rsquared_overall != 0.0
+        or stats.rsquared_between != 0.0
+        or stats.rsquared_within != 0.0
+        or stats.metadata.get("degenerate_total_ss")
+        != {"within": True, "between": True, "overall": True}
+    ):
+        raise AssertionError(
+            f"entity-aware scaled R2 drifted on {backend}: {stats}"
+        )
+
     # Separately exercise the scaled coefficient covariance at a magnitude
     # where naive beta' beta overflows but the final covariance is representable.
     slopes = np.asarray([-1.0e154, 0.0, 1.0e154])
@@ -559,6 +575,11 @@ def _numeric_stability_case(backend: str):
         "gram_rhs_overflow_svd_fallbacks": int(actual._period_svd_fallbacks),
         "n_periods": n_periods,
         "common_intercept": float(_public_array(actual.coef_)[0]),
+        "entity_aware_r2": {
+            "within": float(stats.rsquared_within),
+            "between": float(stats.rsquared_between),
+            "overall": float(stats.rsquared_overall),
+        },
         "scaled_covariance_slope_variance": float(
             _public_array(actual_cov.cov_params_)[1, 1]
         ),
