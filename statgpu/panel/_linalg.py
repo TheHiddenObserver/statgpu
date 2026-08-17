@@ -7,6 +7,12 @@ import numpy as np
 from statgpu.backends import _to_float_scalar
 
 
+# Normal equations are used only as an explicitly certified fast path.  A Gram
+# eigenvalue ratio of 1e-4 corresponds to kappa_2(X) < 100 in exact arithmetic,
+# leaving a very large numerical margin from the SVD rank boundary used below.
+_GRAM_CERTIFIED_MIN_EIGEN_RATIO = 1.0e-4
+
+
 def _rank_mask_backend(X, singular_values, xp):
     """Return the shared SVD retention mask and backend-native rank scalar."""
     if int(singular_values.shape[-1]) == 0:
@@ -82,6 +88,107 @@ def panel_lstsq_deferred_rank(X, y, xp):
     return Vh.T @ scaled, rank_backend
 
 
+def _validate_batched_lstsq_inputs(X, y):
+    if getattr(X, "ndim", None) != 3:
+        raise ValueError("batched panel design must have shape (batch, n_obs, n_features)")
+    if int(X.shape[-1]) == 0:
+        raise ValueError("panel design must contain at least one column")
+    if getattr(y, "ndim", None) not in (2, 3):
+        raise ValueError("batched panel response must have shape (batch, n_obs[, n_targets])")
+    if int(y.shape[0]) != int(X.shape[0]) or int(y.shape[1]) != int(X.shape[1]):
+        raise ValueError("batched panel design and response shapes are incompatible")
+
+
+def panel_lstsq_gram_certified_batched(
+    X,
+    y,
+    xp,
+    *,
+    min_eigen_ratio: float = _GRAM_CERTIFIED_MIN_EIGEN_RATIO,
+):
+    """Return a fast Gram-solve candidate and a backend-native safety mask.
+
+    The fast path is deliberately *not* a replacement for the shared SVD rank
+    policy.  It is only valid for matrices whose Gram spectrum is far from the
+    numerical rank boundary.  Callers must use the returned ``certified`` mask
+    and fall back to :func:`panel_lstsq_batched` or
+    :func:`panel_lstsq_deferred_rank` for every uncertified matrix.
+
+    Parameters
+    ----------
+    X : array-like, shape (batch, n_obs, n_features)
+        Equal-shaped design matrices.
+    y : array-like, shape (batch, n_obs) or (batch, n_obs, n_targets)
+        Matching responses.
+    xp : module
+        NumPy, CuPy, or Torch numerical namespace.  The operations used here
+        (batched Hermitian eigenvalues and batched square solve) are supported by
+        the maintained GPU namespaces used by statgpu.
+    min_eigen_ratio : float, default=1e-4
+        Minimum ``lambda_min(X'X) / lambda_max(X'X)`` accepted for the fast path.
+        The default restricts normal-equation solves to clearly well-conditioned
+        designs (approximately ``kappa_2(X) < 100``).
+
+    Returns
+    -------
+    params : array-like
+        Candidate least-squares parameters.  Entries corresponding to
+        uncertified matrices are placeholders and must not be consumed.
+    certified : array-like, shape (batch,)
+        Backend-native boolean mask identifying matrices safe for the Gram path.
+
+    Notes
+    -----
+    Uncertified Gram matrices are replaced by identity matrices before the
+    batched solve.  This prevents one singular/ill-conditioned period from
+    aborting the whole batch while keeping the unsafe result explicitly masked
+    for SVD fallback.
+    """
+    _validate_batched_lstsq_inputs(X, y)
+    ratio = float(min_eigen_ratio)
+    if not np.isfinite(ratio) or not 0.0 < ratio < 1.0:
+        raise ValueError("min_eigen_ratio must be finite and strictly between 0 and 1")
+
+    namespace = getattr(xp, "__name__", "")
+    if namespace not in {"numpy", "cupy", "torch"}:
+        raise NotImplementedError(
+            "certified Gram solve requires NumPy, CuPy, or Torch batched linear algebra"
+        )
+
+    transpose = xp.swapaxes(X, -2, -1)
+    gram = xp.matmul(transpose, X)
+    rhs_input = y[..., None] if getattr(y, "ndim", None) == 2 else y
+    rhs = xp.matmul(transpose, rhs_input)
+
+    eigenvalues = xp.linalg.eigvalsh(gram)
+    smallest = eigenvalues[..., 0]
+    largest = eigenvalues[..., -1]
+    certified = (
+        xp.isfinite(smallest)
+        & xp.isfinite(largest)
+        & (largest > 0.0)
+        & (smallest > largest * ratio)
+    )
+
+    k = int(X.shape[-1])
+    if namespace == "torch":
+        identity = xp.eye(k, dtype=X.dtype, device=X.device)
+    else:
+        identity = xp.eye(k, dtype=X.dtype)
+    safe_gram = xp.where(certified[..., None, None], gram, identity)
+    safe_rhs = xp.where(certified[..., None, None], rhs, xp.zeros_like(rhs))
+
+    if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
+        params, info = xp.linalg.solve_ex(safe_gram, safe_rhs, check_errors=False)
+        certified = certified & (info == 0)
+    else:
+        params = xp.linalg.solve(safe_gram, safe_rhs)
+
+    if getattr(y, "ndim", None) == 2:
+        params = params[..., 0]
+    return params, certified
+
+
 def panel_lstsq_batched(X, y, xp):
     """Solve a batch of equal-shaped panel least-squares problems with one SVD call.
 
@@ -117,14 +224,7 @@ def panel_lstsq_batched(X, y, xp):
             "panel_lstsq_batched requires a namespace with documented stacked-SVD "
             "support; use panel_lstsq_deferred_rank for two-dimensional CuPy solves"
         )
-    if getattr(X, "ndim", None) != 3:
-        raise ValueError("batched panel design must have shape (batch, n_obs, n_features)")
-    if int(X.shape[-1]) == 0:
-        raise ValueError("panel design must contain at least one column")
-    if getattr(y, "ndim", None) not in (2, 3):
-        raise ValueError("batched panel response must have shape (batch, n_obs[, n_targets])")
-    if int(y.shape[0]) != int(X.shape[0]) or int(y.shape[1]) != int(X.shape[1]):
-        raise ValueError("batched panel design and response shapes are incompatible")
+    _validate_batched_lstsq_inputs(X, y)
 
     U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
     cutoff_scale = (
