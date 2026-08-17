@@ -83,7 +83,7 @@ def _solver_provenance(model):
     return {
         "solver_mode": model._period_solver_mode,
         "solver_batches": int(model._period_solver_batches),
-        "rank_syncs": int(model._period_rank_syncs),
+        "control_syncs": int(model._period_rank_syncs),
         "svd_fallbacks": int(getattr(model, "_period_svd_fallbacks", 0)),
     }
 
@@ -190,8 +190,9 @@ def main():
         ),
         "solver_interpretation": (
             "GPU solver_mode=gram-certified means every retained period passed the "
-            "conservative Gram-spectrum certificate and svd_fallbacks=0; any uncertified "
-            "period must fall back to the maintained SVD rank policy"
+            "conservative Gram-spectrum certificate and svd_fallbacks=0. control_syncs "
+            "counts the host control transfers needed to choose the fail-closed path; "
+            "uncertified periods must fall back to the maintained SVD rank policy."
         ),
         "fixtures": cases,
     }
