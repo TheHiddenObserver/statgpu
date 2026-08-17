@@ -3,9 +3,9 @@
 
 This runner verifies correctness/backend provenance for chronology, formula,
 rank, no-intercept behavior, both covariance modes, and the standard inference
-result surface. It also records synchronized same-workload timing against NumPy.
-Timing is audit evidence only; backend-specific solver provenance and scaling
-interpretation are owned by the optimized wrapper/scaling runner.
+result surface. It also records synchronized timing for the rank-revealing
+retained-period solve against the same-workload NumPy baseline. Timing is audit
+evidence only; no universal speedup claim is derived from it.
 """
 
 from __future__ import annotations
@@ -225,6 +225,8 @@ def _assert_inference_descriptors(reference, actual):
 
 
 def _snapshot(model, prediction_input):
+    # Validate the common inference container and private aliases every time a
+    # numerical snapshot is taken; public arrays must remain on the fit backend.
     _inference_descriptor(model)
     _assert_backend_native_outputs(model)
     fit_ref = getattr(model, "_fit_ref_", None)
@@ -489,14 +491,22 @@ def _timing_case(backend: str, warmup: int, repeats: int):
         "backend_over_numpy_median_ratio": float(ratio),
         "max_abs_differences_vs_numpy": numerical_differences,
         "optimization_notes": {
-            "ownership": (
-                "backend-specific solver provenance and optimization interpretation are "
-                "rewritten by validate_fama_macbeth_optimized_gpu.py"
+            "period_solver": (
+                "one rank-revealing SVD per retained period; panel_lstsq uses the "
+                "SVD factors directly without materializing an unused covariance bread"
+            ),
+            "rank_cutoff": (
+                "singular-value cutoff remains on the active backend; only the final "
+                "integer rank is extracted for fail-closed Python control flow"
             ),
             "distribution_inference": (
                 "p-values and critical values use the selected NumPy/CuPy/Torch "
                 "inference backend directly; GPU fits do not round-trip the statistic "
                 "vector through NumPy/SciPy for distribution evaluation"
+            ),
+            "remaining_structure": (
+                "retained periods are processed serially in Python, so small "
+                "per-period regressions can remain launch/synchronization dominated"
             ),
             "interpretation": (
                 "ratio > 1 means the requested backend is slower than NumPy on this "
