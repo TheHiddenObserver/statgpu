@@ -1,0 +1,52 @@
+name: PR126 FE df and rank guard fix once
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-fe-df-rank-guard-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply fresh review fixes
+        run: python dev/validation/pr126_fe_df_rank_guard_fix_once.py
+
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+
+      - name: Run focused review gates
+        run: |
+          python -m compileall -q statgpu/panel
+          python -m pytest -q dev/tests/test_panel_stage_c_fresh_df_rank_guard.py
+          python -m pytest -q dev/tests/test_panel_stage_a_golden.py
+          python -m pytest -q dev/tests/test_panel_stage_c_rank_deficient_matrix.py
+          python -m pytest -q dev/tests/test_panel_stage_c_edge_contracts.py
+          python -m pytest -q dev/tests/test_panel_stage_c_linearmodels_estimators.py
+          git diff --check
+
+      - name: Commit reviewed fixes and remove staging helpers
+        run: |
+          rm .github/workflows/pr126-fe-df-rank-guard-fix.yml
+          rm dev/validation/pr126_fe_df_rank_guard_fix_once.py
+          git config user.name "statgpu-review-fix"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: align panel FE inference degrees of freedom"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
