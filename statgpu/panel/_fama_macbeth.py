@@ -513,9 +513,11 @@ class FamaMacBeth(BasePanelModel):
         # covariance has reduced the magnitude. If the final covariance itself
         # is outside float64 range, fail closed below rather than publishing
         # Inf/NaN inference.
-        cov_params = (
-            cov_scaled * safe_centered_scale[:, None]
-        ) * safe_centered_scale[None, :]
+        scale_row = safe_centered_scale[:, None]
+        scale_col = safe_centered_scale[None, :]
+        scale_large = xp.maximum(scale_row, scale_col)
+        scale_small = xp.minimum(scale_row, scale_col)
+        cov_params = (cov_scaled * scale_large) * scale_small
         if not bool(_to_float_scalar(xp.all(xp.isfinite(cov_params)))):
             raise ValueError(
                 "FamaMacBeth covariance contains non-finite values; inference is "

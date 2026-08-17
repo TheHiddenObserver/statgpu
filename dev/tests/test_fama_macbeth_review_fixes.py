@@ -458,3 +458,46 @@ def test_fama_macbeth_preserves_coordinatewise_covariance_scale_torch_cpu():
     assert model._backend_name == "torch"
     assert model._period_solver_mode == "gram-certified"
     _assert_mixed_scale_fmb_result(model, period_betas, expected_cov)
+
+
+
+def _subnormal_cross_covariance_fixture():
+    tiny = float(np.nextafter(0.0, 1.0))
+    X_period = np.asarray(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0], [0.0, 0.0], [0.0, 0.0]],
+        dtype=np.float64,
+    )
+    period_betas = np.asarray(
+        [[0.0, -1.0e154, -tiny], [0.0, 0.0, 0.0], [0.0, 1.0e154, tiny]],
+        dtype=np.float64,
+    )
+    design = np.column_stack([np.ones(X_period.shape[0]), X_period])
+    X = np.tile(X_period, (3, 1))
+    y = np.concatenate([design @ beta for beta in period_betas])
+    time = np.repeat(np.arange(3), X_period.shape[0])
+    expected_cross = (1.0e154 * tiny) / 3.0
+    return X, y, time, expected_cross
+
+
+def test_fama_macbeth_covariance_rescale_preserves_subnormal_cross_symmetry_numpy():
+    X, y, time, expected_cross = _subnormal_cross_covariance_fixture()
+    model = FamaMacBeth(cov_type="nonrobust", device="cpu").fit(X, y, time_ids=time)
+    cov = _to_numpy(model.cov_params_)
+    assert expected_cross > 0.0
+    np.testing.assert_allclose(cov[1, 2], expected_cross, rtol=5e-13, atol=0.0)
+    np.testing.assert_allclose(cov[2, 1], expected_cross, rtol=5e-13, atol=0.0)
+    np.testing.assert_allclose(cov, cov.T, rtol=0.0, atol=0.0)
+
+
+def test_fama_macbeth_covariance_rescale_preserves_subnormal_cross_symmetry_torch_cpu():
+    torch = pytest.importorskip("torch")
+    X, y, time, expected_cross = _subnormal_cross_covariance_fixture()
+    model = FamaMacBeth(cov_type="nonrobust").fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=time,
+    )
+    cov = _to_numpy(model.cov_params_)
+    np.testing.assert_allclose(cov[1, 2], expected_cross, rtol=5e-13, atol=0.0)
+    np.testing.assert_allclose(cov[2, 1], expected_cross, rtol=5e-13, atol=0.0)
+    np.testing.assert_allclose(cov, cov.T, rtol=0.0, atol=0.0)

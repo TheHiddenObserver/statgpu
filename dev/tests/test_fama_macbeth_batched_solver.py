@@ -72,39 +72,38 @@ def test_panel_lstsq_scales_large_finite_rhs_before_svd_projection():
 
 def test_panel_lstsq_preserves_mixed_dynamic_range_identity_rhs():
     X = np.eye(2, dtype=np.float64)
-    y = np.asarray([1.0e308, 1.0e-20], dtype=np.float64)
+    y = np.asarray([1.7e308, np.nextafter(0.0, 1.0)], dtype=np.float64)
     params, rank = panel_lstsq(X, y, np)
     assert rank == 2
-    np.testing.assert_allclose(params[0], 1.0e308, rtol=5e-15, atol=0.0)
-    np.testing.assert_allclose(params[1], 1.0e-20, rtol=5e-15, atol=0.0)
+    np.testing.assert_allclose(params[0], 1.7e308, rtol=5e-15, atol=0.0)
+    assert params[1] == np.nextafter(0.0, 1.0)
 
 
 def test_panel_lstsq_deferred_rank_preserves_mixed_dynamic_range_identity_rhs():
     from statgpu.panel._linalg import panel_lstsq_deferred_rank
 
     X = np.eye(2, dtype=np.float64)
-    y = np.asarray([1.0e308, 1.0e-20], dtype=np.float64)
+    y = np.asarray([1.7e308, np.nextafter(0.0, 1.0)], dtype=np.float64)
     params, rank = panel_lstsq_deferred_rank(X, y, np)
     assert int(rank) == 2
-    np.testing.assert_allclose(params[0], 1.0e308, rtol=5e-15, atol=0.0)
-    np.testing.assert_allclose(params[1], 1.0e-20, rtol=5e-15, atol=0.0)
+    np.testing.assert_allclose(params[0], 1.7e308, rtol=5e-15, atol=0.0)
+    assert params[1] == np.nextafter(0.0, 1.0)
 
 
 def test_panel_lstsq_batched_preserves_mixed_dynamic_range_identity_rhs():
     torch = pytest.importorskip("torch")
     X = torch.eye(2, dtype=torch.float64).repeat(2, 1, 1)
+    tiny = float(np.nextafter(0.0, 1.0))
     y = torch.tensor(
-        [[1.0e308, 1.0e-20], [-1.0e308, -1.0e-20]],
+        [[1.7e308, tiny], [-1.7e308, -tiny]],
         dtype=torch.float64,
     )
     params, ranks = panel_lstsq_batched(X, y, torch)
     assert ranks.tolist() == [2, 2]
-    expected = np.asarray(
-        [[1.0e308, 1.0e-20], [-1.0e308, -1.0e-20]], dtype=np.float64
-    )
-    np.testing.assert_allclose(
-        params.detach().cpu().numpy(), expected, rtol=5e-15, atol=0.0
-    )
+    actual = params.detach().cpu().numpy()
+    np.testing.assert_allclose(actual[:, 0], np.asarray([1.7e308, -1.7e308]), rtol=5e-15, atol=0.0)
+    assert actual[0, 1] == tiny
+    assert actual[1, 1] == -tiny
 
 
 def test_panel_lstsq_batched_scales_large_finite_rhs_before_projection():

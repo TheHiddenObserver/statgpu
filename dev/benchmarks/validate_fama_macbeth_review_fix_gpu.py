@@ -605,6 +605,23 @@ def _numeric_stability_case(backend: str):
     if not np.all(np.isfinite(_public_array(mixed.pvalues_))):
         raise AssertionError("zero-variance coefficient leaked non-finite p-value")
 
+    tiny = float(np.nextafter(0.0, 1.0))
+    expected_subnormal_betas = np.asarray(
+        [[0.0, -1.0e154, -tiny], [0.0, 0.0, 0.0], [0.0, 1.0e154, tiny]],
+        dtype=np.float64,
+    )
+    X_sub = np.tile(X_period, (3, 1))
+    y_sub = np.concatenate([design @ beta for beta in expected_subnormal_betas])
+    X_sub_b, y_sub_b = _arrays(X_sub, y_sub, backend)
+    subnormal = FamaMacBeth(cov_type="nonrobust", device=_device(backend)).fit(
+        X_sub_b, y_sub_b, time_ids=time_mixed
+    )
+    sub_cov = _public_array(subnormal.cov_params_)
+    expected_cross = 1.0e154 * tiny / 3.0
+    np.testing.assert_allclose(sub_cov[1, 2], expected_cross, rtol=3e-12, atol=0.0)
+    np.testing.assert_allclose(sub_cov[2, 1], expected_cross, rtol=3e-12, atol=0.0)
+    np.testing.assert_allclose(sub_cov, sub_cov.T, rtol=0.0, atol=0.0)
+
     return {
         "status": "success",
         "executed_backend": actual._backend_name,
@@ -626,6 +643,7 @@ def _numeric_stability_case(backend: str):
         "mixed_scale_zero_variance_statistic": float(
             _public_array(mixed.tvalues_)[0]
         ),
+        "subnormal_cross_covariance": float(sub_cov[1, 2]),
     }
 
 

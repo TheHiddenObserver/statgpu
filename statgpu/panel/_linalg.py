@@ -47,61 +47,6 @@ def _svd_inverse_factors(X, xp):
     return U, Vh, _inverse_values(singular_values, retained, xp), rank
 
 
-def _scaled_lstsq_rhs(y, xp, *, batched: bool):
-    """Scale responses only enough to keep ``U.T @ y`` in float64 range.
-
-    For an orthonormal SVD factor ``U``, every projected coordinate obeys
-    ``|u.T @ y| <= sqrt(n_obs) * max(abs(y))``.  Use this bound to apply only
-    the dimensionless down-scaling needed to keep the projection below half of
-    the float64 maximum.  Unlike normalizing every response by its maximum, the
-    scale factor is at most ``2 * sqrt(n_obs)`` for finite float64 input, so a
-    small but representable component is not needlessly collapsed merely
-    because another observation is very large.
-    """
-    namespace = getattr(xp, "__name__", "")
-    ndim = int(getattr(y, "ndim", 0))
-    n_obs = int(y.shape[1] if batched else y.shape[0])
-    projection_limit = np.finfo(np.float64).max / (
-        2.0 * np.sqrt(float(max(n_obs, 1)))
-    )
-
-    def _safe_scale(max_abs):
-        required = max_abs / float(projection_limit)
-        return xp.where(required > 1.0, required, xp.ones_like(required))
-
-    if batched:
-        if ndim == 2:
-            max_abs = (
-                xp.max(xp.abs(y), dim=1).values
-                if namespace == "torch"
-                else xp.max(xp.abs(y), axis=1)
-            )
-            safe_scale = _safe_scale(max_abs)
-            return y / safe_scale[:, None], safe_scale[:, None]
-        if ndim == 3:
-            max_abs = (
-                xp.max(xp.abs(y), dim=1).values
-                if namespace == "torch"
-                else xp.max(xp.abs(y), axis=1)
-            )
-            safe_scale = _safe_scale(max_abs)
-            return y / safe_scale[:, None, :], safe_scale[:, None, :]
-        raise ValueError("batched panel response must have shape (batch, n_obs[, n_targets])")
-
-    if ndim == 1:
-        max_abs = xp.max(xp.abs(y))
-        safe_scale = _safe_scale(max_abs)
-        return y / safe_scale, safe_scale
-    if ndim == 2:
-        max_abs = (
-            xp.max(xp.abs(y), dim=0).values
-            if namespace == "torch"
-            else xp.max(xp.abs(y), axis=0)
-        )
-        safe_scale = _safe_scale(max_abs)
-        return y / safe_scale[None, :], safe_scale[None, :]
-    raise ValueError("panel response must be one- or two-dimensional")
-
 def panel_svd_pseudoinverse(X, xp):
     """Return X+, (X'X)+, and rank from one explicit float64 SVD mask."""
     U, Vh, inverse_values, rank = _svd_inverse_factors(X, xp)
@@ -113,15 +58,14 @@ def panel_svd_pseudoinverse(X, xp):
 def panel_lstsq(X, y, xp):
     """Return the minimum-norm least-squares solution under the panel SVD policy."""
     U, Vh, inverse_values, rank = _svd_inverse_factors(X, xp)
-    y_scaled, response_scale = _scaled_lstsq_rhs(y, xp, batched=False)
-    projected = U.T @ y_scaled
-    if getattr(projected, "ndim", 1) == 1:
-        scaled = inverse_values * projected
-        params = Vh.T @ scaled
-        return params * response_scale, rank
-    scaled = inverse_values.reshape(-1, 1) * projected
-    params = Vh.T @ scaled
-    return params * response_scale, rank
+    # Algebraically this is diag(1/s) @ U.T @ y. Apply 1/s to the
+    # orthonormal rows before the reduction so a large projection that is
+    # cancelled by a singular value (e.g. an intercept column) never has to be
+    # represented as an overflowing intermediate. Unlike response
+    # normalization, this does not discard unrelated tiny finite entries of y.
+    weighted_u_t = inverse_values.reshape(-1, 1) * U.T
+    scaled = weighted_u_t @ y
+    return Vh.T @ scaled, rank
 
 
 def panel_lstsq_deferred_rank(X, y, xp):
@@ -138,15 +82,9 @@ def panel_lstsq_deferred_rank(X, y, xp):
     U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
     retained, rank_backend = _rank_mask_backend(X, singular_values, xp)
     inverse_values = _inverse_values(singular_values, retained, xp)
-    y_scaled, response_scale = _scaled_lstsq_rhs(y, xp, batched=False)
-    projected = U.T @ y_scaled
-    if getattr(projected, "ndim", 1) == 1:
-        scaled = inverse_values * projected
-        params = Vh.T @ scaled
-        return params * response_scale, rank_backend
-    scaled = inverse_values.reshape(-1, 1) * projected
-    params = Vh.T @ scaled
-    return params * response_scale, rank_backend
+    weighted_u_t = inverse_values.reshape(-1, 1) * U.T
+    scaled = weighted_u_t @ y
+    return Vh.T @ scaled, rank_backend
 
 
 def _validate_batched_lstsq_inputs(X, y):
@@ -319,15 +257,12 @@ def panel_lstsq_batched(X, y, xp):
     retained = singular_values > largest * float(cutoff_scale)
     inverse_values = _inverse_values(singular_values, retained, xp)
 
-    y_scaled, response_scale = _scaled_lstsq_rhs(y, xp, batched=True)
-    rhs = y_scaled[..., None] if getattr(y_scaled, "ndim", None) == 2 else y_scaled
-    projected = xp.matmul(xp.swapaxes(U, -2, -1), rhs)
-    scaled = inverse_values[..., None] * projected
+    rhs = y[..., None] if getattr(y, "ndim", None) == 2 else y
+    weighted_u_t = xp.swapaxes(U, -2, -1) * inverse_values[..., :, None]
+    scaled = xp.matmul(weighted_u_t, rhs)
     params = xp.matmul(xp.swapaxes(Vh, -2, -1), scaled)
     if getattr(y, "ndim", None) == 2:
-        params = params[..., 0] * response_scale
-    else:
-        params = params * response_scale
+        params = params[..., 0]
     return params, ranks
 
 
