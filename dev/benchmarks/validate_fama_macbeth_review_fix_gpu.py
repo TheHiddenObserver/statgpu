@@ -483,7 +483,7 @@ def _explicit_device_cross_container_case(backend: str):
         "inference_backend": actual._inference_backend_name,
         "inference_result": inference_result,
         "max_abs_differences": _assert_snapshot(
-            _snapshot(reference, X[:3]), _snapshot(actual, X[:3])
+            _snapshot(reference, X[:3]), _snapshot(actual, foreign_X[:3])
         ),
     }
 

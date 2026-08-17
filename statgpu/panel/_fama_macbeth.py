@@ -627,7 +627,10 @@ class FamaMacBeth(BasePanelModel):
                 model_has_intercept=True,
             )
         xp = self._xp
-        X_arr = xp_asarray(X_data, dtype=xp.float64, xp=xp, ref_arr=self._fit_ref_)
+        X_source = self._to_array(X_data, backend=self._backend_name)
+        X_arr = xp_asarray(
+            X_source, dtype=xp.float64, xp=xp, ref_arr=self._fit_ref_
+        )
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or int(X_arr.shape[1]) + 1 != int(self.coef_.shape[0]):

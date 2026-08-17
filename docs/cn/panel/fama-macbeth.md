@@ -132,7 +132,7 @@ cuda = FamaMacBeth(device="cuda").fit(X, y, time_ids=time_ids)
 torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
 ```
 
-当 `device="auto"` 时，已经是 NumPy/CuPy/Torch 原生数组的输入可以保留其原生后端；但显式 `device="cpu"`、`device="cuda"` 或 `device="torch"` 请求具有最高优先级，即使输入容器属于另一个后端，statgpu 也会将其转换到请求的后端执行。若显式请求的 GPU 后端不可用，`.fit()` 会报错，而不会静默切换执行后端。
+当 `device="auto"` 时，已经是 NumPy/CuPy/Torch 原生数组的输入可以保留其原生后端；但显式 `device="cpu"`、`device="cuda"` 或 `device="torch"` 请求具有最高优先级，即使输入容器属于另一个后端，statgpu 也会将拟合与预测输入转换到请求/已拟合的后端执行。若显式请求的 GPU 后端不可用，`.fit()` 会报错，而不会静默切换执行后端。
 
 ## Formula Example
 

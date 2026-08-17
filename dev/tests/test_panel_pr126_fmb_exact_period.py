@@ -93,7 +93,16 @@ def test_fama_macbeth_explicit_cpu_overrides_torch_input_container():
     assert isinstance(actual.cov_params_, np.ndarray)
     assert_allclose(actual.coef_, expected.coef_, rtol=0.0, atol=0.0)
     assert_allclose(actual.cov_params_, expected.cov_params_, rtol=0.0, atol=0.0)
+    original_to_array = actual._to_array
+    conversions = []
+
+    def tracked_to_array(value, backend=None):
+        conversions.append((type(value).__module__, backend))
+        return original_to_array(value, backend=backend)
+
+    actual._to_array = tracked_to_array
     prediction = actual.predict(torch.as_tensor(X[:3], dtype=torch.float64))
+    assert conversions == [("torch", "numpy")]
     assert isinstance(prediction, np.ndarray)
     assert_allclose(prediction, expected.predict(X[:3]), rtol=0.0, atol=0.0)
 

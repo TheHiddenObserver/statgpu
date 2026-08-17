@@ -132,7 +132,7 @@ cuda = FamaMacBeth(device="cuda").fit(X, y, time_ids=time_ids)
 torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
 ```
 
-With `device="auto"`, an already NumPy/CuPy/Torch-native input may keep its native backend. An explicit `device="cpu"`, `device="cuda"`, or `device="torch"` request is authoritative even when the input container belongs to another backend: statgpu converts the input to the requested backend, and an unavailable explicitly requested GPU backend raises instead of silently switching execution.
+With `device="auto"`, an already NumPy/CuPy/Torch-native input may keep its native backend. An explicit `device="cpu"`, `device="cuda"`, or `device="torch"` request is authoritative even when the input container belongs to another backend: statgpu converts fit and prediction inputs to the requested/fitted backend, and an unavailable explicitly requested GPU backend raises instead of silently switching execution.
 
 ## Formula Example
 
