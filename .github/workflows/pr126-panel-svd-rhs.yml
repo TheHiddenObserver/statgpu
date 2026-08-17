@@ -1,0 +1,61 @@
+name: PR126 panel SVD RHS scaling review fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-panel-svd-rhs.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply shared panel SVD RHS scaling fix
+        run: python dev/validation/pr126_panel_svd_rhs_once.py
+      - name: Install maintained CPU/Torch environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" -e ".[validation,formula]" pytest
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.0.1" || python -m pip install "torch==2.0.1"
+          python -m pip install "numpy<2"
+      - name: Run focused panel linear algebra contracts
+        run: |
+          python -m pytest \
+            dev/tests/test_fama_macbeth_batched_solver.py \
+            dev/tests/test_fama_macbeth_inference_matrix.py \
+            dev/tests/test_panel_stage_b_fit_statistics.py \
+            dev/tests/test_panel_stage_c_torch_cpu.py \
+            dev/tests/test_panel_stage_c_full_rank_conditioning.py \
+            dev/tests/test_fama_macbeth_linearmodels_external.py \
+            -q --tb=short
+          python -m compileall -q \
+            statgpu/panel/_linalg.py \
+            statgpu/panel/_fama_macbeth.py \
+            statgpu/panel/_diagnostics.py \
+            dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py
+          git diff --check
+      - name: Commit substantive SVD scaling fix only
+        run: |
+          git config user.name "statgpu-review-fix"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            statgpu/panel/_linalg.py \
+            dev/tests/test_fama_macbeth_batched_solver.py \
+            dev/tests/test_fama_macbeth_inference_matrix.py \
+            dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py \
+            docs/en/panel/fama-macbeth.md \
+            docs/cn/panel/fama-macbeth.md \
+            CHANGELOG.md
+          git commit -m "fix: scale panel SVD response projections"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
