@@ -1,0 +1,109 @@
+name: PR126 RandomEffects between-df review fix v3
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-random-effects-between-df-review-fix-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply RandomEffects between-df fail-closed fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one target, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              'import warnings\nfrom typing import Optional, Union\n',
+              'from typing import Optional, Union\n',
+          )
+          replace_once(
+              'statgpu/panel/_random_effects.py',
+              '''        df_between = n_entities - int(rank_between)\n        if df_between <= 0:\n            warnings.warn(\n                "Between estimator under-identified: "\n                f"n_entities={n_entities} <= rank_between={rank_between}. "\n                "Variance component sigma2_a may be unreliable.",\n                UserWarning,\n                stacklevel=2,\n            )\n            df_between = max(df_between, 1)\n        s_b_sq = rss_between / df_between\n''',
+              '''        df_between = n_entities - int(rank_between)\n        if df_between <= 0:\n            raise ValueError(\n                "RandomEffects requires positive between residual degrees of freedom "\n                "to estimate the Swamy-Arora variance component; "\n                f"n_entities={n_entities}, rank_between={rank_between}, "\n                f"df_between={df_between}"\n            )\n        s_b_sq = rss_between / df_between\n''',
+          )
+
+          p = Path('dev/tests/test_panel_stage_c_edge_contracts.py')
+          text = p.read_text()
+          old_import = 'from statgpu.panel import PooledOLS, driscoll_kraay_covariance\n'
+          if text.count(old_import) != 1:
+              raise SystemExit(f'import target count={text.count(old_import)}')
+          text = text.replace(
+              old_import,
+              'from statgpu.panel import PooledOLS, RandomEffects, driscoll_kraay_covariance\n',
+              1,
+          )
+          if 'def test_random_effects_requires_positive_between_residual_df' in text:
+              raise SystemExit('between-df regression already present unexpectedly')
+          text += '''\n\ndef test_random_effects_requires_positive_between_residual_df():\n    entity = np.repeat(np.arange(2), 5)\n    x = np.concatenate([np.arange(5, dtype=float), np.arange(10, 15, dtype=float)])\n    X = np.column_stack([np.ones(len(entity)), x])\n    y = 0.4 + 0.7 * x + np.repeat([0.3, -0.2], 5)\n\n    with pytest.raises(\n        ValueError,\n        match=r"positive between residual degrees of freedom.*n_entities=2.*rank_between=2",\n    ):\n        RandomEffects().fit(X, y, entity_ids=entity)\n'''
+          p.write_text(text)
+
+          replace_once(
+              'docs/en/panel/random-effects.md',
+              'If the transformed design is exactly rank deficient, fitted values may still be available but the coefficient vector is not uniquely identified. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation.\n',
+              'The Swamy-Arora variance-component step requires positive residual degrees of freedom in both its within and between auxiliary regressions. In particular, if the number of entities is no larger than the identified rank of the between regression, `fit()` raises instead of inventing a denominator and returning an unreliable random-effect variance.\n\nIf the transformed design is exactly rank deficient, fitted values may still be available but the coefficient vector is not uniquely identified. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation.\n',
+          )
+          replace_once(
+              'docs/cn/panel/random-effects.md',
+              '如果 transformed design 精确 rank deficient，fitted values 仍可能得到，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。\n',
+              'Swamy-Arora variance-component step 要求 within 与 between auxiliary regression 都具有正的 residual degrees of freedom。特别是当 entity 数不大于 between regression 的 identified rank 时，`fit()` 会直接报错，而不会人为构造 denominator 并返回不可靠的 random-effect variance。\n\n如果 transformed design 精确 rank deficient，fitted values 仍可能得到，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。\n',
+          )
+          replace_once(
+              'CHANGELOG.md',
+              'Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance across NumPy, CuPy, and Torch.\n',
+              'Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance across NumPy, CuPy, and Torch; RandomEffects now also fails closed when the Swamy-Arora between auxiliary regression has no positive residual degrees of freedom.\n',
+          )
+          replace_once(
+              'docs/en/changelog.md',
+              '`RandomEffects` supports robust/HC, clustered, and Driscoll-Kraay covariance on quasi-demeaned GLS scores. ',
+              '`RandomEffects` supports robust/HC, clustered, and Driscoll-Kraay covariance on quasi-demeaned GLS scores, and fails closed if the Swamy-Arora between auxiliary regression has no positive residual degrees of freedom. ',
+          )
+          replace_once(
+              'docs/cn/changelog.md',
+              '`RandomEffects` 在 quasi-demeaned GLS score 上支持 robust/HC、clustered 与 Driscoll-Kraay covariance；',
+              '`RandomEffects` 在 quasi-demeaned GLS score 上支持 robust/HC、clustered 与 Driscoll-Kraay covariance，并在 Swamy-Arora between auxiliary regression 没有正 residual degrees of freedom 时 fail closed；',
+          )
+          PY
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy pandas patsy pytest joblib scikit-learn
+          python -m pip install -e . --no-deps
+      - name: Run focused RandomEffects regressions
+        run: |
+          python -m compileall -q statgpu
+          pytest -q dev/tests/test_panel_stage_c_edge_contracts.py dev/tests/test_panel_stage_c_covariance.py dev/tests/test_panel_stage_c_inference_guard.py dev/tests/test_panel_formula.py
+          git diff --check
+      - name: Commit fix and self-delete
+        shell: bash
+        run: |
+          rm -f .github/workflows/pr126-random-effects-between-df-review-fix.yml
+          rm -f .github/workflows/pr126-random-effects-between-df-review-fix-v2.yml
+          rm -f .github/workflows/pr126-random-effects-between-df-review-fix-v3.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: reject underidentified RandomEffects variance components"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
