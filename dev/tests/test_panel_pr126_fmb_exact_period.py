@@ -76,6 +76,28 @@ def test_fama_macbeth_exactly_identified_period_torch_cpu_matches_numpy():
         assert_allclose(np.asarray(av), np.asarray(ev), rtol=3e-10, atol=3e-12)
 
 
+def test_fama_macbeth_explicit_cpu_overrides_torch_input_container():
+    torch = pytest.importorskip("torch")
+    X, y, time, _ = _exact_period_fixture()
+    expected = FamaMacBeth(cov_type="newey-west", bandwidth=1, device="cpu").fit(
+        X, y, time_ids=time
+    )
+    actual = FamaMacBeth(cov_type="newey-west", bandwidth=1, device="cpu").fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(time, dtype=torch.int64),
+    )
+    assert actual._backend_name == "numpy"
+    assert actual._inference_backend_name == "numpy"
+    assert isinstance(actual.coef_, np.ndarray)
+    assert isinstance(actual.cov_params_, np.ndarray)
+    assert_allclose(actual.coef_, expected.coef_, rtol=0.0, atol=0.0)
+    assert_allclose(actual.cov_params_, expected.cov_params_, rtol=0.0, atol=0.0)
+    prediction = actual.predict(torch.as_tensor(X[:3], dtype=torch.float64))
+    assert isinstance(prediction, np.ndarray)
+    assert_allclose(prediction, expected.predict(X[:3]), rtol=0.0, atol=0.0)
+
+
 def test_fama_macbeth_square_rank_deficient_period_is_rejected_not_filtered():
     X, y, time, _ = _exact_period_fixture()
     # Make the exactly identified period rank deficient while leaving the two

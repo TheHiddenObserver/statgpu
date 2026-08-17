@@ -298,20 +298,35 @@ class FamaMacBeth(BasePanelModel):
             raise ValueError("min_obs_per_period must be a positive integer")
 
     def _prepare_backend_arrays(self, X, y, *, validate_finite=True):
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-        ref = None
-        if backend_name == "torch":
-            import torch
+        # AUTO preserves an already backend-native input. An explicit device is
+        # authoritative instead: convert heterogeneous inputs to the requested
+        # NumPy/CuPy/Torch backend rather than silently letting container type
+        # override the public execution request.
+        if self._device == Device.AUTO:
+            backend_name = _detect_backend(X, self._get_compute_device())
+            xp = _get_xp(backend_name)
+            X_source = X
+            y_source = y
+            ref = None
+            if backend_name == "torch":
+                import torch
 
-            if isinstance(X, torch.Tensor):
-                ref = X
-            else:
-                dev = self._get_compute_device()
-                target = "cuda" if dev.value in ("torch", "cuda") else "cpu"
-                ref = torch.empty(0, dtype=torch.float64, device=target)
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=ref)
-        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
+                if isinstance(X, torch.Tensor):
+                    ref = X
+                else:
+                    dev = self._get_compute_device()
+                    target = "cuda" if dev.value in ("torch", "cuda") else "cpu"
+                    ref = torch.empty(0, dtype=torch.float64, device=target)
+        else:
+            backend = self._get_backend(backend="auto")
+            backend_name = backend.name
+            xp = backend.xp
+            X_source = self._to_array(X, backend=backend_name)
+            y_source = self._to_array(y, backend=backend_name)
+            ref = X_source if backend_name in {"cupy", "torch"} else None
+
+        X_arr = xp_asarray(X_source, dtype=xp.float64, xp=xp, ref_arr=ref)
+        y_arr = xp_asarray(y_source, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or int(X_arr.shape[0]) == 0 or int(X_arr.shape[1]) == 0:

@@ -447,6 +447,47 @@ def _exact_period_case(backend: str):
     }
 
 
+def _explicit_device_cross_container_case(backend: str):
+    X, y, time_ids, _expected_betas = _exact_period_fixture()
+    reference = FamaMacBeth(
+        cov_type="newey-west", bandwidth=1, device="cpu"
+    ).fit(X, y, time_ids=time_ids)
+    if backend == "cupy":
+        import torch
+
+        foreign_X = torch.as_tensor(X, dtype=torch.float64, device="cuda")
+        foreign_y = torch.as_tensor(y, dtype=torch.float64, device="cuda")
+    elif backend == "torch":
+        import cupy as cp
+
+        foreign_X = cp.asarray(X, dtype=cp.float64)
+        foreign_y = cp.asarray(y, dtype=cp.float64)
+    else:
+        raise ValueError("cross-container physical case requires cupy or torch")
+
+    actual = FamaMacBeth(
+        cov_type="newey-west", bandwidth=1, device=_device(backend)
+    ).fit(foreign_X, foreign_y, time_ids=time_ids)
+    if actual._backend_name != backend or actual._inference_backend_name != backend:
+        raise AssertionError(
+            f"explicit {backend} request was overridden by foreign input container: "
+            f"fit={actual._backend_name}, inference={actual._inference_backend_name}"
+        )
+    inference_result = _assert_inference_descriptors(
+        _inference_descriptor(reference), _inference_descriptor(actual)
+    )
+    return {
+        "status": "success",
+        "foreign_input_backend": "torch" if backend == "cupy" else "cupy",
+        "executed_backend": actual._backend_name,
+        "inference_backend": actual._inference_backend_name,
+        "inference_result": inference_result,
+        "max_abs_differences": _assert_snapshot(
+            _snapshot(reference, X[:3]), _snapshot(actual, X[:3])
+        ),
+    }
+
+
 def _square_rank_rejection(backend: str):
     X, y, time_ids, _expected_betas = _exact_period_fixture()
     mask = time_ids == 0
@@ -663,6 +704,7 @@ def main():
             "nonrobust_inference": nonrobust,
             "rank_deficient_retained_period_rejected": _rank_rejection(backend),
             "exactly_identified_full_rank_period": _exact_period_case(backend),
+            "explicit_device_overrides_foreign_input_container": _explicit_device_cross_container_case(backend),
             "square_rank_deficient_retained_period_rejected": _square_rank_rejection(backend),
             "no_intercept_formula_rejections": _no_intercept_rejections(backend),
             "performance": _timing_case(backend, args.warmup, args.repeats),
