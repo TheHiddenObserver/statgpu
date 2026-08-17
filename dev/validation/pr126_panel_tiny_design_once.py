@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Trigger carrier for the one-shot tiny-design review workflow.
 p = Path("statgpu/panel/_linalg.py")
 text = p.read_text(encoding="utf-8")
 anchor = '''def panel_svd_pseudoinverse(X, xp):
@@ -208,7 +209,6 @@ helper = '''def _tiny_design_lstsq_audit(backend):
 if anchor not in text:
     raise RuntimeError("validator insertion anchor missing")
 text = text.replace(anchor, helper + anchor, 1)
-# Add payload entry alongside existing auxiliary audits in main by targeting a stable key.
 needle = '''            "level_constant_contract": _level_constant_contract_audit(backend),
 '''
 replacement = '''            "level_constant_contract": _level_constant_contract_audit(backend),
