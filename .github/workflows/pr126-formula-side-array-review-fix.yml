@@ -1,0 +1,78 @@
+name: PR126 formula side-array review fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-formula-side-array-review-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply focused review fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one target, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'statgpu/_base.py',
+              '''                        formula_owned_side_array = (\n                            formula_active and name == "sample_weight"\n                        )''',
+              '''                        formula_owned_side_array = formula_active and (\n                            name == "sample_weight"\n                            or name\n                            in getattr(self, "_FORMULA_OWNED_SIDE_ARRAYS", ())\n                        )''',
+          )
+
+          replace_once(
+              'statgpu/panel/_base.py',
+              '''class BasePanelModel(BaseEstimator):\n    """Internal base class for statistically neutral panel-model lifecycle code."""\n''',
+              '''class BasePanelModel(BaseEstimator):\n    """Internal base class for statistically neutral panel-model lifecycle code."""\n\n    # Formula-facing panel estimators align these observation-level metadata\n    # arrays only after Patsy has established the retained fit rows.  The public\n    # finite-input guard must therefore defer validation until after alignment:\n    # a non-finite label on a row Patsy drops is irrelevant, while retained-row\n    # missing labels are still rejected by the panel metadata validators.\n    _FORMULA_OWNED_SIDE_ARRAYS = frozenset(\n        {"entity_ids", "time_ids", "time_index", "cluster"}\n    )\n''',
+          )
+
+          test_path = Path('dev/tests/test_panel_stage_c_api_formula.py')
+          text = test_path.read_text(encoding='utf-8')
+          anchor = '''def test_formula_aligned_cluster_rejects_missing_labels():\n    data = _frame(128032)\n    clusters = data["entity"].astype(object).to_numpy().copy()\n    clusters[4] = None\n    with pytest.raises(ValueError, match="clusters.*missing or non-finite"):\n        PooledOLS(cov_type="clustered").fit(\n            formula="y ~ x + z",\n            data=data,\n            cluster=clusters,\n        )\n\n\n'''
+          replacement = '''def test_formula_dropped_row_ignores_nonfinite_numpy_cluster_metadata():\n    data = _frame(128032)\n    clusters = data["entity"].to_numpy(dtype=np.float64)\n    dropped = 4\n    data.loc[dropped, "z"] = np.nan\n    clusters[dropped] = np.nan\n\n    formula_model = PooledOLS(cov_type="clustered").fit(\n        formula="y ~ x + z",\n        data=data,\n        cluster=clusters,\n    )\n\n    keep = data[["y", "x", "z"]].notna().all(axis=1).to_numpy()\n    array_model = PooledOLS(cov_type="clustered").fit(\n        data.loc[keep, ["x", "z"]].to_numpy(),\n        data.loc[keep, "y"].to_numpy(),\n        cluster=clusters[keep],\n    )\n    assert_allclose(formula_model.coef_, array_model.coef_, rtol=2e-12, atol=2e-13)\n    assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)\n\n\ndef test_formula_aligned_cluster_rejects_missing_labels():\n    data = _frame(128039)\n    clusters = data["entity"].to_numpy(dtype=np.float64)\n    clusters[4] = np.nan\n    with pytest.raises(ValueError, match="clusters.*missing or non-finite"):\n        PooledOLS(cov_type="clustered").fit(\n            formula="y ~ x + z",\n            data=data,\n            cluster=clusters,\n        )\n\n\n'''
+          if text.count(anchor) != 1:
+              raise RuntimeError('test anchor drifted')
+          test_path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+          git diff --check
+          python -m compileall -q statgpu dev/tests/test_panel_stage_c_api_formula.py
+      - name: Install focused test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pandas patsy scipy statsmodels
+      - name: Run focused formula and lifecycle regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_api_formula.py \
+            dev/tests/test_panel_formula.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            -q --tb=short
+      - name: Commit fix and remove temporary workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr126-formula-side-array-review-fix.yml
+          git add statgpu/_base.py statgpu/panel/_base.py dev/tests/test_panel_stage_c_api_formula.py
+          git diff --cached --check
+          git commit -m 'fix: align panel formula side-array validation'
+          git push origin HEAD:${GITHUB_REF_NAME}
