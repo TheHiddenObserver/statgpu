@@ -489,7 +489,7 @@ def _explicit_device_cross_container_case(backend: str):
 
 
 def _numeric_stability_case(backend: str):
-    x_period = np.asarray([-1.0, 0.0, 1.0])
+    x_period = np.linspace(-1.0, 1.0, 16, dtype=np.float64)
     n_periods = 4
     X = np.tile(x_period, n_periods)[:, None]
     y = np.full(X.shape[0], 6.0e307, dtype=np.float64)

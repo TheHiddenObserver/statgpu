@@ -60,6 +60,49 @@ def test_panel_lstsq_batched_matches_serial_numpy_rank_policy():
         assert int(ranks[i]) == expected_rank
 
 
+def test_panel_lstsq_scales_large_finite_rhs_before_svd_projection():
+    n = 16
+    X = np.ones((n, 1), dtype=np.float64)
+    y = np.full(n, 6.0e307, dtype=np.float64)
+    params, rank = panel_lstsq(X, y, np)
+    assert rank == 1
+    assert np.isfinite(params[0])
+    np.testing.assert_allclose(params[0], 6.0e307, rtol=5e-15, atol=0.0)
+
+
+def test_panel_lstsq_batched_scales_large_finite_rhs_before_projection():
+    torch = pytest.importorskip("torch")
+    n = 16
+    X = torch.ones((2, n, 1), dtype=torch.float64)
+    y = torch.stack(
+        [
+            torch.full((n,), 6.0e307, dtype=torch.float64),
+            torch.full((n,), -6.0e307, dtype=torch.float64),
+        ]
+    )
+    params, ranks = panel_lstsq_batched(X, y, torch)
+    assert ranks.tolist() == [1, 1]
+    assert torch.all(torch.isfinite(params))
+    np.testing.assert_allclose(
+        params.detach().cpu().numpy()[:, 0],
+        np.asarray([6.0e307, -6.0e307]),
+        rtol=5e-15,
+        atol=0.0,
+    )
+
+
+def test_panel_lstsq_deferred_rank_scales_large_finite_rhs_before_projection():
+    from statgpu.panel._linalg import panel_lstsq_deferred_rank
+
+    n = 16
+    X = np.ones((n, 1), dtype=np.float64)
+    y = np.full(n, 6.0e307, dtype=np.float64)
+    params, rank = panel_lstsq_deferred_rank(X, y, np)
+    assert int(rank) == 1
+    assert np.isfinite(params[0])
+    np.testing.assert_allclose(params[0], 6.0e307, rtol=5e-15, atol=0.0)
+
+
 def test_panel_lstsq_gram_certified_matches_svd_for_well_conditioned_numpy():
     rng = np.random.default_rng(126211)
     X = rng.normal(size=(6, 64, 4))

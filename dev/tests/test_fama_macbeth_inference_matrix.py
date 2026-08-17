@@ -186,7 +186,7 @@ def test_exact_t2_tail_remains_nonzero_for_extreme_torch_statistic():
 
 
 def _large_common_intercept_fixture(n_periods=4):
-    x_period = np.asarray([-1.0, 0.0, 1.0])
+    x_period = np.linspace(-1.0, 1.0, 16, dtype=np.float64)
     X = np.tile(x_period, n_periods)[:, None]
     y = np.full(X.shape[0], 6.0e307, dtype=np.float64)
     time_ids = np.repeat(np.arange(n_periods), x_period.size)
@@ -216,7 +216,7 @@ def test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_bac
     assert actual.fit_statistics_.rsquared_overall == 0.0
     assert actual.fit_statistics_.metadata["degenerate_total_ss"]["overall"] is True
 
-    entity_ids = np.tile(np.arange(3, dtype=np.int64), 4)
+    entity_ids = np.tile(np.arange(X.shape[0] // 4, dtype=np.int64), 4)
     entity_model = FamaMacBeth(bandwidth=0).fit(
         torch.as_tensor(X, dtype=torch.float64),
         torch.as_tensor(y, dtype=torch.float64),
