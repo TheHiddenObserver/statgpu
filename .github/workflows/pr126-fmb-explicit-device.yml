@@ -21,27 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Apply review fix
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('docs/cn/panel/fama-macbeth.md')
-          text = p.read_text(encoding='utf-8')
-          actual = '若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。'
-          expected = '如果显式请求的 GPU 后端不可用，`.fit()` 会报错，而不会切换到 CPU。'
-          if actual not in text:
-              raise RuntimeError('Chinese staging anchor not found')
-          p.write_text(text.replace(actual, expected, 1), encoding='utf-8')
-
-          helper = Path('dev/validation/pr126_fmb_explicit_device_once.py')
-          helper_text = helper.read_text(encoding='utf-8')
-          guessed = "marker = '- **Fama-MacBeth exact-period eligibility**'"
-          exact = "marker = '- Fixed `FamaMacBeth` period eligibility'"
-          if guessed not in helper_text:
-              raise RuntimeError('staging helper CHANGELOG marker assignment not found')
-          helper.write_text(helper_text.replace(guessed, exact, 1), encoding='utf-8')
-          PY
-          python dev/validation/pr126_fmb_explicit_device_once.py
+      - name: Apply prediction review follow-up
+        run: python dev/validation/pr126_fmb_explicit_device_once.py
       - name: Install maintained CPU/Torch environment
         run: |
           python -m pip install --upgrade pip
@@ -56,7 +37,7 @@ jobs:
             -q --tb=short
           python -m compileall -q statgpu/panel/_fama_macbeth.py dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py
           git diff --check
-      - name: Commit substantive fix only
+      - name: Commit prediction follow-up only
         run: |
           git config user.name "statgpu-review-fix"
           git config user.email "actions@users.noreply.github.com"
@@ -65,7 +46,6 @@ jobs:
             dev/tests/test_panel_pr126_fmb_exact_period.py \
             dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py \
             docs/en/panel/fama-macbeth.md \
-            docs/cn/panel/fama-macbeth.md \
-            CHANGELOG.md
-          git commit -m "fix: honor explicit Fama-MacBeth device requests"
+            docs/cn/panel/fama-macbeth.md
+          git commit -m "fix: preserve Fama-MacBeth backend in prediction"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
