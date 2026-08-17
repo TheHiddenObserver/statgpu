@@ -280,6 +280,66 @@ def test_formula_dropped_row_ignores_nonfinite_numpy_cluster_metadata():
     assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
 
 
+def test_panel_formula_dropped_row_ignores_nonfinite_explicit_entity_time_metadata():
+    data = _frame(128040)
+    entity_ids = data["entity"].to_numpy(dtype=np.float64)
+    time_ids = data["time"].to_numpy(dtype=np.float64)
+    dropped = 6
+    data.loc[dropped, "x"] = np.nan
+    entity_ids[dropped] = np.nan
+    time_ids[dropped] = np.nan
+
+    formula_model = PanelOLS(
+        entity_effects=True,
+        time_effects=True,
+        cov_type="dk",
+        bandwidth=1,
+    ).fit(
+        formula="y ~ x + z",
+        data=data,
+        entity_ids=entity_ids,
+        time_ids=time_ids,
+    )
+
+    keep = data[["y", "x", "z"]].notna().all(axis=1).to_numpy()
+    array_model = PanelOLS(
+        entity_effects=True,
+        time_effects=True,
+        cov_type="dk",
+        bandwidth=1,
+    ).fit(
+        data.loc[keep, ["x", "z"]].to_numpy(),
+        data.loc[keep, "y"].to_numpy(),
+        entity_ids=entity_ids[keep],
+        time_ids=time_ids[keep],
+    )
+    assert_allclose(formula_model.coef_, array_model.coef_, rtol=2e-12, atol=2e-13)
+    assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
+
+
+def test_pooled_hac_formula_dropped_row_ignores_nonfinite_numpy_time_index():
+    data = _frame(128041)
+    time_index = data["time"].to_numpy(dtype=np.float64)
+    dropped = 9
+    data.loc[dropped, "z"] = np.nan
+    time_index[dropped] = np.nan
+
+    formula_model = PooledOLS(cov_type="hac", bandwidth=1).fit(
+        formula="y ~ x + z",
+        data=data,
+        time_index=time_index,
+    )
+
+    keep = data[["y", "x", "z"]].notna().all(axis=1).to_numpy()
+    array_model = PooledOLS(cov_type="hac", bandwidth=1).fit(
+        data.loc[keep, ["x", "z"]].to_numpy(),
+        data.loc[keep, "y"].to_numpy(),
+        time_index=time_index[keep],
+    )
+    assert_allclose(formula_model.coef_, array_model.coef_, rtol=2e-12, atol=2e-13)
+    assert_allclose(formula_model.bse_, array_model.bse_, rtol=2e-11, atol=2e-13)
+
+
 def test_formula_aligned_cluster_rejects_missing_labels():
     data = _frame(128039)
     clusters = data["entity"].to_numpy(dtype=np.float64)
