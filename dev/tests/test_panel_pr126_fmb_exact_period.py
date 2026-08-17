@@ -107,6 +107,19 @@ def test_fama_macbeth_explicit_cpu_overrides_torch_input_container():
     assert_allclose(prediction, expected.predict(X[:3]), rtol=0.0, atol=0.0)
 
 
+def test_fama_macbeth_explicit_torch_requires_cuda_even_for_torch_cpu_input():
+    torch = pytest.importorskip("torch")
+    if torch.cuda.is_available():
+        pytest.skip("this regression targets the maintained Torch CPU environment")
+    X, y, time, _ = _exact_period_fixture()
+    with pytest.raises(RuntimeError, match=r"device='torch'.*cuda"):
+        FamaMacBeth(device="torch").fit(
+            torch.as_tensor(X, dtype=torch.float64),
+            torch.as_tensor(y, dtype=torch.float64),
+            time_ids=torch.as_tensor(time, dtype=torch.int64),
+        )
+
+
 def test_fama_macbeth_square_rank_deficient_period_is_rejected_not_filtered():
     X, y, time, _ = _exact_period_fixture()
     # Make the exactly identified period rank deficient while leaving the two
