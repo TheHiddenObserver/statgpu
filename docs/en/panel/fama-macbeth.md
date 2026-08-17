@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k+1$, where $k$ is the intercept-augmented design width. The full-rank contract is then enforced for every retained period. The NumPy reference path keeps the long-standing serial rank-revealing SVD policy. GPU paths group retained periods by their exact row count, without zero padding, and first form batched $G_t=X_t^\top X_t$ and $X_t^\top y_t$. A period may consume the Gram-solve candidate only when the backend-native spectrum satisfies $\lambda_{\min}(G_t)/\lambda_{\max}(G_t)>10^{-4}$, which restricts the fast path to clearly well-conditioned designs. The certificate is a performance gate rather than a new rank definition: every uncertified period falls back to the maintained SVD cutoff $\max(n_t,k)\epsilon s_{\max,t}$. Torch can solve an unsafe subset with its documented stacked-SVD support, while CuPy keeps supported two-dimensional SVD fallbacks. Thus near-rank-boundary and rank-deficient behavior remains SVD-owned even though well-conditioned GPU periods avoid the substantially more expensive rank-revealing SVD.
+A period is retained when it satisfies `min_obs_per_period` and the implementation's minimum count rule $n_t\ge k$, where $k$ is the intercept-augmented design width. The full-rank contract is then enforced for every retained period. The NumPy reference path keeps the long-standing serial rank-revealing SVD policy. GPU paths group retained periods by their exact row count, without zero padding, and first form batched $G_t=X_t^\top X_t$ and $X_t^\top y_t$. A period may consume the Gram-solve candidate only when the backend-native spectrum satisfies $\lambda_{\min}(G_t)/\lambda_{\max}(G_t)>10^{-4}$, which restricts the fast path to clearly well-conditioned designs. The certificate is a performance gate rather than a new rank definition: every uncertified period falls back to the maintained SVD cutoff $\max(n_t,k)\epsilon s_{\max,t}$. Torch can solve an unsafe subset with its documented stacked-SVD support, while CuPy keeps supported two-dimensional SVD fallbacks. Thus near-rank-boundary and rank-deficient behavior remains SVD-owned even though well-conditioned GPU periods avoid the substantially more expensive rank-revealing SVD.
 
 ## Covariance and Inference
 
@@ -112,7 +112,7 @@ Successful fits also publish the shared `ParameterInferenceResult` surface used 
 | `cov_type` | `"newey-west"` | `nonrobust` or `newey-west` | Whether period-to-period coefficient dependence is ignored or adjusted with Newey-West. |
 | `bandwidth` | `None` | `None` or a non-negative integer; clipped to at most $T-1$ | Bartlett Newey-West bandwidth $L$. |
 | `alpha` | `0.05` | finite and strictly between 0 and 1 | Confidence-interval significance level; `0.05` gives 95% intervals. |
-| `min_obs_per_period` | `1` | positive integer | Preliminary minimum period size. A retained period must also satisfy $n_t\ge k+1$, where $k$ is the intercept-augmented design width, and must have full column rank. |
+| `min_obs_per_period` | `1` | positive integer | Preliminary minimum period size. A retained period must also satisfy $n_t\ge k$, where $k$ is the intercept-augmented design width, and must have full column rank. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda`, `torch` | Where numerical computation runs. |
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 

@@ -46,7 +46,7 @@ def _eligible_period_codes(counts, *, min_obs_per_period, k):
     return [
         int(code)
         for code, n_t in enumerate(counts)
-        if int(n_t) >= int(min_obs_per_period) and int(n_t) >= int(k) + 1
+        if int(n_t) >= int(min_obs_per_period) and int(n_t) >= int(k)
     ]
 
 
@@ -434,7 +434,7 @@ class FamaMacBeth(BasePanelModel):
         else:
             betas_list = []
             for code, n_t in enumerate(counts):
-                if int(n_t) < int(self.min_obs_per_period) or int(n_t) < k + 1:
+                if int(n_t) < int(self.min_obs_per_period) or int(n_t) < k:
                     continue
                 idx = _index_array(np.flatnonzero(time_codes == code), xp, X_design)
                 X_t = X_design[idx]

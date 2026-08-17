@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k+1$ 时才会保留，其中 $k$ 是含 intercept 的 design width；随后每个 retained period 仍必须满足 full-rank contract。NumPy reference path 保留原有 serial rank-revealing SVD policy。GPU 路径按真实 $n_t$ 做 exact-size grouping，不使用 zero padding，并先批量构造 $G_t=X_t^\top X_t$ 与 $X_t^\top y_t$。只有当 backend-native Gram spectrum 满足 $\lambda_{\min}(G_t)/\lambda_{\max}(G_t)>10^{-4}$ 时，该时期才允许使用 batched Gram solve candidate，因此 fast path 只覆盖明显 well-conditioned 的设计。这个 certificate 只是 performance gate，并没有替换 rank 定义：所有 uncertified period 都回退到原有 $\max(n_t,k)\epsilon s_{\max,t}$ SVD cutoff。Torch 对 unsafe subset 可以使用其有文档保证的 stacked-SVD，CuPy 则继续使用受支持的二维 SVD fallback。这样 near-rank-boundary 与 rank-deficient 行为仍由原 SVD policy 决定，而 clearly well-conditioned 的 GPU periods 可以避免更昂贵的 rank-revealing SVD。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k$ 时才会保留，其中 $k$ 是含 intercept 的 design width；随后每个 retained period 仍必须满足 full-rank contract。NumPy reference path 保留原有 serial rank-revealing SVD policy。GPU 路径按真实 $n_t$ 做 exact-size grouping，不使用 zero padding，并先批量构造 $G_t=X_t^\top X_t$ 与 $X_t^\top y_t$。只有当 backend-native Gram spectrum 满足 $\lambda_{\min}(G_t)/\lambda_{\max}(G_t)>10^{-4}$ 时，该时期才允许使用 batched Gram solve candidate，因此 fast path 只覆盖明显 well-conditioned 的设计。这个 certificate 只是 performance gate，并没有替换 rank 定义：所有 uncertified period 都回退到原有 $\max(n_t,k)\epsilon s_{\max,t}$ SVD cutoff。Torch 对 unsafe subset 可以使用其有文档保证的 stacked-SVD，CuPy 则继续使用受支持的二维 SVD fallback。这样 near-rank-boundary 与 rank-deficient 行为仍由原 SVD policy 决定，而 clearly well-conditioned 的 GPU periods 可以避免更昂贵的 rank-revealing SVD。
 
 ## Covariance and Inference
 
@@ -112,7 +112,7 @@ retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetim
 | `cov_type` | `"newey-west"` | `nonrobust` 或 `newey-west` | 是否忽略 period coefficient 的跨期相关性，或用 Newey-West 进行修正。 |
 | `bandwidth` | `None` | `None` 或非负整数；最终不超过 $T-1$ | Bartlett Newey-West bandwidth $L$。 |
 | `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
-| `min_obs_per_period` | `1` | 正整数 | 初步的最小 period size；最终保留时期还必须满足 $n_t\ge k+1$，其中 $k$ 是含 intercept 的 design width，并且必须 full column rank。 |
+| `min_obs_per_period` | `1` | 正整数 | 初步的最小 period size；最终保留时期还必须满足 $n_t\ge k$，其中 $k$ 是含 intercept 的 design width，并且必须 full column rank。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值计算运行在哪个 backend/device。 |
 | `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
 

@@ -5,6 +5,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## 2026-08-09
 
 ### PR #126 — Panel Tier-1 Stage C covariance
+- Fixed `FamaMacBeth` period eligibility so exactly identified full-rank cross sections (`n_t == k`, including the period intercept) are retained; rank-deficient square periods still fail closed.
 - Corrected PanelOLS public residual degrees of freedom to count the full identified fixed-effect nuisance rank consistently across nonrobust scale, HC1 correction, Student-t inference, diagnostics, and explicit-dummy references; rank-deficient HC2/HC3 fits now preserve fitted values and fail closed only at coefficient inference when unit leverage makes the coordinate covariance undefined.
 - Added HC0/HC2/HC3, robust RandomEffects inference, cluster group debiasing, and Driscoll-Kraay covariance across NumPy, CuPy, and Torch; RandomEffects now also fails closed when the Swamy-Arora between auxiliary regression has no positive residual degrees of freedom.
 - Preserved the existing HC1 (`robust`), Pooled row-HAC, default clustered covariance, coefficient-estimation, and panel fit-statistic contracts while fixing ordered-categorical chronology for Pooled legacy HAC.

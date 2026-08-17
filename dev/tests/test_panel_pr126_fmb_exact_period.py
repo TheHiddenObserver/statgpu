@@ -1,50 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
-
-
-def replace(path, old, new, *, count=None):
-    p = ROOT / path
-    text = p.read_text(encoding="utf-8")
-    if old not in text:
-        raise RuntimeError(f"expected text not found in {path}: {old!r}")
-    text2 = text.replace(old, new, -1 if count is None else count)
-    p.write_text(text2, encoding="utf-8")
-
-
-# Exactly identified full-rank cross sections have unique OLS coefficients.
-# Fama-MacBeth inference is built from the coefficient series, so there is no
-# per-period residual-df requirement beyond full column rank.
-replace(
-    "statgpu/panel/_fama_macbeth.py",
-    "if int(n_t) >= int(min_obs_per_period) and int(n_t) >= int(k) + 1",
-    "if int(n_t) >= int(min_obs_per_period) and int(n_t) >= int(k)",
-)
-replace(
-    "statgpu/panel/_fama_macbeth.py",
-    "if int(n_t) < int(self.min_obs_per_period) or int(n_t) < k + 1:",
-    "if int(n_t) < int(self.min_obs_per_period) or int(n_t) < k:",
-)
-
-for path in ("docs/en/panel/fama-macbeth.md", "docs/cn/panel/fama-macbeth.md"):
-    replace(path, "n_t\\ge k+1", "n_t\\ge k")
-
-# Add a concise changelog note under the current PR126 section.
-p = ROOT / "CHANGELOG.md"
-text = p.read_text(encoding="utf-8")
-needle = "### PR #126 — Panel Tier-1 Stage C covariance\n"
-if needle not in text:
-    raise RuntimeError("CHANGELOG.md missing PR126 section")
-note = (
-    "- Fixed `FamaMacBeth` period eligibility so exactly identified full-rank "
-    "cross sections (`n_t == k`, including the period intercept) are retained; "
-    "rank-deficient square periods still fail closed.\n"
-)
-if note not in text:
-    text = text.replace(needle, needle + note, 1)
-p.write_text(text, encoding="utf-8")
-
-regression = r'''"""Fresh regression coverage for exactly identified Fama-MacBeth periods."""
+"""Fresh regression coverage for exactly identified Fama-MacBeth periods."""
 from __future__ import annotations
 
 import numpy as np
@@ -141,5 +95,3 @@ def test_fama_macbeth_min_obs_per_period_still_filters_exact_period():
     )
     assert model.n_periods == 2
     assert_allclose(np.asarray(model.betas_), expected_betas[1:], rtol=2e-12, atol=2e-13)
-'''
-(ROOT / "dev/tests/test_panel_pr126_fmb_exact_period.py").write_text(regression, encoding="utf-8")
