@@ -2,10 +2,9 @@
 """Optimized-source physical GPU gate for Fama-MacBeth.
 
 The long-standing focused PR126 runner remains the correctness oracle for its
-chronology/formula/rank/inference matrix.  This wrapper executes that runner on
+chronology/formula/rank/inference matrix. This wrapper executes that runner on
 the same exact head, then adds machine-auditable solver provenance for the
-backend-specific optimized period scheduling and replaces the legacy serial
-performance notes in the emitted artifact.
+condition-certified Gram fast path and its SVD fallback.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from dev.benchmarks import validate_fama_macbeth_review_fix_gpu as focused
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _run_focused(temp_out: Path, *, expected_sha: str, backends: str, warmup: int, repeats: int):
@@ -70,6 +69,7 @@ def _solver_provenance(backend: str):
         "solver_mode": getattr(model, "_period_solver_mode", None),
         "solver_batches": int(getattr(model, "_period_solver_batches", -1)),
         "rank_syncs": int(getattr(model, "_period_rank_syncs", -1)),
+        "svd_fallbacks": int(getattr(model, "_period_svd_fallbacks", -1)),
         "n_periods": int(model.n_periods),
     }
 
@@ -80,20 +80,15 @@ def _expected_provenance(backend: str):
             "solver_mode": "serial",
             "solver_batches": 64,
             "rank_syncs": 64,
+            "svd_fallbacks": 0,
             "n_periods": 64,
         }
-    if backend == "torch":
+    if backend in {"cupy", "torch"}:
         return {
-            "solver_mode": "batched",
+            "solver_mode": "gram-certified",
             "solver_batches": 1,
             "rank_syncs": 1,
-            "n_periods": 64,
-        }
-    if backend == "cupy":
-        return {
-            "solver_mode": "serial-deferred-rank",
-            "solver_batches": 64,
-            "rank_syncs": 1,
+            "svd_fallbacks": 0,
             "n_periods": 64,
         }
     raise ValueError(f"unsupported backend provenance request: {backend}")
@@ -117,25 +112,18 @@ def _rewrite_performance(payload, backends):
             "numpy": numpy_solver,
             backend: provenance,
         }
-        if backend == "torch":
-            solver_note = (
-                "Torch uses its documented stacked-SVD support: equal-sized retained "
-                "periods share one batched rank-revealing SVD per exact-size bucket. "
-                "The balanced 64x128 timing fixture therefore uses one solver batch."
-            )
-        else:
-            solver_note = (
-                "CuPy keeps the documented two-dimensional cupy.linalg.svd path. Rows "
-                "are grouped once in chronology order, each retained period uses a 2-D "
-                "SVD, and all backend-native rank scalars are packed before one host "
-                "rank-vector transfer. No undocumented stacked-SVD behavior is assumed."
-            )
         performance["optimization_notes"] = {
-            "period_solver": solver_note,
+            "period_solver": (
+                "GPU periods are grouped by exact row count and first use a batched "
+                "Gram-spectrum certificate. Clearly well-conditioned designs with "
+                "lambda_min(X'X)/lambda_max(X'X) > 1e-4 use a batched Gram solve; "
+                "uncertified periods are not allowed to consume that candidate."
+            ),
             "rank_cutoff": (
-                "each period keeps the serial max(n_t,k)*eps*s_max cutoff; Torch transfers "
-                "one complete rank vector per exact-size batch, while CuPy transfers one "
-                "packed rank vector after the supported 2-D SVD loop"
+                "The condition certificate does not replace the maintained SVD rank "
+                "definition. Every uncertified period falls back to the original "
+                "max(n_t,k)*eps*s_max SVD policy; Torch may stack the unsafe subset, "
+                "while CuPy retains supported 2-D SVD fallback solves."
             ),
             "distribution_inference": (
                 "p-values and critical values use the selected NumPy/CuPy/Torch "
@@ -147,11 +135,16 @@ def _rewrite_performance(payload, backends):
                 "on the active backend and performs one small NumPy reporting snapshot "
                 "after numerical inference"
             ),
+            "input_validation": (
+                "direct X/y fits reuse the BaseEstimator public finite-input guard and "
+                "do not repeat a second full device scan inside FamaMacBeth; formula "
+                "arrays retain the post-Patsy internal finite check"
+            ),
             "remaining_structure": (
-                "very small panels can still be dominated by fixed validation, launch, "
-                "synchronization and reporting overhead. CuPy still launches one supported "
-                "2-D SVD per period; use the scaling runner to locate each backend's "
-                "empirical GPU/NumPy crossover"
+                "the certificate mask still crosses the device boundary once per exact-size "
+                "bucket for fail-closed fallback selection, and the full fit still includes "
+                "covariance, inference, reporting and fit statistics; use the scaling runner "
+                "for workload crossover evidence"
             ),
             "interpretation": (
                 "ratio > 1 means the requested backend is slower than NumPy on the micro "
