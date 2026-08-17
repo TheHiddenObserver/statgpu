@@ -68,7 +68,7 @@ def _solver_provenance(backend: str):
     return {
         "solver_mode": getattr(model, "_period_solver_mode", None),
         "solver_batches": int(getattr(model, "_period_solver_batches", -1)),
-        "rank_syncs": int(getattr(model, "_period_rank_syncs", -1)),
+        "control_syncs": int(getattr(model, "_period_rank_syncs", -1)),
         "svd_fallbacks": int(getattr(model, "_period_svd_fallbacks", -1)),
         "n_periods": int(model.n_periods),
     }
@@ -79,7 +79,7 @@ def _expected_provenance(backend: str):
         return {
             "solver_mode": "serial",
             "solver_batches": 64,
-            "rank_syncs": 64,
+            "control_syncs": 64,
             "svd_fallbacks": 0,
             "n_periods": 64,
         }
@@ -87,7 +87,7 @@ def _expected_provenance(backend: str):
         return {
             "solver_mode": "gram-certified",
             "solver_batches": 1,
-            "rank_syncs": 1,
+            "control_syncs": 1,
             "svd_fallbacks": 0,
             "n_periods": 64,
         }
@@ -124,6 +124,11 @@ def _rewrite_performance(payload, backends):
                 "definition. Every uncertified period falls back to the original "
                 "max(n_t,k)*eps*s_max SVD policy; Torch may stack the unsafe subset, "
                 "while CuPy retains supported 2-D SVD fallback solves."
+            ),
+            "control_synchronization": (
+                "control_syncs counts host synchronizations needed to select a fail-closed "
+                "path. On an all-certified bucket this is the certificate-mask transfer; "
+                "an SVD fallback adds a rank-vector transfer."
             ),
             "distribution_inference": (
                 "p-values and critical values use the selected NumPy/CuPy/Torch "
