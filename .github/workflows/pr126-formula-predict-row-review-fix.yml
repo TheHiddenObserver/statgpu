@@ -1,0 +1,95 @@
+name: PR126 formula prediction row review fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-formula-predict-row-review-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply formula prediction row contract fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one target, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'statgpu/panel/_formula.py',
+              '''    if design_info is not None and hasattr(X, 'columns'):\n        import patsy\n        X_arr = patsy.build_design_matrices([design_info], X)[0]\n\n        # Always strip intercept if formula had one — it was stripped during fit\n        col_names = list(design_info.column_names)\n        if formula_has_intercept and "Intercept" in col_names:\n            intercept_idx = col_names.index("Intercept")\n            X_arr = np.delete(X_arr, intercept_idx, axis=1)\n''',
+              '''    if design_info is not None and hasattr(X, 'columns'):\n        import patsy\n\n        expected_rows = int(len(X))\n        X_arr = patsy.build_design_matrices([design_info], X)[0]\n        if int(X_arr.shape[0]) != expected_rows:\n            raise ValueError(\n                "formula prediction must preserve one output row per input row; "\n                "missing or invalid modeled values caused Patsy to drop rows"\n            )\n\n        # Always strip intercept if formula had one — it was stripped during fit\n        col_names = list(design_info.column_names)\n        if formula_has_intercept and "Intercept" in col_names:\n            intercept_idx = col_names.index("Intercept")\n            X_arr = np.delete(X_arr, intercept_idx, axis=1)\n\n        from statgpu.backends._validation import check_finite\n\n        check_finite(np.asarray(X_arr), name="formula prediction design")\n'''
+          )
+
+          p = Path('dev/tests/test_panel_formula.py')
+          text = p.read_text()
+          anchor = '''    def test_formula_without_data_raises(self):\n'''
+          addition = '''    def test_formula_prediction_rejects_rows_dropped_by_patsy(self, panel_df):\n        model = PooledOLS().fit(formula="y ~ x1 + x2", data=panel_df)\n        prediction_data = panel_df.copy()\n        prediction_data.loc[prediction_data.index[7], "x1"] = np.nan\n        with pytest.raises(\n            ValueError,\n            match=r"preserve one output row per input row",\n        ):\n            model.predict(prediction_data)\n\n    def test_formula_prediction_rejects_nonfinite_transformed_design(self, panel_df):\n        data = panel_df.copy()\n        data["z"] = np.linspace(1.0, 2.0, len(data))\n        model = PooledOLS().fit(formula="y ~ I(1 / z)", data=data)\n        prediction_data = data.copy()\n        prediction_data.loc[prediction_data.index[3], "z"] = 0.0\n        with pytest.raises(\n            ValueError,\n            match=r"formula prediction design must contain only finite values",\n        ):\n            model.predict(prediction_data)\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'test anchor count={text.count(anchor)}')
+          p.write_text(text.replace(anchor, addition + anchor, 1))
+
+          replace_once(
+              'docs/en/models/panel.md',
+              '''Panel fits are transactional. A new `fit()` attempt invalidates the previous fitted and inference state before work begins, and any exception during the new fit clears partially written outputs before it is re-raised. After a failed refit, `predict()` and `summary()` therefore report the estimator as unfitted rather than exposing coefficients or inference from either the previous data or an incomplete new fit.\n''',
+              '''Panel fits are transactional. A new `fit()` attempt invalidates the previous fitted and inference state before work begins, and any exception during the new fit clears partially written outputs before it is re-raised. After a failed refit, `predict()` and `summary()` therefore report the estimator as unfitted rather than exposing coefficients or inference from either the previous data or an incomplete new fit. Formula-based prediction is also row-preserving: if Patsy would drop a prediction row because a modeled value is missing, or if a formula transformation produces NaN/Inf, prediction fails clearly instead of returning a shorter or non-finite result.\n'''
+          )
+          replace_once(
+              'docs/cn/models/panel.md',
+              '''Panel fit 采用 transactional lifecycle。每次新的 `fit()` 尝试都会先使之前的 fitted/inference state 失效；如果新 fit 中途抛出异常，已经部分写入的输出也会被清空后再重新抛出异常。因此 failed refit 之后，`predict()` 和 `summary()` 会把 estimator 视为 unfitted，而不会暴露旧数据对应的 coefficient/inference，也不会暴露未完成的新 fit state。\n''',
+              '''Panel fit 采用 transactional lifecycle。每次新的 `fit()` 尝试都会先使之前的 fitted/inference state 失效；如果新 fit 中途抛出异常，已经部分写入的输出也会被清空后再重新抛出异常。因此 failed refit 之后，`predict()` 和 `summary()` 会把 estimator 视为 unfitted，而不会暴露旧数据对应的 coefficient/inference，也不会暴露未完成的新 fit state。formula-based prediction 同样要求 row-preserving：如果 modeled value 缺失会导致 Patsy 删除 prediction row，或者 formula transformation 生成 NaN/Inf，prediction 会明确报错，而不会返回更短或非有限的结果。\n'''
+          )
+          replace_once(
+              'CHANGELOG.md',
+              '''Panel formula/refit/intercept semantics (including fail-closed pipe metadata conflicts and RandomEffects token rejection),''',
+              '''Panel formula/refit/intercept/prediction semantics (including row-preserving prediction, fail-closed pipe metadata conflicts, and RandomEffects token rejection),'''
+          )
+          replace_once(
+              'docs/en/changelog.md',
+              '''Prediction no longer guesses that every one-column-short matrix omitted an intercept,''',
+              '''Formula prediction now fails closed if Patsy would drop input rows or if a formula transformation creates non-finite design values. Prediction also no longer guesses that every one-column-short matrix omitted an intercept,'''
+          )
+          replace_once(
+              'docs/cn/changelog.md',
+              '''prediction 也不再把任意少一列的矩阵猜成“省略 intercept”，''',
+              '''formula prediction 在 Patsy 会删除 input row 或 formula transformation 生成非有限 design value 时会 fail closed；prediction 也不再把任意少一列的矩阵猜成“省略 intercept”，'''
+          )
+          PY
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy pandas patsy pytest joblib scikit-learn
+          python -m pip install -e . --no-deps
+      - name: Run focused formula regressions
+        run: |
+          python -m compileall -q statgpu
+          pytest -q dev/tests/test_panel_formula.py dev/tests/test_panel_stage_c_api_formula.py dev/tests/test_panel_stage_c_inference_guard.py
+          git diff --check
+      - name: Commit fix and self-delete
+        shell: bash
+        run: |
+          rm -f .github/workflows/pr126-formula-predict-row-review-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve formula prediction row identity"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
