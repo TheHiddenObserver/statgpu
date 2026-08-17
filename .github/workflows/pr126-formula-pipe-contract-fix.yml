@@ -1,0 +1,128 @@
+name: PR126 formula pipe contract fix
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-formula-pipe-contract-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply formula pipe contract fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one replacement target, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "statgpu/panel/_base.py",
+              '''        self.fit_statistics_ = None\n\n    def _panel_prepare_formula_fit(\n''',
+              '''        self.fit_statistics_ = None\n\n    def _panel_resolve_formula_ids(\n        self,\n        formula,\n        explicit_entity_ids,\n        explicit_time_ids,\n        formula_entity_ids,\n        formula_time_ids,\n    ):\n        \"\"\"Reconcile explicit panel IDs with pipe-named formula metadata.\"\"\"\n        if formula is None:\n            return explicit_entity_ids, explicit_time_ids, ()\n\n        from statgpu.panel._formula import _split_panel_formula\n\n        _main_formula, pipe_vars = _split_panel_formula(formula)\n        pipe_vars = tuple(pipe_vars)\n\n        def resolve(name, explicit, parsed, pipe_index):\n            if pipe_index < len(pipe_vars):\n                pipe_name = pipe_vars[pipe_index]\n                if parsed is None:\n                    raise ValueError(\n                        f\"Formula pipe fixed-effect variable {pipe_name!r} was not found in data\"\n                    )\n                if explicit is not None:\n                    try:\n                        matches = np.array_equal(\n                            np.asarray(explicit), np.asarray(parsed)\n                        )\n                    except (TypeError, ValueError):\n                        matches = False\n                    if not matches:\n                        raise ValueError(\n                            f\"{name} conflicts with formula pipe fixed-effect variable \"\n                            f\"{pipe_name!r}; remove the explicit argument or make \"\n                            \"it match the formula column\"\n                        )\n                return parsed\n            return explicit if explicit is not None else parsed\n\n        return (\n            resolve(\n                \"entity_ids\", explicit_entity_ids, formula_entity_ids, 0\n            ),\n            resolve(\n                \"time_ids\", explicit_time_ids, formula_time_ids, 1\n            ),\n            pipe_vars,\n        )\n\n    def _panel_prepare_formula_fit(\n'''
+          )
+
+          replace_once(
+              "statgpu/panel/_fixed_effects.py",
+              '''        entity_ids = aligned[\"entity_ids\"]\n        time_ids = aligned[\"time_ids\"]\n        cluster = aligned[\"cluster\"]\n        if entity_ids is None and fe_entity_ids is not None:\n            entity_ids = fe_entity_ids\n        if time_ids is None and fe_time_ids is not None:\n            time_ids = fe_time_ids\n\n        backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)\n''',
+              '''        entity_ids = aligned[\"entity_ids\"]\n        time_ids = aligned[\"time_ids\"]\n        cluster = aligned[\"cluster\"]\n        entity_ids, time_ids, _pipe_vars = self._panel_resolve_formula_ids(\n            formula,\n            entity_ids,\n            time_ids,\n            fe_entity_ids,\n            fe_time_ids,\n        )\n\n        backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)\n'''
+          )
+
+          replace_once(
+              "statgpu/panel/_random_effects.py",
+              '''        entity_ids = aligned[\"entity_ids\"]\n        time_ids = aligned[\"time_ids\"]\n        cluster = aligned[\"cluster\"]\n        if entity_ids is None and fe_entity_ids is not None:\n            entity_ids = fe_entity_ids\n        if time_ids is None and fe_time_ids is not None:\n            time_ids = fe_time_ids\n        if entity_ids is None:\n''',
+              '''        entity_ids = aligned[\"entity_ids\"]\n        time_ids = aligned[\"time_ids\"]\n        cluster = aligned[\"cluster\"]\n        entity_ids, time_ids, pipe_vars = self._panel_resolve_formula_ids(\n            formula,\n            entity_ids,\n            time_ids,\n            fe_entity_ids,\n            fe_time_ids,\n        )\n        if len(pipe_vars) > 1 and self._cov_type != \"driscoll-kraay\":\n            raise ValueError(\n                \"RandomEffects formula pipe accepts a second time variable only \"\n                \"when cov_type='driscoll-kraay'\"\n            )\n        if entity_ids is None:\n'''
+          )
+
+          test_path = Path("dev/tests/test_panel_formula.py")
+          test_text = test_path.read_text()
+          panel_marker = '''    def test_predict_with_dataframe(self, panel_df):\n'''
+          panel_tests = '''    def test_pipe_named_ids_reject_conflicting_explicit_metadata(self, panel_df):\n        entity_conflict = np.roll(panel_df[\"entity\"].to_numpy(), 1)\n        with pytest.raises(ValueError, match=r\"entity_ids conflicts.*entity\"):\n            PanelOLS().fit(\n                formula=\"y ~ x1 + x2 | entity\",\n                data=panel_df,\n                entity_ids=entity_conflict,\n            )\n\n        time_conflict = np.roll(panel_df[\"time\"].to_numpy(), 1)\n        with pytest.raises(ValueError, match=r\"time_ids conflicts.*time\"):\n            PanelOLS().fit(\n                formula=\"y ~ x1 + x2 | entity + time\",\n                data=panel_df,\n                time_ids=time_conflict,\n            )\n\n    def test_pipe_named_ids_allow_redundant_matching_metadata(self, panel_df):\n        expected = PanelOLS().fit(\n            formula=\"y ~ x1 + x2 | entity + time\", data=panel_df\n        )\n        actual = PanelOLS().fit(\n            formula=\"y ~ x1 + x2 | entity + time\",\n            data=panel_df,\n            entity_ids=panel_df[\"entity\"].to_numpy(),\n            time_ids=panel_df[\"time\"].to_numpy(),\n        )\n        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)\n        assert_allclose(actual.bse_, expected.bse_, rtol=0, atol=3e-12)\n\n    def test_missing_pipe_column_cannot_be_replaced_by_explicit_ids(self, panel_df):\n        with pytest.raises(ValueError, match=r\"missing_entity.*not found in data\"):\n            PanelOLS().fit(\n                formula=\"y ~ x1 + x2 | missing_entity\",\n                data=panel_df,\n                entity_ids=panel_df[\"entity\"].to_numpy(),\n            )\n\n    def test_effect_token_without_named_column_still_accepts_explicit_ids(self, panel_df):\n        data = panel_df.drop(columns=[\"entity\"]).copy()\n        explicit = panel_df[\"entity\"].to_numpy()\n        actual = PanelOLS().fit(\n            formula=\"y ~ x1 + x2 + EntityEffects\",\n            data=data,\n            entity_ids=explicit,\n        )\n        expected = PanelOLS(entity_effects=True).fit(\n            data[[\"x1\", \"x2\"]].to_numpy(),\n            data[\"y\"].to_numpy(),\n            entity_ids=explicit,\n        )\n        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)\n\n'''
+          if test_text.count(panel_marker) != 1:
+              raise SystemExit("PanelOLS test insertion marker mismatch")
+          test_text = test_text.replace(panel_marker, panel_tests + panel_marker, 1)
+
+          random_marker = '''    def test_predict_with_dataframe(self, panel_df):\n        m = RandomEffects()\n'''
+          random_tests = '''    def test_pipe_named_entity_rejects_conflicting_explicit_ids(self, panel_df):\n        conflict = np.roll(panel_df[\"entity\"].to_numpy(), 1)\n        with pytest.raises(ValueError, match=r\"entity_ids conflicts.*entity\"):\n            RandomEffects().fit(\n                formula=\"y ~ x1 + x2 | entity\",\n                data=panel_df,\n                entity_ids=conflict,\n            )\n\n    def test_second_pipe_variable_requires_driscoll_kraay(self, panel_df):\n        with pytest.raises(ValueError, match=r\"second time variable.*driscoll-kraay\"):\n            RandomEffects().fit(\n                formula=\"y ~ x1 + x2 | entity + time\",\n                data=panel_df,\n            )\n\n    def test_second_pipe_variable_supplies_dk_time_metadata(self, panel_df):\n        actual = RandomEffects(cov_type=\"dk\", bandwidth=1).fit(\n            formula=\"y ~ x1 + x2 | entity + time\",\n            data=panel_df,\n        )\n        X = np.column_stack(\n            [\n                np.ones(len(panel_df)),\n                panel_df[[\"x1\", \"x2\"]].to_numpy(),\n            ]\n        )\n        expected = RandomEffects(cov_type=\"dk\", bandwidth=1).fit(\n            X,\n            panel_df[\"y\"].to_numpy(),\n            entity_ids=panel_df[\"entity\"].to_numpy(),\n            time_ids=panel_df[\"time\"].to_numpy(),\n        )\n        assert_allclose(actual.coef_, expected.coef_, rtol=2e-12, atol=2e-13)\n        assert_allclose(actual.bse_, expected.bse_, rtol=2e-11, atol=2e-13)\n\n'''
+          if test_text.count(random_marker) != 1:
+              raise SystemExit("RandomEffects test insertion marker mismatch")
+          test_text = test_text.replace(random_marker, random_tests + random_marker, 1)
+          test_path.write_text(test_text)
+
+          replace_once(
+              "docs/en/panel/panel-ols.md",
+              '''Use either pipe syntax or effect tokens for fixed effects, not both. Pipe syntax accepts at most two fixed-effect variables.\n''',
+              '''Use either pipe syntax or effect tokens for fixed effects, not both. Pipe syntax accepts at most two fixed-effect variables. Pipe-named entity/time columns are authoritative: if `entity_ids` or `time_ids` is also supplied explicitly, it must match the retained formula column exactly; a conflicting duplicate source raises an error.\n'''
+          )
+          replace_once(
+              "docs/cn/panel/panel-ols.md",
+              '''fixed effects 可以使用 pipe syntax，也可以使用 effect token，但同一个 formula 中不能混用。pipe syntax 最多接受两个 fixed-effect variables。\n''',
+              '''fixed effects 可以使用 pipe syntax，也可以使用 effect token，但同一个 formula 中不能混用。pipe syntax 最多接受两个 fixed-effect variables。pipe 中明确命名的 entity/time 列是权威来源：如果同时显式传入 `entity_ids` 或 `time_ids`，它们必须与 formula 过滤后保留的对应列完全一致；冲突的重复来源会直接报错。\n'''
+          )
+          replace_once(
+              "docs/en/panel/random-effects.md",
+              '''without_intercept = RandomEffects().fit(\n    formula=\"y ~ 0 + x1 + x2 | entity\",\n    data=df,\n)\n```\n''',
+              '''without_intercept = RandomEffects().fit(\n    formula=\"y ~ 0 + x1 + x2 | entity\",\n    data=df,\n)\n```\n\nThe first pipe variable is the entity grouping column. A second pipe variable is accepted only with `cov_type=\"driscoll-kraay\"`, where it supplies `time_ids`; otherwise the fit fails clearly instead of silently ignoring that variable. If explicit `entity_ids`/`time_ids` are also supplied, they must match any pipe-named columns.\n'''
+          )
+          replace_once(
+              "docs/cn/panel/random-effects.md",
+              '''without_intercept = RandomEffects().fit(\n    formula=\"y ~ 0 + x1 + x2 | entity\",\n    data=df,\n)\n```\n''',
+              '''without_intercept = RandomEffects().fit(\n    formula=\"y ~ 0 + x1 + x2 | entity\",\n    data=df,\n)\n```\n\npipe 的第一个变量表示 entity grouping column。只有在 `cov_type=\"driscoll-kraay\"` 时才接受第二个 pipe 变量，并将其作为 `time_ids`；其他 covariance 下会明确报错，而不是静默忽略该变量。如果同时显式传入 `entity_ids`/`time_ids`，它们必须与 pipe 中命名的对应列一致。\n'''
+          )
+
+          replace_once(
+              "CHANGELOG.md",
+              '''- Hardened fixed-effect convergence and level prediction, Panel formula/refit/intercept semantics, rank-deficient inference, FirstDifference time validation, covariance numerical stability, and Fama-MacBeth chronology/formula/rank/inference behavior; all panel fits now fail closed transactionally on refit errors.\n''',
+              '''- Hardened fixed-effect convergence and level prediction, Panel formula/refit/intercept semantics (including fail-closed pipe metadata conflicts), rank-deficient inference, FirstDifference time validation, covariance numerical stability, and Fama-MacBeth chronology/formula/rank/inference behavior; all panel fits now fail closed transactionally on refit errors.\n'''
+          )
+          replace_once(
+              "docs/en/changelog.md",
+              '''The implementation also hardens two-way fixed-effect convergence and prediction. Entity/time projection metadata is factorized once and reused on the selected backend;''',
+              '''The implementation also hardens two-way fixed-effect convergence and prediction. Pipe-named Panel formula metadata is now authoritative: conflicting explicit entity/time IDs fail closed, missing named pipe columns cannot be replaced by unrelated explicit IDs, and RandomEffects accepts a second pipe time variable only when Driscoll-Kraay covariance actually consumes it. Entity/time projection metadata is factorized once and reused on the selected backend;'''
+          )
+          replace_once(
+              "docs/cn/changelog.md",
+              '''本次还系统强化了 two-way fixed-effect 的收敛与 prediction。entity/time projection metadata 只在迭代前 factorize 一次，并在所选 backend 上复用；''',
+              '''本次还系统强化了 two-way fixed-effect 的收敛与 prediction。Panel formula 中 pipe 明确命名的 metadata 现在作为权威来源：与显式 entity/time IDs 冲突时会 fail closed，缺失的 pipe 命名列不能再由无关显式 IDs 替代；RandomEffects 的第二个 pipe time 变量也只在 Driscoll-Kraay covariance 实际使用时才允许。entity/time projection metadata 只在迭代前 factorize 一次，并在所选 backend 上复用；'''
+          )
+          PY
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy pandas patsy pytest
+          python -m pip install -e . --no-deps
+      - name: Run focused formula regressions
+        run: |
+          python -m compileall -q statgpu
+          pytest -q dev/tests/test_panel_formula.py dev/tests/test_panel_stage_c_api_formula.py
+          git diff --check
+      - name: Commit fix and self-delete
+        shell: bash
+        run: |
+          rm .github/workflows/pr126-formula-pipe-contract-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu/panel/_base.py statgpu/panel/_fixed_effects.py statgpu/panel/_random_effects.py \
+            dev/tests/test_panel_formula.py docs/en/panel/panel-ols.md docs/cn/panel/panel-ols.md \
+            docs/en/panel/random-effects.md docs/cn/panel/random-effects.md CHANGELOG.md \
+            docs/en/changelog.md docs/cn/changelog.md .github/workflows/pr126-formula-pipe-contract-fix.yml
+          git commit -m "fix: make panel formula pipe metadata authoritative"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
