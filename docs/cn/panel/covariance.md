@@ -56,7 +56,7 @@ $$
 \widehat V_{\mathrm{HC3}}=\sum_i\frac{\psi_i\psi_i^\top}{(1-h_i)^2}.
 $$
 
-HC2/HC3 要求 $1-h_i$ 在数值上为正。如果某个 observation 的 leverage 实际等于 1，这两个 correction 无法定义，statgpu 会报错，而不是返回无穷大或数值不稳定的 variance。
+HC2/HC3 要求 $1-h_i$ 在数值上为正。对于 full-rank estimator fit 或直接调用 covariance primitive，如果某个 observation 的 leverage 在数值上等于 1，statgpu 会直接报错，而不是返回无穷大或不稳定的 variance。若 estimator 的 fit-space 本身已经 rank deficient，则 coefficient-level inference 无论选择哪种 covariance 都不可用；此时 statgpu 保留 fitted values，并且不会再强行构造可能在 unit leverage 下无定义的 HC2/HC3 coordinate covariance。
 
 nonrobust coefficient inference 使用 Student-t reference；HC、clustered 与 Driscoll-Kraay 使用 panel API 中的 asymptotic-normal reference。
 

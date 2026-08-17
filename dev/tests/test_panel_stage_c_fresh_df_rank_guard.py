@@ -55,6 +55,9 @@ def test_one_way_panel_public_inference_matches_explicit_dummy_ols(cov_type):
     k = X.shape[1]
     assert model.df_resid == int(reference.df_resid)
     assert model.fit_statistics_.metadata["public_df_resid_basis"] == "standard"
+    diagnostic_df = model.fit_statistics_.metadata["diagnostic_df"]
+    assert diagnostic_df["legacy_df_unchanged"] is False
+    assert diagnostic_df["public_df_uses_standard_effect_rank"] is True
     assert_allclose(model.coef_, reference.params[:k], rtol=2e-11, atol=2e-12)
     assert_allclose(
         model._panel_cov_params_raw,

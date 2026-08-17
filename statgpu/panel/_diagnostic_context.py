@@ -131,7 +131,7 @@ def fixed_effect_diagnostic_df(
     time_codes=None,
     rank_x=None,
 ):
-    """Return rank-consistent Stage-B FE diagnostic df without changing legacy df."""
+    """Return the standard rank-consistent fixed-effect df decomposition."""
     if rank_x is None:
         rank_x = _matrix_rank(X_transformed, xp)
     rank_x = int(rank_x)
@@ -162,7 +162,8 @@ def fixed_effect_diagnostic_df(
         "df_resid": int(df_resid),
         "df_total": int(df_total),
         "incidence_components": int(n_components),
-        "legacy_df_unchanged": True,
+        "legacy_df_unchanged": False,
+        "public_df_uses_standard_effect_rank": True,
     }
 
 
