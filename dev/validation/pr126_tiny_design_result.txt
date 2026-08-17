@@ -1,0 +1,18 @@
+patch_rc=1
+test_rc=99
+compile_rc=99
+diff_rc=99
+--- patch log ---
+Traceback (most recent call last):
+  File "<stdin>", line 7, in <module>
+  File "/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/runpy.py", line 288, in run_path
+    return _run_module_code(code, init_globals, run_name,
+  File "/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/runpy.py", line 97, in _run_module_code
+    _run_code(code, mod_globals, init_globals,
+  File "/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "dev/validation/pr126_panel_tiny_design_once.py", line 218, in <module>
+    raise RuntimeError("validator payload anchor missing")
+RuntimeError: validator payload anchor missing
+--- pytest log ---
+pytest skipped because patch failed
