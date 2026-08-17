@@ -19,37 +19,76 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      - name: Apply review fix
-        run: python dev/validation/pr126_panel_tiny_design_once.py
       - name: Install maintained focused environment
         run: |
           python -m pip install --upgrade pip
           python -m pip install "numpy<2" scipy pandas patsy pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
-      - name: Run focused numerical contracts
+      - name: Apply patch and capture focused result
         run: |
-          python -m pytest \
-            dev/tests/test_fama_macbeth_batched_solver.py \
-            dev/tests/test_fama_macbeth_review_fixes.py \
-            dev/tests/test_panel_stage_b_fit_statistics.py \
-            dev/tests/test_panel_stage_c_full_rank_conditioning.py \
-            -q --tb=short
-          python -m py_compile \
-            statgpu/panel/_linalg.py \
-            dev/benchmarks/validate_panel_stage_c_gpu.py
-          git diff --check
-      - name: Commit substantive review fix only
+          set +e
+          python - <<'PY' > /tmp/patch.log 2>&1
+          from pathlib import Path
+          import runpy
+          text = Path('statgpu/panel/_linalg.py').read_text(encoding='utf-8')
+          if 'def _lstsq_working_design' in text:
+              print('tiny-design patch already present; patch step skipped')
+          else:
+              runpy.run_path('dev/validation/pr126_panel_tiny_design_once.py', run_name='__main__')
+          PY
+          patch_rc=$?
+          if [ "$patch_rc" -eq 0 ]; then
+            python -m pytest \
+              dev/tests/test_fama_macbeth_batched_solver.py \
+              dev/tests/test_fama_macbeth_review_fixes.py \
+              dev/tests/test_panel_stage_b_fit_statistics.py \
+              dev/tests/test_panel_stage_c_full_rank_conditioning.py \
+              -q --tb=short > /tmp/pytest.log 2>&1
+            test_rc=$?
+          else
+            test_rc=99
+            echo "pytest skipped because patch failed" > /tmp/pytest.log
+          fi
+          if [ "$patch_rc" -eq 0 ] && [ "$test_rc" -eq 0 ]; then
+            python -m py_compile statgpu/panel/_linalg.py dev/benchmarks/validate_panel_stage_c_gpu.py
+            compile_rc=$?
+            git diff --check
+            diff_rc=$?
+          else
+            compile_rc=99
+            diff_rc=99
+          fi
+          {
+            echo "patch_rc=$patch_rc"
+            echo "test_rc=$test_rc"
+            echo "compile_rc=$compile_rc"
+            echo "diff_rc=$diff_rc"
+            echo "--- patch log ---"
+            cat /tmp/patch.log
+            echo "--- pytest log ---"
+            cat /tmp/pytest.log
+          } > dev/validation/pr126_tiny_design_result.txt
+          tail -200 dev/validation/pr126_tiny_design_result.txt
+          exit 0
+      - name: Commit substantive fix or diagnostics
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
-          git add \
-            statgpu/panel/_linalg.py \
-            dev/tests/test_fama_macbeth_batched_solver.py \
-            dev/benchmarks/validate_panel_stage_c_gpu.py
-          if git diff --cached --quiet; then
-            echo "No substantive changes to commit"
+          if grep -q '^patch_rc=0$' dev/validation/pr126_tiny_design_result.txt \
+             && grep -q '^test_rc=0$' dev/validation/pr126_tiny_design_result.txt \
+             && grep -q '^compile_rc=0$' dev/validation/pr126_tiny_design_result.txt \
+             && grep -q '^diff_rc=0$' dev/validation/pr126_tiny_design_result.txt; then
+            git add \
+              statgpu/panel/_linalg.py \
+              dev/tests/test_fama_macbeth_batched_solver.py \
+              dev/benchmarks/validate_panel_stage_c_gpu.py
+            if ! git diff --cached --quiet; then
+              git commit -m "fix: stabilize tiny panel designs"
+              git push origin HEAD:agent/panel-p1-stage-c-covariance
+            fi
           else
-            git commit -m "fix: stabilize tiny panel designs"
+            git add dev/validation/pr126_tiny_design_result.txt
+            git commit -m "ci: record PR126 tiny-design failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
