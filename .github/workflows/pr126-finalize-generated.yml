@@ -1,0 +1,51 @@
+name: PR126 one-shot generated-data finalizer
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - .github/workflows/pr126-finalize-generated.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install generator dependency
+        run: python -m pip install 'jsonschema[format]'
+      - name: Regenerate deterministic benchmark data
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic \
+            --strict-sources
+          cp frontend/public/data/benchmark_data.json docs/assets/benchmarks/data/benchmark_data.json
+          cp frontend/public/data/parse_report.json docs/assets/benchmarks/data/parse_report.json
+          cp frontend/public/data/source_inventory.json docs/assets/benchmarks/data/source_inventory.json
+      - name: Commit generated data and remove this workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/pr126-finalize-generated.yml
+          git add \
+            frontend/public/data/benchmark_data.json \
+            frontend/public/data/parse_report.json \
+            frontend/public/data/source_inventory.json \
+            docs/assets/benchmarks/data/benchmark_data.json \
+            docs/assets/benchmarks/data/parse_report.json \
+            docs/assets/benchmarks/data/source_inventory.json
+          git diff --cached --check
+          git commit -m 'benchmark: refresh generated data after PR126 cleanup'
+          git push origin HEAD:${GITHUB_REF_NAME}
