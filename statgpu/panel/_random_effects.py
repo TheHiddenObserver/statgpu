@@ -101,6 +101,27 @@ class RandomEffects(BasePanelModel):
         cluster=None,
     ):
         """Fit the random effects model."""
+        if formula is not None:
+            from statgpu.panel._formula import (
+                _PANEL_TOKENS,
+                _split_panel_formula,
+                _top_level_panel_token_spans,
+            )
+
+            main_formula, _pipe_vars = _split_panel_formula(formula)
+            present_tokens = sorted(
+                token
+                for token in _PANEL_TOKENS
+                if _top_level_panel_token_spans(main_formula, token)
+            )
+            if present_tokens:
+                joined = ", ".join(present_tokens)
+                raise ValueError(
+                    "RandomEffects does not support fixed-effect formula tokens "
+                    f"({joined}); use '| entity' for entity grouping and "
+                    "'| entity + time' only with Driscoll-Kraay covariance"
+                )
+
         (
             y_data,
             X_data,

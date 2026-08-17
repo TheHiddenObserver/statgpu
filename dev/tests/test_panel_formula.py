@@ -399,6 +399,18 @@ class TestRandomEffectsFormula:
         )
         assert m.coef_ is not None
 
+    @pytest.mark.parametrize(
+        "token", ["EntityEffects", "FixedEffects", "TimeEffects"]
+    )
+    def test_random_effects_rejects_fixed_effect_magic_tokens(self, panel_df, token):
+        with pytest.raises(ValueError, match=r"does not support fixed-effect formula tokens"):
+            RandomEffects(cov_type="dk", bandwidth=1).fit(
+                formula=f"y ~ x1 + x2 + {token}",
+                data=panel_df,
+                entity_ids=panel_df["entity"].to_numpy(),
+                time_ids=panel_df["time"].to_numpy(),
+            )
+
     def test_pipe_named_entity_rejects_conflicting_explicit_ids(self, panel_df):
         conflict = np.roll(panel_df["entity"].to_numpy(), 1)
         with pytest.raises(ValueError, match=r"entity_ids conflicts.*entity"):

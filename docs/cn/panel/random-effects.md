@@ -155,7 +155,7 @@ without_intercept = RandomEffects().fit(
 )
 ```
 
-pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="driscoll-kraay"` 时才接受第二个 pipe 变量，并将其作为 `time_ids`；其他 covariance 下会明确报错，而不是静默忽略该变量。如果同时显式传入 `entity_ids`/`time_ids`，它们必须与 pipe 中命名的对应列一致。
+pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="driscoll-kraay"` 时才接受第二个 pipe 变量，并将其作为 `time_ids`；其他 covariance 下会明确报错，而不是静默忽略该变量。如果同时显式传入 `entity_ids`/`time_ids`，它们必须与 pipe 中命名的对应列一致。`RandomEffects` 会拒绝 fixed-effect magic tokens（`EntityEffects`、`TimeEffects`、`FixedEffects`）；grouping metadata 应使用 pipe syntax 提供。
 
 ## Outputs
 

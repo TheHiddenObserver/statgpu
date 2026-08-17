@@ -155,7 +155,7 @@ without_intercept = RandomEffects().fit(
 )
 ```
 
-The first pipe variable is the entity grouping column. A second pipe variable is accepted only with `cov_type="driscoll-kraay"`, where it supplies `time_ids`; otherwise the fit fails clearly instead of silently ignoring that variable. If explicit `entity_ids`/`time_ids` are also supplied, they must match any pipe-named columns.
+The first pipe variable is the entity grouping column. A second pipe variable is accepted only with `cov_type="driscoll-kraay"`, where it supplies `time_ids`; otherwise the fit fails clearly instead of silently ignoring that variable. If explicit `entity_ids`/`time_ids` are also supplied, they must match any pipe-named columns. Fixed-effect magic tokens (`EntityEffects`, `TimeEffects`, `FixedEffects`) are rejected for `RandomEffects`; use the pipe syntax to provide grouping metadata instead.
 
 ## Outputs
 
