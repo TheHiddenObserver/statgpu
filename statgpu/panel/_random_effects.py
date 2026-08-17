@@ -3,7 +3,6 @@ from __future__ import annotations
 
 __all__ = ["RandomEffects"]
 
-import warnings
 from typing import Optional, Union
 
 import numpy as np
@@ -330,14 +329,12 @@ class RandomEffects(BasePanelModel):
 
         df_between = n_entities - int(rank_between)
         if df_between <= 0:
-            warnings.warn(
-                "Between estimator under-identified: "
-                f"n_entities={n_entities} <= rank_between={rank_between}. "
-                "Variance component sigma2_a may be unreliable.",
-                UserWarning,
-                stacklevel=2,
+            raise ValueError(
+                "RandomEffects requires positive between residual degrees of freedom "
+                "to estimate the Swamy-Arora variance component; "
+                f"n_entities={n_entities}, rank_between={rank_between}, "
+                f"df_between={df_between}"
             )
-            df_between = max(df_between, 1)
         s_b_sq = rss_between / df_between
         sigma2_a_raw = (s_b_sq - sigma2_e) / T_bar
         sigma2_a = max(0.0, sigma2_a_raw)

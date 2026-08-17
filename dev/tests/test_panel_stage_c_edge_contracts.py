@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.panel import PooledOLS, driscoll_kraay_covariance
+from statgpu.panel import PooledOLS, RandomEffects, driscoll_kraay_covariance
 from statgpu.panel._covariance import clustered_covariance
 
 
@@ -239,3 +239,16 @@ def test_full_rank_pooling_diagnostic_preserves_historical_pinv_path(monkeypatch
         df_resid_effects=50, has_constant=True,
     )
     assert result is not None
+
+
+def test_random_effects_requires_positive_between_residual_df():
+    entity = np.repeat(np.arange(2), 5)
+    x = np.concatenate([np.arange(5, dtype=float), np.arange(10, 15, dtype=float)])
+    X = np.column_stack([np.ones(len(entity)), x])
+    y = 0.4 + 0.7 * x + np.repeat([0.3, -0.2], 5)
+
+    with pytest.raises(
+        ValueError,
+        match=r"positive between residual degrees of freedom.*n_entities=2.*rank_between=2",
+    ):
+        RandomEffects().fit(X, y, entity_ids=entity)

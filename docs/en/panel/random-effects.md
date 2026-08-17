@@ -165,6 +165,8 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `th
 
 Changing `cov_type` does not refit the random-effects model: the variance components and coefficients stay the same, while the reported uncertainty changes.
 
+The Swamy-Arora variance-component step requires positive residual degrees of freedom in both its within and between auxiliary regressions. In particular, if the number of entities is no larger than the identified rank of the between regression, `fit()` raises instead of inventing a denominator and returning an unreliable random-effect variance.
+
 If the transformed design is exactly rank deficient, fitted values may still be available but the coefficient vector is not uniquely identified. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation.
 
 The classical Hausman comparison is available only under the conditions documented in [Panel diagnostics](diagnostics.md). Invalid covariance inputs or unavailable explicitly requested GPU backends raise errors.

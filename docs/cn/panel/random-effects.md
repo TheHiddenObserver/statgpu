@@ -165,6 +165,8 @@ pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="dris
 
 改变 `cov_type` 不会重新拟合 random-effects model：variance components 与 coefficient 保持不变，只改变报告的不确定性。
 
+Swamy-Arora variance-component step 要求 within 与 between auxiliary regression 都具有正的 residual degrees of freedom。特别是当 entity 数不大于 between regression 的 identified rank 时，`fit()` 会直接报错，而不会人为构造 denominator 并返回不可靠的 random-effect variance。
+
 如果 transformed design 精确 rank deficient，fitted values 仍可能得到，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
 
 Classical Hausman comparison 只在 [面板 diagnostics](diagnostics.md) 说明的条件下可用。不合法的 covariance 输入或不可用的显式 GPU backend 会直接报错。
