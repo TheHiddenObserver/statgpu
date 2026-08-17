@@ -23,8 +23,11 @@ jobs:
           python-version: '3.11'
       - name: Apply numeric stability review fix
         run: |
-          python dev/validation/pr126_fmb_numeric_followup_once.py
+          sed -i 's/if not _finite_all(avg_beta, xp):/if not bool(_to_float_scalar(xp.all(xp.isfinite(avg_beta)))):/' dev/validation/pr126_fmb_numeric_stability_once.py
+          sed -i 's/if not _finite_all(beta_centered, xp):/if not bool(_to_float_scalar(xp.all(xp.isfinite(beta_centered)))):/' dev/validation/pr126_fmb_numeric_stability_once.py
+          sed -i 's/if not _finite_all(cov_params, xp):/if not bool(_to_float_scalar(xp.all(xp.isfinite(cov_params)))):/' dev/validation/pr126_fmb_numeric_stability_once.py
           python dev/validation/pr126_fmb_numeric_stability_once.py
+          python dev/validation/pr126_fmb_numeric_followup_once.py
       - name: Install maintained CPU/Torch environment
         run: |
           python -m pip install --upgrade pip
