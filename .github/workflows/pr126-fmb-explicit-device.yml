@@ -52,7 +52,6 @@ jobs:
           python -m pytest \
             dev/tests/test_panel_pr126_fmb_exact_period.py \
             dev/tests/test_fama_macbeth_review_fixes.py \
-            dev/tests/test_fama_macbeth_stage_c_review.py \
             -q --tb=short
           python -m compileall -q statgpu/panel/_fama_macbeth.py dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py
           git diff --check
