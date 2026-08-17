@@ -232,7 +232,7 @@ def test_balanced_torch_reporting_uses_one_control_snapshot_and_one_reporting_sn
     assert shapes == [(6,), (6, 3)]
 
 
-def test_direct_fit_does_not_repeat_internal_finite_scan(monkeypatch):
+def test_direct_fit_reuses_public_finite_guard_but_still_rejects_nonfinite(monkeypatch):
     import statgpu.panel._fama_macbeth as fmb_module
 
     X, y, time = _balanced_fixture(seed=12625, n_times=4, per_period=24, p=2)
@@ -243,6 +243,11 @@ def test_direct_fit_does_not_repeat_internal_finite_scan(monkeypatch):
     monkeypatch.setattr(fmb_module, "_finite_all", unexpected_internal_scan)
     model = FamaMacBeth(device="cpu", bandwidth=1).fit(X, y, time_ids=time)
     assert model._fitted
+
+    X_bad = X.copy()
+    X_bad[0, 0] = np.inf
+    with pytest.raises(ValueError, match="finite"):
+        FamaMacBeth(device="cpu", bandwidth=1).fit(X_bad, y, time_ids=time)
 
 
 def _assert_runner_help(filename):
