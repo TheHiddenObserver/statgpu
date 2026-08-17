@@ -68,6 +68,8 @@ $$
 \widehat V_G=\sum_g s_gs_g^\top.
 $$
 
+Clustered inference requires at least two distinct groups in every supplied clustering dimension. With only one cluster the grouped score collapses to the full-sample estimating-equation score, so the cluster-robust variance is not estimable; statgpu therefore raises an error even when `group_debias=False`.
+
 With `group_debias=True`, each cluster component is multiplied by the small-number-of-clusters correction
 
 $$

@@ -98,6 +98,42 @@ def test_hc2_hc3_reject_unit_leverage_instead_of_clipping():
         ols_covariance(X, resid, cov_type="hc3")
 
 
+def test_clustered_covariance_rejects_single_cluster():
+    rng = np.random.default_rng(126020)
+    X = np.column_stack([np.ones(18), rng.normal(size=18)])
+    resid = rng.normal(size=18)
+    single_cluster = np.zeros(18, dtype=np.int64)
+    with pytest.raises(ValueError, match=r"at least two distinct clusters"):
+        clustered_covariance(X, resid, single_cluster)
+
+
+def test_clustered_estimators_reject_single_cluster_inference():
+    X, y, entity, _time = _panel(seed=126021, unbalanced=True)
+    single_cluster = np.zeros(len(y), dtype=np.int64)
+
+    with pytest.raises(ValueError, match=r"at least two distinct clusters"):
+        PooledOLS(cov_type="clustered").fit(X, y, cluster=single_cluster)
+
+    with pytest.raises(ValueError, match=r"at least two distinct clusters"):
+        PanelOLS(cov_type="clustered").fit(X, y, cluster=single_cluster)
+
+    X_re = np.column_stack([np.ones(len(y)), X])
+    with pytest.raises(ValueError, match=r"at least two distinct clusters"):
+        RandomEffects(cov_type="clustered").fit(
+            X_re, y, entity_ids=entity, cluster=single_cluster
+        )
+
+
+def test_two_way_clustered_rejects_single_marginal_cluster():
+    rng = np.random.default_rng(126022)
+    X = np.column_stack([np.ones(24), rng.normal(size=24)])
+    resid = rng.normal(size=24)
+    single = np.zeros(24, dtype=np.int64)
+    second = np.tile(np.arange(6), 4)
+    with pytest.raises(ValueError, match=r"at least two distinct clusters"):
+        two_way_clustered_covariance(X, resid, single, second)
+
+
 def test_one_way_group_debias_is_exact_multiplicative_factor():
     rng = np.random.default_rng(12602)
     X = np.column_stack([np.ones(24), rng.normal(size=24)])

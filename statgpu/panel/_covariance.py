@@ -180,6 +180,10 @@ def clustered_covariance(
 
     influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
     n_clusters = int(len(labels))
+    if n_clusters < 2:
+        raise ValueError(
+            "clustered covariance requires at least two distinct clusters"
+        )
     grouped = _grouped_score_sums(
         influence, cluster_idx, n_groups=n_clusters, xp=xp
     )

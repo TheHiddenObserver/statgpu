@@ -68,6 +68,8 @@ $$
 \widehat V_G=\sum_gs_gs_g^\top.
 $$
 
+clustered inference 要求每个用户提供的 clustering dimension 至少包含两个不同 group。只有一个 cluster 时，grouped score 会退化为全样本 estimating-equation score，cluster-robust variance 无法被估计；因此即使 `group_debias=False`，statgpu 也会直接报错。
+
 `group_debias=True` 时会应用 small-number-of-clusters correction：
 
 $$
