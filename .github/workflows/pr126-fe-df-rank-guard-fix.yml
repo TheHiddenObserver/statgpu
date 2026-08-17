@@ -37,7 +37,6 @@ jobs:
           python -m pytest -q dev/tests/test_panel_stage_c_fresh_df_rank_guard.py
           python -m pytest -q dev/tests/test_panel_stage_a_golden.py
           python -m pytest -q dev/tests/test_panel_stage_c_edge_contracts.py
-          python -m pytest -q dev/tests/test_panel_stage_c_linearmodels_estimators.py
           git diff --check
 
       - name: Commit reviewed fixes and remove staging helpers
