@@ -105,6 +105,56 @@ class BasePanelModel(BaseEstimator):
             self.__dict__.pop(name, None)
         self.fit_statistics_ = None
 
+    def _panel_resolve_formula_ids(
+        self,
+        formula,
+        explicit_entity_ids,
+        explicit_time_ids,
+        formula_entity_ids,
+        formula_time_ids,
+    ):
+        """Reconcile explicit panel IDs with pipe-named formula metadata."""
+        if formula is None:
+            return explicit_entity_ids, explicit_time_ids, ()
+
+        from statgpu.panel._formula import _split_panel_formula
+
+        _main_formula, pipe_vars = _split_panel_formula(formula)
+        pipe_vars = tuple(pipe_vars)
+
+        def resolve(name, explicit, parsed, pipe_index):
+            if pipe_index < len(pipe_vars):
+                pipe_name = pipe_vars[pipe_index]
+                if parsed is None:
+                    raise ValueError(
+                        f"Formula pipe fixed-effect variable {pipe_name!r} was not found in data"
+                    )
+                if explicit is not None:
+                    try:
+                        matches = np.array_equal(
+                            np.asarray(explicit), np.asarray(parsed)
+                        )
+                    except (TypeError, ValueError):
+                        matches = False
+                    if not matches:
+                        raise ValueError(
+                            f"{name} conflicts with formula pipe fixed-effect variable "
+                            f"{pipe_name!r}; remove the explicit argument or make "
+                            "it match the formula column"
+                        )
+                return parsed
+            return explicit if explicit is not None else parsed
+
+        return (
+            resolve(
+                "entity_ids", explicit_entity_ids, formula_entity_ids, 0
+            ),
+            resolve(
+                "time_ids", explicit_time_ids, formula_time_ids, 1
+            ),
+            pipe_vars,
+        )
+
     def _panel_prepare_formula_fit(
         self,
         formula,

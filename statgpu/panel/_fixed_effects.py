@@ -315,10 +315,13 @@ class PanelOLS(BasePanelModel):
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
         cluster = aligned["cluster"]
-        if entity_ids is None and fe_entity_ids is not None:
-            entity_ids = fe_entity_ids
-        if time_ids is None and fe_time_ids is not None:
-            time_ids = fe_time_ids
+        entity_ids, time_ids, _pipe_vars = self._panel_resolve_formula_ids(
+            formula,
+            entity_ids,
+            time_ids,
+            fe_entity_ids,
+            fe_time_ids,
+        )
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
         n, k = X_arr.shape

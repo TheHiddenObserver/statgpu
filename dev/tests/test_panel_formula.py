@@ -258,6 +258,66 @@ class TestPanelOLSFormula:
         assert m.coef_ is not None
         assert len(m.coef_) == 2
 
+    def test_pipe_named_ids_reject_conflicting_explicit_metadata(self, panel_df):
+        entity_conflict = np.roll(panel_df["entity"].to_numpy(), 1)
+        with pytest.raises(ValueError, match=r"entity_ids conflicts.*entity"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | entity",
+                data=panel_df,
+                entity_ids=entity_conflict,
+            )
+
+        time_conflict = np.roll(panel_df["time"].to_numpy(), 1)
+        with pytest.raises(ValueError, match=r"time_ids conflicts.*time"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | entity + time",
+                data=panel_df,
+                time_ids=time_conflict,
+            )
+
+    def test_pipe_named_ids_allow_redundant_matching_metadata(self, panel_df):
+        expected = PanelOLS().fit(
+            formula="y ~ x1 + x2 | entity + time", data=panel_df
+        )
+        actual = PanelOLS().fit(
+            formula="y ~ x1 + x2 | entity + time",
+            data=panel_df,
+            entity_ids=panel_df["entity"].to_numpy(),
+            time_ids=panel_df["time"].to_numpy(),
+        )
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+        assert_allclose(actual.bse_, expected.bse_, rtol=0, atol=3e-12)
+
+    def test_missing_pipe_column_cannot_be_replaced_by_explicit_ids(self, panel_df):
+        with pytest.raises(ValueError, match=r"missing_entity.*not found in data"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | missing_entity",
+                data=panel_df,
+                entity_ids=panel_df["entity"].to_numpy(),
+            )
+
+    def test_missing_second_pipe_column_cannot_fall_back_to_default_time(self, panel_df):
+        with pytest.raises(ValueError, match=r"missing_time.*not found in data"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | entity + missing_time",
+                data=panel_df,
+            )
+
+    def test_effect_token_without_named_column_still_accepts_explicit_ids(self, panel_df):
+        data = panel_df.drop(columns=["entity"]).copy()
+        explicit = panel_df["entity"].to_numpy()
+        actual = PanelOLS().fit(
+            formula="y ~ x1 + x2 + EntityEffects",
+            data=data,
+            entity_ids=explicit,
+        )
+        expected = PanelOLS(entity_effects=True).fit(
+            data[["x1", "x2"]].to_numpy(),
+            data["y"].to_numpy(),
+            entity_ids=explicit,
+        )
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
 
 # ============================================================================
 # RandomEffects formula tests
@@ -309,6 +369,42 @@ class TestRandomEffectsFormula:
             entity_ids=panel_arrays['entity_ids'],
         )
         assert m.coef_ is not None
+
+    def test_pipe_named_entity_rejects_conflicting_explicit_ids(self, panel_df):
+        conflict = np.roll(panel_df["entity"].to_numpy(), 1)
+        with pytest.raises(ValueError, match=r"entity_ids conflicts.*entity"):
+            RandomEffects().fit(
+                formula="y ~ x1 + x2 | entity",
+                data=panel_df,
+                entity_ids=conflict,
+            )
+
+    def test_second_pipe_variable_requires_driscoll_kraay(self, panel_df):
+        with pytest.raises(ValueError, match=r"second time variable.*driscoll-kraay"):
+            RandomEffects().fit(
+                formula="y ~ x1 + x2 | entity + time",
+                data=panel_df,
+            )
+
+    def test_second_pipe_variable_supplies_dk_time_metadata(self, panel_df):
+        actual = RandomEffects(cov_type="dk", bandwidth=1).fit(
+            formula="y ~ x1 + x2 | entity + time",
+            data=panel_df,
+        )
+        X = np.column_stack(
+            [
+                np.ones(len(panel_df)),
+                panel_df[["x1", "x2"]].to_numpy(),
+            ]
+        )
+        expected = RandomEffects(cov_type="dk", bandwidth=1).fit(
+            X,
+            panel_df["y"].to_numpy(),
+            entity_ids=panel_df["entity"].to_numpy(),
+            time_ids=panel_df["time"].to_numpy(),
+        )
+        assert_allclose(actual.coef_, expected.coef_, rtol=2e-12, atol=2e-13)
+        assert_allclose(actual.bse_, expected.bse_, rtol=2e-11, atol=2e-13)
 
 
 # ============================================================================

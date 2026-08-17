@@ -118,7 +118,7 @@ level_no_intercept = PanelOLS().fit(
 )
 ```
 
-fixed effects 可以使用 pipe syntax，也可以使用 effect token，但同一个 formula 中不能混用。pipe syntax 最多接受两个 fixed-effect variables。
+fixed effects 可以使用 pipe syntax，也可以使用 effect token，但同一个 formula 中不能混用。pipe syntax 最多接受两个 fixed-effect variables。pipe 中明确命名的 entity/time 列是权威来源：如果同时显式传入 `entity_ids` 或 `time_ids`，它们必须与 formula 过滤后保留的对应列完全一致；冲突的重复来源会直接报错。
 
 ## Outputs
 

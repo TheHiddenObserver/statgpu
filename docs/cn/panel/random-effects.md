@@ -155,6 +155,8 @@ without_intercept = RandomEffects().fit(
 )
 ```
 
+pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="driscoll-kraay"` 时才接受第二个 pipe 变量，并将其作为 `time_ids`；其他 covariance 下会明确报错，而不是静默忽略该变量。如果同时显式传入 `entity_ids`/`time_ids`，它们必须与 pipe 中命名的对应列一致。
+
 ## Outputs
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`theta_`、`variance_components_`、`fit_statistics_`、`nobs` 与 `df_resid`。`variance_components_` 保存 $\widehat\sigma_e^2$ 与 $\widehat\sigma_a^2$；`theta_` 是拟合中各 entity quasi-demeaning factor 按 entity 数量加权后的平均值。

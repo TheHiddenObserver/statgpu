@@ -118,7 +118,7 @@ level_no_intercept = PanelOLS().fit(
 )
 ```
 
-Use either pipe syntax or effect tokens for fixed effects, not both. Pipe syntax accepts at most two fixed-effect variables.
+Use either pipe syntax or effect tokens for fixed effects, not both. Pipe syntax accepts at most two fixed-effect variables. Pipe-named entity/time columns are authoritative: if `entity_ids` or `time_ids` is also supplied explicitly, it must match the retained formula column exactly; a conflicting duplicate source raises an error.
 
 ## Outputs
 

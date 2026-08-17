@@ -155,6 +155,8 @@ without_intercept = RandomEffects().fit(
 )
 ```
 
+The first pipe variable is the entity grouping column. A second pipe variable is accepted only with `cov_type="driscoll-kraay"`, where it supplies `time_ids`; otherwise the fit fails clearly instead of silently ignoring that variable. If explicit `entity_ids`/`time_ids` are also supplied, they must match any pipe-named columns.
+
 ## Outputs
 
 Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `theta_`, `variance_components_`, `fit_statistics_`, `nobs`, and `df_resid`. `variance_components_` stores $\widehat\sigma_e^2$ and $\widehat\sigma_a^2$. `theta_` is the entity-count-weighted average of the per-entity quasi-demeaning factors used in the fit.

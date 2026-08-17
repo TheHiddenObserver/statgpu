@@ -143,10 +143,18 @@ class RandomEffects(BasePanelModel):
         entity_ids = aligned["entity_ids"]
         time_ids = aligned["time_ids"]
         cluster = aligned["cluster"]
-        if entity_ids is None and fe_entity_ids is not None:
-            entity_ids = fe_entity_ids
-        if time_ids is None and fe_time_ids is not None:
-            time_ids = fe_time_ids
+        entity_ids, time_ids, pipe_vars = self._panel_resolve_formula_ids(
+            formula,
+            entity_ids,
+            time_ids,
+            fe_entity_ids,
+            fe_time_ids,
+        )
+        if len(pipe_vars) > 1 and self._cov_type != "driscoll-kraay":
+            raise ValueError(
+                "RandomEffects formula pipe accepts a second time variable only "
+                "when cov_type='driscoll-kraay'"
+            )
         if entity_ids is None:
             raise ValueError("entity_ids is required for RandomEffects")
         if self._cov_type == "clustered" and cluster is None:

@@ -349,13 +349,18 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
              entity_ids, time_ids,
              entity_effects, time_effects,
              feature_names, has_intercept) = parse_panel_formula(formula, data)
-            # For linearmodels tokens, try to extract entity/time from DataFrame
-            if entity_effects and entity_ids is None and hasattr(data, 'columns'):
-                if 'entity' in data.columns:
-                    entity_ids = data['entity'].values
-            if time_effects and time_ids is None and hasattr(data, 'columns'):
-                if 'time' in data.columns:
-                    time_ids = data['time'].values
+            # Only effect-token syntax may use conventional entity/time
+            # column names.  A pipe formula names its metadata explicitly and
+            # must fail closed if that named column is absent.
+            _pipe_main, pipe_vars = _split_panel_formula(formula)
+            del _pipe_main
+            if not pipe_vars:
+                if entity_effects and entity_ids is None and hasattr(data, 'columns'):
+                    if 'entity' in data.columns:
+                        entity_ids = data['entity'].values
+                if time_effects and time_ids is None and hasattr(data, 'columns'):
+                    if 'time' in data.columns:
+                        time_ids = data['time'].values
             entity_ids = _align_formula_side_array(entity_ids, design_info, len(y_arr), "entity_ids")
             time_ids = _align_formula_side_array(time_ids, design_info, len(y_arr), "time_ids")
         else:
