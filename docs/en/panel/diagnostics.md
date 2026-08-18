@@ -1,7 +1,7 @@
 # Panel Diagnostics
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-08-18<br>
 > Switch: [Chinese](../../cn/panel/diagnostics.md)
 
 ## Overview and Path
@@ -63,6 +63,8 @@ result = re.hausman_test(fe)
 ## Outputs and Strict Behavior
 
 `PanelTestResult` reports `statistic`, `pvalue`, the reference distribution, degrees of freedom, null and alternative text, and an `applicable` flag. When a test cannot be computed under its documented definition, inspect `reason` to see why; statgpu does not return a different test under the same method name.
+
+For finite extreme-scale inputs, classical model F, pooling F, and Breusch-Pagan LM evaluate their scale-invariant quadratic reductions on backend-native normalized working values. Scalar and column centering use overflow-safe reduction-length scaling, while subnormal normalization avoids backend-specific division by a subnormal denominator. Public RSS metadata is restored to the original squared units when representable (and may be `inf` only when that squared quantity itself is outside float64); the test statistic is not allowed to become `0`, `NaN`, or `inf` merely because an avoidable intermediate overflowed or underflowed.
 
 ## External Validation
 

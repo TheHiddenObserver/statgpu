@@ -1,7 +1,7 @@
 # 面板 Diagnostics
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-18<br>
 > 切换：[English](../../en/panel/diagnostics.md)
 
 ## Overview and Path
@@ -63,6 +63,8 @@ result = re.hausman_test(fe)
 ## Outputs and Strict Behavior
 
 `PanelTestResult` 提供 `statistic`、`pvalue`、reference distribution、degrees of freedom、null/alternative text 与 `applicable` flag。若某个检验在文档定义下无法计算，可以查看 `reason` 了解具体原因；statgpu 不会用同一个 method name 返回另一种 test。
+
+对于 finite extreme-scale inputs，classical model F、pooling F 与 Breusch-Pagan LM 会在当前 backend 上用归一化 working values 计算其 scale-invariant quadratic reductions。scalar/column centering 只在 reduction 可能 overflow 时按 reduction length 做缩放；subnormal normalization 也不会直接除以 subnormal denominator。公开的 RSS metadata 会在原始平方尺度可表示时恢复到该尺度；只有真实平方量超出 float64 表示范围时才允许为 `inf`。检验 statistic 不应仅因为可避免的中间 overflow/underflow 而错误变成 `0`、`NaN` 或 `inf`。
 
 ## External Validation
 

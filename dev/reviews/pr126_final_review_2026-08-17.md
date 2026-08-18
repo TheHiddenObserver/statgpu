@@ -1,6 +1,8 @@
-# PR #126 final technical review and physical acceptance record
+# PR #126 historical physical acceptance snapshot
 
 Date: 2026-08-17
+
+> **Historical evidence only (status updated 2026-08-18).** Subsequent PR #126 review/fix loops changed valid Fama-MacBeth, shared panel least-squares, covariance, and diagnostic numerical paths after the source recorded below. This snapshot must not be used as current-head merge acceptance. Fresh exact-head CuPy and Torch CUDA revalidation is required and remains pending until new physical artifacts are produced.
 
 This file is the durable repository-side audit record for PR #126. It records
 technical and physical-validation facts only. Transient lifecycle state such as
@@ -21,19 +23,17 @@ solver gates are not applicable to the touched panel covariance capabilities.
 The architectural/capability contract remains in
 `dev/plans/panel_p1_stage_c_covariance_plan.md`.
 
-## Validated numerical source
+## Historical validated numerical source
 
-The final production numerical source validated on physical GPU is:
+The historical numerical source validated on physical GPU in this snapshot is:
 
 `8c60db00f5ea986aed96b1f1dce3f5c3b4f0bcd4`
 
-Production numerical code remained frozen after this source during final
-physical-evidence promotion, documentation reconciliation, artifact cleanup,
-and deterministic benchmark-data regeneration.
+At the time of this snapshot, production numerical code remained frozen after this source during its physical-evidence promotion, documentation reconciliation, artifact cleanup, and deterministic benchmark-data regeneration. Later review/fix loops intentionally changed that numerical code, so the evidence below is historical rather than current-head acceptance.
 
-## Final Fama-MacBeth solver contract
+## Historical Fama-MacBeth solver contract at `8c60db00...`
 
-NumPy remains the serial rank-revealing SVD statistical reference. GPU retained
+At this historical source, NumPy remained the serial rank-revealing SVD statistical reference. GPU retained
 periods are grouped by exact row count and first receive a conservative Gram
 spectrum certificate. A period may use the batched normal-equation candidate
 only when
@@ -53,7 +53,7 @@ bucketing, chronological rank rejection, no-intercept formula rejection,
 backend-native inference, failed-refit invalidation, and direct-fit finite-input
 validation ownership.
 
-## Final Tesla P100 physical acceptance
+## Historical Tesla P100 physical acceptance
 
 Four final physical runners passed from the same clean detached numerical source
 `8c60db00...` on Tesla P100-SXM2-16GB with CuPy 13.6.0 and Torch 2.0.0:

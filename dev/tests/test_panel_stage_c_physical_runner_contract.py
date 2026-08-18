@@ -154,3 +154,16 @@ def test_stage_c_runner_rank_deficient_estimators_exercise_identified_rank_df():
         assert model.conf_int_ is None, name
         assert model._inference_result.metadata["applicable"] is False, name
         assert "rank deficient" in model._inference_result.metadata["reason"], name
+
+
+
+def test_stage_c_runner_diagnostic_scale_audit_is_executable():
+    audit = _MOD._diagnostic_scale_audit("numpy")
+    assert audit["status"] == "success"
+    assert audit["backend"] == "numpy"
+    for field in (
+        "pooling_f_statistic", "pooling_f_pvalue",
+        "classical_f_statistic", "classical_f_pvalue",
+        "bp_lm_statistic", "bp_lm_pvalue",
+    ):
+        assert np.isfinite(audit[field]), field

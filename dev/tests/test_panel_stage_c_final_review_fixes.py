@@ -19,7 +19,7 @@ from statgpu.panel._diagnostics import (
     _scaled_residual_r2,
     _scaled_residual_variance,
 )
-from statgpu.panel._linalg import panel_lstsq
+from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
 from statgpu.panel._utils import demean_variables, group_means
 
 
@@ -1071,3 +1071,15 @@ def test_torch_subnormal_bp_lm_matches_numpy():
     assert np.isfinite(reference.statistic) and np.isfinite(candidate.statistic)
     assert_allclose(candidate.statistic, reference.statistic, rtol=2e-10, atol=1e-12)
     assert_allclose(candidate.pvalue, reference.pvalue, rtol=2e-10, atol=1e-14)
+
+
+
+def test_torch_tiny_design_matrix_rank_matches_shared_solver():
+    torch = pytest.importorskip("torch")
+    tiny = 1.0e-320
+    X = torch.eye(2, dtype=torch.float64) * tiny
+    y = torch.tensor([tiny, 2.0 * tiny], dtype=torch.float64)
+    _params, solver_rank = panel_lstsq(X, y, torch)
+    direct_rank = panel_matrix_rank(X, torch)
+    assert solver_rank == 2
+    assert direct_rank == solver_rank

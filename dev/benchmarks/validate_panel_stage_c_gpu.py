@@ -30,11 +30,20 @@ from statgpu.panel import (
     driscoll_kraay_covariance,
 )
 from statgpu.panel._covariance import ols_covariance
-from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+from statgpu.panel._diagnostic_context import (
+    bp_lm_from_residuals,
+    pooling_f_from_level_arrays,
+)
+from statgpu.panel._diagnostics import (
+    _classical_model_f,
+    _scaled_group_means,
+    _scaled_mean,
+)
 from statgpu.panel._linalg import (
     panel_lstsq,
     panel_lstsq_batched,
     panel_lstsq_gram_certified_batched,
+    panel_matrix_rank,
 )
 
 
@@ -260,6 +269,145 @@ def _cancellation_safe_mean_audit(backend):
     return {"status": "success", "backend": backend, "mean": mean}
 
 
+def _diagnostic_scale_audit(backend):
+    if backend == "numpy":
+        xp = np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+    elif backend == "torch":
+        import torch
+        xp = torch
+    else:
+        raise ValueError(backend)
+
+    # Pooling F: naive column/scalar means overflow after this common scaling,
+    # while the centered regression and scale-invariant statistic are finite.
+    n = 24
+    t = np.linspace(-1.0, 1.0, n)
+    X = np.column_stack(
+        [1.15 + 0.18 * t, 0.95 - 0.11 * t + 0.03 * t * t]
+    ).astype(np.float64)
+    y = (
+        1.05
+        + 0.42 * t
+        - 0.08 * t * t
+        + 0.025 * np.sin(np.arange(n))
+    ).astype(np.float64)
+    Xc = X - X.mean(axis=0)
+    yc = y - y.mean()
+    beta, _ = panel_lstsq(Xc, yc, np)
+    effects_resid = 0.55 * (yc - Xc @ beta)
+    dummy = np.arange(n, dtype=np.int64)
+
+    def _pooling(scale):
+        Xb, yb, _eb, _tb = _to_backend(
+            scale * X, scale * y, dummy, dummy, backend
+        )
+        _X2, effects_b, _e2, _t2 = _to_backend(
+            scale * X, scale * effects_resid, dummy, dummy, backend
+        )
+        return pooling_f_from_level_arrays(
+            yb,
+            Xb,
+            xp=xp,
+            rss_effects=0.0,
+            df_resid_effects=n - 6,
+            has_constant=False,
+            resid_effects=effects_b,
+        )
+
+    pooling_reference = _pooling(1.0)
+    pooling_large = _pooling(1.0e307)
+    if not pooling_reference.applicable or not pooling_large.applicable:
+        raise AssertionError(f"{backend}: pooling-F scale audit became inapplicable")
+    np.testing.assert_allclose(
+        pooling_large.statistic, pooling_reference.statistic,
+        rtol=5e-8, atol=1e-10,
+    )
+    np.testing.assert_allclose(
+        pooling_large.pvalue, pooling_reference.pvalue,
+        rtol=5e-8, atol=1e-12,
+    )
+
+    # Classical model F: use a subnormal response scale so direct backend scalar
+    # division is exercised. The statistic must remain invariant to response units.
+    x = np.linspace(-1.0, 1.0, 12)
+    Xf = np.column_stack([np.ones(x.size), x]).astype(np.float64)
+    yf = (
+        0.8
+        + 0.45 * x
+        + np.asarray(
+            [0.08, -0.04, 0.03, -0.06, 0.05, -0.02,
+             0.01, 0.04, -0.03, 0.02, -0.01, 0.05],
+            dtype=np.float64,
+        )
+    )
+    entity_f = np.arange(x.size, dtype=np.int64)
+
+    def _model_f(scale):
+        Xb, yb, _eb, _tb = _to_backend(
+            Xf, scale * yf, entity_f, entity_f, backend
+        )
+        params, rank = panel_lstsq(Xb, yb, xp)
+        result = _classical_model_f(
+            yb, Xb, params, xp=xp,
+            df_resid=x.size - int(rank), has_constant=True,
+        )
+        if result[0] is None or not np.isfinite(result[0]):
+            raise AssertionError(f"{backend}: classical-F scale audit is not finite")
+        return result
+
+    model_f_reference = _model_f(1.0)
+    model_f_tiny = _model_f(1.0e-310)
+    np.testing.assert_allclose(
+        model_f_tiny[0], model_f_reference[0], rtol=5e-4, atol=5e-6
+    )
+    np.testing.assert_allclose(
+        model_f_tiny[1], model_f_reference[1], rtol=5e-4, atol=5e-8
+    )
+
+    # Baltagi-Li BP-LM is also response-scale invariant and uses grouped backend
+    # reductions, so verify the subnormal path on the requested physical backend.
+    groups = np.repeat(np.arange(5), 4).astype(np.int64)
+    pattern = np.asarray(
+        [1.0, -0.4, 0.6, -0.3, 0.8, -0.2, 0.5, -0.7, 1.1, -0.5,
+         0.3, -0.1, 0.7, -0.6, 0.4, -0.2, 0.9, -0.3, 0.2, -0.4],
+        dtype=np.float64,
+    )
+    dummy_x = np.arange(pattern.size, dtype=np.float64)[:, None]
+    dummy_time = np.arange(pattern.size, dtype=np.int64)
+
+    def _bp(scale):
+        _xb, resid_b, groups_b, _tb = _to_backend(
+            dummy_x, scale * pattern, groups, dummy_time, backend
+        )
+        result = bp_lm_from_residuals(resid_b, groups_b, xp=xp)
+        if not result.applicable or not np.isfinite(result.statistic):
+            raise AssertionError(f"{backend}: BP-LM scale audit is not finite/applicable")
+        return result
+
+    bp_reference = _bp(1.0)
+    bp_tiny = _bp(1.0e-310)
+    np.testing.assert_allclose(
+        bp_tiny.statistic, bp_reference.statistic, rtol=5e-8, atol=1e-10
+    )
+    np.testing.assert_allclose(
+        bp_tiny.pvalue, bp_reference.pvalue, rtol=5e-8, atol=1e-12
+    )
+
+    return {
+        "status": "success",
+        "backend": backend,
+        "pooling_f_statistic": float(pooling_large.statistic),
+        "pooling_f_pvalue": float(pooling_large.pvalue),
+        "classical_f_statistic": float(model_f_tiny[0]),
+        "classical_f_pvalue": float(model_f_tiny[1]),
+        "bp_lm_statistic": float(bp_tiny.statistic),
+        "bp_lm_pvalue": float(bp_tiny.pvalue),
+    }
+
+
 def _tiny_design_lstsq_audit(backend):
     tiny = 1.0e-320
     X = np.eye(2, dtype=np.float64) * tiny
@@ -277,10 +425,16 @@ def _tiny_design_lstsq_audit(backend):
         params, rank = panel_lstsq(Xb, yb, cp)
         rank = int(rank)
         params_np = _array(params)
-    if rank != 2:
-        raise AssertionError(f"{backend}: tiny full-rank design rank drifted to {rank}")
+    matrix_rank = int(panel_matrix_rank(Xb, torch if backend == "torch" else cp))
+    if rank != 2 or matrix_rank != rank:
+        raise AssertionError(
+            f"{backend}: tiny-design rank policy drifted: solver={rank}, matrix_rank={matrix_rank}"
+        )
     np.testing.assert_allclose(params_np, np.asarray([1.0, 2.0]), rtol=5e-11, atol=0.0)
-    return {"status": "success", "backend": backend, "rank": rank, "params": params_np.tolist()}
+    return {
+        "status": "success", "backend": backend,
+        "rank": rank, "matrix_rank": matrix_rank, "params": params_np.tolist(),
+    }
 
 
 def _gram_overflow_certificate_audit(backend):
@@ -1007,10 +1161,29 @@ def main():
             raise AssertionError("level-constant F degrees of freedom drifted from NumPy")
         level_constant_audit["max_abs_differences_vs_numpy"] = numpy_diffs
         payload["level_constant_contract"] = level_constant_audit
+        diagnostic_scale = _diagnostic_scale_audit(backend)
+        diagnostic_reference = _diagnostic_scale_audit("numpy")
+        diagnostic_diffs = {}
+        for field in (
+            "pooling_f_statistic", "pooling_f_pvalue",
+            "classical_f_statistic", "classical_f_pvalue",
+            "bp_lm_statistic", "bp_lm_pvalue",
+        ):
+            tolerance = 5e-4 if field.startswith("classical_f") else max(args.rtol, 5e-8)
+            np.testing.assert_allclose(
+                diagnostic_scale[field], diagnostic_reference[field],
+                rtol=tolerance, atol=max(args.atol, 5e-8),
+                err_msg=f"diagnostic_scale.{field}",
+            )
+            diagnostic_diffs[field] = abs(
+                float(diagnostic_scale[field]) - float(diagnostic_reference[field])
+            )
+        diagnostic_scale["max_abs_differences_vs_numpy"] = diagnostic_diffs
         payload["numerical_primitives"] = {
             "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
             "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
+            "diagnostic_scale_reductions": diagnostic_scale,
         }
 
         primitive_values = _public_primitive_cases(
