@@ -450,16 +450,23 @@ class FamaMacBeth(BasePanelModel):
         if T < 2:
             raise ValueError("FamaMacBeth requires at least 2 time periods after filtering")
 
-        # Scale before averaging so a finite common coefficient level does not
-        # overflow merely because the raw reduction sums T copies first.
+        # Protect the T-term reduction with the minimum scale needed for
+        # overflow safety.  Magnitude-normalizing each coordinate can underflow
+        # a small but representable remainder when large period coefficients
+        # cancel (e.g. +1e154, -1e154, 1e-170).
         if xp.__name__ == "torch":
             beta_scale = xp.max(xp.abs(betas), dim=0).values
         else:
             beta_scale = xp.max(xp.abs(betas), axis=0)
-        safe_beta_scale = xp.where(
-            beta_scale > 0.0, beta_scale, xp.ones_like(beta_scale)
+        reduction_limit = np.finfo(np.float64).max / float(T)
+        mean_scale = xp.where(
+            beta_scale > reduction_limit,
+            xp.full_like(beta_scale, float(T)),
+            xp.ones_like(beta_scale),
         )
-        avg_beta = xp.mean(betas / safe_beta_scale, axis=0) * safe_beta_scale
+        avg_beta = xp.sum(betas / mean_scale, axis=0) * (
+            mean_scale / float(T)
+        )
         if not bool(_to_float_scalar(xp.all(xp.isfinite(avg_beta)))):
             raise ValueError(
                 "FamaMacBeth average coefficient is non-finite; the retained-period "

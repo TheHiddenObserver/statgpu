@@ -605,6 +605,23 @@ def _numeric_stability_case(backend: str):
     if not np.all(np.isfinite(_public_array(mixed.pvalues_))):
         raise AssertionError("zero-variance coefficient leaked non-finite p-value")
 
+    cancel_betas = np.asarray(
+        [[0.0, -1.0e154, 0.0], [0.0, 1.0e154, 0.0], [0.0, 1.0e-170, 0.0]],
+        dtype=np.float64,
+    )
+    y_cancel = np.concatenate([design @ beta for beta in cancel_betas])
+    X_cancel_b, y_cancel_b = _arrays(X_mixed, y_cancel, backend)
+    cancellation = FamaMacBeth(cov_type="nonrobust", device=_device(backend)).fit(
+        X_cancel_b, y_cancel_b, time_ids=time_mixed
+    )
+    cancellation_mean = float(_public_array(cancellation.coef_)[1])
+    expected_cancellation_mean = 1.0e-170 / 3.0
+    if cancellation_mean == 0.0:
+        raise AssertionError("small coefficient cancellation remainder underflowed to zero")
+    np.testing.assert_allclose(
+        cancellation_mean, expected_cancellation_mean, rtol=3e-11, atol=0.0
+    )
+
     tiny = float(np.nextafter(0.0, 1.0))
     expected_subnormal_betas = np.asarray(
         [[0.0, -1.0e154, -tiny], [0.0, 0.0, 0.0], [0.0, 1.0e154, tiny]],
@@ -643,6 +660,7 @@ def _numeric_stability_case(backend: str):
         "mixed_scale_zero_variance_statistic": float(
             _public_array(mixed.tvalues_)[0]
         ),
+        "cancellation_safe_average": cancellation_mean,
         "subnormal_cross_covariance": float(sub_cov[1, 2]),
     }
 

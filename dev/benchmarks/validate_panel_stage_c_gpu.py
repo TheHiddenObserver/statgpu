@@ -30,6 +30,7 @@ from statgpu.panel import (
     driscoll_kraay_covariance,
 )
 from statgpu.panel._covariance import ols_covariance
+from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
 from statgpu.panel._linalg import (
     panel_lstsq,
     panel_lstsq_batched,
@@ -231,6 +232,32 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
             X_rank_b, resid_rank_b, time_rank_b, bandwidth=2, kernel="bartlett"
         ),
     }
+
+
+def _cancellation_safe_mean_audit(backend):
+    values = np.asarray([1.0e154, -1.0e154, 1.0e-170], dtype=np.float64)
+    grouped = np.asarray(
+        [1.0e154, -1.0e154, 1.0e-170, 1.0e-320, 1.0e-320], dtype=np.float64
+    )
+    groups = np.asarray([0, 0, 0, 1, 1], dtype=np.int64)
+    dummy = np.arange(values.size, dtype=np.float64)[:, None]
+    entity = np.arange(values.size, dtype=np.int64)
+    time = np.arange(values.size, dtype=np.int64)
+    _dummy_b, values_b, _eb, _tb = _to_backend(dummy, values, entity, time, backend)
+    dummy_g = np.arange(grouped.size, dtype=np.float64)[:, None]
+    entity_g = np.arange(grouped.size, dtype=np.int64)
+    time_g = np.arange(grouped.size, dtype=np.int64)
+    _dg, grouped_b, groups_b, _tg = _to_backend(dummy_g, grouped, groups, time_g, backend)
+    xp = __import__("torch") if backend == "torch" else __import__("cupy")
+    mean = float(_array(_scaled_mean(values_b, xp)))
+    group_result = _array(_scaled_group_means(grouped_b, groups_b, xp))
+    expected_mean = 1.0e-170 / 3.0
+    expected_group = np.asarray(
+        [expected_mean] * 3 + [1.0e-320, 1.0e-320], dtype=np.float64
+    )
+    np.testing.assert_allclose(mean, expected_mean, rtol=3e-11, atol=0.0)
+    np.testing.assert_allclose(group_result, expected_group, rtol=3e-11, atol=0.0)
+    return {"status": "success", "backend": backend, "mean": mean}
 
 
 def _tiny_design_lstsq_audit(backend):
@@ -983,6 +1010,7 @@ def main():
         payload["numerical_primitives"] = {
             "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
             "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
+            "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
         }
 
         primitive_values = _public_primitive_cases(

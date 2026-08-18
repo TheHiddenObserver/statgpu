@@ -20,7 +20,7 @@ from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.inference._distributions_backend import get_distribution
 from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
 from statgpu.panel._results import PanelFitStatistics, PanelTestResult
-from statgpu.panel._utils import group_means
+from statgpu.panel._utils import group_means, group_sizes
 
 __all__ = [
     "hausman_test",
@@ -115,17 +115,28 @@ def _scaled_residual_r2(resid, centered, xp) -> Tuple[float, bool]:
 
 
 def _scaled_mean(values, xp):
-    """Return a backend-native mean without overflowing the raw sum."""
-    scale = xp.max(xp.abs(values))
-    safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
-    return xp.mean(values / safe_scale) * safe_scale
+    """Return a mean with only the reduction-length scaling needed for safety."""
+    n = int(values.shape[0])
+    max_abs = xp.max(xp.abs(values))
+    limit = np.finfo(np.float64).max / float(max(n, 1))
+    factor = xp.where(
+        max_abs > limit,
+        xp.full_like(max_abs, float(n)),
+        xp.ones_like(max_abs),
+    )
+    return xp.sum(values / factor) * (factor / float(n))
 
 
 def _scaled_group_means(values, groups, xp):
-    """Return group means after one global scaling to protect group sums."""
-    scale = xp.max(xp.abs(values))
-    safe_scale = xp.where(scale > 0.0, scale, xp.ones_like(scale))
-    return group_means(values / safe_scale, groups, xp=xp) * safe_scale
+    """Return group means without globally magnitude-normalizing safe groups."""
+    sizes = group_sizes(groups, xp=xp)
+    limit = np.finfo(np.float64).max / sizes
+    dangerous = (xp.abs(values) > limit) * 1.0
+    dangerous_group = group_means(dangerous, groups, xp=xp) > 0.0
+    factor = xp.where(dangerous_group, sizes, xp.ones_like(sizes))
+    # For a dangerous group of size m, group_means(values / m) * m equals
+    # the original mean but the same-sign accumulation is bounded by max|x|.
+    return group_means(values / factor, groups, xp=xp) * factor
 
 
 def _demean_matrix(X, entity_codes, xp):

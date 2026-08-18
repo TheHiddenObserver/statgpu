@@ -501,3 +501,73 @@ def test_fama_macbeth_covariance_rescale_preserves_subnormal_cross_symmetry_torc
     np.testing.assert_allclose(cov[1, 2], expected_cross, rtol=5e-13, atol=0.0)
     np.testing.assert_allclose(cov[2, 1], expected_cross, rtol=5e-13, atol=0.0)
     np.testing.assert_allclose(cov, cov.T, rtol=0.0, atol=0.0)
+
+
+
+def _cancellation_mean_fixture():
+    x_period = np.asarray([-1.0, -0.5, 0.0, 0.5, 1.0], dtype=np.float64)
+    slopes = np.asarray([-1.0e154, 1.0e154, 1.0e-170], dtype=np.float64)
+    X = np.tile(x_period, 3)[:, None]
+    y = np.concatenate([slope * x_period for slope in slopes])
+    time = np.repeat(np.arange(3), x_period.size)
+    return X, y, time, float(1.0e-170 / 3.0)
+
+
+def test_fama_macbeth_preserves_small_cancellation_remainder_numpy():
+    X, y, time, expected = _cancellation_mean_fixture()
+    model = FamaMacBeth(cov_type="nonrobust", device="cpu").fit(X, y, time_ids=time)
+    actual = float(_to_numpy(model.coef_)[1])
+    assert actual != 0.0
+    np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=0.0)
+
+
+def test_fama_macbeth_preserves_small_cancellation_remainder_torch_cpu():
+    torch = pytest.importorskip("torch")
+    X, y, time, expected = _cancellation_mean_fixture()
+    model = FamaMacBeth(cov_type="nonrobust").fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=time,
+    )
+    actual = float(_to_numpy(model.coef_)[1])
+    assert actual != 0.0
+    np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=0.0)
+
+
+def test_parameter_r2_mean_helpers_preserve_cancellation_and_safe_tiny_groups_numpy():
+    from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+
+    values = np.asarray([1.0e154, -1.0e154, 1.0e-170], dtype=np.float64)
+    np.testing.assert_allclose(
+        float(_scaled_mean(values, np)), 1.0e-170 / 3.0, rtol=1e-15, atol=0.0
+    )
+
+    grouped = np.asarray(
+        [1.0e154, -1.0e154, 1.0e-170, 1.0e-320, 1.0e-320],
+        dtype=np.float64,
+    )
+    groups = np.asarray([0, 0, 0, 1, 1], dtype=np.int64)
+    actual = np.asarray(_scaled_group_means(grouped, groups, np))
+    expected = np.asarray(
+        [1.0e-170 / 3.0] * 3 + [1.0e-320, 1.0e-320], dtype=np.float64
+    )
+    np.testing.assert_allclose(actual, expected, rtol=2e-15, atol=0.0)
+
+
+def test_parameter_r2_mean_helpers_preserve_cancellation_and_safe_tiny_groups_torch_cpu():
+    torch = pytest.importorskip("torch")
+    from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+
+    values = torch.tensor([1.0e154, -1.0e154, 1.0e-170], dtype=torch.float64)
+    mean = float(_scaled_mean(values, torch).detach().cpu())
+    np.testing.assert_allclose(mean, 1.0e-170 / 3.0, rtol=2e-15, atol=0.0)
+
+    grouped = torch.tensor(
+        [1.0e154, -1.0e154, 1.0e-170, 1.0e-320, 1.0e-320], dtype=torch.float64
+    )
+    groups = torch.tensor([0, 0, 0, 1, 1], dtype=torch.int64)
+    actual = _scaled_group_means(grouped, groups, torch).detach().cpu().numpy()
+    expected = np.asarray(
+        [1.0e-170 / 3.0] * 3 + [1.0e-320, 1.0e-320], dtype=np.float64
+    )
+    np.testing.assert_allclose(actual, expected, rtol=3e-15, atol=0.0)
