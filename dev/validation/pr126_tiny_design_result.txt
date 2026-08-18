@@ -1,18 +1,28 @@
-patch_rc=1
-test_rc=99
+patch_rc=0
+test_rc=1
 compile_rc=99
 diff_rc=99
 --- patch log ---
-Traceback (most recent call last):
-  File "<stdin>", line 7, in <module>
-  File "/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/runpy.py", line 288, in run_path
-    return _run_module_code(code, init_globals, run_name,
-  File "/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/runpy.py", line 97, in _run_module_code
-    _run_code(code, mod_globals, init_globals,
-  File "/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/runpy.py", line 87, in _run_code
-    exec(code, run_globals)
-  File "dev/validation/pr126_panel_tiny_design_once.py", line 218, in <module>
-    raise RuntimeError("validator payload anchor missing")
-RuntimeError: validator payload anchor missing
+PR126 final shared-panel numerical patch applied
 --- pytest log ---
-pytest skipped because patch failed
+....F......................................................              [100%]
+=================================== FAILURES ===================================
+______ test_panel_lstsq_batched_rescales_tiny_full_rank_design_torch_cpu _______
+dev/tests/test_fama_macbeth_batched_solver.py:98: in test_panel_lstsq_batched_rescales_tiny_full_rank_design_torch_cpu
+    params, ranks = panel_lstsq_batched(X, y, torch)
+statgpu/panel/_linalg.py:294: in panel_lstsq_batched
+    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
+E   torch._C._LinAlgError: linalg.svd: (Batch element 0): The algorithm failed to converge because the input matrix contained non-finite values.
+=============================== warnings summary ===============================
+dev/tests/test_fama_macbeth_inference_matrix.py::test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_back
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_linalg.py:198: RuntimeWarning: overflow encountered in matmul
+    rhs = xp.matmul(transpose, rhs_input)
+
+dev/tests/test_fama_macbeth_inference_matrix.py::test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_back
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_fama_macbeth.py:543: RuntimeWarning: overflow encountered in divide
+    tvalues = avg_beta / bse_for_stat
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED dev/tests/test_fama_macbeth_batched_solver.py::test_panel_lstsq_batched_rescales_tiny_full_rank_design_torch_cpu - torch._C._LinAlgError: linalg.svd: (Batch element 0): The algorithm failed to converge because the input matrix contained non-finite values.
+1 failed, 58 passed, 2 warnings in 4.15s
