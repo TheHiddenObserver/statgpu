@@ -1,0 +1,54 @@
+name: PR126 nonnested scale audit
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/pr126-nonnested-scale-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+      - name: Exercise nonnested structural cancellation
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel import two_way_clustered_covariance
+
+          n = 6
+          A = 2.0e307
+          s = 1.0e-150
+          X = np.ones((n, 1), dtype=np.float64)
+          target_scores = np.asarray([-A, 0.0, A, 0.0, s, -s], dtype=np.float64)
+          resid = float(n) * target_scores
+          cluster1 = np.asarray([0, 0, 1, 1, 2, 3], dtype=np.int64)
+          cluster2 = np.asarray([0, 1, 0, 1, 2, 3], dtype=np.int64)
+
+          actual = np.asarray(
+              two_way_clustered_covariance(X, resid, cluster1, cluster2),
+              dtype=np.float64,
+          )
+          expected = np.asarray([[2.0 * s * s]], dtype=np.float64)
+          print('actual=', actual)
+          print('expected=', expected)
+          print('finite=', np.isfinite(actual).all())
+          print('nonzero=', bool(actual[0, 0] != 0.0))
+          np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=0.0)
+          PY
