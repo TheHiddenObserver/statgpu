@@ -601,15 +601,17 @@ def ols_covariance(
             if resid_scale_value == 0.0:
                 scaled_pinv = X_pinv_work * 0.0
             else:
-                resid_unit = resid / resid_scale
+                from statgpu.panel._diagnostics import _scaled_unit_values
+
+                resid_unit = _scaled_unit_values(resid, resid_scale, xp)
                 norm_sq = _to_float_scalar(xp.sum(resid_unit * resid_unit))
                 rms_unit = float(np.sqrt(norm_sq / float(int(df_resid))))
-                # sqrt(scale) = resid_scale * rms_unit.  Multiply the tiny/large
-                # residual scale into the working pseudoinverse before restoring
-                # design_scale; this lets opposite scales cancel while every
-                # intermediate remains representable whenever the final covariance is.
+                # sqrt(scale) = resid_scale * rms_unit. Apply the dimensionless
+                # RMS factor before the potentially large residual/design-scale
+                # restoration so a representable final covariance does not
+                # overflow an intermediate solely because of multiplication order.
                 scaled_pinv = (
-                    ((X_pinv_work * resid_scale) * design_scale) * rms_unit
+                    ((X_pinv_work * rms_unit) * resid_scale) * design_scale
                 )
             if metadata is not None:
                 metadata["nonrobust_scale_reconstructed"] = True

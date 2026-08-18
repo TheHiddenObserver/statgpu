@@ -931,3 +931,46 @@ def test_torch_subnormal_residual_reductions_use_normal_working_scale():
         resid_np, centered_np, np
     )
     assert_allclose([left_ss, right_ss], [left_np, right_np], rtol=3e-12, atol=1e-14)
+
+
+
+def test_pooled_full_rank_fit_uses_shared_solver_ownership(monkeypatch):
+    rng = np.random.default_rng(2026082001)
+    X = rng.normal(size=(80, 2))
+    y = 0.4 + X @ np.asarray([0.7, -0.25]) + rng.normal(scale=0.1, size=80)
+    design = np.column_stack([np.ones(X.shape[0]), X])
+    expected, expected_rank = panel_lstsq(design, y, np)
+
+    def forbidden_backend_lstsq(*_args, **_kwargs):
+        raise AssertionError("PooledOLS bypassed the shared panel_lstsq policy")
+
+    monkeypatch.setattr(np.linalg, "lstsq", forbidden_backend_lstsq)
+    fit = PooledOLS(cov_type="hc0").fit(X, y)
+    assert fit.rank_ == expected_rank
+    assert_allclose(fit.coef_, expected, rtol=3e-12, atol=3e-12)
+
+
+def test_torch_nonrobust_subnormal_design_and_residual_reconstruction():
+    torch = pytest.importorskip("torch")
+    X_np = np.full((4, 1), 1.0e-320, dtype=np.float64)
+    resid_np = np.asarray([1.0e-320, -1.0e-320, 1.0e-320, -1.0e-320])
+    expected = ols_covariance(
+        X_np,
+        resid_np,
+        cov_type="nonrobust",
+        scale=0.0,
+        df_resid=3,
+    )
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    resid = torch.as_tensor(resid_np, dtype=torch.float64)
+    actual = ols_covariance(
+        X,
+        resid,
+        cov_type="nonrobust",
+        scale=0.0,
+        df_resid=3,
+        xp=torch,
+    )
+    assert torch.all(torch.isfinite(actual))
+    assert_allclose(actual.detach().cpu().numpy(), expected, rtol=3e-11, atol=2e-12)
+    assert_allclose(actual.detach().cpu().numpy(), np.asarray([[1.0 / 3.0]]), rtol=3e-3, atol=3e-3)
