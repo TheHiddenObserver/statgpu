@@ -43,6 +43,7 @@ jobs:
               dev/tests/test_panel_stage_c_covariance.py \
               dev/tests/test_panel_stage_c_inference_guard.py \
               dev/tests/test_panel_stage_b_fit_statistics.py \
+              dev/tests/test_panel_stage_b_review_regressions.py \
               dev/tests/test_panel_stage_b_torch_cpu.py \
               -q --tb=short > /tmp/pytest.log 2>&1
             pytest_rc=$?
