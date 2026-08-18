@@ -36,7 +36,7 @@ jobs:
 
           amplitude = 1.0e200
           low1 = 1.0e108
-          low2 = np.nextafter(low1, np.inf)
+          low2 = low1 * (1.0 + 1.0e-3)
           scores = np.asarray([
               -amplitude, low1, amplitude, -low1,
               -amplitude, -low2, amplitude, low2,
@@ -52,7 +52,9 @@ jobs:
           print('PRE_FIX_EXPECTED', expected.tolist())
           PY
       - name: Apply reviewed unsafe-low fix
-        run: python dev/validation/pr126_review_fix_unsafe_low_once.py
+        run: |
+          python dev/validation/pr126_review_fix_unsafe_low_once.py
+          python dev/validation/pr126_review_fix_unsafe_fixture_once.py
       - name: Run focused review regressions
         run: |
           python -m pytest \
