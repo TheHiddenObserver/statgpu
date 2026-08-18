@@ -105,14 +105,29 @@ def _restore_squared_scale(value: float, scale: float) -> float:
     return float(scaled_root * scaled_root)
 
 
+def _scaled_unit_values(values, scale, xp):
+    """Normalize by a scalar scale without dividing by a subnormal denominator."""
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return values
+    target = float(np.sqrt(np.finfo(np.float64).tiny))
+    if scale_value < target:
+        relative = scale / float(target)
+        factor = 1.0 / relative
+        values_work = values * factor
+        scale_work = scale * factor
+        return values_work / scale_work
+    return values / scale
+
+
 def _common_scaled_sumsquares(left, right, xp):
     """Return two sums of squares normalized by one common backend scale."""
     scale = xp.maximum(xp.max(xp.abs(left)), xp.max(xp.abs(right)))
     scale_value = _to_float_scalar(scale)
     if scale_value == 0.0:
         return 0.0, 0.0, 0.0
-    left_scaled = left / scale
-    right_scaled = right / scale
+    left_scaled = _scaled_unit_values(left, scale, xp)
+    right_scaled = _scaled_unit_values(right, scale, xp)
     left_ss = _to_float_scalar(xp.sum(left_scaled * left_scaled))
     right_ss = _to_float_scalar(xp.sum(right_scaled * right_scaled))
     return float(left_ss), float(right_ss), float(scale_value)
@@ -135,7 +150,7 @@ def _scaled_residual_variance(resid, df_resid: int, xp) -> float:
     scale_value = _to_float_scalar(scale)
     if scale_value == 0.0:
         return 0.0
-    unit = resid / scale
+    unit = _scaled_unit_values(resid, scale, xp)
     norm_sq = _to_float_scalar(xp.sum(unit * unit))
     root = scale_value * float(
         np.sqrt(norm_sq / float(int(df_resid)))
@@ -153,8 +168,8 @@ def _scaled_residual_r2(resid, centered, xp) -> Tuple[float, bool]:
     scale_value = _to_float_scalar(scale)
     if scale_value == 0.0:
         return 0.0, True
-    resid_scaled = resid / scale
-    centered_scaled = centered / scale
+    resid_scaled = _scaled_unit_values(resid, scale, xp)
+    centered_scaled = _scaled_unit_values(centered, scale, xp)
     ss_res = _to_float_scalar(xp.sum(resid_scaled * resid_scaled))
     ss_tot = _to_float_scalar(xp.sum(centered_scaled * centered_scaled))
     return _safe_r2(ss_res, ss_tot)

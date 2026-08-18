@@ -9,7 +9,13 @@ from numpy.testing import assert_allclose
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._covariance import clustered_covariance, ols_covariance
 from statgpu.panel._diagnostic_context import bp_lm_from_residuals
-from statgpu.panel._diagnostics import _build_fit_statistics, _classical_model_f
+from statgpu.panel._diagnostics import (
+    _build_fit_statistics,
+    _classical_model_f,
+    _common_scaled_sumsquares,
+    _scaled_residual_r2,
+    _scaled_residual_variance,
+)
 from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import demean_variables, group_means
 
@@ -896,3 +902,32 @@ def test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overf
     assert_allclose(candidate.theta_, reference.theta_, rtol=3e-12, atol=3e-14)
     assert_allclose(candidate.coef_, reference.coef_, rtol=2e-11, atol=2e-12)
     assert np.all(np.isfinite(candidate._panel_cov_params_raw))
+
+
+
+def test_torch_subnormal_residual_reductions_use_normal_working_scale():
+    torch = pytest.importorskip("torch")
+    resid_np = np.asarray([1.0e-320, -1.0e-320, 5.0e-321, -5.0e-321])
+    centered_np = np.asarray([2.0e-320, -2.0e-320, 1.0e-320, -1.0e-320])
+    resid = torch.as_tensor(resid_np, dtype=torch.float64)
+    centered = torch.as_tensor(centered_np, dtype=torch.float64)
+
+    variance = _scaled_residual_variance(resid, 4, torch)
+    # The variance itself underflows in float64, but the normalized reduction
+    # must remain finite rather than becoming NaN/Inf on Torch.
+    assert variance == 0.0
+    r2_torch, degenerate = _scaled_residual_r2(resid, centered, torch)
+    r2_numpy, _ = _scaled_residual_r2(resid_np, centered_np, np)
+    assert not degenerate
+    assert np.isfinite(r2_torch)
+    assert_allclose(r2_torch, r2_numpy, rtol=3e-12, atol=1e-14)
+
+    left_ss, right_ss, scale = _common_scaled_sumsquares(
+        resid, centered, torch
+    )
+    assert scale > 0.0
+    assert np.isfinite(left_ss) and np.isfinite(right_ss)
+    left_np, right_np, _ = _common_scaled_sumsquares(
+        resid_np, centered_np, np
+    )
+    assert_allclose([left_ss, right_ss], [left_np, right_np], rtol=3e-12, atol=1e-14)
