@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/pr126-zero-variance-review.yml'
       - 'dev/validation/pr126_covariance_extreme_scale_once.py'
+      - 'dev/validation/pr126_covariance_extreme_scale_fixup.py'
 
 permissions:
   contents: write
@@ -33,7 +34,9 @@ jobs:
       - name: Apply covariance precision fixes
         id: patch
         continue-on-error: true
-        run: python dev/validation/pr126_covariance_extreme_scale_once.py
+        run: |
+          python dev/validation/pr126_covariance_extreme_scale_once.py
+          python dev/validation/pr126_covariance_extreme_scale_fixup.py
       - name: Run isolated focused regressions
         id: focused
         if: steps.patch.outcome == 'success'
