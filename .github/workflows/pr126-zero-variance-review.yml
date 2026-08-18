@@ -29,8 +29,13 @@ jobs:
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e ".[validation,formula]"
       - name: Apply exact-zero inference fix
+        id: patch
+        continue-on-error: true
         run: python dev/validation/pr126_zero_variance_inference_once.py
       - name: Run focused regression matrix
+        id: focused
+        if: steps.patch.outcome == 'success'
+        continue-on-error: true
         run: |
           python -m pytest \
             dev/tests/test_panel_stage_c_inference_guard.py \
@@ -41,20 +46,32 @@ jobs:
             -q --tb=short
           python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
           git diff --check
-      - name: Commit substantive fix only when green
+      - name: Commit result
+        if: always()
+        env:
+          PATCH_OUTCOME: ${{ steps.patch.outcome }}
+          FOCUSED_OUTCOME: ${{ steps.focused.outcome }}
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
-          git add \
-            statgpu/panel/_utils.py \
-            statgpu/panel/_base.py \
-            statgpu/panel/_pooled.py \
-            statgpu/panel/_between.py \
-            statgpu/panel/_first_diff.py \
-            statgpu/panel/_fama_macbeth.py \
-            dev/tests/test_panel_stage_c_inference_guard.py \
-            dev/tests/test_panel_stage_b_torch_cpu.py \
-            dev/tests/test_panel_stage_c_physical_runner_contract.py \
-            dev/benchmarks/validate_panel_stage_c_gpu.py
-          git commit -m "fix: preserve zero-variance panel inference semantics"
-          git push origin HEAD:agent/panel-p1-stage-c-covariance
+          if [ "$PATCH_OUTCOME" = success ] && [ "$FOCUSED_OUTCOME" = success ]; then
+            git add \
+              statgpu/panel/_utils.py \
+              statgpu/panel/_base.py \
+              statgpu/panel/_pooled.py \
+              statgpu/panel/_between.py \
+              statgpu/panel/_first_diff.py \
+              statgpu/panel/_fama_macbeth.py \
+              dev/tests/test_panel_stage_c_inference_guard.py \
+              dev/tests/test_panel_stage_b_torch_cpu.py \
+              dev/tests/test_panel_stage_c_physical_runner_contract.py \
+              dev/benchmarks/validate_panel_stage_c_gpu.py
+            git commit -m "fix: preserve zero-variance panel inference semantics"
+            git push origin HEAD:agent/panel-p1-stage-c-covariance
+          else
+            printf 'patch=%s\nfocused=%s\n' "$PATCH_OUTCOME" "$FOCUSED_OUTCOME" > dev/validation/pr126_zero_variance_result.txt
+            git add dev/validation/pr126_zero_variance_result.txt
+            git commit -m "chore: record PR126 zero-variance gate failure"
+            git push origin HEAD:agent/panel-p1-stage-c-covariance
+            exit 1
+          fi
