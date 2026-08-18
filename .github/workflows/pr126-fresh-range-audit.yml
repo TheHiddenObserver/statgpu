@@ -1,0 +1,65 @@
+name: PR126 fresh range audit
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/pr126-fresh-range-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2"
+          python -m pip install -e .
+      - name: Audit safe-Gram nonnested low-order term
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel import two_way_clustered_covariance
+
+          A = 1.0e150
+          eps = 1.0e-150
+          X = np.full((4, 1), 0.5, dtype=np.float64)
+          scores = np.asarray([-A, eps, A, -eps], dtype=np.float64)
+          resid = 2.0 * scores
+          c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+          c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+          actual = np.asarray(two_way_clustered_covariance(X, resid, c1, c2))
+          expected = np.asarray([[-4.0 * A * eps]], dtype=np.float64)
+          print('safe_gram_actual=', actual)
+          print('safe_gram_expected=', expected)
+          np.testing.assert_allclose(actual, expected, rtol=5e-13, atol=0.0)
+          PY
+      - name: Audit singular Hausman range guard
+        if: always()
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel._diagnostics import _hausman_quadratic
+
+          D = np.diag(np.asarray([1.0e308, 0.0], dtype=np.float64))
+          d = np.asarray([1.0e154, 1.0e200], dtype=np.float64)
+          result = _hausman_quadratic(d, D)
+          print('applicable=', result.applicable)
+          print('reason=', result.reason)
+          print('statistic=', result.statistic)
+          print('metadata=', result.metadata)
+          assert result.applicable is False
+          assert result.reason and 'outside the identified covariance-difference range' in result.reason
+          PY
