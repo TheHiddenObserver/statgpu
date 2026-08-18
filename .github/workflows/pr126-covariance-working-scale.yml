@@ -25,10 +25,10 @@ jobs:
           python -m pip install "numpy<2" pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
-      - name: Apply and diagnose subnormal reduction follow-up
+      - name: Apply and diagnose solver/covariance tail patch
         run: |
           set +e
-          python dev/validation/pr126_subnormal_reduction_once.py > /tmp/patch.log 2>&1
+          python dev/validation/pr126_solver_covariance_tail_once.py > /tmp/patch.log 2>&1
           patch_rc=$?
           if [ "$patch_rc" -eq 0 ]; then
             python -m pytest \
@@ -62,15 +62,15 @@ jobs:
             echo "--- patch log ---"
             cat /tmp/patch.log
             echo "--- pytest log ---"
-            tail -340 /tmp/pytest.log
+            tail -360 /tmp/pytest.log
             echo "--- compile log ---"
             cat /tmp/compile.log
             echo "--- diff log ---"
             cat /tmp/diff.log
           } > dev/validation/pr126_covariance_working_scale_result.txt
-          tail -400 dev/validation/pr126_covariance_working_scale_result.txt
+          tail -420 dev/validation/pr126_covariance_working_scale_result.txt
           exit 0
-      - name: Commit substantive follow-up or diagnostic
+      - name: Commit substantive tail fix or diagnostic
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
@@ -78,13 +78,13 @@ jobs:
              && grep -q '^pytest_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt \
              && grep -q '^compile_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt \
              && grep -q '^diff_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt; then
-            git add statgpu/panel/_diagnostics.py dev/tests/test_panel_stage_c_final_review_fixes.py
+            git add statgpu/panel/_pooled.py statgpu/panel/_covariance.py dev/tests/test_panel_stage_c_final_review_fixes.py
             if ! git diff --cached --quiet; then
-              git commit -m "fix: stabilize subnormal panel reductions"
+              git commit -m "fix: align panel solver and covariance tail paths"
               git push origin HEAD:agent/panel-p1-stage-c-covariance
             fi
           else
             git add dev/validation/pr126_covariance_working_scale_result.txt
-            git commit -m "ci: record PR126 subnormal reduction failure"
+            git commit -m "ci: record PR126 solver covariance tail failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
