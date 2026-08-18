@@ -27,39 +27,75 @@ jobs:
           python -m pip install "numpy<2" pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e ".[validation,formula]"
-      - name: Apply fresh numerical review fixes
-        run: python dev/validation/pr126_fresh_review_closeout_once.py
-      - name: Run focused panel numerical regressions
+      - name: Apply and diagnose fresh numerical review fixes
         run: |
-          python -m pytest \
-            dev/tests/test_panel_stage_c_final_review_fixes.py \
-            dev/tests/test_panel_stage_c_covariance.py \
-            dev/tests/test_panel_stage_c_inference_guard.py \
-            dev/tests/test_panel_stage_c_full_rank_conditioning.py \
-            dev/tests/test_panel_stage_b_fit_statistics.py \
-            dev/tests/test_panel_stage_b_review_regressions.py \
-            dev/tests/test_panel_stage_b_torch_cpu.py \
-            dev/tests/test_panel_two_way_demean_scale.py \
-            dev/tests/test_panel_stage_a_golden.py \
-            -q --tb=short
-          python -m compileall -q statgpu/panel dev/tests/test_panel_stage_c_final_review_fixes.py
-          git diff --check
-      - name: Commit substantive fixes
+          set +e
+          python dev/validation/pr126_fresh_review_closeout_once.py > /tmp/patch.log 2>&1
+          patch_rc=$?
+          if [ "$patch_rc" -eq 0 ]; then
+            python -m pytest \
+              dev/tests/test_panel_stage_c_final_review_fixes.py \
+              dev/tests/test_panel_stage_c_covariance.py \
+              dev/tests/test_panel_stage_c_inference_guard.py \
+              dev/tests/test_panel_stage_c_full_rank_conditioning.py \
+              dev/tests/test_panel_stage_b_fit_statistics.py \
+              dev/tests/test_panel_stage_b_review_regressions.py \
+              dev/tests/test_panel_stage_b_torch_cpu.py \
+              dev/tests/test_panel_two_way_demean_scale.py \
+              dev/tests/test_panel_stage_a_golden.py \
+              -q --tb=short > /tmp/pytest.log 2>&1
+            pytest_rc=$?
+            python -m compileall -q statgpu/panel dev/tests/test_panel_stage_c_final_review_fixes.py > /tmp/compile.log 2>&1
+            compile_rc=$?
+            git diff --check > /tmp/diff.log 2>&1
+            diff_rc=$?
+          else
+            pytest_rc=99
+            compile_rc=99
+            diff_rc=99
+            echo "pytest skipped because patch failed" > /tmp/pytest.log
+            echo "compile skipped because patch failed" > /tmp/compile.log
+            echo "diff-check skipped because patch failed" > /tmp/diff.log
+          fi
+          {
+            echo "patch_rc=$patch_rc"
+            echo "pytest_rc=$pytest_rc"
+            echo "compile_rc=$compile_rc"
+            echo "diff_rc=$diff_rc"
+            echo "--- patch log ---"
+            cat /tmp/patch.log
+            echo "--- pytest log ---"
+            tail -420 /tmp/pytest.log
+            echo "--- compile log ---"
+            cat /tmp/compile.log
+            echo "--- diff log ---"
+            cat /tmp/diff.log
+          } > dev/validation/pr126_fresh_review_result.txt
+          tail -480 dev/validation/pr126_fresh_review_result.txt
+          exit 0
+      - name: Commit substantive fix or diagnostic
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
-          git add \
-            statgpu/panel/_diagnostics.py \
-            statgpu/panel/_diagnostic_context.py \
-            statgpu/panel/_pooled.py \
-            statgpu/panel/_between.py \
-            statgpu/panel/_first_diff.py \
-            statgpu/panel/_fixed_effects.py \
-            statgpu/panel/_random_effects.py \
-            dev/tests/test_panel_stage_c_final_review_fixes.py
-          if git diff --cached --quiet; then
-            echo "No substantive changes to commit"
+          if grep -q '^patch_rc=0$' dev/validation/pr126_fresh_review_result.txt \
+             && grep -q '^pytest_rc=0$' dev/validation/pr126_fresh_review_result.txt \
+             && grep -q '^compile_rc=0$' dev/validation/pr126_fresh_review_result.txt \
+             && grep -q '^diff_rc=0$' dev/validation/pr126_fresh_review_result.txt; then
+            git add \
+              statgpu/panel/_diagnostics.py \
+              statgpu/panel/_diagnostic_context.py \
+              statgpu/panel/_pooled.py \
+              statgpu/panel/_between.py \
+              statgpu/panel/_first_diff.py \
+              statgpu/panel/_fixed_effects.py \
+              statgpu/panel/_random_effects.py \
+              dev/tests/test_panel_stage_c_final_review_fixes.py
+            if ! git diff --cached --quiet; then
+              git commit -m "fix: close panel scaled-reduction paths"
+              git push origin HEAD:agent/panel-p1-stage-c-covariance
+            fi
           else
-            git commit -m "fix: close panel scaled-reduction paths"
+            git add dev/validation/pr126_fresh_review_result.txt
+            git commit -m "ci: record PR126 fresh numerical review failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
