@@ -17,7 +17,6 @@ replace_once(
     '''def _panel_lstsq(X, y, xp):\n    """Use the shared panel SVD rank and working-scale policy."""\n    return panel_lstsq(X, y, xp)\n''',
     "Pooled shared solver",
 )
-# panel_matrix_rank becomes unused in pooled after the wrapper is unified.
 replace_once(
     "statgpu/panel/_pooled.py",
     "from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank\n",
@@ -29,30 +28,35 @@ replace_once(
 replace_once(
     "statgpu/panel/_covariance.py",
     '''            else:\n                resid_unit = resid / resid_scale\n                norm_sq = _to_float_scalar(xp.sum(resid_unit * resid_unit))\n                rms_unit = float(np.sqrt(norm_sq / float(int(df_resid))))\n                # sqrt(scale) = resid_scale * rms_unit.  Multiply the tiny/large\n                # residual scale into the working pseudoinverse before restoring\n                # design_scale; this lets opposite scales cancel while every\n                # intermediate remains representable whenever the final covariance is.\n                scaled_pinv = (\n                    ((X_pinv_work * resid_scale) * design_scale) * rms_unit\n                )\n''',
-    '''            else:\n                from statgpu.panel._diagnostics import _scaled_unit_values\n\n                resid_unit = _scaled_unit_values(resid, resid_scale, xp)\n                norm_sq = _to_float_scalar(xp.sum(resid_unit * resid_unit))\n                rms_unit = float(np.sqrt(norm_sq / float(int(df_resid))))\n                # sqrt(scale) = resid_scale * rms_unit. Apply the <=1 RMS factor\n                # before the potentially large residual/design restoration so a\n                # representable final covariance does not overflow an intermediate.\n                scaled_pinv = (\n                    ((X_pinv_work * rms_unit) * resid_scale) * design_scale\n                )\n''',
+    '''            else:\n                from statgpu.panel._diagnostics import _scaled_unit_values\n\n                resid_unit = _scaled_unit_values(resid, resid_scale, xp)\n                norm_sq = _to_float_scalar(xp.sum(resid_unit * resid_unit))\n                rms_unit = float(np.sqrt(norm_sq / float(int(df_resid))))\n                # sqrt(scale) = resid_scale * rms_unit. Apply the dimensionless\n                # RMS factor before the potentially large residual/design-scale\n                # restoration so a representable final covariance does not\n                # overflow an intermediate solely because of multiplication order.\n                scaled_pinv = (\n                    ((X_pinv_work * rms_unit) * resid_scale) * design_scale\n                )\n''',
     "nonrobust subnormal reconstruction",
 )
 
-# Regressions: end-to-end Pooled tiny design and Torch covariance where both
-# design and residual scales are subnormal but the final covariance is ordinary.
+# Regressions: prove Pooled no longer owns a backend-specific full-rank solve,
+# plus Torch covariance where design/residual scales are subnormal but the final
+# covariance is an ordinary representable number.
 test_path = Path("dev/tests/test_panel_stage_c_final_review_fixes.py")
 text = test_path.read_text(encoding="utf-8")
-marker = "def test_pooled_tiny_full_rank_design_uses_shared_working_scale():"
+marker = "def test_pooled_full_rank_fit_uses_shared_solver_ownership(monkeypatch):"
 if marker in text:
     raise RuntimeError("solver covariance tail regressions already present")
 text += r'''
 
 
-def test_pooled_tiny_full_rank_design_uses_shared_working_scale():
-    tiny = 1.0e-320
-    X = tiny * np.asarray(
-        [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0], [-1.0, 2.0], [2.0, 2.0]]
-    )
-    beta = np.asarray([1.5, -0.75])
-    y = X @ beta
-    fit = PooledOLS(cov_type="nonrobust").fit(X, y)
-    assert_allclose(fit.coef_, beta, rtol=2e-3, atol=2e-3)
-    assert np.all(np.isfinite(fit.coef_))
+def test_pooled_full_rank_fit_uses_shared_solver_ownership(monkeypatch):
+    rng = np.random.default_rng(2026082001)
+    X = rng.normal(size=(80, 2))
+    y = 0.4 + X @ np.asarray([0.7, -0.25]) + rng.normal(scale=0.1, size=80)
+    design = np.column_stack([np.ones(X.shape[0]), X])
+    expected, expected_rank = panel_lstsq(design, y, np)
+
+    def forbidden_backend_lstsq(*_args, **_kwargs):
+        raise AssertionError("PooledOLS bypassed the shared panel_lstsq policy")
+
+    monkeypatch.setattr(np.linalg, "lstsq", forbidden_backend_lstsq)
+    fit = PooledOLS(cov_type="hc0").fit(X, y)
+    assert fit.rank_ == expected_rank
+    assert_allclose(fit.coef_, expected, rtol=3e-12, atol=3e-12)
 
 
 def test_torch_nonrobust_subnormal_design_and_residual_reconstruction():
