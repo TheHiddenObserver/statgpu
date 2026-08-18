@@ -8,17 +8,26 @@ on:
       - '.github/workflows/pr126-zero-variance-review.yml'
       - 'dev/validation/pr126_zero_variance_inference_once.py'
       - 'dev/validation/pr126_zero_variance_tolerance_fix.py'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/pr126-zero-variance-review.yml'
+      - 'dev/validation/pr126_zero_variance_inference_once.py'
+      - 'dev/validation/pr126_zero_variance_tolerance_fix.py'
 
 permissions:
   contents: write
 
 jobs:
   review-fix:
+    if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: agent/panel-p1-stage-c-covariance
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
@@ -44,11 +53,8 @@ jobs:
           : > "$result"
           failed=0
           run_case() {
-            name="$1"
-            shift
-            log="/tmp/${name}.log"
-            "$@" >"$log" 2>&1
-            rc=$?
+            name="$1"; shift; log="/tmp/${name}.log"
+            "$@" >"$log" 2>&1; rc=$?
             printf '%s=%s\n' "$name" "$rc" >> "$result"
             if [ "$rc" -ne 0 ]; then
               failed=1
@@ -62,19 +68,10 @@ jobs:
           run_case physical_contract python -m pytest dev/tests/test_panel_stage_c_physical_runner_contract.py -q --tb=short
           run_case covariance python -m pytest dev/tests/test_panel_stage_c_covariance.py -q --tb=short
           run_case compile python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
-          git diff --check >/tmp/diffcheck.log 2>&1
-          rc=$?
+          git diff --check >/tmp/diffcheck.log 2>&1; rc=$?
           printf 'diff_check=%s\n' "$rc" >> "$result"
-          if [ "$rc" -ne 0 ]; then
-            failed=1
-            printf '\n--- diff_check ---\n' >> "$result"
-            cat /tmp/diffcheck.log >> "$result"
-          fi
-          if [ "$failed" -eq 0 ]; then
-            echo 'success=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'success=false' >> "$GITHUB_OUTPUT"
-          fi
+          if [ "$rc" -ne 0 ]; then failed=1; cat /tmp/diffcheck.log >> "$result"; fi
+          if [ "$failed" -eq 0 ]; then echo 'success=true' >> "$GITHUB_OUTPUT"; else echo 'success=false' >> "$GITHUB_OUTPUT"; fi
           cat "$result"
       - name: Commit result
         if: always()
@@ -86,26 +83,11 @@ jobs:
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
           if [ "$PATCH_OUTCOME" = success ] && [ "$FOCUSED_SUCCESS" = true ]; then
             git rm -f --ignore-unmatch dev/validation/pr126_zero_variance_result.txt
-            git add \
-              statgpu/panel/_utils.py \
-              statgpu/panel/_base.py \
-              statgpu/panel/_pooled.py \
-              statgpu/panel/_between.py \
-              statgpu/panel/_first_diff.py \
-              statgpu/panel/_fama_macbeth.py \
-              dev/tests/test_panel_stage_c_inference_guard.py \
-              dev/tests/test_panel_stage_b_torch_cpu.py \
-              dev/tests/test_panel_stage_c_physical_runner_contract.py \
-              dev/benchmarks/validate_panel_stage_c_gpu.py \
-              dev/validation/pr126_zero_variance_result.txt
+            git add statgpu/panel/_utils.py statgpu/panel/_base.py statgpu/panel/_pooled.py statgpu/panel/_between.py statgpu/panel/_first_diff.py statgpu/panel/_fama_macbeth.py dev/tests/test_panel_stage_c_inference_guard.py dev/tests/test_panel_stage_b_torch_cpu.py dev/tests/test_panel_stage_c_physical_runner_contract.py dev/benchmarks/validate_panel_stage_c_gpu.py dev/validation/pr126_zero_variance_result.txt
             git commit -m "fix: preserve zero-variance panel inference semantics"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           else
-            if [ -f /tmp/pr126_zero_variance_result.txt ]; then
-              cp /tmp/pr126_zero_variance_result.txt dev/validation/pr126_zero_variance_result.txt
-            else
-              printf 'patch=%s\nfocused_success=%s\n' "$PATCH_OUTCOME" "$FOCUSED_SUCCESS" > dev/validation/pr126_zero_variance_result.txt
-            fi
+            if [ -f /tmp/pr126_zero_variance_result.txt ]; then cp /tmp/pr126_zero_variance_result.txt dev/validation/pr126_zero_variance_result.txt; else printf 'patch=%s\nfocused_success=%s\n' "$PATCH_OUTCOME" "$FOCUSED_SUCCESS" > dev/validation/pr126_zero_variance_result.txt; fi
             git add dev/validation/pr126_zero_variance_result.txt
             git commit -m "chore: diagnose PR126 zero-variance gate failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
