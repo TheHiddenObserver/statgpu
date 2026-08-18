@@ -461,6 +461,7 @@ def _covariance_extreme_scale_audit(backend):
     mixed_coarse = np.asarray([0, 0, 1], dtype=np.int64)
     mixed_unique = np.asarray([0, 1, 2], dtype=np.int64)
     mixed_time = np.asarray([0, 0, 1], dtype=np.int64)
+    mixed_nonmonotone_coarse = np.asarray([1, 1, 0], dtype=np.int64)
 
     if backend == "numpy":
         xp = np
@@ -547,10 +548,13 @@ def _covariance_extreme_scale_audit(backend):
     mixed_two_way = _array(two_way_clustered_covariance(
         X_mixed, resid_mixed, mixed_unique, mixed_coarse, xp=xp
     ))
+    mixed_two_way_permuted = _array(two_way_clustered_covariance(
+        X_mixed, resid_mixed, mixed_nonmonotone_coarse, mixed_unique, xp=xp
+    ))
     mixed_dk = _array(driscoll_kraay_covariance(
         X_mixed, resid_mixed, mixed_time, bandwidth=0, xp=xp
     ))
-    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_dk", mixed_dk)):
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_two_way_permuted", mixed_two_way_permuted), ("mixed_dk", mixed_dk)):
         if not np.all(np.isfinite(value)):
             raise AssertionError(f"{backend}: {name} produced non-finite covariance")
     np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
@@ -582,6 +586,7 @@ def _covariance_extreme_scale_audit(backend):
     )
     np.testing.assert_allclose(mixed_cluster, np.asarray([[1.0e-200]]), rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(mixed_two_way, mixed_cluster, rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(mixed_two_way_permuted, mixed_cluster, rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(mixed_dk, np.asarray([[1.5e-200]]), rtol=8e-13, atol=0.0)
     return {
         "status": "success",
@@ -599,6 +604,7 @@ def _covariance_extreme_scale_audit(backend):
         "tiny_design_cluster_cancellation": tiny_design_cluster.tolist(),
         "mixed_cluster": mixed_cluster.tolist(),
         "mixed_two_way": mixed_two_way.tolist(),
+        "mixed_two_way_permuted": mixed_two_way_permuted.tolist(),
         "mixed_driscoll_kraay": mixed_dk.tolist(),
     }
 

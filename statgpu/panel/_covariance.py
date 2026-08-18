@@ -407,6 +407,25 @@ def _paired_codes(left, right):
     return codes.astype(np.int64, copy=False)
 
 
+def _same_partition(left, right) -> bool:
+    """Return whether two integer code vectors induce the same partition.
+
+    Code values themselves are arbitrary labels.  Two partitions are equal iff
+    they have the same number of groups and each observed left/right pair gives
+    a one-to-one mapping between those groups.
+    """
+    left = np.asarray(left, dtype=np.int64).ravel()
+    right = np.asarray(right, dtype=np.int64).ravel()
+    if left.shape != right.shape:
+        return False
+    n_left = int(np.unique(left).size)
+    n_right = int(np.unique(right).size)
+    if n_left != n_right:
+        return False
+    pairs = np.column_stack([left, right])
+    return int(np.unique(pairs, axis=0).shape[0]) == n_left
+
+
 def _group_debias_factor(n_groups: int, nobs: int) -> float:
     n_groups = int(n_groups)
     nobs = int(nobs)
@@ -528,11 +547,11 @@ def two_way_clustered_covariance(
         influence, c12, n_groups=n12, nobs=n,
         group_debias=group_debias, xp=xp
     )
-    if np.array_equal(c12, c1):
+    if _same_partition(c12, c1):
         cov_work, common_scale = _cluster_meat_from_grouped(
             grouped2, correction2, xp
         )
-    elif np.array_equal(c12, c2):
+    elif _same_partition(c12, c2):
         cov_work, common_scale = _cluster_meat_from_grouped(
             grouped1, correction1, xp
         )

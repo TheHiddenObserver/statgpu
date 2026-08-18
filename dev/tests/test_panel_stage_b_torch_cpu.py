@@ -440,3 +440,14 @@ def test_stage_c_torch_cpu_preserves_mixed_range_cluster_and_dk_scores():
     assert_allclose(clustered, np.asarray([[1.0e-200]]), rtol=5.0e-13, atol=0.0)
     assert_allclose(two_way, clustered, rtol=5.0e-13, atol=0.0)
     assert_allclose(dk, np.asarray([[1.5e-200]]), rtol=6.0e-13, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_nested_partition_code_permutation_is_exact():
+    X = torch.ones((3, 1), dtype=torch.float64)
+    resid = torch.as_tensor([1.5e308, -1.5e308, 3.0e-100], dtype=torch.float64)
+    coarse = np.asarray([1, 1, 0], dtype=np.int64)
+    fine = np.asarray([0, 1, 2], dtype=np.int64)
+    reference = clustered_covariance(X, resid, coarse, xp=torch)
+    actual = two_way_clustered_covariance(X, resid, coarse, fine, xp=torch)
+    assert_allclose(actual, reference, rtol=5e-13, atol=0.0)

@@ -524,3 +524,21 @@ def test_dk_groups_before_gram_scaling_preserves_small_period_score():
     expected = np.asarray([[1.5e-200]], dtype=np.float64)
     assert actual[0, 0] > 0.0
     np.testing.assert_allclose(actual, expected, rtol=4.0e-14, atol=0.0)
+
+
+
+def test_two_way_nested_partition_detection_is_invariant_to_code_permutation():
+    X = np.ones((3, 1), dtype=np.float64)
+    resid = np.asarray([1.5e308, -1.5e308, 3.0e-100], dtype=np.float64)
+    coarse = np.asarray([1, 1, 0], dtype=np.int64)
+    fine = np.asarray([0, 1, 2], dtype=np.int64)
+
+    # The fine partition equals the intersection partition, but paired-code
+    # factorization orders (coarse, fine) lexicographically and therefore
+    # produces a permutation of the fine integer codes. Statistical cancellation
+    # is partition-based and must not depend on that arbitrary code numbering.
+    reference = clustered_covariance(X, resid, coarse)
+    actual = two_way_clustered_covariance(X, resid, coarse, fine)
+    assert reference[0, 0] > 0.0
+    np.testing.assert_allclose(reference, np.asarray([[1.0e-200]]), rtol=3e-14, atol=0.0)
+    np.testing.assert_allclose(actual, reference, rtol=3e-14, atol=0.0)
