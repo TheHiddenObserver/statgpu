@@ -1,7 +1,7 @@
 # Panel Covariance Estimators
 
 > Language: English  
-> Last updated: 2026-08-16  
+> Last updated: 2026-08-18<br>
 > Switch: [Chinese](../../cn/panel/covariance.md)
 
 ## Overview and Path
@@ -58,7 +58,7 @@ $$
 
 HC2 and HC3 require $1-h_i$ to be numerically positive. For a full-rank estimator fit or a direct covariance-primitive call, an observation with leverage effectively equal to 1 therefore raises rather than returning an infinite or unstable variance. If the estimator fit-space is already rank deficient, coefficient-level inference is unavailable regardless of covariance type; in that case statgpu keeps the fitted values and does not attempt an HC2/HC3 coordinate covariance that can be undefined at unit leverage.
 
-Nonrobust coefficient inference uses a Student-t reference. HC, clustered, and Driscoll-Kraay inference use the asymptotic normal reference used by the panel API.
+Nonrobust coefficient inference uses a Student-t reference. HC, clustered, and Driscoll-Kraay inference use the asymptotic normal reference used by the panel API. Positive covariance diagonal entries are used without an absolute variance floor, so rescaling the response rescales coefficients and standard errors without changing finite t/z statistics. At an exactly zero diagonal variance, a zero coefficient has statistic 0 and a nonzero coefficient has signed-infinite statistic; p-values and confidence intervals are then derived from that explicit result rather than from a fabricated tiny denominator.
 
 ## Clustered Covariance
 
@@ -75,6 +75,8 @@ With `group_debias=True`, each cluster component is multiplied by the small-numb
 $$
 \frac{G}{G-1}\frac{n-1}{n}.
 $$
+
+For extreme but finite score magnitudes, grouped score reductions selectively use a group-size working scale only where a same-sign partial sum could overflow, and positive/negative contributions are accumulated separately before the final cancellation. This protects the reduction itself without globally magnitude-normalizing unrelated safe groups. As with ordinary float64 linear algebra, this is not a promise to recover arbitrary tiny remainders after catastrophically ill-conditioned upstream cancellation.
 
 Two-way clustering combines the two one-way cluster covariances and subtracts the covariance for the paired cluster labels:
 
@@ -103,6 +105,8 @@ $$
 $$
 
 Here $r_Z$ is the number of identified regression directions: it equals the number of columns of $Z$ at full column rank and $\operatorname{rank}(Z)$ otherwise. `PanelOLS` also counts the absorbed fixed effects through `extra_df`; `PooledOLS` and `RandomEffects` use zero for this term.
+
+Symmetric covariance combinations are evaluated with range-aware arithmetic: final symmetrization avoids overflowing a finite same-sign average, two-way inclusion-exclusion subtracts a same-sign intersection component before a risky addition when possible, and HAC/Driscoll-Kraay lag pairs apply the kernel weight without first materializing an overflowing unweighted symmetric sum. These reorderings are algebraically equivalent to the displayed definitions whenever the final float64 result is representable.
 
 With `bandwidth=None`, statgpu uses $\lfloor4(T/100)^{2/9}\rfloor$. Bartlett and Parzen kernels assign zero weight beyond the bandwidth. Quadratic Spectral instead treats bandwidth as a smoothing scale and, when positive, gives weights to all observed lags.
 

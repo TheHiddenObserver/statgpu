@@ -1,7 +1,7 @@
 # 面板 Covariance Estimators
 
 > 语言：中文  
-> 最后更新：2026-08-16  
+> 最后更新：2026-08-18<br>
 > 切换：[English](../../en/panel/covariance.md)
 
 ## Overview and Path
@@ -58,7 +58,7 @@ $$
 
 HC2/HC3 要求 $1-h_i$ 在数值上为正。对于 full-rank estimator fit 或直接调用 covariance primitive，如果某个 observation 的 leverage 在数值上等于 1，statgpu 会直接报错，而不是返回无穷大或不稳定的 variance。若 estimator 的 fit-space 本身已经 rank deficient，则 coefficient-level inference 无论选择哪种 covariance 都不可用；此时 statgpu 保留 fitted values，并且不会再强行构造可能在 unit leverage 下无定义的 HC2/HC3 coordinate covariance。
 
-nonrobust coefficient inference 使用 Student-t reference；HC、clustered 与 Driscoll-Kraay 使用 panel API 中的 asymptotic-normal reference。
+nonrobust coefficient inference 使用 Student-t reference；HC、clustered 与 Driscoll-Kraay 使用 panel API 中的 asymptotic-normal reference。正的 covariance diagonal 不再使用绝对 variance floor，因此整体缩放 response 会按同一比例缩放 coefficient 与 standard error，而不会改变有限 t/z statistic。若 diagonal variance 精确为 0，则零 coefficient 的 statistic 为 0，非零 coefficient 的 statistic 为带符号无穷；p-value 与 confidence interval 直接由这一显式结果得到，而不是通过伪造 tiny denominator。
 
 ## Clustered Covariance
 
@@ -75,6 +75,8 @@ clustered inference 要求每个用户提供的 clustering dimension 至少包�
 $$
 \frac{G}{G-1}\frac{n-1}{n}.
 $$
+
+对极端但仍有限的 score，grouped reduction 只在同号 partial sum 存在溢出风险的 group/coordinate 上使用 group-size working scale，并先分别累计正项与负项，再做最终 cancellation；不会因为某个危险 group 而对其他安全 group 做全局 magnitude normalization。和一般 float64 线性代数一样，这并不承诺在上游已经发生灾难性病态 cancellation 后恢复任意微小 remainder。
 
 双向 clustering 将两个 one-way cluster covariance 相加，再减去 paired cluster labels 对应的 covariance：
 
@@ -103,6 +105,8 @@ $$
 $$
 
 这里 $r_Z$ 表示回归中实际可识别的 regression directions：满列秩时等于 $Z$ 的列数，rank deficient 时等于 $\operatorname{rank}(Z)$。`PanelOLS` 还需要通过 `extra_df` 计入被吸收的 fixed effects；`PooledOLS` 与 `RandomEffects` 的该项为 0。
+
+对 symmetric covariance combination，statgpu 使用 range-aware arithmetic：最终 symmetrization 会避免有限同号平均值在相加阶段先溢出；two-way inclusion-exclusion 会在可能时先减去同号 intersection component；HAC/Driscoll-Kraay lag pair 也不会先构造可能溢出的未加权 symmetric sum，再乘较小 kernel weight。只要最终 float64 结果可表示，这些重排与上面的统计定义代数等价。
 
 `bandwidth=None` 时使用 $\lfloor4(T/100)^{2/9}\rfloor$。Bartlett 与 Parzen kernel 在 bandwidth 之外权重为 0；Quadratic Spectral 将 bandwidth 作为 smoothing scale，在 bandwidth 为正时会对全部 observed lags 赋权。
 
