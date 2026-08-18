@@ -1,17 +1,6 @@
 from pathlib import Path
 
 
-def insert_once(path: str, marker: str, block: str) -> None:
-    p = Path(path)
-    text = p.read_text(encoding="utf-8")
-    if block.strip().splitlines()[0] in text:
-        return
-    pos = text.find(marker)
-    if pos < 0:
-        raise RuntimeError(f"insert anchor not found in {path}: {marker!r}")
-    p.write_text(text[:pos] + block + text[pos:], encoding="utf-8")
-
-
 def replace_once(path: str, old: str, new: str) -> None:
     p = Path(path)
     text = p.read_text(encoding="utf-8")
@@ -121,7 +110,7 @@ linalg.write_text(text, encoding="utf-8")
 replace_once(
     "statgpu/panel/_covariance.py",
     "    panel_svd_pseudoinverse,\n    panel_svd_working_pseudoinverse,\n",
-    "    panel_svd_pseudoinverse,\n    panel_working_pseudoinverse,\n",
+    "    panel_svd_pseudoinverse,\n    panel_svd_working_pseudoinverse,\n    panel_working_pseudoinverse,\n",
 )
 replace_once(
     "statgpu/panel/_covariance.py",
