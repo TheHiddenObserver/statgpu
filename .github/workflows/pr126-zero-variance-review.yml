@@ -83,7 +83,7 @@ jobs:
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
           if [ "$PATCH_OUTCOME" = success ] && [ "$FOCUSED_SUCCESS" = true ]; then
             git rm -f --ignore-unmatch dev/validation/pr126_zero_variance_result.txt
-            git add statgpu/panel/_utils.py statgpu/panel/_base.py statgpu/panel/_pooled.py statgpu/panel/_between.py statgpu/panel/_first_diff.py statgpu/panel/_fama_macbeth.py dev/tests/test_panel_stage_c_inference_guard.py dev/tests/test_panel_stage_b_torch_cpu.py dev/tests/test_panel_stage_c_physical_runner_contract.py dev/benchmarks/validate_panel_stage_c_gpu.py dev/validation/pr126_zero_variance_result.txt
+            git add statgpu/panel/_utils.py statgpu/panel/_base.py statgpu/panel/_pooled.py statgpu/panel/_between.py statgpu/panel/_first_diff.py statgpu/panel/_fama_macbeth.py dev/tests/test_panel_stage_c_inference_guard.py dev/tests/test_panel_stage_b_torch_cpu.py dev/tests/test_panel_stage_c_physical_runner_contract.py dev/benchmarks/validate_panel_stage_c_gpu.py
             git commit -m "fix: preserve zero-variance panel inference semantics"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           else
