@@ -1,2 +1,36 @@
-patch=success
-focused=failure
+inference_guard=0
+torch_cpu=0
+fama_macbeth=0
+physical_contract=1
+
+--- physical_contract tail ---
+........F                                                                [100%]
+=================================== FAILURES ===================================
+_______ test_stage_c_runner_zero_variance_inference_audit_is_executable ________
+dev/tests/test_panel_stage_c_physical_runner_contract.py:173: in test_stage_c_runner_zero_variance_inference_audit_is_executable
+    audit = _MOD._zero_variance_inference_audit("numpy")
+dev/benchmarks/validate_panel_stage_c_gpu.py:441: in _zero_variance_inference_audit
+    np.testing.assert_allclose(regular, np.asarray([2.0, -3.0]), rtol=0.0, atol=0.0)
+/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/contextlib.py:79: in inner
+    return func(*args, **kwds)
+E   AssertionError: 
+E   Not equal to tolerance rtol=0, atol=0
+E   
+E   Mismatched elements: 1 / 2 (50%)
+E   Max absolute difference: 4.4408921e-16
+E   Max relative difference: 1.48029737e-16
+E    x: array([ 2., -3.])
+E    y: array([ 2., -3.])
+=========================== short test summary info ============================
+FAILED dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_zero_variance_inference_audit_is_executable - AssertionError: 
+Not equal to tolerance rtol=0, atol=0
+
+Mismatched elements: 1 / 2 (50%)
+Max absolute difference: 4.4408921e-16
+Max relative difference: 1.48029737e-16
+ x: array([ 2., -3.])
+ y: array([ 2., -3.])
+1 failed, 8 passed in 2.26s
+covariance=0
+compile=0
+diff_check=0
