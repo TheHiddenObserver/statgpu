@@ -11,7 +11,7 @@ permissions:
 jobs:
   patch-test-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,19 +25,21 @@ jobs:
           python -m pip install "numpy<2" pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
-      - name: Apply and diagnose covariance reduction follow-up
+      - name: Apply and diagnose estimator-scale follow-up
         run: |
           set +e
-          python dev/validation/pr126_covariance_reduction_followup_once.py > /tmp/patch.log 2>&1
+          python dev/validation/pr126_estimator_scale_followup_once.py > /tmp/patch.log 2>&1
           patch_rc=$?
           if [ "$patch_rc" -eq 0 ]; then
             python -m pytest \
               dev/tests/test_panel_stage_c_final_review_fixes.py \
               dev/tests/test_panel_stage_c_covariance.py \
               dev/tests/test_panel_stage_c_inference_guard.py \
+              dev/tests/test_panel_stage_c_full_rank_conditioning.py \
               dev/tests/test_panel_stage_b_fit_statistics.py \
               dev/tests/test_panel_stage_b_review_regressions.py \
               dev/tests/test_panel_stage_b_torch_cpu.py \
+              dev/tests/test_panel_stage_a_golden.py \
               -q --tb=short > /tmp/pytest.log 2>&1
             pytest_rc=$?
             python -m compileall -q statgpu/panel dev/tests/test_panel_stage_c_final_review_fixes.py > /tmp/compile.log 2>&1
@@ -60,13 +62,13 @@ jobs:
             echo "--- patch log ---"
             cat /tmp/patch.log
             echo "--- pytest log ---"
-            tail -260 /tmp/pytest.log
+            tail -300 /tmp/pytest.log
             echo "--- compile log ---"
             cat /tmp/compile.log
             echo "--- diff log ---"
             cat /tmp/diff.log
           } > dev/validation/pr126_covariance_working_scale_result.txt
-          tail -320 dev/validation/pr126_covariance_working_scale_result.txt
+          tail -360 dev/validation/pr126_covariance_working_scale_result.txt
           exit 0
       - name: Commit substantive follow-up or diagnostic
         run: |
@@ -77,17 +79,20 @@ jobs:
              && grep -q '^compile_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt \
              && grep -q '^diff_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt; then
             git add \
-              statgpu/panel/_covariance.py \
+              statgpu/panel/_utils.py \
               statgpu/panel/_diagnostics.py \
-              statgpu/panel/_diagnostic_context.py \
+              statgpu/panel/_pooled.py \
+              statgpu/panel/_between.py \
+              statgpu/panel/_first_diff.py \
               statgpu/panel/_fixed_effects.py \
+              statgpu/panel/_random_effects.py \
               dev/tests/test_panel_stage_c_final_review_fixes.py
             if ! git diff --cached --quiet; then
-              git commit -m "fix: stabilize panel quadratic reductions"
+              git commit -m "fix: stabilize panel estimator scale reductions"
               git push origin HEAD:agent/panel-p1-stage-c-covariance
             fi
           else
             git add dev/validation/pr126_covariance_working_scale_result.txt
-            git commit -m "ci: record PR126 covariance reduction failure"
+            git commit -m "ci: record PR126 estimator-scale failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
