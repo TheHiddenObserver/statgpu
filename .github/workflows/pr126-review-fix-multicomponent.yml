@@ -52,37 +52,16 @@ jobs:
           print('PRE_FIX_ACTUAL', actual.tolist())
           print('PRE_FIX_EXPECTED', expected.tolist())
           PY
-      - name: Apply reviewed multicomponent fix
+      - name: Apply reviewed multicomponent fixes
         run: |
           python dev/validation/pr126_review_fix_multicomponent_once.py
           python dev/validation/pr126_review_fix_rowwise_expansion_once.py
-      - name: Inspect grouped components and expansion
+          python dev/validation/pr126_review_fix_certified_projection_once.py
+      - name: Verify exact extreme projection and covariance
         run: |
           python - <<'PY'
           import numpy as np
           import statgpu.panel._covariance as cov
-
-          original_sum = cov._stable_matrix_expansion_sum
-          def traced_sum(terms, xp):
-              nonzero = []
-              for idx, term in enumerate(terms):
-                  value = float(np.asarray(term)[0, 0])
-                  if value != 0.0:
-                      nonzero.append((idx, value))
-              print('TRACE_NONZERO_TERMS', nonzero)
-              out = original_sum(terms, xp)
-              print('TRACE_EXPANSION_OUT', np.asarray(out).tolist())
-              return out
-          cov._stable_matrix_expansion_sum = traced_sum
-
-          original_restore = cov._restore_influence_covariance
-          def traced_restore(value, covariance_scale, projection_scale, design_scale, xp):
-              print('TRACE_COV_WORK', np.asarray(value).tolist())
-              print('TRACE_COV_SCALE', np.asarray(covariance_scale).tolist())
-              print('TRACE_PROJ_SCALE', np.asarray(projection_scale).tolist())
-              print('TRACE_DESIGN_SCALE', float(np.asarray(design_scale)))
-              return original_restore(value, covariance_scale, projection_scale, design_scale, xp)
-          cov._restore_influence_covariance = traced_restore
 
           amplitude = 2.0 ** 660
           middle = 2.0 ** 600
@@ -94,36 +73,15 @@ jobs:
           ], dtype=np.float64)
           c1 = np.asarray([0,0,0,1,1,1,2,2,3,3,4,5,6,7,8,9], dtype=np.int64)
           c2 = np.asarray([0,1,1,0,1,1,2,3,2,3,4,5,6,7,8,9], dtype=np.int64)
-          c12 = cov._paired_codes(c1, c2)
           X = np.full((16, 1), 0.5, dtype=np.float64)
           resid = 8.0 * scores
-          influence, proj_scale, design_scale, *_ = cov._influence_rows(X, resid, np)
-          print('TRACE_INFLUENCE', np.asarray(influence).ravel().tolist())
-          print('TRACE_INFLUENCE_RATIO', [
-              float(influence[i, 0] / scores[i]) if scores[i] != 0.0 else None
-              for i in range(scores.size)
-          ])
-          print('TRACE_PROJ_INPUT_SCALE', np.asarray(proj_scale).tolist(), float(np.asarray(design_scale)))
-          for name, codes, ng in (
-              ('c1', c1, 10), ('c2', c2, 10), ('c12', c12, int(c12.max()) + 1)
-          ):
-              components, correction = cov._cluster_grouped_scores(
-                  influence,
-                  codes,
-                  n_groups=ng,
-                  nobs=16,
-                  group_debias=False,
-                  xp=np,
-                  return_components=True,
-              )
-              print('TRACE_COMPONENT_COUNT', name, len(components), correction)
-              for idx, component in enumerate(components):
-                  arr = np.asarray(component).ravel()
-                  nz = [(j, float(v)) for j, v in enumerate(arr) if v != 0.0]
-                  if nz:
-                      print('TRACE_COMPONENT', name, idx, nz)
-
-          print('TRACE_RESULT', np.asarray(cov.two_way_clustered_covariance(X, resid, c1, c2)).tolist())
+          influence, *_ = cov._influence_rows(X, resid, np)
+          np.testing.assert_array_equal(influence[:, 0], scores)
+          actual = np.asarray(cov.two_way_clustered_covariance(X, resid, c1, c2))
+          expected = np.asarray([[-4.0 * amplitude * tiny]], dtype=np.float64)
+          np.testing.assert_allclose(actual, expected, rtol=3e-12, atol=0.0)
+          print('POST_FIX_ACTUAL', actual.tolist())
+          print('POST_FIX_EXPECTED', expected.tolist())
           PY
       - name: Run focused review regressions
         run: |
