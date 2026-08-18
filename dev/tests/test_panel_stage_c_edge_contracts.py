@@ -220,22 +220,47 @@ def test_panel_full_rank_fit_uses_shared_svd_policy():
     assert model._covariance_metadata["design_rank"] == X.shape[1]
 
 
-def test_full_rank_pooling_diagnostic_preserves_historical_pinv_path(monkeypatch):
+def test_full_rank_pooling_diagnostic_uses_shared_svd_policy(monkeypatch):
     import statgpu.panel._diagnostic_context as diagnostic_context
 
     rng = np.random.default_rng(12956)
-    X = rng.normal(size=(60, 2))
-    y = X @ np.array([0.3, -0.5]) + rng.normal(scale=0.2, size=60)
-
-    def _forbid_rank_deficient_solve(*args, **kwargs):
-        raise AssertionError("full-rank pooling diagnostic entered SVD deficiency solve")
-
-    monkeypatch.setattr(diagnostic_context, "panel_lstsq", _forbid_rank_deficient_solve)
-    result = diagnostic_context.pooling_f_from_level_arrays(
-        y, X, xp=np, rss_effects=float(np.sum(y * y)) + 1.0,
-        df_resid_effects=50, has_constant=True,
+    x = rng.normal(size=60)
+    X = np.column_stack([np.ones(x.size), x])
+    y = 0.4 + 0.3 * x + rng.normal(scale=0.2, size=x.size)
+    rcond = max(X.shape) * np.finfo(np.float64).eps
+    expected_beta = np.linalg.lstsq(X, y, rcond=rcond)[0]
+    pooled_resid = y - X @ expected_beta
+    rss_pooled = float(pooled_resid @ pooled_resid)
+    rss_effects = 0.5 * rss_pooled
+    df_resid_effects = 50
+    df_resid_pool = X.shape[0] - X.shape[1]
+    df_num = df_resid_pool - df_resid_effects
+    expected_statistic = (
+        ((rss_pooled - rss_effects) / df_num)
+        / (rss_effects / df_resid_effects)
     )
-    assert result is not None
+
+    original_lstsq = diagnostic_context.panel_lstsq
+    calls = []
+
+    def _record_shared_solve(X_arg, y_arg, xp_arg):
+        calls.append((tuple(X_arg.shape), tuple(y_arg.shape)))
+        return original_lstsq(X_arg, y_arg, xp_arg)
+
+    monkeypatch.setattr(diagnostic_context, "panel_lstsq", _record_shared_solve)
+    result = diagnostic_context.pooling_f_from_level_arrays(
+        y,
+        X,
+        xp=np,
+        rss_effects=rss_effects,
+        df_resid_effects=df_resid_effects,
+        has_constant=True,
+    )
+
+    assert calls == [((60, 2), (60,))]
+    assert result.applicable is True
+    assert result.df == (float(df_num), float(df_resid_effects))
+    np.testing.assert_allclose(result.statistic, expected_statistic, rtol=2e-12, atol=2e-14)
 
 
 def test_random_effects_requires_positive_between_residual_df():
