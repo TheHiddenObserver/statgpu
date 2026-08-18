@@ -19,26 +19,62 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      - name: Apply documentation synchronization
-        run: python dev/validation/pr126_panel_docs_final_once.py
-      - name: Run maintained documentation contracts
+      - name: Apply and validate documentation
         run: |
-          python dev/validation/fix_docs_links.py --check
-          python dev/validation/check_docs_contracts.py
-          git diff --check
-      - name: Commit documentation only
+          set +e
+          python dev/validation/pr126_panel_docs_final_once.py > /tmp/patch.log 2>&1
+          patch_rc=$?
+          if [ "$patch_rc" -eq 0 ]; then
+            python dev/validation/fix_docs_links.py --check > /tmp/links.log 2>&1
+            links_rc=$?
+            python dev/validation/check_docs_contracts.py > /tmp/contracts.log 2>&1
+            contracts_rc=$?
+            git diff --check > /tmp/diff.log 2>&1
+            diff_rc=$?
+          else
+            links_rc=99
+            contracts_rc=99
+            diff_rc=99
+            echo "links skipped because patch failed" > /tmp/links.log
+            echo "contracts skipped because patch failed" > /tmp/contracts.log
+            echo "diff-check skipped because patch failed" > /tmp/diff.log
+          fi
+          {
+            echo "patch_rc=$patch_rc"
+            echo "links_rc=$links_rc"
+            echo "contracts_rc=$contracts_rc"
+            echo "diff_rc=$diff_rc"
+            echo "--- patch log ---"
+            cat /tmp/patch.log
+            echo "--- links log ---"
+            cat /tmp/links.log
+            echo "--- contracts log ---"
+            cat /tmp/contracts.log
+            echo "--- diff log ---"
+            cat /tmp/diff.log
+          } > dev/validation/pr126_panel_docs_result.txt
+          tail -220 dev/validation/pr126_panel_docs_result.txt
+          exit 0
+      - name: Commit docs or diagnostic
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
-          git add \
-            docs/en/panel/fama-macbeth.md \
-            docs/cn/panel/fama-macbeth.md \
-            docs/en/changelog.md \
-            docs/cn/changelog.md \
-            CHANGELOG.md
-          if git diff --cached --quiet; then
-            echo "No documentation changes to commit"
+          if grep -q '^patch_rc=0$' dev/validation/pr126_panel_docs_result.txt \
+             && grep -q '^links_rc=0$' dev/validation/pr126_panel_docs_result.txt \
+             && grep -q '^contracts_rc=0$' dev/validation/pr126_panel_docs_result.txt \
+             && grep -q '^diff_rc=0$' dev/validation/pr126_panel_docs_result.txt; then
+            git add \
+              docs/en/panel/fama-macbeth.md \
+              docs/cn/panel/fama-macbeth.md \
+              docs/en/changelog.md \
+              docs/cn/changelog.md \
+              CHANGELOG.md
+            if ! git diff --cached --quiet; then
+              git commit -m "docs: align PR126 numerical safety status"
+              git push origin HEAD:agent/panel-p1-stage-c-covariance
+            fi
           else
-            git commit -m "docs: align PR126 numerical safety status"
+            git add dev/validation/pr126_panel_docs_result.txt
+            git commit -m "ci: record PR126 documentation sync failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
