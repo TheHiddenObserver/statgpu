@@ -99,6 +99,48 @@ def _influence_rows(X, resid, xp):
     return influence, X_pinv_work, X_work, rank
 
 
+def _column_working_values(values, xp):
+    """Return per-coordinate unit values with restore scales bounded below by one.
+
+    Only coordinates whose absolute magnitude exceeds one are normalized.  This
+    keeps ordinary/tiny coordinates on their original scale while ensuring that
+    Gram and lag products are formed from values with absolute magnitude at most
+    one.  The restore scales are therefore all >= 1, so restoring a finite final
+    covariance cannot overflow before that final value is reached.
+    """
+    if _is_torch(xp):
+        max_abs = xp.max(xp.abs(values), dim=0).values
+    else:
+        max_abs = xp.max(xp.abs(values), axis=0)
+    scale = xp.maximum(max_abs, xp.ones_like(max_abs))
+    return values / scale, scale
+
+
+def _restore_coordinate_covariance(covariance, scale, xp):
+    """Restore a per-coordinate covariance scale without forming scale_i*scale_j."""
+    row = scale[:, None]
+    col = scale[None, :]
+    large = xp.maximum(row, col)
+    small = xp.minimum(row, col)
+    return _symmetrize((covariance * large) * small)
+
+
+def _cluster_component_from_scores(
+    scores, codes, *, n_groups: int, nobs: int, group_debias: bool, xp
+):
+    """Return one cluster meat on an already-safe common score scale."""
+    if int(n_groups) < 2:
+        raise ValueError(
+            "clustered covariance requires at least two distinct clusters"
+        )
+    grouped = _grouped_score_sums(scores, codes, n_groups=int(n_groups), xp=xp)
+    correction = (
+        _group_debias_factor(int(n_groups), int(nobs)) if group_debias else 1.0
+    )
+    meat = _symmetrize(grouped.T @ grouped * float(correction))
+    return meat, float(correction)
+
+
 def _symmetrize(matrix):
     """Average a matrix with its transpose without avoidable overflow.
 
@@ -333,18 +375,17 @@ def clustered_covariance(
         raise ValueError("X and resid must have the same number of observations")
 
     influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
+    influence_work, influence_scale = _column_working_values(influence, xp)
     n_clusters = int(len(labels))
-    if n_clusters < 2:
-        raise ValueError(
-            "clustered covariance requires at least two distinct clusters"
-        )
-    grouped = _grouped_score_sums(
-        influence, cluster_idx, n_groups=n_clusters, xp=xp
+    cov_work, correction = _cluster_component_from_scores(
+        influence_work,
+        cluster_idx,
+        n_groups=n_clusters,
+        nobs=int(n),
+        group_debias=group_debias,
+        xp=xp,
     )
-    correction = 1.0
-    if group_debias:
-        correction = _group_debias_factor(n_clusters, int(n))
-    cov = _symmetrize(grouped.T @ grouped * float(correction))
+    cov = _restore_coordinate_covariance(cov_work, influence_scale, xp)
     if metadata is not None:
         metadata.update(
             {
@@ -370,39 +411,47 @@ def two_way_clustered_covariance(
     """Two-way clustered covariance with exact intersection factorization."""
     xp = _ensure_xp(xp, X)
     group_debias = _validate_group_debias(group_debias)
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
+    if X.ndim != 2 or resid.shape[0] != X.shape[0]:
+        raise ValueError("X and resid must have matching observation counts")
     n = int(X.shape[0])
     labels1, c1 = _factorize_1d_labels(cluster1, nobs=n, name="cluster1")
     labels2, c2 = _factorize_1d_labels(cluster2, nobs=n, name="cluster2")
     c12 = _paired_codes(c1, c2)
     n12 = int(np.max(c12)) + 1 if c12.size else 0
 
-    meta1: dict = {}
-    meta2: dict = {}
-    meta12: dict = {}
-    V1 = clustered_covariance(
-        X,
-        resid,
+    # All three Cameron-Gelbach-Miller components must be combined on one
+    # common finite score scale. Restoring each component first can produce
+    # Inf - Inf even when the inclusion-exclusion result itself is finite.
+    influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
+    influence_work, influence_scale = _column_working_values(influence, xp)
+    V1_work, correction1 = _cluster_component_from_scores(
+        influence_work,
         c1,
-        xp,
+        n_groups=int(len(labels1)),
+        nobs=n,
         group_debias=group_debias,
-        metadata=meta1,
+        xp=xp,
     )
-    V2 = clustered_covariance(
-        X,
-        resid,
+    V2_work, correction2 = _cluster_component_from_scores(
+        influence_work,
         c2,
-        xp,
+        n_groups=int(len(labels2)),
+        nobs=n,
         group_debias=group_debias,
-        metadata=meta2,
+        xp=xp,
     )
-    V12 = clustered_covariance(
-        X,
-        resid,
+    V12_work, correction12 = _cluster_component_from_scores(
+        influence_work,
         c12,
-        xp,
+        n_groups=n12,
+        nobs=n,
         group_debias=group_debias,
-        metadata=meta12,
+        xp=xp,
     )
+    cov_work = _stable_inclusion_exclusion(V1_work, V2_work, V12_work, xp)
+    cov = _restore_coordinate_covariance(cov_work, influence_scale, xp)
     if metadata is not None:
         metadata.update(
             {
@@ -414,13 +463,13 @@ def two_way_clustered_covariance(
                 ],
                 "group_debias": bool(group_debias),
                 "group_debias_factors": [
-                    float(meta1["group_debias_factors"][0]),
-                    float(meta2["group_debias_factors"][0]),
-                    float(meta12["group_debias_factors"][0]),
+                    correction1,
+                    correction2,
+                    correction12,
                 ],
             }
         )
-    return _symmetrize(_stable_inclusion_exclusion(V1, V2, V12, xp))
+    return cov
 
 
 def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
@@ -447,13 +496,14 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     bandwidth = max(0, min(int(bandwidth), n - 1))
 
     influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
+    influence_work, influence_scale = _column_working_values(influence, xp)
     max_terms = int(bandwidth) + 1
     cov, scaled = _covariance_accumulator_start(
-        _symmetrize(influence.T @ influence), max_terms=max_terms, xp=xp
+        _symmetrize(influence_work.T @ influence_work), max_terms=max_terms, xp=xp
     )
     for h in range(1, bandwidth + 1):
         w = 1.0 - h / (bandwidth + 1.0)
-        gamma_h = influence[h:].T @ influence[: n - h]
+        gamma_h = influence_work[h:].T @ influence_work[: n - h]
         cov, scaled = _covariance_accumulator_add(
             cov,
             scaled,
@@ -465,7 +515,7 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     cov = _covariance_accumulator_finish(
         cov, scaled, max_terms=max_terms, xp=xp
     )
-    return _symmetrize(cov)
+    return _restore_coordinate_covariance(cov, influence_scale, xp)
 
 
 def _canonical_kernel(kernel: str) -> str:
@@ -577,6 +627,7 @@ def driscoll_kraay_covariance(
         raise ValueError("extra_df must be a non-negative integer")
 
     influence, _X_pinv, _bread, rank = _influence_rows(X, resid, xp)
+    influence_work, influence_scale = _column_working_values(influence, xp)
     k_columns = int(X.shape[1])
     rank_deficient = rank < k_columns
     df_model = rank if rank_deficient else k_columns
@@ -587,8 +638,9 @@ def driscoll_kraay_covariance(
         )
 
     grouped = _grouped_score_sums(
-        influence, time_codes, n_groups=n_periods, xp=xp
+        influence_work, time_codes, n_groups=n_periods, xp=xp
     )
+    grouped_work, grouped_scale = _column_working_values(grouped, xp)
     bw = _validate_dk_bandwidth(bandwidth, n_periods)
     canonical_kernel, weights_np = _dk_kernel_weights(
         kernel, bw, n_periods - 1
@@ -597,17 +649,17 @@ def driscoll_kraay_covariance(
         weights_np,
         dtype=xp.float64,
         xp=xp,
-        ref_arr=grouped,
+        ref_arr=grouped_work,
     )
 
     max_terms = 1 + int(np.count_nonzero(weights_np[1:]))
     cov, scaled = _covariance_accumulator_start(
-        _symmetrize(grouped.T @ grouped), max_terms=max_terms, xp=xp
+        _symmetrize(grouped_work.T @ grouped_work), max_terms=max_terms, xp=xp
     )
     for lag in range(1, n_periods):
         if weights_np[lag] == 0.0:
             continue
-        gamma = grouped[lag:].T @ grouped[: n_periods - lag]
+        gamma = grouped_work[lag:].T @ grouped_work[: n_periods - lag]
         cov, scaled = _covariance_accumulator_add(
             cov,
             scaled,
@@ -620,6 +672,8 @@ def driscoll_kraay_covariance(
         cov, scaled, max_terms=max_terms, xp=xp
     )
 
+    cov = _restore_coordinate_covariance(cov, grouped_scale, xp)
+    cov = _restore_coordinate_covariance(cov, influence_scale, xp)
     scale = float(n) / float(denom)
     cov = _symmetrize(scale * cov)
     if metadata is not None:

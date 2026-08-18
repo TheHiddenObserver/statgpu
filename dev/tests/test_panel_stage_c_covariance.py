@@ -437,3 +437,44 @@ def test_hac_and_dk_lag_accumulator_survives_finite_final_after_overflowing_part
     assert np.all(np.isfinite(dk))
     np.testing.assert_allclose(hac, expected_hac, rtol=1.2e-14, atol=0.0)
     np.testing.assert_allclose(dk, expected_dk, rtol=1.5e-14, atol=0.0)
+
+
+
+def test_hac_and_dk_normalize_scores_before_zero_lag_gram_overflow():
+    n = 10
+    influence_sq = 1.0e308
+    influence_amp = float(np.sqrt(influence_sq))
+    signs = np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    X = np.ones((n, 1), dtype=np.float64)
+    resid = n * influence_amp * signs
+    time = np.arange(n, dtype=np.int64)
+
+    # The zero-lag meat is n*a^2 and overflows, but Bartlett bandwidth=1
+    # subtracts (n-1)*a^2 through the lag pair, leaving exactly a^2.
+    expected_hac = np.asarray([[influence_sq]], dtype=np.float64)
+    expected_dk = expected_hac * (n / (n - 1.0))
+    hac = hac_covariance(X, resid, bandwidth=1)
+    dk = driscoll_kraay_covariance(X, resid, time, bandwidth=1)
+    assert np.all(np.isfinite(hac))
+    assert np.all(np.isfinite(dk))
+    np.testing.assert_allclose(hac, expected_hac, rtol=2.0e-14, atol=0.0)
+    np.testing.assert_allclose(dk, expected_dk, rtol=2.5e-14, atol=0.0)
+
+
+def test_two_way_cluster_combines_components_before_overflowing_restore():
+    n = 4
+    influence_sq = 5.0e307
+    influence_amp = float(np.sqrt(influence_sq))
+    X = np.ones((n, 1), dtype=np.float64)
+    resid = n * influence_amp * np.asarray([1.0, -1.0, 1.0, -1.0])
+    unique = np.arange(n, dtype=np.int64)
+    pairs = np.asarray([0, 0, 1, 1], dtype=np.int64)
+
+    # The unique-cluster component and its intersection component are each
+    # 4*a^2 > DBL_MAX, but they are algebraically identical and cancel.  The
+    # final two-way covariance is therefore the finite coarse-cluster component.
+    reference = clustered_covariance(X, resid, pairs)
+    actual = two_way_clustered_covariance(X, resid, unique, pairs)
+    assert np.all(np.isfinite(reference))
+    assert np.all(np.isfinite(actual))
+    np.testing.assert_allclose(actual, reference, rtol=3.0e-14, atol=0.0)

@@ -435,12 +435,30 @@ def _covariance_extreme_scale_audit(backend):
     resid_lag_np = lag_n * lag_influence_amp * lag_signs
     lag_time = np.arange(lag_n, dtype=np.int64)
 
+    pregram_n = 10
+    pregram_sq = 1.0e308
+    pregram_amp = float(np.sqrt(pregram_sq))
+    pregram_signs = np.where(np.arange(pregram_n) % 2 == 0, 1.0, -1.0)
+    X_pregram_np = np.ones((pregram_n, 1), dtype=np.float64)
+    resid_pregram_np = pregram_n * pregram_amp * pregram_signs
+    pregram_time = np.arange(pregram_n, dtype=np.int64)
+
+    component_n = 4
+    component_sq = 5.0e307
+    component_amp = float(np.sqrt(component_sq))
+    X_component_np = np.ones((component_n, 1), dtype=np.float64)
+    resid_component_np = component_n * component_amp * np.asarray([1.0, -1.0, 1.0, -1.0])
+    component_unique = np.arange(component_n, dtype=np.int64)
+    component_pairs = np.asarray([0, 0, 1, 1], dtype=np.int64)
+
     if backend == "numpy":
         xp = np
         X, resid = X_np, resid_np
         scores = scores_np
         X_hac, resid_hac = X_hac_np, resid_hac_np
         X_lag, resid_lag = X_lag_np, resid_lag_np
+        X_pregram, resid_pregram = X_pregram_np, resid_pregram_np
+        X_component, resid_component = X_component_np, resid_component_np
     elif backend == "cupy":
         import cupy as cp
         xp = cp
@@ -448,6 +466,8 @@ def _covariance_extreme_scale_audit(backend):
         scores = cp.asarray(scores_np)
         X_hac, resid_hac = cp.asarray(X_hac_np), cp.asarray(resid_hac_np)
         X_lag, resid_lag = cp.asarray(X_lag_np), cp.asarray(resid_lag_np)
+        X_pregram, resid_pregram = cp.asarray(X_pregram_np), cp.asarray(resid_pregram_np)
+        X_component, resid_component = cp.asarray(X_component_np), cp.asarray(resid_component_np)
     elif backend == "torch":
         import torch
         xp = torch
@@ -458,6 +478,10 @@ def _covariance_extreme_scale_audit(backend):
         resid_hac = torch.as_tensor(resid_hac_np, dtype=torch.float64, device="cuda")
         X_lag = torch.as_tensor(X_lag_np, dtype=torch.float64, device="cuda")
         resid_lag = torch.as_tensor(resid_lag_np, dtype=torch.float64, device="cuda")
+        X_pregram = torch.as_tensor(X_pregram_np, dtype=torch.float64, device="cuda")
+        resid_pregram = torch.as_tensor(resid_pregram_np, dtype=torch.float64, device="cuda")
+        X_component = torch.as_tensor(X_component_np, dtype=torch.float64, device="cuda")
+        resid_component = torch.as_tensor(resid_component_np, dtype=torch.float64, device="cuda")
     else:
         raise ValueError(backend)
 
@@ -476,7 +500,25 @@ def _covariance_extreme_scale_audit(backend):
             X_lag, resid_lag, lag_time, bandwidth=lag_bandwidth, kernel="bartlett", xp=xp
         )
     )
-    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk)):
+    pregram_hac = _array(hac_covariance(X_pregram, resid_pregram, bandwidth=1, xp=xp))
+    pregram_dk = _array(
+        driscoll_kraay_covariance(
+            X_pregram, resid_pregram, pregram_time, bandwidth=1, xp=xp
+        )
+    )
+    component_reference = _array(
+        clustered_covariance(X_component, resid_component, component_pairs, xp=xp)
+    )
+    component_two_way = _array(
+        two_way_clustered_covariance(
+            X_component,
+            resid_component,
+            component_unique,
+            component_pairs,
+            xp=xp,
+        )
+    )
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way)):
         if not np.all(np.isfinite(value)):
             raise AssertionError(f"{backend}: {name} produced non-finite covariance")
     np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
@@ -492,6 +534,17 @@ def _covariance_extreme_scale_audit(backend):
         rtol=8e-13,
         atol=0.0,
     )
+    expected_pregram_hac = np.asarray([[pregram_sq]], dtype=np.float64)
+    np.testing.assert_allclose(pregram_hac, expected_pregram_hac, rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(
+        pregram_dk,
+        expected_pregram_hac * (pregram_n / (pregram_n - 1.0)),
+        rtol=8e-13,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        component_two_way, component_reference, rtol=8e-13, atol=0.0
+    )
     return {
         "status": "success",
         "backend": backend,
@@ -502,6 +555,9 @@ def _covariance_extreme_scale_audit(backend):
         "driscoll_kraay": dk.tolist(),
         "lag_accumulator_hac": lag_hac.tolist(),
         "lag_accumulator_driscoll_kraay": lag_dk.tolist(),
+        "pregram_hac": pregram_hac.tolist(),
+        "pregram_driscoll_kraay": pregram_dk.tolist(),
+        "two_way_component_cancellation": component_two_way.tolist(),
     }
 
 

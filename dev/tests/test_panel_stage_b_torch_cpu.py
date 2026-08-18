@@ -377,3 +377,41 @@ def test_stage_c_torch_cpu_lag_accumulator_preserves_finite_hac_and_dk():
         rtol=1.5e-13,
         atol=0.0,
     )
+
+
+
+def test_stage_c_torch_cpu_pregram_and_two_way_component_cancellation():
+    n = 10
+    influence_sq = 1.0e308
+    influence_amp = float(np.sqrt(influence_sq))
+    signs_np = np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    X = torch.ones((n, 1), dtype=torch.float64)
+    resid = torch.as_tensor(n * influence_amp * signs_np, dtype=torch.float64)
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[influence_sq]], dtype=np.float64)
+    assert_allclose(
+        hac_covariance(X, resid, bandwidth=1, xp=torch),
+        expected_hac,
+        rtol=2.0e-13,
+        atol=0.0,
+    )
+    assert_allclose(
+        driscoll_kraay_covariance(X, resid, time, bandwidth=1, xp=torch),
+        expected_hac * (n / (n - 1.0)),
+        rtol=2.5e-13,
+        atol=0.0,
+    )
+
+    n2 = 4
+    component_sq = 5.0e307
+    component_amp = float(np.sqrt(component_sq))
+    X2 = torch.ones((n2, 1), dtype=torch.float64)
+    resid2 = torch.as_tensor(
+        n2 * component_amp * np.asarray([1.0, -1.0, 1.0, -1.0]),
+        dtype=torch.float64,
+    )
+    unique = np.arange(n2, dtype=np.int64)
+    pairs = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    reference = clustered_covariance(X2, resid2, pairs, xp=torch)
+    actual = two_way_clustered_covariance(X2, resid2, unique, pairs, xp=torch)
+    assert_allclose(actual, reference, rtol=3.0e-13, atol=0.0)
