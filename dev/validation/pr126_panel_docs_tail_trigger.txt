@@ -1,1 +1,0 @@
-trigger final PR126 Fama-MacBeth wording cleanup
