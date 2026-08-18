@@ -28,7 +28,7 @@ jobs:
       - name: Apply patch and capture focused result
         run: |
           set +e
-          python dev/validation/pr126_panel_numeric_final_once.py > /tmp/patch.log 2>&1
+          python dev/validation/pr126_panel_numeric_retry_once.py > /tmp/patch.log 2>&1
           patch_rc=$?
           if [ "$patch_rc" -eq 0 ]; then
             python -m pytest \
