@@ -55,7 +55,7 @@ def test_hausman_quadratic_is_scale_safe_at_float64_extremes():
     assert_allclose(results[0].pvalue, results[1].pvalue, rtol=3e-12, atol=0.0)
 '''
 if "test_hausman_quadratic_is_scale_safe_at_float64_extremes" not in text:
-    p.write_text(text.rstrip() + block + "\n", encoding="utf-8")
+    p.write_text(text.rstrip() + block.rstrip() + "\n", encoding="utf-8")
 
 replace_once(
     "dev/tests/test_panel_stage_b_torch_cpu.py",
@@ -81,7 +81,7 @@ def test_stage_b_torch_cpu_hausman_host_quadratic_is_scale_safe():
         assert_allclose(result.statistic, 1.0, rtol=3e-12, atol=0.0)
 '''
 if "test_stage_b_torch_cpu_hausman_host_quadratic_is_scale_safe" not in text:
-    p.write_text(text.rstrip() + block + "\n", encoding="utf-8")
+    p.write_text(text.rstrip() + block.rstrip() + "\n", encoding="utf-8")
 
 replace_once(
     "dev/benchmarks/validate_panel_stage_c_gpu.py",
@@ -150,4 +150,14 @@ def test_stage_c_runner_hausman_scale_audit_is_executable():
         np.testing.assert_allclose(case["statistic"], 1.0, rtol=3e-12, atol=0.0)
 '''
 if "test_stage_c_runner_hausman_scale_audit_is_executable" not in text:
-    p.write_text(text.rstrip() + block + "\n", encoding="utf-8")
+    p.write_text(text.rstrip() + block.rstrip() + "\n", encoding="utf-8")
+
+# Keep staged test files compliant with git's whitespace checker: exactly one
+# newline at EOF, no additional blank line introduced by the append blocks.
+for path in (
+    "dev/tests/test_panel_stage_b_hausman_covariance.py",
+    "dev/tests/test_panel_stage_b_torch_cpu.py",
+    "dev/tests/test_panel_stage_c_physical_runner_contract.py",
+):
+    p = Path(path)
+    p.write_text(p.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
