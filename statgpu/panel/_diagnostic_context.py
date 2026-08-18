@@ -19,6 +19,8 @@ from statgpu.panel._diagnostics import (
     _matrix_rank,
     _pooling_f_from_sums,
     _restore_squared_scale,
+    _scaled_mean,
+    _scaled_unit_values,
 )
 from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import group_means, group_sizes
@@ -194,6 +196,26 @@ def explicit_constant_column(X, *, xp):
     return int(candidates[0])
 
 
+def _scaled_column_means(values, xp):
+    """Return column means without overflowing a finite reduction."""
+    n = int(values.shape[0])
+    if getattr(xp, "__name__", "") == "torch":
+        max_abs = xp.max(xp.abs(values), dim=0).values
+    else:
+        max_abs = xp.max(xp.abs(values), axis=0)
+    limit = np.finfo(np.float64).max / float(max(n, 1))
+    factor = xp.where(
+        max_abs > limit,
+        xp.full_like(max_abs, float(n)),
+        xp.ones_like(max_abs),
+    )
+    if getattr(xp, "__name__", "") == "torch":
+        summed = xp.sum(values / factor, dim=0)
+    else:
+        summed = xp.sum(values / factor, axis=0)
+    return summed * (factor / float(n))
+
+
 def pooling_f_from_level_arrays(
     y,
     X,
@@ -211,8 +233,8 @@ def pooling_f_from_level_arrays(
         X_pool = X
         constant_projection_df = 0
     else:
-        y_pool = y - xp.mean(y)
-        X_pool = X - xp.mean(X, axis=0)
+        y_pool = y - _scaled_mean(y, xp)
+        X_pool = X - _scaled_column_means(X, xp)
         constant_projection_df = 1
 
     rank_pool = _matrix_rank(X_pool, xp)
@@ -236,8 +258,8 @@ def pooling_f_from_level_arrays(
             rss_pool = 0.0
             rss_effects_work = 0.0
         else:
-            pool_unit = resid_pool / common_scale
-            effects_unit = resid_effects / common_scale
+            pool_unit = _scaled_unit_values(resid_pool, common_scale, xp)
+            effects_unit = _scaled_unit_values(resid_effects, common_scale, xp)
             rss_pool = _to_float_scalar(xp.sum(pool_unit * pool_unit))
             rss_effects_work = _to_float_scalar(
                 xp.sum(effects_unit * effects_unit)
@@ -305,7 +327,7 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
             metadata=meta,
         )
 
-    resid_work = resid / residual_scale
+    resid_work = _scaled_unit_values(resid, residual_scale, xp)
     residual_ss = _to_float_scalar(xp.sum(resid_work * resid_work))
     mean_aligned = group_means(resid_work, entity_codes, xp=xp)
     sizes_aligned = group_sizes(entity_codes, xp=xp)

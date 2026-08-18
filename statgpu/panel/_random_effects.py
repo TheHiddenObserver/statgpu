@@ -283,6 +283,7 @@ class RandomEffects(BasePanelModel):
             _common_scaled_sumsquares,
             _restore_squared_scale,
             _scaled_residual_variance,
+            _scaled_unit_values,
         )
         rss_within_work, rss_between_work, variance_scale = (
             _common_scaled_sumsquares(resid_within, resid_between, xp)
@@ -428,7 +429,9 @@ class RandomEffects(BasePanelModel):
         if resid_gls_scale_value == 0.0:
             ss_res_diag = 0.0
         else:
-            resid_gls_unit = resid_gls / resid_gls_scale
+            resid_gls_unit = _scaled_unit_values(
+                resid_gls, resid_gls_scale, xp
+            )
             ss_res_diag = _restore_squared_scale(
                 _to_float_scalar(xp.sum(resid_gls_unit * resid_gls_unit)),
                 resid_gls_scale_value,
@@ -447,7 +450,9 @@ class RandomEffects(BasePanelModel):
             if restricted_scale_value == 0.0:
                 ss_tot_diag = 0.0
             else:
-                restricted_unit = restricted_resid / restricted_scale
+                restricted_unit = _scaled_unit_values(
+                    restricted_resid, restricted_scale, xp
+                )
                 ss_tot_diag = _restore_squared_scale(
                     _to_float_scalar(xp.sum(restricted_unit * restricted_unit)),
                     restricted_scale_value,
@@ -458,7 +463,9 @@ class RandomEffects(BasePanelModel):
             if y_star_scale_value == 0.0:
                 ss_tot_diag = 0.0
             else:
-                y_star_unit = y_star / y_star_scale
+                y_star_unit = _scaled_unit_values(
+                    y_star, y_star_scale, xp
+                )
                 ss_tot_diag = _restore_squared_scale(
                     _to_float_scalar(xp.sum(y_star_unit * y_star_unit)),
                     y_star_scale_value,

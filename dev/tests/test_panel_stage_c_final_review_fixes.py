@@ -8,7 +8,10 @@ from numpy.testing import assert_allclose
 
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._covariance import clustered_covariance, ols_covariance
-from statgpu.panel._diagnostic_context import bp_lm_from_residuals
+from statgpu.panel._diagnostic_context import (
+    bp_lm_from_residuals,
+    pooling_f_from_level_arrays,
+)
 from statgpu.panel._diagnostics import (
     _build_fit_statistics,
     _classical_model_f,
@@ -974,3 +977,97 @@ def test_torch_nonrobust_subnormal_design_and_residual_reconstruction():
     assert torch.all(torch.isfinite(actual))
     assert_allclose(actual.detach().cpu().numpy(), expected, rtol=3e-11, atol=2e-12)
     assert_allclose(actual.detach().cpu().numpy(), np.asarray([[1.0 / 3.0]]), rtol=3e-3, atol=3e-3)
+
+
+
+def test_pooling_f_large_finite_centering_is_scale_invariant():
+    n = 24
+    t = np.linspace(-1.0, 1.0, n)
+    X = np.column_stack([1.15 + 0.18 * t, 0.95 - 0.11 * t + 0.03 * t * t])
+    y = 1.05 + 0.42 * t - 0.08 * t * t + 0.025 * np.sin(np.arange(n))
+
+    Xc = X - X.mean(axis=0)
+    yc = y - y.mean()
+    beta, _ = panel_lstsq(Xc, yc, np)
+    pooled_resid = yc - Xc @ beta
+    effects_resid = 0.55 * pooled_resid
+
+    reference = pooling_f_from_level_arrays(
+        y,
+        X,
+        xp=np,
+        rss_effects=0.0,
+        df_resid_effects=n - 6,
+        has_constant=False,
+        resid_effects=effects_resid,
+    )
+    scale = 1.0e307
+    candidate = pooling_f_from_level_arrays(
+        scale * y,
+        scale * X,
+        xp=np,
+        rss_effects=0.0,
+        df_resid_effects=n - 6,
+        has_constant=False,
+        resid_effects=scale * effects_resid,
+    )
+    assert reference.applicable and candidate.applicable
+    assert np.isfinite(reference.statistic) and np.isfinite(candidate.statistic)
+    assert_allclose(candidate.statistic, reference.statistic, rtol=2e-10, atol=1e-12)
+    assert_allclose(candidate.pvalue, reference.pvalue, rtol=2e-10, atol=1e-14)
+
+
+def test_torch_subnormal_classical_f_matches_numpy():
+    torch = pytest.importorskip("torch")
+    x = np.linspace(-1.0, 1.0, 12)
+    X_np = np.column_stack([np.ones(x.size), x])
+    base = 0.8 + 0.45 * x + np.asarray(
+        [0.08, -0.04, 0.03, -0.06, 0.05, -0.02, 0.01, 0.04, -0.03, 0.02, -0.01, 0.05]
+    )
+    scale = 1.0e-310
+    y_np = scale * base
+    params_np, _ = panel_lstsq(X_np, y_np, np)
+    reference = _classical_model_f(
+        y_np,
+        X_np,
+        params_np,
+        xp=np,
+        df_resid=10,
+        has_constant=True,
+    )
+
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    y = torch.as_tensor(y_np, dtype=torch.float64)
+    params = torch.as_tensor(params_np, dtype=torch.float64)
+    candidate = _classical_model_f(
+        y,
+        X,
+        params,
+        xp=torch,
+        df_resid=10,
+        has_constant=True,
+    )
+    assert reference[0] is not None and candidate[0] is not None
+    assert np.isfinite(reference[0]) and np.isfinite(candidate[0])
+    assert_allclose(candidate[0], reference[0], rtol=2e-4, atol=2e-6)
+    assert_allclose(candidate[1], reference[1], rtol=2e-4, atol=2e-8)
+
+
+def test_torch_subnormal_bp_lm_matches_numpy():
+    torch = pytest.importorskip("torch")
+    groups = np.repeat(np.arange(5), 4)
+    pattern = np.asarray(
+        [1.0, -0.4, 0.6, -0.3, 0.8, -0.2, 0.5, -0.7, 1.1, -0.5,
+         0.3, -0.1, 0.7, -0.6, 0.4, -0.2, 0.9, -0.3, 0.2, -0.4]
+    )
+    resid_np = 1.0e-310 * pattern
+    reference = bp_lm_from_residuals(resid_np, groups, xp=np)
+    candidate = bp_lm_from_residuals(
+        torch.as_tensor(resid_np, dtype=torch.float64),
+        torch.as_tensor(groups, dtype=torch.int64),
+        xp=torch,
+    )
+    assert reference.applicable and candidate.applicable
+    assert np.isfinite(reference.statistic) and np.isfinite(candidate.statistic)
+    assert_allclose(candidate.statistic, reference.statistic, rtol=2e-10, atol=1e-12)
+    assert_allclose(candidate.pvalue, reference.pvalue, rtol=2e-10, atol=1e-14)

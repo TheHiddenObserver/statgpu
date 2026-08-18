@@ -474,6 +474,7 @@ class PanelOLS(BasePanelModel):
             _scaled_mean,
             _scaled_residual_r2,
             _scaled_residual_variance,
+            _scaled_unit_values,
         )
 
         scale = _scaled_residual_variance(resid, self.df_resid, xp)
@@ -589,12 +590,8 @@ class PanelOLS(BasePanelModel):
         )
         resid_scale = xp.max(xp.abs(resid))
         total_scale = xp.max(xp.abs(y_d_centered))
-        resid_unit = resid / xp.where(
-            resid_scale > 0.0, resid_scale, xp.ones_like(resid_scale)
-        )
-        total_unit = y_d_centered / xp.where(
-            total_scale > 0.0, total_scale, xp.ones_like(total_scale)
-        )
+        resid_unit = _scaled_unit_values(resid, resid_scale, xp)
+        total_unit = _scaled_unit_values(y_d_centered, total_scale, xp)
         ss_res = _restore_squared_scale(
             _to_float_scalar(xp.sum(resid_unit * resid_unit)),
             _to_float_scalar(resid_scale),

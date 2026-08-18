@@ -332,8 +332,8 @@ def _classical_model_f(
         rss_u = 0.0
         rss_r = 0.0
     else:
-        resid_u_scaled = resid / common_scale
-        resid_r_scaled = resid_r / common_scale
+        resid_u_scaled = _scaled_unit_values(resid, common_scale, xp)
+        resid_r_scaled = _scaled_unit_values(resid_r, common_scale, xp)
         rss_u = _to_float_scalar(xp.sum(resid_u_scaled * resid_u_scaled))
         rss_r = _to_float_scalar(xp.sum(resid_r_scaled * resid_r_scaled))
 
