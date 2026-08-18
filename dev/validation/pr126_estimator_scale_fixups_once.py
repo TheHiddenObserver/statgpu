@@ -13,8 +13,8 @@ def replace_once(path, old, new, label):
 # on maintained backends, so form the ratio only from a bounded numerator.
 replace_once(
     "statgpu/panel/_linalg.py",
-    '''    relative = max_abs / float(target)\n    safe_relative = xp.where(\n        relative > 0.0, relative, xp.ones_like(relative)\n    )\n    candidate = 1.0 / safe_relative\n    scale = xp.where(max_abs < target, candidate, xp.ones_like(candidate))\n''',
-    '''    needs_scale = max_abs < target\n    bounded_max = xp.where(\n        needs_scale, max_abs, xp.full_like(max_abs, float(target))\n    )\n    relative = bounded_max / float(target)\n    safe_relative = xp.where(\n        relative > 0.0, relative, xp.ones_like(relative)\n    )\n    candidate = 1.0 / safe_relative\n    scale = xp.where(needs_scale, candidate, xp.ones_like(candidate))\n''',
+    '''    def _factor(max_abs):\n        relative = max_abs / float(target)\n        safe_relative = xp.where(\n            relative > 0.0, relative, xp.ones_like(relative)\n        )\n        return xp.where(\n            (max_abs > 0.0) & (max_abs < target),\n            1.0 / safe_relative,\n            xp.ones_like(max_abs),\n        )\n''',
+    '''    def _factor(max_abs):\n        needs_scale = (max_abs > 0.0) & (max_abs < target)\n        bounded_max = xp.where(\n            needs_scale, max_abs, xp.full_like(max_abs, float(target))\n        )\n        relative = bounded_max / float(target)\n        safe_relative = xp.where(\n            relative > 0.0, relative, xp.ones_like(relative)\n        )\n        return xp.where(\n            needs_scale,\n            1.0 / safe_relative,\n            xp.ones_like(max_abs),\n        )\n''',
     "bounded working-design ratio",
 )
 
