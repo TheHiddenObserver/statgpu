@@ -1,1 +1,1 @@
-trigger PR126 covariance working-scale review gate diagnostic
+trigger PR126 covariance working-scale review gate scaled-rss
