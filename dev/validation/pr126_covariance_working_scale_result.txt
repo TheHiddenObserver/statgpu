@@ -1,20 +1,26 @@
 first_patch_rc=0
-second_patch_rc=1
-patch_rc=1
-pytest_rc=99
-compile_rc=99
-diff_rc=99
+second_patch_rc=0
+patch_rc=0
+pytest_rc=1
+compile_rc=0
+diff_rc=0
 --- patch log ---
 PR126 covariance working-scale review fix staged
-Traceback (most recent call last):
-  File "/home/runner/work/statgpu/statgpu/dev/validation/pr126_covariance_working_scale_followup.py", line 16, in <module>
-    replace_once(
-  File "/home/runner/work/statgpu/statgpu/dev/validation/pr126_covariance_working_scale_followup.py", line 8, in replace_once
-    raise RuntimeError(f"{label} anchor missing in {path}")
-RuntimeError: classical F scaled RSS anchor missing in statgpu/panel/_diagnostics.py
+PR126 scaled-RSS follow-up staged
 --- pytest log ---
-pytest skipped because patch failed
+.....s.ssss...ss..............F......................................... [ 84%]
+.............                                                            [100%]
+=================================== FAILURES ===================================
+_____ test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver _____
+dev/tests/test_panel_stage_c_final_review_fixes.py:744: in test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver
+    assert statistic is not None and np.isfinite(statistic) and statistic > 0.0
+E   AssertionError: assert (inf is not None and False)
+E    +  where False = <ufunc 'isfinite'>(inf)
+E    +    where <ufunc 'isfinite'> = np.isfinite
+=========================== short test summary info ============================
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver - AssertionError: assert (inf is not None and False)
+ +  where False = <ufunc 'isfinite'>(inf)
+ +    where <ufunc 'isfinite'> = np.isfinite
+1 failed, 77 passed, 7 skipped in 4.13s
 --- compile log ---
-compile skipped because patch failed
 --- diff log ---
-diff-check skipped because patch failed
