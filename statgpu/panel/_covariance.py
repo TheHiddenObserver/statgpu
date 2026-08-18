@@ -125,6 +125,74 @@ def _weighted_symmetric_sum(matrix, weight):
     return _symmetrize(matrix) * (2.0 * weight)
 
 
+def _covariance_accumulator_start(initial, *, max_terms: int, xp):
+    """Start a per-entry reduction-length covariance accumulator.
+
+    Entries are scaled only when one of at most ``max_terms`` same-sign
+    contributions could overflow a representable final reduction. Safe and
+    subnormal entries remain on their original scale.
+    """
+    max_terms = max(1, int(max_terms))
+    threshold = float(np.finfo(np.float64).max) / float(max_terms)
+    scaled = xp.abs(initial) > threshold
+    divisor = xp.where(
+        scaled,
+        xp.full_like(initial, float(max_terms)),
+        xp.ones_like(initial),
+    )
+    return initial / divisor, scaled
+
+
+def _covariance_accumulator_add(
+    accumulator,
+    scaled,
+    base,
+    multiplier: float,
+    *,
+    max_terms: int,
+    xp,
+):
+    """Add ``multiplier * base`` without materializing a risky term/sum."""
+    max_terms = max(1, int(max_terms))
+    multiplier = float(multiplier)
+    if multiplier == 0.0:
+        return accumulator, scaled
+
+    abs_multiplier = abs(multiplier)
+    max_float = float(np.finfo(np.float64).max)
+    accumulator_threshold = max_float / float(max_terms)
+    base_threshold = max_float / (float(max_terms) * abs_multiplier)
+    needs_scale = (~scaled) & (
+        (xp.abs(accumulator) > accumulator_threshold)
+        | (xp.abs(base) > base_threshold)
+    )
+
+    divisor = xp.where(
+        needs_scale,
+        xp.full_like(accumulator, float(max_terms)),
+        xp.ones_like(accumulator),
+    )
+    accumulator = accumulator / divisor
+    scaled = scaled | needs_scale
+    coefficient = xp.where(
+        scaled,
+        xp.full_like(base, multiplier / float(max_terms)),
+        xp.full_like(base, multiplier),
+    )
+    return accumulator + base * coefficient, scaled
+
+
+def _covariance_accumulator_finish(accumulator, scaled, *, max_terms: int, xp):
+    """Restore the original scale after safe lag-term accumulation."""
+    max_terms = max(1, int(max_terms))
+    factor = xp.where(
+        scaled,
+        xp.full_like(accumulator, float(max_terms)),
+        xp.ones_like(accumulator),
+    )
+    return accumulator * factor
+
+
 def _stable_inclusion_exclusion(V1, V2, V12, xp):
     """Return ``V1 + V2 - V12`` with cancellation before risky addition.
 
@@ -384,11 +452,24 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     bandwidth = max(0, min(int(bandwidth), n - 1))
 
     influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)
-    cov = influence.T @ influence
+    max_terms = int(bandwidth) + 1
+    cov, scaled = _covariance_accumulator_start(
+        _symmetrize(influence.T @ influence), max_terms=max_terms, xp=xp
+    )
     for h in range(1, bandwidth + 1):
         w = 1.0 - h / (bandwidth + 1.0)
         gamma_h = influence[h:].T @ influence[: n - h]
-        cov = cov + _weighted_symmetric_sum(gamma_h, float(w))
+        cov, scaled = _covariance_accumulator_add(
+            cov,
+            scaled,
+            _symmetrize(gamma_h),
+            2.0 * float(w),
+            max_terms=max_terms,
+            xp=xp,
+        )
+    cov = _covariance_accumulator_finish(
+        cov, scaled, max_terms=max_terms, xp=xp
+    )
     return _symmetrize(cov)
 
 
@@ -524,12 +605,25 @@ def driscoll_kraay_covariance(
         ref_arr=grouped,
     )
 
-    cov = grouped.T @ grouped
+    max_terms = 1 + int(np.count_nonzero(weights_np[1:]))
+    cov, scaled = _covariance_accumulator_start(
+        _symmetrize(grouped.T @ grouped), max_terms=max_terms, xp=xp
+    )
     for lag in range(1, n_periods):
         if weights_np[lag] == 0.0:
             continue
         gamma = grouped[lag:].T @ grouped[: n_periods - lag]
-        cov = cov + _weighted_symmetric_sum(gamma, weights[lag])
+        cov, scaled = _covariance_accumulator_add(
+            cov,
+            scaled,
+            _symmetrize(gamma),
+            2.0 * float(weights_np[lag]),
+            max_terms=max_terms,
+            xp=xp,
+        )
+    cov = _covariance_accumulator_finish(
+        cov, scaled, max_terms=max_terms, xp=xp
+    )
 
     scale = float(n) / float(denom)
     cov = _symmetrize(scale * cov)

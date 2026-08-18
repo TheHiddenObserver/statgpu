@@ -351,3 +351,29 @@ def test_stage_c_torch_cpu_extreme_covariance_combinations_remain_finite():
         rtol=8e-14,
         atol=0.0,
     )
+
+
+def test_stage_c_torch_cpu_lag_accumulator_preserves_finite_hac_and_dk():
+    n = 7
+    bandwidth = 4
+    influence_sq = 2.0e307
+    influence_amp = float(np.sqrt(influence_sq))
+    signs_np = np.asarray([1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0])
+    X = torch.ones((n, 1), dtype=torch.float64)
+    resid = torch.as_tensor(n * influence_amp * signs_np, dtype=torch.float64)
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[5.4 * influence_sq]], dtype=np.float64)
+    assert_allclose(
+        hac_covariance(X, resid, bandwidth=bandwidth, xp=torch),
+        expected_hac,
+        rtol=1.2e-13,
+        atol=0.0,
+    )
+    assert_allclose(
+        driscoll_kraay_covariance(
+            X, resid, time, bandwidth=bandwidth, kernel="bartlett", xp=torch
+        ),
+        expected_hac * (n / (n - 1.0)),
+        rtol=1.5e-13,
+        atol=0.0,
+    )

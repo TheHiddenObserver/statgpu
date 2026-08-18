@@ -426,17 +426,28 @@ def _covariance_extreme_scale_audit(backend):
     resid_hac_np = n * influence_amplitude * np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
     time = np.arange(n, dtype=np.int64)
 
+    lag_n = 7
+    lag_bandwidth = 4
+    lag_influence_sq = 2.0e307
+    lag_influence_amp = float(np.sqrt(lag_influence_sq))
+    lag_signs = np.asarray([1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0])
+    X_lag_np = np.ones((lag_n, 1), dtype=np.float64)
+    resid_lag_np = lag_n * lag_influence_amp * lag_signs
+    lag_time = np.arange(lag_n, dtype=np.int64)
+
     if backend == "numpy":
         xp = np
         X, resid = X_np, resid_np
         scores = scores_np
         X_hac, resid_hac = X_hac_np, resid_hac_np
+        X_lag, resid_lag = X_lag_np, resid_lag_np
     elif backend == "cupy":
         import cupy as cp
         xp = cp
         X, resid = cp.asarray(X_np), cp.asarray(resid_np)
         scores = cp.asarray(scores_np)
         X_hac, resid_hac = cp.asarray(X_hac_np), cp.asarray(resid_hac_np)
+        X_lag, resid_lag = cp.asarray(X_lag_np), cp.asarray(resid_lag_np)
     elif backend == "torch":
         import torch
         xp = torch
@@ -445,6 +456,8 @@ def _covariance_extreme_scale_audit(backend):
         scores = torch.as_tensor(scores_np, dtype=torch.float64, device="cuda")
         X_hac = torch.as_tensor(X_hac_np, dtype=torch.float64, device="cuda")
         resid_hac = torch.as_tensor(resid_hac_np, dtype=torch.float64, device="cuda")
+        X_lag = torch.as_tensor(X_lag_np, dtype=torch.float64, device="cuda")
+        resid_lag = torch.as_tensor(resid_lag_np, dtype=torch.float64, device="cuda")
     else:
         raise ValueError(backend)
 
@@ -457,7 +470,13 @@ def _covariance_extreme_scale_audit(backend):
     )
     hac = _array(hac_covariance(X_hac, resid_hac, bandwidth=1, xp=xp))
     dk = _array(driscoll_kraay_covariance(X_hac, resid_hac, time, bandwidth=1, xp=xp))
-    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk)):
+    lag_hac = _array(hac_covariance(X_lag, resid_lag, bandwidth=lag_bandwidth, xp=xp))
+    lag_dk = _array(
+        driscoll_kraay_covariance(
+            X_lag, resid_lag, lag_time, bandwidth=lag_bandwidth, kernel="bartlett", xp=xp
+        )
+    )
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk)):
         if not np.all(np.isfinite(value)):
             raise AssertionError(f"{backend}: {name} produced non-finite covariance")
     np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
@@ -465,6 +484,14 @@ def _covariance_extreme_scale_audit(backend):
     np.testing.assert_array_equal(cancellation, np.zeros((2, 1)))
     np.testing.assert_allclose(hac, expected_hac, rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(dk, expected_hac * (n / (n - 1.0)), rtol=8e-13, atol=0.0)
+    expected_lag_hac = np.asarray([[5.4 * lag_influence_sq]], dtype=np.float64)
+    np.testing.assert_allclose(lag_hac, expected_lag_hac, rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(
+        lag_dk,
+        expected_lag_hac * (lag_n / (lag_n - 1.0)),
+        rtol=8e-13,
+        atol=0.0,
+    )
     return {
         "status": "success",
         "backend": backend,
@@ -473,6 +500,8 @@ def _covariance_extreme_scale_audit(backend):
         "group_cancellation": cancellation.tolist(),
         "hac": hac.tolist(),
         "driscoll_kraay": dk.tolist(),
+        "lag_accumulator_hac": lag_hac.tolist(),
+        "lag_accumulator_driscoll_kraay": lag_dk.tolist(),
     }
 
 

@@ -188,5 +188,13 @@ def test_stage_c_runner_covariance_extreme_scale_audit_is_executable():
     audit = _MOD._covariance_extreme_scale_audit("numpy")
     assert audit["status"] == "success"
     assert audit["backend"] == "numpy"
-    for key in ("one_way", "two_way", "group_cancellation", "hac", "driscoll_kraay"):
+    for key in (
+        "one_way",
+        "two_way",
+        "group_cancellation",
+        "hac",
+        "driscoll_kraay",
+        "lag_accumulator_hac",
+        "lag_accumulator_driscoll_kraay",
+    ):
         assert np.all(np.isfinite(np.asarray(audit[key], dtype=np.float64))), key

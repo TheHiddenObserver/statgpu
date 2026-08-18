@@ -412,3 +412,28 @@ def test_hac_and_dk_weighted_lags_do_not_overflow_before_finite_cancellation():
     assert np.all(np.isfinite(dk))
     np.testing.assert_allclose(hac, expected_hac, rtol=8e-15, atol=0.0)
     np.testing.assert_allclose(dk, expected_dk, rtol=8e-15, atol=0.0)
+
+
+def test_hac_and_dk_lag_accumulator_survives_finite_final_after_overflowing_partial_sum():
+    n = 7
+    bandwidth = 4
+    influence_sq = 2.0e307
+    influence_amp = float(np.sqrt(influence_sq))
+    signs = np.asarray([1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0])
+    X = np.ones((n, 1), dtype=np.float64)
+    resid = n * influence_amp * signs
+    time = np.arange(n, dtype=np.int64)
+
+    # In exact arithmetic the Bartlett meat coefficients are
+    # 7 + 3.2 - 3.6 - 1.6 + 0.4 = 5.4. The historical sequential path
+    # overflowed after 7 + 3.2 = 10.2 even though the final result is finite.
+    expected_hac = np.asarray([[5.4 * influence_sq]], dtype=np.float64)
+    expected_dk = expected_hac * (n / (n - 1.0))
+    hac = hac_covariance(X, resid, bandwidth=bandwidth)
+    dk = driscoll_kraay_covariance(
+        X, resid, time, bandwidth=bandwidth, kernel="bartlett"
+    )
+    assert np.all(np.isfinite(hac))
+    assert np.all(np.isfinite(dk))
+    np.testing.assert_allclose(hac, expected_hac, rtol=1.2e-14, atol=0.0)
+    np.testing.assert_allclose(dk, expected_dk, rtol=1.5e-14, atol=0.0)
