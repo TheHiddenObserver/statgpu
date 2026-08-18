@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: pr126-review-fix-multiscale
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   fix-and-validate:
