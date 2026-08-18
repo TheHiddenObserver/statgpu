@@ -1,0 +1,75 @@
+name: PR126 review-fix unsafe-low gate
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr126-review-fix-unsafe-low
+  cancel-in-progress: true
+
+jobs:
+  reproduce-fix-validate:
+    if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install focused validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Reproduce unsafe-low fail-open on pre-fix source
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel import two_way_clustered_covariance
+
+          amplitude = 1.0e200
+          low1 = 1.0e108
+          low2 = np.nextafter(low1, np.inf)
+          scores = np.asarray([
+              -amplitude, low1, amplitude, -low1,
+              -amplitude, -low2, amplitude, low2,
+          ], dtype=np.float64)
+          c1 = np.asarray([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+          c2 = np.asarray([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+          X = np.full((8, 1), 0.5, dtype=np.float64)
+          actual = np.asarray(two_way_clustered_covariance(X, 4.0 * scores, c1, c2))
+          expected = np.asarray([[4.0 * amplitude * (low2 - low1)]], dtype=np.float64)
+          assert np.isfinite(expected[0, 0])
+          assert not np.allclose(actual, expected, rtol=4e-12, atol=0.0)
+          print('PRE_FIX_ACTUAL', actual.tolist())
+          print('PRE_FIX_EXPECTED', expected.tolist())
+          PY
+      - name: Apply reviewed unsafe-low fix
+        run: python dev/validation/pr126_review_fix_unsafe_low_once.py
+      - name: Run focused review regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_b_hausman_covariance.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            -q --tb=short
+      - name: Validate syntax and diff
+        run: |
+          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
+          git diff --check
+          git status --short
+      - name: Commit validated review fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: retain unsafe two-way low-order cancellation"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
