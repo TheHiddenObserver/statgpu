@@ -25,6 +25,22 @@ jobs:
           python dev/validation/pr126_panel_docs_final_once.py > /tmp/patch.log 2>&1
           patch_rc=$?
           if [ "$patch_rc" -eq 0 ]; then
+            python - <<'PY'
+          from pathlib import Path
+          for path, old, new in (
+              (Path("docs/en/panel/fama-macbeth.md"), "> Last updated: 2026-08-18  \n", "> Last updated: 2026-08-18<br>\n"),
+              (Path("docs/cn/panel/fama-macbeth.md"), "> 最后更新：2026-08-18  \n", "> 最后更新：2026-08-18<br>\n"),
+          ):
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise RuntimeError(f"date-format anchor missing in {path}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+            format_rc=$?
+          else
+            format_rc=99
+          fi
+          if [ "$patch_rc" -eq 0 ] && [ "$format_rc" -eq 0 ]; then
             python dev/validation/fix_docs_links.py --check > /tmp/links.log 2>&1
             links_rc=$?
             python dev/validation/check_docs_contracts.py > /tmp/contracts.log 2>&1
@@ -35,12 +51,13 @@ jobs:
             links_rc=99
             contracts_rc=99
             diff_rc=99
-            echo "links skipped because patch failed" > /tmp/links.log
-            echo "contracts skipped because patch failed" > /tmp/contracts.log
-            echo "diff-check skipped because patch failed" > /tmp/diff.log
+            echo "links skipped because patch/format failed" > /tmp/links.log
+            echo "contracts skipped because patch/format failed" > /tmp/contracts.log
+            echo "diff-check skipped because patch/format failed" > /tmp/diff.log
           fi
           {
             echo "patch_rc=$patch_rc"
+            echo "format_rc=$format_rc"
             echo "links_rc=$links_rc"
             echo "contracts_rc=$contracts_rc"
             echo "diff_rc=$diff_rc"
@@ -60,6 +77,7 @@ jobs:
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
           if grep -q '^patch_rc=0$' dev/validation/pr126_panel_docs_result.txt \
+             && grep -q '^format_rc=0$' dev/validation/pr126_panel_docs_result.txt \
              && grep -q '^links_rc=0$' dev/validation/pr126_panel_docs_result.txt \
              && grep -q '^contracts_rc=0$' dev/validation/pr126_panel_docs_result.txt \
              && grep -q '^diff_rc=0$' dev/validation/pr126_panel_docs_result.txt; then
