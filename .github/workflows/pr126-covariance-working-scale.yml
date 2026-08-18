@@ -1,4 +1,4 @@
-name: PR126 fresh numerical review gate
+name: PR126 final cleanup gate
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  patch-test-commit:
+  cleanup-test-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,101 +21,62 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      - name: Install maintained Torch CPU review environment
+      - name: Install maintained review environment
         run: |
           python -m pip install --upgrade pip
           python -m pip install "numpy<2" pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e ".[validation,formula]"
-      - name: Apply and diagnose fresh evidence followup
+      - name: Synchronize public changelog and remove temporary PR126 scaffolding
         run: |
-          set +e
-          python dev/validation/pr126_fresh_review_followup_once.py > /tmp/patch.log 2>&1
-          main_patch_rc=$?
-          if [ "$main_patch_rc" -eq 0 ]; then
-            python dev/validation/pr126_fresh_review_followup_fixup_once.py >> /tmp/patch.log 2>&1
-            fixup_rc=$?
-          else
-            fixup_rc=99
+          python dev/validation/pr126_final_cleanup_once.py
+          git rm -f --ignore-unmatch \
+            dev/validation/pr126_covariance_reduction_followup_once.py \
+            dev/validation/pr126_covariance_working_scale_followup.py \
+            dev/validation/pr126_covariance_working_scale_once.py \
+            dev/validation/pr126_covariance_working_scale_result.txt \
+            dev/validation/pr126_covariance_working_scale_trigger.txt \
+            dev/validation/pr126_estimator_scale_fixups2_once.py \
+            dev/validation/pr126_estimator_scale_fixups_once.py \
+            dev/validation/pr126_estimator_scale_followup_once.py \
+            dev/validation/pr126_fresh_review_closeout_once.py \
+            dev/validation/pr126_fresh_review_followup_once.py \
+            dev/validation/pr126_fresh_review_followup_fixup_once.py \
+            dev/validation/pr126_fresh_review_trigger.txt \
+            dev/validation/pr126_fresh_review_result.txt \
+            dev/validation/pr126_solver_covariance_tail_once.py \
+            dev/validation/pr126_subnormal_reduction_once.py \
+            dev/validation/pr126_final_cleanup_once.py
+          leftovers="$(find dev/validation -maxdepth 1 -type f -name 'pr126_*' -print)"
+          if [ -n "$leftovers" ]; then
+            echo "Unexpected PR126 review scaffolding remains:"
+            echo "$leftovers"
+            exit 1
           fi
-          if [ "$main_patch_rc" -eq 0 ] && [ "$fixup_rc" -eq 0 ]; then
-            patch_rc=0
-            python -m pytest \
-              dev/tests/test_panel_stage_c_final_review_fixes.py \
-              dev/tests/test_panel_stage_c_physical_runner_contract.py \
-              dev/tests/test_panel_stage_c_covariance.py \
-              dev/tests/test_panel_stage_c_inference_guard.py \
-              dev/tests/test_panel_stage_b_review_regressions.py \
-              dev/tests/test_panel_stage_b_torch_cpu.py \
-              -q --tb=short > /tmp/pytest.log 2>&1
-            pytest_rc=$?
-            python dev/validation/fix_docs_links.py --check > /tmp/docs-links.log 2>&1
-            docs_links_rc=$?
-            python dev/validation/check_docs_contracts.py > /tmp/docs-contracts.log 2>&1
-            docs_contracts_rc=$?
-            python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py dev/tests/test_panel_stage_c_final_review_fixes.py dev/tests/test_panel_stage_c_physical_runner_contract.py > /tmp/compile.log 2>&1
-            compile_rc=$?
-            git diff --check > /tmp/diff.log 2>&1
-            diff_rc=$?
-          else
-            patch_rc=1
-            pytest_rc=99
-            docs_links_rc=99
-            docs_contracts_rc=99
-            compile_rc=99
-            diff_rc=99
-            echo "pytest skipped because patch failed" > /tmp/pytest.log
-            echo "docs skipped because patch failed" > /tmp/docs-links.log
-            echo "docs skipped because patch failed" > /tmp/docs-contracts.log
-            echo "compile skipped because patch failed" > /tmp/compile.log
-            echo "diff-check skipped because patch failed" > /tmp/diff.log
-          fi
-          {
-            echo "main_patch_rc=$main_patch_rc"
-            echo "fixup_rc=$fixup_rc"
-            echo "patch_rc=$patch_rc"
-            echo "pytest_rc=$pytest_rc"
-            echo "docs_links_rc=$docs_links_rc"
-            echo "docs_contracts_rc=$docs_contracts_rc"
-            echo "compile_rc=$compile_rc"
-            echo "diff_rc=$diff_rc"
-            echo "--- patch log ---"
-            cat /tmp/patch.log
-            echo "--- pytest log ---"
-            tail -420 /tmp/pytest.log
-            echo "--- docs links ---"
-            cat /tmp/docs-links.log
-            echo "--- docs contracts ---"
-            cat /tmp/docs-contracts.log
-            echo "--- compile log ---"
-            cat /tmp/compile.log
-            echo "--- diff log ---"
-            cat /tmp/diff.log
-          } > dev/validation/pr126_fresh_review_result.txt
-          tail -520 dev/validation/pr126_fresh_review_result.txt
-          exit 0
-      - name: Commit substantive followup or diagnostic
+      - name: Run clean-tree focused regressions and documentation gates
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            dev/tests/test_panel_stage_c_full_rank_conditioning.py \
+            dev/tests/test_panel_stage_b_fit_statistics.py \
+            dev/tests/test_panel_stage_b_review_regressions.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_panel_two_way_demean_scale.py \
+            dev/tests/test_benchmark_catalog.py \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_benchmark_inventory_v2.py \
+            -q --tb=short
+          python dev/validation/fix_docs_links.py --check
+          python dev/validation/check_docs_contracts.py
+          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
+          git diff --check
+      - name: Commit clean review tree
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
-          if grep -q '^patch_rc=0$' dev/validation/pr126_fresh_review_result.txt \
-             && grep -q '^pytest_rc=0$' dev/validation/pr126_fresh_review_result.txt \
-             && grep -q '^docs_links_rc=0$' dev/validation/pr126_fresh_review_result.txt \
-             && grep -q '^docs_contracts_rc=0$' dev/validation/pr126_fresh_review_result.txt \
-             && grep -q '^compile_rc=0$' dev/validation/pr126_fresh_review_result.txt \
-             && grep -q '^diff_rc=0$' dev/validation/pr126_fresh_review_result.txt; then
-            git add \
-              dev/benchmarks/validate_panel_stage_c_gpu.py \
-              dev/tests/test_panel_stage_c_final_review_fixes.py \
-              dev/tests/test_panel_stage_c_physical_runner_contract.py \
-              docs/en/panel/diagnostics.md \
-              docs/cn/panel/diagnostics.md \
-              CHANGELOG.md \
-              dev/reviews/pr126_final_review_2026-08-17.md
-            git commit -m "test: extend panel extreme-scale acceptance"
-            git push origin HEAD:agent/panel-p1-stage-c-covariance
-          else
-            git add dev/validation/pr126_fresh_review_result.txt
-            git commit -m "ci: record PR126 fresh evidence followup failure"
-            git push origin HEAD:agent/panel-p1-stage-c-covariance
-          fi
+          git add -A docs/en/changelog.md docs/cn/changelog.md dev/validation
+          git commit -m "chore: clean PR126 review scaffolding"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
