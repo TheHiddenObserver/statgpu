@@ -59,7 +59,9 @@ jobs:
           print('PRE_FIX_EXPECTED', expected.tolist())
           PY
       - name: Apply reviewed multicomponent fix
-        run: python dev/validation/pr126_review_fix_multicomponent_once.py
+        run: |
+          python dev/validation/pr126_review_fix_multicomponent_once.py
+          python dev/validation/pr126_review_fix_rowwise_expansion_once.py
       - name: Run focused review regressions
         run: |
           python -m pytest \
