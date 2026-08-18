@@ -7,23 +7,23 @@ ______ test_cluster_group_reduction_survives_finite_partial_sum_overflow _______
 dev/tests/test_panel_stage_c_covariance.py:392: in test_cluster_group_reduction_survives_finite_partial_sum_overflow
     assert np.all(np.isfinite(cov))
 E   AssertionError: assert False
-E    +  where False = <function all at 0x7f80c11340f0>(array([[False]]))
-E    +    where <function all at 0x7f80c11340f0> = np.all
+E    +  where False = <function all at 0x7f8e8af20f70>(array([[False]]))
+E    +    where <function all at 0x7f8e8af20f70> = np.all
 E    +    and   array([[False]]) = <ufunc 'isfinite'>(array([[inf]]))
 E    +      where <ufunc 'isfinite'> = np.isfinite
 =============================== warnings summary ===============================
 dev/tests/test_panel_stage_c_covariance.py::test_cluster_group_reduction_survives_finite_partial_sum_overflow
-  /home/runner/work/statgpu/statgpu/statgpu/panel/_covariance.py:273: RuntimeWarning: overflow encountered in matmul
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_covariance.py:284: RuntimeWarning: overflow encountered in matmul
     cov = _symmetrize(grouped.T @ grouped * float(correction))
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
 FAILED dev/tests/test_panel_stage_c_covariance.py::test_cluster_group_reduction_survives_finite_partial_sum_overflow - AssertionError: assert False
- +  where False = <function all at 0x7f80c11340f0>(array([[False]]))
- +    where <function all at 0x7f80c11340f0> = np.all
+ +  where False = <function all at 0x7f8e8af20f70>(array([[False]]))
+ +    where <function all at 0x7f8e8af20f70> = np.all
  +    and   array([[False]]) = <ufunc 'isfinite'>(array([[inf]]))
  +      where <ufunc 'isfinite'> = np.isfinite
-1 failed, 38 passed, 1 warning in 2.51s
+1 failed, 38 passed, 1 warning in 2.50s
 inference_guard=0
 torch_stage_a=0
 torch_stage_b=1
@@ -49,7 +49,7 @@ Not equal to tolerance rtol=0, atol=0
 x and y +inf location mismatch:
  x: array([[inf]])
  y: array([[0.]])
-1 failed, 9 passed in 1.87s
+1 failed, 9 passed in 1.86s
 physical_contract=1
 
 --- physical_contract tail ---
@@ -63,12 +63,12 @@ dev/benchmarks/validate_panel_stage_c_gpu.py:458: in _covariance_extreme_scale_a
 E   AssertionError: numpy: group_cancellation produced non-finite covariance
 =============================== warnings summary ===============================
 dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_covariance_extreme_scale_audit_is_executable
-  /home/runner/work/statgpu/statgpu/statgpu/panel/_covariance.py:273: RuntimeWarning: overflow encountered in matmul
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_covariance.py:284: RuntimeWarning: overflow encountered in matmul
     cov = _symmetrize(grouped.T @ grouped * float(correction))
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
 FAILED dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_covariance_extreme_scale_audit_is_executable - AssertionError: numpy: group_cancellation produced non-finite covariance
-1 failed, 9 passed, 1 warning in 2.18s
+1 failed, 9 passed, 1 warning in 2.29s
 compile=0
 diff_check=0
