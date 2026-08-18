@@ -28,20 +28,13 @@ jobs:
       - name: Apply patch and capture focused result
         run: |
           set +e
-          python - <<'PY' > /tmp/patch.log 2>&1
-          from pathlib import Path
-          import runpy
-          text = Path('statgpu/panel/_linalg.py').read_text(encoding='utf-8')
-          if 'def _lstsq_working_design' in text:
-              print('tiny-design patch already present; patch step skipped')
-          else:
-              runpy.run_path('dev/validation/pr126_panel_tiny_design_once.py', run_name='__main__')
-          PY
+          python dev/validation/pr126_panel_numeric_final_once.py > /tmp/patch.log 2>&1
           patch_rc=$?
           if [ "$patch_rc" -eq 0 ]; then
             python -m pytest \
               dev/tests/test_fama_macbeth_batched_solver.py \
               dev/tests/test_fama_macbeth_review_fixes.py \
+              dev/tests/test_fama_macbeth_inference_matrix.py \
               dev/tests/test_panel_stage_b_fit_statistics.py \
               dev/tests/test_panel_stage_c_full_rank_conditioning.py \
               -q --tb=short > /tmp/pytest.log 2>&1
@@ -51,7 +44,11 @@ jobs:
             echo "pytest skipped because patch failed" > /tmp/pytest.log
           fi
           if [ "$patch_rc" -eq 0 ] && [ "$test_rc" -eq 0 ]; then
-            python -m py_compile statgpu/panel/_linalg.py dev/benchmarks/validate_panel_stage_c_gpu.py
+            python -m py_compile \
+              statgpu/panel/_linalg.py \
+              statgpu/panel/_fama_macbeth.py \
+              dev/benchmarks/validate_panel_stage_c_gpu.py \
+              dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py
             compile_rc=$?
             git diff --check
             diff_rc=$?
@@ -69,7 +66,7 @@ jobs:
             echo "--- pytest log ---"
             cat /tmp/pytest.log
           } > dev/validation/pr126_tiny_design_result.txt
-          tail -200 dev/validation/pr126_tiny_design_result.txt
+          tail -240 dev/validation/pr126_tiny_design_result.txt
           exit 0
       - name: Commit substantive fix or diagnostics
         run: |
@@ -84,11 +81,11 @@ jobs:
               dev/tests/test_fama_macbeth_batched_solver.py \
               dev/benchmarks/validate_panel_stage_c_gpu.py
             if ! git diff --cached --quiet; then
-              git commit -m "fix: stabilize tiny panel designs"
+              git commit -m "fix: stabilize panel numerical fallbacks"
               git push origin HEAD:agent/panel-p1-stage-c-covariance
             fi
           else
             git add dev/validation/pr126_tiny_design_result.txt
-            git commit -m "ci: record PR126 tiny-design failure"
+            git commit -m "ci: record PR126 shared-linalg failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
