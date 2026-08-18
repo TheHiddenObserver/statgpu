@@ -415,3 +415,13 @@ def test_stage_c_torch_cpu_pregram_and_two_way_component_cancellation():
     reference = clustered_covariance(X2, resid2, pairs, xp=torch)
     actual = two_way_clustered_covariance(X2, resid2, unique, pairs, xp=torch)
     assert_allclose(actual, reference, rtol=3.0e-13, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_delays_tiny_design_scale_until_group_cancellation():
+    tiny = 1.0e-320
+    X = torch.ones((4, 1), dtype=torch.float64) * tiny
+    resid = torch.as_tensor([1.0, -1.0, 1.0, -1.0], dtype=torch.float64)
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    actual = clustered_covariance(X, resid, groups, xp=torch)
+    assert_allclose(actual, np.zeros((1, 1)), rtol=0.0, atol=0.0)

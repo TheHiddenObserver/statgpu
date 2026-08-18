@@ -478,3 +478,18 @@ def test_two_way_cluster_combines_components_before_overflowing_restore():
     assert np.all(np.isfinite(reference))
     assert np.all(np.isfinite(actual))
     np.testing.assert_allclose(actual, reference, rtol=3.0e-14, atol=0.0)
+
+
+
+def test_clustered_covariance_delays_tiny_design_scale_until_after_group_cancellation():
+    tiny = 1.0e-320
+    X = np.ones((4, 1), dtype=np.float64) * tiny
+    resid = np.asarray([1.0, -1.0, 1.0, -1.0], dtype=np.float64)
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+
+    # The single-column design has condition number one.  Original-scale
+    # observation influences exceed DBL_MAX, but each cluster score is exactly
+    # zero, so the mathematically defined cluster covariance is zero.
+    actual = clustered_covariance(X, resid, groups)
+    assert np.all(np.isfinite(actual))
+    np.testing.assert_allclose(actual, np.zeros((1, 1)), rtol=0.0, atol=0.0)
