@@ -29,8 +29,15 @@ jobs:
         run: |
           set +e
           python dev/validation/pr126_covariance_working_scale_once.py > /tmp/patch.log 2>&1
-          patch_rc=$?
-          if [ "$patch_rc" -eq 0 ]; then
+          first_rc=$?
+          if [ "$first_rc" -eq 0 ]; then
+            python dev/validation/pr126_covariance_working_scale_followup.py >> /tmp/patch.log 2>&1
+            second_rc=$?
+          else
+            second_rc=99
+          fi
+          if [ "$first_rc" -eq 0 ] && [ "$second_rc" -eq 0 ]; then
+            patch_rc=0
             python -m pytest \
               dev/tests/test_panel_stage_c_final_review_fixes.py \
               dev/tests/test_panel_stage_c_covariance.py \
@@ -44,6 +51,7 @@ jobs:
             git diff --check > /tmp/diff.log 2>&1
             diff_rc=$?
           else
+            patch_rc=1
             pytest_rc=99
             compile_rc=99
             diff_rc=99
@@ -52,6 +60,8 @@ jobs:
             echo "diff-check skipped because patch failed" > /tmp/diff.log
           fi
           {
+            echo "first_patch_rc=$first_rc"
+            echo "second_patch_rc=$second_rc"
             echo "patch_rc=$patch_rc"
             echo "pytest_rc=$pytest_rc"
             echo "compile_rc=$compile_rc"
@@ -65,7 +75,7 @@ jobs:
             echo "--- diff log ---"
             cat /tmp/diff.log
           } > dev/validation/pr126_covariance_working_scale_result.txt
-          tail -260 dev/validation/pr126_covariance_working_scale_result.txt
+          tail -280 dev/validation/pr126_covariance_working_scale_result.txt
           exit 0
       - name: Commit substantive fix or diagnostic
         run: |
@@ -79,6 +89,7 @@ jobs:
               statgpu/panel/_linalg.py \
               statgpu/panel/_covariance.py \
               statgpu/panel/_diagnostics.py \
+              statgpu/panel/_diagnostic_context.py \
               dev/tests/test_panel_stage_c_final_review_fixes.py
             if ! git diff --cached --quiet; then
               git commit -m "fix: stabilize panel covariance working scale"
