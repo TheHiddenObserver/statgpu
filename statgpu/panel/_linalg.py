@@ -86,6 +86,22 @@ def _lstsq_working_design(X, xp, *, batched: bool):
     return X * factor, factor
 
 
+def panel_svd_working_pseudoinverse(X, xp):
+    """Return a safe working-design pseudoinverse and its rescaling factor.
+
+    The returned pseudoinverse belongs to ``X_work = design_scale * X``.
+    Consumers that combine the pseudoinverse with residual or covariance scale
+    can therefore apply ``design_scale`` only after those smaller quantities
+    have reduced the dynamic range, instead of materializing an unrepresentable
+    original-scale ``X+`` or ``X+ X+^T`` first.  The rank policy is identical to
+    :func:`panel_lstsq`.
+    """
+    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
+    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
+    X_pinv_work = (Vh.T * inverse_values) @ U.T
+    return X_work, X_pinv_work, design_scale, rank
+
+
 def panel_svd_pseudoinverse(X, xp):
     """Return X+, (X'X)+, and rank from one explicit float64 SVD mask."""
     U, Vh, inverse_values, rank = _svd_inverse_factors(X, xp)

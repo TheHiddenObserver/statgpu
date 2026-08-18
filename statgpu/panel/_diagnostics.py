@@ -254,19 +254,27 @@ def _classical_model_f(
         return None, None, None, metadata
 
     resid = y - X @ params.ravel()
-    rss_u = _to_float_scalar(xp.sum(resid * resid))
     if restricted_X is not None:
-        if rank_r < int(restricted_X.shape[1]):
-            beta_r, _ = panel_lstsq(restricted_X, y, xp)
-        else:
-            beta_r = xp.linalg.pinv(restricted_X) @ y
+        beta_r, _ = panel_lstsq(restricted_X, y, xp)
         resid_r = y - restricted_X @ beta_r
-        rss_r = _to_float_scalar(xp.sum(resid_r * resid_r))
     elif has_constant:
-        y_r = y - xp.mean(y)
-        rss_r = _to_float_scalar(xp.sum(y_r * y_r))
+        resid_r = y - _scaled_mean(y, xp)
     else:
-        rss_r = _to_float_scalar(xp.sum(y * y))
+        resid_r = y
+
+    # F is invariant to a common positive residual scale. Work with one shared
+    # scale so tiny nonzero unrestricted RSS is not rounded to zero and huge
+    # restricted/unrestricted RSS values do not become Inf/Inf before the ratio.
+    common_scale = xp.maximum(xp.max(xp.abs(resid)), xp.max(xp.abs(resid_r)))
+    common_scale_value = _to_float_scalar(common_scale)
+    if common_scale_value == 0.0:
+        rss_u = 0.0
+        rss_r = 0.0
+    else:
+        resid_u_scaled = resid / common_scale
+        resid_r_scaled = resid_r / common_scale
+        rss_u = _to_float_scalar(xp.sum(resid_u_scaled * resid_u_scaled))
+        rss_r = _to_float_scalar(xp.sum(resid_r_scaled * resid_r_scaled))
 
     diff = rss_r - rss_u
     tol = _relative_tolerance(rss_r, rss_u)
@@ -274,6 +282,8 @@ def _classical_model_f(
         metadata["unavailable_reason"] = "restricted RSS is materially below unrestricted RSS"
         metadata["rss_restricted"] = float(rss_r)
         metadata["rss_unrestricted"] = float(rss_u)
+        metadata["rss_common_scale"] = float(common_scale_value)
+        metadata["rss_values_are_common_scale_normalized"] = True
         return None, None, None, metadata
     if diff < 0.0:
         diff = 0.0
@@ -281,7 +291,11 @@ def _classical_model_f(
 
     metadata["rss_restricted"] = float(rss_r)
     metadata["rss_unrestricted"] = float(rss_u)
-    if rss_u <= tol:
+    metadata["rss_common_scale"] = float(common_scale_value)
+    metadata["rss_values_are_common_scale_normalized"] = True
+    # The common-scale reduction already prevents underflow. A merely small
+    # unrestricted RSS is a large finite F statistic, not an exact fit.
+    if rss_u == 0.0:
         if diff > tol:
             metadata["exact_fit"] = True
             return (
@@ -411,7 +425,7 @@ def _pooling_f_from_sums(
         diff = 0.0
         meta["roundoff_normalized"] = True
 
-    if float(rss_effects) <= tol:
+    if float(rss_effects) == 0.0:
         if diff > tol:
             meta["exact_fit"] = True
             return _applicable(

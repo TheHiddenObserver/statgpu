@@ -29,7 +29,10 @@ from statgpu.backends import (
     xp_asarray,
     xp_zeros,
 )
-from statgpu.panel._linalg import panel_svd_pseudoinverse
+from statgpu.panel._linalg import (
+    panel_svd_pseudoinverse,
+    panel_svd_working_pseudoinverse,
+)
 from statgpu.panel._utils import factorize_panel_metadata
 
 
@@ -85,10 +88,15 @@ def _gram_inverse(X, xp, *, rank_aware: bool = False):
 
 
 def _influence_rows(X, resid, xp):
-    """Return observation OLS influence rows e_i * ((X+)')_i."""
-    X_pinv, bread, rank = _design_pseudoinverse(X, xp)
-    influence = X_pinv.T * resid[:, None]
-    return influence, X_pinv, bread, rank
+    """Return stable observation influence rows plus working projection factors."""
+    X_work, X_pinv_work, design_scale, rank = panel_svd_working_pseudoinverse(
+        X, xp
+    )
+    # X+ = design_scale * X_work+.  Multiply residuals before restoring the
+    # design scale so a tiny full-rank design does not overflow X+ even when the
+    # final influence and covariance remain representable.
+    influence = (X_pinv_work.T * resid[:, None]) * design_scale
+    return influence, X_pinv_work, X_work, rank
 
 
 def _symmetrize(matrix):
@@ -469,7 +477,7 @@ def driscoll_kraay_covariance(
 def _hc_covariance(
     X, resid, *, kind: str, xp, metadata: Optional[dict] = None
 ):
-    influence, X_pinv, _bread, rank = _influence_rows(X, resid, xp)
+    influence, X_pinv_work, X_work, rank = _influence_rows(X, resid, xp)
     if kind == "hc0":
         if metadata is not None:
             metadata.update(
@@ -481,11 +489,13 @@ def _hc_covariance(
             )
         return _symmetrize(influence.T @ influence)
 
-    projection_rows = X_pinv.T
+    projection_rows = X_pinv_work.T
+    # Leverage is invariant to the uniform working-design rescaling:
+    # X X+ = X_work X_work+.  Evaluate it entirely at the safe working scale.
     if _is_torch(xp):
-        leverage = xp.sum(X * projection_rows, dim=1)
+        leverage = xp.sum(X_work * projection_rows, dim=1)
     else:
-        leverage = xp.sum(X * projection_rows, axis=1)
+        leverage = xp.sum(X_work * projection_rows, axis=1)
     leverage_min = _to_float_scalar(xp.min(leverage))
     leverage_max = _to_float_scalar(xp.max(leverage))
     tol = 4096.0 * np.finfo(np.float64).eps
@@ -504,12 +514,11 @@ def _hc_covariance(
             "HC2/HC3 covariance is undefined when leverage is numerically one"
         )
     if kind == "hc2":
-        adjusted_resid = resid / xp.sqrt(denominator)
+        adjusted_influence = influence / xp.sqrt(denominator)[:, None]
     elif kind == "hc3":
-        adjusted_resid = resid / denominator
+        adjusted_influence = influence / denominator[:, None]
     else:
         raise ValueError(f"unknown HC covariance kind {kind!r}")
-    adjusted_influence = projection_rows * adjusted_resid[:, None]
     if metadata is not None:
         metadata.update(
             {
@@ -569,8 +578,18 @@ def ols_covariance(
     if name == "nonrobust":
         if scale is None:
             raise ValueError("scale is required for nonrobust covariance")
-        _X_pinv, bread, _rank = _design_pseudoinverse(X, xp)
-        return _symmetrize(float(scale) * bread)
+        scale_value = float(scale)
+        if not np.isfinite(scale_value) or scale_value < 0.0:
+            raise ValueError("scale must be finite and non-negative")
+        _X_work, X_pinv_work, design_scale, _rank = (
+            panel_svd_working_pseudoinverse(X, xp)
+        )
+        # scale * X+ X+^T = A A^T with
+        # A = sqrt(scale) * design_scale * X_work+.  Apply sqrt(scale) before
+        # restoring the potentially large design scale so a representable final
+        # covariance is not rejected merely because the raw bread overflows.
+        scaled_pinv = (X_pinv_work * float(np.sqrt(scale_value))) * design_scale
+        return _symmetrize(scaled_pinv @ scaled_pinv.T)
 
     if name == "robust":
         influence, _X_pinv, _bread, _rank = _influence_rows(X, resid, xp)

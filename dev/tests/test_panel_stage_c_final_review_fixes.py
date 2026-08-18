@@ -7,6 +7,9 @@ import pytest
 from numpy.testing import assert_allclose
 
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel._covariance import clustered_covariance, ols_covariance
+from statgpu.panel._diagnostics import _classical_model_f
+from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import demean_variables
 
 
@@ -661,3 +664,85 @@ def test_torch_cpu_two_way_projection_and_prediction_match_numpy():
     )
     assert_allclose(actual.coef_, expected.coef_, rtol=2e-9, atol=2e-11)
     assert_allclose(actual_prediction, expected_prediction, rtol=2e-9, atol=2e-10)
+
+
+
+def test_tiny_design_nonrobust_covariance_preserves_representable_final_scale():
+    # X+X+^T is about 2.5e399 and cannot be materialized in float64, but
+    # scale * bread is only 2.5e299 and is a valid public covariance.
+    X = np.full((4, 1), 1.0e-200, dtype=np.float64)
+    resid = np.zeros(4, dtype=np.float64)
+    actual = ols_covariance(
+        X,
+        resid,
+        cov_type="nonrobust",
+        scale=1.0e-100,
+    )
+    assert np.all(np.isfinite(actual))
+    assert_allclose(actual, np.asarray([[2.5e299]]), rtol=8e-14, atol=0.0)
+
+
+@pytest.mark.parametrize(
+    ("cov_type", "multiplier"),
+    [("hc0", 1.0), ("hc2", 1.0 / 0.75), ("hc3", 1.0 / (0.75 * 0.75))],
+)
+def test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow(
+    cov_type, multiplier
+):
+    # The original-scale X+ is above DBL_MAX, while each final influence row is
+    # about 2.5e149 and the covariance remains representable.
+    X = np.full((4, 1), 1.0e-310, dtype=np.float64)
+    resid = np.asarray([1.0e-160, -1.0e-160, 1.0e-160, -1.0e-160])
+    actual = ols_covariance(X, resid, cov_type=cov_type)
+    expected = 2.5e299 * multiplier
+    assert np.all(np.isfinite(actual))
+    assert_allclose(actual, np.asarray([[expected]]), rtol=2e-13, atol=0.0)
+
+
+def test_subnormal_design_clustered_covariance_uses_stable_influence_rows():
+    X = np.full((4, 1), 1.0e-310, dtype=np.float64)
+    resid = np.asarray([1.0e-160, 1.0e-160, -1.0e-160, -1.0e-160])
+    cluster = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    actual = clustered_covariance(X, resid, cluster)
+    assert np.all(np.isfinite(actual))
+    assert_allclose(actual, np.asarray([[5.0e299]]), rtol=2e-13, atol=0.0)
+
+
+def test_subnormal_design_hc0_torch_cpu_matches_numpy_working_scale():
+    torch = pytest.importorskip("torch")
+    X_np = np.full((4, 1), 1.0e-310, dtype=np.float64)
+    resid_np = np.asarray([1.0e-160, -1.0e-160, 1.0e-160, -1.0e-160])
+    expected = ols_covariance(X_np, resid_np, cov_type="hc0")
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    resid = torch.as_tensor(resid_np, dtype=torch.float64)
+    actual = ols_covariance(X, resid, cov_type="hc0", xp=torch)
+    assert torch.all(torch.isfinite(actual))
+    assert_allclose(
+        actual.detach().cpu().numpy(), expected, rtol=3e-12, atol=0.0
+    )
+
+
+def test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver():
+    tiny = 1.0e-310
+    z = np.linspace(-1.0, 1.0, 8, dtype=np.float64)
+    X = tiny * np.column_stack([np.ones(z.size), z])
+    beta = np.asarray([1.0e160, 2.0e160], dtype=np.float64)
+    noise = 1.0e-160 * np.asarray([1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0])
+    y = X @ beta + noise
+    params, rank = panel_lstsq(X, y, np)
+    assert rank == 2
+    restricted = X[:, :1]
+    statistic, pvalue, df, metadata = _classical_model_f(
+        y,
+        X,
+        params,
+        xp=np,
+        df_resid=6,
+        has_constant=False,
+        restricted_X=restricted,
+    )
+    assert statistic is not None and np.isfinite(statistic) and statistic > 0.0
+    assert pvalue is not None and np.isfinite(pvalue)
+    assert df == (1.0, 6.0)
+    assert np.isfinite(metadata["rss_restricted"])
+    assert np.isfinite(metadata["rss_unrestricted"])
