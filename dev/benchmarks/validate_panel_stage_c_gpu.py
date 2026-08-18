@@ -456,6 +456,12 @@ def _covariance_extreme_scale_audit(backend):
     resid_tiny_cluster_np = np.asarray([1.0, -1.0, 1.0, -1.0], dtype=np.float64)
     tiny_cluster_groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
 
+    X_mixed_np = np.ones((3, 1), dtype=np.float64)
+    resid_mixed_np = np.asarray([1.5e308, -1.5e308, 3.0e-100], dtype=np.float64)
+    mixed_coarse = np.asarray([0, 0, 1], dtype=np.int64)
+    mixed_unique = np.asarray([0, 1, 2], dtype=np.int64)
+    mixed_time = np.asarray([0, 0, 1], dtype=np.int64)
+
     if backend == "numpy":
         xp = np
         X, resid = X_np, resid_np
@@ -465,6 +471,7 @@ def _covariance_extreme_scale_audit(backend):
         X_pregram, resid_pregram = X_pregram_np, resid_pregram_np
         X_component, resid_component = X_component_np, resid_component_np
         X_tiny_cluster, resid_tiny_cluster = X_tiny_cluster_np, resid_tiny_cluster_np
+        X_mixed, resid_mixed = X_mixed_np, resid_mixed_np
     elif backend == "cupy":
         import cupy as cp
         xp = cp
@@ -476,6 +483,7 @@ def _covariance_extreme_scale_audit(backend):
         X_component, resid_component = cp.asarray(X_component_np), cp.asarray(resid_component_np)
         X_tiny_cluster = cp.asarray(X_tiny_cluster_np)
         resid_tiny_cluster = cp.asarray(resid_tiny_cluster_np)
+        X_mixed, resid_mixed = cp.asarray(X_mixed_np), cp.asarray(resid_mixed_np)
     elif backend == "torch":
         import torch
         xp = torch
@@ -492,6 +500,8 @@ def _covariance_extreme_scale_audit(backend):
         resid_component = torch.as_tensor(resid_component_np, dtype=torch.float64, device="cuda")
         X_tiny_cluster = torch.as_tensor(X_tiny_cluster_np, dtype=torch.float64, device="cuda")
         resid_tiny_cluster = torch.as_tensor(resid_tiny_cluster_np, dtype=torch.float64, device="cuda")
+        X_mixed = torch.as_tensor(X_mixed_np, dtype=torch.float64, device="cuda")
+        resid_mixed = torch.as_tensor(resid_mixed_np, dtype=torch.float64, device="cuda")
     else:
         raise ValueError(backend)
 
@@ -533,7 +543,14 @@ def _covariance_extreme_scale_audit(backend):
             X_tiny_cluster, resid_tiny_cluster, tiny_cluster_groups, xp=xp
         )
     )
-    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster)):
+    mixed_cluster = _array(clustered_covariance(X_mixed, resid_mixed, mixed_coarse, xp=xp))
+    mixed_two_way = _array(two_way_clustered_covariance(
+        X_mixed, resid_mixed, mixed_unique, mixed_coarse, xp=xp
+    ))
+    mixed_dk = _array(driscoll_kraay_covariance(
+        X_mixed, resid_mixed, mixed_time, bandwidth=0, xp=xp
+    ))
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_dk", mixed_dk)):
         if not np.all(np.isfinite(value)):
             raise AssertionError(f"{backend}: {name} produced non-finite covariance")
     np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
@@ -563,6 +580,9 @@ def _covariance_extreme_scale_audit(backend):
     np.testing.assert_allclose(
         tiny_design_cluster, np.zeros((1, 1)), rtol=0.0, atol=0.0
     )
+    np.testing.assert_allclose(mixed_cluster, np.asarray([[1.0e-200]]), rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(mixed_two_way, mixed_cluster, rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(mixed_dk, np.asarray([[1.5e-200]]), rtol=8e-13, atol=0.0)
     return {
         "status": "success",
         "backend": backend,
@@ -577,6 +597,9 @@ def _covariance_extreme_scale_audit(backend):
         "pregram_driscoll_kraay": pregram_dk.tolist(),
         "two_way_component_cancellation": component_two_way.tolist(),
         "tiny_design_cluster_cancellation": tiny_design_cluster.tolist(),
+        "mixed_cluster": mixed_cluster.tolist(),
+        "mixed_two_way": mixed_two_way.tolist(),
+        "mixed_driscoll_kraay": mixed_dk.tolist(),
     }
 
 

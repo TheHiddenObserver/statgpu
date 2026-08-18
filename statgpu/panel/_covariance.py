@@ -87,47 +87,86 @@ def _gram_inverse(X, xp, *, rank_aware: bool = False):
     return bread, rank
 
 
-def _influence_rows(X, resid, xp):
-    """Return finite working influence rows and delayed positive restore scales.
+def _column_abs_max(values, xp):
+    if _is_torch(xp):
+        return xp.max(xp.abs(values), dim=0).values
+    return xp.max(xp.abs(values), axis=0)
 
-    Both the tiny-design SVD factor and any response magnitude above one are
-    kept outside the observation-level score.  Covariance definitions can then
-    perform grouping and lag cancellation before restoring either physical
-    scale.  Values at or below unit magnitude are never normalized, preserving
-    ordinary and subnormal residual coordinates.
+
+def _projection_product_working_values(projection_rows, resid, xp):
+    """Scale projection coordinates only when projection*residual could overflow.
+
+    The scale is the smallest per-coordinate factor needed to leave a factor-two
+    range margin.  If the raw multiplication is already safe, the projection is
+    left bit-for-bit unchanged; in particular, ordinary/subnormal-design paths
+    do not pay an avoidable normalization round trip.
+    """
+    projection_max = _column_abs_max(projection_rows, xp)
+    resid_max = xp.max(xp.abs(resid))
+    resid_bound = xp.maximum(resid_max, xp.ones_like(resid_max))
+    safe_projection = (0.5 * float(np.finfo(np.float64).max)) / resid_bound
+    one = xp.ones_like(projection_max)
+    scale = xp.where(
+        projection_max > safe_projection,
+        projection_max / safe_projection,
+        one,
+    )
+    return projection_rows / scale, scale
+
+
+def _gram_working_values(values, xp, *, max_multiplier: float = 1.0):
+    """Apply only the per-coordinate scaling required for a safe Gram reduction."""
+    n_terms = max(1, int(values.shape[0]))
+    multiplier = max(1.0, abs(float(max_multiplier)))
+    threshold = float(
+        np.sqrt(0.25 * np.finfo(np.float64).max / (float(n_terms) * multiplier))
+    )
+    max_abs = _column_abs_max(values, xp)
+    one = xp.ones_like(max_abs)
+    scale = xp.where(max_abs > threshold, max_abs / threshold, one)
+    return values / scale, scale
+
+
+def _common_gram_working_values(values_list, xp, *, max_multiplier: float = 1.0):
+    """Put several grouped-score matrices on one minimally scaled Gram space."""
+    max_abs = _column_abs_max(values_list[0], xp)
+    n_terms = int(values_list[0].shape[0])
+    for values in values_list[1:]:
+        max_abs = xp.maximum(max_abs, _column_abs_max(values, xp))
+        n_terms = max(n_terms, int(values.shape[0]))
+    multiplier = max(1.0, abs(float(max_multiplier)))
+    threshold = float(
+        np.sqrt(0.25 * np.finfo(np.float64).max / (float(max(1, n_terms)) * multiplier))
+    )
+    one = xp.ones_like(max_abs)
+    scale = xp.where(max_abs > threshold, max_abs / threshold, one)
+    return [values / scale for values in values_list], scale
+
+
+def _influence_rows(X, resid, xp):
+    """Return finite influence rows with only unavoidable product scaling delayed.
+
+    The SVD working-design pseudoinverse is rescaled only if multiplying a
+    coordinate by the largest finite residual could overflow.  The original
+    residual vector is never globally normalized, so unrelated tiny/subnormal
+    residual contributions survive beside very large observations.
     """
     X_work, X_pinv_work, design_scale, rank = panel_svd_working_pseudoinverse(
         X, xp
     )
-    resid_max = xp.max(xp.abs(resid))
-    resid_scale = xp.maximum(resid_max, xp.ones_like(resid_max))
-    resid_work = resid / resid_scale
-    influence_work = X_pinv_work.T * resid_work[:, None]
+    projection_rows = X_pinv_work.T
+    projection_work, projection_scale = _projection_product_working_values(
+        projection_rows, resid, xp
+    )
+    influence_work = projection_work * resid[:, None]
     return (
         influence_work,
-        resid_scale,
+        projection_scale,
         design_scale,
         X_pinv_work,
         X_work,
         rank,
     )
-
-
-def _column_working_values(values, xp):
-    """Return per-coordinate unit values with restore scales bounded below by one.
-
-    Only coordinates whose absolute magnitude exceeds one are normalized.  This
-    keeps ordinary/tiny coordinates on their original scale while ensuring that
-    Gram and lag products are formed from values with absolute magnitude at most
-    one.  The restore scales are therefore all >= 1, so restoring a finite final
-    covariance cannot overflow before that final value is reached.
-    """
-    if _is_torch(xp):
-        max_abs = xp.max(xp.abs(values), dim=0).values
-    else:
-        max_abs = xp.max(xp.abs(values), axis=0)
-    scale = xp.maximum(max_abs, xp.ones_like(max_abs))
-    return values / scale, scale
 
 
 def _restore_coordinate_covariance(covariance, scale, xp):
@@ -145,18 +184,17 @@ def _restore_scalar_covariance(covariance, scale, xp):
 
 
 def _restore_influence_covariance(
-    covariance, coordinate_scale, residual_scale, design_scale, xp
+    covariance, covariance_scale, projection_scale, design_scale, xp
 ):
-    """Restore coordinate, response, then design score scales after cancellation."""
-    covariance = _restore_coordinate_covariance(covariance, coordinate_scale, xp)
-    covariance = _restore_scalar_covariance(covariance, residual_scale, xp)
+    """Restore Gram, projection, then tiny-design scales after cancellation."""
+    covariance = _restore_coordinate_covariance(covariance, covariance_scale, xp)
+    covariance = _restore_coordinate_covariance(covariance, projection_scale, xp)
     return _restore_scalar_covariance(covariance, design_scale, xp)
 
 
-def _cluster_component_from_scores(
+def _cluster_grouped_scores(
     scores, codes, *, n_groups: int, nobs: int, group_debias: bool, xp
 ):
-    """Return one cluster meat on an already-safe common score scale."""
     if int(n_groups) < 2:
         raise ValueError(
             "clustered covariance requires at least two distinct clusters"
@@ -165,8 +203,15 @@ def _cluster_component_from_scores(
     correction = (
         _group_debias_factor(int(n_groups), int(nobs)) if group_debias else 1.0
     )
-    meat = _symmetrize(grouped.T @ grouped * float(correction))
-    return meat, float(correction)
+    return grouped, float(correction)
+
+
+def _cluster_meat_from_grouped(grouped, correction: float, xp):
+    grouped_work, grouped_scale = _gram_working_values(
+        grouped, xp, max_multiplier=correction
+    )
+    meat = _symmetrize(grouped_work.T @ grouped_work * float(correction))
+    return meat, grouped_scale
 
 
 def _symmetrize(matrix):
@@ -404,24 +449,26 @@ def clustered_covariance(
 
     (
         influence,
-        residual_scale,
+        projection_scale,
         design_scale,
         _X_pinv,
         _X_work,
         _rank,
     ) = _influence_rows(X, resid, xp)
-    influence_work, influence_scale = _column_working_values(influence, xp)
     n_clusters = int(len(labels))
-    cov_work, correction = _cluster_component_from_scores(
-        influence_work,
+    grouped, correction = _cluster_grouped_scores(
+        influence,
         cluster_idx,
         n_groups=n_clusters,
         nobs=int(n),
         group_debias=group_debias,
         xp=xp,
     )
+    cov_work, grouped_scale = _cluster_meat_from_grouped(
+        grouped, correction, xp
+    )
     cov = _restore_influence_covariance(
-        cov_work, influence_scale, residual_scale, design_scale, xp
+        cov_work, grouped_scale, projection_scale, design_scale, xp
     )
     if metadata is not None:
         metadata.update(
@@ -458,45 +505,58 @@ def two_way_clustered_covariance(
     c12 = _paired_codes(c1, c2)
     n12 = int(np.max(c12)) + 1 if c12.size else 0
 
-    # All three Cameron-Gelbach-Miller components must be combined on one
-    # common finite score scale. Restoring each component first can produce
-    # Inf - Inf even when the inclusion-exclusion result itself is finite.
+    # All Cameron-Gelbach-Miller grouping is performed before covariance-scale
+    # normalization. Nested cluster dimensions are simplified algebraically, so
+    # an exactly cancelling marginal/intersection pair never has to be rounded.
     (
         influence,
-        residual_scale,
+        projection_scale,
         design_scale,
         _X_pinv,
         _X_work,
         _rank,
     ) = _influence_rows(X, resid, xp)
-    influence_work, influence_scale = _column_working_values(influence, xp)
-    V1_work, correction1 = _cluster_component_from_scores(
-        influence_work,
-        c1,
-        n_groups=int(len(labels1)),
-        nobs=n,
-        group_debias=group_debias,
-        xp=xp,
+    grouped1, correction1 = _cluster_grouped_scores(
+        influence, c1, n_groups=int(len(labels1)), nobs=n,
+        group_debias=group_debias, xp=xp
     )
-    V2_work, correction2 = _cluster_component_from_scores(
-        influence_work,
-        c2,
-        n_groups=int(len(labels2)),
-        nobs=n,
-        group_debias=group_debias,
-        xp=xp,
+    grouped2, correction2 = _cluster_grouped_scores(
+        influence, c2, n_groups=int(len(labels2)), nobs=n,
+        group_debias=group_debias, xp=xp
     )
-    V12_work, correction12 = _cluster_component_from_scores(
-        influence_work,
-        c12,
-        n_groups=n12,
-        nobs=n,
-        group_debias=group_debias,
-        xp=xp,
+    grouped12, correction12 = _cluster_grouped_scores(
+        influence, c12, n_groups=n12, nobs=n,
+        group_debias=group_debias, xp=xp
     )
-    cov_work = _stable_inclusion_exclusion(V1_work, V2_work, V12_work, xp)
+    if np.array_equal(c12, c1):
+        cov_work, common_scale = _cluster_meat_from_grouped(
+            grouped2, correction2, xp
+        )
+    elif np.array_equal(c12, c2):
+        cov_work, common_scale = _cluster_meat_from_grouped(
+            grouped1, correction1, xp
+        )
+    else:
+        multiplier = max(correction1, correction2, correction12)
+        (grouped1_work, grouped2_work, grouped12_work), common_scale = (
+            _common_gram_working_values(
+                [grouped1, grouped2, grouped12],
+                xp,
+                max_multiplier=multiplier,
+            )
+        )
+        V1_work = _symmetrize(
+            grouped1_work.T @ grouped1_work * float(correction1)
+        )
+        V2_work = _symmetrize(
+            grouped2_work.T @ grouped2_work * float(correction2)
+        )
+        V12_work = _symmetrize(
+            grouped12_work.T @ grouped12_work * float(correction12)
+        )
+        cov_work = _stable_inclusion_exclusion(V1_work, V2_work, V12_work, xp)
     cov = _restore_influence_covariance(
-        cov_work, influence_scale, residual_scale, design_scale, xp
+        cov_work, common_scale, projection_scale, design_scale, xp
     )
     if metadata is not None:
         metadata.update(
@@ -543,13 +603,15 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
 
     (
         influence,
-        residual_scale,
+        projection_scale,
         design_scale,
         _X_pinv,
         _X_work,
         _rank,
     ) = _influence_rows(X, resid, xp)
-    influence_work, influence_scale = _column_working_values(influence, xp)
+    influence_work, influence_scale = _gram_working_values(
+        influence, xp, max_multiplier=2.0
+    )
     max_terms = int(bandwidth) + 1
     cov, scaled = _covariance_accumulator_start(
         _symmetrize(influence_work.T @ influence_work), max_terms=max_terms, xp=xp
@@ -569,7 +631,7 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
         cov, scaled, max_terms=max_terms, xp=xp
     )
     return _restore_influence_covariance(
-        cov, influence_scale, residual_scale, design_scale, xp
+        cov, influence_scale, projection_scale, design_scale, xp
     )
 
 
@@ -683,13 +745,12 @@ def driscoll_kraay_covariance(
 
     (
         influence,
-        residual_scale,
+        projection_scale,
         design_scale,
         _X_pinv,
         _X_work,
         rank,
     ) = _influence_rows(X, resid, xp)
-    influence_work, influence_scale = _column_working_values(influence, xp)
     k_columns = int(X.shape[1])
     rank_deficient = rank < k_columns
     df_model = rank if rank_deficient else k_columns
@@ -700,9 +761,11 @@ def driscoll_kraay_covariance(
         )
 
     grouped = _grouped_score_sums(
-        influence_work, time_codes, n_groups=n_periods, xp=xp
+        influence, time_codes, n_groups=n_periods, xp=xp
     )
-    grouped_work, grouped_scale = _column_working_values(grouped, xp)
+    grouped_work, grouped_scale = _gram_working_values(
+        grouped, xp, max_multiplier=2.0
+    )
     bw = _validate_dk_bandwidth(bandwidth, n_periods)
     canonical_kernel, weights_np = _dk_kernel_weights(
         kernel, bw, n_periods - 1
@@ -734,9 +797,8 @@ def driscoll_kraay_covariance(
         cov, scaled, max_terms=max_terms, xp=xp
     )
 
-    cov = _restore_coordinate_covariance(cov, grouped_scale, xp)
     cov = _restore_influence_covariance(
-        cov, influence_scale, residual_scale, design_scale, xp
+        cov, grouped_scale, projection_scale, design_scale, xp
     )
     scale = float(n) / float(denom)
     cov = _symmetrize(scale * cov)
@@ -769,14 +831,14 @@ def _hc_covariance(
 ):
     (
         influence,
-        residual_scale,
+        projection_scale,
         design_scale,
         X_pinv_work,
         X_work,
         rank,
     ) = _influence_rows(X, resid, xp)
     if kind == "hc0":
-        influence_work, influence_scale = _column_working_values(influence, xp)
+        influence_work, influence_scale = _gram_working_values(influence, xp)
         cov_work = _symmetrize(influence_work.T @ influence_work)
         if metadata is not None:
             metadata.update(
@@ -787,7 +849,7 @@ def _hc_covariance(
                 }
             )
         return _restore_influence_covariance(
-            cov_work, influence_scale, residual_scale, design_scale, xp
+            cov_work, influence_scale, projection_scale, design_scale, xp
         )
 
     projection_rows = X_pinv_work.T
@@ -820,7 +882,7 @@ def _hc_covariance(
         adjusted_influence = influence / denominator[:, None]
     else:
         raise ValueError(f"unknown HC covariance kind {kind!r}")
-    adjusted_work, adjusted_scale = _column_working_values(
+    adjusted_work, adjusted_scale = _gram_working_values(
         adjusted_influence, xp
     )
     cov_work = _symmetrize(adjusted_work.T @ adjusted_work)
@@ -835,7 +897,7 @@ def _hc_covariance(
             }
         )
     return _restore_influence_covariance(
-        cov_work, adjusted_scale, residual_scale, design_scale, xp
+        cov_work, adjusted_scale, projection_scale, design_scale, xp
     )
 
 
@@ -934,13 +996,12 @@ def ols_covariance(
     if name == "robust":
         (
             influence,
-            residual_scale,
+            projection_scale,
             design_scale,
             _X_pinv,
             _X_work,
             _rank,
         ) = _influence_rows(X, resid, xp)
-        influence_work, influence_scale = _column_working_values(influence, xp)
         correction = hc1_correction
         if correction is None:
             if df_resid is None or int(df_resid) <= 0:
@@ -956,11 +1017,14 @@ def ols_covariance(
                     "hc1_correction": float(correction),
                 }
             )
+        influence_work, influence_scale = _gram_working_values(
+            influence, xp, max_multiplier=float(correction)
+        )
         cov_work = _symmetrize(
             influence_work.T @ influence_work * float(correction)
         )
         return _restore_influence_covariance(
-            cov_work, influence_scale, residual_scale, design_scale, xp
+            cov_work, influence_scale, projection_scale, design_scale, xp
         )
 
     if name in {"hc0", "hc2", "hc3"}:

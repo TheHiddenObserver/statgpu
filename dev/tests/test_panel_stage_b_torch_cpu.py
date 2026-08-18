@@ -425,3 +425,18 @@ def test_stage_c_torch_cpu_delays_tiny_design_scale_until_group_cancellation():
     groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
     actual = clustered_covariance(X, resid, groups, xp=torch)
     assert_allclose(actual, np.zeros((1, 1)), rtol=0.0, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_preserves_mixed_range_cluster_and_dk_scores():
+    X = torch.ones((3, 1), dtype=torch.float64)
+    resid = torch.as_tensor([1.5e308, -1.5e308, 3.0e-100], dtype=torch.float64)
+    coarse = np.asarray([0, 0, 1], dtype=np.int64)
+    unique = np.asarray([0, 1, 2], dtype=np.int64)
+    time = np.asarray([0, 0, 1], dtype=np.int64)
+    clustered = clustered_covariance(X, resid, coarse, xp=torch)
+    two_way = two_way_clustered_covariance(X, resid, unique, coarse, xp=torch)
+    dk = driscoll_kraay_covariance(X, resid, time, bandwidth=0, xp=torch)
+    assert_allclose(clustered, np.asarray([[1.0e-200]]), rtol=5.0e-13, atol=0.0)
+    assert_allclose(two_way, clustered, rtol=5.0e-13, atol=0.0)
+    assert_allclose(dk, np.asarray([[1.5e-200]]), rtol=6.0e-13, atol=0.0)

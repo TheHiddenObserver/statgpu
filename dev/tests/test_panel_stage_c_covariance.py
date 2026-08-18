@@ -493,3 +493,34 @@ def test_clustered_covariance_delays_tiny_design_scale_until_after_group_cancell
     actual = clustered_covariance(X, resid, groups)
     assert np.all(np.isfinite(actual))
     np.testing.assert_allclose(actual, np.zeros((1, 1)), rtol=0.0, atol=0.0)
+
+
+
+def test_clustered_covariance_preserves_small_group_beside_huge_exact_cancellation():
+    X = np.ones((3, 1), dtype=np.float64)
+    resid = np.asarray([1.5e308, -1.5e308, 3.0e-100], dtype=np.float64)
+    groups = np.asarray([0, 0, 1], dtype=np.int64)
+    actual = clustered_covariance(X, resid, groups)
+    expected = np.asarray([[1.0e-200]], dtype=np.float64)
+    assert actual[0, 0] > 0.0
+    np.testing.assert_allclose(actual, expected, rtol=3.0e-14, atol=0.0)
+
+
+def test_two_way_nested_cluster_preserves_small_component_after_huge_cancellation():
+    X = np.ones((3, 1), dtype=np.float64)
+    resid = np.asarray([1.5e308, -1.5e308, 3.0e-100], dtype=np.float64)
+    unique = np.asarray([0, 1, 2], dtype=np.int64)
+    coarse = np.asarray([0, 0, 1], dtype=np.int64)
+    reference = clustered_covariance(X, resid, coarse)
+    actual = two_way_clustered_covariance(X, resid, unique, coarse)
+    np.testing.assert_allclose(actual, reference, rtol=3.0e-14, atol=0.0)
+
+
+def test_dk_groups_before_gram_scaling_preserves_small_period_score():
+    X = np.ones((3, 1), dtype=np.float64)
+    resid = np.asarray([1.5e308, -1.5e308, 3.0e-100], dtype=np.float64)
+    time = np.asarray([0, 0, 1], dtype=np.int64)
+    actual = driscoll_kraay_covariance(X, resid, time, bandwidth=0)
+    expected = np.asarray([[1.5e-200]], dtype=np.float64)
+    assert actual[0, 0] > 0.0
+    np.testing.assert_allclose(actual, expected, rtol=4.0e-14, atol=0.0)
