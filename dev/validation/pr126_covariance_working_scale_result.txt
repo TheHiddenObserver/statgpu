@@ -1,26 +1,51 @@
-first_patch_rc=0
-second_patch_rc=0
 patch_rc=0
 pytest_rc=1
 compile_rc=0
 diff_rc=0
 --- patch log ---
-PR126 covariance working-scale review fix staged
-PR126 scaled-RSS follow-up staged
+PR126 estimator-scale follow-up staged
 --- pytest log ---
-.....s.ssss...ss..............F......................................... [ 84%]
-.............                                                            [100%]
+.....s.ssss...ss......................FF................................ [ 59%]
+.................................................                        [100%]
 =================================== FAILURES ===================================
-_____ test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver _____
-dev/tests/test_panel_stage_c_final_review_fixes.py:744: in test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver
-    assert statistic is not None and np.isfinite(statistic) and statistic > 0.0
-E   AssertionError: assert (inf is not None and False)
-E    +  where False = <ufunc 'isfinite'>(inf)
-E    +    where <ufunc 'isfinite'> = np.isfinite
+___________ test_pooled_legacy_rsquared_survives_overflowing_raw_rss ___________
+dev/tests/test_panel_stage_c_final_review_fixes.py:877: in test_pooled_legacy_rsquared_survives_overflowing_raw_rss
+    assert np.all(np.isfinite(candidate.cov_params_))
+E   AttributeError: 'PooledOLS' object has no attribute 'cov_params_'
+_ test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows _
+dev/tests/test_panel_stage_c_final_review_fixes.py:898: in test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+    assert np.all(np.isfinite(candidate.cov_params_))
+E   AttributeError: 'RandomEffects' object has no attribute 'cov_params_'
+=============================== warnings summary ===============================
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_nonrobust_scale_overflow_recovers_representable_covariance
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_linalg.py:64: RuntimeWarning: overflow encountered in scalar divide
+    relative = max_abs / float(target)
+
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_diagnostics.py:753: RuntimeWarning: overflow encountered in multiply
+    X_sq = xp.sum(X * X, axis=0)
+
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_diagnostics.py:756: RuntimeWarning: overflow encountered in multiply
+    y_sq = xp.sum(y * y)
+
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_diagnostics.py:141: RuntimeWarning: overflow encountered in scalar multiply
+    return float(np.float64(root) * np.float64(root))
+
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_random_effects.py:426: RuntimeWarning: overflow encountered in multiply
+    ss_res_diag = _to_float_scalar(xp.sum(resid_gls * resid_gls))
+
+dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+  /home/runner/work/statgpu/statgpu/statgpu/panel/_random_effects.py:440: RuntimeWarning: overflow encountered in multiply
+    ss_tot_diag = _to_float_scalar(xp.sum(y_star * y_star))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver - AssertionError: assert (inf is not None and False)
- +  where False = <ufunc 'isfinite'>(inf)
- +    where <ufunc 'isfinite'> = np.isfinite
-1 failed, 77 passed, 7 skipped in 4.13s
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_pooled_legacy_rsquared_survives_overflowing_raw_rss - AttributeError: 'PooledOLS' object has no attribute 'cov_params_'
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows - AttributeError: 'RandomEffects' object has no attribute 'cov_params_'
+2 failed, 112 passed, 7 skipped, 7 warnings in 4.50s
 --- compile log ---
 --- diff log ---
