@@ -579,16 +579,47 @@ def ols_covariance(
         if scale is None:
             raise ValueError("scale is required for nonrobust covariance")
         scale_value = float(scale)
-        if not np.isfinite(scale_value) or scale_value < 0.0:
-            raise ValueError("scale must be finite and non-negative")
+        if np.isnan(scale_value) or scale_value < 0.0:
+            raise ValueError("scale must be non-negative and not NaN")
         _X_work, X_pinv_work, design_scale, _rank = (
             panel_svd_working_pseudoinverse(X, xp)
         )
-        # scale * X+ X+^T = A A^T with
-        # A = sqrt(scale) * design_scale * X_work+.  Apply sqrt(scale) before
-        # restoring the potentially large design scale so a representable final
-        # covariance is not rejected merely because the raw bread overflows.
-        scaled_pinv = (X_pinv_work * float(np.sqrt(scale_value))) * design_scale
+
+        suspicious_scale = (
+            not np.isfinite(scale_value)
+            or (0.0 < scale_value < np.finfo(np.float64).tiny)
+            or (scale_value == 0.0 and _to_float_scalar(xp.max(xp.abs(resid))) > 0.0)
+        )
+        if suspicious_scale:
+            if df_resid is None or int(df_resid) <= 0:
+                raise ValueError(
+                    "positive df_resid is required when nonrobust scale must be "
+                    "reconstructed from residuals"
+                )
+            resid_scale = xp.max(xp.abs(resid))
+            resid_scale_value = _to_float_scalar(resid_scale)
+            if resid_scale_value == 0.0:
+                scaled_pinv = X_pinv_work * 0.0
+            else:
+                resid_unit = resid / resid_scale
+                norm_sq = _to_float_scalar(xp.sum(resid_unit * resid_unit))
+                rms_unit = float(np.sqrt(norm_sq / float(int(df_resid))))
+                # sqrt(scale) = resid_scale * rms_unit.  Multiply the tiny/large
+                # residual scale into the working pseudoinverse before restoring
+                # design_scale; this lets opposite scales cancel while every
+                # intermediate remains representable whenever the final covariance is.
+                scaled_pinv = (
+                    ((X_pinv_work * resid_scale) * design_scale) * rms_unit
+                )
+            if metadata is not None:
+                metadata["nonrobust_scale_reconstructed"] = True
+                metadata["residual_scale"] = float(resid_scale_value)
+        else:
+            # scale * X+ X+^T = A A^T with
+            # A = sqrt(scale) * design_scale * X_work+.
+            scaled_pinv = (
+                X_pinv_work * float(np.sqrt(scale_value))
+            ) * design_scale
         return _symmetrize(scaled_pinv @ scaled_pinv.T)
 
     if name == "robust":

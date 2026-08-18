@@ -90,6 +90,32 @@ def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
     return float(factor) * np.finfo(np.float64).eps * scale
 
 
+def _restore_squared_scale(value: float, scale: float) -> float:
+    """Restore ``value * scale**2`` without avoidable intermediate overflow."""
+    value = float(value)
+    scale = float(scale)
+    if value < 0.0 or scale < 0.0 or np.isnan(value) or np.isnan(scale):
+        return float("nan")
+    if value == 0.0 or scale == 0.0:
+        return 0.0
+    root = float(np.sqrt(value))
+    scaled_root = root * scale
+    return float(scaled_root * scaled_root)
+
+
+def _common_scaled_sumsquares(left, right, xp):
+    """Return two sums of squares normalized by one common backend scale."""
+    scale = xp.maximum(xp.max(xp.abs(left)), xp.max(xp.abs(right)))
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0, 0.0, 0.0
+    left_scaled = left / scale
+    right_scaled = right / scale
+    left_ss = _to_float_scalar(xp.sum(left_scaled * left_scaled))
+    right_ss = _to_float_scalar(xp.sum(right_scaled * right_scaled))
+    return float(left_ss), float(right_ss), float(scale_value)
+
+
 def _safe_r2(ss_res: float, ss_tot: float) -> Tuple[float, bool]:
     """Return linearmodels-style parameter R² and a degenerate-TSS flag."""
     ss_res = float(ss_res)
@@ -280,19 +306,29 @@ def _classical_model_f(
     tol = _relative_tolerance(rss_r, rss_u)
     if diff < -tol:
         metadata["unavailable_reason"] = "restricted RSS is materially below unrestricted RSS"
-        metadata["rss_restricted"] = float(rss_r)
-        metadata["rss_unrestricted"] = float(rss_u)
+        metadata["rss_restricted"] = _restore_squared_scale(
+            rss_r, common_scale_value
+        )
+        metadata["rss_unrestricted"] = _restore_squared_scale(
+            rss_u, common_scale_value
+        )
+        metadata["rss_restricted_normalized"] = float(rss_r)
+        metadata["rss_unrestricted_normalized"] = float(rss_u)
         metadata["rss_common_scale"] = float(common_scale_value)
-        metadata["rss_values_are_common_scale_normalized"] = True
         return None, None, None, metadata
     if diff < 0.0:
         diff = 0.0
         metadata["roundoff_normalized"] = True
 
-    metadata["rss_restricted"] = float(rss_r)
-    metadata["rss_unrestricted"] = float(rss_u)
+    metadata["rss_restricted"] = _restore_squared_scale(
+        rss_r, common_scale_value
+    )
+    metadata["rss_unrestricted"] = _restore_squared_scale(
+        rss_u, common_scale_value
+    )
+    metadata["rss_restricted_normalized"] = float(rss_r)
+    metadata["rss_unrestricted_normalized"] = float(rss_u)
     metadata["rss_common_scale"] = float(common_scale_value)
-    metadata["rss_values_are_common_scale_normalized"] = True
     # The common-scale reduction already prevents underflow. A merely small
     # unrestricted RSS is a large finite F statistic, not an exact fit.
     if rss_u == 0.0:
@@ -353,6 +389,20 @@ def _build_fit_statistics(
         ),
         restricted_X=f_restricted_X,
     )
+    fit_y = y if f_y is None else f_y
+    fit_X = X if f_X is None else f_X
+    fit_params = params if f_params is None else f_params
+    fit_has_constant = (
+        bool(has_constant) if f_has_constant is None else bool(f_has_constant)
+    )
+    fit_resid = fit_y - fit_X @ fit_params.ravel()
+    fit_centered = (
+        fit_y - _scaled_mean(fit_y, xp) if fit_has_constant else fit_y
+    )
+    rss_adj, tss_adj, adjusted_scale = _common_scaled_sumsquares(
+        fit_resid, fit_centered, xp
+    )
+
     meta = {} if metadata is None else dict(metadata)
     meta.setdefault("r2_definition", "parameter-based")
     meta["degenerate_total_ss"] = degenerate
@@ -361,6 +411,8 @@ def _build_fit_statistics(
         "df_resid": int(df_resid),
     }
     meta["model_f"] = f_meta
+    meta["adjusted_r2_common_scale"] = float(adjusted_scale)
+    meta["adjusted_r2_uses_common_scale"] = True
     if entity_codes is None:
         meta.setdefault("unavailable", {})["within_between_r2"] = (
             "entity_ids were not supplied"
@@ -370,8 +422,8 @@ def _build_fit_statistics(
         rsquared_between=between,
         rsquared_overall=overall,
         rsquared_adj=_adjusted_r2(
-            rss=float(rss_fit),
-            tss=float(tss_fit),
+            rss=float(rss_adj),
+            tss=float(tss_adj),
             df_resid=int(df_resid),
             df_total=int(df_total),
         ),
@@ -389,14 +441,28 @@ def _pooling_f_from_sums(
     df_num: int,
     df_denom: int,
     metadata: Optional[Dict[str, Any]] = None,
+    rss_common_scale: Optional[float] = None,
 ) -> PanelTestResult:
     null = "all included fixed effects are jointly zero"
     alternative = "at least one included fixed effect is nonzero"
     meta = {} if metadata is None else dict(metadata)
+    if rss_common_scale is None:
+        rss_pooled_public = float(rss_pooled)
+        rss_effects_public = float(rss_effects)
+    else:
+        rss_pooled_public = _restore_squared_scale(
+            rss_pooled, rss_common_scale
+        )
+        rss_effects_public = _restore_squared_scale(
+            rss_effects, rss_common_scale
+        )
+        meta["rss_pooled_normalized"] = float(rss_pooled)
+        meta["rss_effects_normalized"] = float(rss_effects)
+        meta["rss_common_scale"] = float(rss_common_scale)
     meta.update(
         {
-            "rss_pooled": float(rss_pooled),
-            "rss_effects": float(rss_effects),
+            "rss_pooled": float(rss_pooled_public),
+            "rss_effects": float(rss_effects_public),
             "classical_homoskedastic": True,
         }
     )

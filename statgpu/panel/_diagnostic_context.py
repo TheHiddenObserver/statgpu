@@ -18,6 +18,7 @@ from statgpu.panel._diagnostics import (
     _inapplicable,
     _matrix_rank,
     _pooling_f_from_sums,
+    _restore_squared_scale,
 )
 from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import group_means, group_sizes
@@ -201,6 +202,7 @@ def pooling_f_from_level_arrays(
     rss_effects: float,
     df_resid_effects: int,
     has_constant: bool = False,
+    resid_effects=None,
 ):
     """Construct the nested pooled null on the exact aligned FE level sample."""
     n = int(y.shape[0])
@@ -216,14 +218,36 @@ def pooling_f_from_level_arrays(
     rank_pool = _matrix_rank(X_pool, xp)
     beta_pool, _ = panel_lstsq(X_pool, y_pool, xp)
     resid_pool = y_pool - X_pool @ beta_pool
-    rss_pool = _to_float_scalar(xp.sum(resid_pool * resid_pool))
     df_resid_pool = n - rank_pool - constant_projection_df
     df_num = int(df_resid_pool) - int(df_resid_effects)
+    rss_common_scale = None
+    if resid_effects is None:
+        rss_pool = _to_float_scalar(xp.sum(resid_pool * resid_pool))
+        rss_effects_work = float(rss_effects)
+    else:
+        resid_effects = xp.asarray(resid_effects, dtype=xp.float64).ravel()
+        if int(resid_effects.shape[0]) != n:
+            raise ValueError("resid_effects must match the pooled sample length")
+        common_scale = xp.maximum(
+            xp.max(xp.abs(resid_pool)), xp.max(xp.abs(resid_effects))
+        )
+        rss_common_scale = _to_float_scalar(common_scale)
+        if rss_common_scale == 0.0:
+            rss_pool = 0.0
+            rss_effects_work = 0.0
+        else:
+            pool_unit = resid_pool / common_scale
+            effects_unit = resid_effects / common_scale
+            rss_pool = _to_float_scalar(xp.sum(pool_unit * pool_unit))
+            rss_effects_work = _to_float_scalar(
+                xp.sum(effects_unit * effects_unit)
+            )
     return _pooling_f_from_sums(
         rss_pooled=float(rss_pool),
-        rss_effects=float(rss_effects),
+        rss_effects=float(rss_effects_work),
         df_num=int(df_num),
         df_denom=int(df_resid_effects),
+        rss_common_scale=rss_common_scale,
         metadata={
             "rank_pooled": int(rank_pool),
             "df_resid_pooled": int(df_resid_pool),
@@ -267,9 +291,11 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
             metadata=meta,
         )
 
-    residual_ss = _to_float_scalar(xp.sum(resid * resid))
-    if residual_ss <= 0.0:
-        meta["residual_ss"] = float(residual_ss)
+    residual_scale = xp.max(xp.abs(resid))
+    residual_scale_value = _to_float_scalar(residual_scale)
+    if residual_scale_value == 0.0:
+        residual_ss = 0.0
+        meta["residual_ss"] = 0.0
         return _inapplicable(
             null=null,
             alternative=alternative,
@@ -279,7 +305,9 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
             metadata=meta,
         )
 
-    mean_aligned = group_means(resid, entity_codes, xp=xp)
+    resid_work = resid / residual_scale
+    residual_ss = _to_float_scalar(xp.sum(resid_work * resid_work))
+    mean_aligned = group_means(resid_work, entity_codes, xp=xp)
     sizes_aligned = group_sizes(entity_codes, xp=xp)
     # Repeated aligned values allow scalar reductions without transferring the
     # entity-level residual-sum vector to CPU. sum_i s_i^2 equals
@@ -290,7 +318,16 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
     # Likewise sum_i T_i^2 = sum_obs T_i.
     m11 = _to_float_scalar(xp.sum(sizes_aligned))
     if m11 <= nobs:
-        meta.update({"residual_ss": float(residual_ss), "M11": float(m11)})
+        meta.update(
+            {
+                "residual_ss": _restore_squared_scale(
+                    residual_ss, residual_scale_value
+                ),
+                "residual_ss_normalized": float(residual_ss),
+                "residual_scale": float(residual_scale_value),
+                "M11": float(m11),
+            }
+        )
         return _inapplicable(
             null=null,
             alternative=alternative,
@@ -307,7 +344,11 @@ def bp_lm_from_residuals(resid, entity_codes, *, xp):
     pvalue = _to_float_scalar(dist.sf(statistic, 1.0))
     meta.update(
         {
-            "residual_ss": float(residual_ss),
+            "residual_ss": _restore_squared_scale(
+                residual_ss, residual_scale_value
+            ),
+            "residual_ss_normalized": float(residual_ss),
+            "residual_scale": float(residual_scale_value),
             "A1": a1,
             "M11": float(m11),
             "LM1": lm1,

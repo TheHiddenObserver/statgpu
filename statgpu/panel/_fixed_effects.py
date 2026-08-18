@@ -638,6 +638,7 @@ class PanelOLS(BasePanelModel):
                 rss_effects=ss_res,
                 df_resid_effects=diagnostic_df["df_resid"],
                 has_constant=False,
+                resid_effects=resid,
             )
             if self.entity_effects or self.time_effects
             else None

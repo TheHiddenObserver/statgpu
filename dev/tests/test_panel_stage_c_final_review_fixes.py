@@ -8,7 +8,8 @@ from numpy.testing import assert_allclose
 
 from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._covariance import clustered_covariance, ols_covariance
-from statgpu.panel._diagnostics import _classical_model_f
+from statgpu.panel._diagnostic_context import bp_lm_from_residuals
+from statgpu.panel._diagnostics import _build_fit_statistics, _classical_model_f
 from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import demean_variables
 
@@ -746,3 +747,107 @@ def test_classical_model_f_restricted_fit_uses_shared_tiny_design_solver():
     assert df == (1.0, 6.0)
     assert np.isfinite(metadata["rss_restricted"])
     assert np.isfinite(metadata["rss_unrestricted"])
+
+
+
+def test_nonrobust_scale_underflow_recovers_representable_covariance():
+    X = np.full((4, 1), 1.0e-200, dtype=np.float64)
+    resid = np.asarray([1.0e-200, -1.0e-200, 1.0e-200, -1.0e-200])
+    # Raw RSS/df underflows to zero, but variance * bread is 1/3.
+    actual = ols_covariance(
+        X,
+        resid,
+        cov_type="nonrobust",
+        scale=0.0,
+        df_resid=3,
+    )
+    assert_allclose(actual, np.asarray([[1.0 / 3.0]]), rtol=4e-13, atol=0.0)
+
+
+def test_nonrobust_scale_overflow_recovers_representable_covariance():
+    X = np.full((4, 1), 1.0e200, dtype=np.float64)
+    resid = np.asarray([1.0e200, -1.0e200, 1.0e200, -1.0e200])
+    # Raw RSS/df overflows, while the tiny bread makes final covariance 1/3.
+    actual = ols_covariance(
+        X,
+        resid,
+        cov_type="nonrobust",
+        scale=float("inf"),
+        df_resid=3,
+    )
+    assert_allclose(actual, np.asarray([[1.0 / 3.0]]), rtol=4e-13, atol=0.0)
+
+
+def test_model_f_preserves_original_unit_rss_metadata_after_common_scaling():
+    x = np.linspace(-1.0, 1.0, 12)
+    X = np.column_stack([np.ones(x.size), x])
+    y = 1.0e150 * (
+        0.8
+        + 0.45 * x
+        + np.asarray([0.08, -0.04, 0.03, -0.06, 0.05, -0.02, 0.01, 0.04, -0.03, 0.02, -0.01, 0.05])
+    )
+    params = panel_lstsq(X, y, np)[0]
+    statistic, pvalue, _df, metadata = _classical_model_f(
+        y,
+        X,
+        params,
+        xp=np,
+        df_resid=10,
+        has_constant=True,
+    )
+    assert np.isfinite(statistic)
+    assert np.isfinite(pvalue)
+    assert metadata["rss_restricted"] > 1.0e298
+    assert metadata["rss_unrestricted"] > 0.0
+    assert metadata["rss_restricted_normalized"] < 20.0
+    assert metadata["rss_unrestricted_normalized"] < 20.0
+
+
+def test_adjusted_r2_uses_fit_space_common_scale_when_raw_sums_overflow():
+    x = np.linspace(-1.0, 1.0, 12)
+    X = np.column_stack([np.ones(x.size), x])
+    base_y = 0.8 + 0.45 * x + np.asarray(
+        [0.08, -0.04, 0.03, -0.06, 0.05, -0.02, 0.01, 0.04, -0.03, 0.02, -0.01, 0.05]
+    )
+    params = panel_lstsq(X, base_y, np)[0]
+    reference = _build_fit_statistics(
+        base_y,
+        X,
+        params,
+        xp=np,
+        has_constant=True,
+        rss_fit=float(np.sum((base_y - X @ params) ** 2)),
+        tss_fit=float(np.sum((base_y - np.mean(base_y)) ** 2)),
+        df_resid=10,
+        df_total=11,
+    )
+    scale = 1.0e200
+    y = scale * base_y
+    params_big = scale * params
+    huge = _build_fit_statistics(
+        y,
+        X,
+        params_big,
+        xp=np,
+        has_constant=True,
+        rss_fit=float("inf"),
+        tss_fit=float("inf"),
+        df_resid=10,
+        df_total=11,
+    )
+    assert np.isfinite(huge.rsquared_adj)
+    assert_allclose(huge.rsquared_adj, reference.rsquared_adj, rtol=2e-12, atol=2e-14)
+
+
+@pytest.mark.parametrize("scale", [1.0e150, 1.0e-150])
+def test_bp_lm_is_invariant_when_raw_residual_ss_would_over_or_underflow(scale):
+    entity = np.repeat(np.arange(4), 3)
+    resid = np.asarray(
+        [0.8, -0.2, 0.1, 0.5, -0.1, 0.4, -0.7, 0.3, -0.2, 0.2, -0.4, 0.6]
+    )
+    reference = bp_lm_from_residuals(resid, entity, xp=np)
+    candidate = bp_lm_from_residuals(scale * resid, entity, xp=np)
+    assert reference.applicable and candidate.applicable
+    assert_allclose(candidate.statistic, reference.statistic, rtol=3e-13, atol=1e-14)
+    assert_allclose(candidate.pvalue, reference.pvalue, rtol=3e-13, atol=1e-14)
+    assert candidate.metadata["residual_ss_normalized"] > 0.0
