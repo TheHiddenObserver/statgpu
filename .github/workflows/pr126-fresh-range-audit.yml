@@ -41,25 +41,34 @@ jobs:
           c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
           c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
           actual = np.asarray(two_way_clustered_covariance(X, resid, c1, c2))
-          expected = np.asarray([[-4.0 * A * eps]], dtype=np.float64)
-          print('safe_gram_actual=', actual)
-          print('safe_gram_expected=', expected)
-          np.testing.assert_allclose(actual, expected, rtol=5e-13, atol=0.0)
+          np.testing.assert_allclose(actual, [[-4.0]], rtol=5e-13, atol=0.0)
           PY
       - name: Audit singular Hausman range guard
-        if: always()
         run: |
           python - <<'PY'
           import numpy as np
           from statgpu.panel._diagnostics import _hausman_quadratic
 
-          D = np.diag(np.asarray([1.0e308, 0.0], dtype=np.float64))
-          d = np.asarray([1.0e154, 1.0e200], dtype=np.float64)
-          result = _hausman_quadratic(d, D)
-          print('applicable=', result.applicable)
-          print('reason=', result.reason)
-          print('statistic=', result.statistic)
-          print('metadata=', result.metadata)
+          result = _hausman_quadratic(
+              np.asarray([1.0e154, 1.0e200]),
+              np.diag(np.asarray([1.0e308, 0.0])),
+          )
+          print('singular=', result)
           assert result.applicable is False
           assert result.reason and 'outside the identified covariance-difference range' in result.reason
+          PY
+      - name: Audit dense finite Hausman scale
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel._diagnostics import _hausman_quadratic
+
+          D = np.full((2, 2), 1.0e308, dtype=np.float64)
+          d = np.asarray([1.0e154, 1.0e154], dtype=np.float64)
+          result = _hausman_quadratic(d, D)
+          print('dense=', result)
+          assert result.applicable is True, result.reason
+          assert result.df == 1.0
+          np.testing.assert_allclose(result.statistic, 1.0, rtol=5e-13, atol=0.0)
+          assert np.isfinite(result.pvalue)
           PY
