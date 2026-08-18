@@ -1,0 +1,54 @@
+name: PR126 group-debias extreme audit
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/pr126-group-debias-extreme-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2"
+          python -m pip install -e .
+      - name: Exercise group-debiased nonnested structural cancellation
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel import two_way_clustered_covariance
+
+          A = 1.0e154
+          eps = 1.0e-154
+          X = np.full((4, 1), 0.5, dtype=np.float64)
+          scores = np.asarray([-A, A, A, eps], dtype=np.float64)
+          resid = 2.0 * scores
+          c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+          c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+          actual = np.asarray(
+              two_way_clustered_covariance(
+                  X, resid, c1, c2, group_debias=True
+              ),
+              dtype=np.float64,
+          )
+          expected = np.asarray([[6.0 * A * eps + 2.0 * eps * eps]])
+          print('actual=', actual)
+          print('expected=', expected)
+          print('finite=', np.isfinite(actual).all())
+          np.testing.assert_allclose(actual, expected, rtol=5e-13, atol=0.0)
+          PY
