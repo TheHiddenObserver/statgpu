@@ -1,0 +1,60 @@
+name: PR126 zero-variance inference review
+
+on:
+  push:
+    branches:
+      - agent/panel-p1-stage-c-covariance
+    paths:
+      - '.github/workflows/pr126-zero-variance-review.yml'
+      - 'dev/validation/pr126_zero_variance_inference_once.py'
+
+permissions:
+  contents: write
+
+jobs:
+  review-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install maintained review environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" pytest
+          python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e ".[validation,formula]"
+      - name: Apply exact-zero inference fix
+        run: python dev/validation/pr126_zero_variance_inference_once.py
+      - name: Run focused regression matrix
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_fama_macbeth_review_fixes.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_covariance.py \
+            -q --tb=short
+          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
+          git diff --check
+      - name: Commit substantive fix only when green
+        run: |
+          git config user.name "Ziqian Lin"
+          git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
+          git add \
+            statgpu/panel/_utils.py \
+            statgpu/panel/_base.py \
+            statgpu/panel/_pooled.py \
+            statgpu/panel/_between.py \
+            statgpu/panel/_first_diff.py \
+            statgpu/panel/_fama_macbeth.py \
+            dev/tests/test_panel_stage_c_inference_guard.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/benchmarks/validate_panel_stage_c_gpu.py
+          git commit -m "fix: preserve zero-variance panel inference semantics"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
