@@ -28,8 +28,17 @@ replace_once(
 replace_once(
     "statgpu/panel/_diagnostics.py",
     '''    metadata["rss_restricted"] = float(rss_r)\n    metadata["rss_unrestricted"] = float(rss_u)\n    if rss_u <= tol:\n''',
-    '''    metadata["rss_restricted"] = float(rss_r)\n    metadata["rss_unrestricted"] = float(rss_u)\n    metadata["rss_common_scale"] = float(common_scale_value)\n    metadata["rss_values_are_common_scale_normalized"] = True\n    if rss_u <= tol:\n''',
-    "classical F common scale metadata",
+    '''    metadata["rss_restricted"] = float(rss_r)\n    metadata["rss_unrestricted"] = float(rss_u)\n    metadata["rss_common_scale"] = float(common_scale_value)\n    metadata["rss_values_are_common_scale_normalized"] = True\n    # The common-scale reduction already prevents underflow. A merely small\n    # unrestricted RSS is a large finite F statistic, not an exact fit.\n    if rss_u == 0.0:\n''',
+    "classical F exact-fit boundary",
+)
+
+# Pooling-F has the same semantic boundary: only an actually zero fixed-effect
+# RSS represents exact fit. A small positive RSS must remain a finite F ratio.
+replace_once(
+    "statgpu/panel/_diagnostics.py",
+    '''    if float(rss_effects) <= tol:\n        if diff > tol:\n''',
+    '''    if float(rss_effects) == 0.0:\n        if diff > tol:\n''',
+    "pooling F exact-fit boundary",
 )
 
 # The pooling-F restricted fit is another panel least-squares problem. Never
