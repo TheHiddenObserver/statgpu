@@ -107,15 +107,13 @@ def panel_svd_working_pseudoinverse(X, xp):
 
 
 def panel_working_pseudoinverse(X, xp):
-    """Return a working-design pseudoinverse with a certified Gram fast path.
+    """Return a working-design pseudoinverse with one-sync Gram certification.
 
-    The SVD remains the authoritative fallback and rank policy.  For designs
-    whose Gram matrix is range-safe and whose eigenvalue ratio is far above the
-    SVD rank boundary, the existing ``_GRAM_CERTIFIED_MIN_EIGEN_RATIO`` policy
-    certifies a normal-equation solve.  Besides avoiding an unnecessary SVD,
-    this preserves exact row symmetries (for example a constant binary-exact
-    design) that can otherwise be perturbed at the U-vector rounding level and
-    then amplified by extreme but finite residuals.
+    The Gram candidate is uniformly scaled before ``X'X`` is formed, so the
+    certification calculation itself is range-safe without a host-side branch.
+    All finite/spectrum/solve checks remain backend-native until one final
+    boolean transfer.  Certified full-rank designs use the normal-equation
+    candidate; every uncertified case falls back to the shared SVD cutoff.
     """
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
@@ -127,59 +125,58 @@ def panel_working_pseudoinverse(X, xp):
     k = int(X_work.shape[1])
     namespace = getattr(xp, "__name__", "")
 
-    # Certify the Gram path only when forming X'X itself has a conservative
-    # factor-four range margin.  Extreme designs stay on the SVD path without
-    # ever materializing an overflowing Gram matrix.
     max_abs = xp.max(xp.abs(X_work))
     gram_limit = float(
         np.sqrt(0.25 * np.finfo(np.float64).max / float(n))
     )
-    gram_range_safe = bool(
-        _to_float_scalar(
-            xp.isfinite(max_abs) & (max_abs <= float(gram_limit))
+    one = xp.ones_like(max_abs)
+    gram_scale = xp.where(
+        max_abs > float(gram_limit),
+        max_abs / float(gram_limit),
+        one,
+    )
+    X_gram = X_work / gram_scale
+    gram = X_gram.T @ X_gram
+    rhs = X_gram.T
+    gram_finite = xp.all(xp.isfinite(gram))
+    rhs_finite = xp.all(xp.isfinite(rhs))
+
+    if namespace == "torch":
+        identity = xp.eye(k, dtype=X.dtype, device=X.device)
+    else:
+        identity = xp.eye(k, dtype=X.dtype)
+    spectrum_gram = xp.where(gram_finite, gram, identity)
+    eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
+    smallest = eigenvalues[0]
+    largest = eigenvalues[-1]
+    certified = (
+        gram_finite
+        & rhs_finite
+        & xp.isfinite(smallest)
+        & xp.isfinite(largest)
+        & (largest > 0.0)
+        & (
+            smallest
+            > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO)
         )
     )
 
-    if gram_range_safe:
-        gram = X_work.T @ X_work
-        gram_finite = bool(_to_float_scalar(xp.all(xp.isfinite(gram))))
-        if gram_finite:
-            eigenvalues = xp.linalg.eigvalsh(gram)
-            smallest = eigenvalues[0]
-            largest = eigenvalues[-1]
-            certified = bool(
-                _to_float_scalar(
-                    xp.isfinite(smallest)
-                    & xp.isfinite(largest)
-                    & (largest > 0.0)
-                    & (
-                        smallest
-                        > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO)
-                    )
-                )
-            )
-            if certified:
-                rhs = X_work.T
-                if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
-                    X_pinv_work, info = xp.linalg.solve_ex(
-                        gram, rhs, check_errors=False
-                    )
-                    solve_ok = bool(
-                        _to_float_scalar(
-                            (info == 0) & xp.all(xp.isfinite(X_pinv_work))
-                        )
-                    )
-                    if solve_ok:
-                        return X_work, X_pinv_work, design_scale, k
-                else:
-                    X_pinv_work = xp.linalg.solve(gram, rhs)
-                    if bool(
-                        _to_float_scalar(xp.all(xp.isfinite(X_pinv_work)))
-                    ):
-                        return X_work, X_pinv_work, design_scale, k
+    safe_gram = xp.where(certified, gram, identity)
+    safe_rhs = xp.where(certified, rhs, xp.zeros_like(rhs))
+    if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
+        candidate, info = xp.linalg.solve_ex(
+            safe_gram, safe_rhs, check_errors=False
+        )
+        certified = certified & (info == 0)
+    else:
+        candidate = xp.linalg.solve(safe_gram, safe_rhs)
+    candidate = candidate / gram_scale
+    certified = certified & xp.all(xp.isfinite(candidate))
 
-    # Uncertified, range-risky, or failed certified solves retain the shared SVD
-    # cutoff exactly; the Gram path never expands the accepted rank region.
+    # This is the only certification transfer on the accepted Gram path.
+    if bool(_to_float_scalar(certified)):
+        return X_work, candidate, design_scale, k
+
     U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
     X_pinv_work = (Vh.T * inverse_values) @ U.T
     return X_work, X_pinv_work, design_scale, rank

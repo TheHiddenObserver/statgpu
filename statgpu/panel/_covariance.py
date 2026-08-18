@@ -421,6 +421,41 @@ def _stable_matrix_expansion_sum(terms, xp):
     return _symmetrize(total)
 
 
+
+def _component_row_reduction_needs_expansion(component_sets, xp) -> bool:
+    """Return whether a BLAS row reduction can hide a recoverable component.
+
+    Component-pair Grams are vectorized whenever every nonzero grouped value is
+    comfortably above the roundoff floor induced by the largest value in the
+    same coordinate.  A self-product squares the value ratio, so the relevant
+    value threshold is ``sqrt(n * eps)`` rather than ``n * eps``.  A factor-16
+    margin covers reduction order and the later inclusion-exclusion.  Only the
+    rare high-dynamic-range case falls back to explicit row outer products.
+    """
+    risk = None
+    eps = float(np.finfo(np.float64).eps)
+    for components in component_sets:
+        for component in components:
+            n_rows = max(1, int(component.shape[0]))
+            absolute = xp.abs(component)
+            max_abs = _column_abs_max(component, xp)
+            sentinel = xp.full_like(absolute, float(np.inf))
+            nonzero = xp.where(absolute > 0.0, absolute, sentinel)
+            if _is_torch(xp):
+                min_nonzero = xp.min(nonzero, dim=0).values
+            else:
+                min_nonzero = xp.min(nonzero, axis=0)
+            ratio_floor = float(np.sqrt(16.0 * float(n_rows) * eps))
+            local = xp.any(
+                xp.isfinite(min_nonzero)
+                & (min_nonzero < max_abs * ratio_floor)
+            )
+            risk = local if risk is None else (risk | local)
+    if risk is None:
+        return False
+    return bool(_to_float_scalar(risk))
+
+
 def _grouped_score_sums(
     scores, codes_np, *, n_groups: int, xp, return_compensation: bool = False,
     return_components: bool = False,
@@ -810,16 +845,17 @@ def two_way_clustered_covariance(
                 max_multiplier=product_multiplier,
             )
 
-            lost_component = False
+            lost_component_backend = None
             for original, working in zip(all_components, working_components):
-                if bool(
-                    _to_float_scalar(
-                        xp.any((original != 0.0) & (working == 0.0))
-                    )
-                ):
-                    lost_component = True
-                    break
-            if lost_component:
+                local_loss = xp.any(
+                    (original != 0.0) & (working == 0.0)
+                )
+                lost_component_backend = (
+                    local_loss
+                    if lost_component_backend is None
+                    else (lost_component_backend | local_loss)
+                )
+            if bool(_to_float_scalar(lost_component_backend)):
                 raise FloatingPointError(
                     "two-way cluster score expansion exceeds the float64 "
                     "common-scale dynamic range"
@@ -832,9 +868,22 @@ def two_way_clustered_covariance(
             work12 = working_components[n1 + n2:]
 
             terms = []
+            rowwise_expansion = _component_row_reduction_needs_expansion(
+                (components1, components2, components12), xp
+            )
 
             def _append_component_terms(components, correction, sign):
                 coefficient = float(sign) * float(correction)
+                if not rowwise_expansion:
+                    for i, left in enumerate(components):
+                        terms.append(
+                            _symmetrize(left.T @ left) * coefficient
+                        )
+                        for right in components[:i]:
+                            cross = left.T @ right
+                            terms.append((cross + cross.T) * coefficient)
+                    return
+
                 n_rows = int(components[0].shape[0])
                 for i, left in enumerate(components):
                     for row in range(n_rows):
@@ -852,11 +901,10 @@ def two_way_clustered_covariance(
                                 (cross + cross.T) * coefficient
                             )
 
-            # Do not reduce over group rows with a BLAS Gram here.  A component
-            # may contain, for example, A in one group and b in another; A^2+b^2
-            # would round away b^2 before a later +V1+V2-V12 cancellation removes
-            # A^2.  Keep every row outer product as an expansion term until the
-            # complete CGM expression has cancelled structurally.
+            # Ordinary grouped scores keep all compensation components but use
+            # vectorized component-pair Grams.  Explicit group-row outer products
+            # are reserved for a certified dynamic-range risk where BLAS could
+            # erase a small row contribution before CGM cancellation exposes it.
             _append_component_terms(work1, correction1, 1.0)
             _append_component_terms(work2, correction2, 1.0)
             _append_component_terms(work12, correction12, -1.0)

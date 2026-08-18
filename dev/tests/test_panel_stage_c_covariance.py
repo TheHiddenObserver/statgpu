@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+import statgpu.panel._covariance as covariance_module
 from numpy.testing import assert_allclose
 
 from statgpu.panel import (
@@ -715,3 +717,35 @@ def test_influence_rows_certified_gram_preserves_constant_design_symmetry():
     np.testing.assert_array_equal(influence[:, 0], scores)
     np.testing.assert_array_equal(projection_scale, np.ones(1))
     assert float(np.asarray(design_scale)) == 1.0
+
+def test_two_way_ordinary_compensation_stays_vectorized(monkeypatch):
+    rng = np.random.default_rng(126)
+    scores = rng.normal(size=32)
+    cluster1 = np.repeat(np.arange(4), 8)
+    cluster2 = np.tile(np.arange(8), 4)
+    X = np.ones((32, 1), dtype=np.float64)
+    resid = 32.0 * scores
+
+    components = _grouped_score_sums(
+        scores[:, None], cluster1, n_groups=4, xp=np,
+        return_components=True,
+    )
+    assert any(np.any(component != 0.0) for component in components[1:])
+
+    observed_term_counts = []
+    original = covariance_module._stable_matrix_expansion_sum
+
+    def wrapped(terms, xp):
+        observed_term_counts.append(len(terms))
+        return original(terms, xp)
+
+    monkeypatch.setattr(
+        covariance_module, "_stable_matrix_expansion_sum", wrapped
+    )
+    covariance_module.two_way_clustered_covariance(
+        X, resid, cluster1, cluster2
+    )
+    assert observed_term_counts
+    # Two components in each of three cluster dimensions require only
+    # 3 vectorized component-pair terms per dimension, not O(group-count) terms.
+    assert max(observed_term_counts) <= 9
