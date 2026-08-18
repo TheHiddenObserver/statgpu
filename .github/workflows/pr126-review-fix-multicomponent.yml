@@ -42,14 +42,8 @@ jobs:
               -amplitude, -middle, amplitude, middle,
               0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
           ], dtype=np.float64)
-          c1 = np.asarray(
-              [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9],
-              dtype=np.int64,
-          )
-          c2 = np.asarray(
-              [0, 1, 1, 0, 1, 1, 2, 3, 2, 3, 4, 5, 6, 7, 8, 9],
-              dtype=np.int64,
-          )
+          c1 = np.asarray([0,0,0,1,1,1,2,2,3,3,4,5,6,7,8,9], dtype=np.int64)
+          c2 = np.asarray([0,1,1,0,1,1,2,3,2,3,4,5,6,7,8,9], dtype=np.int64)
           X = np.full((16, 1), 0.5, dtype=np.float64)
           actual = np.asarray(two_way_clustered_covariance(X, 8.0 * scores, c1, c2))
           expected = np.asarray([[-4.0 * amplitude * tiny]], dtype=np.float64)
@@ -62,20 +56,33 @@ jobs:
         run: |
           python dev/validation/pr126_review_fix_multicomponent_once.py
           python dev/validation/pr126_review_fix_rowwise_expansion_once.py
-      - name: Inspect post-fix restore inputs
+      - name: Inspect post-fix expansion and restore inputs
         run: |
           python - <<'PY'
           import numpy as np
           import statgpu.panel._covariance as cov
 
-          original = cov._restore_influence_covariance
-          def traced(value, covariance_scale, projection_scale, design_scale, xp):
+          original_sum = cov._stable_matrix_expansion_sum
+          def traced_sum(terms, xp):
+              nonzero = []
+              for idx, term in enumerate(terms):
+                  value = float(np.asarray(term)[0, 0])
+                  if value != 0.0:
+                      nonzero.append((idx, value))
+              print('TRACE_NONZERO_TERMS', nonzero)
+              out = original_sum(terms, xp)
+              print('TRACE_EXPANSION_OUT', np.asarray(out).tolist())
+              return out
+          cov._stable_matrix_expansion_sum = traced_sum
+
+          original_restore = cov._restore_influence_covariance
+          def traced_restore(value, covariance_scale, projection_scale, design_scale, xp):
               print('TRACE_COV_WORK', np.asarray(value).tolist())
               print('TRACE_COV_SCALE', np.asarray(covariance_scale).tolist())
               print('TRACE_PROJ_SCALE', np.asarray(projection_scale).tolist())
               print('TRACE_DESIGN_SCALE', float(np.asarray(design_scale)))
-              return original(value, covariance_scale, projection_scale, design_scale, xp)
-          cov._restore_influence_covariance = traced
+              return original_restore(value, covariance_scale, projection_scale, design_scale, xp)
+          cov._restore_influence_covariance = traced_restore
 
           amplitude = 2.0 ** 660
           middle = 2.0 ** 600
