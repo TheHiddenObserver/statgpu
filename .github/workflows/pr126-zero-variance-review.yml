@@ -32,29 +32,57 @@ jobs:
         id: patch
         continue-on-error: true
         run: python dev/validation/pr126_zero_variance_inference_once.py
-      - name: Run focused regression matrix
+      - name: Run isolated focused regressions
         id: focused
         if: steps.patch.outcome == 'success'
-        continue-on-error: true
         run: |
-          python -m pytest \
-            dev/tests/test_panel_stage_c_inference_guard.py \
-            dev/tests/test_panel_stage_b_torch_cpu.py \
-            dev/tests/test_fama_macbeth_review_fixes.py \
-            dev/tests/test_panel_stage_c_physical_runner_contract.py \
-            dev/tests/test_panel_stage_c_covariance.py \
-            -q --tb=short
-          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
-          git diff --check
+          set +e
+          result=/tmp/pr126_zero_variance_result.txt
+          : > "$result"
+          failed=0
+          run_case() {
+            name="$1"
+            shift
+            log="/tmp/${name}.log"
+            "$@" >"$log" 2>&1
+            rc=$?
+            printf '%s=%s\n' "$name" "$rc" >> "$result"
+            if [ "$rc" -ne 0 ]; then
+              failed=1
+              printf '\n--- %s tail ---\n' "$name" >> "$result"
+              tail -n 120 "$log" >> "$result"
+            fi
+          }
+          run_case inference_guard python -m pytest dev/tests/test_panel_stage_c_inference_guard.py -q --tb=short
+          run_case torch_cpu python -m pytest dev/tests/test_panel_stage_b_torch_cpu.py -q --tb=short
+          run_case fama_macbeth python -m pytest dev/tests/test_fama_macbeth_review_fixes.py -q --tb=short
+          run_case physical_contract python -m pytest dev/tests/test_panel_stage_c_physical_runner_contract.py -q --tb=short
+          run_case covariance python -m pytest dev/tests/test_panel_stage_c_covariance.py -q --tb=short
+          run_case compile python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
+          git diff --check >/tmp/diffcheck.log 2>&1
+          rc=$?
+          printf 'diff_check=%s\n' "$rc" >> "$result"
+          if [ "$rc" -ne 0 ]; then
+            failed=1
+            printf '\n--- diff_check ---\n' >> "$result"
+            cat /tmp/diffcheck.log >> "$result"
+          fi
+          if [ "$failed" -eq 0 ]; then
+            echo 'success=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'success=false' >> "$GITHUB_OUTPUT"
+          fi
+          cat "$result"
       - name: Commit result
         if: always()
         env:
           PATCH_OUTCOME: ${{ steps.patch.outcome }}
-          FOCUSED_OUTCOME: ${{ steps.focused.outcome }}
+          FOCUSED_SUCCESS: ${{ steps.focused.outputs.success }}
         run: |
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
-          if [ "$PATCH_OUTCOME" = success ] && [ "$FOCUSED_OUTCOME" = success ]; then
+          if [ "$PATCH_OUTCOME" = success ] && [ "$FOCUSED_SUCCESS" = true ]; then
+            git rm -f --ignore-unmatch dev/validation/pr126_zero_variance_result.txt
             git add \
               statgpu/panel/_utils.py \
               statgpu/panel/_base.py \
@@ -65,13 +93,18 @@ jobs:
               dev/tests/test_panel_stage_c_inference_guard.py \
               dev/tests/test_panel_stage_b_torch_cpu.py \
               dev/tests/test_panel_stage_c_physical_runner_contract.py \
-              dev/benchmarks/validate_panel_stage_c_gpu.py
+              dev/benchmarks/validate_panel_stage_c_gpu.py \
+              dev/validation/pr126_zero_variance_result.txt
             git commit -m "fix: preserve zero-variance panel inference semantics"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           else
-            printf 'patch=%s\nfocused=%s\n' "$PATCH_OUTCOME" "$FOCUSED_OUTCOME" > dev/validation/pr126_zero_variance_result.txt
+            if [ -f /tmp/pr126_zero_variance_result.txt ]; then
+              cp /tmp/pr126_zero_variance_result.txt dev/validation/pr126_zero_variance_result.txt
+            else
+              printf 'patch=%s\nfocused_success=%s\n' "$PATCH_OUTCOME" "$FOCUSED_SUCCESS" > dev/validation/pr126_zero_variance_result.txt
+            fi
             git add dev/validation/pr126_zero_variance_result.txt
-            git commit -m "chore: record PR126 zero-variance gate failure"
+            git commit -m "chore: diagnose PR126 zero-variance gate failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
             exit 1
           fi
