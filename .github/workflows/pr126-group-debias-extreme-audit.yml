@@ -1,4 +1,4 @@
-name: PR126 group-debias extreme audit
+name: PR126 group-debias extreme review
 
 on:
   pull_request:
@@ -6,49 +6,54 @@ on:
       - master
     paths:
       - '.github/workflows/pr126-group-debias-extreme-audit.yml'
+      - 'dev/validation/pr126_group_debias_comp_once.py'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  review-fix:
     if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      - name: Install package
+      - name: Install maintained review environment
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "numpy<2"
-          python -m pip install -e .
-      - name: Exercise group-debiased nonnested structural cancellation
+          python -m pip install "numpy<2" pytest
+          python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e ".[validation,formula]"
+      - name: Apply group-debias compensation fix
+        run: python dev/validation/pr126_group_debias_comp_once.py
+      - name: Run focused review matrix
         run: |
-          python - <<'PY'
-          import numpy as np
-          from statgpu.panel import two_way_clustered_covariance
-
-          A = 1.0e154
-          eps = 1.0e-154
-          X = np.full((4, 1), 0.5, dtype=np.float64)
-          scores = np.asarray([-A, A, A, eps], dtype=np.float64)
-          resid = 2.0 * scores
-          c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
-          c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
-          actual = np.asarray(
-              two_way_clustered_covariance(
-                  X, resid, c1, c2, group_debias=True
-              ),
-              dtype=np.float64,
-          )
-          expected = np.asarray([[6.0 * A * eps + 2.0 * eps * eps]])
-          print('actual=', actual)
-          print('expected=', expected)
-          print('finite=', np.isfinite(actual).all())
-          np.testing.assert_allclose(actual, expected, rtol=5e-13, atol=0.0)
-          PY
+          python -m pytest \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            -q --tb=short
+          python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
+          git diff --check
+      - name: Commit validated fix
+        run: |
+          git config user.name "Ziqian Lin"
+          git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
+          git add \
+            statgpu/panel/_covariance.py \
+            dev/tests/test_panel_stage_c_covariance.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/benchmarks/validate_panel_stage_c_gpu.py
+          git commit -m "fix: preserve group-debiased cluster cancellation"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
