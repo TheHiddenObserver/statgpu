@@ -1,0 +1,239 @@
+covariance=1
+
+--- covariance tail ---
+............F............F..................                             [100%]
+=================================== FAILURES ===================================
+________________ test_pooled_robust_and_hc1_alias_are_identical ________________
+dev/tests/test_panel_stage_c_covariance.py:228: in test_pooled_robust_and_hc1_alias_are_identical
+    robust = PooledOLS(cov_type="robust").fit(X, y, entity_ids=entity)
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_pooled.py:191: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+_ test_random_effects_stage_c_hc_does_not_change_swamy_arora_estimate[robust] __
+dev/tests/test_panel_stage_c_covariance.py:282: in test_random_effects_stage_c_hc_does_not_change_swamy_arora_estimate
+    model = RandomEffects(cov_type=cov_type).fit(X, y, entity_ids=entity)
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+=========================== short test summary info ============================
+FAILED dev/tests/test_panel_stage_c_covariance.py::test_pooled_robust_and_hc1_alias_are_identical - NameError: name 'projection_scale' is not defined
+FAILED dev/tests/test_panel_stage_c_covariance.py::test_random_effects_stage_c_hc_does_not_change_swamy_arora_estimate[robust] - NameError: name 'projection_scale' is not defined
+2 failed, 42 passed in 2.20s
+inference_guard=0
+torch_stage_b=0
+physical_contract=1
+
+--- physical_contract tail ---
+.FFF..F...                                                               [100%]
+=================================== FAILURES ===================================
+____ test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable _____
+dev/tests/test_panel_stage_c_physical_runner_contract.py:24: in test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable
+    cases = _MOD._fit_cases(X, y, entity, time, clusters, "numpy")
+dev/benchmarks/validate_panel_stage_c_gpu.py:811: in _fit_cases
+    cases[f"random_effects_explicit_constant_{cov}"] = RandomEffects(
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+_________ test_stage_c_runner_physically_requires_qs_all_lag_contract __________
+dev/tests/test_panel_stage_c_physical_runner_contract.py:66: in test_stage_c_runner_physically_requires_qs_all_lag_contract
+    cases = _MOD._fit_cases(X, y, entity, time, clusters, "numpy")
+dev/benchmarks/validate_panel_stage_c_gpu.py:811: in _fit_cases
+    cases[f"random_effects_explicit_constant_{cov}"] = RandomEffects(
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+_____ test_stage_c_runner_group_debias_and_panel_dk_metadata_are_auditable _____
+dev/tests/test_panel_stage_c_physical_runner_contract.py:77: in test_stage_c_runner_group_debias_and_panel_dk_metadata_are_auditable
+    cases = _MOD._fit_cases(X, y, entity, time, clusters, "numpy")
+dev/benchmarks/validate_panel_stage_c_gpu.py:811: in _fit_cases
+    cases[f"random_effects_explicit_constant_{cov}"] = RandomEffects(
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+__ test_stage_c_runner_rank_deficient_estimators_exercise_identified_rank_df ___
+dev/tests/test_panel_stage_c_physical_runner_contract.py:133: in test_stage_c_runner_rank_deficient_estimators_exercise_identified_rank_df
+    cases = _MOD._fit_cases(X, y, entity, time, clusters, "numpy")
+dev/benchmarks/validate_panel_stage_c_gpu.py:811: in _fit_cases
+    cases[f"random_effects_explicit_constant_{cov}"] = RandomEffects(
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+=========================== short test summary info ============================
+FAILED dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_numpy_reference_matrix_is_complete_and_executable - NameError: name 'projection_scale' is not defined
+FAILED dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_physically_requires_qs_all_lag_contract - NameError: name 'projection_scale' is not defined
+FAILED dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_group_debias_and_panel_dk_metadata_are_auditable - NameError: name 'projection_scale' is not defined
+FAILED dev/tests/test_panel_stage_c_physical_runner_contract.py::test_stage_c_runner_rank_deficient_estimators_exercise_identified_rank_df - NameError: name 'projection_scale' is not defined
+4 failed, 6 passed in 2.08s
+final_review=1
+
+--- final_review tail ---
+......................F..FFFF..........F.......                          [100%]
+=================================== FAILURES ===================================
+____ test_physical_stage_c_runner_covers_new_prediction_contracts_on_numpy _____
+dev/tests/test_panel_stage_c_final_review_fixes.py:601: in test_physical_stage_c_runner_covers_new_prediction_contracts_on_numpy
+    models = module._fit_cases(X, y, entity, time, clusters, "numpy")
+dev/benchmarks/validate_panel_stage_c_gpu.py:811: in _fit_cases
+    cases[f"random_effects_explicit_constant_{cov}"] = RandomEffects(
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+_ test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow[hc0-1.0] _
+dev/tests/test_panel_stage_c_final_review_fixes.py:709: in test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow
+    assert_allclose(actual, np.asarray([[expected]]), rtol=2e-13, atol=0.0)
+/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/contextlib.py:79: in inner
+    return func(*args, **kwds)
+E   AssertionError: 
+E   Not equal to tolerance rtol=2e-13, atol=0
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Max absolute difference: 2.78320433e+294
+E   Max relative difference: 1.11328173e-05
+E    x: array([[2.499972e+299]])
+E    y: array([[2.5e+299]])
+_ test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow[hc2-1.3333333333333333] _
+dev/tests/test_panel_stage_c_final_review_fixes.py:709: in test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow
+    assert_allclose(actual, np.asarray([[expected]]), rtol=2e-13, atol=0.0)
+/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/contextlib.py:79: in inner
+    return func(*args, **kwds)
+E   AssertionError: 
+E   Not equal to tolerance rtol=2e-13, atol=0
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Max absolute difference: 3.7461198e+295
+E   Max relative difference: 0.00011238
+E    x: array([[3.333708e+299]])
+E    y: array([[3.333333e+299]])
+_ test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow[hc3-1.7777777777777777] _
+dev/tests/test_panel_stage_c_final_review_fixes.py:709: in test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow
+    assert_allclose(actual, np.asarray([[expected]]), rtol=2e-13, atol=0.0)
+/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/contextlib.py:79: in inner
+    return func(*args, **kwds)
+E   AssertionError: 
+E   Not equal to tolerance rtol=2e-13, atol=0
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Max absolute difference: 3.23960102e+295
+E   Max relative difference: 7.2891023e-05
+E    x: array([[4.44412e+299]])
+E    y: array([[4.444444e+299]])
+____ test_subnormal_design_clustered_covariance_uses_stable_influence_rows _____
+dev/tests/test_panel_stage_c_final_review_fixes.py:718: in test_subnormal_design_clustered_covariance_uses_stable_influence_rows
+    assert_allclose(actual, np.asarray([[5.0e299]]), rtol=2e-13, atol=0.0)
+/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/contextlib.py:79: in inner
+    return func(*args, **kwds)
+E   AssertionError: 
+E   Not equal to tolerance rtol=2e-13, atol=0
+E   
+E   Mismatched elements: 1 / 1 (100%)
+E   Max absolute difference: 5.56640866e+294
+E   Max relative difference: 1.11328173e-05
+E    x: array([[4.999944e+299]])
+E    y: array([[5.e+299]])
+_ test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows _
+dev/tests/test_panel_stage_c_final_review_fixes.py:897: in test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows
+    reference = RandomEffects(cov_type="robust").fit(
+statgpu/panel/_base.py:53: in transactional_fit
+    return original_fit(self, *args, **kwargs)
+statgpu/_base.py:378: in guarded
+    return original(self, *args, **kwargs)
+statgpu/panel/_random_effects.py:395: in fit
+    self._panel_store_ols_inference(
+statgpu/panel/_base.py:477: in _panel_store_ols_inference
+    cov_params = ols_covariance(
+statgpu/panel/_covariance.py:966: in ols_covariance
+    cov_work, influence_scale, projection_scale, design_scale, xp
+E   NameError: name 'projection_scale' is not defined
+=========================== short test summary info ============================
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_physical_stage_c_runner_covers_new_prediction_contracts_on_numpy - NameError: name 'projection_scale' is not defined
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow[hc0-1.0] - AssertionError: 
+Not equal to tolerance rtol=2e-13, atol=0
+
+Mismatched elements: 1 / 1 (100%)
+Max absolute difference: 2.78320433e+294
+Max relative difference: 1.11328173e-05
+ x: array([[2.499972e+299]])
+ y: array([[2.5e+299]])
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow[hc2-1.3333333333333333] - AssertionError: 
+Not equal to tolerance rtol=2e-13, atol=0
+
+Mismatched elements: 1 / 1 (100%)
+Max absolute difference: 3.7461198e+295
+Max relative difference: 0.00011238
+ x: array([[3.333708e+299]])
+ y: array([[3.333333e+299]])
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_subnormal_design_hc_covariance_avoids_raw_pseudoinverse_overflow[hc3-1.7777777777777777] - AssertionError: 
+Not equal to tolerance rtol=2e-13, atol=0
+
+Mismatched elements: 1 / 1 (100%)
+Max absolute difference: 3.23960102e+295
+Max relative difference: 7.2891023e-05
+ x: array([[4.44412e+299]])
+ y: array([[4.444444e+299]])
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_subnormal_design_clustered_covariance_uses_stable_influence_rows - AssertionError: 
+Not equal to tolerance rtol=2e-13, atol=0
+
+Mismatched elements: 1 / 1 (100%)
+Max absolute difference: 5.56640866e+294
+Max relative difference: 1.11328173e-05
+ x: array([[4.999944e+299]])
+ y: array([[5.e+299]])
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows - NameError: name 'projection_scale' is not defined
+6 failed, 41 passed in 4.20s
+compile=0
+diff_check=0
