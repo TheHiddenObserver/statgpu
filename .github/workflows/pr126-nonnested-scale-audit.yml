@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/pr126-nonnested-scale-audit.yml'
       - 'dev/validation/pr126_nonnested_union_once.py'
+      - 'dev/validation/pr126_nonnested_union_fixup_once.py'
 
 permissions:
   contents: write
@@ -31,7 +32,9 @@ jobs:
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e ".[validation,formula]"
       - name: Apply nonnested union-score fix
-        run: python dev/validation/pr126_nonnested_union_once.py
+        run: |
+          python dev/validation/pr126_nonnested_union_once.py
+          python dev/validation/pr126_nonnested_union_fixup_once.py
       - name: Run focused review matrix
         run: |
           python -m pytest \
