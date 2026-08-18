@@ -243,3 +243,15 @@ def test_stage_c_runner_multiscale_grouping_audit_is_executable():
         rtol=0.0,
         atol=0.0,
     )
+    unsafe_amplitude = 1.0e200
+    unsafe_low1 = 1.0e108
+    unsafe_low2 = unsafe_low1 * (1.0 + 1.0e-3)
+    np.testing.assert_allclose(
+        np.asarray(audit["unsafe_cross_two_way"]),
+        np.asarray(
+            [[4.0 * unsafe_amplitude * (unsafe_low2 - unsafe_low1)]],
+            dtype=np.float64,
+        ),
+        rtol=4e-12,
+        atol=0.0,
+    )

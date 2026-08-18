@@ -559,3 +559,26 @@ def test_stage_c_torch_cpu_multiscale_group_cancellation():
     np.testing.assert_allclose(
         dk, np.asarray([[8.0 / 3.0]]), rtol=3e-15, atol=0.0
     )
+
+def test_stage_c_torch_cpu_two_way_unsafe_cross_cancels_before_restore():
+    amplitude = 1.0e200
+    low1 = 1.0e108
+    low2 = low1 * (1.0 + 1.0e-3)
+    scores_np = np.asarray(
+        [
+            -amplitude, low1, amplitude, -low1,
+            -amplitude, -low2, amplitude, low2,
+        ],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+    X = torch.full((8, 1), 0.5, dtype=torch.float64)
+    resid = torch.as_tensor(4.0 * scores_np, dtype=torch.float64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, xp=torch
+    ).detach().cpu().numpy()
+    expected = np.asarray(
+        [[4.0 * amplitude * (low2 - low1)]], dtype=np.float64
+    )
+    np.testing.assert_allclose(actual, expected, rtol=4e-12, atol=0.0)

@@ -642,3 +642,27 @@ def test_one_way_and_dk_preserve_small_score_after_same_sign_swallow():
     np.testing.assert_allclose(
         dk, np.asarray([[8.0 / 3.0]]), rtol=3e-15, atol=0.0
     )
+
+def test_two_way_nonnested_unsafe_cross_cancels_before_restore():
+    amplitude = 1.0e200
+    low1 = 1.0e108
+    low2 = low1 * (1.0 + 1.0e-3)
+    scores = np.asarray(
+        [
+            -amplitude, low1, amplitude, -low1,
+            -amplitude, -low2, amplitude, low2,
+        ],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+    X = np.full((8, 1), 0.5, dtype=np.float64)
+
+    actual = two_way_clustered_covariance(
+        X, 4.0 * scores, cluster1, cluster2
+    )
+    expected = np.asarray(
+        [[4.0 * amplitude * (low2 - low1)]], dtype=np.float64
+    )
+    assert np.isfinite(expected[0, 0])
+    assert_allclose(actual, expected, rtol=4e-12, atol=0.0)

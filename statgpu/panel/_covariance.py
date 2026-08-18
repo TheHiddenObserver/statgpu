@@ -714,32 +714,102 @@ def two_way_clustered_covariance(
         )
         need_compensation = _to_float_scalar(low_max) > 0.0
         if need_compensation:
-            correction_triples = (
-                (grouped1, grouped1_low, correction1),
-                (grouped2, grouped2_low, correction2),
-                (grouped12, grouped12_low, correction12),
+            # First try to keep the low-order expansion in the *same* coordinate
+            # scale as the high Gram.  This is the important path when individual
+            # physical high-low cross terms would overflow but the CGM
+            # inclusion-exclusion is finite: cancellation happens before any
+            # physical-scale restoration instead of silently dropping the tail.
+            low1_work = grouped1_low / common_scale
+            low2_work = grouped2_low / common_scale
+            low12_work = grouped12_low / common_scale
+            low_work_triples = (
+                (grouped1_low, low1_work),
+                (grouped2_low, low2_work),
+                (grouped12_low, low12_work),
             )
-            safe_correction = all(
-                _cross_reduction_is_safe(
-                    high, low, xp, max_multiplier=correction
+            low_underflowed = any(
+                bool(
+                    _to_float_scalar(
+                        xp.any((low != 0.0) & (low_work == 0.0))
+                    )
                 )
-                and _cross_reduction_is_safe(
-                    low, low, xp, max_multiplier=correction
-                )
-                for high, low, correction in correction_triples
+                for low, low_work in low_work_triples
             )
-            if safe_correction:
+
+            if not low_underflowed:
+                def _low_order_covariance_work(high_work, low_work, correction):
+                    cross = high_work.T @ low_work
+                    low_square = _symmetrize(low_work.T @ low_work)
+                    return _symmetrize(
+                        (
+                            cross
+                            + cross.T
+                            + low_square
+                        )
+                        * float(correction)
+                    )
+
+                low_correction_work = _stable_inclusion_exclusion(
+                    _low_order_covariance_work(
+                        grouped1_work, low1_work, correction1
+                    ),
+                    _low_order_covariance_work(
+                        grouped2_work, low2_work, correction2
+                    ),
+                    _low_order_covariance_work(
+                        grouped12_work, low12_work, correction12
+                    ),
+                    xp,
+                )
+                cov_work = _symmetrize(cov_work + low_correction_work)
+            else:
+                # If dividing by the high-Gram coordinate scale would erase a
+                # nonzero low part, preserve it on the physical score scale.
+                # Such a fallback is used only after proving every required
+                # high-low and low-low reduction safe.  Never fail open by
+                # omitting the low component.
+                correction_triples = (
+                    (grouped1, grouped1_low, correction1),
+                    (grouped2, grouped2_low, correction2),
+                    (grouped12, grouped12_low, correction12),
+                )
+                safe_correction = all(
+                    _cross_reduction_is_safe(
+                        high, low, xp, max_multiplier=correction
+                    )
+                    and _cross_reduction_is_safe(
+                        low, low, xp, max_multiplier=correction
+                    )
+                    for high, low, correction in correction_triples
+                )
+                if not safe_correction:
+                    raise FloatingPointError(
+                        "two-way cluster low-order correction cannot be "
+                        "evaluated safely without losing a nonzero tail"
+                    )
+
                 def _low_order_covariance(high, low, correction):
-                    cross = _symmetrize(high.T @ low)
+                    cross = high.T @ low
                     low_square = _symmetrize(low.T @ low)
                     return _symmetrize(
-                        ((2.0 * cross) + low_square) * float(correction)
+                        (
+                            cross
+                            + cross.T
+                            + low_square
+                        )
+                        * float(correction)
                     )
 
                 low_correction = _stable_inclusion_exclusion(
-                    _low_order_covariance(grouped1, grouped1_low, correction1),
-                    _low_order_covariance(grouped2, grouped2_low, correction2),
-                    _low_order_covariance(grouped12, grouped12_low, correction12),
+                    _low_order_covariance(
+                        grouped1, grouped1_low, correction1
+                    ),
+                    _low_order_covariance(
+                        grouped2, grouped2_low, correction2
+                    ),
+                    _low_order_covariance(
+                        grouped12, grouped12_low, correction12
+                    ),
                     xp,
                 )
                 cov_work = _restore_coordinate_covariance(

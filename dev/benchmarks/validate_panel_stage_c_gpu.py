@@ -740,6 +740,42 @@ def _multiscale_grouping_audit(backend):
             xp=xp,
         )
     )
+
+    unsafe_amplitude = 1.0e200
+    unsafe_low1 = 1.0e108
+    unsafe_low2 = unsafe_low1 * (1.0 + 1.0e-3)
+    unsafe_scores_np = np.asarray(
+        [
+            -unsafe_amplitude, unsafe_low1, unsafe_amplitude, -unsafe_low1,
+            -unsafe_amplitude, -unsafe_low2, unsafe_amplitude, unsafe_low2,
+        ],
+        dtype=np.float64,
+    )
+    unsafe_c1 = np.asarray([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+    unsafe_c2 = np.asarray([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+    unsafe_X_np = np.full((8, 1), 0.5, dtype=np.float64)
+    unsafe_dummy = np.arange(8, dtype=np.int64)
+    unsafe_X, unsafe_resid, _ue, _ut = _to_backend(
+        unsafe_X_np,
+        4.0 * unsafe_scores_np,
+        unsafe_dummy,
+        unsafe_dummy,
+        backend,
+    )
+    unsafe_two_way = _array(
+        two_way_clustered_covariance(
+            unsafe_X,
+            unsafe_resid,
+            unsafe_c1,
+            unsafe_c2,
+            xp=xp,
+        )
+    )
+    unsafe_expected = np.asarray(
+        [[4.0 * unsafe_amplitude * (unsafe_low2 - unsafe_low1)]],
+        dtype=np.float64,
+    )
+
     np.testing.assert_array_equal(
         grouped, np.asarray([[1.0], [1.0]])
     )
@@ -752,6 +788,9 @@ def _multiscale_grouping_audit(backend):
     np.testing.assert_allclose(
         deep_two_way, np.zeros((1, 1)), rtol=0.0, atol=0.0
     )
+    np.testing.assert_allclose(
+        unsafe_two_way, unsafe_expected, rtol=4e-12, atol=0.0
+    )
     return {
         "status": "success",
         "backend": backend,
@@ -759,6 +798,7 @@ def _multiscale_grouping_audit(backend):
         "one_way": one_way.tolist(),
         "driscoll_kraay": dk.tolist(),
         "deep_two_way": deep_two_way.tolist(),
+        "unsafe_cross_two_way": unsafe_two_way.tolist(),
     }
 
 def _hausman_scale_audit(backend):
