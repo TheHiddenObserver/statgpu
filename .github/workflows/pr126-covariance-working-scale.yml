@@ -25,25 +25,12 @@ jobs:
           python -m pip install "numpy<2" pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
-      - name: Apply and diagnose estimator-scale follow-up
+      - name: Apply and diagnose subnormal reduction follow-up
         run: |
           set +e
-          python dev/validation/pr126_estimator_scale_followup_once.py > /tmp/patch.log 2>&1
-          first_rc=$?
-          if [ "$first_rc" -eq 0 ]; then
-            python dev/validation/pr126_estimator_scale_fixups_once.py >> /tmp/patch.log 2>&1
-            second_rc=$?
-          else
-            second_rc=99
-          fi
-          if [ "$first_rc" -eq 0 ] && [ "$second_rc" -eq 0 ]; then
-            python dev/validation/pr126_estimator_scale_fixups2_once.py >> /tmp/patch.log 2>&1
-            third_rc=$?
-          else
-            third_rc=99
-          fi
-          if [ "$first_rc" -eq 0 ] && [ "$second_rc" -eq 0 ] && [ "$third_rc" -eq 0 ]; then
-            patch_rc=0
+          python dev/validation/pr126_subnormal_reduction_once.py > /tmp/patch.log 2>&1
+          patch_rc=$?
+          if [ "$patch_rc" -eq 0 ]; then
             python -m pytest \
               dev/tests/test_panel_stage_c_final_review_fixes.py \
               dev/tests/test_panel_stage_c_covariance.py \
@@ -60,7 +47,6 @@ jobs:
             git diff --check > /tmp/diff.log 2>&1
             diff_rc=$?
           else
-            patch_rc=1
             pytest_rc=99
             compile_rc=99
             diff_rc=99
@@ -69,9 +55,6 @@ jobs:
             echo "diff-check skipped because patch failed" > /tmp/diff.log
           fi
           {
-            echo "first_patch_rc=$first_rc"
-            echo "second_patch_rc=$second_rc"
-            echo "third_patch_rc=$third_rc"
             echo "patch_rc=$patch_rc"
             echo "pytest_rc=$pytest_rc"
             echo "compile_rc=$compile_rc"
@@ -79,7 +62,7 @@ jobs:
             echo "--- patch log ---"
             cat /tmp/patch.log
             echo "--- pytest log ---"
-            tail -320 /tmp/pytest.log
+            tail -340 /tmp/pytest.log
             echo "--- compile log ---"
             cat /tmp/compile.log
             echo "--- diff log ---"
@@ -95,22 +78,13 @@ jobs:
              && grep -q '^pytest_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt \
              && grep -q '^compile_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt \
              && grep -q '^diff_rc=0$' dev/validation/pr126_covariance_working_scale_result.txt; then
-            git add \
-              statgpu/panel/_linalg.py \
-              statgpu/panel/_utils.py \
-              statgpu/panel/_diagnostics.py \
-              statgpu/panel/_pooled.py \
-              statgpu/panel/_between.py \
-              statgpu/panel/_first_diff.py \
-              statgpu/panel/_fixed_effects.py \
-              statgpu/panel/_random_effects.py \
-              dev/tests/test_panel_stage_c_final_review_fixes.py
+            git add statgpu/panel/_diagnostics.py dev/tests/test_panel_stage_c_final_review_fixes.py
             if ! git diff --cached --quiet; then
-              git commit -m "fix: stabilize panel estimator scale reductions"
+              git commit -m "fix: stabilize subnormal panel reductions"
               git push origin HEAD:agent/panel-p1-stage-c-covariance
             fi
           else
             git add dev/validation/pr126_covariance_working_scale_result.txt
-            git commit -m "ci: record PR126 estimator-scale failure"
+            git commit -m "ci: record PR126 subnormal reduction failure"
             git push origin HEAD:agent/panel-p1-stage-c-covariance
           fi
