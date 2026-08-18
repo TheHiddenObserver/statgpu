@@ -106,6 +106,85 @@ def panel_svd_working_pseudoinverse(X, xp):
     return X_work, X_pinv_work, design_scale, rank
 
 
+def panel_working_pseudoinverse(X, xp):
+    """Return a working-design pseudoinverse with a certified Gram fast path.
+
+    The SVD remains the authoritative fallback and rank policy.  For designs
+    whose Gram matrix is range-safe and whose eigenvalue ratio is far above the
+    SVD rank boundary, the existing ``_GRAM_CERTIFIED_MIN_EIGEN_RATIO`` policy
+    certifies a normal-equation solve.  Besides avoiding an unnecessary SVD,
+    this preserves exact row symmetries (for example a constant binary-exact
+    design) that can otherwise be perturbed at the U-vector rounding level and
+    then amplified by extreme but finite residuals.
+    """
+    if getattr(X, "ndim", None) != 2:
+        raise ValueError("panel design must be two-dimensional")
+    if int(X.shape[-1]) == 0:
+        raise ValueError("panel design must contain at least one column")
+
+    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
+    n = max(1, int(X_work.shape[0]))
+    k = int(X_work.shape[1])
+    namespace = getattr(xp, "__name__", "")
+
+    # Certify the Gram path only when forming X'X itself has a conservative
+    # factor-four range margin.  Extreme designs stay on the SVD path without
+    # ever materializing an overflowing Gram matrix.
+    max_abs = xp.max(xp.abs(X_work))
+    gram_limit = float(
+        np.sqrt(0.25 * np.finfo(np.float64).max / float(n))
+    )
+    gram_range_safe = bool(
+        _to_float_scalar(
+            xp.isfinite(max_abs) & (max_abs <= float(gram_limit))
+        )
+    )
+
+    if gram_range_safe:
+        gram = X_work.T @ X_work
+        gram_finite = bool(_to_float_scalar(xp.all(xp.isfinite(gram))))
+        if gram_finite:
+            eigenvalues = xp.linalg.eigvalsh(gram)
+            smallest = eigenvalues[0]
+            largest = eigenvalues[-1]
+            certified = bool(
+                _to_float_scalar(
+                    xp.isfinite(smallest)
+                    & xp.isfinite(largest)
+                    & (largest > 0.0)
+                    & (
+                        smallest
+                        > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO)
+                    )
+                )
+            )
+            if certified:
+                rhs = X_work.T
+                if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
+                    X_pinv_work, info = xp.linalg.solve_ex(
+                        gram, rhs, check_errors=False
+                    )
+                    solve_ok = bool(
+                        _to_float_scalar(
+                            (info == 0) & xp.all(xp.isfinite(X_pinv_work))
+                        )
+                    )
+                    if solve_ok:
+                        return X_work, X_pinv_work, design_scale, k
+                else:
+                    X_pinv_work = xp.linalg.solve(gram, rhs)
+                    if bool(
+                        _to_float_scalar(xp.all(xp.isfinite(X_pinv_work)))
+                    ):
+                        return X_work, X_pinv_work, design_scale, k
+
+    # Uncertified, range-risky, or failed certified solves retain the shared SVD
+    # cutoff exactly; the Gram path never expands the accepted rank region.
+    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
+    X_pinv_work = (Vh.T * inverse_values) @ U.T
+    return X_work, X_pinv_work, design_scale, rank
+
+
 def panel_svd_pseudoinverse(X, xp):
     """Return X+, (X'X)+, and rank from one explicit float64 SVD mask."""
     U, Vh, inverse_values, rank = _svd_inverse_factors(X, xp)

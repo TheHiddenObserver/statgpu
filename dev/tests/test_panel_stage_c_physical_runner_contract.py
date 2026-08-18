@@ -255,3 +255,11 @@ def test_stage_c_runner_multiscale_grouping_audit_is_executable():
         rtol=4e-12,
         atol=0.0,
     )
+    tier_amplitude = 2.0 ** 660
+    tier_tiny = 2.0 ** 350
+    np.testing.assert_allclose(
+        np.asarray(audit["third_tier_two_way"]),
+        np.asarray([[-4.0 * tier_amplitude * tier_tiny]], dtype=np.float64),
+        rtol=3e-12,
+        atol=0.0,
+    )

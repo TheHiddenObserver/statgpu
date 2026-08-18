@@ -776,6 +776,44 @@ def _multiscale_grouping_audit(backend):
         dtype=np.float64,
     )
 
+    tier_amplitude = 2.0 ** 660
+    tier_middle = 2.0 ** 600
+    tier_tiny = 2.0 ** 350
+    tier_scores_np = np.asarray(
+        [
+            -tier_amplitude, tier_middle, tier_tiny,
+            tier_amplitude, -tier_middle, -tier_tiny,
+            -tier_amplitude, -tier_middle, tier_amplitude, tier_middle,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ],
+        dtype=np.float64,
+    )
+    tier_c1 = np.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    tier_c2 = np.asarray(
+        [0, 1, 1, 0, 1, 1, 2, 3, 2, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    tier_X_np = np.full((16, 1), 0.5, dtype=np.float64)
+    tier_dummy = np.arange(16, dtype=np.int64)
+    tier_X, tier_resid, _te, _tt = _to_backend(
+        tier_X_np,
+        8.0 * tier_scores_np,
+        tier_dummy,
+        tier_dummy,
+        backend,
+    )
+    tier_two_way = _array(
+        two_way_clustered_covariance(
+            tier_X, tier_resid, tier_c1, tier_c2, xp=xp
+        )
+    )
+    tier_expected = np.asarray(
+        [[-4.0 * tier_amplitude * tier_tiny]], dtype=np.float64
+    )
+
     np.testing.assert_array_equal(
         grouped, np.asarray([[1.0], [1.0]])
     )
@@ -791,6 +829,9 @@ def _multiscale_grouping_audit(backend):
     np.testing.assert_allclose(
         unsafe_two_way, unsafe_expected, rtol=4e-12, atol=0.0
     )
+    np.testing.assert_allclose(
+        tier_two_way, tier_expected, rtol=3e-12, atol=0.0
+    )
     return {
         "status": "success",
         "backend": backend,
@@ -799,6 +840,7 @@ def _multiscale_grouping_audit(backend):
         "driscoll_kraay": dk.tolist(),
         "deep_two_way": deep_two_way.tolist(),
         "unsafe_cross_two_way": unsafe_two_way.tolist(),
+        "third_tier_two_way": tier_two_way.tolist(),
     }
 
 def _hausman_scale_audit(backend):

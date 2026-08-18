@@ -32,6 +32,7 @@ from statgpu.backends import (
 from statgpu.panel._linalg import (
     panel_svd_pseudoinverse,
     panel_svd_working_pseudoinverse,
+    panel_working_pseudoinverse,
 )
 from statgpu.panel._utils import factorize_panel_metadata
 
@@ -182,7 +183,7 @@ def _influence_rows(X, resid, xp):
     residual vector is never globally normalized, so unrelated tiny/subnormal
     residual contributions survive beside very large observations.
     """
-    X_work, X_pinv_work, design_scale, rank = panel_svd_working_pseudoinverse(
+    X_work, X_pinv_work, design_scale, rank = panel_working_pseudoinverse(
         X, xp
     )
     projection_rows = X_pinv_work.T
@@ -224,8 +225,15 @@ def _restore_influence_covariance(
 
 
 def _cluster_grouped_scores(
-    scores, codes, *, n_groups: int, nobs: int, group_debias: bool, xp,
+    scores,
+    codes,
+    *,
+    n_groups: int,
+    nobs: int,
+    group_debias: bool,
+    xp,
     return_compensation: bool = False,
+    return_components: bool = False,
 ):
     if int(n_groups) < 2:
         raise ValueError(
@@ -237,10 +245,13 @@ def _cluster_grouped_scores(
         n_groups=int(n_groups),
         xp=xp,
         return_compensation=return_compensation,
+        return_components=return_components,
     )
     correction = (
         _group_debias_factor(int(n_groups), int(nobs)) if group_debias else 1.0
     )
+    if return_components:
+        return grouped, float(correction)
     if return_compensation:
         high, low = grouped
         return high, low, float(correction)
@@ -373,8 +384,46 @@ def _stable_inclusion_exclusion(V1, V2, V12, xp):
 
 
 
+def _stable_matrix_expansion_sum(terms, xp):
+    """Sum finite matrix terms with a floating-point expansion.
+
+    The caller must put terms on a common range-safe working scale.  General
+    TwoSum then keeps cancellation residuals as separate expansion components,
+    so a smaller covariance tier is not discarded before later large terms
+    cancel.  This is used only for nonnested multiway-cluster inclusion-
+    exclusion, where cancellation across marginal/intersection components is
+    part of the estimator definition.
+    """
+    if not terms:
+        raise ValueError("at least one matrix term is required")
+
+    partials = []
+    for term in terms:
+        carry = term
+        next_partials = []
+        for partial in partials:
+            summed = carry + partial
+            virtual_partial = summed - carry
+            residual = (
+                carry - (summed - virtual_partial)
+            ) + (partial - virtual_partial)
+            next_partials.append(residual)
+            carry = summed
+        next_partials.append(carry)
+        partials = next_partials
+
+    # Grow-expansion keeps residual components before the final carry.  At this
+    # point all large cancellation has already occurred; an ascending estimate
+    # performs the one unavoidable float64 rounding of the final covariance.
+    total = xp.zeros_like(partials[0])
+    for partial in partials:
+        total = total + partial
+    return _symmetrize(total)
+
+
 def _grouped_score_sums(
-    scores, codes_np, *, n_groups: int, xp, return_compensation: bool = False
+    scores, codes_np, *, n_groups: int, xp, return_compensation: bool = False,
+    return_components: bool = False,
 ):
     "Sum scores by group while preserving recursively separated magnitude tiers."
     codes_np = np.asarray(codes_np, dtype=np.int64).ravel()
@@ -382,6 +431,10 @@ def _grouped_score_sums(
         raise ValueError("group codes must match the number of score rows")
     if int(n_groups) <= 0:
         raise ValueError("at least one group is required")
+    if return_compensation and return_components:
+        raise ValueError(
+            "return_compensation and return_components are mutually exclusive"
+        )
     codes = xp_asarray(
         codes_np,
         dtype=xp.int64,
@@ -475,6 +528,15 @@ def _grouped_score_sums(
         raise RuntimeError(
             "grouped score cancellation exceeded the float64 tier budget"
         )
+
+    if return_components:
+        # Keep every recursively separated tier and every TwoSum residual as a
+        # distinct expansion component.  Do not recombine lower tiers here:
+        # two-way inclusion-exclusion may cancel much larger components later.
+        components = []
+        for tier_sum, tier_error in tiers:
+            components.extend((tier_sum * factor, tier_error * factor))
+        return components
 
     def _collapse(parts):
         total = xp.zeros_like(tiers[0][0])
@@ -658,165 +720,147 @@ def two_way_clustered_covariance(
             influence, c12, n_groups=n12, nobs=n,
             group_debias=group_debias, xp=xp
         )
+        if nested_c1:
+            cov_work, common_scale = _cluster_meat_from_grouped(
+                grouped2, correction2, xp
+            )
+        else:
+            cov_work, common_scale = _cluster_meat_from_grouped(
+                grouped1, correction1, xp
+            )
     else:
-        grouped1, grouped1_low, correction1 = _cluster_grouped_scores(
-            influence, c1, n_groups=int(len(labels1)), nobs=n,
-            group_debias=group_debias, xp=xp, return_compensation=True
+        components1, correction1 = _cluster_grouped_scores(
+            influence,
+            c1,
+            n_groups=int(len(labels1)),
+            nobs=n,
+            group_debias=group_debias,
+            xp=xp,
+            return_components=True,
         )
-        grouped2, grouped2_low, correction2 = _cluster_grouped_scores(
-            influence, c2, n_groups=int(len(labels2)), nobs=n,
-            group_debias=group_debias, xp=xp, return_compensation=True
+        components2, correction2 = _cluster_grouped_scores(
+            influence,
+            c2,
+            n_groups=int(len(labels2)),
+            nobs=n,
+            group_debias=group_debias,
+            xp=xp,
+            return_components=True,
         )
-        grouped12, grouped12_low, correction12 = _cluster_grouped_scores(
-            influence, c12, n_groups=n12, nobs=n,
-            group_debias=group_debias, xp=xp, return_compensation=True
+        components12, correction12 = _cluster_grouped_scores(
+            influence,
+            c12,
+            n_groups=n12,
+            nobs=n,
+            group_debias=group_debias,
+            xp=xp,
+            return_components=True,
         )
-    if nested_c1:
-        cov_work, common_scale = _cluster_meat_from_grouped(
-            grouped2, correction2, xp
-        )
-    elif nested_c2:
-        cov_work, common_scale = _cluster_meat_from_grouped(
-            grouped1, correction1, xp
-        )
-    else:
-        multiplier = max(correction1, correction2, correction12)
-        (grouped1_work, grouped2_work, grouped12_work), common_scale = (
-            _common_gram_working_values(
-                [grouped1, grouped2, grouped12],
+
+        extra_max = xp.zeros_like(xp.max(xp.abs(components1[0])))
+        for components in (components1, components2, components12):
+            for component in components[1:]:
+                extra_max = xp.maximum(extra_max, xp.max(xp.abs(component)))
+
+        if _to_float_scalar(extra_max) == 0.0:
+            (grouped1_work, grouped2_work, grouped12_work), common_scale = (
+                _common_gram_working_values(
+                    [components1[0], components2[0], components12[0]],
+                    xp,
+                    max_multiplier=max(correction1, correction2, correction12),
+                )
+            )
+            V1_work = _symmetrize(
+                grouped1_work.T @ grouped1_work * float(correction1)
+            )
+            V2_work = _symmetrize(
+                grouped2_work.T @ grouped2_work * float(correction2)
+            )
+            V12_work = _symmetrize(
+                grouped12_work.T @ grouped12_work * float(correction12)
+            )
+            cov_work = _stable_inclusion_exclusion(
+                V1_work, V2_work, V12_work, xp
+            )
+        else:
+            all_components = components1 + components2 + components12
+            component_sets = (components1, components2, components12)
+            max_rows = max(
+                int(components[0].shape[0]) for components in component_sets
+            )
+            # Count scalar products rather than matrix terms: an off-diagonal
+            # expansion pair contributes both u v' and v u'.  The existing
+            # common-Gram scaler already multiplies its bound by max_rows, so
+            # convert the total product count to an equivalent per-max-row
+            # multiplier and keep a factor-of-two margin for intermediate sums.
+            product_count = sum(
+                int(components[0].shape[0]) * (len(components) ** 2)
+                for components in component_sets
+            )
+            max_correction = max(correction1, correction2, correction12)
+            product_multiplier = (
+                2.0
+                * float(max(1, product_count))
+                / float(max(1, max_rows))
+                * float(max_correction)
+            )
+            working_components, common_scale = _common_gram_working_values(
+                all_components,
                 xp,
-                max_multiplier=multiplier,
+                max_multiplier=product_multiplier,
             )
-        )
-        V1_work = _symmetrize(
-            grouped1_work.T @ grouped1_work * float(correction1)
-        )
-        V2_work = _symmetrize(
-            grouped2_work.T @ grouped2_work * float(correction2)
-        )
-        V12_work = _symmetrize(
-            grouped12_work.T @ grouped12_work * float(correction12)
-        )
-        cov_work = _stable_inclusion_exclusion(V1_work, V2_work, V12_work, xp)
 
-        # The grouped score is represented as a float64 high part plus the
-        # exact TwoSum residual from its final positive/negative combination.
-        # This rounding loss occurs at grouping time and is independent of
-        # whether the subsequent Gram needs range scaling, so compensate any
-        # nonzero low part in the nonnested CGM combination.  Each component
-        # keeps its own finite-sample group-debias factor.
-        low_max = xp.maximum(
-            xp.maximum(
-                xp.max(xp.abs(grouped1_low)),
-                xp.max(xp.abs(grouped2_low)),
-            ),
-            xp.max(xp.abs(grouped12_low)),
-        )
-        need_compensation = _to_float_scalar(low_max) > 0.0
-        if need_compensation:
-            # First try to keep the low-order expansion in the *same* coordinate
-            # scale as the high Gram.  This is the important path when individual
-            # physical high-low cross terms would overflow but the CGM
-            # inclusion-exclusion is finite: cancellation happens before any
-            # physical-scale restoration instead of silently dropping the tail.
-            low1_work = grouped1_low / common_scale
-            low2_work = grouped2_low / common_scale
-            low12_work = grouped12_low / common_scale
-            low_work_triples = (
-                (grouped1_low, low1_work),
-                (grouped2_low, low2_work),
-                (grouped12_low, low12_work),
-            )
-            low_underflowed = any(
-                bool(
+            lost_component = False
+            for original, working in zip(all_components, working_components):
+                if bool(
                     _to_float_scalar(
-                        xp.any((low != 0.0) & (low_work == 0.0))
+                        xp.any((original != 0.0) & (working == 0.0))
                     )
+                ):
+                    lost_component = True
+                    break
+            if lost_component:
+                raise FloatingPointError(
+                    "two-way cluster score expansion exceeds the float64 "
+                    "common-scale dynamic range"
                 )
-                for low, low_work in low_work_triples
-            )
 
-            if not low_underflowed:
-                def _low_order_covariance_work(high_work, low_work, correction):
-                    cross = high_work.T @ low_work
-                    low_square = _symmetrize(low_work.T @ low_work)
-                    return _symmetrize(
-                        (
-                            cross
-                            + cross.T
-                            + low_square
+            n1 = len(components1)
+            n2 = len(components2)
+            work1 = working_components[:n1]
+            work2 = working_components[n1:n1 + n2]
+            work12 = working_components[n1 + n2:]
+
+            terms = []
+
+            def _append_component_terms(components, correction, sign):
+                coefficient = float(sign) * float(correction)
+                n_rows = int(components[0].shape[0])
+                for i, left in enumerate(components):
+                    for row in range(n_rows):
+                        left_row = left[row]
+                        terms.append(
+                            (left_row[:, None] * left_row[None, :])
+                            * coefficient
                         )
-                        * float(correction)
-                    )
+                    for right in components[:i]:
+                        for row in range(n_rows):
+                            left_row = left[row]
+                            right_row = right[row]
+                            cross = left_row[:, None] * right_row[None, :]
+                            terms.append(
+                                (cross + cross.T) * coefficient
+                            )
 
-                low_correction_work = _stable_inclusion_exclusion(
-                    _low_order_covariance_work(
-                        grouped1_work, low1_work, correction1
-                    ),
-                    _low_order_covariance_work(
-                        grouped2_work, low2_work, correction2
-                    ),
-                    _low_order_covariance_work(
-                        grouped12_work, low12_work, correction12
-                    ),
-                    xp,
-                )
-                cov_work = _symmetrize(cov_work + low_correction_work)
-            else:
-                # If dividing by the high-Gram coordinate scale would erase a
-                # nonzero low part, preserve it on the physical score scale.
-                # Such a fallback is used only after proving every required
-                # high-low and low-low reduction safe.  Never fail open by
-                # omitting the low component.
-                correction_triples = (
-                    (grouped1, grouped1_low, correction1),
-                    (grouped2, grouped2_low, correction2),
-                    (grouped12, grouped12_low, correction12),
-                )
-                safe_correction = all(
-                    _cross_reduction_is_safe(
-                        high, low, xp, max_multiplier=correction
-                    )
-                    and _cross_reduction_is_safe(
-                        low, low, xp, max_multiplier=correction
-                    )
-                    for high, low, correction in correction_triples
-                )
-                if not safe_correction:
-                    raise FloatingPointError(
-                        "two-way cluster low-order correction cannot be "
-                        "evaluated safely without losing a nonzero tail"
-                    )
-
-                def _low_order_covariance(high, low, correction):
-                    cross = high.T @ low
-                    low_square = _symmetrize(low.T @ low)
-                    return _symmetrize(
-                        (
-                            cross
-                            + cross.T
-                            + low_square
-                        )
-                        * float(correction)
-                    )
-
-                low_correction = _stable_inclusion_exclusion(
-                    _low_order_covariance(
-                        grouped1, grouped1_low, correction1
-                    ),
-                    _low_order_covariance(
-                        grouped2, grouped2_low, correction2
-                    ),
-                    _low_order_covariance(
-                        grouped12, grouped12_low, correction12
-                    ),
-                    xp,
-                )
-                cov_work = _restore_coordinate_covariance(
-                    cov_work, common_scale, xp
-                )
-                cov_work = _symmetrize(cov_work + low_correction)
-                common_scale = xp.ones_like(projection_scale)
+            # Do not reduce over group rows with a BLAS Gram here.  A component
+            # may contain, for example, A in one group and b in another; A^2+b^2
+            # would round away b^2 before a later +V1+V2-V12 cancellation removes
+            # A^2.  Keep every row outer product as an expansion term until the
+            # complete CGM expression has cancelled structurally.
+            _append_component_terms(work1, correction1, 1.0)
+            _append_component_terms(work2, correction2, 1.0)
+            _append_component_terms(work12, correction12, -1.0)
+            cov_work = _stable_matrix_expansion_sum(terms, xp)
     cov = _restore_influence_covariance(
         cov_work, common_scale, projection_scale, design_scale, xp
     )

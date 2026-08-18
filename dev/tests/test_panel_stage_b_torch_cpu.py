@@ -582,3 +582,31 @@ def test_stage_c_torch_cpu_two_way_unsafe_cross_cancels_before_restore():
         [[4.0 * amplitude * (low2 - low1)]], dtype=np.float64
     )
     np.testing.assert_allclose(actual, expected, rtol=4e-12, atol=0.0)
+
+def test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component():
+    amplitude = 2.0 ** 660
+    middle = 2.0 ** 600
+    tiny = 2.0 ** 350
+    scores_np = np.asarray(
+        [
+            -amplitude, middle, tiny, amplitude, -middle, -tiny,
+            -amplitude, -middle, amplitude, middle,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    cluster2 = np.asarray(
+        [0, 1, 1, 0, 1, 1, 2, 3, 2, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    X = torch.full((16, 1), 0.5, dtype=torch.float64)
+    resid = torch.as_tensor(8.0 * scores_np, dtype=torch.float64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, xp=torch
+    ).detach().cpu().numpy()
+    expected = np.asarray([[-4.0 * amplitude * tiny]], dtype=np.float64)
+    np.testing.assert_allclose(actual, expected, rtol=3e-12, atol=0.0)

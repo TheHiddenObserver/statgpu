@@ -16,6 +16,7 @@ from statgpu.panel import (
 from statgpu.panel._covariance import (
     _dk_kernel_weights,
     _grouped_score_sums,
+    _influence_rows,
     _symmetrize,
     clustered_covariance,
     driscoll_kraay_covariance,
@@ -666,3 +667,51 @@ def test_two_way_nonnested_unsafe_cross_cancels_before_restore():
     )
     assert np.isfinite(expected[0, 0])
     assert_allclose(actual, expected, rtol=4e-12, atol=0.0)
+
+def test_two_way_nonnested_preserves_third_magnitude_component():
+    amplitude = 2.0 ** 660
+    middle = 2.0 ** 600
+    tiny = 2.0 ** 350
+    scores = np.asarray(
+        [
+            -amplitude, middle, tiny, amplitude, -middle, -tiny,
+            -amplitude, -middle, amplitude, middle,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    cluster2 = np.asarray(
+        [0, 1, 1, 0, 1, 1, 2, 3, 2, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    X = np.full((16, 1), 0.5, dtype=np.float64)
+    actual = two_way_clustered_covariance(
+        X, 8.0 * scores, cluster1, cluster2
+    )
+    expected = np.asarray([[-4.0 * amplitude * tiny]], dtype=np.float64)
+    assert np.isfinite(expected[0, 0])
+    assert_allclose(actual, expected, rtol=3e-12, atol=0.0)
+
+def test_influence_rows_certified_gram_preserves_constant_design_symmetry():
+    amplitude = 2.0 ** 660
+    middle = 2.0 ** 600
+    tiny = 2.0 ** 350
+    scores = np.asarray(
+        [
+            -amplitude, middle, tiny, amplitude, -middle, -tiny,
+            -amplitude, -middle, amplitude, middle,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ],
+        dtype=np.float64,
+    )
+    X = np.full((16, 1), 0.5, dtype=np.float64)
+    influence, projection_scale, design_scale, *_ = _influence_rows(
+        X, 8.0 * scores, np
+    )
+    np.testing.assert_array_equal(influence[:, 0], scores)
+    np.testing.assert_array_equal(projection_scale, np.ones(1))
+    assert float(np.asarray(design_scale)) == 1.0
