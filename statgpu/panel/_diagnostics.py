@@ -669,15 +669,43 @@ def _hausman_quadratic(
     from statgpu.panel._covariance import _symmetrize
 
     D = np.asarray(_symmetrize(D), dtype=np.float64)
-    eigvals, eigvecs = np.linalg.eigh(D)
-    norm_D = float(np.linalg.norm(D, ord=2)) if D.size else 0.0
-    tol = _relative_tolerance(norm_D, factor=256.0 * max(1, d.size))
+    matrix_scale = float(np.max(np.abs(D))) if D.size else 0.0
+    if not np.isfinite(matrix_scale):
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason="covariance difference contains non-finite values",
+        )
+    if matrix_scale == 0.0:
+        D_work = D
+    else:
+        D_work = D / matrix_scale
+    eigvals_work, eigvecs = np.linalg.eigh(D_work)
+    norm_work = float(np.linalg.norm(D_work, ord=2)) if D_work.size else 0.0
+    tol_work = _relative_tolerance(
+        norm_work, factor=256.0 * max(1, d.size)
+    )
+
+    def _restore_linear(value: float) -> float:
+        value = float(value)
+        if value == 0.0 or matrix_scale == 0.0:
+            return 0.0
+        limit = float(np.finfo(np.float64).max) / abs(value)
+        if matrix_scale > limit:
+            return float(np.copysign(np.inf, value))
+        return float(value * matrix_scale)
+
     meta = {
-        "eigen_tolerance": tol,
-        "minimum_eigenvalue": float(eigvals.min()),
-        "maximum_eigenvalue": float(eigvals.max()),
+        "eigen_scale": float(matrix_scale),
+        "eigen_tolerance": _restore_linear(tol_work),
+        "eigen_tolerance_normalized": float(tol_work),
+        "minimum_eigenvalue": _restore_linear(float(eigvals_work.min())),
+        "maximum_eigenvalue": _restore_linear(float(eigvals_work.max())),
+        "minimum_eigenvalue_normalized": float(eigvals_work.min()),
+        "maximum_eigenvalue_normalized": float(eigvals_work.max()),
     }
-    if float(eigvals.min()) < -tol:
+    if float(eigvals_work.min()) < -tol_work:
         return _inapplicable(
             null=null,
             alternative=alternative,
@@ -686,7 +714,7 @@ def _hausman_quadratic(
             metadata=meta,
         )
 
-    positive = eigvals > tol
+    positive = eigvals_work > tol_work
     rank = int(np.count_nonzero(positive))
     meta["rank"] = rank
     if rank == 0:
@@ -742,7 +770,11 @@ def _hausman_quadratic(
     # materializing 1/lambda.  For a positive subnormal eigenvalue, 1/lambda
     # can overflow even when (u'd)^2/lambda is perfectly representable.
     coordinates = basis.T @ d
-    standardized = coordinates / np.sqrt(eigvals[positive])
+    if matrix_scale == 0.0:
+        standardized = coordinates
+    else:
+        standardized = coordinates / np.sqrt(matrix_scale)
+        standardized = standardized / np.sqrt(eigvals_work[positive])
     statistic = float(np.sum(standardized * standardized))
     meta["quadratic_evaluation"] = "standardized_eigencoordinates"
     stat_tol = 256.0 * np.finfo(np.float64).eps * max(1.0, abs(statistic))

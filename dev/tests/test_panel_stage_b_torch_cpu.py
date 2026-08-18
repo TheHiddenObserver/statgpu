@@ -522,3 +522,12 @@ def test_stage_b_torch_cpu_hausman_large_singular_range_guard():
     )
     assert result.applicable is False
     assert "outside the identified covariance-difference range" in result.reason
+
+
+def test_stage_b_torch_cpu_hausman_dense_large_covariance_scale():
+    result = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e154]),
+        np.full((2, 2), 1.0e308, dtype=np.float64),
+    )
+    assert result.applicable, result.reason
+    np.testing.assert_allclose(result.statistic, 1.0, rtol=5e-13, atol=0.0)

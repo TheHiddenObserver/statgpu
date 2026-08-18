@@ -101,3 +101,18 @@ def test_hausman_quadratic_rejects_large_finite_nullspace_component():
     assert result.metadata["range_comparison_scale"] == 1.0e200
     assert np.isfinite(result.metadata["range_tolerance_normalized"])
     assert np.isfinite(result.metadata["nullspace_component_norm_normalized"])
+
+
+def test_hausman_quadratic_normalizes_dense_large_covariance_scale():
+    result = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e154]),
+        np.full((2, 2), 1.0e308, dtype=np.float64),
+    )
+    assert result.applicable, result.reason
+    assert result.df == 1.0
+    assert result.metadata["eigen_scale"] == 1.0e308
+    assert np.isinf(result.metadata["maximum_eigenvalue"])
+    assert_allclose(result.metadata["maximum_eigenvalue_normalized"], 2.0, rtol=0.0, atol=0.0)
+    assert result.metadata["quadratic_evaluation"] == "standardized_eigencoordinates"
+    assert_allclose(result.statistic, 1.0, rtol=5e-13, atol=0.0)
+    assert np.isfinite(result.pvalue)

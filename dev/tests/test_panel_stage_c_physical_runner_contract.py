@@ -208,6 +208,7 @@ def test_stage_c_runner_hausman_scale_audit_is_executable():
     assert audit["status"] == "success"
     assert audit["backend"] == "numpy"
     assert audit["large_singular_range_rejected"] is True
+    np.testing.assert_allclose(audit["dense_large_statistic"], 1.0, rtol=5e-13, atol=0.0)
     for label in ("large", "subnormal"):
         case = audit["cases"][label]
         assert case["df"] == 1.0

@@ -710,11 +710,24 @@ def _hausman_scale_audit(backend):
         raise AssertionError(
             f"{backend}: large singular Hausman range guard failed: {singular}"
         )
+    dense = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e154]),
+        np.full((2, 2), 1.0e308, dtype=np.float64),
+    )
+    if not dense.applicable:
+        raise AssertionError(
+            f"{backend}: dense large Hausman scale became inapplicable: {dense.reason}"
+        )
+    np.testing.assert_allclose(
+        dense.statistic, 1.0, rtol=5e-13, atol=0.0,
+        err_msg=f"{backend}: dense large Hausman statistic",
+    )
     return {
         "status": "success",
         "backend": backend,
         "cases": results,
         "large_singular_range_rejected": True,
+        "dense_large_statistic": float(dense.statistic),
     }
 
 
