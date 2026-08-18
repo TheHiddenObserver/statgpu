@@ -6,6 +6,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from statgpu.panel import PanelOLS, RandomEffects
+from statgpu.panel._diagnostics import _hausman_quadratic
 
 
 def _panel(seed=1250):
@@ -67,3 +68,24 @@ def test_hausman_and_public_inference_share_standard_fe_covariance():
         rtol=1e-10,
         atol=1e-12,
     )
+
+
+def test_hausman_quadratic_is_scale_safe_at_float64_extremes():
+    cases = (
+        (1.0e308, np.sqrt(1.0e308)),
+        (1.0e-320, np.sqrt(1.0e-320)),
+    )
+    results = []
+    for variance, difference in cases:
+        result = _hausman_quadratic(
+            np.asarray([difference], dtype=np.float64),
+            np.asarray([[variance]], dtype=np.float64),
+        )
+        assert result.applicable, result.reason
+        assert result.df == 1.0
+        assert result.metadata["quadratic_evaluation"] == "standardized_eigencoordinates"
+        assert_allclose(result.statistic, 1.0, rtol=3e-12, atol=0.0)
+        assert np.isfinite(result.pvalue)
+        results.append(result)
+
+    assert_allclose(results[0].pvalue, results[1].pvalue, rtol=3e-12, atol=0.0)

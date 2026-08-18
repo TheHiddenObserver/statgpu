@@ -644,7 +644,13 @@ def _hausman_quadratic(
             reason="Hausman test has no common estimable slope coefficients",
         )
 
-    D = 0.5 * (D + D.T)
+    # Reuse the covariance layer's range-safe symmetric average.  The
+    # mathematical input is a covariance difference, so doubling two finite
+    # same-sign entries near DBL_MAX must not turn a representable matrix into
+    # Inf before the eigendecomposition.
+    from statgpu.panel._covariance import _symmetrize
+
+    D = np.asarray(_symmetrize(D), dtype=np.float64)
     eigvals, eigvecs = np.linalg.eigh(D)
     norm_D = float(np.linalg.norm(D, ord=2)) if D.size else 0.0
     tol = _relative_tolerance(norm_D, factor=256.0 * max(1, d.size))
@@ -691,8 +697,13 @@ def _hausman_quadratic(
             metadata=meta,
         )
 
-    inv_eigs = 1.0 / eigvals[positive]
-    statistic = float((basis.T @ d).T @ (inv_eigs * (basis.T @ d)))
+    # Evaluate d' D+ d in standardized eigencoordinates instead of
+    # materializing 1/lambda.  For a positive subnormal eigenvalue, 1/lambda
+    # can overflow even when (u'd)^2/lambda is perfectly representable.
+    coordinates = basis.T @ d
+    standardized = coordinates / np.sqrt(eigvals[positive])
+    statistic = float(np.sum(standardized * standardized))
+    meta["quadratic_evaluation"] = "standardized_eigencoordinates"
     stat_tol = 256.0 * np.finfo(np.float64).eps * max(1.0, abs(statistic))
     if statistic < -stat_tol:
         return _inapplicable(

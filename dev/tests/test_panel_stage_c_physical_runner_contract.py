@@ -198,3 +198,15 @@ def test_stage_c_runner_covariance_extreme_scale_audit_is_executable():
         "lag_accumulator_driscoll_kraay",
     ):
         assert np.all(np.isfinite(np.asarray(audit[key], dtype=np.float64))), key
+
+
+def test_stage_c_runner_hausman_scale_audit_is_executable():
+    audit = _MOD._hausman_scale_audit("numpy")
+    assert audit["status"] == "success"
+    assert audit["backend"] == "numpy"
+    for label in ("large", "subnormal"):
+        case = audit["cases"][label]
+        assert case["df"] == 1.0
+        assert np.isfinite(case["statistic"])
+        assert np.isfinite(case["pvalue"])
+        np.testing.assert_allclose(case["statistic"], 1.0, rtol=3e-12, atol=0.0)

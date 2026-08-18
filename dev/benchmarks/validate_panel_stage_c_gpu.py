@@ -36,6 +36,7 @@ from statgpu.panel._diagnostic_context import (
 )
 from statgpu.panel._diagnostics import (
     _classical_model_f,
+    _hausman_quadratic,
     _scaled_group_means,
     _scaled_mean,
 )
@@ -607,6 +608,36 @@ def _covariance_extreme_scale_audit(backend):
         "mixed_two_way_permuted": mixed_two_way_permuted.tolist(),
         "mixed_driscoll_kraay": mixed_dk.tolist(),
     }
+
+
+
+def _hausman_scale_audit(backend):
+    results = {}
+    for label, variance, difference in (
+        ("large", 1.0e308, np.sqrt(1.0e308)),
+        ("subnormal", 1.0e-320, np.sqrt(1.0e-320)),
+    ):
+        result = _hausman_quadratic([difference], [[variance]])
+        if not result.applicable:
+            raise AssertionError(
+                f"{backend}: Hausman {label} scale became inapplicable: {result.reason}"
+            )
+        np.testing.assert_allclose(
+            result.statistic, 1.0, rtol=3e-12, atol=0.0,
+            err_msg=f"{backend}: Hausman {label} scale statistic",
+        )
+        if not np.isfinite(result.pvalue):
+            raise AssertionError(f"{backend}: Hausman {label} p-value is non-finite")
+        results[label] = {
+            "statistic": float(result.statistic),
+            "pvalue": float(result.pvalue),
+            "df": float(result.df),
+        }
+    np.testing.assert_allclose(
+        results["large"]["pvalue"], results["subnormal"]["pvalue"],
+        rtol=3e-12, atol=0.0,
+    )
+    return {"status": "success", "backend": backend, "cases": results}
 
 
 def _zero_variance_inference_audit(backend):
@@ -1424,6 +1455,7 @@ def main():
             "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
             "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
             "covariance_extreme_scale": _covariance_extreme_scale_audit(backend),
+            "hausman_scale": _hausman_scale_audit(backend),
             "zero_variance_inference": _zero_variance_inference_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,

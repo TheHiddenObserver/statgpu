@@ -15,7 +15,11 @@ from statgpu.panel._covariance import (
     two_way_clustered_covariance,
 )
 from statgpu.panel._diagnostic_context import explicit_constant_column
-from statgpu.panel._diagnostics import _diagnostic_identity, _fingerprints_match
+from statgpu.panel._diagnostics import (
+    _diagnostic_identity,
+    _fingerprints_match,
+    _hausman_quadratic,
+)
 from statgpu.panel._utils import _zero_safe_statistic_ratio
 
 
@@ -451,3 +455,16 @@ def test_stage_c_torch_cpu_nested_partition_code_permutation_is_exact():
     reference = clustered_covariance(X, resid, coarse, xp=torch)
     actual = two_way_clustered_covariance(X, resid, coarse, fine, xp=torch)
     assert_allclose(actual, reference, rtol=5e-13, atol=0.0)
+
+
+def test_stage_b_torch_cpu_hausman_host_quadratic_is_scale_safe():
+    # Hausman forms the small covariance-difference quadratic on host after the
+    # backend-specific FE/RE fits.  Keep both floating-point scale extremes in
+    # the maintained Torch job so GPU-originated results cannot regress here.
+    for variance, difference in (
+        (1.0e308, np.sqrt(1.0e308)),
+        (1.0e-320, np.sqrt(1.0e-320)),
+    ):
+        result = _hausman_quadratic([difference], [[variance]])
+        assert result.applicable, result.reason
+        assert_allclose(result.statistic, 1.0, rtol=3e-12, atol=0.0)
