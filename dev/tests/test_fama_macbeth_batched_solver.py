@@ -70,6 +70,65 @@ def test_panel_lstsq_scales_large_finite_rhs_before_svd_projection():
     np.testing.assert_allclose(params[0], 6.0e307, rtol=5e-15, atol=0.0)
 
 
+def test_panel_lstsq_rescales_tiny_full_rank_design():
+    tiny = 1.0e-320
+    X = np.eye(2, dtype=np.float64) * tiny
+    y = np.asarray([tiny, 2.0 * tiny], dtype=np.float64)
+    params, rank = panel_lstsq(X, y, np)
+    assert rank == 2
+    np.testing.assert_allclose(params, np.asarray([1.0, 2.0]), rtol=5e-14, atol=0.0)
+
+
+def test_panel_lstsq_deferred_rank_rescales_tiny_full_rank_design():
+    from statgpu.panel._linalg import panel_lstsq_deferred_rank
+
+    tiny = 1.0e-320
+    X = np.eye(2, dtype=np.float64) * tiny
+    y = np.asarray([tiny, 2.0 * tiny], dtype=np.float64)
+    params, rank = panel_lstsq_deferred_rank(X, y, np)
+    assert int(rank) == 2
+    np.testing.assert_allclose(params, np.asarray([1.0, 2.0]), rtol=5e-14, atol=0.0)
+
+
+def test_panel_lstsq_batched_rescales_tiny_full_rank_design_torch_cpu():
+    torch = pytest.importorskip("torch")
+    tiny = 1.0e-320
+    X = torch.eye(2, dtype=torch.float64).repeat(2, 1, 1) * tiny
+    y = torch.tensor([[tiny, 2.0 * tiny], [2.0 * tiny, -tiny]], dtype=torch.float64)
+    params, ranks = panel_lstsq_batched(X, y, torch)
+    assert ranks.tolist() == [2, 2]
+    np.testing.assert_allclose(
+        params.detach().cpu().numpy(),
+        np.asarray([[1.0, 2.0], [2.0, -1.0]]),
+        rtol=5e-13,
+        atol=0.0,
+    )
+
+
+def test_gram_certificate_defers_nonfinite_gram_to_svd_numpy():
+    X = (np.eye(2, dtype=np.float64) * 1.0e200)[None, ...]
+    y = np.asarray([[1.0e200, 2.0e200]], dtype=np.float64)
+    with np.errstate(over="ignore", invalid="ignore"):
+        _candidate, certified = panel_lstsq_gram_certified_batched(X, y, np)
+    assert np.asarray(certified, dtype=bool).tolist() == [False]
+    params, rank = panel_lstsq(X[0], y[0], np)
+    assert rank == 2
+    np.testing.assert_allclose(params, np.asarray([1.0, 2.0]), rtol=5e-14, atol=0.0)
+
+
+def test_gram_certificate_defers_nonfinite_gram_to_svd_torch_cpu():
+    torch = pytest.importorskip("torch")
+    X = torch.eye(2, dtype=torch.float64).reshape(1, 2, 2) * 1.0e200
+    y = torch.tensor([[1.0e200, 2.0e200]], dtype=torch.float64)
+    _candidate, certified = panel_lstsq_gram_certified_batched(X, y, torch)
+    assert certified.tolist() == [False]
+    params, ranks = panel_lstsq_batched(X, y, torch)
+    assert ranks.tolist() == [2]
+    np.testing.assert_allclose(
+        params.detach().cpu().numpy()[0], np.asarray([1.0, 2.0]), rtol=5e-13, atol=0.0
+    )
+
+
 def test_panel_lstsq_preserves_mixed_dynamic_range_identity_rhs():
     X = np.eye(2, dtype=np.float64)
     y = np.asarray([1.7e308, np.nextafter(0.0, 1.0)], dtype=np.float64)

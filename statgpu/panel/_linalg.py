@@ -47,6 +47,45 @@ def _svd_inverse_factors(X, xp):
     return U, Vh, _inverse_values(singular_values, retained, xp), rank
 
 
+def _lstsq_working_design(X, xp, *, batched: bool):
+    """Return an SVD working design plus its positive rescaling factor.
+
+    Uniform positive rescaling leaves the relative panel rank cutoff unchanged.
+    If an entire independent design lies below ``sqrt(DBL_MIN)``, raise its
+    largest element to that threshold before forming inverse retained singular
+    values.  This prevents ``1 / s`` overflow for a full-rank subnormal design;
+    the final least-squares coefficient is multiplied by the same factor to
+    restore the original parameterization.
+    """
+    namespace = getattr(xp, "__name__", "")
+    target = float(np.sqrt(np.finfo(np.float64).tiny))
+
+    def _factor(max_abs):
+        relative = max_abs / float(target)
+        safe_relative = xp.where(
+            relative > 0.0, relative, xp.ones_like(relative)
+        )
+        return xp.where(
+            (max_abs > 0.0) & (max_abs < target),
+            1.0 / safe_relative,
+            xp.ones_like(max_abs),
+        )
+
+    if batched:
+        view = xp.abs(X).reshape(int(X.shape[0]), -1)
+        max_abs = (
+            xp.max(view, dim=1).values
+            if namespace == "torch"
+            else xp.max(view, axis=1)
+        )
+        factor = _factor(max_abs)
+        return X * factor[:, None, None], factor
+
+    max_abs = xp.max(xp.abs(X))
+    factor = _factor(max_abs)
+    return X * factor, factor
+
+
 def panel_svd_pseudoinverse(X, xp):
     """Return X+, (X'X)+, and rank from one explicit float64 SVD mask."""
     U, Vh, inverse_values, rank = _svd_inverse_factors(X, xp)
@@ -57,7 +96,8 @@ def panel_svd_pseudoinverse(X, xp):
 
 def panel_lstsq(X, y, xp):
     """Return the minimum-norm least-squares solution under the panel SVD policy."""
-    U, Vh, inverse_values, rank = _svd_inverse_factors(X, xp)
+    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
+    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
     # Algebraically this is diag(1/s) @ U.T @ y. Apply 1/s to the
     # orthonormal rows before the reduction so a large projection that is
     # cancelled by a singular value (e.g. an intercept column) never has to be
@@ -65,7 +105,7 @@ def panel_lstsq(X, y, xp):
     # normalization, this does not discard unrelated tiny finite entries of y.
     weighted_u_t = inverse_values.reshape(-1, 1) * U.T
     scaled = weighted_u_t @ y
-    return Vh.T @ scaled, rank
+    return (Vh.T @ scaled) * design_scale, rank
 
 
 def panel_lstsq_deferred_rank(X, y, xp):
@@ -79,12 +119,13 @@ def panel_lstsq_deferred_rank(X, y, xp):
     """
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
-    U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
-    retained, rank_backend = _rank_mask_backend(X, singular_values, xp)
+    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
+    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
+    retained, rank_backend = _rank_mask_backend(X_work, singular_values, xp)
     inverse_values = _inverse_values(singular_values, retained, xp)
     weighted_u_t = inverse_values.reshape(-1, 1) * U.T
     scaled = weighted_u_t @ y
-    return Vh.T @ scaled, rank_backend
+    return (Vh.T @ scaled) * design_scale, rank_backend
 
 
 def _validate_batched_lstsq_inputs(X, y):
@@ -158,6 +199,13 @@ def panel_lstsq_gram_certified_batched(
     gram = xp.matmul(transpose, X)
     rhs_input = y[..., None] if getattr(y, "ndim", None) == 2 else y
     rhs = xp.matmul(transpose, rhs_input)
+
+    gram_finite_view = xp.isfinite(gram).reshape(int(gram.shape[0]), -1)
+    gram_finite = (
+        xp.all(gram_finite_view, dim=1)
+        if namespace == "torch"
+        else xp.all(gram_finite_view, axis=1)
+    )
     rhs_finite_view = xp.isfinite(rhs).reshape(int(rhs.shape[0]), -1)
     rhs_finite = (
         xp.all(rhs_finite_view, dim=1)
@@ -165,22 +213,27 @@ def panel_lstsq_gram_certified_batched(
         else xp.all(rhs_finite_view, axis=1)
     )
 
-    eigenvalues = xp.linalg.eigvalsh(gram)
+    k = int(X.shape[-1])
+    if namespace == "torch":
+        identity = xp.eye(k, dtype=X.dtype, device=X.device)
+    else:
+        identity = xp.eye(k, dtype=X.dtype)
+    # A non-finite Gram matrix is already enough to reject the performance
+    # certificate.  Substitute identity only for the spectrum calculation so
+    # eigvalsh itself cannot abort before the caller reaches the SVD fallback.
+    spectrum_gram = xp.where(gram_finite[..., None, None], gram, identity)
+    eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
     smallest = eigenvalues[..., 0]
     largest = eigenvalues[..., -1]
     certified = (
-        xp.isfinite(smallest)
+        gram_finite
+        & xp.isfinite(smallest)
         & xp.isfinite(largest)
         & (largest > 0.0)
         & (smallest > largest * ratio)
         & rhs_finite
     )
 
-    k = int(X.shape[-1])
-    if namespace == "torch":
-        identity = xp.eye(k, dtype=X.dtype, device=X.device)
-    else:
-        identity = xp.eye(k, dtype=X.dtype)
     safe_gram = xp.where(certified[..., None, None], gram, identity)
     safe_rhs = xp.where(certified[..., None, None], rhs, xp.zeros_like(rhs))
 
@@ -240,9 +293,10 @@ def panel_lstsq_batched(X, y, xp):
         )
     _validate_batched_lstsq_inputs(X, y)
 
-    U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
+    X_work, design_scale = _lstsq_working_design(X, xp, batched=True)
+    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
     cutoff_scale = (
-        max(int(X.shape[-2]), int(X.shape[-1]))
+        max(int(X_work.shape[-2]), int(X_work.shape[-1]))
         * np.finfo(np.float64).eps
     )
     if namespace == "torch":
@@ -262,7 +316,9 @@ def panel_lstsq_batched(X, y, xp):
     scaled = xp.matmul(weighted_u_t, rhs)
     params = xp.matmul(xp.swapaxes(Vh, -2, -1), scaled)
     if getattr(y, "ndim", None) == 2:
-        params = params[..., 0]
+        params = params[..., 0] * design_scale[:, None]
+    else:
+        params = params * design_scale[:, None, None]
     return params, ranks
 
 

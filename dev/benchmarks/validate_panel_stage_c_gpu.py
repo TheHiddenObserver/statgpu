@@ -30,6 +30,11 @@ from statgpu.panel import (
     driscoll_kraay_covariance,
 )
 from statgpu.panel._covariance import ols_covariance
+from statgpu.panel._linalg import (
+    panel_lstsq,
+    panel_lstsq_batched,
+    panel_lstsq_gram_certified_batched,
+)
 
 
 CORRECTNESS_SCHEMA_VERSION = 2
@@ -226,6 +231,59 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
             X_rank_b, resid_rank_b, time_rank_b, bandwidth=2, kernel="bartlett"
         ),
     }
+
+
+def _tiny_design_lstsq_audit(backend):
+    tiny = 1.0e-320
+    X = np.eye(2, dtype=np.float64) * tiny
+    y = np.asarray([tiny, 2.0 * tiny], dtype=np.float64)
+    entity = np.arange(2, dtype=np.int64)
+    time = np.arange(2, dtype=np.int64)
+    Xb, yb, _eb, _tb = _to_backend(X, y, entity, time, backend)
+    if backend == "torch":
+        import torch
+        params, ranks = panel_lstsq_batched(Xb[None, ...], yb[None, ...], torch)
+        rank = int(_array(ranks)[0])
+        params_np = _array(params)[0]
+    else:
+        import cupy as cp
+        params, rank = panel_lstsq(Xb, yb, cp)
+        rank = int(rank)
+        params_np = _array(params)
+    if rank != 2:
+        raise AssertionError(f"{backend}: tiny full-rank design rank drifted to {rank}")
+    np.testing.assert_allclose(params_np, np.asarray([1.0, 2.0]), rtol=5e-11, atol=0.0)
+    return {"status": "success", "backend": backend, "rank": rank, "params": params_np.tolist()}
+
+
+def _gram_overflow_certificate_audit(backend):
+    X = np.eye(2, dtype=np.float64) * 1.0e200
+    y = np.asarray([1.0e200, 2.0e200], dtype=np.float64)
+    entity = np.arange(2, dtype=np.int64)
+    time = np.arange(2, dtype=np.int64)
+    Xb, yb, _eb, _tb = _to_backend(X, y, entity, time, backend)
+    if backend == "torch":
+        import torch
+        _candidate, certified = panel_lstsq_gram_certified_batched(
+            Xb[None, ...], yb[None, ...], torch
+        )
+        params, ranks = panel_lstsq_batched(Xb[None, ...], yb[None, ...], torch)
+        rank = int(_array(ranks)[0])
+        params_np = _array(params)[0]
+    else:
+        import cupy as cp
+        _candidate, certified = panel_lstsq_gram_certified_batched(
+            Xb[None, ...], yb[None, ...], cp
+        )
+        params, rank = panel_lstsq(Xb, yb, cp)
+        rank = int(rank)
+        params_np = _array(params)
+    if bool(_array(certified)[0]):
+        raise AssertionError(f"{backend}: non-finite Gram batch was incorrectly certified")
+    if rank != 2:
+        raise AssertionError(f"{backend}: Gram-overflow SVD fallback rank drifted to {rank}")
+    np.testing.assert_allclose(params_np, np.asarray([1.0, 2.0]), rtol=5e-11, atol=0.0)
+    return {"status": "success", "backend": backend, "rank": rank, "params": params_np.tolist()}
 
 
 def _fit_rank(model):
@@ -922,6 +980,10 @@ def main():
             raise AssertionError("level-constant F degrees of freedom drifted from NumPy")
         level_constant_audit["max_abs_differences_vs_numpy"] = numpy_diffs
         payload["level_constant_contract"] = level_constant_audit
+        payload["numerical_primitives"] = {
+            "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
+            "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
+        }
 
         primitive_values = _public_primitive_cases(
             X, y, entity, time, clusters, backend
