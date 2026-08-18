@@ -558,3 +558,30 @@ def test_two_way_nonnested_structural_cancellation_preserves_low_group_sum():
     actual = two_way_clustered_covariance(X, resid, cluster1, cluster2)
     expected = np.asarray([[-4.0 * amplitude * small]], dtype=np.float64)
     assert_allclose(actual, expected, rtol=2e-12, atol=0.0)
+
+
+def test_two_way_nonnested_low_order_correction_does_not_require_gram_scaling():
+    amplitude = 1.0e150
+    small = 1.0e-150
+    X = np.full((4, 1), 0.5, dtype=np.float64)
+    scores = np.asarray([-amplitude, small, amplitude, -small], dtype=np.float64)
+    resid = 2.0 * scores
+    cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(X, resid, cluster1, cluster2)
+    assert_allclose(actual, np.asarray([[-4.0]]), rtol=5e-13, atol=0.0)
+
+
+def test_two_way_group_debias_preserves_weighted_low_order_cancellation():
+    amplitude = 1.0e154
+    small = 1.0e-154
+    X = np.full((4, 1), 0.5, dtype=np.float64)
+    scores = np.asarray([-amplitude, amplitude, amplitude, small], dtype=np.float64)
+    resid = 2.0 * scores
+    cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, group_debias=True
+    )
+    expected = np.asarray([[6.0 * amplitude * small + 2.0 * small * small]])
+    assert_allclose(actual, expected, rtol=5e-13, atol=0.0)

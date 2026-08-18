@@ -197,6 +197,8 @@ def test_stage_c_runner_covariance_extreme_scale_audit_is_executable():
         "lag_accumulator_hac",
         "lag_accumulator_driscoll_kraay",
         "nonnested_two_way_structural_cancellation",
+        "nonnested_two_way_safe_gram_cancellation",
+        "nonnested_two_way_group_debias_cancellation",
     ):
         assert np.all(np.isfinite(np.asarray(audit[key], dtype=np.float64))), key
 
@@ -205,6 +207,7 @@ def test_stage_c_runner_hausman_scale_audit_is_executable():
     audit = _MOD._hausman_scale_audit("numpy")
     assert audit["status"] == "success"
     assert audit["backend"] == "numpy"
+    assert audit["large_singular_range_rejected"] is True
     for label in ("large", "subnormal"):
         case = audit["cases"][label]
         assert case["df"] == 1.0

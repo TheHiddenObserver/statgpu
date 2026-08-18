@@ -487,3 +487,38 @@ def test_stage_c_torch_cpu_two_way_nonnested_structural_cancellation():
     np.testing.assert_allclose(
         actual, np.asarray([[-4.0 * amplitude * small]]), rtol=2e-12, atol=0.0
     )
+
+
+def test_stage_c_torch_cpu_two_way_safe_gram_preserves_low_order_term():
+    amplitude = 1.0e150
+    small = 1.0e-150
+    X = torch.full((4, 1), 0.5, dtype=torch.float64)
+    scores = torch.tensor([-amplitude, small, amplitude, -small], dtype=torch.float64)
+    resid = 2.0 * scores
+    c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(X, resid, c1, c2, xp=torch)
+    np.testing.assert_allclose(actual.detach().cpu().numpy(), [[-4.0]], rtol=5e-13, atol=0.0)
+
+
+def test_stage_c_torch_cpu_two_way_group_debias_preserves_low_order_term():
+    amplitude = 1.0e154
+    small = 1.0e-154
+    X = torch.full((4, 1), 0.5, dtype=torch.float64)
+    scores = torch.tensor([-amplitude, amplitude, amplitude, small], dtype=torch.float64)
+    resid = 2.0 * scores
+    c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(
+        X, resid, c1, c2, xp=torch, group_debias=True
+    )
+    np.testing.assert_allclose(actual.detach().cpu().numpy(), [[6.0]], rtol=5e-13, atol=0.0)
+
+
+def test_stage_b_torch_cpu_hausman_large_singular_range_guard():
+    result = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e200]),
+        np.diag(np.asarray([1.0e308, 0.0])),
+    )
+    assert result.applicable is False
+    assert "outside the identified covariance-difference range" in result.reason

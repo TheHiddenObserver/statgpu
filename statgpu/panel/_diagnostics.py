@@ -90,6 +90,24 @@ def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
     return float(factor) * np.finfo(np.float64).eps * scale
 
 
+def _safe_l2_norm(values) -> float:
+    """Return a float64 L2 norm without avoidable squaring overflow."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return 0.0
+    scale = float(np.max(np.abs(values)))
+    if scale == 0.0:
+        return 0.0
+    if not np.isfinite(scale):
+        return float("inf")
+    unit_norm = float(np.sqrt(np.sum((values / scale) ** 2)))
+    if unit_norm == 0.0:
+        return 0.0
+    if scale > float(np.finfo(np.float64).max) / unit_norm:
+        return float("inf")
+    return float(scale * unit_norm)
+
+
 def _restore_squared_scale(value: float, scale: float) -> float:
     """Restore ``value * scale**2`` without avoidable intermediate overflow."""
     value = float(value)
@@ -684,10 +702,33 @@ def _hausman_quadratic(
     basis = eigvecs[:, positive]
     projected = basis @ (basis.T @ d)
     null_component = d - projected
-    range_tol = _relative_tolerance(np.linalg.norm(d), factor=1024.0)
+    d_norm = _safe_l2_norm(d)
+    null_norm = _safe_l2_norm(null_component)
+    range_tol = _relative_tolerance(d_norm, factor=1024.0)
     meta["range_tolerance"] = float(range_tol)
-    meta["nullspace_component_norm"] = float(np.linalg.norm(null_component))
-    if float(np.linalg.norm(null_component)) > range_tol:
+    meta["nullspace_component_norm"] = float(null_norm)
+
+    comparison_scale = max(
+        float(np.max(np.abs(d))) if d.size else 0.0,
+        float(np.max(np.abs(null_component))) if null_component.size else 0.0,
+    )
+    if comparison_scale == 0.0:
+        outside_range = False
+        range_tol_normalized = 0.0
+        null_norm_normalized = 0.0
+    else:
+        d_normalized = d / comparison_scale
+        null_normalized = null_component / comparison_scale
+        d_norm_normalized = float(np.linalg.norm(d_normalized))
+        null_norm_normalized = float(np.linalg.norm(null_normalized))
+        range_tol_normalized = (
+            1024.0 * np.finfo(np.float64).eps * d_norm_normalized
+        )
+        outside_range = null_norm_normalized > range_tol_normalized
+    meta["range_comparison_scale"] = float(comparison_scale)
+    meta["range_tolerance_normalized"] = float(range_tol_normalized)
+    meta["nullspace_component_norm_normalized"] = float(null_norm_normalized)
+    if outside_range:
         return _inapplicable(
             null=null,
             alternative=alternative,

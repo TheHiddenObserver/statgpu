@@ -474,6 +474,15 @@ def _covariance_extreme_scale_audit(backend):
         dtype=np.float64,
     )
     resid_nonnested_np = 2.0 * nonnested_scores
+    nonnested_safe_scores = np.asarray(
+        [-1.0e150, 1.0e-150, 1.0e150, -1.0e-150], dtype=np.float64
+    )
+    resid_nonnested_safe_np = 2.0 * nonnested_safe_scores
+    nonnested_debias_scores = np.asarray(
+        [-nonnested_amplitude, nonnested_amplitude,
+         nonnested_amplitude, nonnested_small], dtype=np.float64
+    )
+    resid_nonnested_debias_np = 2.0 * nonnested_debias_scores
     nonnested_cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
     nonnested_cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
 
@@ -488,6 +497,8 @@ def _covariance_extreme_scale_audit(backend):
         X_tiny_cluster, resid_tiny_cluster = X_tiny_cluster_np, resid_tiny_cluster_np
         X_mixed, resid_mixed = X_mixed_np, resid_mixed_np
         X_nonnested, resid_nonnested = X_nonnested_np, resid_nonnested_np
+        resid_nonnested_safe = resid_nonnested_safe_np
+        resid_nonnested_debias = resid_nonnested_debias_np
     elif backend == "cupy":
         import cupy as cp
         xp = cp
@@ -502,6 +513,8 @@ def _covariance_extreme_scale_audit(backend):
         X_mixed, resid_mixed = cp.asarray(X_mixed_np), cp.asarray(resid_mixed_np)
         X_nonnested = cp.asarray(X_nonnested_np)
         resid_nonnested = cp.asarray(resid_nonnested_np)
+        resid_nonnested_safe = cp.asarray(resid_nonnested_safe_np)
+        resid_nonnested_debias = cp.asarray(resid_nonnested_debias_np)
     elif backend == "torch":
         import torch
         xp = torch
@@ -525,6 +538,12 @@ def _covariance_extreme_scale_audit(backend):
         )
         resid_nonnested = torch.as_tensor(
             resid_nonnested_np, dtype=torch.float64, device="cuda"
+        )
+        resid_nonnested_safe = torch.as_tensor(
+            resid_nonnested_safe_np, dtype=torch.float64, device="cuda"
+        )
+        resid_nonnested_debias = torch.as_tensor(
+            resid_nonnested_debias_np, dtype=torch.float64, device="cuda"
         )
     else:
         raise ValueError(backend)
@@ -578,13 +597,16 @@ def _covariance_extreme_scale_audit(backend):
         X_mixed, resid_mixed, mixed_time, bandwidth=0, xp=xp
     ))
     nonnested_two_way = _array(two_way_clustered_covariance(
-        X_nonnested,
-        resid_nonnested,
-        nonnested_cluster1,
-        nonnested_cluster2,
-        xp=xp,
+        X_nonnested, resid_nonnested, nonnested_cluster1, nonnested_cluster2, xp=xp
     ))
-    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_two_way_permuted", mixed_two_way_permuted), ("mixed_dk", mixed_dk), ("nonnested_two_way", nonnested_two_way)):
+    nonnested_two_way_safe = _array(two_way_clustered_covariance(
+        X_nonnested, resid_nonnested_safe, nonnested_cluster1, nonnested_cluster2, xp=xp
+    ))
+    nonnested_two_way_group_debias = _array(two_way_clustered_covariance(
+        X_nonnested, resid_nonnested_debias, nonnested_cluster1, nonnested_cluster2,
+        xp=xp, group_debias=True
+    ))
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_two_way_permuted", mixed_two_way_permuted), ("mixed_dk", mixed_dk), ("nonnested_two_way", nonnested_two_way), ("nonnested_two_way_safe", nonnested_two_way_safe), ("nonnested_two_way_group_debias", nonnested_two_way_group_debias)):
         if not np.all(np.isfinite(value)):
             raise AssertionError(f"{backend}: {name} produced non-finite covariance")
     np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
@@ -619,10 +641,13 @@ def _covariance_extreme_scale_audit(backend):
     np.testing.assert_allclose(mixed_two_way_permuted, mixed_cluster, rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(mixed_dk, np.asarray([[1.5e-200]]), rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(
-        nonnested_two_way,
-        np.asarray([[-4.0 * nonnested_amplitude * nonnested_small]]),
-        rtol=2e-12,
-        atol=0.0,
+        nonnested_two_way, np.asarray([[-4.0]]), rtol=2e-12, atol=0.0
+    )
+    np.testing.assert_allclose(
+        nonnested_two_way_safe, np.asarray([[-4.0]]), rtol=5e-13, atol=0.0
+    )
+    np.testing.assert_allclose(
+        nonnested_two_way_group_debias, np.asarray([[6.0]]), rtol=5e-13, atol=0.0
     )
     return {
         "status": "success",
@@ -643,6 +668,8 @@ def _covariance_extreme_scale_audit(backend):
         "mixed_two_way_permuted": mixed_two_way_permuted.tolist(),
         "mixed_driscoll_kraay": mixed_dk.tolist(),
         "nonnested_two_way_structural_cancellation": nonnested_two_way.tolist(),
+        "nonnested_two_way_safe_gram_cancellation": nonnested_two_way_safe.tolist(),
+        "nonnested_two_way_group_debias_cancellation": nonnested_two_way_group_debias.tolist(),
     }
 
 
@@ -673,7 +700,22 @@ def _hausman_scale_audit(backend):
         results["large"]["pvalue"], results["subnormal"]["pvalue"],
         rtol=3e-12, atol=0.0,
     )
-    return {"status": "success", "backend": backend, "cases": results}
+    singular = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e200]),
+        np.diag(np.asarray([1.0e308, 0.0])),
+    )
+    if singular.applicable or not singular.reason or (
+        "outside the identified covariance-difference range" not in singular.reason
+    ):
+        raise AssertionError(
+            f"{backend}: large singular Hausman range guard failed: {singular}"
+        )
+    return {
+        "status": "success",
+        "backend": backend,
+        "cases": results,
+        "large_singular_range_rejected": True,
+    }
 
 
 def _zero_variance_inference_audit(backend):

@@ -89,3 +89,15 @@ def test_hausman_quadratic_is_scale_safe_at_float64_extremes():
         results.append(result)
 
     assert_allclose(results[0].pvalue, results[1].pvalue, rtol=3e-12, atol=0.0)
+
+
+def test_hausman_quadratic_rejects_large_finite_nullspace_component():
+    result = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e200]),
+        np.diag(np.asarray([1.0e308, 0.0])),
+    )
+    assert result.applicable is False
+    assert "outside the identified covariance-difference range" in result.reason
+    assert result.metadata["range_comparison_scale"] == 1.0e200
+    assert np.isfinite(result.metadata["range_tolerance_normalized"])
+    assert np.isfinite(result.metadata["nullspace_component_norm_normalized"])
