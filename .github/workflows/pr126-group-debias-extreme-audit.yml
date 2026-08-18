@@ -1,4 +1,4 @@
-name: PR126 grouped-score and Hausman review
+name: PR126 dense Hausman review
 
 on:
   pull_request:
@@ -6,8 +6,7 @@ on:
       - master
     paths:
       - '.github/workflows/pr126-group-debias-extreme-audit.yml'
-      - 'dev/validation/pr126_group_debias_comp_once.py'
-      - 'dev/validation/pr126_grouped_tail_fixup_once.py'
+      - 'dev/validation/pr126_hausman_dense_once.py'
 
 permissions:
   contents: write
@@ -31,21 +30,16 @@ jobs:
           python -m pip install "numpy<2" pytest
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e ".[validation,formula]"
-      - name: Apply grouped-score and Hausman fixes
-        run: |
-          python dev/validation/pr126_group_debias_comp_once.py
-          python dev/validation/pr126_grouped_tail_fixup_once.py
+      - name: Apply dense Hausman normalization
+        run: python dev/validation/pr126_hausman_dense_once.py
       - name: Run focused review matrix
         run: |
           python -m pytest \
-            dev/tests/test_panel_stage_c_covariance.py \
             dev/tests/test_panel_stage_b_hausman_covariance.py \
             dev/tests/test_panel_stage_b_torch_cpu.py \
             dev/tests/test_panel_stage_c_physical_runner_contract.py \
-            dev/tests/test_panel_stage_c_final_review_fixes.py \
-            dev/tests/test_module_review_covariance_panel.py \
-            dev/tests/test_panel_stage_c_external.py \
-            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_b_diagnostics.py \
+            dev/tests/test_panel_stage_b_ready_review_regressions.py \
             -q --tb=short
           python -m compileall -q statgpu/panel dev/benchmarks/validate_panel_stage_c_gpu.py
           git diff --check
@@ -54,12 +48,10 @@ jobs:
           git config user.name "Ziqian Lin"
           git config user.email "51812297+TheHiddenObserver@users.noreply.github.com"
           git add \
-            statgpu/panel/_covariance.py \
             statgpu/panel/_diagnostics.py \
-            dev/tests/test_panel_stage_c_covariance.py \
             dev/tests/test_panel_stage_b_hausman_covariance.py \
             dev/tests/test_panel_stage_b_torch_cpu.py \
             dev/tests/test_panel_stage_c_physical_runner_contract.py \
             dev/benchmarks/validate_panel_stage_c_gpu.py
-          git commit -m "fix: close panel low-order inference gaps"
+          git commit -m "fix: normalize Hausman covariance spectrum"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
