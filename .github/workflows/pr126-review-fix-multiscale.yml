@@ -1,11 +1,8 @@
 name: PR126 review-fix multiscale gate
 
 on:
-  push:
-    branches:
-      - agent/panel-p1-stage-c-covariance
-    paths:
-      - .github/workflows/pr126-review-fix-multiscale.yml
+  pull_request:
+    branches: [master]
 
 permissions:
   contents: write
@@ -16,11 +13,13 @@ concurrency:
 
 jobs:
   fix-and-validate:
+    if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: agent/panel-p1-stage-c-covariance
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
