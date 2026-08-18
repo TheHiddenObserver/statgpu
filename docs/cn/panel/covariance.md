@@ -76,9 +76,9 @@ $$
 \frac{G}{G-1}\frac{n-1}{n}.
 $$
 
-对极端但仍有限的 score，grouped reduction 只在同号 partial sum 存在溢出风险的 group/coordinate 上使用 group-size working scale，并先分别累计正项与负项，再做最终 cancellation；不会因为某个危险 group 而对其他安全 group 做全局 magnitude normalization。和一般 float64 线性代数一样，这并不承诺在上游已经发生灾难性病态 cancellation 后恢复任意微小 remainder。
+对极端但仍有限的 score，grouped reduction 只在同号 partial sum 存在溢出风险的 group/coordinate 上使用 group-size working scale，并先分别累计正项与负项，再做最终 cancellation。shared residual-covariance 路径还会把 tiny-design scale 的恢复推迟到 covariance reduction 之后：working-SVD projection coordinate 只有在其与最大 residual 的乘积可能溢出时才做最小必要缩放，而 residual vector 本身不会被全局 magnitude normalization。one-way cluster score 与 Driscoll-Kraay period score 都先完成 grouping，再对 Gram product 使用刚好足以避免溢出的 per-coordinate working scale；已经安全的普通路径与 subnormal-design 路径不做额外 normalization，因此巨大 observation 旁边仍可表示的小 group/period contribution 不会被无关的全局尺度抹掉。和一般 float64 线性代数一样，这并不承诺在上游已经发生灾难性病态 cancellation 后恢复任意微小 remainder。
 
-双向 clustering 将两个 one-way cluster covariance 相加，再减去 paired cluster labels 对应的 covariance：
+双向 clustering 将两个 one-way cluster covariance 相加，再减去 paired cluster labels 对应的 covariance。三个 grouped-score component 都在恢复物理尺度之前形成；如果一个 clustering dimension 嵌套在另一个 dimension 中，statgpu 比较的是两者诱导的 partition 是否等价，而不是任意 integer code 是否逐元素相同，并在 working space 中代数消去相同的 marginal/intersection component。非嵌套情形则让三个 component 共用同一个最小 Gram working scale 后再做 inclusion-exclusion：
 
 $$
 \widehat V_{1,2}=\widehat V_1+\widehat V_2-\widehat V_{12}.
@@ -106,7 +106,7 @@ $$
 
 这里 $r_Z$ 表示回归中实际可识别的 regression directions：满列秩时等于 $Z$ 的列数，rank deficient 时等于 $\operatorname{rank}(Z)$。`PanelOLS` 还需要通过 `extra_df` 计入被吸收的 fixed effects；`PooledOLS` 与 `RandomEffects` 的该项为 0。
 
-对 symmetric covariance combination，statgpu 使用 range-aware arithmetic：最终 symmetrization 会避免有限同号平均值在相加阶段先溢出；two-way inclusion-exclusion 会在可能时先减去同号 intersection component。HAC/Driscoll-Kraay 会先形成 symmetric lag average，而不是先构造可能溢出的未加权 symmetric sum；随后对整个 lag sequence 只在某个 entry 的 transient partial sum 存在溢出风险时使用 per-entry reduction-length working scale，安全与 subnormal entry 保持原尺度。只要最终 float64 结果可表示，这些重排与上面的统计定义代数等价；与其他数值路径一样，并不宣称可以用更高精度恢复任意病态 cancellation。
+对 symmetric covariance combination，statgpu 使用 range-aware arithmetic：最终 symmetrization 会避免有限同号平均值在相加阶段先溢出；two-way inclusion-exclusion 会在可能时先减去同号 intersection component。HAC/Driscoll-Kraay 会在 zero-lag Gram 或 weighted lag product 真正 materialize 之前，只对存在乘积溢出风险的 score coordinate 做最小必要 normalization；Driscoll-Kraay 先完成 period grouping。之后再形成 symmetric lag average，并对完整 lag sequence 只在某个 entry 的 transient partial sum 存在溢出风险时使用 per-entry reduction-length working scale。tiny-design 与 projection-product 的 restore factor 一直保留在 cancellation space 之外，直到最终 covariance 才恢复，因此安全 coordinate、group、period 与 subnormal-design 路径保持原 working scale。只要最终 float64 结果可表示，这些重排与上面的统计定义代数等价；与其他数值路径一样，并不宣称可以用更高精度恢复任意病态 cancellation。
 
 `bandwidth=None` 时使用 $\lfloor4(T/100)^{2/9}\rfloor$。Bartlett 与 Parzen kernel 在 bandwidth 之外权重为 0；Quadratic Spectral 将 bandwidth 作为 smoothing scale，在 bandwidth 为正时会对全部 observed lags 赋权。
 
