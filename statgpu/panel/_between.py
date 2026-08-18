@@ -144,7 +144,14 @@ class BetweenOLS(BasePanelModel):
                 f"groups={n}, rank={rank_mean}"
             )
         df_resid = n - int(rank_mean)
-        scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
+        from statgpu.panel._diagnostics import (
+            _restore_squared_scale,
+            _scaled_mean,
+            _scaled_residual_r2,
+            _scaled_residual_variance,
+        )
+
+        scale = _scaled_residual_variance(resid, df_resid, xp)
 
         self._panel_store_ols_inference(
             X_mean,
@@ -161,10 +168,28 @@ class BetweenOLS(BasePanelModel):
             diag_floor=1e-30,
         )
 
-        y_bar = xp.mean(y_mean)
-        ss_tot = _to_float_scalar(xp.sum((y_mean - y_bar) ** 2))
-        ss_res = _to_float_scalar(xp.sum(resid * resid))
-        self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+        y_centered = y_mean - _scaled_mean(y_mean, xp)
+        self.rsquared, r2_degenerate = _scaled_residual_r2(
+            resid, y_centered, xp
+        )
+        if r2_degenerate:
+            self.rsquared = float("nan")
+        resid_scale = xp.max(xp.abs(resid))
+        centered_scale = xp.max(xp.abs(y_centered))
+        resid_unit = resid / xp.where(
+            resid_scale > 0.0, resid_scale, xp.ones_like(resid_scale)
+        )
+        centered_unit = y_centered / xp.where(
+            centered_scale > 0.0, centered_scale, xp.ones_like(centered_scale)
+        )
+        ss_res = _restore_squared_scale(
+            _to_float_scalar(xp.sum(resid_unit * resid_unit)),
+            _to_float_scalar(resid_scale),
+        )
+        ss_tot = _restore_squared_scale(
+            _to_float_scalar(xp.sum(centered_unit * centered_unit)),
+            _to_float_scalar(centered_scale),
+        )
         self.nobs = n
         self.df_resid = df_resid
 

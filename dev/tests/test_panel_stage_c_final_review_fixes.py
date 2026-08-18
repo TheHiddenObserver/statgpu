@@ -11,7 +11,7 @@ from statgpu.panel._covariance import clustered_covariance, ols_covariance
 from statgpu.panel._diagnostic_context import bp_lm_from_residuals
 from statgpu.panel._diagnostics import _build_fit_statistics, _classical_model_f
 from statgpu.panel._linalg import panel_lstsq
-from statgpu.panel._utils import demean_variables
+from statgpu.panel._utils import demean_variables, group_means
 
 
 def _unbalanced_two_way(seed=20260814):
@@ -851,3 +851,48 @@ def test_bp_lm_is_invariant_when_raw_residual_ss_would_over_or_underflow(scale):
     assert_allclose(candidate.statistic, reference.statistic, rtol=3e-13, atol=1e-14)
     assert_allclose(candidate.pvalue, reference.pvalue, rtol=3e-13, atol=1e-14)
     assert candidate.metadata["residual_ss_normalized"] > 0.0
+
+
+
+def test_group_means_avoid_finite_same_sign_overflow():
+    groups = np.asarray([0, 0, 0, 0, 1, 1], dtype=np.int64)
+    values = np.asarray([6.0e307, 6.0e307, 6.0e307, 6.0e307, 2.0, 4.0])
+    actual = group_means(values, groups, xp=np)
+    assert np.all(np.isfinite(actual))
+    assert_allclose(actual[:4], np.full(4, 6.0e307), rtol=2e-15)
+    assert_allclose(actual[4:], np.full(2, 3.0), rtol=0.0, atol=0.0)
+
+
+def test_pooled_legacy_rsquared_survives_overflowing_raw_rss():
+    rng = np.random.default_rng(20260818)
+    n = 160
+    x = rng.normal(size=(n, 1))
+    noise = rng.normal(scale=0.2, size=n)
+    base_y = 0.7 + 0.5 * x[:, 0] + noise
+    reference = PooledOLS(cov_type="nonrobust").fit(x, base_y)
+    scale = 1.0e154
+    candidate = PooledOLS(cov_type="nonrobust").fit(x, scale * base_y)
+    assert np.isfinite(candidate.rsquared)
+    assert_allclose(candidate.rsquared, reference.rsquared, rtol=5e-13, atol=5e-15)
+    assert np.all(np.isfinite(candidate._panel_cov_params_raw))
+
+
+def test_random_effects_transformation_is_invariant_when_raw_auxiliary_rss_overflows():
+    rng = np.random.default_rng(20260819)
+    n_entities, n_times = 24, 5
+    entity = np.repeat(np.arange(n_entities), n_times)
+    x = rng.normal(size=(entity.size, 2))
+    alpha = np.repeat(rng.normal(scale=0.5, size=n_entities), n_times)
+    noise = rng.normal(scale=0.15, size=entity.size)
+    y = x @ np.asarray([0.6, -0.3]) + alpha + noise
+    reference = RandomEffects(cov_type="robust").fit(
+        x, y, entity_ids=entity
+    )
+    scale = 1.0e200
+    candidate = RandomEffects(cov_type="robust").fit(
+        scale * x, scale * y, entity_ids=entity
+    )
+    assert np.isfinite(candidate.theta_)
+    assert_allclose(candidate.theta_, reference.theta_, rtol=3e-12, atol=3e-14)
+    assert_allclose(candidate.coef_, reference.coef_, rtol=2e-11, atol=2e-12)
+    assert np.all(np.isfinite(candidate._panel_cov_params_raw))

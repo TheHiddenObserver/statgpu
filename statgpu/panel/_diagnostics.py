@@ -100,6 +100,8 @@ def _restore_squared_scale(value: float, scale: float) -> float:
         return 0.0
     root = float(np.sqrt(value))
     scaled_root = root * scale
+    if scaled_root > np.sqrt(np.finfo(np.float64).max):
+        return float("inf")
     return float(scaled_root * scaled_root)
 
 
@@ -123,6 +125,24 @@ def _safe_r2(ss_res: float, ss_tot: float) -> Tuple[float, bool]:
     if ss_tot <= 0.0:
         return 0.0, True
     return 1.0 - ss_res / ss_tot, False
+
+
+def _scaled_residual_variance(resid, df_resid: int, xp) -> float:
+    """Return ``sum(resid**2) / df_resid`` without avoidable RSS overflow."""
+    if int(df_resid) <= 0:
+        raise ValueError("df_resid must be positive")
+    scale = xp.max(xp.abs(resid))
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0
+    unit = resid / scale
+    norm_sq = _to_float_scalar(xp.sum(unit * unit))
+    root = scale_value * float(
+        np.sqrt(norm_sq / float(int(df_resid)))
+    )
+    if root > np.sqrt(np.finfo(np.float64).max):
+        return float("inf")
+    return float(root * root)
 
 
 def _scaled_residual_r2(resid, centered, xp) -> Tuple[float, bool]:

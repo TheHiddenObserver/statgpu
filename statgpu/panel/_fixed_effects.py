@@ -469,13 +469,20 @@ class PanelOLS(BasePanelModel):
 
         y_pred = X_d @ coef
         resid = y_d - y_pred
-        scale = _to_float_scalar(xp.sum(resid ** 2)) / self.df_resid
+        from statgpu.panel._diagnostics import (
+            _restore_squared_scale,
+            _scaled_mean,
+            _scaled_residual_r2,
+            _scaled_residual_variance,
+        )
+
+        scale = _scaled_residual_variance(resid, self.df_resid, xp)
         self._scale = scale
 
         self._entity_effects_map = {}
         self._time_effects_map = {}
         resid_orig = y_arr - X_arr @ coef
-        grand_mean = float(xp.mean(resid_orig))
+        grand_mean = _to_float_scalar(_scaled_mean(resid_orig, xp))
         resid_centered = resid_orig - grand_mean
         self._grand_mean = grand_mean
 
@@ -573,19 +580,29 @@ class PanelOLS(BasePanelModel):
             diag_floor=0.0,
         )
 
-        ss_res = _to_float_scalar(xp.sum(resid ** 2))
         if has_level_constant or self.entity_effects or self.time_effects:
-            y_d_mean = _to_float_scalar(xp.mean(y_d))
-            ss_tot = _to_float_scalar(xp.sum((y_d - y_d_mean) ** 2))
+            y_d_centered = y_d - _scaled_mean(y_d, xp)
         else:
-            ss_tot = _to_float_scalar(xp.sum(y_d ** 2))
-        self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
-
-        if has_level_constant:
-            y_d_centered = y_d - xp.mean(y_d)
-            ss_tot_diag = _to_float_scalar(xp.sum(y_d_centered * y_d_centered))
-        else:
-            ss_tot_diag = _to_float_scalar(xp.sum(y_d * y_d))
+            y_d_centered = y_d
+        self.rsquared_within, _r2_degenerate = _scaled_residual_r2(
+            resid, y_d_centered, xp
+        )
+        resid_scale = xp.max(xp.abs(resid))
+        total_scale = xp.max(xp.abs(y_d_centered))
+        resid_unit = resid / xp.where(
+            resid_scale > 0.0, resid_scale, xp.ones_like(resid_scale)
+        )
+        total_unit = y_d_centered / xp.where(
+            total_scale > 0.0, total_scale, xp.ones_like(total_scale)
+        )
+        ss_res = _restore_squared_scale(
+            _to_float_scalar(xp.sum(resid_unit * resid_unit)),
+            _to_float_scalar(resid_scale),
+        )
+        ss_tot_diag = _restore_squared_scale(
+            _to_float_scalar(xp.sum(total_unit * total_unit)),
+            _to_float_scalar(total_scale),
+        )
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
             X_arr,

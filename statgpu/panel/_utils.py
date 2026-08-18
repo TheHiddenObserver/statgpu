@@ -208,9 +208,20 @@ def _prepare_group_projection(groups, xp):
 
 
 def _compact_group_means(values, projection, xp):
-    idx, n_groups, _labels, _counts, inv_counts = projection
-    sums = _scatter_add(xp, idx, values, n_groups)
-    return sums * inv_counts
+    idx, n_groups, _labels, counts, inv_counts = projection
+    # A group sum can overflow even though its mean is finite. Only groups whose
+    # raw accumulation is at risk are divided by their own count before the
+    # scatter-add; safe groups keep the historical arithmetic exactly.
+    counts_aligned = counts[idx]
+    limit = np.finfo(np.float64).max / xp_maximum(counts_aligned, 1.0, xp)
+    dangerous_obs = (xp.abs(values) > limit) * 1.0
+    dangerous_count = _scatter_add(xp, idx, dangerous_obs, n_groups)
+    factor_compact = xp.where(
+        dangerous_count > 0.0, counts, xp.ones_like(counts)
+    )
+    factor_aligned = factor_compact[idx]
+    sums = _scatter_add(xp, idx, values / factor_aligned, n_groups)
+    return sums * inv_counts * factor_compact
 
 
 def _within_preindexed(values, projection, xp):

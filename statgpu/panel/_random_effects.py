@@ -247,7 +247,8 @@ class RandomEffects(BasePanelModel):
             X_bar_unique, y_bar_unique, xp
         )
         resid_between = y_bar_unique - X_bar_unique @ beta_between
-        rss_between = float(xp.sum(resid_between ** 2))
+        # Delay quadratic accumulation until both auxiliary residual series
+        # are available so they can share one safe working scale.
 
         # --- Step 2: Within estimation ---
         y_within = within_transform(y_arr, entity_arr, xp=xp)
@@ -278,7 +279,14 @@ class RandomEffects(BasePanelModel):
         else:
             beta_within, rank_within = panel_lstsq(X_within, y_within, xp)
             resid_within = y_within - X_within @ beta_within
-        rss_within = float(xp.sum(resid_within ** 2))
+        from statgpu.panel._diagnostics import (
+            _common_scaled_sumsquares,
+            _restore_squared_scale,
+            _scaled_residual_variance,
+        )
+        rss_within_work, rss_between_work, variance_scale = (
+            _common_scaled_sumsquares(resid_within, resid_between, xp)
+        )
 
         # --- Step 3: Swamy-Arora variance components ---
         n_entities = len(xp.unique(entity_arr))
@@ -303,7 +311,7 @@ class RandomEffects(BasePanelModel):
                 f"n={n}, rank_within={rank_within}, "
                 f"effect_df={within_effect_df}, df_within={df_within}"
             )
-        sigma2_e = rss_within / df_within
+        sigma2_e_work = rss_within_work / df_within
 
         df_between = n_entities - int(rank_between)
         if df_between <= 0:
@@ -313,21 +321,26 @@ class RandomEffects(BasePanelModel):
                 f"n_entities={n_entities}, rank_between={rank_between}, "
                 f"df_between={df_between}"
             )
-        s_b_sq = rss_between / df_between
-        sigma2_a_raw = (s_b_sq - sigma2_e) / T_bar
-        sigma2_a = max(0.0, sigma2_a_raw)
+        s_b_sq_work = rss_between_work / df_between
+        sigma2_a_work = max(
+            0.0, (s_b_sq_work - sigma2_e_work) / T_bar
+        )
         self.variance_components_ = {
-            "sigma2_e": sigma2_e,
-            "sigma2_a": sigma2_a,
+            "sigma2_e": _restore_squared_scale(
+                sigma2_e_work, variance_scale
+            ),
+            "sigma2_a": _restore_squared_scale(
+                sigma2_a_work, variance_scale
+            ),
         }
 
         # --- Step 4: GLS transformation ---
         T_i_unique = np.unique(T_i_np)
         theta_map = {}
         for Ti in T_i_unique:
-            denom = sigma2_e + Ti * sigma2_a
+            denom = sigma2_e_work + Ti * sigma2_a_work
             if denom > 0:
-                theta_map[Ti] = 1.0 - np.sqrt(sigma2_e / denom)
+                theta_map[Ti] = 1.0 - np.sqrt(sigma2_e_work / denom)
             else:
                 theta_map[Ti] = 0.0
 
@@ -363,7 +376,9 @@ class RandomEffects(BasePanelModel):
                 f"n={n}, rank={rank_star}"
             )
         self.df_resid = df_resid
-        self._scale = _to_float_scalar(xp.sum(resid_gls ** 2)) / df_resid
+        self._scale = _scaled_residual_variance(
+            resid_gls, df_resid, xp
+        )
 
         cluster_for_cov = cluster
         if self._cov_type == "clustered":
@@ -408,7 +423,16 @@ class RandomEffects(BasePanelModel):
         from statgpu.panel._diagnostic_context import build_model_fit_statistics
 
         diagnostic_df_resid = n - rank_star
-        ss_res_diag = _to_float_scalar(xp.sum(resid_gls * resid_gls))
+        resid_gls_scale = xp.max(xp.abs(resid_gls))
+        resid_gls_scale_value = _to_float_scalar(resid_gls_scale)
+        if resid_gls_scale_value == 0.0:
+            ss_res_diag = 0.0
+        else:
+            resid_gls_unit = resid_gls / resid_gls_scale
+            ss_res_diag = _restore_squared_scale(
+                _to_float_scalar(xp.sum(resid_gls_unit * resid_gls_unit)),
+                resid_gls_scale_value,
+            )
 
         restricted_X = None
         restricted_rank = 0
@@ -418,11 +442,27 @@ class RandomEffects(BasePanelModel):
                 restricted_X, y_star, xp
             )
             restricted_resid = y_star - restricted_X @ restricted_params
-            ss_tot_diag = _to_float_scalar(
-                xp.sum(restricted_resid * restricted_resid)
-            )
+            restricted_scale = xp.max(xp.abs(restricted_resid))
+            restricted_scale_value = _to_float_scalar(restricted_scale)
+            if restricted_scale_value == 0.0:
+                ss_tot_diag = 0.0
+            else:
+                restricted_unit = restricted_resid / restricted_scale
+                ss_tot_diag = _restore_squared_scale(
+                    _to_float_scalar(xp.sum(restricted_unit * restricted_unit)),
+                    restricted_scale_value,
+                )
         else:
-            ss_tot_diag = _to_float_scalar(xp.sum(y_star * y_star))
+            y_star_scale = xp.max(xp.abs(y_star))
+            y_star_scale_value = _to_float_scalar(y_star_scale)
+            if y_star_scale_value == 0.0:
+                ss_tot_diag = 0.0
+            else:
+                y_star_unit = y_star / y_star_scale
+                ss_tot_diag = _restore_squared_scale(
+                    _to_float_scalar(xp.sum(y_star_unit * y_star_unit)),
+                    y_star_scale_value,
+                )
 
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,

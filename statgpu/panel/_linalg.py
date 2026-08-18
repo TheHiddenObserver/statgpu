@@ -61,12 +61,16 @@ def _lstsq_working_design(X, xp, *, batched: bool):
     target = float(np.sqrt(np.finfo(np.float64).tiny))
 
     def _factor(max_abs):
-        relative = max_abs / float(target)
+        needs_scale = (max_abs > 0.0) & (max_abs < target)
+        bounded_max = xp.where(
+            needs_scale, max_abs, xp.full_like(max_abs, float(target))
+        )
+        relative = bounded_max / float(target)
         safe_relative = xp.where(
             relative > 0.0, relative, xp.ones_like(relative)
         )
         return xp.where(
-            (max_abs > 0.0) & (max_abs < target),
+            needs_scale,
             1.0 / safe_relative,
             xp.ones_like(max_abs),
         )
