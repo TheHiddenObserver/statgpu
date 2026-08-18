@@ -1,20 +1,31 @@
-first_patch_rc=0
-second_patch_rc=1
-patch_rc=1
-pytest_rc=99
-compile_rc=99
-diff_rc=99
+patch_rc=0
+pytest_rc=1
+compile_rc=0
+diff_rc=0
 --- patch log ---
-PR126 estimator-scale follow-up staged
-Traceback (most recent call last):
-  File "/home/runner/work/statgpu/statgpu/dev/validation/pr126_estimator_scale_fixups_once.py", line 14, in <module>
-    replace_once(
-  File "/home/runner/work/statgpu/statgpu/dev/validation/pr126_estimator_scale_fixups_once.py", line 8, in replace_once
-    raise RuntimeError(f"{label} anchor missing in {path}")
-RuntimeError: bounded working-design ratio anchor missing in statgpu/panel/_linalg.py
+PR126 solver/covariance tail review staged
 --- pytest log ---
-pytest skipped because patch failed
+.....s.ssss...ss.........................F.............................. [ 58%]
+....................................................                     [100%]
+=================================== FAILURES ===================================
+_________ test_pooled_tiny_full_rank_design_uses_shared_working_scale __________
+dev/tests/test_panel_stage_c_final_review_fixes.py:945: in test_pooled_tiny_full_rank_design_uses_shared_working_scale
+    assert_allclose(fit.coef_, beta, rtol=2e-3, atol=2e-3)
+/opt/hostedtoolcache/Python/3.9.25/x64/lib/python3.9/contextlib.py:79: in inner
+    return func(*args, **kwds)
+E   AssertionError: 
+E   Not equal to tolerance rtol=0.002, atol=0.002
+E   
+E   (shapes (3,), (2,) mismatch)
+E    x: array([6.25e-321, 0.00e+000, 0.00e+000])
+E    y: array([ 1.5 , -0.75])
+=========================== short test summary info ============================
+FAILED dev/tests/test_panel_stage_c_final_review_fixes.py::test_pooled_tiny_full_rank_design_uses_shared_working_scale - AssertionError: 
+Not equal to tolerance rtol=0.002, atol=0.002
+
+(shapes (3,), (2,) mismatch)
+ x: array([6.25e-321, 0.00e+000, 0.00e+000])
+ y: array([ 1.5 , -0.75])
+1 failed, 116 passed, 7 skipped in 6.34s
 --- compile log ---
-compile skipped because patch failed
 --- diff log ---
-diff-check skipped because patch failed
