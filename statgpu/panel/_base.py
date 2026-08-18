@@ -21,6 +21,7 @@ from statgpu.panel._utils import (
     PanelSummary,
     validate_panel_alpha,
     validate_panel_numeric_data,
+    _zero_safe_statistic_ratio,
 )
 
 
@@ -433,7 +434,7 @@ class BasePanelModel(BaseEstimator):
         hc1_correction=None,
         distribution_df=None,
         fit_rank=None,
-        diag_floor=1e-30,
+        diag_floor=0.0,
     ):
         """Store residual-based OLS inference from the shared covariance registry."""
         from statgpu.inference._results import BaseInferenceResult, ParameterInferenceResult
@@ -553,18 +554,16 @@ class BasePanelModel(BaseEstimator):
                 "covariance has materially negative diagonal variance; "
                 "inference is not numerically valid"
             )
-        # Normalize signed zero before any historical diagonal floor is used.
-        diag = xp_maximum(diag, 0.0, xp)
-        if diag_floor is not None:
-            diag = xp_maximum(diag, float(diag_floor), xp)
-        bse_dev = xp.sqrt(diag)
-        if diag_floor is None:
-            tvalues_dev = params / bse_dev
-        else:
-            denominator = xp_maximum(
-                bse_dev, np.finfo(np.float64).tiny, xp
+        # Positive absolute variance floors are dimensionful and break
+        # outcome-scale equivariance. Keep the private compatibility argument,
+        # but fail closed if a caller tries to reintroduce such a floor.
+        if diag_floor not in (None, 0, 0.0):
+            raise ValueError(
+                "positive absolute covariance diagonal floors are not supported"
             )
-            tvalues_dev = params / denominator
+        diag = xp_maximum(diag, 0.0, xp)
+        bse_dev = xp.sqrt(diag)
+        tvalues_dev = _zero_safe_statistic_ratio(params, bse_dev, xp)
 
         dist_name = "t" if canonical_cov_type == "nonrobust" else "normal"
         df = int(df_resid if distribution_df is None else distribution_df)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.panel import PanelOLS, RandomEffects, _covariance
+from statgpu.panel import BetweenOLS, FirstDifferenceOLS, PanelOLS, RandomEffects, _covariance
 from statgpu.panel._base import BasePanelModel
 
 
@@ -44,7 +44,7 @@ def test_negative_variance_guard_is_local_to_each_coefficient(monkeypatch):
             backend=backend,
             cov_type="hc0",
             allowed=("hc0",),
-            diag_floor=1.0e-30,
+            diag_floor=0.0,
         )
 
 
@@ -58,7 +58,7 @@ def _store_with_mock_covariance(monkeypatch, covariance):
     backend = model._get_backend(backend="auto")
     model._panel_store_ols_inference(
         np.eye(2), np.zeros(2), np.ones(2), scale=1.0, df_resid=2,
-        backend=backend, cov_type="hc0", allowed=("hc0",), diag_floor=1.0e-30,
+        backend=backend, cov_type="hc0", allowed=("hc0",), diag_floor=0.0,
     )
     return model
 
@@ -95,6 +95,70 @@ def test_negative_variance_guard_is_scale_equivariant(monkeypatch):
 def test_inference_rejects_nonfinite_covariance(monkeypatch, covariance):
     with pytest.raises(ValueError, match="covariance contains non-finite values"):
         _store_with_mock_covariance(monkeypatch, covariance)
+
+
+def test_exact_zero_variance_statistics_do_not_use_a_fake_denominator(monkeypatch):
+    def _zero_covariance(*args, **kwargs):
+        return np.zeros((3, 3), dtype=np.float64)
+
+    monkeypatch.setattr(_covariance, "ols_covariance", _zero_covariance)
+    model = _DummyPanelModel()
+    backend = model._get_backend(backend="auto")
+    tiny = np.nextafter(0.0, 1.0)
+    params = np.asarray([0.0, tiny, -tiny], dtype=np.float64)
+    model._panel_store_ols_inference(
+        np.eye(3),
+        np.zeros(3),
+        params,
+        scale=0.0,
+        df_resid=3,
+        backend=backend,
+        fit_rank=3,
+        cov_type="hc0",
+        allowed=("hc0",),
+        diag_floor=0.0,
+    )
+
+    np.testing.assert_array_equal(model.bse_, np.zeros(3))
+    assert model.tvalues_[0] == 0.0
+    assert np.isposinf(model.tvalues_[1])
+    assert np.isneginf(model.tvalues_[2])
+    np.testing.assert_array_equal(model.pvalues_, np.asarray([1.0, 0.0, 0.0]))
+    np.testing.assert_array_equal(model.conf_int_, np.column_stack([params, params]))
+
+
+def test_between_and_first_difference_inference_is_outcome_scale_equivariant():
+    rng = np.random.default_rng(12989)
+    n_entities, n_times = 12, 5
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    x = rng.normal(size=entity.size)
+    X = x[:, None]
+    alpha = np.repeat(rng.normal(scale=0.35, size=n_entities), n_times)
+    y = 0.7 * x + alpha + rng.normal(scale=0.18, size=entity.size)
+    response_scale = 1.0e-20
+
+    cases = (
+        (BetweenOLS(cov_type="hc0"), {"entity_ids": entity}),
+        (FirstDifferenceOLS(cov_type="hc0"), {"entity_ids": entity, "time_ids": time}),
+    )
+    for estimator, kwargs in cases:
+        reference = estimator.fit(X, y, **kwargs)
+        scaled = type(estimator)(cov_type="hc0").fit(
+            X, response_scale * y, **kwargs
+        )
+        np.testing.assert_allclose(
+            scaled.coef_, response_scale * reference.coef_, rtol=2e-10, atol=0.0
+        )
+        np.testing.assert_allclose(
+            scaled.bse_, response_scale * reference.bse_, rtol=2e-9, atol=0.0
+        )
+        np.testing.assert_allclose(
+            scaled.tvalues_, reference.tvalues_, rtol=2e-9, atol=2e-12
+        )
+        np.testing.assert_allclose(
+            scaled.pvalues_, reference.pvalues_, rtol=2e-9, atol=2e-14
+        )
 
 
 def test_hausman_rejects_rank_deficient_nonunique_coefficients():

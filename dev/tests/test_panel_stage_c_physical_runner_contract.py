@@ -167,3 +167,18 @@ def test_stage_c_runner_diagnostic_scale_audit_is_executable():
         "bp_lm_statistic", "bp_lm_pvalue",
     ):
         assert np.isfinite(audit[field]), field
+
+
+def test_stage_c_runner_zero_variance_inference_audit_is_executable():
+    audit = _MOD._zero_variance_inference_audit("numpy")
+    assert audit["status"] == "success"
+    assert audit["backend"] == "numpy"
+    assert audit["zero_coefficient_statistic"] == 0.0
+    assert audit["positive_zero_variance_is_inf"] is True
+    assert audit["negative_zero_variance_is_inf"] is True
+    np.testing.assert_allclose(
+        audit["tiny_positive_bse_statistics"],
+        np.asarray([2.0, -3.0]),
+        rtol=2.0e-15,
+        atol=0.0,
+    )

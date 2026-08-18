@@ -216,7 +216,7 @@ class PooledOLS(BasePanelModel):
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
             # PooledOLS historically used sqrt(diag(V)) without clipping.
-            diag_floor=None,
+            diag_floor=0.0,
         )
 
         y_centered = y_arr - _scaled_mean(y_arr, xp)

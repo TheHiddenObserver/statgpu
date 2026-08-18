@@ -6,9 +6,10 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from statgpu.panel import FamaMacBeth, PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel import BetweenOLS, FamaMacBeth, FirstDifferenceOLS, PanelOLS, PooledOLS, RandomEffects
 from statgpu.panel._diagnostic_context import explicit_constant_column
 from statgpu.panel._diagnostics import _diagnostic_identity, _fingerprints_match
+from statgpu.panel._utils import _zero_safe_statistic_ratio
 
 
 torch = pytest.importorskip("torch")
@@ -259,3 +260,42 @@ def test_stage_b_fama_macbeth_torch_cpu_r2_matches_numpy_without_ols_f():
     assert actual.fit_statistics_.f_statistic is None
     assert actual.fit_statistics_.f_pvalue is None
     assert actual.fit_statistics_.f_df is None
+
+def test_stage_c_torch_cpu_zero_variance_and_response_scale_equivariance():
+    tiny = np.nextafter(0.0, 1.0)
+    params = torch.tensor([0.0, tiny, -tiny], dtype=torch.float64)
+    bse = torch.zeros(3, dtype=torch.float64)
+    statistic = _zero_safe_statistic_ratio(params, bse, torch).detach().cpu().numpy()
+    assert statistic[0] == 0.0
+    assert np.isposinf(statistic[1])
+    assert np.isneginf(statistic[2])
+
+    rng = np.random.default_rng(1230)
+    n_entities, n_times = 10, 5
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    x = rng.normal(size=entity.size)
+    X = x[:, None]
+    alpha = np.repeat(rng.normal(scale=0.3, size=n_entities), n_times)
+    y = 0.65 * x + alpha + rng.normal(scale=0.16, size=entity.size)
+    X_t, y_t, entity_t, time_t = _torch_arrays(X, y, entity, time)
+    response_scale = 1.0e-20
+
+    reference_between = BetweenOLS(cov_type="hc0").fit(X_t, y_t, entity_ids=entity_t)
+    scaled_between = BetweenOLS(cov_type="hc0").fit(
+        X_t, response_scale * y_t, entity_ids=entity_t
+    )
+    reference_fd = FirstDifferenceOLS(cov_type="hc0").fit(
+        X_t, y_t, entity_ids=entity_t, time_ids=time_t
+    )
+    scaled_fd = FirstDifferenceOLS(cov_type="hc0").fit(
+        X_t, response_scale * y_t, entity_ids=entity_t, time_ids=time_t
+    )
+    for reference, scaled in (
+        (reference_between, scaled_between),
+        (reference_fd, scaled_fd),
+    ):
+        assert_allclose(scaled.coef_, response_scale * reference.coef_, rtol=2e-9, atol=0.0)
+        assert_allclose(scaled.bse_, response_scale * reference.bse_, rtol=2e-8, atol=0.0)
+        assert_allclose(scaled.tvalues_, reference.tvalues_, rtol=2e-8, atol=2e-11)
+        assert_allclose(scaled.pvalues_, reference.pvalues_, rtol=2e-8, atol=2e-13)

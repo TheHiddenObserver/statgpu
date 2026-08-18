@@ -615,6 +615,23 @@ def group_sizes(groups, xp=None):
     return projection[3][projection[0]]
 
 
+def _zero_safe_statistic_ratio(params, bse, xp):
+    """Return parameter statistics with explicit exact-zero variance semantics.
+
+    Positive standard errors are used unchanged. At exactly zero standard error,
+    a zero coefficient maps to statistic 0 while a nonzero coefficient maps to
+    signed infinity. This avoids both a dimensionful variance floor and 0/0 NaN.
+    """
+    zero = bse == 0.0
+    denominator = xp.where(zero, xp.ones_like(bse), bse)
+    statistic = params / denominator
+    positive_inf = xp.full_like(statistic, float("inf"))
+    negative_inf = xp.full_like(statistic, float("-inf"))
+    statistic = xp.where(zero & (params > 0.0), positive_inf, statistic)
+    statistic = xp.where(zero & (params < 0.0), negative_inf, statistic)
+    return xp.where(zero & (params == 0.0), xp.zeros_like(statistic), statistic)
+
+
 def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
     """Compute non-robust OLS inference (SE, t, p, CI)."""
     from scipy import stats
@@ -628,7 +645,7 @@ def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
     if np.any(diag < -tol):
         raise ValueError("covariance has materially negative diagonal variance")
     bse = np.sqrt(np.maximum(diag, 0.0))
-    tvalues = params / np.maximum(bse, np.finfo(np.float64).tiny)
+    tvalues = _zero_safe_statistic_ratio(params, bse, np)
     pvalues = 2 * (1 - stats.t.cdf(np.abs(tvalues), df))
     t_crit = stats.t.ppf(1 - alpha / 2, df)
     conf_int = np.column_stack(
@@ -681,9 +698,7 @@ def compute_panel_inference(
         raise ValueError("covariance has materially negative diagonal variance")
     diag_cov = xp_maximum(diag_cov, 0.0, xp)
     bse_dev = xp.sqrt(diag_cov)
-    tvalues_dev = params / xp_maximum(
-        bse_dev, np.finfo(np.float64).tiny, xp
-    )
+    tvalues_dev = _zero_safe_statistic_ratio(params, bse_dev, xp)
 
     df = dist_df if dist_df is not None else n - k
     from statgpu.inference._distributions_backend import get_distribution

@@ -25,7 +25,11 @@ from statgpu.panel._linalg import (
     panel_lstsq_deferred_rank,
     panel_lstsq_gram_certified_batched,
 )
-from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
+from statgpu.panel._utils import (
+    _zero_safe_statistic_ratio,
+    factorize_panel_labels,
+    factorize_panel_metadata,
+)
 
 
 def _stack(values, xp, axis=0):
@@ -539,15 +543,9 @@ class FamaMacBeth(BasePanelModel):
                 "is not numerically valid"
             )
         bse = xp.sqrt(xp.maximum(diagonal, xp.zeros_like(diagonal)))
-        # Match the shared panel inference convention at an exactly zero
-        # estimated variance: 0/0 should not leak NaN into the public result
-        # surface. Positive standard errors are unchanged.
-        bse_for_stat = xp.where(
-            bse > 0.0,
-            bse,
-            xp.full_like(bse, np.finfo(np.float64).tiny),
-        )
-        tvalues = avg_beta / bse_for_stat
+        # Exact-zero variance is handled without a dimensionful fake
+        # denominator: beta=0 gives statistic 0; beta!=0 gives signed infinity.
+        tvalues = _zero_safe_statistic_ratio(avg_beta, bse, xp)
         df = T - 1
 
         dist_name = "normal" if self._cov_type == "newey-west" else "t"

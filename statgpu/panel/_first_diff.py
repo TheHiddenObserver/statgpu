@@ -114,7 +114,7 @@ class FirstDifferenceOLS(BasePanelModel):
             allowed=("nonrobust", "robust", "hc0", "hc2", "hc3"),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
-            diag_floor=1e-30,
+            diag_floor=0.0,
         )
 
         y_centered = y_diff - _scaled_mean(y_diff, xp)

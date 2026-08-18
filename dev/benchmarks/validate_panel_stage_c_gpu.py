@@ -45,6 +45,7 @@ from statgpu.panel._linalg import (
     panel_lstsq_gram_certified_batched,
     panel_matrix_rank,
 )
+from statgpu.panel._utils import _zero_safe_statistic_ratio
 
 
 CORRECTNESS_SCHEMA_VERSION = 2
@@ -405,6 +406,46 @@ def _diagnostic_scale_audit(backend):
         "classical_f_pvalue": float(model_f_tiny[1]),
         "bp_lm_statistic": float(bp_tiny.statistic),
         "bp_lm_pvalue": float(bp_tiny.pvalue),
+    }
+
+
+def _zero_variance_inference_audit(backend):
+    tiny = np.nextafter(0.0, 1.0)
+    params_np = np.asarray([0.0, tiny, -tiny], dtype=np.float64)
+    bse_np = np.zeros(3, dtype=np.float64)
+    regular_params_np = np.asarray([2.0e-20, -3.0e-20], dtype=np.float64)
+    regular_bse_np = np.asarray([1.0e-20, 1.0e-20], dtype=np.float64)
+    if backend == "numpy":
+        xp = np
+        params, bse = params_np, bse_np
+        regular_params, regular_bse = regular_params_np, regular_bse_np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+        params, bse = cp.asarray(params_np), cp.asarray(bse_np)
+        regular_params, regular_bse = cp.asarray(regular_params_np), cp.asarray(regular_bse_np)
+    elif backend == "torch":
+        import torch
+        xp = torch
+        params = torch.as_tensor(params_np, dtype=torch.float64, device="cuda")
+        bse = torch.as_tensor(bse_np, dtype=torch.float64, device="cuda")
+        regular_params = torch.as_tensor(regular_params_np, dtype=torch.float64, device="cuda")
+        regular_bse = torch.as_tensor(regular_bse_np, dtype=torch.float64, device="cuda")
+    else:
+        raise ValueError(backend)
+
+    exact = _array(_zero_safe_statistic_ratio(params, bse, xp))
+    regular = _array(_zero_safe_statistic_ratio(regular_params, regular_bse, xp))
+    if exact[0] != 0.0 or not np.isposinf(exact[1]) or not np.isneginf(exact[2]):
+        raise AssertionError(f"{backend}: exact-zero inference semantics drifted: {exact}")
+    np.testing.assert_allclose(regular, np.asarray([2.0, -3.0]), rtol=2.0e-15, atol=0.0)
+    return {
+        "status": "success",
+        "backend": backend,
+        "zero_coefficient_statistic": float(exact[0]),
+        "positive_zero_variance_is_inf": bool(np.isposinf(exact[1])),
+        "negative_zero_variance_is_inf": bool(np.isneginf(exact[2])),
+        "tiny_positive_bse_statistics": regular.tolist(),
     }
 
 
@@ -1182,6 +1223,7 @@ def main():
         payload["numerical_primitives"] = {
             "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
             "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
+            "zero_variance_inference": _zero_variance_inference_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }
