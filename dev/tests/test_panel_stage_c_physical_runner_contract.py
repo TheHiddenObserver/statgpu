@@ -182,3 +182,11 @@ def test_stage_c_runner_zero_variance_inference_audit_is_executable():
         rtol=2.0e-15,
         atol=0.0,
     )
+
+
+def test_stage_c_runner_covariance_extreme_scale_audit_is_executable():
+    audit = _MOD._covariance_extreme_scale_audit("numpy")
+    assert audit["status"] == "success"
+    assert audit["backend"] == "numpy"
+    for key in ("one_way", "two_way", "group_cancellation", "hac", "driscoll_kraay"):
+        assert np.all(np.isfinite(np.asarray(audit[key], dtype=np.float64))), key

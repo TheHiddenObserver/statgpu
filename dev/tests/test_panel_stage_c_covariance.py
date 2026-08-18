@@ -15,6 +15,8 @@ from statgpu.panel import (
 )
 from statgpu.panel._covariance import (
     _dk_kernel_weights,
+    _grouped_score_sums,
+    _symmetrize,
     clustered_covariance,
     driscoll_kraay_covariance,
     hac_covariance,
@@ -357,3 +359,56 @@ def test_between_and_first_difference_explicitly_reject_dk():
         BetweenOLS(cov_type="dk")
     with pytest.raises(ValueError, match="cov_type"):
         FirstDifferenceOLS(cov_type="dk")
+
+
+def test_covariance_symmetrization_preserves_huge_and_subnormal_finite_entries():
+    huge = 1.0e308
+    tiny = np.nextafter(0.0, 1.0)
+    matrix = np.asarray([[huge, tiny], [tiny, -huge]], dtype=np.float64)
+    actual = _symmetrize(matrix)
+    assert np.all(np.isfinite(actual))
+    np.testing.assert_array_equal(actual, matrix)
+
+
+def test_cluster_and_two_way_inclusion_exclusion_preserve_huge_finite_covariance():
+    X = np.ones((4, 1), dtype=np.float64)
+    amplitude = 1.4e154
+    resid = np.asarray([amplitude, amplitude, -amplitude, -amplitude])
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    expected = np.asarray([[0.5 * amplitude * amplitude]], dtype=np.float64)
+
+    one_way = clustered_covariance(X, resid, groups)
+    two_way = two_way_clustered_covariance(X, resid, groups, groups)
+    assert np.all(np.isfinite(one_way))
+    assert np.all(np.isfinite(two_way))
+    np.testing.assert_allclose(one_way, expected, rtol=4e-15, atol=0.0)
+    np.testing.assert_allclose(two_way, expected, rtol=5e-15, atol=0.0)
+
+
+def test_grouped_score_reduction_survives_finite_partial_sum_overflow():
+    amplitude = 1.6e308
+    scores = np.asarray(
+        [[amplitude], [amplitude], [-amplitude], [-amplitude], [1.0], [-1.0]],
+        dtype=np.float64,
+    )
+    groups = np.asarray([0, 0, 0, 0, 1, 1], dtype=np.int64)
+    grouped = _grouped_score_sums(scores, groups, n_groups=2, xp=np)
+    assert np.all(np.isfinite(grouped))
+    np.testing.assert_array_equal(grouped, np.zeros((2, 1)))
+
+
+def test_hac_and_dk_weighted_lags_do_not_overflow_before_finite_cancellation():
+    n = 16
+    influence_amplitude = 3.0e153
+    X = np.ones((n, 1), dtype=np.float64)
+    resid = n * influence_amplitude * np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[influence_amplitude ** 2]], dtype=np.float64)
+    expected_dk = expected_hac * (n / (n - 1.0))
+
+    hac = hac_covariance(X, resid, bandwidth=1)
+    dk = driscoll_kraay_covariance(X, resid, time, bandwidth=1)
+    assert np.all(np.isfinite(hac))
+    assert np.all(np.isfinite(dk))
+    np.testing.assert_allclose(hac, expected_hac, rtol=8e-15, atol=0.0)
+    np.testing.assert_allclose(dk, expected_dk, rtol=8e-15, atol=0.0)

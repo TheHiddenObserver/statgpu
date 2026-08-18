@@ -7,6 +7,13 @@ import pytest
 from numpy.testing import assert_allclose
 
 from statgpu.panel import BetweenOLS, FamaMacBeth, FirstDifferenceOLS, PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel._covariance import (
+    _grouped_score_sums,
+    clustered_covariance,
+    driscoll_kraay_covariance,
+    hac_covariance,
+    two_way_clustered_covariance,
+)
 from statgpu.panel._diagnostic_context import explicit_constant_column
 from statgpu.panel._diagnostics import _diagnostic_identity, _fingerprints_match
 from statgpu.panel._utils import _zero_safe_statistic_ratio
@@ -299,3 +306,48 @@ def test_stage_c_torch_cpu_zero_variance_and_response_scale_equivariance():
         assert_allclose(scaled.bse_, response_scale * reference.bse_, rtol=2e-8, atol=0.0)
         assert_allclose(scaled.tvalues_, reference.tvalues_, rtol=2e-8, atol=2e-11)
         assert_allclose(scaled.pvalues_, reference.pvalues_, rtol=2e-8, atol=2e-13)
+
+
+def test_stage_c_torch_cpu_extreme_covariance_combinations_remain_finite():
+    amplitude = 1.4e154
+    X = torch.ones((4, 1), dtype=torch.float64)
+    resid = torch.tensor([amplitude, amplitude, -amplitude, -amplitude], dtype=torch.float64)
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    expected = np.asarray([[0.5 * amplitude * amplitude]], dtype=np.float64)
+    one_way = clustered_covariance(X, resid, groups, xp=torch)
+    two_way = two_way_clustered_covariance(X, resid, groups, groups, xp=torch)
+    assert_allclose(one_way, expected, rtol=5e-14, atol=0.0)
+    assert_allclose(two_way, expected, rtol=6e-14, atol=0.0)
+
+    cancel_groups = np.asarray([0, 0, 0, 0, 1, 1], dtype=np.int64)
+    score_amplitude = 1.6e308
+    scores = torch.tensor(
+        [[score_amplitude], [score_amplitude], [-score_amplitude], [-score_amplitude], [1.0], [-1.0]],
+        dtype=torch.float64,
+    )
+    grouped = _grouped_score_sums(scores, cancel_groups, n_groups=2, xp=torch)
+    assert_allclose(grouped, np.zeros((2, 1)), rtol=0.0, atol=0.0)
+
+    n = 16
+    influence_amplitude = 3.0e153
+    X_hac = torch.ones((n, 1), dtype=torch.float64)
+    signs = torch.where(
+        torch.arange(n) % 2 == 0,
+        torch.tensor(1.0, dtype=torch.float64),
+        torch.tensor(-1.0, dtype=torch.float64),
+    )
+    resid_hac = (n * influence_amplitude) * signs
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[influence_amplitude ** 2]], dtype=np.float64)
+    assert_allclose(
+        hac_covariance(X_hac, resid_hac, bandwidth=1, xp=torch),
+        expected_hac,
+        rtol=8e-14,
+        atol=0.0,
+    )
+    assert_allclose(
+        driscoll_kraay_covariance(X_hac, resid_hac, time, bandwidth=1, xp=torch),
+        expected_hac * (n / (n - 1.0)),
+        rtol=8e-14,
+        atol=0.0,
+    )

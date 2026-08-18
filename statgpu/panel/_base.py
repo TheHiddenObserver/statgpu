@@ -554,13 +554,11 @@ class BasePanelModel(BaseEstimator):
                 "covariance has materially negative diagonal variance; "
                 "inference is not numerically valid"
             )
-        # Positive absolute variance floors are dimensionful and break
-        # outcome-scale equivariance. Keep the private compatibility argument,
-        # but fail closed if a caller tries to reintroduce such a floor.
-        if diag_floor not in (None, 0, 0.0):
-            raise ValueError(
-                "positive absolute covariance diagonal floors are not supported"
-            )
+        # ``diag_floor`` is retained only for private-call compatibility.
+        # A positive absolute floor is dimensionful and would break outcome-scale
+        # equivariance, so it is intentionally ignored. Exact zero is handled by
+        # the explicit statistic-ratio convention below.
+        _ = diag_floor
         diag = xp_maximum(diag, 0.0, xp)
         bse_dev = xp.sqrt(diag)
         tvalues_dev = _zero_safe_statistic_ratio(params, bse_dev, xp)

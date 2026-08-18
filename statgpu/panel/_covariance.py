@@ -100,7 +100,57 @@ def _influence_rows(X, resid, xp):
 
 
 def _symmetrize(matrix):
-    return 0.5 * (matrix + matrix.T)
+    """Average a matrix with its transpose without avoidable overflow.
+
+    ``0.5 * (a + b)`` preserves subnormal entries but can overflow when both
+    finite operands are near DBL_MAX. Only those same-sign risky entries use
+    ``0.5*a + 0.5*b``; ordinary and subnormal entries retain the direct sum.
+    """
+    xp = _ensure_xp(None, matrix)
+    other = matrix.T
+    abs_left = xp.abs(matrix)
+    abs_right = xp.abs(other)
+    same_sign = ((matrix >= 0.0) & (other >= 0.0)) | (
+        (matrix < 0.0) & (other < 0.0)
+    )
+    risk = same_sign & (abs_left > float(np.finfo(np.float64).max) - abs_right)
+    left = xp.where(risk, 0.5 * matrix, matrix)
+    right = xp.where(risk, 0.5 * other, other)
+    summed = left + right
+    return xp.where(risk, summed, 0.5 * summed)
+
+
+def _weighted_symmetric_sum(matrix, weight):
+    """Return ``weight * (matrix + matrix.T)`` without an unsafe raw sum."""
+    return _symmetrize(matrix) * (2.0 * weight)
+
+
+def _stable_inclusion_exclusion(V1, V2, V12, xp):
+    """Return ``V1 + V2 - V12`` with cancellation before risky addition.
+
+    If either marginal entry has the same sign as the intersection entry,
+    subtract that pair first; subtraction of same-sign finite values cannot
+    overflow. If neither does, all three inclusion-exclusion terms have the same
+    sign and any overflow in their direct sum reflects an unrepresentable result.
+    """
+    same1 = ((V1 >= 0.0) & (V12 >= 0.0)) | ((V1 < 0.0) & (V12 < 0.0))
+    same2 = ((V2 >= 0.0) & (V12 >= 0.0)) | ((V2 < 0.0) & (V12 < 0.0))
+    use1 = same1
+    use2 = (~use1) & same2
+    stable_mask = use1 | use2
+
+    first = xp.where(use1, V1, V2)
+    remaining = xp.where(use1, V2, V1)
+    first_safe = xp.where(stable_mask, first, xp.zeros_like(first))
+    remaining_safe = xp.where(stable_mask, remaining, xp.zeros_like(remaining))
+    intersection_safe = xp.where(stable_mask, V12, xp.zeros_like(V12))
+    stable = (first_safe - intersection_safe) + remaining_safe
+
+    fallback_V1 = xp.where(stable_mask, xp.zeros_like(V1), V1)
+    fallback_V2 = xp.where(stable_mask, xp.zeros_like(V2), V2)
+    fallback_V12 = xp.where(stable_mask, xp.zeros_like(V12), V12)
+    direct = (fallback_V1 + fallback_V2) - fallback_V12
+    return xp.where(stable_mask, stable, direct)
 
 
 def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
@@ -116,19 +166,52 @@ def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
         xp=xp,
         ref_arr=scores,
     )
-    out = xp_zeros(
-        (int(n_groups), int(scores.shape[1])),
-        dtype=xp.float64,
-        xp=xp,
-        ref_arr=scores,
-    )
-    if hasattr(out, "scatter_add_"):
-        out.scatter_add_(0, codes.unsqueeze(1).expand_as(scores), scores)
-    elif type(out).__module__.startswith("cupy"):
-        xp.add.at(out, codes, scores)
+    shape = (int(n_groups), int(scores.shape[1]))
+    out = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
+
+    # A group can have a finite final score even when sequential same-sign
+    # partial sums overflow before later cancellation. Scale only risky
+    # group/coordinate reductions by the group size; safe groups and coordinates
+    # remain completely untouched, so tiny unrelated scores are not normalized
+    # away.
+    abs_scores = xp.abs(scores)
+    max_abs = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
+    index = codes.unsqueeze(1).expand_as(scores) if hasattr(codes, "unsqueeze") else None
+    if hasattr(max_abs, "scatter_reduce_"):
+        max_abs.scatter_reduce_(
+            0, index, abs_scores, reduce="amax", include_self=True
+        )
+    elif type(max_abs).__module__.startswith("cupy"):
+        xp.maximum.at(max_abs, codes, abs_scores)
     else:
-        np.add.at(out, codes_np, scores)
-    return out
+        np.maximum.at(max_abs, codes_np, abs_scores)
+
+    counts_np = np.bincount(codes_np, minlength=int(n_groups)).astype(np.float64)
+    counts = xp_asarray(
+        counts_np, dtype=xp.float64, xp=xp, ref_arr=scores
+    ).reshape(-1, 1)
+    limit = float(np.finfo(np.float64).max) / counts
+    factor = xp.where(max_abs > limit, counts, xp.ones_like(max_abs))
+    working = scores / factor[codes]
+
+    # Accumulate signs separately at the safe working scale. This avoids
+    # observation-order paths such as +a,+a,-a,-a, where each partial sum is
+    # finite after scaling but sequential rounding can leave a huge spurious
+    # cancellation residual. The final positive/negative combination is one
+    # opposite-sign addition per group/coordinate.
+    positive = xp.where(working > 0.0, working, xp.zeros_like(working))
+    negative = xp.where(working < 0.0, working, xp.zeros_like(working))
+    negative_out = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
+    if hasattr(out, "scatter_add_"):
+        out.scatter_add_(0, index, positive)
+        negative_out.scatter_add_(0, index, negative)
+    elif type(out).__module__.startswith("cupy"):
+        xp.add.at(out, codes, positive)
+        xp.add.at(negative_out, codes, negative)
+    else:
+        np.add.at(out, codes_np, positive)
+        np.add.at(negative_out, codes_np, negative)
+    return (out + negative_out) * factor
 
 
 def _factorize_1d_labels(values, *, nobs: int, name: str):
@@ -274,7 +357,7 @@ def two_way_clustered_covariance(
                 ],
             }
         )
-    return _symmetrize(V1 + V2 - V12)
+    return _symmetrize(_stable_inclusion_exclusion(V1, V2, V12, xp))
 
 
 def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
@@ -305,7 +388,7 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     for h in range(1, bandwidth + 1):
         w = 1.0 - h / (bandwidth + 1.0)
         gamma_h = influence[h:].T @ influence[: n - h]
-        cov = cov + w * (gamma_h + gamma_h.T)
+        cov = cov + _weighted_symmetric_sum(gamma_h, float(w))
     return _symmetrize(cov)
 
 
@@ -446,7 +529,7 @@ def driscoll_kraay_covariance(
         if weights_np[lag] == 0.0:
             continue
         gamma = grouped[lag:].T @ grouped[: n_periods - lag]
-        cov = cov + weights[lag] * (gamma + gamma.T)
+        cov = cov + _weighted_symmetric_sum(gamma, weights[lag])
 
     scale = float(n) / float(denom)
     cov = _symmetrize(scale * cov)

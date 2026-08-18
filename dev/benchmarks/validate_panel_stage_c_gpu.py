@@ -29,7 +29,7 @@ from statgpu.panel import (
     clustered_covariance,
     driscoll_kraay_covariance,
 )
-from statgpu.panel._covariance import ols_covariance
+from statgpu.panel._covariance import _grouped_score_sums, hac_covariance, ols_covariance, two_way_clustered_covariance
 from statgpu.panel._diagnostic_context import (
     bp_lm_from_residuals,
     pooling_f_from_level_arrays,
@@ -406,6 +406,73 @@ def _diagnostic_scale_audit(backend):
         "classical_f_pvalue": float(model_f_tiny[1]),
         "bp_lm_statistic": float(bp_tiny.statistic),
         "bp_lm_pvalue": float(bp_tiny.pvalue),
+    }
+
+
+def _covariance_extreme_scale_audit(backend):
+    amplitude = 1.4e154
+    X_np = np.ones((4, 1), dtype=np.float64)
+    resid_np = np.asarray([amplitude, amplitude, -amplitude, -amplitude])
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    score_amplitude = 1.6e308
+    scores_np = np.asarray(
+        [[score_amplitude], [score_amplitude], [-score_amplitude], [-score_amplitude], [1.0], [-1.0]],
+        dtype=np.float64,
+    )
+    cancel_groups = np.asarray([0, 0, 0, 0, 1, 1], dtype=np.int64)
+    n = 16
+    influence_amplitude = 3.0e153
+    X_hac_np = np.ones((n, 1), dtype=np.float64)
+    resid_hac_np = n * influence_amplitude * np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    time = np.arange(n, dtype=np.int64)
+
+    if backend == "numpy":
+        xp = np
+        X, resid = X_np, resid_np
+        scores = scores_np
+        X_hac, resid_hac = X_hac_np, resid_hac_np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+        X, resid = cp.asarray(X_np), cp.asarray(resid_np)
+        scores = cp.asarray(scores_np)
+        X_hac, resid_hac = cp.asarray(X_hac_np), cp.asarray(resid_hac_np)
+    elif backend == "torch":
+        import torch
+        xp = torch
+        X = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+        resid = torch.as_tensor(resid_np, dtype=torch.float64, device="cuda")
+        scores = torch.as_tensor(scores_np, dtype=torch.float64, device="cuda")
+        X_hac = torch.as_tensor(X_hac_np, dtype=torch.float64, device="cuda")
+        resid_hac = torch.as_tensor(resid_hac_np, dtype=torch.float64, device="cuda")
+    else:
+        raise ValueError(backend)
+
+    expected_cluster = np.asarray([[0.5 * amplitude * amplitude]])
+    expected_hac = np.asarray([[influence_amplitude ** 2]])
+    one_way = _array(clustered_covariance(X, resid, groups, xp=xp))
+    two_way = _array(two_way_clustered_covariance(X, resid, groups, groups, xp=xp))
+    cancellation = _array(
+        _grouped_score_sums(scores, cancel_groups, n_groups=2, xp=xp)
+    )
+    hac = _array(hac_covariance(X_hac, resid_hac, bandwidth=1, xp=xp))
+    dk = _array(driscoll_kraay_covariance(X_hac, resid_hac, time, bandwidth=1, xp=xp))
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk)):
+        if not np.all(np.isfinite(value)):
+            raise AssertionError(f"{backend}: {name} produced non-finite covariance")
+    np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(two_way, expected_cluster, rtol=8e-13, atol=0.0)
+    np.testing.assert_array_equal(cancellation, np.zeros((2, 1)))
+    np.testing.assert_allclose(hac, expected_hac, rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(dk, expected_hac * (n / (n - 1.0)), rtol=8e-13, atol=0.0)
+    return {
+        "status": "success",
+        "backend": backend,
+        "one_way": one_way.tolist(),
+        "two_way": two_way.tolist(),
+        "group_cancellation": cancellation.tolist(),
+        "hac": hac.tolist(),
+        "driscoll_kraay": dk.tolist(),
     }
 
 
@@ -1223,6 +1290,7 @@ def main():
         payload["numerical_primitives"] = {
             "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
             "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
+            "covariance_extreme_scale": _covariance_extreme_scale_audit(backend),
             "zero_variance_inference": _zero_variance_inference_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
