@@ -120,11 +120,6 @@ def _symmetrize(matrix):
     return xp.where(risk, summed, 0.5 * summed)
 
 
-def _weighted_symmetric_sum(matrix, weight):
-    """Return ``weight * (matrix + matrix.T)`` without an unsafe raw sum."""
-    return _symmetrize(matrix) * (2.0 * weight)
-
-
 def _covariance_accumulator_start(initial, *, max_terms: int, xp):
     """Start a per-entry reduction-length covariance accumulator.
 

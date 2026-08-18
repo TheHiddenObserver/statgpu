@@ -106,7 +106,7 @@ $$
 
 这里 $r_Z$ 表示回归中实际可识别的 regression directions：满列秩时等于 $Z$ 的列数，rank deficient 时等于 $\operatorname{rank}(Z)$。`PanelOLS` 还需要通过 `extra_df` 计入被吸收的 fixed effects；`PooledOLS` 与 `RandomEffects` 的该项为 0。
 
-对 symmetric covariance combination，statgpu 使用 range-aware arithmetic：最终 symmetrization 会避免有限同号平均值在相加阶段先溢出；two-way inclusion-exclusion 会在可能时先减去同号 intersection component；HAC/Driscoll-Kraay lag pair 也不会先构造可能溢出的未加权 symmetric sum，再乘较小 kernel weight。只要最终 float64 结果可表示，这些重排与上面的统计定义代数等价。
+对 symmetric covariance combination，statgpu 使用 range-aware arithmetic：最终 symmetrization 会避免有限同号平均值在相加阶段先溢出；two-way inclusion-exclusion 会在可能时先减去同号 intersection component。HAC/Driscoll-Kraay 会先形成 symmetric lag average，而不是先构造可能溢出的未加权 symmetric sum；随后对整个 lag sequence 只在某个 entry 的 transient partial sum 存在溢出风险时使用 per-entry reduction-length working scale，安全与 subnormal entry 保持原尺度。只要最终 float64 结果可表示，这些重排与上面的统计定义代数等价；与其他数值路径一样，并不宣称可以用更高精度恢复任意病态 cancellation。
 
 `bandwidth=None` 时使用 $\lfloor4(T/100)^{2/9}\rfloor$。Bartlett 与 Parzen kernel 在 bandwidth 之外权重为 0；Quadratic Spectral 将 bandwidth 作为 smoothing scale，在 bandwidth 为正时会对全部 observed lags 赋权。
 
