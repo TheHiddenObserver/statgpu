@@ -542,3 +542,19 @@ def test_two_way_nested_partition_detection_is_invariant_to_code_permutation():
     assert reference[0, 0] > 0.0
     np.testing.assert_allclose(reference, np.asarray([[1.0e-200]]), rtol=3e-14, atol=0.0)
     np.testing.assert_allclose(actual, reference, rtol=3e-14, atol=0.0)
+
+
+def test_two_way_nonnested_structural_cancellation_preserves_low_group_sum():
+    n = 4
+    amplitude = 1.0e154
+    small = 1.0e-154
+    X = np.full((n, 1), 0.5, dtype=np.float64)
+    target_scores = np.asarray(
+        [-amplitude, small, amplitude, -small], dtype=np.float64
+    )
+    resid = 2.0 * target_scores
+    cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(X, resid, cluster1, cluster2)
+    expected = np.asarray([[-4.0 * amplitude * small]], dtype=np.float64)
+    assert_allclose(actual, expected, rtol=2e-12, atol=0.0)

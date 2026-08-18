@@ -196,6 +196,7 @@ def test_stage_c_runner_covariance_extreme_scale_audit_is_executable():
         "driscoll_kraay",
         "lag_accumulator_hac",
         "lag_accumulator_driscoll_kraay",
+        "nonnested_two_way_structural_cancellation",
     ):
         assert np.all(np.isfinite(np.asarray(audit[key], dtype=np.float64))), key
 

@@ -468,3 +468,22 @@ def test_stage_b_torch_cpu_hausman_host_quadratic_is_scale_safe():
         result = _hausman_quadratic([difference], [[variance]])
         assert result.applicable, result.reason
         assert_allclose(result.statistic, 1.0, rtol=3e-12, atol=0.0)
+
+
+def test_stage_c_torch_cpu_two_way_nonnested_structural_cancellation():
+    n = 4
+    amplitude = 1.0e154
+    small = 1.0e-154
+    X = torch.full((n, 1), 0.5, dtype=torch.float64)
+    target_scores = torch.tensor(
+        [-amplitude, small, amplitude, -small], dtype=torch.float64
+    )
+    resid = 2.0 * target_scores
+    cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, xp=torch
+    ).detach().cpu().numpy()
+    np.testing.assert_allclose(
+        actual, np.asarray([[-4.0 * amplitude * small]]), rtol=2e-12, atol=0.0
+    )

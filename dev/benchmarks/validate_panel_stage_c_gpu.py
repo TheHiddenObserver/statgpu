@@ -464,6 +464,19 @@ def _covariance_extreme_scale_audit(backend):
     mixed_time = np.asarray([0, 0, 1], dtype=np.int64)
     mixed_nonmonotone_coarse = np.asarray([1, 1, 0], dtype=np.int64)
 
+    nonnested_n = 4
+    nonnested_amplitude = 1.0e154
+    nonnested_small = 1.0e-154
+    X_nonnested_np = np.full((nonnested_n, 1), 0.5, dtype=np.float64)
+    nonnested_scores = np.asarray(
+        [-nonnested_amplitude, nonnested_small,
+         nonnested_amplitude, -nonnested_small],
+        dtype=np.float64,
+    )
+    resid_nonnested_np = 2.0 * nonnested_scores
+    nonnested_cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    nonnested_cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+
     if backend == "numpy":
         xp = np
         X, resid = X_np, resid_np
@@ -474,6 +487,7 @@ def _covariance_extreme_scale_audit(backend):
         X_component, resid_component = X_component_np, resid_component_np
         X_tiny_cluster, resid_tiny_cluster = X_tiny_cluster_np, resid_tiny_cluster_np
         X_mixed, resid_mixed = X_mixed_np, resid_mixed_np
+        X_nonnested, resid_nonnested = X_nonnested_np, resid_nonnested_np
     elif backend == "cupy":
         import cupy as cp
         xp = cp
@@ -486,6 +500,8 @@ def _covariance_extreme_scale_audit(backend):
         X_tiny_cluster = cp.asarray(X_tiny_cluster_np)
         resid_tiny_cluster = cp.asarray(resid_tiny_cluster_np)
         X_mixed, resid_mixed = cp.asarray(X_mixed_np), cp.asarray(resid_mixed_np)
+        X_nonnested = cp.asarray(X_nonnested_np)
+        resid_nonnested = cp.asarray(resid_nonnested_np)
     elif backend == "torch":
         import torch
         xp = torch
@@ -504,6 +520,12 @@ def _covariance_extreme_scale_audit(backend):
         resid_tiny_cluster = torch.as_tensor(resid_tiny_cluster_np, dtype=torch.float64, device="cuda")
         X_mixed = torch.as_tensor(X_mixed_np, dtype=torch.float64, device="cuda")
         resid_mixed = torch.as_tensor(resid_mixed_np, dtype=torch.float64, device="cuda")
+        X_nonnested = torch.as_tensor(
+            X_nonnested_np, dtype=torch.float64, device="cuda"
+        )
+        resid_nonnested = torch.as_tensor(
+            resid_nonnested_np, dtype=torch.float64, device="cuda"
+        )
     else:
         raise ValueError(backend)
 
@@ -555,7 +577,14 @@ def _covariance_extreme_scale_audit(backend):
     mixed_dk = _array(driscoll_kraay_covariance(
         X_mixed, resid_mixed, mixed_time, bandwidth=0, xp=xp
     ))
-    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_two_way_permuted", mixed_two_way_permuted), ("mixed_dk", mixed_dk)):
+    nonnested_two_way = _array(two_way_clustered_covariance(
+        X_nonnested,
+        resid_nonnested,
+        nonnested_cluster1,
+        nonnested_cluster2,
+        xp=xp,
+    ))
+    for name, value in (("one_way", one_way), ("two_way", two_way), ("group_cancellation", cancellation), ("hac", hac), ("dk", dk), ("lag_hac", lag_hac), ("lag_dk", lag_dk), ("pregram_hac", pregram_hac), ("pregram_dk", pregram_dk), ("two_way_component_cancellation", component_two_way), ("tiny_design_cluster_cancellation", tiny_design_cluster), ("mixed_cluster", mixed_cluster), ("mixed_two_way", mixed_two_way), ("mixed_two_way_permuted", mixed_two_way_permuted), ("mixed_dk", mixed_dk), ("nonnested_two_way", nonnested_two_way)):
         if not np.all(np.isfinite(value)):
             raise AssertionError(f"{backend}: {name} produced non-finite covariance")
     np.testing.assert_allclose(one_way, expected_cluster, rtol=8e-13, atol=0.0)
@@ -589,6 +618,12 @@ def _covariance_extreme_scale_audit(backend):
     np.testing.assert_allclose(mixed_two_way, mixed_cluster, rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(mixed_two_way_permuted, mixed_cluster, rtol=8e-13, atol=0.0)
     np.testing.assert_allclose(mixed_dk, np.asarray([[1.5e-200]]), rtol=8e-13, atol=0.0)
+    np.testing.assert_allclose(
+        nonnested_two_way,
+        np.asarray([[-4.0 * nonnested_amplitude * nonnested_small]]),
+        rtol=2e-12,
+        atol=0.0,
+    )
     return {
         "status": "success",
         "backend": backend,
@@ -607,6 +642,7 @@ def _covariance_extreme_scale_audit(backend):
         "mixed_two_way": mixed_two_way.tolist(),
         "mixed_two_way_permuted": mixed_two_way_permuted.tolist(),
         "mixed_driscoll_kraay": mixed_dk.tolist(),
+        "nonnested_two_way_structural_cancellation": nonnested_two_way.tolist(),
     }
 
 

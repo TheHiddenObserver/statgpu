@@ -143,6 +143,30 @@ def _common_gram_working_values(values_list, xp, *, max_multiplier: float = 1.0)
     return [values / scale for values in values_list], scale
 
 
+def _cross_reduction_is_safe(left, right, xp) -> bool:
+    """Return whether ``left.T @ right`` has a conservative rowwise range bound.
+
+    Matrix-product terms pair values from the same observation/group row.  Use
+    per-row infinity norms so unrelated column maxima do not reject a safe
+    mixed-range cross term.  This is only a sufficient condition; uncertain
+    cases remain on the established scaled covariance path.
+    """
+    n_terms = max(1, int(left.shape[0]))
+    if _is_torch(xp):
+        left_row_max = xp.max(xp.abs(left), dim=1).values
+        right_row_max = xp.max(xp.abs(right), dim=1).values
+    else:
+        left_row_max = xp.max(xp.abs(left), axis=1)
+        right_row_max = xp.max(xp.abs(right), axis=1)
+    finite = xp.isfinite(left_row_max) & xp.isfinite(right_row_max)
+    large = xp.maximum(left_row_max, right_row_max)
+    small = xp.minimum(left_row_max, right_row_max)
+    safe_large = xp.maximum(large, xp.ones_like(large))
+    per_term_limit = 0.25 * float(np.finfo(np.float64).max) / float(n_terms)
+    safe = finite & (small <= float(per_term_limit) / safe_large)
+    return bool(_to_float_scalar(xp.all(safe)))
+
+
 def _influence_rows(X, resid, xp):
     """Return finite influence rows with only unavoidable product scaling delayed.
 
@@ -331,8 +355,10 @@ def _stable_inclusion_exclusion(V1, V2, V12, xp):
     return xp.where(stable_mask, stable, direct)
 
 
-def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
-    """Sum an observation-by-parameter score matrix by integer group code."""
+def _grouped_score_sums(
+    scores, codes_np, *, n_groups: int, xp, return_compensation: bool = False
+):
+    """Sum scores by group, optionally retaining the final cancellation residual."""
     codes_np = np.asarray(codes_np, dtype=np.int64).ravel()
     if codes_np.shape[0] != int(scores.shape[0]):
         raise ValueError("group codes must match the number of score rows")
@@ -389,7 +415,18 @@ def _grouped_score_sums(scores, codes_np, *, n_groups: int, xp):
     else:
         np.add.at(out, codes_np, positive)
         np.add.at(negative_out, codes_np, negative)
-    return (out + negative_out) * factor
+
+    summed = out + negative_out
+    if not return_compensation:
+        return summed * factor
+
+    # Knuth TwoSum residual for the final opposite-sign combination.  Positive
+    # and negative reductions are already accumulated separately above; this
+    # residual preserves a low-order term such as -1e154 + 1e-154 without
+    # changing the ordinary public grouped-score value.
+    virtual_negative = summed - out
+    residual = (out - (summed - virtual_negative)) + (negative_out - virtual_negative)
+    return summed * factor, residual * factor
 
 
 def _factorize_1d_labels(values, *, nobs: int, name: str):
@@ -574,6 +611,63 @@ def two_way_clustered_covariance(
             grouped12_work.T @ grouped12_work * float(correction12)
         )
         cov_work = _stable_inclusion_exclusion(V1_work, V2_work, V12_work, xp)
+
+        # The ordinary grouped score is a float64 high part.  Under extreme
+        # nonnested CGM cancellation it can discard a representable low term at
+        # the final positive+negative group-sum addition; after component Gram
+        # scaling that lost term can control the final covariance.  Recover only
+        # that final-addition residual, and only for the un-debiased definition
+        # where all three CGM components have unit weight.
+        need_compensation = (
+            not group_debias
+            and _to_float_scalar(xp.max(common_scale)) > 1.0
+        )
+        if need_compensation:
+            grouped1_high, grouped1_low = _grouped_score_sums(
+                influence, c1, n_groups=int(len(labels1)), xp=xp,
+                return_compensation=True,
+            )
+            grouped2_high, grouped2_low = _grouped_score_sums(
+                influence, c2, n_groups=int(len(labels2)), xp=xp,
+                return_compensation=True,
+            )
+            grouped12_high, grouped12_low = _grouped_score_sums(
+                influence, c12, n_groups=n12, xp=xp,
+                return_compensation=True,
+            )
+            safe_correction = all(
+                _cross_reduction_is_safe(high, low, xp)
+                and _cross_reduction_is_safe(low, low, xp)
+                for high, low in (
+                    (grouped1_high, grouped1_low),
+                    (grouped2_high, grouped2_low),
+                    (grouped12_high, grouped12_low),
+                )
+            )
+            if safe_correction:
+                def _low_order_covariance(high, low):
+                    cross = _symmetrize(high.T @ low)
+                    return _symmetrize(
+                        (2.0 * cross) + _symmetrize(low.T @ low)
+                    )
+
+                low_correction1 = _low_order_covariance(
+                    grouped1_high, grouped1_low
+                )
+                low_correction2 = _low_order_covariance(
+                    grouped2_high, grouped2_low
+                )
+                low_correction12 = _low_order_covariance(
+                    grouped12_high, grouped12_low
+                )
+                low_correction = _stable_inclusion_exclusion(
+                    low_correction1, low_correction2, low_correction12, xp
+                )
+                cov_work = _restore_coordinate_covariance(
+                    cov_work, common_scale, xp
+                )
+                cov_work = _symmetrize(cov_work + low_correction)
+                common_scale = xp.ones_like(projection_scale)
     cov = _restore_influence_covariance(
         cov_work, common_scale, projection_scale, design_scale, xp
     )
