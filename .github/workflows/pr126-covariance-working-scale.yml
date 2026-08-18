@@ -37,6 +37,12 @@ jobs:
             second_rc=99
           fi
           if [ "$first_rc" -eq 0 ] && [ "$second_rc" -eq 0 ]; then
+            python dev/validation/pr126_estimator_scale_fixups2_once.py >> /tmp/patch.log 2>&1
+            third_rc=$?
+          else
+            third_rc=99
+          fi
+          if [ "$first_rc" -eq 0 ] && [ "$second_rc" -eq 0 ] && [ "$third_rc" -eq 0 ]; then
             patch_rc=0
             python -m pytest \
               dev/tests/test_panel_stage_c_final_review_fixes.py \
@@ -65,6 +71,7 @@ jobs:
           {
             echo "first_patch_rc=$first_rc"
             echo "second_patch_rc=$second_rc"
+            echo "third_patch_rc=$third_rc"
             echo "patch_rc=$patch_rc"
             echo "pytest_rc=$pytest_rc"
             echo "compile_rc=$compile_rc"
@@ -78,7 +85,7 @@ jobs:
             echo "--- diff log ---"
             cat /tmp/diff.log
           } > dev/validation/pr126_covariance_working_scale_result.txt
-          tail -380 dev/validation/pr126_covariance_working_scale_result.txt
+          tail -400 dev/validation/pr126_covariance_working_scale_result.txt
           exit 0
       - name: Commit substantive follow-up or diagnostic
         run: |
