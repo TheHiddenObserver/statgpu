@@ -749,3 +749,32 @@ def test_two_way_ordinary_compensation_stays_vectorized(monkeypatch):
     # Two components in each of three cluster dimensions require only
     # 3 vectorized component-pair terms per dimension, not O(group-count) terms.
     assert max(observed_term_counts) <= 9
+
+def test_two_way_extreme_many_groups_retiers_before_vectorized_gram(monkeypatch):
+    n = 256
+    large = 2.0 ** 500
+    small = 2.0 ** 400
+    scores = np.where(np.arange(n) % 2 == 0, large, small).astype(np.float64)
+    cluster1 = np.repeat(np.arange(16), 16)
+    cluster2 = np.tile(np.arange(16), 16)
+    X = np.ones((n, 1), dtype=np.float64)
+    resid = float(n) * scores
+
+    observed_term_counts = []
+    original = covariance_module._stable_matrix_expansion_sum
+
+    def wrapped(terms, xp):
+        observed_term_counts.append(len(terms))
+        return original(terms, xp)
+
+    monkeypatch.setattr(
+        covariance_module, "_stable_matrix_expansion_sum", wrapped
+    )
+    actual = covariance_module.two_way_clustered_covariance(
+        X, resid, cluster1, cluster2
+    )
+    assert np.all(np.isfinite(actual))
+    assert observed_term_counts
+    # The fallback complexity is tied to magnitude tiers, not 256 intersection
+    # rows.  This fixture previously produced roughly one thousand row terms.
+    assert max(observed_term_counts) <= 30

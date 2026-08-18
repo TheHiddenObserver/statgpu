@@ -456,6 +456,55 @@ def _component_row_reduction_needs_expansion(component_sets, xp) -> bool:
     return bool(_to_float_scalar(risk))
 
 
+
+def _retier_component_for_safe_gram(component, xp):
+    """Split one grouped component into globally Gram-safe magnitude tiers.
+
+    Local group summation tiers protect cancellation *within* each cluster.  A
+    later Gram reduction also sums across cluster rows, so singleton/intersection
+    groups can still place vastly different magnitudes in the same component.
+    Split those rows by a per-coordinate ``sqrt(n * eps)`` threshold before the
+    BLAS reduction.  Each returned tier can then use a vectorized Gram without
+    erasing a smaller row contribution that CGM cancellation may later expose.
+    """
+    n_rows = max(1, int(component.shape[0]))
+    ratio_floor = float(
+        np.sqrt(16.0 * float(n_rows) * float(np.finfo(np.float64).eps))
+    )
+    remaining = component
+    tiers = []
+    for _ in range(128):
+        max_abs = _column_abs_max(remaining, xp)
+        threshold = max_abs * ratio_floor
+        tail_mask = (
+            (xp.abs(remaining) < threshold[None, :])
+            & (remaining != 0.0)
+        )
+        tiers.append(
+            xp.where(tail_mask, xp.zeros_like(remaining), remaining)
+        )
+        if not bool(_to_float_scalar(xp.any(tail_mask))):
+            break
+        remaining = xp.where(
+            tail_mask, remaining, xp.zeros_like(remaining)
+        )
+    else:
+        raise RuntimeError(
+            "two-way cluster global magnitude tiers exceeded the float64 budget"
+        )
+    return tiers
+
+
+def _retier_component_sets_for_safe_gram(component_sets, xp):
+    refined = []
+    for components in component_sets:
+        current = []
+        for component in components:
+            current.extend(_retier_component_for_safe_gram(component, xp))
+        refined.append(current)
+    return tuple(refined)
+
+
 def _grouped_score_sums(
     scores, codes_np, *, n_groups: int, xp, return_compensation: bool = False,
     return_components: bool = False,
@@ -818,8 +867,14 @@ def two_way_clustered_covariance(
                 V1_work, V2_work, V12_work, xp
             )
         else:
-            all_components = components1 + components2 + components12
             component_sets = (components1, components2, components12)
+            if _component_row_reduction_needs_expansion(component_sets, xp):
+                component_sets = _retier_component_sets_for_safe_gram(
+                    component_sets, xp
+                )
+                components1, components2, components12 = component_sets
+
+            all_components = components1 + components2 + components12
             max_rows = max(
                 int(components[0].shape[0]) for components in component_sets
             )
@@ -868,43 +923,21 @@ def two_way_clustered_covariance(
             work12 = working_components[n1 + n2:]
 
             terms = []
-            rowwise_expansion = _component_row_reduction_needs_expansion(
-                (components1, components2, components12), xp
-            )
 
             def _append_component_terms(components, correction, sign):
                 coefficient = float(sign) * float(correction)
-                if not rowwise_expansion:
-                    for i, left in enumerate(components):
-                        terms.append(
-                            _symmetrize(left.T @ left) * coefficient
-                        )
-                        for right in components[:i]:
-                            cross = left.T @ right
-                            terms.append((cross + cross.T) * coefficient)
-                    return
-
-                n_rows = int(components[0].shape[0])
                 for i, left in enumerate(components):
-                    for row in range(n_rows):
-                        left_row = left[row]
-                        terms.append(
-                            (left_row[:, None] * left_row[None, :])
-                            * coefficient
-                        )
+                    terms.append(
+                        _symmetrize(left.T @ left) * coefficient
+                    )
                     for right in components[:i]:
-                        for row in range(n_rows):
-                            left_row = left[row]
-                            right_row = right[row]
-                            cross = left_row[:, None] * right_row[None, :]
-                            terms.append(
-                                (cross + cross.T) * coefficient
-                            )
+                        cross = left.T @ right
+                        terms.append((cross + cross.T) * coefficient)
 
-            # Ordinary grouped scores keep all compensation components but use
-            # vectorized component-pair Grams.  Explicit group-row outer products
-            # are reserved for a certified dynamic-range risk where BLAS could
-            # erase a small row contribution before CGM cancellation exposes it.
+            # Every component is now certified safe for its own row reduction.
+            # Keep the full CGM expansion across magnitude tiers, but perform
+            # each component-pair reduction as one BLAS/GPU matrix product rather
+            # than one Python-level outer-product launch per cluster row.
             _append_component_terms(work1, correction1, 1.0)
             _append_component_terms(work2, correction2, 1.0)
             _append_component_terms(work12, correction12, -1.0)
