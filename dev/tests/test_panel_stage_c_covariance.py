@@ -585,3 +585,60 @@ def test_two_way_group_debias_preserves_weighted_low_order_cancellation():
     )
     expected = np.asarray([[6.0 * amplitude * small + 2.0 * small * small]])
     assert_allclose(actual, expected, rtol=5e-13, atol=0.0)
+
+def test_grouped_score_multiscale_cancellation_survives_three_levels():
+    scores = np.asarray(
+        [[1.0e154], [-1.0e154], [1.0e138], [1.0], [-1.0e138], [-1.0]],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray([0, 0, 0, 1, 0, 0], dtype=np.int64)
+    grouped = _grouped_score_sums(
+        scores,
+        cluster1,
+        n_groups=2,
+        xp=np,
+    )
+    np.testing.assert_array_equal(grouped, np.asarray([[-1.0], [1.0]]))
+
+    # Use a binary-exact constant design: with n=8 and X=0.5, X'X=2,
+    # bread=0.5 and every influence multiplier is exactly 0.25.  This keeps
+    # the regression focused on grouped-score cancellation rather than SVD
+    # representation error from a non-binary 1/6 design.
+    deep_scores = np.asarray(
+        [1.0e154, -1.0e154, 1.0e138, 1.0, -1.0e138, -1.0, 0.0, 0.0],
+        dtype=np.float64,
+    )
+    deep_cluster1 = np.asarray([0, 0, 0, 1, 0, 0, 2, 3], dtype=np.int64)
+    deep_cluster2 = np.asarray([0, 0, 0, 1, 0, 1, 2, 3], dtype=np.int64)
+    X = np.full((8, 1), 0.5, dtype=np.float64)
+    actual = two_way_clustered_covariance(
+        X,
+        4.0 * deep_scores,
+        deep_cluster1,
+        deep_cluster2,
+    )
+    np.testing.assert_allclose(actual, np.zeros((1, 1)), rtol=0.0, atol=0.0)
+
+
+def test_one_way_and_dk_preserve_small_score_after_same_sign_swallow():
+    scores = np.asarray([1.0e154, -1.0e154, 1.0, 1.0])
+    groups = np.asarray([0, 0, 0, 1], dtype=np.int64)
+    X = np.full((4, 1), 0.5, dtype=np.float64)
+    resid = 2.0 * scores
+
+    grouped = _grouped_score_sums(
+        scores[:, None], groups, n_groups=2, xp=np
+    )
+    np.testing.assert_array_equal(
+        grouped, np.asarray([[1.0], [1.0]])
+    )
+    one_way = clustered_covariance(X, resid, groups)
+    dk = driscoll_kraay_covariance(
+        X, resid, groups, bandwidth=0
+    )
+    np.testing.assert_allclose(
+        one_way, np.asarray([[2.0]]), rtol=2e-15, atol=0.0
+    )
+    np.testing.assert_allclose(
+        dk, np.asarray([[8.0 / 3.0]]), rtol=3e-15, atol=0.0
+    )

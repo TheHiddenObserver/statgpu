@@ -208,6 +208,7 @@ def test_stage_c_runner_hausman_scale_audit_is_executable():
     assert audit["status"] == "success"
     assert audit["backend"] == "numpy"
     assert audit["large_singular_range_rejected"] is True
+    assert audit["dense_projection_range_rejected"] is True
     np.testing.assert_allclose(audit["dense_large_statistic"], 1.0, rtol=5e-13, atol=0.0)
     for label in ("large", "subnormal"):
         case = audit["cases"][label]
@@ -215,3 +216,30 @@ def test_stage_c_runner_hausman_scale_audit_is_executable():
         assert np.isfinite(case["statistic"])
         assert np.isfinite(case["pvalue"])
         np.testing.assert_allclose(case["statistic"], 1.0, rtol=3e-12, atol=0.0)
+
+def test_stage_c_runner_multiscale_grouping_audit_is_executable():
+    audit = _MOD._multiscale_grouping_audit("numpy")
+    assert audit["status"] == "success"
+    assert audit["backend"] == "numpy"
+    np.testing.assert_array_equal(
+        np.asarray(audit["grouped"]),
+        np.asarray([[1.0], [1.0]]),
+    )
+    np.testing.assert_allclose(
+        np.asarray(audit["one_way"]),
+        np.asarray([[2.0]]),
+        rtol=2e-15,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        np.asarray(audit["driscoll_kraay"]),
+        np.asarray([[8.0 / 3.0]]),
+        rtol=3e-15,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        np.asarray(audit["deep_two_way"]),
+        np.zeros((1, 1)),
+        rtol=0.0,
+        atol=0.0,
+    )

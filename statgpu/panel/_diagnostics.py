@@ -727,54 +727,96 @@ def _hausman_quadratic(
             metadata=meta,
         )
 
+
     basis = eigvecs[:, positive]
-    projected = basis @ (basis.T @ d)
-    null_component = d - projected
-    d_norm = _safe_l2_norm(d)
-    null_norm = _safe_l2_norm(null_component)
-    range_tol = _relative_tolerance(d_norm, factor=1024.0)
+
+    # Range membership is scale invariant.  Normalize d before the dense
+    # eigenspace projection so several finite O(DBL_MAX) coordinates cannot
+    # overflow in basis.T @ d before the range guard is evaluated.
+    d_scale = float(np.max(np.abs(d))) if d.size else 0.0
+    if not np.isfinite(d_scale):
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            df=float(rank),
+            reason="coefficient difference contains non-finite values",
+            metadata=meta,
+        )
+    d_work = d if d_scale == 0.0 else d / d_scale
+    coordinates_work = basis.T @ d_work
+    projected_work = basis @ coordinates_work
+    null_work = d_work - projected_work
+
+    d_norm_normalized = float(np.linalg.norm(d_work))
+    null_norm_work = float(np.linalg.norm(null_work))
+    range_tol_work = (
+        1024.0 * np.finfo(np.float64).eps * d_norm_normalized
+    )
+
+    def _restore_d_scale(value: float) -> float:
+        value = float(value)
+        if value == 0.0 or d_scale == 0.0:
+            return 0.0
+        if d_scale > float(np.finfo(np.float64).max) / abs(value):
+            return float(np.copysign(np.inf, value))
+        return float(value * d_scale)
+
+    d_norm = _restore_d_scale(d_norm_normalized)
+    null_norm = _restore_d_scale(null_norm_work)
+    range_tol = _restore_d_scale(range_tol_work)
     meta["range_tolerance"] = float(range_tol)
     meta["nullspace_component_norm"] = float(null_norm)
 
-    comparison_scale = max(
-        float(np.max(np.abs(d))) if d.size else 0.0,
-        float(np.max(np.abs(null_component))) if null_component.size else 0.0,
+    comparison_factor = max(
+        float(np.max(np.abs(d_work))) if d_work.size else 0.0,
+        float(np.max(np.abs(null_work))) if null_work.size else 0.0,
     )
-    if comparison_scale == 0.0:
+    comparison_scale = _restore_d_scale(comparison_factor)
+    if comparison_factor == 0.0:
         outside_range = False
         range_tol_normalized = 0.0
         null_norm_normalized = 0.0
     else:
-        d_normalized = d / comparison_scale
-        null_normalized = null_component / comparison_scale
-        d_norm_normalized = float(np.linalg.norm(d_normalized))
+        d_normalized = d_work / comparison_factor
+        null_normalized = null_work / comparison_factor
+        d_norm_comparison = float(np.linalg.norm(d_normalized))
         null_norm_normalized = float(np.linalg.norm(null_normalized))
         range_tol_normalized = (
-            1024.0 * np.finfo(np.float64).eps * d_norm_normalized
+            1024.0 * np.finfo(np.float64).eps * d_norm_comparison
         )
-        outside_range = null_norm_normalized > range_tol_normalized
+        outside_range = (
+            null_norm_normalized > range_tol_normalized
+        )
     meta["range_comparison_scale"] = float(comparison_scale)
     meta["range_tolerance_normalized"] = float(range_tol_normalized)
-    meta["nullspace_component_norm_normalized"] = float(null_norm_normalized)
+    meta["nullspace_component_norm_normalized"] = float(
+        null_norm_normalized
+    )
     if outside_range:
         return _inapplicable(
             null=null,
             alternative=alternative,
             distribution="chi2",
             df=float(rank),
-            reason="coefficient difference has a component outside the identified covariance-difference range",
+            reason=(
+                "coefficient difference has a component outside the "
+                "identified covariance-difference range"
+            ),
             metadata=meta,
         )
 
     # Evaluate d' D+ d in standardized eigencoordinates instead of
     # materializing 1/lambda.  For a positive subnormal eigenvalue, 1/lambda
     # can overflow even when (u'd)^2/lambda is perfectly representable.
-    coordinates = basis.T @ d
-    if matrix_scale == 0.0:
-        standardized = coordinates
+    eig_standardized = (
+        coordinates_work / np.sqrt(eigvals_work[positive])
+    )
+    if d_scale == 0.0:
+        standardized = eig_standardized
     else:
-        standardized = coordinates / np.sqrt(matrix_scale)
-        standardized = standardized / np.sqrt(eigvals_work[positive])
+        scale_ratio = d_scale / np.sqrt(matrix_scale)
+        standardized = eig_standardized * scale_ratio
     statistic = float(np.sum(standardized * standardized))
     meta["quadratic_evaluation"] = "standardized_eigencoordinates"
     stat_tol = 256.0 * np.finfo(np.float64).eps * max(1.0, abs(statistic))

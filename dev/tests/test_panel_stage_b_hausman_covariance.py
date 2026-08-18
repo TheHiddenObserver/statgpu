@@ -116,3 +116,28 @@ def test_hausman_quadratic_normalizes_dense_large_covariance_scale():
     assert result.metadata["quadratic_evaluation"] == "standardized_eigencoordinates"
     assert_allclose(result.statistic, 1.0, rtol=5e-13, atol=0.0)
     assert np.isfinite(result.pvalue)
+
+def test_hausman_quadratic_scales_dense_projection_before_range_check():
+    basis = np.full(4, 0.5, dtype=np.float64)
+    covariance = 1.0e308 * np.outer(basis, basis)
+    difference = np.asarray(
+        [
+            1.0e308 + 1.0e300,
+            1.0e308 - 1.0e300,
+            1.0e308,
+            1.0e308,
+        ],
+        dtype=np.float64,
+    )
+    result = _hausman_quadratic(difference, covariance)
+    assert result.applicable is False
+    assert (
+        "outside the identified covariance-difference range"
+        in result.reason
+    )
+    assert np.isfinite(
+        result.metadata["range_tolerance_normalized"]
+    )
+    assert np.isfinite(
+        result.metadata["nullspace_component_norm_normalized"]
+    )

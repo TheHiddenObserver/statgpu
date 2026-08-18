@@ -674,6 +674,93 @@ def _covariance_extreme_scale_audit(backend):
 
 
 
+def _multiscale_grouping_audit(backend):
+    scores_np = np.asarray(
+        [1.0e154, -1.0e154, 1.0, 1.0], dtype=np.float64
+    )
+    groups = np.asarray([0, 0, 0, 1], dtype=np.int64)
+    X_np = np.full((4, 1), 0.5, dtype=np.float64)
+    resid_np = 2.0 * scores_np
+    dummy = np.arange(4, dtype=np.int64)
+    X, resid, _entity, _time = _to_backend(
+        X_np, resid_np, dummy, dummy, backend
+    )
+
+    deep_scores_np = np.asarray(
+        [1.0e154, -1.0e154, 1.0e138, 1.0, -1.0e138, -1.0, 0.0, 0.0],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray([0, 0, 0, 1, 0, 0, 2, 3], dtype=np.int64)
+    cluster2 = np.asarray([0, 0, 0, 1, 0, 1, 2, 3], dtype=np.int64)
+    X_deep_np = np.full((8, 1), 0.5, dtype=np.float64)
+    deep_dummy = np.arange(8, dtype=np.int64)
+    X_deep, deep_scores, _entity2, _time2 = _to_backend(
+        X_deep_np,
+        4.0 * deep_scores_np,
+        deep_dummy,
+        deep_dummy,
+        backend,
+    )
+
+    if backend == "numpy":
+        xp = np
+        scores = scores_np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+        scores = cp.asarray(scores_np)
+    elif backend == "torch":
+        import torch
+        xp = torch
+        scores = torch.as_tensor(
+            scores_np, dtype=torch.float64, device="cuda"
+        )
+    else:
+        raise ValueError(backend)
+
+    grouped = _array(
+        _grouped_score_sums(
+            scores[:, None], groups, n_groups=2, xp=xp
+        )
+    )
+    one_way = _array(
+        clustered_covariance(X, resid, groups, xp=xp)
+    )
+    dk = _array(
+        driscoll_kraay_covariance(
+            X, resid, groups, bandwidth=0, xp=xp
+        )
+    )
+    deep_two_way = _array(
+        two_way_clustered_covariance(
+            X_deep,
+            deep_scores,
+            cluster1,
+            cluster2,
+            xp=xp,
+        )
+    )
+    np.testing.assert_array_equal(
+        grouped, np.asarray([[1.0], [1.0]])
+    )
+    np.testing.assert_allclose(
+        one_way, np.asarray([[2.0]]), rtol=8e-13, atol=0.0
+    )
+    np.testing.assert_allclose(
+        dk, np.asarray([[8.0 / 3.0]]), rtol=8e-13, atol=0.0
+    )
+    np.testing.assert_allclose(
+        deep_two_way, np.zeros((1, 1)), rtol=0.0, atol=0.0
+    )
+    return {
+        "status": "success",
+        "backend": backend,
+        "grouped": grouped.tolist(),
+        "one_way": one_way.tolist(),
+        "driscoll_kraay": dk.tolist(),
+        "deep_two_way": deep_two_way.tolist(),
+    }
+
 def _hausman_scale_audit(backend):
     results = {}
     for label, variance, difference in (
@@ -714,6 +801,26 @@ def _hausman_scale_audit(backend):
         np.asarray([1.0e154, 1.0e154]),
         np.full((2, 2), 1.0e308, dtype=np.float64),
     )
+    dense_basis = np.full(4, 0.5, dtype=np.float64)
+    dense_range = _hausman_quadratic(
+        np.asarray(
+            [
+                1.0e308 + 1.0e300,
+                1.0e308 - 1.0e300,
+                1.0e308,
+                1.0e308,
+            ],
+            dtype=np.float64,
+        ),
+        1.0e308 * np.outer(dense_basis, dense_basis),
+    )
+    if dense_range.applicable or not dense_range.reason or (
+        "outside the identified covariance-difference range"
+        not in dense_range.reason
+    ):
+        raise AssertionError(
+            f"{backend}: dense Hausman range projection failed closed"
+        )
     if not dense.applicable:
         raise AssertionError(
             f"{backend}: dense large Hausman scale became inapplicable: {dense.reason}"
@@ -728,6 +835,7 @@ def _hausman_scale_audit(backend):
         "cases": results,
         "large_singular_range_rejected": True,
         "dense_large_statistic": float(dense.statistic),
+        "dense_projection_range_rejected": True,
     }
 
 
@@ -1546,6 +1654,7 @@ def main():
             "tiny_design_lstsq": _tiny_design_lstsq_audit(backend),
             "gram_overflow_certificate": _gram_overflow_certificate_audit(backend),
             "covariance_extreme_scale": _covariance_extreme_scale_audit(backend),
+            "multiscale_grouping": _multiscale_grouping_audit(backend),
             "hausman_scale": _hausman_scale_audit(backend),
             "zero_variance_inference": _zero_variance_inference_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),

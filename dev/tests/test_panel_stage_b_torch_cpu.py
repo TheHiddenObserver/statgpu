@@ -531,3 +531,31 @@ def test_stage_b_torch_cpu_hausman_dense_large_covariance_scale():
     )
     assert result.applicable, result.reason
     np.testing.assert_allclose(result.statistic, 1.0, rtol=5e-13, atol=0.0)
+
+def test_stage_c_torch_cpu_multiscale_group_cancellation():
+    scores = torch.tensor(
+        [1.0e154, -1.0e154, 1.0, 1.0],
+        dtype=torch.float64,
+    )
+    groups = np.asarray([0, 0, 0, 1], dtype=np.int64)
+    X = torch.full((4, 1), 0.5, dtype=torch.float64)
+    resid = 2.0 * scores
+
+    grouped = _grouped_score_sums(
+        scores[:, None], groups, n_groups=2, xp=torch
+    ).detach().cpu().numpy()
+    np.testing.assert_array_equal(
+        grouped, np.asarray([[1.0], [1.0]])
+    )
+    one_way = clustered_covariance(
+        X, resid, groups, xp=torch
+    ).detach().cpu().numpy()
+    dk = driscoll_kraay_covariance(
+        X, resid, groups, bandwidth=0, xp=torch
+    ).detach().cpu().numpy()
+    np.testing.assert_allclose(
+        one_way, np.asarray([[2.0]]), rtol=2e-15, atol=0.0
+    )
+    np.testing.assert_allclose(
+        dk, np.asarray([[8.0 / 3.0]]), rtol=3e-15, atol=0.0
+    )

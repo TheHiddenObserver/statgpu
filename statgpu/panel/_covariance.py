@@ -372,10 +372,11 @@ def _stable_inclusion_exclusion(V1, V2, V12, xp):
     return xp.where(stable_mask, stable, direct)
 
 
+
 def _grouped_score_sums(
     scores, codes_np, *, n_groups: int, xp, return_compensation: bool = False
 ):
-    """Sum scores by group, optionally as a two-component high/low expansion."""
+    "Sum scores by group while preserving recursively separated magnitude tiers."
     codes_np = np.asarray(codes_np, dtype=np.int64).ravel()
     if codes_np.shape[0] != int(scores.shape[0]):
         raise ValueError("group codes must match the number of score rows")
@@ -388,32 +389,34 @@ def _grouped_score_sums(
         ref_arr=scores,
     )
     shape = (int(n_groups), int(scores.shape[1]))
-    index = codes.unsqueeze(1).expand_as(scores) if hasattr(codes, "unsqueeze") else None
+    index = (
+        codes.unsqueeze(1).expand_as(scores)
+        if hasattr(codes, "unsqueeze")
+        else None
+    )
 
-    abs_scores = xp.abs(scores)
-    max_abs = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
-    if hasattr(max_abs, "scatter_reduce_"):
-        max_abs.scatter_reduce_(
-            0, index, abs_scores, reduce="amax", include_self=True
-        )
-    elif type(max_abs).__module__.startswith("cupy"):
-        xp.maximum.at(max_abs, codes, abs_scores)
-    else:
-        np.maximum.at(max_abs, codes_np, abs_scores)
-
-    counts_np = np.bincount(codes_np, minlength=int(n_groups)).astype(np.float64)
-    counts = xp_asarray(
-        counts_np, dtype=xp.float64, xp=xp, ref_arr=scores
-    ).reshape(-1, 1)
-    limit = float(np.finfo(np.float64).max) / counts
-    factor = xp.where(max_abs > limit, counts, xp.ones_like(max_abs))
-    working = scores / factor[codes]
+    def _group_abs_max(values):
+        out = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
+        absolute = xp.abs(values)
+        if hasattr(out, "scatter_reduce_"):
+            out.scatter_reduce_(
+                0, index, absolute, reduce="amax", include_self=True
+            )
+        elif type(out).__module__.startswith("cupy"):
+            xp.maximum.at(out, codes, absolute)
+        else:
+            np.maximum.at(out, codes_np, absolute)
+        return out
 
     def _signed_parts(values):
         positive = xp.where(values > 0.0, values, xp.zeros_like(values))
         negative = xp.where(values < 0.0, values, xp.zeros_like(values))
-        positive_out = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
-        negative_out = xp_zeros(shape, dtype=xp.float64, xp=xp, ref_arr=scores)
+        positive_out = xp_zeros(
+            shape, dtype=xp.float64, xp=xp, ref_arr=scores
+        )
+        negative_out = xp_zeros(
+            shape, dtype=xp.float64, xp=xp, ref_arr=scores
+        )
         if hasattr(positive_out, "scatter_add_"):
             positive_out.scatter_add_(0, index, positive)
             negative_out.scatter_add_(0, index, negative)
@@ -428,42 +431,73 @@ def _grouped_score_sums(
     def _two_sum(left, right):
         summed = left + right
         virtual_right = summed - left
-        residual = (left - (summed - virtual_right)) + (right - virtual_right)
+        residual = (
+            left - (summed - virtual_right)
+        ) + (right - virtual_right)
         return summed, residual
 
-    positive_out, negative_out = _signed_parts(working)
-    summed, cancellation_residual = _two_sum(positive_out, negative_out)
-    if not return_compensation:
-        return summed * factor
-
-    # A final positive/negative TwoSum cannot recover a tiny same-sign term that
-    # was already swallowed inside one scatter reduction (A + eps -> A).  Only
-    # in compensation mode, split observations that lie inside a conservative
-    # groupwise rounding envelope into a secondary accumulator.  The main and
-    # tail accumulators are disjoint, so high+low has no backend-order-dependent
-    # double counting.  Ordinary/nested cluster paths do not request this mode.
-    group_max_work = max_abs / factor
+    max_abs = _group_abs_max(scores)
+    counts_np = np.bincount(
+        codes_np, minlength=int(n_groups)
+    ).astype(np.float64)
+    counts = xp_asarray(
+        counts_np,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=scores,
+    ).reshape(-1, 1)
+    limit = float(np.finfo(np.float64).max) / counts
+    factor = xp.where(max_abs > limit, counts, xp.ones_like(max_abs))
+    remaining = scores / factor[codes]
     split_ratio = xp.minimum(
         counts * float(8.0 * np.finfo(np.float64).eps),
         xp.full_like(counts, 0.25),
     )
-    threshold = group_max_work * split_ratio
-    tail_mask = (xp.abs(working) < threshold[codes]) & (working != 0.0)
-    has_tail = bool(_to_float_scalar(xp.any(tail_mask)))
-    if not has_tail:
-        return summed * factor, cancellation_residual * factor
 
-    main = xp.where(tail_mask, xp.zeros_like(working), working)
-    tail = xp.where(tail_mask, working, xp.zeros_like(working))
-    main_positive, main_negative = _signed_parts(main)
-    tail_positive, tail_negative = _signed_parts(tail)
-    main_sum, main_residual = _two_sum(main_positive, main_negative)
-    tail_sum, tail_residual = _two_sum(tail_positive, tail_negative)
+    tiers = []
+    for _ in range(128):
+        tier_max = _group_abs_max(remaining)
+        threshold = tier_max * split_ratio
+        tail_mask = (
+            (xp.abs(remaining) < threshold[codes])
+            & (remaining != 0.0)
+        )
+        main = xp.where(tail_mask, xp.zeros_like(remaining), remaining)
+        positive_out, negative_out = _signed_parts(main)
+        tier_sum, tier_error = _two_sum(positive_out, negative_out)
+        tiers.append((tier_sum, tier_error))
+        if not bool(_to_float_scalar(xp.any(tail_mask))):
+            break
+        remaining = xp.where(
+            tail_mask, remaining, xp.zeros_like(remaining)
+        )
+    else:
+        raise RuntimeError(
+            "grouped score cancellation exceeded the float64 tier budget"
+        )
 
-    low_sum, low_error1 = _two_sum(main_residual, tail_sum)
-    low_sum, low_error2 = _two_sum(low_sum, tail_residual)
-    low = (low_sum + low_error1) + low_error2
-    return main_sum * factor, low * factor
+    def _collapse(parts):
+        total = xp.zeros_like(tiers[0][0])
+        correction = xp.zeros_like(total)
+        for part in parts:
+            summed, error = _two_sum(total, part)
+            total = summed
+            correction = correction + error
+        summed, error = _two_sum(total, correction)
+        return summed + error
+
+    lower_parts = []
+    for tier_sum, tier_error in reversed(tiers[1:]):
+        lower_parts.extend((tier_error, tier_sum))
+    lower_parts.append(tiers[0][1])
+    low = _collapse(lower_parts)
+    high = tiers[0][0]
+
+    if return_compensation:
+        return high * factor, low * factor
+
+    summed, error = _two_sum(high, low)
+    return (summed + error) * factor
 
 
 def _factorize_1d_labels(values, *, nobs: int, name: str):
