@@ -56,7 +56,7 @@ jobs:
         run: |
           python dev/validation/pr126_review_fix_multicomponent_once.py
           python dev/validation/pr126_review_fix_rowwise_expansion_once.py
-      - name: Inspect post-fix expansion and restore inputs
+      - name: Inspect grouped components and expansion
         run: |
           python - <<'PY'
           import numpy as np
@@ -94,8 +94,36 @@ jobs:
           ], dtype=np.float64)
           c1 = np.asarray([0,0,0,1,1,1,2,2,3,3,4,5,6,7,8,9], dtype=np.int64)
           c2 = np.asarray([0,1,1,0,1,1,2,3,2,3,4,5,6,7,8,9], dtype=np.int64)
+          c12 = cov._paired_codes(c1, c2)
           X = np.full((16, 1), 0.5, dtype=np.float64)
-          print('TRACE_RESULT', np.asarray(cov.two_way_clustered_covariance(X, 8.0 * scores, c1, c2)).tolist())
+          resid = 8.0 * scores
+          influence, proj_scale, design_scale, *_ = cov._influence_rows(X, resid, np)
+          print('TRACE_INFLUENCE', np.asarray(influence).ravel().tolist())
+          print('TRACE_INFLUENCE_RATIO', [
+              float(influence[i, 0] / scores[i]) if scores[i] != 0.0 else None
+              for i in range(scores.size)
+          ])
+          print('TRACE_PROJ_INPUT_SCALE', np.asarray(proj_scale).tolist(), float(np.asarray(design_scale)))
+          for name, codes, ng in (
+              ('c1', c1, 10), ('c2', c2, 10), ('c12', c12, int(c12.max()) + 1)
+          ):
+              components, correction = cov._cluster_grouped_scores(
+                  influence,
+                  codes,
+                  n_groups=ng,
+                  nobs=16,
+                  group_debias=False,
+                  xp=np,
+                  return_components=True,
+              )
+              print('TRACE_COMPONENT_COUNT', name, len(components), correction)
+              for idx, component in enumerate(components):
+                  arr = np.asarray(component).ravel()
+                  nz = [(j, float(v)) for j, v in enumerate(arr) if v != 0.0]
+                  if nz:
+                      print('TRACE_COMPONENT', name, idx, nz)
+
+          print('TRACE_RESULT', np.asarray(cov.two_way_clustered_covariance(X, resid, c1, c2)).tolist())
           PY
       - name: Run focused review regressions
         run: |
