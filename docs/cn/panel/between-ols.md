@@ -1,7 +1,7 @@
 # BetweenOLS
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/between-ols.md)
 
 ## Overview
@@ -115,6 +115,8 @@ model = BetweenOLS().fit(
 
 ## Numerical and Strict Behavior
 
+自动添加的 intercept 使用与 `PooledOLS` 相同的 cancellation-sensitive SVD response-projection guard。普通 entity-mean response 保持历史 SVD/BLAS solve；magnitude/cancellation-sensitive response 在保持 SVD、rank cutoff、design scaling 和 minimum-norm solution 不变的同时，仅将 response projection reduction 替换为共享 magnitude-tiered reducer。legacy between $R^2$ 在物理 `y-mean(y)` 可能溢出时也改用 range-safe working-scale centering。
+
 如果 entity-level regressors 存在完全共线，statgpu 仍可用 least-squares solution 得到 fitted values，但 coefficient vector 不唯一。对于该次拟合，statgpu 会整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
 
 不支持的 `cov_type` 会报错。类似地，若用户显式要求某个 GPU backend，该 backend 必须实际可用；statgpu 不会悄悄改用 CPU。
@@ -129,7 +131,7 @@ model = BetweenOLS().fit(
 
 我们先在 statgpu 与 `statsmodels==0.14.6` 中构造完全相同的 entity-mean 回归，再比较 coefficient 以及 HC0/HC2/HC3 covariance 和 standard error。coefficient 使用 `rtol=5e-10, atol=5e-12`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。共享 covariance 检查见 [validation matrix](covariance.md#validation-matrix)。
 
-GPU 一致性单独验证：Stage-C physical validation 使用 `rtol=5e-6, atol=5e-7` 比较 CuPy、Torch 与 NumPy。
+GPU 一致性单独验证：Stage-C physical validation 使用 `rtol=5e-6, atol=5e-7` 比较 CuPy、Torch 与 NumPy。新增的 `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate 还会在两个物理 GPU backend 上验证 cancellation-sensitive entity-mean intercept 路径。
 
 ## 参考（References）
 
