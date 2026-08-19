@@ -11,16 +11,6 @@ def replace_once(path: str, old: str, new: str) -> None:
     p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-def append_once(path: str, marker: str, addition: str) -> None:
-    p = Path(path)
-    text = p.read_text(encoding="utf-8")
-    if marker in text:
-        return
-    if not text.endswith("\n"):
-        text += "\n"
-    p.write_text(text + "\n" + addition.strip() + "\n", encoding="utf-8")
-
-
 replace_once(
     "statgpu/panel/_covariance.py",
     '''def _stable_matrix_expansion_sum(terms, xp):\n''',
@@ -34,61 +24,13 @@ replace_once(
 )
 
 replace_once(
-    "statgpu/panel/_covariance.py",
-    '''    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()\n    if X.ndim != 2 or resid.shape[0] != X.shape[0]:\n        raise ValueError("X and resid must have matching observation counts")\n    n = int(X.shape[0])\n\n    if metadata is not None:\n        metadata.clear()\n''',
-    '''    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()\n    if X.ndim != 2 or resid.shape[0] != X.shape[0]:\n        raise ValueError("X and resid must have matching observation counts")\n    _validate_covariance_finite_inputs(X, resid, xp)\n    n = int(X.shape[0])\n\n    if metadata is not None:\n        metadata.clear()\n''',
-)
-
-replace_once(
     "dev/tests/test_panel_stage_b_torch_cpu.py",
     '''def test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component():\n    amplitude = 2.0 ** 660\n''',
     '''def test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component():\n    # This case must be order-independent. The full maintained Torch file once\n    # exposed an Inf here after earlier multi-tier covariance reductions even\n    # though the same case passed in isolation. The rare row-level compensated\n    # fallback keeps estimator cancellation ahead of backend reduction rounding.\n    amplitude = 2.0 ** 660\n''',
-)
-
-append_once(
-    "dev/tests/test_panel_stage_c_edge_contracts.py",
-    "test_public_ols_covariance_rejects_nonfinite_inputs_numpy",
-    r'''
-def test_public_ols_covariance_rejects_nonfinite_inputs_numpy():
-    from statgpu.panel import ols_covariance
-
-    X = np.column_stack([np.ones(6), np.arange(6.0)])
-    resid = np.linspace(-0.3, 0.4, 6)
-    resid[2] = np.nan
-    with pytest.raises(ValueError, match="X and resid must contain only finite values"):
-        ols_covariance(X, resid, cov_type="nonrobust", scale=1.0)
-
-    X_bad = X.copy()
-    X_bad[1, 1] = np.inf
-    with pytest.raises(ValueError, match="X and resid must contain only finite values"):
-        ols_covariance(X_bad, np.zeros(6), cov_type="hc0")
-''',
-)
-
-append_once(
-    "dev/tests/test_panel_stage_c_torch_cpu.py",
-    "test_stage_c_public_ols_covariance_rejects_nonfinite_torch_cpu",
-    r'''
-def test_stage_c_public_ols_covariance_rejects_nonfinite_torch_cpu():
-    from statgpu.panel import ols_covariance
-
-    X = torch.column_stack(
-        [torch.ones(6, dtype=torch.float64), torch.arange(6, dtype=torch.float64)]
-    )
-    resid = torch.linspace(-0.3, 0.4, 6, dtype=torch.float64)
-    resid[2] = float("nan")
-    with pytest.raises(ValueError, match="X and resid must contain only finite values"):
-        ols_covariance(X, resid, cov_type="nonrobust", scale=1.0)
-''',
 )
 
 replace_once(
     "CHANGELOG.md",
     '''Two-way clustering combines grouped components before restoration and detects nested dimensions by partition equivalence rather than arbitrary code numbering.''',
     '''Two-way clustering combines grouped components before restoration and detects nested dimensions by partition equivalence rather than arbitrary code numbering. In the rare multi-tier nonnested precision fallback, grouped row outer products remain separate terms, float group-debias corrections are decomposed into exact power-of-two factors, and two compensated error streams preserve magnitude-tier/CGM/debias cancellation without changing ordinary vectorized paths.''',
-)
-replace_once(
-    "CHANGELOG.md",
-    '''Public clustered, two-way clustered, HAC, and Driscoll-Kraay helpers now reject non-finite `X`/residual inputs before signed/group reductions, preventing NaN/Inf scores from being silently reinterpreted as zero contributions.''',
-    '''Public `ols_covariance`, clustered, two-way clustered, HAC, and Driscoll-Kraay helpers now reject non-finite `X`/residual inputs before numerical reductions, preventing NaN/Inf scores from being silently ignored, propagated into published covariance, or reinterpreted as zero contributions.''',
 )
