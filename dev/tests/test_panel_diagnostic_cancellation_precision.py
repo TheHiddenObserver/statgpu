@@ -13,14 +13,26 @@ def _to_numpy(value):
     return np.asarray(value)
 
 
+def _assert_subnormal_group_tail(xp, scores):
+    tiny = np.nextafter(0.0, 1.0)
+    actual = grouped_score_sums(
+        scores, np.zeros(3, dtype=np.int64), n_groups=1, xp=xp
+    )
+    value = float(actual[0, 0])
+    assert value == tiny
+
+
 def test_grouped_score_sum_preserves_subnormal_tail_at_exact_range_boundary_numpy():
     boundary = float(np.finfo(np.float64).max / 3.0)
     tiny = np.nextafter(0.0, 1.0)
     scores = np.asarray([[boundary], [-boundary], [tiny]], dtype=np.float64)
-    actual = grouped_score_sums(
-        scores, np.zeros(3, dtype=np.int64), n_groups=1, xp=np
-    )
-    assert actual[0, 0] == tiny
+    _assert_subnormal_group_tail(np, scores)
+
+
+def test_grouped_score_sum_preserves_subnormal_tail_when_large_tier_requires_scaling_numpy():
+    tiny = np.nextafter(0.0, 1.0)
+    scores = np.asarray([[1.0e308], [-1.0e308], [tiny]], dtype=np.float64)
+    _assert_subnormal_group_tail(np, scores)
 
 
 def test_shared_group_mean_preserves_small_term_after_huge_cancellation_numpy():
@@ -93,13 +105,11 @@ def test_torch_cpu_group_mean_and_fmb_cancellation_match_numpy():
 
     boundary = float(np.finfo(np.float64).max / 3.0)
     tiny = np.nextafter(0.0, 1.0)
-    scores = torch.tensor(
-        [[boundary], [-boundary], [tiny]], dtype=torch.float64
-    )
-    grouped_sum = grouped_score_sums(
-        scores, np.zeros(3, dtype=np.int64), n_groups=1, xp=torch
-    )
-    assert float(grouped_sum[0, 0]) == tiny
+    for amplitude in (boundary, 1.0e308):
+        scores = torch.tensor(
+            [[amplitude], [-amplitude], [tiny]], dtype=torch.float64
+        )
+        _assert_subnormal_group_tail(torch, scores)
 
     X, y, time = _multiscale_fmb_fixture()
     expected = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
