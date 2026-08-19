@@ -25,7 +25,7 @@ replace_once(
 
 replace_once(
     "docs/en/panel/fama-macbeth.md",
-    """Period-coefficient averaging and parameter-R² scalar/group means use reduction-length scaling only when a raw sum could overflow. This avoids the additional information loss caused by magnitude-normalizing an entire reduction; it does not claim compensated or higher-precision recovery for arbitrarily ill-conditioned floating-point cancellation remainder.""",
+    """Period-coefficient averaging and parameter-R² scalar/group means use reduction-length scaling only when a raw sum could overflow. This avoids the additional information loss caused by magnitude-normalizing an entire reduction; it does not claim compensated or higher-precision recovery for arbitrarily ill-conditioned floating-point cancellation.""",
     """Period-coefficient averaging and parameter-R² scalar/group means use the shared magnitude-tiered float64 reduction policy. Ordinary-scale inputs remain on the single-tier/single-scatter fast path; extra magnitude tiers are activated only when dynamic range can hide a representable low-order contribution or an unscaled same-sign reduction can overflow. The stable path separates magnitude bands before signed accumulation and applies overflow scaling only within the active magnitude tier; mean callers additionally apply observation/group-count scaling where the final mean is representable but the raw sum is not. This remains float64 arithmetic rather than arbitrary-precision or exact summation, but representable low-order cancellation remainders are not intentionally discarded merely because much larger terms are present.""",
 )
 
