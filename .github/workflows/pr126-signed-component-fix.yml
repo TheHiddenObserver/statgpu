@@ -34,6 +34,7 @@ jobs:
           python -m pytest dev/tests/test_panel_stage_b_torch_cpu.py -q --tb=short
           python -m pytest dev/tests/test_panel_stage_b_torch_cpu.py -q --tb=short
           python -m pytest \
+            dev/tests/test_panel_stage_c_edge_contracts.py \
             dev/tests/test_panel_stage_c_torch_cpu.py \
             dev/tests/test_panel_stage_c_covariance.py \
             dev/tests/test_panel_stage_c_physical_runner_contract.py \
