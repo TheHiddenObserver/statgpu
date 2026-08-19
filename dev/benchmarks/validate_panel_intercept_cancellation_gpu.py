@@ -20,9 +20,7 @@ def _git_sha() -> str:
 
 
 def _git_clean() -> bool:
-    status = subprocess.check_output(
-        ["git", "status", "--porcelain"], text=True
-    )
+    status = subprocess.check_output(["git", "status", "--porcelain"], text=True)
     return status == ""
 
 
@@ -44,9 +42,7 @@ def _random_effects_component_loss_fixture():
     amplitude = float(2.0**55)
     within = 8.0
     levels = np.asarray([amplitude, 1.0, -amplitude], dtype=np.float64)
-    y = np.concatenate(
-        [np.asarray([level + within, level - within]) for level in levels]
-    )
+    y = np.concatenate([np.asarray([level + within, level - within]) for level in levels])
     X = np.ones((y.size, 1), dtype=np.float64)
     entity = np.repeat(np.arange(levels.size, dtype=np.int64), 2)
     return X, y, entity
@@ -65,7 +61,6 @@ def _random_effects_common_scale_loss_fixture(*, amplitude, tiny_within):
 def _backend_arrays(backend: str, X, y, entity=None):
     if backend == "cupy":
         import cupy as cp
-
         return (
             cp.asarray(X, dtype=cp.float64),
             cp.asarray(y, dtype=cp.float64),
@@ -75,15 +70,12 @@ def _backend_arrays(backend: str, X, y, entity=None):
         )
     if backend == "torch":
         import torch
-
         if not torch.cuda.is_available():
             raise RuntimeError("Torch CUDA is not available")
         return (
             torch.as_tensor(X, dtype=torch.float64, device="cuda"),
             torch.as_tensor(y, dtype=torch.float64, device="cuda"),
-            None
-            if entity is None
-            else torch.as_tensor(entity, dtype=torch.int64, device="cuda"),
+            None if entity is None else torch.as_tensor(entity, dtype=torch.int64, device="cuda"),
             torch,
             "torch",
         )
@@ -93,12 +85,10 @@ def _backend_arrays(backend: str, X, y, entity=None):
 def _gpu_name(backend: str) -> str:
     if backend == "cupy":
         import cupy as cp
-
         props = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)
         name = props.get("name", "unknown")
         return name.decode() if isinstance(name, bytes) else str(name)
     import torch
-
     return str(torch.cuda.get_device_name(torch.cuda.current_device()))
 
 
@@ -114,9 +104,7 @@ def _assert_model(model, *, backend: str, amplitude: float, label: str):
     )
     executed = getattr(model, "_backend_name", None)
     if executed != backend:
-        raise AssertionError(
-            f"{backend}: {label} requested GPU backend but executed {executed!r}"
-        )
+        raise AssertionError(f"{backend}: {label} requested GPU backend but executed {executed!r}")
     if not np.all(np.isfinite(coef)):
         raise AssertionError(f"{backend}: {label} produced non-finite coefficients")
     return coef
@@ -124,10 +112,10 @@ def _assert_model(model, *, backend: str, amplitude: float, label: str):
 
 def _assert_random_effects_fail_closed(backend: str, fixture, message: str, label: str):
     X_np, y_np, entity_np = fixture
-    X, y, entity, _xp, device = _backend_arrays(
-        backend, X_np, y_np, entity_np
-    )
-    model = RandomEffects(device=device)
+    X, y, entity, _xp, device = _backend_arrays(backend, X_np, y_np, entity_np)
+    # HC0 isolates Swamy-Arora/quasi-demeaning from the nonrobust-only Hausman
+    # sample fingerprint, which is not part of this physical precision gate.
+    model = RandomEffects(device=device, cov_type="hc0")
     try:
         model.fit(X, y, entity_ids=entity)
     except FloatingPointError as exc:
@@ -136,9 +124,7 @@ def _assert_random_effects_fail_closed(backend: str, fixture, message: str, labe
     else:
         raise AssertionError(f"{backend}: RandomEffects did not fail closed on {label}")
     if getattr(model, "_backend_name", None) != backend:
-        raise AssertionError(
-            f"{backend}: RandomEffects fail-closed path lost backend provenance"
-        )
+        raise AssertionError(f"{backend}: RandomEffects fail-closed path lost backend provenance")
     return True
 
 
@@ -149,9 +135,7 @@ def run(backend: str):
     X_np, y_np, amplitude = _fixture()
     X, y, _unused, _xp, device = _backend_arrays(backend, X_np, y_np)
     pooled = PooledOLS(device=device).fit(X, y)
-    pooled_coef = _assert_model(
-        pooled, backend=backend, amplitude=amplitude, label="PooledOLS"
-    )
+    pooled_coef = _assert_model(pooled, backend=backend, amplitude=amplitude, label="PooledOLS")
 
     X_level_np = np.repeat(X_np, 2, axis=0)
     y_level_np = np.repeat(y_np, 2)
@@ -159,12 +143,8 @@ def run(backend: str):
     X_level, y_level, entity, _xp, device = _backend_arrays(
         backend, X_level_np, y_level_np, entity_np
     )
-    between = BetweenOLS(device=device).fit(
-        X_level, y_level, entity_ids=entity
-    )
-    between_coef = _assert_model(
-        between, backend=backend, amplitude=amplitude, label="BetweenOLS"
-    )
+    between = BetweenOLS(device=device).fit(X_level, y_level, entity_ids=entity)
+    between_coef = _assert_model(between, backend=backend, amplitude=amplitude, label="BetweenOLS")
 
     quasi_fail = _assert_random_effects_fail_closed(
         backend,
@@ -174,28 +154,19 @@ def run(backend: str):
     )
     normalization_fail = _assert_random_effects_fail_closed(
         backend,
-        _random_effects_common_scale_loss_fixture(
-            amplitude=1.0e308,
-            tiny_within=1.0e-100,
-        ),
+        _random_effects_common_scale_loss_fixture(amplitude=1.0e308, tiny_within=1.0e-100),
         "variance-component scaling exceeds the float64 common-residual range",
         "common normalization loss",
     )
     square_fail = _assert_random_effects_fail_closed(
         backend,
-        _random_effects_common_scale_loss_fixture(
-            amplitude=1.0e100,
-            tiny_within=1.0e-100,
-        ),
+        _random_effects_common_scale_loss_fixture(amplitude=1.0e100, tiny_within=1.0e-100),
         "variance-component scaling exceeds the float64 common-residual range",
         "common RSS square underflow",
     )
     theta_rounding_fail = _assert_random_effects_fail_closed(
         backend,
-        _random_effects_common_scale_loss_fixture(
-            amplitude=1.0e17,
-            tiny_within=1.0,
-        ),
+        _random_effects_common_scale_loss_fixture(amplitude=1.0e17, tiny_within=1.0),
         "quasi-demeaning exceeds the float64 component range",
         "pre-rounded theta-complement loss",
     )
