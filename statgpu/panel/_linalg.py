@@ -175,31 +175,56 @@ def _stable_batched_response_sums(y, xp):
     return grouped_score_sums(scores, codes, n_groups=1, xp=xp)[0]
 
 
-def _ambiguous_zero_rhs_2d(X, y, xp, *, ignore_first=False):
-    """Return whether a nonconstant Gram RHS is an ambiguous rounded zero.
+def _stable_rhs_2d(X, y, xp):
+    """Return a magnitude-tiered normal-equation RHS for one fallback period."""
+    from statgpu.panel._reductions import grouped_score_sums
 
-    A raw dot product equal to zero is not evidence that the exact float-input
-    sum is zero when positive and negative terms are both present. Fama-MacBeth
-    uses this only after the Gram certificate has rejected the period. If such a
-    zero coordinate is not the separately stabilized exact constant, fail closed
-    rather than let a rounded SVD basis invent a finite low-order coefficient.
+    products = X * y.reshape(-1, 1)
+    codes = np.zeros(int(X.shape[0]), dtype=np.int64)
+    return grouped_score_sums(products, codes, n_groups=1, xp=xp)[0]
+
+
+def _stable_rhs_batched(X, y, xp):
+    """Return magnitude-tiered normal-equation RHS rows for a fallback batch."""
+    from statgpu.panel._reductions import grouped_score_sums
+
+    batch = int(X.shape[0])
+    n_obs = int(X.shape[1])
+    products = X * y[..., None]
+    flat_products = products.reshape(batch * n_obs, int(X.shape[-1]))
+    codes = np.repeat(np.arange(batch, dtype=np.int64), n_obs)
+    return grouped_score_sums(
+        flat_products,
+        codes,
+        n_groups=batch,
+        xp=xp,
+    )
+
+
+def _ambiguous_zero_rhs_2d(X, y, xp, *, ignore_first=False):
+    """Detect a raw zero RHS only when stable summation recovers a nonzero tail.
+
+    This check runs only on an already-unsafe Fama-MacBeth fallback. A genuine
+    exact-zero coordinate has both raw and magnitude-tiered RHS equal to zero and
+    remains eligible for the ordinary SVD/precision certificate. If the raw dot
+    is zero but the stable RHS is nonzero, a cancellation tail was actually lost;
+    a rounded SVD basis is not a reliable rescue, so the period fails closed.
     """
     raw_rhs = X.T @ y
-    abs_rhs = _axis_sum(xp.abs(X) * xp.abs(y).reshape(-1, 1), xp, 0)
-    ambiguous = (raw_rhs == 0.0) & (abs_rhs > 0.0)
+    stable_rhs = _stable_rhs_2d(X, y, xp)
+    ambiguous = (raw_rhs == 0.0) & (stable_rhs != 0.0)
     if int(ambiguous.shape[0]) > 0:
         ambiguous[0] = ambiguous[0] & (~ignore_first)
     return xp.any(ambiguous)
 
 
 def _ambiguous_zero_rhs_batched(X, y, xp, *, ignore_first=None):
-    """Vectorized ambiguous-zero certificate for Fama-MacBeth SVD fallbacks."""
+    """Vectorized lost-zero certificate for Fama-MacBeth SVD fallbacks."""
     if getattr(y, "ndim", None) != 2:
         return xp.zeros_like(X[:, 0, 0], dtype=bool)
-    transpose = xp.swapaxes(X, -2, -1)
-    rhs = xp.matmul(transpose, y[..., None])[..., 0]
-    rhs_abs = xp.matmul(xp.abs(transpose), xp.abs(y[..., None]))[..., 0]
-    ambiguous = (rhs == 0.0) & (rhs_abs > 0.0)
+    rhs = xp.matmul(xp.swapaxes(X, -2, -1), y[..., None])[..., 0]
+    stable_rhs = _stable_rhs_batched(X, y, xp)
+    ambiguous = (rhs == 0.0) & (stable_rhs != 0.0)
     if ignore_first is not None and int(ambiguous.shape[1]) > 0:
         ambiguous[:, 0] = ambiguous[:, 0] & (~ignore_first)
     return ~_axis_all(~ambiguous, xp, 1)
