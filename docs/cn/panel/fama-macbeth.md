@@ -1,7 +1,7 @@
 # FamaMacBeth
 
 > 语言：中文  
-> 最后更新：2026-08-18<br>
+> 最后更新：2026-08-19<br>
 > 切换：[English](../../en/panel/fama-macbeth.md)
 
 ## Overview
@@ -50,7 +50,7 @@ $$
 \widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^T\widehat\beta_t.
 $$
 
-时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k$ 时才会保留，其中 $k$ 是含 intercept 的 design width；随后每个 retained period 仍必须满足 full-rank contract。NumPy、CuPy 与 Torch 现在统一使用同一套 conservative exact-size Gram-certificate dispatch。retained period 按真实 row count 分组，不使用 zero padding；candidate path 批量构造 $G_t=X_t^\top X_t$ 与 $X_t^\top y_t$。只有当 backend-native spectrum 满足 $\lambda_{\min}(G_t)/\lambda_{\max}(G_t)>10^{-4}$，且 Gram matrix、右端项与 candidate solution 都为有限值时，才允许消费 Gram solve。若 Gram batch 已经非有限，会先在 spectrum calculation 前用安全 placeholder 屏蔽，因此 performance certificate 自身不会先于 fallback 抛出 backend linear-algebra error。这个 certificate 仍然只是 performance gate：所有 uncertified period 都由既有 $\max(n_t,k)\epsilon s_{\max,t}$ SVD cutoff 决定。Torch 对 unsafe subset 使用其有文档保证的 stacked-SVD，NumPy/CuPy 保持受支持的二维 fallback，因此所有 backend 的 near-rank-boundary 与 rank-deficient 行为仍由 SVD policy 负责。
+时期只有在满足 `min_obs_per_period` 且通过实现中的最小样本量规则 $n_t\ge k$ 时才会保留，其中 $k$ 是含 intercept 的 design width；随后每个 retained period 仍必须满足 full-rank contract。NumPy、CuPy 与 Torch 统一使用 conservative exact-size Gram-certificate dispatch。retained period 按真实 row count 分组，不做 zero padding。因为每个 period 都包含精确 intercept，full-rank period 可以先沿 constant direction 移除一个 range-safe 的公共 response anchor，再构造 Gram 右端项，solve 后只在 intercept coordinate 恢复该 anchor。这避免巨大公共 level 污染仍可表示的 slope，或使 $X_t^\top y_t$ 溢出。只有当 backend-native spectrum 满足 $\lambda_{\min}(G_t)/\lambda_{\max}(G_t)>10^{-4}$，且 Gram matrix、centered right-hand side 与 candidate solution 都有限时，才允许使用 Gram solve。对 Fama-MacBeth 的 single-response path，一次 augmented solve 同时返回 candidate coefficient 与用于 coordinatewise RHS-roundoff bound 的 inverse-Gram 信息，因此新增精度证书不会引入第二次 Gram factorization。若某个非 intercept coefficient 低于可认证的 float64 resolution，该 period 会退出 Gram fast path 并进入维护中的 SVD fallback。Torch 对 unsafe subset 使用 documented stacked-SVD；NumPy/CuPy 保持二维 fallback。
 
 ## Covariance and Inference
 
@@ -156,21 +156,17 @@ model = FamaMacBeth().fit(
 
 ## Numerical and Strict Behavior
 
-过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。在所有 maintained backend 上，Gram certificate 都被刻意放在远离 numerical rank boundary 的区域，它只决定 coefficient solve 是否可以使用 fast path；uncertified periods 继续采用原有 SVD cutoff 与 fail-closed 语义。所有路径都保持 `betas_` chronology；若多个时期 rank deficient，公开错误仍定位 chronology 上最早的 deficient retained period。
+过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。与 rank deficiency 区分开，full-rank period 也可能发生 float64 coefficient-resolution failure：若某个非 intercept coordinate 已小于 absolute projection error 可可靠分辨的尺度，并且 SVD fallback 明显违反 least-squares stationarity，`.fit()` 会抛出 `FloatingPointError` 并指出对应 retained period，而不会把该情形误报为 rank deficient。Gram certificate 仍然只是 fast-path selector；真正的 rank boundary 继续由 SVD policy 决定。
 
-这一数值路径采用 fail-closed 语义。若 Gram matrix、批量右端项或 candidate solution 出现非有限值，该 period 会被视为 uncertified，并进入 rank-revealing SVD fallback。共享 SVD solver 会先把 retained inverse singular value 作用到 $U^\top$ 的各行，再与原始 response 相乘，从而避免 `U^T y` 中间量溢出，同时不通过 magnitude normalization 丢掉很小但仍可表示的 response component。若整个 full-rank design 都低于 $\sqrt{\mathrm{DBL\_MIN}}$，会先做统一的正比例 working-scale 提升，并在最终 coefficient 上还原；该正比例变化不改变 relative rank cutoff。period coefficient average 与 parameter-R² 的 scalar/group mean 现在共享 magnitude-tiered float64 reduction policy。普通尺度的 panel group reduction 仍走 single-scatter fast path；只有当动态范围可能吞掉仍可表示的低阶贡献，或未缩放的同号求和可能溢出时，才启用额外 magnitude tier。每个 tier 都按最终目标的尺度完成 reduction：sum 只还原当前 tier 的 overflow factor；mean 对安全 tier 先求和再除以 group size，仅在该 tier 的 raw 同号求和可能溢出时才预除以 group size。因此，不会仅仅因为另一层存在巨大项，就把多个合起来仍可表示的 subnormal mean contribution 逐项下溢掉。该实现仍属于 float64 arithmetic，并不等同于 arbitrary-precision 或 exact summation。coefficient-series covariance 使用 per-coordinate centered scale，并对每个 symmetric entry 先恢复较大尺度、再恢复较小尺度，从而保留可表示的小尺度 variance 与 cross-covariance。若最终 covariance 本身不可表示或出现负 diagonal variance，inference 会 fail closed。exact-zero estimated variance 下，零 coefficient 的 statistic 为 0，非零 coefficient 的 statistic 为带符号无穷，因此既不引入带单位的伪 denominator，也不会让 `0/0` `NaN` 泄漏到公开结果。
+这一数值路径采用 fail-closed 语义。full-rank exact period intercept 可以先移除 range-safe 的 midrange response anchor，并在 response projection 完成后只恢复到 intercept。cancellation-sensitive SVD projection 使用共享 magnitude-tiered reducer。若 Gram matrix、centered right-hand side 或 candidate solution 非有限，该 period 会视为 uncertified 并进入 SVD fallback。若整个 full-rank design 都低于 $\sqrt{\mathrm{DBL\_MIN}}$，会先做统一的正比例 working-scale 提升，并在最终 coefficient 上还原；该正比例变化不改变 relative rank cutoff。period coefficient average 与 parameter-R² 的 scalar/group mean 共享 magnitude-tiered float64 reduction policy。普通尺度的 panel group reduction 仍走 single-scatter fast path；只有当动态范围可能吞掉仍可表示的低阶贡献，或未缩放的同号求和可能溢出时，才启用额外 magnitude tier。每个 tier 都按最终目标的尺度完成 reduction：sum 只还原当前 tier 的 overflow factor；mean 对安全 tier 先求和再除以 group size，仅在该 tier 的 raw 同号求和可能溢出时才预除以 group size。该实现仍属于 float64 arithmetic，并不等同于 arbitrary-precision 或 exact summation。coefficient-series covariance 使用 per-coordinate centered scale，并对每个 symmetric entry 先恢复较大尺度、再恢复较小尺度，从而保留可表示的小尺度 variance 与 cross-covariance。若最终 covariance 本身不可表示或出现负 diagonal variance，inference 会 fail closed。exact-zero estimated variance 下，零 coefficient 的 statistic 为 0，非零 coefficient 的 statistic 为带符号无穷。
 
-维护中的 physical scaling matrix 保留三个 resident-array workload：micro（64×128×4；8,192 rows）、medium（128×1,024×8；131,072 rows）以及 large（128×4,096×16；524,288 rows）。在 numerical source `8c60db00f5ea986aed96b1f1dce3f5c3b4f0bcd4` 上的历史 Tesla P100 evidence 中，CuPy/Torch 的 GPU-over-NumPy median-time ratio 分别为：micro **0.549/0.343**、medium **0.204/0.168**、large **0.114/0.109**，对应约 1.82×/2.92×、4.91×/5.97× 和 8.75×/9.16× speedup。所有 GPU backend × scale case 都是一个 `gram-certified` exact-size batch、一次 control synchronization、零 SVD fallback。这些结果说明该历史 P100 resident-array protocol 在三个 scale 上全部 crossover；它们既不是对所有硬件与数据搬运场景的普遍性能承诺，也不是当前 numerical head 的 physical acceptance。当前 head 已修改有效的 Fama-MacBeth、shared panel inference、residual-covariance arithmetic 与 physical-validator 路径，因此在替代历史 artifact 之前仍需重新完成 CuPy/Torch CUDA 物理验证。
+维护中的 physical scaling matrix 保留三个 resident-array workload：micro（64×128×4；8,192 rows）、medium（128×1,024×8；131,072 rows）以及 large（128×4,096×16；524,288 rows）。在 numerical source `8c60db00f5ea986aed96b1f1dce3f5c3b4f0bcd4` 上的历史 Tesla P100 evidence 中，CuPy/Torch 的 GPU-over-NumPy median-time ratio 分别为：micro **0.549/0.343**、medium **0.204/0.168**、large **0.114/0.109**。这些结果不是当前 numerical head 的 physical acceptance；当前 head 的 shared solver/Fama-MacBeth/physical-validator 已发生变化，因此仍需重新完成 CuPy/Torch CUDA 物理验证。
 
-`dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py` 记录同步后的 NumPy/CuPy/Torch median time、rows/sec、GPU/NumPy ratio、speedup、solver provenance、numerical parity、backend version 和 thread-environment provenance。GPU input array 在 warmup/timing 之前已经转移到 device，因此 benchmark 测量的是 resident-array `fit()` 性能，并明确**不包含** host-to-device input-transfer time。对该历史 source，accepted P100 scaling artifact 的数值差异仍然很小：coefficient/beta/prediction 接近 machine precision，最大的 statistic difference 低于 $4\times10^{-11}$。
+`dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py` 记录同步后的 NumPy/CuPy/Torch median time、rows/sec、GPU/NumPy ratio、speedup、solver provenance、numerical parity、backend version 和 thread-environment provenance。GPU input array 在 warmup/timing 前已转移到 device，因此 benchmark 测量 resident-array `fit()` 性能，不含 host-to-device input-transfer time。
 
-p-value 与 critical value 通过所选 inference backend 计算，不再把 statistic vector 转到 NumPy/SciPy。normal inference 使用 backend 的 two-sided normal routine；一般 Student-t inference 使用 backend Student-t routine。小自由度边界同样保持 backend-native：df=1 使用精确 Cauchy identity，df=2 使用精确的 elementary two-sided tail 与 quantile 公式，从而避免缺少 native `betainc` 的 Torch 版本降低维护中的高精度契约。只有 inference 已经完成之后，为统一 `ParameterInferenceResult` reporting contract 才会保存 NumPy snapshot。
+p-value 与 critical value 通过所选 inference backend 计算，不把 statistic vector 转到 NumPy/SciPy。normal inference 使用 backend 的 two-sided normal routine；一般 Student-t inference 使用 backend Student-t routine。小自由度边界保持 backend-native：df=1 使用精确 Cauchy identity，df=2 使用精确 elementary two-sided tail 与 quantile 公式。只有 numerical inference 完成后，为统一 `ParameterInferenceResult` reporting contract 才形成 NumPy snapshot。
 
-`cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。如果这些条件不满足，statgpu 不会在后台切换成另一套 inference 方法。
-
-每次新的 fit attempt 都会先失效旧的 fitted/inference state。如果新一次拟合失败，对象会保持 unfitted，而不会继续暴露上一份数据的 stale coefficient 或 standard error。
-
-显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用，否则直接报错而不是切换到 CPU。
+`cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。每次新的 fit attempt 都会先失效旧 fitted/inference state；若新拟合失败，对象保持 unfitted。显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用。
 
 ## FAQ
 
@@ -180,17 +176,17 @@ p-value 与 critical value 通过所选 inference backend 计算，不再把 sta
 
 **如果某个 retained period rank deficient 会怎样？**  fit 会抛出 `ValueError`。statgpu 不会把非唯一的 period coefficient vector 纳入平均后再给出 coordinate-level standard error。
 
+**如果 period full rank，但某个 coefficient 低于可靠的 float64 resolution 呢？**  fit 会抛出带 coefficient-resolution 信息的 `FloatingPointError`。这与 rank deficiency 不同：design 可以 well-conditioned，但 rounded projection arithmetic 仍可能无法可靠区分一个远小于 dominant direction 的 coefficient。
+
 ## External Validation
 
-`dev/tests/test_fama_macbeth_linearmodels_external.py` 提供维护中的 pinned `linearmodels==7.0` definition-alignment gate。fixture 在两边使用相同的显式 period intercept、full-rank balanced panel、period ordering 与 coefficient set；两种 covariance mode 都会比较 period-by-period coefficient（`betas_` 对 `all_params`）以及最终平均 coefficient。
+`dev/tests/test_fama_macbeth_linearmodels_external.py` 提供维护中的 pinned `linearmodels==7.0` definition-alignment gate。fixture 在两边使用相同显式 period intercept、full-rank balanced panel、period ordering 与 coefficient set；两种 covariance mode 都比较 period-by-period coefficient（`betas_` 对 `all_params`）以及最终平均 coefficient。
 
-对 `cov_type="nonrobust"`，statgpu covariance 对齐 linearmodels 的 `cov_type="unadjusted", debiased=True`：维护中的测试比较 covariance、standard error 和 coefficient t-statistic。这里**不会**强行比较 p-value/CI，因为虽然 covariance definition 对齐，两套 API 对 post-estimation inference 使用的 reference df 不同：statgpu 按 retained-period 定义使用 $T-1$，而 linearmodels 在 `debiased=True` 时使用 stacked-panel residual degrees of freedom。
+对 `cov_type="nonrobust"`，statgpu covariance 对齐 linearmodels `cov_type="unadjusted", debiased=True`：比较 covariance、standard error 和 coefficient t-statistic。p-value/CI 不强行比较，因为两套 API 的 post-estimation reference df 不同。对 `cov_type="newey-west"`，external gate 使用 linearmodels `cov_type="kernel", kernel="bartlett", bandwidth=L, debiased=False` 并固定相同 $L$，因此 covariance、standard error、test statistic、p-value 和 confidence interval 都比较。
 
-对 `cov_type="newey-west"`，external gate 使用 linearmodels `cov_type="kernel", kernel="bartlett", bandwidth=L, debiased=False`，并固定完全相同的 $L$。此时 coefficient-series kernel covariance 与 normal-reference inference 都对齐，因此会继续比较 covariance、standard error、test statistic、p-value 和 confidence interval。专用 `Panel Stage C external covariance` workflow 会安装固定 reference 版本，并在相关 PR/source change 上运行该测试。
+内部 maintained regression 还覆盖 formula intercept、array/formula chronology、formula missing-row alignment、retained-period rank rejection、failed-refit invalidation、SVD rank-boundary policy、conservative Gram-certificate acceptance/rejection、backend-native distribution routing、df=1/df=2 boundary、balanced/shuffled-unbalanced exact-size grouping、chronological rank-error reporting、SVD fallback ownership、direct-fit finite-validation ownership、packed reporting snapshot、large-common-intercept Gram centering，以及显式 coefficient-resolution failure reporting。
 
-内部 maintained regression 还覆盖 formula intercept、array/formula 两条路径的 ordered-categorical 与 numeric chronology、formula missing-row alignment、retained-period rank rejection、failed-refit invalidation、SVD rank-boundary policy、conservative Gram-certificate acceptance/rejection、backend-native distribution routing、df=1/df=2 的精确小自由度 inference boundary、balanced 与 shuffled-unbalanced exact-size GPU grouping、chronological rank-error reporting、SVD fallback ownership、direct-fit finite-validation ownership，以及 packed reporting snapshot。
-
-标准 full-rank、numeric-time 的 `fama_macbeth_newey_west` case 仍由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency 验证。历史 focused gate `dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py` 继续作为 chronology/formula/rank/inference 的详细 correctness oracle。final optimized-source physical acceptance 使用 `dev/benchmarks/validate_fama_macbeth_optimized_gpu.py`，crossover evidence 由 `dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py` 记录。PR126 的历史 P100 evidence 仍锚定 numerical source `8c60db00...`，并由同一 source 的 Stage-C matrix 和 HAC-chronology runner 补齐当时的 broad physical acceptance；后续 numerical-path 修复后，它不再代表 current-head acceptance。Fama-MacBeth 不属于 Stage-C residual-covariance matrix，因为它的 covariance 来自 coefficient series，而不是 observation residual。
+标准 full-rank numeric-time case 由 `dev/benchmarks/validate_panel_stage_a_gpu.py` 做 GPU consistency；历史 focused/optimized/scaling runners继续保留。PR126历史 P100 evidence仍锚定旧 numerical source，不代表 current-head acceptance。新增 `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` 会在 CuPy CUDA 与 Torch CUDA 上验证当前 shared coefficient-resolution 与 large-intercept period-solver contract。
 
 ## 参考（References）
 
