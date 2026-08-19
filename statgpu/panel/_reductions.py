@@ -84,9 +84,13 @@ def grouped_score_sums(
         counts_np, dtype=xp.float64, xp=xp, ref_arr=scores
     ).reshape(-1, 1)
     limit = float(np.finfo(np.float64).max) / counts
-    # Equality is dangerous too: DBL_MAX / m can round upward enough that m
-    # equal terms overflow although their mean remains representable.
-    factor = xp.where(max_abs >= limit, counts, xp.ones_like(max_abs))
+    # This primitive returns a sum, not a mean. Scale only when a group value is
+    # strictly above the conservative same-sign limit. At exact equality a
+    # large positive/negative pair can cancel and expose a representable
+    # subnormal tail; pre-dividing that tail by the group count would erase it.
+    # Mean callers apply their own >= guard because their final target remains
+    # representable even when an unscaled same-sign *sum* at equality may not be.
+    factor = xp.where(max_abs > limit, counts, xp.ones_like(max_abs))
     remaining = scores / factor[codes]
     split_ratio = xp.minimum(
         counts * float(8.0 * np.finfo(np.float64).eps),
@@ -206,7 +210,6 @@ def stable_group_means_preindexed(
     # Preserve an exactly constant group exactly.  This matters for degenerate
     # TSS/within transformations: repeated finite constants should not acquire a
     # synthetic residual solely from reduction order.
-    namespace = getattr(xp, "__name__", "")
     group_min = xp.full_like(counts, float("inf"))
     group_max = xp.full_like(counts, float("-inf"))
     if hasattr(group_min, "scatter_reduce_"):
