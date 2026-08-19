@@ -351,3 +351,30 @@ def test_stage_c_public_covariance_rejects_nonfinite_residual_torch_cpu(kind):
             hac_covariance(X, resid, bandwidth=1)
         else:
             driscoll_kraay_covariance(X, resid, time, bandwidth=1)
+
+def test_stage_c_projection_created_dynamic_range_torch_cpu():
+    from statgpu.panel._reductions import stable_reduction_flags
+    from statgpu.panel._utils import demean_variables, within_transform
+
+    upper = np.nextafter(1.0, 2.0)
+    y = np.asarray([1.0, -1.0, upper, 1.0, -1.0, 1.0], dtype=np.float64)
+    X = np.asarray([0.3, -0.5, 0.7, 0.2, -0.8, 0.6], dtype=np.float64)[:, None]
+    entity = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    time = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    time_t = torch.as_tensor(time, dtype=torch.int64)
+    assert bool(stable_reduction_flags(y_t, torch)[0]) is False
+    projected = within_transform(y_t, entity_t, xp=torch)
+    assert bool(stable_reduction_flags(projected, torch)[0]) is True
+
+    y_expected, X_expected = demean_variables(
+        y, X, entity, time, xp=np, max_iter=200, tol=1.0e-12
+    )
+    y_actual, X_actual = demean_variables(
+        y_t, X_t, entity_t, time_t, xp=torch, max_iter=200, tol=1.0e-12
+    )
+    assert_allclose(y_actual.detach().cpu().numpy(), y_expected, rtol=0.0, atol=2.0e-15)
+    assert_allclose(X_actual.detach().cpu().numpy(), X_expected, rtol=2.0e-14, atol=2.0e-15)

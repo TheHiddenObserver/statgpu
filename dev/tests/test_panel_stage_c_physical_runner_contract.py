@@ -288,3 +288,16 @@ def test_stage_c_runner_registers_nonfinite_covariance_gpu_guards():
         assert token in audit_source
     main_source = inspect.getsource(_MOD.main)
     assert '"nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend)' in main_source
+
+def test_stage_c_runner_registers_projection_created_dynamic_range_gpu_audit():
+    audit_source = inspect.getsource(_MOD._projection_created_dynamic_range_audit)
+    for token in (
+        "stable_reduction_flags",
+        "within_transform",
+        "demean_variables",
+        "raw_stability_flag",
+        "post_entity_stability_flag",
+    ):
+        assert token in audit_source
+    main_source = inspect.getsource(_MOD.main)
+    assert '"projection_created_dynamic_range": _projection_created_dynamic_range_audit(backend)' in main_source
