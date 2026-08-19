@@ -16,6 +16,7 @@ from statgpu.backends import (
 )
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._intercept import (
+    guarded_random_effects_common_sumsquares,
     guarded_random_effects_quasi_demean,
     panel_lstsq_stable_response,
 )
@@ -285,13 +286,14 @@ class RandomEffects(BasePanelModel):
             )
             resid_within = y_within - X_within @ beta_within
         from statgpu.panel._diagnostics import (
-            _common_scaled_sumsquares,
             _restore_squared_scale,
             _scaled_residual_variance,
             _scaled_unit_values,
         )
         rss_within_work, rss_between_work, variance_scale = (
-            _common_scaled_sumsquares(resid_within, resid_between, xp)
+            guarded_random_effects_common_sumsquares(
+                resid_within, resid_between, xp
+            )
         )
 
         # --- Step 3: Swamy-Arora variance components ---
@@ -343,16 +345,23 @@ class RandomEffects(BasePanelModel):
         # --- Step 4: GLS transformation ---
         T_i_unique = np.unique(T_i_np)
         theta_map = {}
+        one_minus_theta_map = {}
         for Ti in T_i_unique:
             denom = sigma2_e_work + Ti * sigma2_a_work
             if denom > 0:
-                theta_map[Ti] = 1.0 - np.sqrt(sigma2_e_work / denom)
+                one_minus = np.sqrt(sigma2_e_work) / np.sqrt(denom)
+                one_minus_theta_map[Ti] = one_minus
+                theta_map[Ti] = 1.0 - one_minus
             else:
+                one_minus_theta_map[Ti] = 1.0
                 theta_map[Ti] = 0.0
 
         theta_arr = xp_zeros(n, xp.float64, xp, X_arr)
+        one_minus_theta_arr = xp_zeros(n, xp.float64, xp, X_arr)
         for Ti, th in theta_map.items():
-            theta_arr[T_i == Ti] = th
+            mask = T_i == Ti
+            theta_arr[mask] = th
+            one_minus_theta_arr[mask] = one_minus_theta_map[Ti]
 
         entity_counts = {}
         for Ti in T_i_unique:
@@ -372,6 +381,7 @@ class RandomEffects(BasePanelModel):
             X_within,
             theta_arr,
             xp,
+            one_minus_theta=one_minus_theta_arr,
         )
 
         # --- Step 5: OLS on transformed data ---
