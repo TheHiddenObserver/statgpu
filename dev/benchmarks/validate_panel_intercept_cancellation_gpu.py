@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Physical CuPy/Torch gate for cancellation-safe automatic panel intercepts."""
+"""Physical CuPy/Torch gate for cancellation-safe panel response paths."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from statgpu.backends import _to_numpy
-from statgpu.panel import BetweenOLS, PooledOLS
+from statgpu.panel import BetweenOLS, PooledOLS, RandomEffects
 
 
 def _git_sha() -> str:
@@ -38,6 +38,18 @@ def _fixture():
     X = np.asarray([[-1.0], [0.0], [1.0]], dtype=np.float64)
     y = np.asarray([amplitude, 1.0, -amplitude], dtype=np.float64)
     return X, y, amplitude
+
+
+def _random_effects_component_loss_fixture():
+    amplitude = float(2.0**55)
+    within = 8.0
+    levels = np.asarray([amplitude, 1.0, -amplitude], dtype=np.float64)
+    y = np.concatenate(
+        [np.asarray([level + within, level - within]) for level in levels]
+    )
+    X = np.ones((y.size, 1), dtype=np.float64)
+    entity = np.repeat(np.arange(levels.size, dtype=np.int64), 2)
+    return X, y, entity
 
 
 def _backend_arrays(backend: str, X, y, entity=None):
@@ -100,6 +112,28 @@ def _assert_model(model, *, backend: str, amplitude: float, label: str):
     return coef
 
 
+def _assert_random_effects_fail_closed(backend: str):
+    X_np, y_np, entity_np = _random_effects_component_loss_fixture()
+    X, y, entity, _xp, device = _backend_arrays(
+        backend, X_np, y_np, entity_np
+    )
+    model = RandomEffects(device=device)
+    try:
+        model.fit(X, y, entity_ids=entity)
+    except FloatingPointError as exc:
+        if "quasi-demeaning exceeds the float64 component range" not in str(exc):
+            raise
+    else:
+        raise AssertionError(
+            f"{backend}: RandomEffects did not fail closed on lost quasi-demean component"
+        )
+    if getattr(model, "_backend_name", None) != backend:
+        raise AssertionError(
+            f"{backend}: RandomEffects fail-closed path lost backend provenance"
+        )
+    return True
+
+
 def run(backend: str):
     if not _git_clean():
         raise RuntimeError("physical validation requires a clean git worktree")
@@ -123,6 +157,7 @@ def run(backend: str):
     between_coef = _assert_model(
         between, backend=backend, amplitude=amplitude, label="BetweenOLS"
     )
+    re_fail_closed = _assert_random_effects_fail_closed(backend)
 
     return {
         "schema_version": 1,
@@ -146,6 +181,7 @@ def run(backend: str):
         },
         "pooled_coef": pooled_coef.tolist(),
         "between_coef": between_coef.tolist(),
+        "random_effects_component_loss_fail_closed": re_fail_closed,
         "status": "success",
     }
 
