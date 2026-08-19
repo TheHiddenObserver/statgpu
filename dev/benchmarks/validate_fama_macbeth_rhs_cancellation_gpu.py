@@ -53,6 +53,20 @@ def _ambiguous_nonconstant_rhs_fixture(n_periods: int = 3):
     return X, y, time
 
 
+def _genuine_zero_rhs_fixture(n_periods: int = 3):
+    x_period = np.asarray([-1.0, 1.0, -1.0, 1.0], dtype=np.float64)
+    y_period = np.asarray([1.0, -1.0, -1.0, 1.0], dtype=np.float64)
+    X = np.tile(x_period, n_periods)[:, None]
+    y = np.tile(y_period, n_periods)
+    time = np.repeat(np.arange(n_periods, dtype=np.int64), x_period.size)
+    design = np.column_stack([np.ones(x_period.size), x_period])
+    if np.linalg.cond(design) != 1.0:
+        raise AssertionError("genuine-zero fixture must remain condition-one")
+    if not np.array_equal(design.T @ y_period, np.zeros(2, dtype=np.float64)):
+        raise AssertionError("genuine-zero fixture must have an exact zero RHS")
+    return X, y, time
+
+
 def _backend_arrays(backend: str, X, y, time):
     if backend == "cupy":
         import cupy as cp
@@ -134,10 +148,25 @@ def run(backend: str):
             raise
         failed_closed = True
     if not failed_closed:
-        raise AssertionError("ambiguous nonconstant Gram RHS did not fail closed")
+        raise AssertionError("lost nonconstant Gram-RHS tail did not fail closed")
+
+    X_zero_np, y_zero_np, time_zero_np = _genuine_zero_rhs_fixture()
+    X_zero, y_zero, time_zero, device = _backend_arrays(
+        backend, X_zero_np, y_zero_np, time_zero_np
+    )
+    zero_model = FamaMacBeth(device=device, bandwidth=0).fit(
+        X_zero, y_zero, time_ids=time_zero
+    )
+    _assert_executed_backend(zero_model, backend)
+    zero_betas = np.asarray(_to_numpy(zero_model.betas_), dtype=np.float64)
+    zero_coef = np.asarray(_to_numpy(zero_model.coef_), dtype=np.float64)
+    np.testing.assert_allclose(zero_betas, np.zeros_like(zero_betas), rtol=0.0, atol=5.0e-15)
+    np.testing.assert_allclose(zero_coef, np.zeros_like(zero_coef), rtol=0.0, atol=5.0e-15)
+    if zero_model._period_svd_fallbacks != zero_model.n_periods:
+        raise AssertionError("genuine-zero RHS should be rechecked by the SVD fallback")
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "clean_worktree": True,
@@ -156,7 +185,12 @@ def run(backend: str):
             "solver_mode": model._period_solver_mode,
             "svd_fallbacks": int(model._period_svd_fallbacks),
         },
-        "ambiguous_nonconstant_rhs_fail_closed": failed_closed,
+        "lost_nonconstant_rhs_tail_fail_closed": failed_closed,
+        "genuine_zero_rhs": {
+            "max_abs_beta": float(np.max(np.abs(zero_betas))),
+            "max_abs_coef": float(np.max(np.abs(zero_coef))),
+            "svd_fallbacks": int(zero_model._period_svd_fallbacks),
+        },
         "status": "success",
     }
 
