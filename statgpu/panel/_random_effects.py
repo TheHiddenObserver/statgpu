@@ -15,7 +15,10 @@ from statgpu.backends import (
     xp_zeros,
 )
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_lstsq
+from statgpu.panel._intercept import (
+    guarded_random_effects_quasi_demean,
+    panel_lstsq_stable_response,
+)
 from statgpu.panel._utils import (
     factorize_panel_labels,
     group_means,
@@ -243,7 +246,7 @@ class RandomEffects(BasePanelModel):
         y_bar_unique = y_bar_i[first_idx_dev]
         X_bar_unique = X_bar_i[first_idx_dev]
 
-        beta_between, rank_between = panel_lstsq(
+        beta_between, rank_between = panel_lstsq_stable_response(
             X_bar_unique, y_bar_unique, xp
         )
         resid_between = y_bar_unique - X_bar_unique @ beta_between
@@ -272,12 +275,14 @@ class RandomEffects(BasePanelModel):
                     ref_arr=X_arr,
                 )
                 X_within_fit = X_within[:, slope_idx_dev]
-                beta_within, rank_within = panel_lstsq(
+                beta_within, rank_within = panel_lstsq_stable_response(
                     X_within_fit, y_within, xp
                 )
                 resid_within = y_within - X_within_fit @ beta_within
         else:
-            beta_within, rank_within = panel_lstsq(X_within, y_within, xp)
+            beta_within, rank_within = panel_lstsq_stable_response(
+                X_within, y_within, xp
+            )
             resid_within = y_within - X_within @ beta_within
         from statgpu.panel._diagnostics import (
             _common_scaled_sumsquares,
@@ -358,13 +363,21 @@ class RandomEffects(BasePanelModel):
             for Ti in T_i_unique
         )
 
-        y_star = y_arr - theta_arr * y_bar_i
-        X_star = xp.zeros_like(X_arr)
-        for j in range(k):
-            X_star[:, j] = X_arr[:, j] - theta_arr * X_bar_i[:, j]
+        y_star, X_star = guarded_random_effects_quasi_demean(
+            y_arr,
+            X_arr,
+            y_bar_i,
+            X_bar_i,
+            y_within,
+            X_within,
+            theta_arr,
+            xp,
+        )
 
         # --- Step 5: OLS on transformed data ---
-        beta_gls, rank_star = panel_lstsq(X_star, y_star, xp)
+        beta_gls, rank_star = panel_lstsq_stable_response(
+            X_star, y_star, xp
+        )
 
         resid_gls = y_star - X_star @ beta_gls
         # Full-rank behavior remains n-k. The rank-deficient extension uses
@@ -441,7 +454,7 @@ class RandomEffects(BasePanelModel):
         restricted_rank = 0
         if has_constant:
             restricted_X = X_star[:, constant_index : constant_index + 1]
-            restricted_params, restricted_rank = panel_lstsq(
+            restricted_params, restricted_rank = panel_lstsq_stable_response(
                 restricted_X, y_star, xp
             )
             restricted_resid = y_star - restricted_X @ restricted_params
