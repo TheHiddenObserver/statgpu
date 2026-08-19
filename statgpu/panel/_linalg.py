@@ -7,9 +7,6 @@ import numpy as np
 from statgpu.backends import _to_float_scalar
 
 
-# Normal equations are used only as an explicitly certified fast path. A Gram
-# eigenvalue ratio of 1e-4 corresponds to kappa_2(X) < 100 in exact arithmetic,
-# leaving a very large numerical margin from the SVD rank boundary used below.
 _GRAM_CERTIFIED_MIN_EIGEN_RATIO = 1.0e-4
 
 
@@ -41,10 +38,7 @@ def _rank_mask_backend(X, singular_values, xp):
     """Return the shared SVD retention mask and backend-native rank scalar."""
     if int(singular_values.shape[-1]) == 0:
         raise ValueError("panel design must contain at least one column")
-    cutoff_scale = (
-        max(int(X.shape[-2]), int(X.shape[-1]))
-        * np.finfo(np.float64).eps
-    )
+    cutoff_scale = max(int(X.shape[-2]), int(X.shape[-1])) * np.finfo(np.float64).eps
     cutoff = xp.max(singular_values) * float(cutoff_scale)
     retained = singular_values > cutoff
     return retained, xp.sum(retained)
@@ -75,26 +69,14 @@ def _lstsq_working_design(X, xp, *, batched: bool):
 
     def _factor(max_abs):
         needs_scale = (max_abs > 0.0) & (max_abs < target)
-        bounded_max = xp.where(
-            needs_scale, max_abs, xp.full_like(max_abs, float(target))
-        )
-        relative = bounded_max / float(target)
-        safe_relative = xp.where(
-            relative > 0.0, relative, xp.ones_like(relative)
-        )
-        return xp.where(
-            needs_scale,
-            1.0 / safe_relative,
-            xp.ones_like(max_abs),
-        )
+        bounded_max = xp.where(needs_scale, max_abs, xp.full_like(max_abs, target))
+        relative = bounded_max / target
+        safe_relative = xp.where(relative > 0.0, relative, xp.ones_like(relative))
+        return xp.where(needs_scale, 1.0 / safe_relative, xp.ones_like(max_abs))
 
     if batched:
         view = xp.abs(X).reshape(int(X.shape[0]), -1)
-        max_abs = (
-            xp.max(view, dim=1).values
-            if namespace == "torch"
-            else xp.max(view, axis=1)
-        )
+        max_abs = _axis_max(view, xp, 1)
         factor = _factor(max_abs)
         return X * factor[:, None, None], factor
 
@@ -113,12 +95,7 @@ def _first_constant_anchor_2d(X, y, full_rank, xp):
         return zero, one, false
     column = X[:, 0]
     value = column[0]
-    exact = (
-        xp.all(column == value)
-        & xp.isfinite(value)
-        & (value != 0.0)
-        & full_rank
-    )
+    exact = xp.all(column == value) & xp.isfinite(value) & (value != 0.0) & full_rank
     anchor_candidate = 0.5 * xp.min(y) + 0.5 * xp.max(y)
     return xp.where(exact, anchor_candidate, zero), value, exact
 
@@ -143,6 +120,11 @@ def _first_constant_anchor_batched(X, y, full_rank, xp):
     return xp.where(exact, anchor_candidate, zero), value, exact
 
 
+def _safe_constant_restore(anchor, constant_value, has_constant, xp):
+    safe_value = xp.where(has_constant, constant_value, xp.ones_like(constant_value))
+    return xp.where(has_constant, anchor / safe_value, xp.zeros_like(anchor))
+
+
 def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
     """Project one response through retained SVD factors."""
     weighted_u_t = inverse_values.reshape(-1, 1) * U.T
@@ -153,17 +135,12 @@ def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
 
     products = weighted_u_t.T * y.reshape(-1, 1)
     codes = np.zeros(int(products.shape[0]), dtype=np.int64)
-    projected = grouped_score_sums(
-        products,
-        codes,
-        n_groups=1,
-        xp=xp,
-    )[0]
+    projected = grouped_score_sums(products, codes, n_groups=1, xp=xp)[0]
     return Vh.T @ projected
 
 
 def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
-    """Return a backend scalar when a tiny coefficient is not numerically certified."""
+    """Mark an unresolved coordinate only when LS stationarity also fails badly."""
     n = max(1, int(X_work.shape[0]))
     eps = float(np.finfo(np.float64).eps)
     y_scale = xp.max(xp.abs(y))
@@ -183,12 +160,8 @@ def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
 
     residual_unit = y / safe_y_scale - X_work @ (params_work / safe_y_scale)
     column_scale = _axis_max(xp.abs(X_work), xp, 0)
-    safe_column_scale = xp.where(
-        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
-    )
-    score_terms = (X_work / safe_column_scale.reshape(1, -1)) * residual_unit.reshape(
-        -1, 1
-    )
+    safe_column_scale = xp.where(column_scale > 0.0, column_scale, xp.ones_like(column_scale))
+    score_terms = (X_work / safe_column_scale.reshape(1, -1)) * residual_unit.reshape(-1, 1)
     gradient = _axis_sum(score_terms, xp, 0)
     gradient_scale = _axis_sum(xp.abs(score_terms), xp, 0)
     stationarity_bad = (
@@ -198,10 +171,8 @@ def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
     return xp.any(resolution_risk & stationarity_bad)
 
 
-def _resolution_failure_batched(
-    X_work, U, Vh, inverse_values, y, params_work, xp
-):
-    """Vectorized form of the narrow SVD coefficient-resolution certificate."""
+def _resolution_failure_batched(X_work, U, Vh, inverse_values, y, params_work, xp):
+    """Vectorized form of the narrow SVD resolution/stationarity certificate."""
     if getattr(y, "ndim", None) != 2:
         return xp.zeros_like(X_work[:, 0, 0], dtype=bool)
     n = max(1, int(X_work.shape[1]))
@@ -214,9 +185,7 @@ def _resolution_failure_batched(
         xp.swapaxes(U, -2, -1),
     )
     y_unit_abs = xp.abs(y) / safe_y_scale[:, None]
-    projection_scale = _axis_sum(
-        xp.abs(X_pinv_work) * y_unit_abs[:, None, :], xp, 2
-    )
+    projection_scale = _axis_sum(xp.abs(X_pinv_work) * y_unit_abs[:, None, :], xp, 2)
     params_unit = xp.abs(params_work) / safe_y_scale[:, None]
     resolution_risk = (
         (y_scale[:, None] > 0.0)
@@ -228,12 +197,8 @@ def _resolution_failure_batched(
         X_work, (params_work / safe_y_scale[:, None])[..., None]
     )[..., 0]
     column_scale = _axis_max(xp.abs(X_work), xp, 1)
-    safe_column_scale = xp.where(
-        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
-    )
-    score_terms = (
-        X_work / safe_column_scale[:, None, :]
-    ) * residual_unit[:, :, None]
+    safe_column_scale = xp.where(column_scale > 0.0, column_scale, xp.ones_like(column_scale))
+    score_terms = (X_work / safe_column_scale[:, None, :]) * residual_unit[:, :, None]
     gradient = _axis_sum(score_terms, xp, 1)
     gradient_scale = _axis_sum(xp.abs(score_terms), xp, 1)
     stationarity_bad = (
@@ -243,31 +208,28 @@ def _resolution_failure_batched(
     return ~_axis_all(~(resolution_risk & stationarity_bad), xp, 1)
 
 
-def _gram_resolution_risk_batched(X, y, params, xp):
-    """Conservatively reject Gram candidates below certified float64 resolution."""
-    if getattr(y, "ndim", None) != 2:
-        return xp.zeros_like(X[:, 0, 0], dtype=bool)
-    n = max(1, int(X.shape[1]))
+def _gram_resolution_risk_batched(
+    safe_gram, transpose, rhs_input, params, certified, xp
+):
+    """Bound coordinate error from Gram-RHS rounding without mixing unrelated scales."""
+    if getattr(rhs_input, "ndim", None) != 3 or int(rhs_input.shape[-1]) != 1:
+        return xp.zeros_like(certified, dtype=bool)
+    n = max(1, int(transpose.shape[-1]))
     eps = float(np.finfo(np.float64).eps)
-    y_scale = _axis_max(xp.abs(y), xp, 1)
-    safe_y_scale = xp.where(y_scale > 0.0, y_scale, xp.ones_like(y_scale))
-    column_scale = _axis_max(xp.abs(X), xp, 1)
-    safe_column_scale = xp.where(
-        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
-    )
-    X_unit = X / safe_column_scale[:, None, :]
-    column_norm_unit = xp.sqrt(_axis_sum(X_unit * X_unit, xp, 1))
-    safe_norm = xp.where(
-        column_norm_unit > 0.0,
-        column_norm_unit,
-        xp.ones_like(column_norm_unit),
-    )
-    signal = (xp.abs(params) / safe_y_scale[:, None]) * safe_column_scale
-    bound = float(128.0 * n * eps * 100.0) / safe_norm
+    k = int(safe_gram.shape[-1])
+    namespace = getattr(xp, "__name__", "")
+    if namespace == "torch":
+        identity = xp.eye(k, dtype=safe_gram.dtype, device=safe_gram.device)
+    else:
+        identity = xp.eye(k, dtype=safe_gram.dtype)
+    inverse_gram = xp.linalg.solve(safe_gram, identity)
+    rhs_abs = xp.matmul(xp.abs(transpose), xp.abs(rhs_input))[..., 0]
+    rhs_error = float(64.0 * n * eps) * rhs_abs
+    beta_error = xp.matmul(xp.abs(inverse_gram), rhs_error[..., None])[..., 0]
     risky = (
-        (y_scale[:, None] > 0.0)
+        certified[:, None]
         & (xp.abs(params) > 0.0)
-        & (signal <= bound)
+        & (xp.abs(params) <= beta_error)
     )
     return ~_axis_all(~risky, xp, 1)
 
@@ -293,15 +255,9 @@ def panel_working_pseudoinverse(X, xp):
     namespace = getattr(xp, "__name__", "")
 
     max_abs = xp.max(xp.abs(X_work))
-    gram_limit = float(
-        np.sqrt(0.25 * np.finfo(np.float64).max / float(n))
-    )
+    gram_limit = float(np.sqrt(0.25 * np.finfo(np.float64).max / float(n)))
     one = xp.ones_like(max_abs)
-    gram_scale = xp.where(
-        max_abs > float(gram_limit),
-        max_abs / float(gram_limit),
-        one,
-    )
+    gram_scale = xp.where(max_abs > gram_limit, max_abs / gram_limit, one)
     X_gram = X_work / gram_scale
     gram = X_gram.T @ X_gram
     rhs = X_gram.T
@@ -328,9 +284,7 @@ def panel_working_pseudoinverse(X, xp):
     safe_gram = xp.where(certified, gram, identity)
     safe_rhs = xp.where(certified, rhs, xp.zeros_like(rhs))
     if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
-        candidate, info = xp.linalg.solve_ex(
-            safe_gram, safe_rhs, check_errors=False
-        )
+        candidate, info = xp.linalg.solve_ex(safe_gram, safe_rhs, check_errors=False)
         certified = certified & (info == 0)
     else:
         candidate = xp.linalg.solve(safe_gram, safe_rhs)
@@ -358,39 +312,46 @@ def panel_lstsq(X, y, xp):
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
-    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
+    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
+    retained, rank_backend = _rank_mask_backend(X_work, singular_values, xp)
+    inverse_values = _inverse_values(singular_values, retained, xp)
+    k = int(X_work.shape[1])
 
     anchor, constant_value, has_constant = _first_constant_anchor_2d(
-        X_work, y, rank == int(X_work.shape[1]), xp
+        X_work, y, rank_backend == k, xp
     )
     y_work = y - anchor
 
     from statgpu.panel._reductions import stable_reduction_flags
 
     stable = bool(stable_reduction_flags(y_work, xp)[0])
-    params_work = _svd_project_2d(
-        U, Vh, inverse_values, y_work, xp, stable=stable
-    )
-    if not stable and bool(
-        _to_float_scalar(
-            _resolution_failure_2d(
-                X_work, U, Vh, inverse_values, y_work, params_work, xp
-            )
+    params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=stable)
+    failure = xp.zeros_like(rank_backend, dtype=bool)
+    if not stable:
+        failure = _resolution_failure_2d(
+            X_work, U, Vh, inverse_values, y_work, params_work, xp
         )
-    ):
+
+    restore = xp.zeros_like(params_work)
+    restore[0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
+    params = (params_work + restore) * design_scale
+    finite = xp.all(xp.isfinite(params))
+
+    # Keep one explicit scalar status extraction: nonnegative values are the
+    # numerical rank; negative sentinels distinguish resolution/nonfinite errors.
+    status = xp.where(failure, xp.full_like(rank_backend, -(k + 1)), rank_backend)
+    status = xp.where(finite, status, xp.full_like(rank_backend, -2 * (k + 1)))
+    status_value = int(_to_float_scalar(status))
+    if status_value == -(k + 1):
         raise FloatingPointError(
             "panel least-squares coefficient resolution exceeds float64 precision; "
             "rescale or reformulate the fit"
         )
-
-    restore = xp.zeros_like(params_work)
-    restore[0] = xp.where(has_constant, anchor / constant_value, xp.zeros_like(anchor))
-    params = (params_work + restore) * design_scale
-    if not bool(_to_float_scalar(xp.all(xp.isfinite(params)))):
+    if status_value == -2 * (k + 1):
         raise FloatingPointError(
             "panel least-squares coefficients are not representable in float64"
         )
-    return params, rank
+    return params, status_value
 
 
 def panel_lstsq_deferred_rank(X, y, xp):
@@ -401,20 +362,17 @@ def panel_lstsq_deferred_rank(X, y, xp):
     U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
     retained, rank_backend = _rank_mask_backend(X_work, singular_values, xp)
     inverse_values = _inverse_values(singular_values, retained, xp)
-    full_rank = rank_backend == int(X_work.shape[1])
     anchor, constant_value, has_constant = _first_constant_anchor_2d(
-        X_work, y, full_rank, xp
+        X_work, y, rank_backend == int(X_work.shape[1]), xp
     )
     y_work = y - anchor
-    params_work = _svd_project_2d(
-        U, Vh, inverse_values, y_work, xp, stable=False
-    )
+    params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=False)
     failure = _resolution_failure_2d(
         X_work, U, Vh, inverse_values, y_work, params_work, xp
     )
     rank_backend = xp.where(failure, xp.zeros_like(rank_backend), rank_backend)
     restore = xp.zeros_like(params_work)
-    restore[0] = xp.where(has_constant, anchor / constant_value, xp.zeros_like(anchor))
+    restore[0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
     return (params_work + restore) * design_scale, rank_backend
 
 
@@ -484,7 +442,6 @@ def panel_lstsq_gram_certified_batched(
 
     safe_gram = xp.where(certified[..., None, None], gram, identity)
     safe_rhs = xp.where(certified[..., None, None], rhs, xp.zeros_like(rhs))
-
     if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
         params, info = xp.linalg.solve_ex(safe_gram, safe_rhs, check_errors=False)
         certified = certified & (info == 0)
@@ -498,14 +455,17 @@ def panel_lstsq_gram_certified_batched(
     if getattr(y_work, "ndim", None) == 2:
         params_centered = params[..., 0]
         resolution_risk = _gram_resolution_risk_batched(
-            X, y_work, params_centered, xp
+            safe_gram,
+            transpose,
+            rhs_input,
+            params_centered,
+            certified,
+            xp,
         )
         certified = certified & (~resolution_risk)
         restore = xp.zeros_like(params_centered)
-        restore[:, 0] = xp.where(
-            has_constant,
-            anchor / constant_value,
-            xp.zeros_like(anchor),
+        restore[:, 0] = _safe_constant_restore(
+            anchor, constant_value, has_constant, xp
         )
         params = params_centered + restore
     return params, certified
@@ -523,18 +483,14 @@ def panel_lstsq_batched(X, y, xp):
 
     X_work, design_scale = _lstsq_working_design(X, xp, batched=True)
     U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
-    cutoff_scale = (
-        max(int(X_work.shape[-2]), int(X_work.shape[-1]))
-        * np.finfo(np.float64).eps
-    )
+    cutoff_scale = max(int(X_work.shape[-2]), int(X_work.shape[-1])) * np.finfo(np.float64).eps
     largest = _axis_max(singular_values, xp, -1)
     retained = singular_values > largest[..., None] * float(cutoff_scale)
     ranks = _axis_sum(retained, xp, -1)
     inverse_values = _inverse_values(singular_values, retained, xp)
 
-    full_rank = ranks == int(X_work.shape[-1])
     anchor, constant_value, has_constant = _first_constant_anchor_batched(
-        X_work, y, full_rank, xp
+        X_work, y, ranks == int(X_work.shape[-1]), xp
     )
     y_work = y - anchor[:, None] if getattr(y, "ndim", None) == 2 else y
 
@@ -550,10 +506,8 @@ def panel_lstsq_batched(X, y, xp):
         )
         ranks = xp.where(failure, xp.zeros_like(ranks), ranks)
         restore = xp.zeros_like(params_work)
-        restore[:, 0] = xp.where(
-            has_constant,
-            anchor / constant_value,
-            xp.zeros_like(anchor),
+        restore[:, 0] = _safe_constant_restore(
+            anchor, constant_value, has_constant, xp
         )
         params = (params_work + restore) * design_scale[:, None]
     else:
