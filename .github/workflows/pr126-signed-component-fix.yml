@@ -7,6 +7,8 @@ on:
 permissions:
   contents: write
 
+# This staging-only workflow applies the reviewed production patch, validates the
+# order-sensitive Torch 2.0 path twice, and removes itself before the final commit.
 jobs:
   apply-validate-commit:
     runs-on: ubuntu-latest
