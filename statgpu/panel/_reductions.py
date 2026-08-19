@@ -65,7 +65,13 @@ def grouped_score_sums(
     return_compensation: bool = False,
     return_components: bool = False,
 ):
-    """Sum grouped float64 scores while preserving recursive magnitude tiers."""
+    """Sum grouped float64 scores while preserving recursive magnitude tiers.
+
+    Magnitude separation happens before any range scaling.  Only the current
+    tier is divided by its group count when its same-sign scatter reduction can
+    overflow, so a much smaller representable cancellation remainder is never
+    destroyed merely because another tier contains near-DBL_MAX observations.
+    """
     codes_np = np.asarray(codes_np, dtype=np.int64).ravel()
     if codes_np.shape[0] != int(scores.shape[0]):
         raise ValueError("group codes must match the number of score rows")
@@ -76,27 +82,16 @@ def grouped_score_sums(
             "return_compensation and return_components are mutually exclusive"
         )
     codes = xp_asarray(codes_np, dtype=xp.int64, xp=xp, ref_arr=scores)
-    max_abs = _group_abs_max(
-        scores, codes, codes_np, n_groups=int(n_groups), xp=xp
-    )
     counts_np = np.bincount(codes_np, minlength=int(n_groups)).astype(np.float64)
     counts = xp_asarray(
         counts_np, dtype=xp.float64, xp=xp, ref_arr=scores
     ).reshape(-1, 1)
-    limit = float(np.finfo(np.float64).max) / counts
-    # This primitive returns a sum, not a mean. Scale only when a group value is
-    # strictly above the conservative same-sign limit. At exact equality a
-    # large positive/negative pair can cancel and expose a representable
-    # subnormal tail; pre-dividing that tail by the group count would erase it.
-    # Mean callers apply their own >= guard because their final target remains
-    # representable even when an unscaled same-sign *sum* at equality may not be.
-    factor = xp.where(max_abs > limit, counts, xp.ones_like(max_abs))
-    remaining = scores / factor[codes]
     split_ratio = xp.minimum(
         counts * float(8.0 * np.finfo(np.float64).eps),
         xp.full_like(counts, 0.25),
     )
 
+    remaining = scores
     tiers = []
     for _ in range(128):
         tier_max = _group_abs_max(
@@ -107,11 +102,22 @@ def grouped_score_sums(
             (xp.abs(remaining) < threshold[codes]) & (remaining != 0.0)
         )
         main = xp.where(tail_mask, xp.zeros_like(remaining), remaining)
-        positive_out, negative_out = _signed_parts(
+
+        # Protect only this magnitude tier from same-sign scatter overflow.
+        # Keeping the factor tier-local is essential: uniformly scaling all
+        # scores would underflow an unrelated low-order tail before it reaches
+        # the next tier.
+        main_max = _group_abs_max(
             main, codes, codes_np, n_groups=int(n_groups), xp=xp
         )
+        limit = float(np.finfo(np.float64).max) / counts
+        tier_factor = xp.where(main_max > limit, counts, xp.ones_like(main_max))
+        main_work = main / tier_factor[codes]
+        positive_out, negative_out = _signed_parts(
+            main_work, codes, codes_np, n_groups=int(n_groups), xp=xp
+        )
         tier_sum, tier_error = _two_sum(positive_out, negative_out)
-        tiers.append((tier_sum, tier_error))
+        tiers.append((tier_sum * tier_factor, tier_error * tier_factor))
         if not bool(_to_float_scalar(xp.any(tail_mask))):
             break
         remaining = xp.where(tail_mask, remaining, xp.zeros_like(remaining))
@@ -123,7 +129,7 @@ def grouped_score_sums(
     if return_components:
         components = []
         for tier_sum, tier_error in tiers:
-            components.extend((tier_sum * factor, tier_error * factor))
+            components.extend((tier_sum, tier_error))
         return components
 
     def _collapse(parts):
@@ -143,9 +149,9 @@ def grouped_score_sums(
     low = _collapse(lower_parts)
     high = tiers[0][0]
     if return_compensation:
-        return high * factor, low * factor
+        return high, low
     summed, error = _two_sum(high, low)
-    return (summed + error) * factor
+    return summed + error
 
 
 def stable_mean(values, xp):
