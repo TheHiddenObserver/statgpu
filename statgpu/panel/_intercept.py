@@ -34,10 +34,10 @@ def panel_lstsq_stable_response(X, y, xp):
 
     The historical SVD path computes ``weighted_u_t @ y`` inside BLAS; reduction
     order can erase a representable low-order component. For ordinary responses
-    this helper is exactly :func:`panel_lstsq`. Only responses already classified
-    as cancellation/range sensitive replace that one matrix-vector reduction
-    with the shared magnitude-tiered grouped sum. SVD factors, rank cutoff,
-    design rescaling, and minimum-norm parameterization remain unchanged.
+    this helper delegates to :func:`panel_lstsq`, which also applies the shared
+    coefficient-resolution certificate. Only responses already classified as
+    cancellation/range sensitive keep the explicit magnitude-tiered projection
+    here so RandomEffects can preserve its established transformed-fit policy.
     """
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
@@ -58,43 +58,22 @@ def panel_lstsq_stable_response(X, y, xp):
 
 
 def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
-    """Solve a panel regression with a known exact constant direction safely.
+    """Validate a known exact constant and use the shared certified panel solve.
 
-    A large common response level is harmless statistically when the design
-    contains an exact constant, but a generic SVD response projection can mix
-    that level into otherwise small slope directions through rounded singular
-    vectors.  For full-rank designs, remove a range-safe midrange response
-    anchor along the exact constant direction before the shared SVD projection,
-    then restore the constant coefficient.  The SVD factors, rank cutoff, design
-    scaling, and slope parameterization are unchanged.
-
-    Rank-deficient fits deliberately keep the historical minimum-norm SVD
-    contract: shifting a response along one of several redundant constant
-    directions would otherwise choose a different coefficient representation.
+    The shared least-squares policy now owns response centering, stable ``U' y``
+    reduction, rank handling, and coefficient-resolution checks. Keeping another
+    SVD implementation here would let PooledOLS/BetweenOLS diverge from PanelOLS
+    and FirstDifferenceOLS on extreme coefficient scales. If the declared
+    constant is not already the first column, a pure column permutation moves it
+    there for the solve and the coefficient vector is permuted back afterwards.
+    Column permutation preserves both the least-squares objective and the
+    Euclidean minimum-norm criterion for rank-deficient fits.
     """
     constant_index = int(constant_index)
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     if not 0 <= constant_index < int(X.shape[1]):
         raise ValueError("constant_index is out of range")
-
-    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
-    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
-    k = int(X.shape[1])
-
-    # Preserve the established minimum-norm representation for every
-    # rank-deficient design, including duplicated constant columns.
-    if int(rank) < k:
-        stable = bool(stable_reduction_flags(y, xp)[0])
-        params_work = _svd_response_solution(
-            U,
-            Vh,
-            inverse_values,
-            y,
-            xp,
-            stable=stable,
-        )
-        return params_work * design_scale, rank
 
     constant_column = X[:, constant_index]
     constant_value = constant_column[0]
@@ -108,33 +87,17 @@ def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
             "constant_index must identify one finite nonzero exact constant column"
         )
 
-    # 0.5*min + 0.5*max avoids the overflow in (min+max)/2 and places the
-    # anchor between the finite response extrema.  Subtracting this common
-    # level therefore reduces dynamic range without inventing an out-of-range
-    # response difference, including mixed-sign near-DBL_MAX inputs.
-    y_min = xp.min(y)
-    y_max = xp.max(y)
-    response_anchor = 0.5 * y_min + 0.5 * y_max
-    centered_y = y - response_anchor
+    if constant_index == 0:
+        return panel_lstsq(X, y, xp)
 
-    centered_stable = bool(stable_reduction_flags(centered_y, xp)[0])
-    params_work = _svd_response_solution(
-        U,
-        Vh,
-        inverse_values,
-        centered_y,
-        xp,
-        stable=centered_stable,
-    )
-    params = params_work * design_scale
-
-    restore = xp.zeros_like(params)
-    restore[constant_index] = response_anchor / constant_value
-    params = params + restore
-    if not bool(_to_float_scalar(xp.all(xp.isfinite(params)))):
-        raise FloatingPointError(
-            "exact-constant least-squares coefficient restoration exceeds float64 range"
-        )
+    order = [constant_index] + [
+        index for index in range(int(X.shape[1])) if index != constant_index
+    ]
+    X_ordered = X[:, order]
+    params_ordered, rank = panel_lstsq(X_ordered, y, xp)
+    params = xp.zeros_like(params_ordered)
+    for ordered_index, original_index in enumerate(order):
+        params[original_index] = params_ordered[ordered_index]
     return params, rank
 
 
@@ -189,11 +152,6 @@ def _quasi_component_loss(within, between, direct, candidate, xp):
     finite_components = xp.isfinite(within_values) & xp.isfinite(between_values)
     candidate_nonfinite = finite_components & (~xp.isfinite(candidate))
 
-    # Direct subtraction and the algebraically equivalent component form can
-    # differ by ordinary cancellation roundoff near individual zeros. Judge that
-    # disagreement against the scale of the full transformed object rather than
-    # an elementwise near-zero denominator. Exact nonzero->zero component losses
-    # remain covered independently above.
     global_scale = xp.maximum(xp.max(xp.abs(direct)), xp.max(xp.abs(candidate)))
     scale_value = _to_float_scalar(global_scale)
     if scale_value == 0.0:
