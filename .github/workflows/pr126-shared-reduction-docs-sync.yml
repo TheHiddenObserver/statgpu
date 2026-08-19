@@ -29,12 +29,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Apply documentation sync
+      - name: Apply final shared reduction and documentation sync
         run: python dev/validation/pr126_shared_reduction_docs_once.py
       - name: Recheck shared reduction regressions and docs contracts
         run: |
           python -m pytest \
             dev/tests/test_panel_diagnostic_cancellation_precision.py \
+            dev/tests/test_panel_stage_c_covariance.py \
             dev/tests/test_fama_macbeth_inference_matrix.py \
             dev/tests/test_fama_macbeth_review_fixes.py \
             dev/tests/test_panel_stage_c_physical_runner_contract.py \
@@ -45,12 +46,12 @@ jobs:
         run: |
           rm -f dev/validation/pr126_shared_reduction_docs_once.py
           rm -f .github/workflows/pr126-shared-reduction-docs-sync.yml
-      - name: Commit validated documentation sync
+      - name: Commit validated final sync
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --check
-          git commit -m "docs: describe shared cancellation-safe panel reductions"
+          git commit -m "fix: finalize cancellation-safe panel reductions"
           git push origin HEAD:agent/panel-p1-stage-c-covariance
