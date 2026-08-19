@@ -198,6 +198,43 @@ def _scaled_mean(values, xp):
     """Return an axis-0 mean without avoidable overflow or lost cancellation."""
     return stable_mean(values, xp)
 
+def _centered_working_values(values, xp):
+    """Center ``values`` without materializing an overflowing level difference.
+
+    Returns ``(centered, scale)`` where ``scale is None`` preserves the ordinary
+    physical-scale path.  Only when ``max|value| + |mean|`` can exceed DBL_MAX do
+    we center normalized values; callers of this helper use scale-invariant RSS
+    or R-squared reductions and can put comparison residuals on the same scale.
+    """
+    mean = _scaled_mean(values, xp)
+    maximum = xp.max(xp.abs(values))
+    safe_limit = float(np.finfo(np.float64).max) - xp.abs(mean)
+    if bool(_to_float_scalar(maximum <= safe_limit)):
+        return values - mean, None
+    if _to_float_scalar(maximum) == 0.0:
+        return values, None
+    unit = _scaled_unit_values(values, maximum, xp)
+    return unit - _scaled_mean(unit, xp), maximum
+
+
+def _residual_on_centering_scale(resid, scale, xp):
+    if scale is None:
+        return resid
+    return _scaled_unit_values(resid, scale, xp)
+
+
+def _physical_common_scale(common_scale, centering_scale) -> float:
+    value = _to_float_scalar(common_scale)
+    if centering_scale is None:
+        return float(value)
+    level = _to_float_scalar(centering_scale)
+    if value == 0.0 or level == 0.0:
+        return 0.0
+    if value > float(np.finfo(np.float64).max) / level:
+        return float("inf")
+    return float(value * level)
+
+
 def _scaled_group_means(values, groups, xp):
     """Return cancellation-safe group means aligned to observations."""
     return group_means(values, groups, xp=xp)
@@ -235,8 +272,17 @@ def _parameter_r2_components(
     """
     params = params.ravel()
     overall_resid = y - X @ params
-    overall_center = y - _scaled_mean(y, xp) if has_constant else y
-    overall, deg_o = _scaled_residual_r2(overall_resid, overall_center, xp)
+    if has_constant:
+        overall_center, overall_center_scale = _centered_working_values(y, xp)
+        overall_resid_work = _residual_on_centering_scale(
+            overall_resid, overall_center_scale, xp
+        )
+    else:
+        overall_center = y
+        overall_resid_work = overall_resid
+    overall, deg_o = _scaled_residual_r2(
+        overall_resid_work, overall_center, xp
+    )
 
     if entity_codes is None:
         return None, None, overall, {
@@ -255,10 +301,19 @@ def _parameter_r2_components(
     y_between = y_mean_aligned[first]
     X_between = X_mean_aligned[first]
     between_resid = y_between - X_between @ params
-    between_center = (
-        y_between - _scaled_mean(y_between, xp) if has_constant else y_between
+    if has_constant:
+        between_center, between_center_scale = _centered_working_values(
+            y_between, xp
+        )
+        between_resid_work = _residual_on_centering_scale(
+            between_resid, between_center_scale, xp
+        )
+    else:
+        between_center = y_between
+        between_resid_work = between_resid
+    between, deg_b = _scaled_residual_r2(
+        between_resid_work, between_center, xp
     )
-    between, deg_b = _scaled_residual_r2(between_resid, between_center, xp)
 
     y_within = y - y_mean_aligned
     X_within = _demean_matrix(X, entity_codes, xp)
@@ -317,11 +372,13 @@ def _classical_model_f(
         return None, None, None, metadata
 
     resid = y - X @ params.ravel()
+    centering_scale = None
     if restricted_X is not None:
         beta_r, _ = panel_lstsq(restricted_X, y, xp)
         resid_r = y - restricted_X @ beta_r
     elif has_constant:
-        resid_r = y - _scaled_mean(y, xp)
+        resid_r, centering_scale = _centered_working_values(y, xp)
+        resid = _residual_on_centering_scale(resid, centering_scale, xp)
     else:
         resid_r = y
 
@@ -329,7 +386,9 @@ def _classical_model_f(
     # scale so tiny nonzero unrestricted RSS is not rounded to zero and huge
     # restricted/unrestricted RSS values do not become Inf/Inf before the ratio.
     common_scale = xp.maximum(xp.max(xp.abs(resid)), xp.max(xp.abs(resid_r)))
-    common_scale_value = _to_float_scalar(common_scale)
+    common_scale_value = _physical_common_scale(
+        common_scale, centering_scale
+    )
     if common_scale_value == 0.0:
         rss_u = 0.0
         rss_r = 0.0
@@ -433,11 +492,22 @@ def _build_fit_statistics(
         bool(has_constant) if f_has_constant is None else bool(f_has_constant)
     )
     fit_resid = fit_y - fit_X @ fit_params.ravel()
-    fit_centered = (
-        fit_y - _scaled_mean(fit_y, xp) if fit_has_constant else fit_y
+    if fit_has_constant:
+        fit_centered, fit_centering_scale = _centered_working_values(
+            fit_y, xp
+        )
+        fit_resid_work = _residual_on_centering_scale(
+            fit_resid, fit_centering_scale, xp
+        )
+    else:
+        fit_centered = fit_y
+        fit_centering_scale = None
+        fit_resid_work = fit_resid
+    rss_adj, tss_adj, adjusted_scale_work = _common_scaled_sumsquares(
+        fit_resid_work, fit_centered, xp
     )
-    rss_adj, tss_adj, adjusted_scale = _common_scaled_sumsquares(
-        fit_resid, fit_centered, xp
+    adjusted_scale = _physical_common_scale(
+        adjusted_scale_work, fit_centering_scale
     )
 
     meta = {} if metadata is None else dict(metadata)

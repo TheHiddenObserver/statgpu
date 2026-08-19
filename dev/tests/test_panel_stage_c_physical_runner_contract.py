@@ -392,3 +392,10 @@ def test_stage_c_runner_registers_covariance_restore_range_audit():
         assert token in source
     main_source = inspect.getsource(_MOD.main)
     assert '"covariance_restore_range": _covariance_restore_range_audit(backend)' in main_source
+
+
+
+def test_stage_c_runner_covers_extreme_diagnostic_centering():
+    source = inspect.getsource(_MOD._diagnostic_scale_audit)
+    for token in ("1.0e308", "extreme_pooling", "extreme pooling-F centering"):
+        assert token in source

@@ -2,8 +2,15 @@ import numpy as np
 import pytest
 
 from statgpu.panel import FamaMacBeth
-from statgpu.panel._diagnostic_context import _scaled_column_means
-from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+from statgpu.panel._diagnostic_context import (
+    _scaled_column_means,
+    pooling_f_from_level_arrays,
+)
+from statgpu.panel._diagnostics import (
+    _build_fit_statistics,
+    _scaled_group_means,
+    _scaled_mean,
+)
 from statgpu.panel._reductions import grouped_score_sums
 from statgpu.panel._utils import group_means, within_transform
 
@@ -175,3 +182,52 @@ def test_pooling_f_column_mean_preserves_cancellation_tail_torch_cpu():
     )
     actual = _to_numpy(_scaled_column_means(values, torch))
     np.testing.assert_allclose(actual, np.asarray([1.0 / 6.0]), rtol=0.0, atol=0.0)
+
+
+
+def _extreme_centering_fixture(xp):
+    y_np = np.asarray([1.0e308] + [-1.0e308] * 10, dtype=np.float64)
+    z_np = np.asarray([1.0] + [-1.0] * 10, dtype=np.float64)
+    X_np = np.column_stack([np.ones(11), z_np])
+    params_np = np.asarray([0.0, 1.0e308], dtype=np.float64)
+    if xp is np:
+        return y_np, X_np, params_np
+    return (
+        xp.as_tensor(y_np, dtype=xp.float64),
+        xp.as_tensor(X_np, dtype=xp.float64),
+        xp.as_tensor(params_np, dtype=xp.float64),
+    )
+
+
+@pytest.mark.parametrize("backend", ["numpy", "torch"])
+def test_extreme_constant_centering_keeps_diagnostics_on_finite_working_scale(backend):
+    xp = np if backend == "numpy" else pytest.importorskip("torch")
+    y, X, params = _extreme_centering_fixture(xp)
+    result = _build_fit_statistics(
+        y, X, params, xp=xp, entity_codes=None, has_constant=True,
+        rss_fit=0.0, tss_fit=float("inf"), df_resid=9, df_total=10,
+    )
+    assert result.rsquared_overall == 1.0
+    assert result.rsquared_adj == 1.0
+    assert np.isposinf(result.f_statistic)
+    assert result.f_pvalue == 0.0
+
+
+@pytest.mark.parametrize("backend", ["numpy", "torch"])
+def test_extreme_pooling_f_centering_avoids_level_overflow(backend):
+    xp = np if backend == "numpy" else pytest.importorskip("torch")
+    y_np = np.asarray([1.0e308] + [-1.0e308] * 10, dtype=np.float64)
+    X_np = np.linspace(-1.0, 1.0, 11, dtype=np.float64)[:, None]
+    if xp is np:
+        y, X, resid_effects = y_np, X_np, np.zeros(11, dtype=np.float64)
+    else:
+        y = xp.as_tensor(y_np, dtype=xp.float64)
+        X = xp.as_tensor(X_np, dtype=xp.float64)
+        resid_effects = xp.zeros(11, dtype=xp.float64)
+    result = pooling_f_from_level_arrays(
+        y, X, xp=xp, rss_effects=0.0, df_resid_effects=8,
+        has_constant=False, resid_effects=resid_effects,
+    )
+    assert result.applicable
+    assert np.isposinf(result.statistic)
+    assert result.pvalue == 0.0

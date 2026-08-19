@@ -662,6 +662,28 @@ def _diagnostic_scale_audit(backend):
         cancellation_column_mean, np.asarray([1.0 / 6.0]), rtol=0.0, atol=0.0
     )
 
+    # Constant centering itself can exceed DBL_MAX although the F/R2 statistics
+    # are scale invariant. Keep the restricted response in safe working units.
+    extreme_y_np = np.asarray([1.0e308] + [-1.0e308] * 10, dtype=np.float64)
+    extreme_x_np = np.linspace(-1.0, 1.0, 11, dtype=np.float64)[:, None]
+    if backend == "cupy":
+        extreme_y = xp.asarray(extreme_y_np)
+        extreme_x = xp.asarray(extreme_x_np)
+        extreme_resid = xp.zeros(11, dtype=xp.float64)
+    elif backend == "torch":
+        extreme_y = xp.as_tensor(extreme_y_np, dtype=xp.float64, device="cuda")
+        extreme_x = xp.as_tensor(extreme_x_np, dtype=xp.float64, device="cuda")
+        extreme_resid = xp.zeros(11, dtype=xp.float64, device="cuda")
+    else:
+        extreme_y, extreme_x = extreme_y_np, extreme_x_np
+        extreme_resid = np.zeros(11, dtype=np.float64)
+    extreme_pooling = pooling_f_from_level_arrays(
+        extreme_y, extreme_x, xp=xp, rss_effects=0.0,
+        df_resid_effects=8, has_constant=False, resid_effects=extreme_resid,
+    )
+    if not extreme_pooling.applicable or not np.isposinf(extreme_pooling.statistic):
+        raise AssertionError(f"{backend}: extreme pooling-F centering did not stay valid")
+
     # Pooling F: naive column/scalar means overflow after this common scaling,
     # while the centered regression and scale-invariant statistic are finite.
     n = 24

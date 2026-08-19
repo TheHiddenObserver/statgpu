@@ -14,6 +14,7 @@ from statgpu.inference._distributions_backend import get_distribution
 from statgpu.panel._diagnostics import (
     _applicable,
     _build_fit_statistics,
+    _centered_working_values,
     _diagnostic_identity,
     _inapplicable,
     _matrix_rank,
@@ -213,13 +214,19 @@ def pooling_f_from_level_arrays(
 ):
     """Construct the nested pooled null on the exact aligned FE level sample."""
     n = int(y.shape[0])
+    y_centering_scale = None
     if has_constant:
         y_pool = y
         X_pool = X
         constant_projection_df = 0
     else:
-        y_pool = y - _scaled_mean(y, xp)
-        X_pool = X - _scaled_column_means(X, xp)
+        y_pool, y_centering_scale = _centered_working_values(y, xp)
+        X_pool = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
+        for j in range(int(X.shape[1])):
+            centered_column, _column_scale = _centered_working_values(
+                X[:, j], xp
+            )
+            X_pool[:, j] = centered_column
         constant_projection_df = 1
 
     rank_pool = _matrix_rank(X_pool, xp)
@@ -230,16 +237,40 @@ def pooling_f_from_level_arrays(
     rss_common_scale = None
     if resid_effects is None:
         rss_pool = _to_float_scalar(xp.sum(resid_pool * resid_pool))
-        rss_effects_work = float(rss_effects)
+        if y_centering_scale is None:
+            rss_effects_work = float(rss_effects)
+        else:
+            if not np.isfinite(float(rss_effects)):
+                raise FloatingPointError(
+                    "extreme-scale pooling F requires residual-level fixed-effect "
+                    "values when the physical RSS is non-finite"
+                )
+            level = _to_float_scalar(y_centering_scale)
+            root = float(np.sqrt(max(float(rss_effects), 0.0)))
+            rss_effects_work = float((root / level) ** 2)
+            rss_common_scale = level
     else:
         resid_effects = xp.asarray(resid_effects, dtype=xp.float64).ravel()
         if int(resid_effects.shape[0]) != n:
             raise ValueError("resid_effects must match the pooled sample length")
+        if y_centering_scale is not None:
+            resid_effects = _scaled_unit_values(
+                resid_effects, y_centering_scale, xp
+            )
         common_scale = xp.maximum(
             xp.max(xp.abs(resid_pool)), xp.max(xp.abs(resid_effects))
         )
-        rss_common_scale = _to_float_scalar(common_scale)
-        if rss_common_scale == 0.0:
+        common_scale_work = _to_float_scalar(common_scale)
+        if y_centering_scale is None:
+            rss_common_scale = common_scale_work
+        else:
+            level = _to_float_scalar(y_centering_scale)
+            rss_common_scale = (
+                float("inf")
+                if common_scale_work > float(np.finfo(np.float64).max) / level
+                else float(common_scale_work * level)
+            )
+        if common_scale_work == 0.0:
             rss_pool = 0.0
             rss_effects_work = 0.0
         else:
