@@ -5,9 +5,10 @@ Provides demeaning / within-transformation routines used by fixed effects
 and random effects estimators.  All functions accept an ``xp`` module
 (numpy / cupy / torch) so they work on any backend.
 
-Performance note: all group-level operations use scatter-add to compute
-group sums and counts in a single kernel launch, avoiding per-group
-Python loops and their associated GPU-CPU synchronization overhead.
+Performance note: ordinary-scale group reductions retain the single-scatter
+fast path. Columns whose dynamic range can hide a representable cancellation
+remainder use the shared backend-native magnitude-tiered reducer after packed
+risk classification; neither path introduces per-group Python loops.
 """
 
 from __future__ import annotations
@@ -496,6 +497,16 @@ def demean_variables(
 
     if time_projection is None:
         return y_d, X_d
+
+    if entity_projection is not None:
+        projected_stability_matrix = (
+            xp.cat([y_d[:, None], X_d], dim=1)
+            if getattr(xp, "__name__", "") == "torch"
+            else xp.concatenate([y_d[:, None], X_d], axis=1)
+        )
+        projected_flags = stable_reduction_flags(projected_stability_matrix, xp)
+        y_stable = y_stable or bool(projected_flags[0])
+        X_stable = X_stable | projected_flags[1:]
 
     # A one-way time effect is an exact single projection. Alternation is needed
     # only when both entity and time effects are present.
