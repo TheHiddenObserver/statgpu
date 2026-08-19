@@ -32,11 +32,23 @@ jobs:
           from pathlib import Path
           p = Path('dev/validation/pr126_fix_two_way_effect_gauge.py')
           text = p.read_text(encoding='utf-8')
-          old = '    range_mode = xp.zeros_like(level_scale, dtype=xp.bool)\\n'
-          new = '    range_mode = level_scale < 0.0\\n'
-          if old not in text:
-              raise SystemExit('range-mode dtype staging anchor not found')
-          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          replacements = [
+              (
+                  '    range_mode = xp.zeros_like(level_scale, dtype=xp.bool)\\n',
+                  '    range_mode = level_scale < 0.0\\n',
+                  'range-mode dtype staging anchor',
+              ),
+              (
+                  '    X = np.ones((values_np.size, 1), dtype=np.float64)\\n',
+                  '    X = np.linspace(-1.0, 1.0, values_np.size, dtype=np.float64)[:, None]\\n',
+                  'public gauge fixture design anchor',
+              ),
+          ]
+          for old, new, name in replacements:
+              if old not in text:
+                  raise SystemExit(f'{name} not found')
+              text = text.replace(old, new, 1)
+          p.write_text(text, encoding='utf-8')
           PY
           python dev/validation/pr126_fix_two_way_effect_gauge.py
       - name: Run targeted review gates
