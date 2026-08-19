@@ -1,8 +1,8 @@
 name: PR126 signed component reduction fix
 
 on:
-  push:
-    branches: [agent/panel-p1-stage-c-covariance]
+  pull_request:
+    branches: [master]
 
 permissions:
   contents: write
@@ -11,6 +11,7 @@ permissions:
 # order-sensitive Torch 2.0 path twice, and removes itself before the final commit.
 jobs:
   apply-validate-commit:
+    if: github.event.pull_request.number == 126
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
