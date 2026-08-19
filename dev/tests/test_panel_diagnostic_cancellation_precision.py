@@ -18,8 +18,12 @@ def _assert_subnormal_group_tail(xp, scores):
     actual = grouped_score_sums(
         scores, np.zeros(3, dtype=np.int64), n_groups=1, xp=xp
     )
-    value = float(actual[0, 0])
-    assert value == tiny
+    assert float(actual[0, 0]) == tiny
+
+
+def _collective_subnormal_mean_values():
+    tiny = np.nextafter(0.0, 1.0)
+    return np.asarray([1.0e308, -1.0e308, tiny, tiny, tiny]), tiny
 
 
 def test_grouped_score_sum_preserves_subnormal_tail_at_exact_range_boundary_numpy():
@@ -40,6 +44,14 @@ def test_shared_group_mean_preserves_small_term_after_huge_cancellation_numpy():
     groups = np.zeros(3, dtype=np.int64)
     actual = np.asarray(group_means(values, groups, xp=np))
     np.testing.assert_allclose(actual, np.full(3, 1.0 / 3.0), rtol=0.0, atol=0.0)
+
+
+def test_panel_means_preserve_collectively_representable_subnormal_tail_numpy():
+    values, tiny = _collective_subnormal_mean_values()
+    groups = np.zeros(values.size, dtype=np.int64)
+    actual = np.asarray(group_means(values, groups, xp=np))
+    assert np.all(actual == tiny)
+    assert float(_scaled_mean(values, np)) == tiny
 
 
 def test_scaled_mean_preserves_small_term_after_huge_cancellation_numpy():
@@ -103,8 +115,14 @@ def test_torch_cpu_group_mean_and_fmb_cancellation_match_numpy():
     )
     assert float(_scaled_mean(values, torch)) == 1.0 / 3.0
 
+    collective_values, tiny = _collective_subnormal_mean_values()
+    collective = torch.as_tensor(collective_values, dtype=torch.float64)
+    collective_groups = torch.zeros(collective.numel(), dtype=torch.int64)
+    collective_mean = group_means(collective, collective_groups, xp=torch)
+    assert np.all(_to_numpy(collective_mean) == tiny)
+    assert float(_scaled_mean(collective, torch)) == tiny
+
     boundary = float(np.finfo(np.float64).max / 3.0)
-    tiny = np.nextafter(0.0, 1.0)
     for amplitude in (boundary, 1.0e308):
         scores = torch.tensor(
             [[amplitude], [-amplitude], [tiny]], dtype=torch.float64
