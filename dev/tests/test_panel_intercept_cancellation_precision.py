@@ -16,6 +16,17 @@ def _fixture():
     return X, y, amplitude
 
 
+def _common_level_fixture():
+    """Return a safe-looking response whose slope is hidden by a huge level."""
+    amplitude = float(2.0**55)
+    X = np.asarray([[1.0], [1.0], [-1.0], [-1.0]], dtype=np.float64)
+    y = amplitude + np.asarray([24.0, 0.0, -8.0, -32.0], dtype=np.float64)
+    # With a balanced +/-1 regressor, beta_1 = mean(x*y) exactly.  The common
+    # 2**55 level cancels and the representable slope is exactly 16.
+    expected_slope = 16.0
+    return X, y, amplitude, expected_slope
+
+
 def _assert_coefficients(model, amplitude):
     coef = np.asarray(model.coef_, dtype=np.float64).ravel()
     # The SVD basis itself is rounded, so the restored coefficient need not be
@@ -25,6 +36,11 @@ def _assert_coefficients(model, amplitude):
         coef[0], 1.0 / 3.0, rtol=4.0 * np.finfo(np.float64).eps, atol=0.0
     )
     np.testing.assert_allclose(coef[1], -amplitude, rtol=2.0e-15, atol=0.0)
+
+
+def _assert_common_level_slope(model, expected_slope):
+    coef = np.asarray(model.coef_, dtype=np.float64).ravel()
+    np.testing.assert_allclose(coef[1], expected_slope, rtol=0.0, atol=0.0)
 
 
 def _random_effects_component_loss_fixture():
@@ -77,6 +93,21 @@ def test_between_ols_preserves_cancellation_tail_in_automatic_intercept_numpy():
     entity = np.repeat(np.arange(3), 2)
     model = BetweenOLS().fit(X_level, y_level, entity_ids=entity)
     _assert_coefficients(model, amplitude)
+
+
+def test_pooled_ols_preserves_slope_beneath_huge_common_response_level_numpy():
+    X, y, _amplitude, expected_slope = _common_level_fixture()
+    model = PooledOLS().fit(X, y)
+    _assert_common_level_slope(model, expected_slope)
+
+
+def test_between_ols_preserves_slope_beneath_huge_common_response_level_numpy():
+    X, y, _amplitude, expected_slope = _common_level_fixture()
+    X_level = np.repeat(X, 2, axis=0)
+    y_level = np.repeat(y, 2)
+    entity = np.repeat(np.arange(X.shape[0]), 2)
+    model = BetweenOLS().fit(X_level, y_level, entity_ids=entity)
+    _assert_common_level_slope(model, expected_slope)
 
 
 def test_exact_constant_helper_preserves_rank_deficient_minimum_norm_contract_numpy():
@@ -158,6 +189,27 @@ def test_torch_cpu_public_automatic_intercepts_match_numpy_cancellation_tail():
         entity_ids=torch.as_tensor(entity, dtype=torch.int64),
     )
     _assert_coefficients(between, amplitude)
+
+
+def test_torch_cpu_public_automatic_intercepts_preserve_huge_common_level_slope():
+    torch = pytest.importorskip("torch")
+    X, y, _amplitude, expected_slope = _common_level_fixture()
+
+    pooled = PooledOLS().fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+    )
+    _assert_common_level_slope(pooled, expected_slope)
+
+    X_level = np.repeat(X, 2, axis=0)
+    y_level = np.repeat(y, 2)
+    entity = np.repeat(np.arange(X.shape[0]), 2)
+    between = BetweenOLS().fit(
+        torch.as_tensor(X_level, dtype=torch.float64),
+        torch.as_tensor(y_level, dtype=torch.float64),
+        entity_ids=torch.as_tensor(entity, dtype=torch.int64),
+    )
+    _assert_common_level_slope(between, expected_slope)
 
 
 def test_torch_cpu_random_effects_precision_guards_match_numpy():
