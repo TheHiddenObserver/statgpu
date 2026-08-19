@@ -116,8 +116,8 @@ def _certified_period_betas(
 ):
     """Solve retained periods with a conservative Gram fast path and SVD fallback.
 
-    Equal-sized periods are grouped into one batch.  A batch first receives a
-    backend-native Gram-spectrum certificate.  Clearly well-conditioned periods
+    Equal-sized periods are grouped into one batch. A batch first receives a
+    backend-native Gram-spectrum certificate. Clearly well-conditioned periods
     use the batched normal-equation solve; every uncertified period falls back to
     the existing SVD policy, so rank-boundary and ill-conditioned behavior remain
     governed by the same singular-value cutoff as the serial reference.
@@ -205,10 +205,21 @@ def _certified_period_betas(
 
     for code in eligible_codes:
         rank = rank_by_code[code]
+        period_label = time_labels[code]
+        if isinstance(period_label, np.generic):
+            period_label = period_label.item()
+        # Every Fama-MacBeth period design contains an explicit intercept, so a
+        # genuine numerical rank cannot be zero. The shared fallback uses rank=0
+        # exclusively as its backend-native coefficient-resolution sentinel,
+        # allowing this existing packed rank transfer to preserve an accurate
+        # public failure reason without adding a per-period GPU synchronization.
+        if rank == 0:
+            raise FloatingPointError(
+                "FamaMacBeth period coefficient resolution exceeds float64 precision; "
+                f"retained time period {period_label!r} cannot be resolved reliably; "
+                "rescale or reformulate the period regression"
+            )
         if rank < k:
-            period_label = time_labels[code]
-            if isinstance(period_label, np.generic):
-                period_label = period_label.item()
             raise ValueError(
                 "FamaMacBeth requires full column rank in every retained period; "
                 f"retained time period {period_label!r} is rank deficient "
@@ -395,7 +406,7 @@ class FamaMacBeth(BasePanelModel):
             ]
 
         # Direct X/y calls have already passed BaseEstimator's public finite-input
-        # guard.  Formula/Patsy paths construct new numerical arrays internally,
+        # guard. Formula/Patsy paths construct new numerical arrays internally,
         # so retain the local finite check only for that path.
         backend_name, xp, X_arr, y_arr = self._prepare_backend_arrays(
             X_data,
@@ -458,10 +469,6 @@ class FamaMacBeth(BasePanelModel):
         if T < 2:
             raise ValueError("FamaMacBeth requires at least 2 time periods after filtering")
 
-        # Use the shared tiered mean so period order cannot erase a small
-        # representable coefficient between large cancelling periods. Ordinary
-        # same-scale inputs collapse to one tier; only risky dynamic ranges pay
-        # for additional magnitude components.
         avg_beta = stable_mean(betas, xp)
         if not bool(_to_float_scalar(xp.all(xp.isfinite(avg_beta)))):
             raise ValueError(
@@ -475,9 +482,6 @@ class FamaMacBeth(BasePanelModel):
                 "FamaMacBeth centered period coefficients are non-finite; covariance "
                 "cannot be represented reliably in float64"
             )
-        # Scale each coefficient coordinate independently. A single global
-        # scale can underflow a small coordinate's quadratic variation to zero
-        # when another coefficient varies at a much larger magnitude.
         if xp.__name__ == "torch":
             centered_scale = xp.max(xp.abs(beta_centered), dim=0).values
         else:
@@ -511,11 +515,6 @@ class FamaMacBeth(BasePanelModel):
                 ) / float(T * T)
                 cov_scaled = cov_scaled + weight * (gamma_lag + gamma_lag.T)
 
-        # Multiplying by the common scale one factor at a time avoids the
-        # avoidable overflow of forming scale**2 before the normalized
-        # covariance has reduced the magnitude. If the final covariance itself
-        # is outside float64 range, fail closed below rather than publishing
-        # Inf/NaN inference.
         scale_row = safe_centered_scale[:, None]
         scale_col = safe_centered_scale[None, :]
         scale_large = xp.maximum(scale_row, scale_col)
@@ -535,8 +534,6 @@ class FamaMacBeth(BasePanelModel):
                 "is not numerically valid"
             )
         bse = xp.sqrt(xp.maximum(diagonal, xp.zeros_like(diagonal)))
-        # Exact-zero variance is handled without a dimensionful fake
-        # denominator: beta=0 gives statistic 0; beta!=0 gives signed infinity.
         tvalues = _zero_safe_statistic_ratio(avg_beta, bse, xp)
         df = T - 1
 
