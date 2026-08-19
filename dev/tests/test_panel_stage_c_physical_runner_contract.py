@@ -374,3 +374,12 @@ def test_stage_c_runner_covers_pooling_f_column_cancellation_mean():
     assert "_scaled_column_means" in source
     assert "1.0e308" in source
     assert "1.0 / 6.0" in source
+
+
+
+def test_stage_c_runner_registers_two_way_effect_range_gauge_audit():
+    source = inspect.getsource(_MOD._two_way_effect_range_gauge_audit)
+    for token in ("5.0e307", "max_abs_entity_effect", "max_abs_reconstruction_error"):
+        assert token in source
+    main_source = inspect.getsource(_MOD.main)
+    assert '"two_way_effect_range_gauge": _two_way_effect_range_gauge_audit(backend)' in main_source

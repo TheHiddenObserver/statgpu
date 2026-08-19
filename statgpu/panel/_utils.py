@@ -577,6 +577,30 @@ def demean_variables(
     return y_d, X_d
 
 
+def _range_center_two_way_effects(entity_effects, time_effects, xp):
+    """Range-center an additive-effect gauge only near the float64 boundary.
+
+    ``entity + time`` is invariant under ``entity += c`` and ``time -= c``.
+    For ordinary magnitudes the returned shift is exactly zero, preserving the
+    established low-order cancellation path.  Once a compact effect exceeds an
+    eighth of DBL_MAX, center ``[entity, -time]`` at its midrange; this minimizes
+    the largest absolute stored effect and leaves a margin for subsequent ALS
+    subtraction.  Compact concatenation needs only two backend reductions.
+    """
+    coordinates = (
+        xp.cat([entity_effects, -time_effects], dim=0)
+        if getattr(xp, "__name__", "") == "torch"
+        else xp.concatenate([entity_effects, -time_effects], axis=0)
+    )
+    lower = xp.min(coordinates)
+    upper = xp.max(coordinates)
+    max_abs = xp.maximum(xp.abs(lower), xp.abs(upper))
+    activate = max_abs > float(np.finfo(np.float64).max / 8.0)
+    candidate = -(0.5 * lower + 0.5 * upper)
+    shift = xp.where(activate, candidate, xp.zeros_like(candidate))
+    return entity_effects + shift, time_effects - shift, activate
+
+
 def _recover_two_way_effects(
     values,
     entity_ids,
@@ -628,13 +652,22 @@ def _recover_two_way_effects(
 
     converged = False
     final_metric = float("inf")
+    range_mode = level_scale < 0.0
     for _iteration in range(int(max_iter)):
         entity_effects = _compact_group_means(
             values - time_effects[t_idx], entity_projection, xp, stable=stable
         )
+        entity_effects, time_effects, activated = _range_center_two_way_effects(
+            entity_effects, time_effects, xp
+        )
+        range_mode = range_mode | activated
         time_effects = _compact_group_means(
             values - entity_effects[e_idx], time_projection, xp, stable=stable
         )
+        entity_effects, time_effects, activated = _range_center_two_way_effects(
+            entity_effects, time_effects, xp
+        )
+        range_mode = range_mode | activated
 
         residual = values - entity_effects[e_idx] - time_effects[t_idx]
 
@@ -669,14 +702,16 @@ def _recover_two_way_effects(
             f"{final_metric:.6e}"
         )
 
-    # The entity/time decomposition has a common-shift null direction.  Apply
-    # the public normalization once, after convergence, so the iterative path
-    # never materializes ``time_effect * group_count``.  Expanding by ``t_idx``
-    # expresses the observation-weighted mean directly and lets the shared
-    # stable reducer preserve cancellation without an overflowing product.
-    shift = stable_mean(time_effects[t_idx], xp)
-    time_effects = time_effects - shift
-    entity_effects = entity_effects + shift
+    # Preserve the historical observation-weighted-zero time gauge when no
+    # range protection was needed.  Once the extreme path has activated, keep
+    # the range-centered gauge: forcing the weighted-zero shift back onto an
+    # otherwise finite decomposition can itself exceed float64 range.
+    weighted_shift = stable_mean(time_effects[t_idx], xp)
+    final_shift = xp.where(
+        range_mode, xp.zeros_like(weighted_shift), weighted_shift
+    )
+    time_effects = time_effects - final_shift
+    entity_effects = entity_effects + final_shift
     return entity_effects, time_effects
 
 

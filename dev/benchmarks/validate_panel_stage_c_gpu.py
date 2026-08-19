@@ -490,6 +490,42 @@ def _fixed_effect_map_range_audit(backend):
         "effect_map_finite": True,
     }
 
+def _two_way_effect_range_gauge_audit(backend):
+    amplitude = 5.0e307
+    edges = np.asarray(
+        [[0, 1], [2, 4], [1, 4], [2, 1], [4, 0], [5, 2],
+         [5, 4], [3, 0], [3, 1], [5, 3], [0, 4]],
+        dtype=np.int64,
+    )
+    signs = np.asarray([-1, 1, 1, -1, 1, -1, -1, -1, 1, -1, 1], dtype=np.float64)
+    entity_np = np.repeat(edges[:, 0], 2)
+    time_np = np.repeat(edges[:, 1], 2)
+    values_np = np.repeat(amplitude * signs, 2)
+    dummy = np.ones((values_np.size, 1), dtype=np.float64)
+    _X, values, entity, time = _to_backend(dummy, values_np, entity_np, time_np, backend)
+    xp = __import__("torch") if backend == "torch" else __import__("cupy")
+    entity_effect, time_effect = _recover_two_way_effects(
+        values, entity, time, xp, max_iter=500, tol=1e-12
+    )
+    entity_effect_np = _array(entity_effect)
+    time_effect_np = _array(time_effect)
+    if not np.all(np.isfinite(entity_effect_np)) or not np.all(np.isfinite(time_effect_np)):
+        raise AssertionError(f"{backend}: range-centered two-way effects are non-finite")
+    if np.max(np.abs(entity_effect_np)) > 3.01 * amplitude:
+        raise AssertionError(f"{backend}: entity FE gauge exceeded range bound")
+    if np.max(np.abs(time_effect_np)) > 2.01 * amplitude:
+        raise AssertionError(f"{backend}: time FE gauge exceeded range bound")
+    reconstructed = entity_effect_np[entity_np] + time_effect_np[time_np]
+    np.testing.assert_allclose(reconstructed, values_np, rtol=3e-12, atol=0.0)
+    return {
+        "status": "success",
+        "backend": backend,
+        "max_abs_entity_effect": float(np.max(np.abs(entity_effect_np))),
+        "max_abs_time_effect": float(np.max(np.abs(time_effect_np))),
+        "max_abs_reconstruction_error": _max_abs(reconstructed, values_np),
+    }
+
+
 def _nonfinite_covariance_guard_audit(backend):
     X_np = np.column_stack([np.ones(6), np.arange(6.0)])
     resid_np = np.linspace(-0.3, 0.4, 6)
@@ -2048,6 +2084,7 @@ def main():
             "two_way_effect_normalization_overflow": _two_way_effect_normalization_overflow_audit(backend),
             "common_scale_product_range_guard": _common_scale_product_range_guard_audit(backend),
             "fixed_effect_map_range": _fixed_effect_map_range_audit(backend),
+            "two_way_effect_range_gauge": _two_way_effect_range_gauge_audit(backend),
             "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }

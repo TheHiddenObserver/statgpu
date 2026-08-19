@@ -746,3 +746,52 @@ def test_stage_c_torch_cpu_fe_prediction_avoids_centered_map_overflow():
     assert np.all(np.isfinite(torch_prediction))
     np.testing.assert_allclose(torch_prediction, expected, rtol=0.0, atol=0.0)
     assert np.isfinite(torch_model._entity_effects_map[0])
+
+
+
+def test_stage_c_two_way_effect_range_gauge_keeps_finite_exact_fit():
+    amplitude = 5.0e307
+    edges = np.asarray(
+        [[0, 1], [2, 4], [1, 4], [2, 1], [4, 0], [5, 2],
+         [5, 4], [3, 0], [3, 1], [5, 3], [0, 4]],
+        dtype=np.int64,
+    )
+    signs = np.asarray([-1, 1, 1, -1, 1, -1, -1, -1, 1, -1, 1], dtype=np.float64)
+    entity = np.repeat(edges[:, 0], 2)
+    time = np.repeat(edges[:, 1], 2)
+    values_np = np.repeat(amplitude * signs, 2)
+
+    for xp, values, entity_ids, time_ids in (
+        (np, values_np, entity, time),
+        (
+            torch,
+            torch.as_tensor(values_np, dtype=torch.float64),
+            torch.as_tensor(entity, dtype=torch.int64),
+            torch.as_tensor(time, dtype=torch.int64),
+        ),
+    ):
+        entity_effect, time_effect = _recover_two_way_effects(
+            values, entity_ids, time_ids, xp, max_iter=500, tol=1e-12
+        )
+        entity_np = np.asarray(
+            entity_effect.detach().cpu().numpy() if hasattr(entity_effect, "detach") else entity_effect
+        )
+        time_np = np.asarray(
+            time_effect.detach().cpu().numpy() if hasattr(time_effect, "detach") else time_effect
+        )
+        assert np.all(np.isfinite(entity_np))
+        assert np.all(np.isfinite(time_np))
+        assert float(np.max(np.abs(entity_np))) <= 3.01 * amplitude
+        assert float(np.max(np.abs(time_np))) <= 2.01 * amplitude
+        reconstructed = entity_np[entity] + time_np[time]
+        np.testing.assert_allclose(reconstructed, values_np, rtol=3e-12, atol=0.0)
+
+    # Public fit/predict must inherit the same finite gauge. Duplicate edges give
+    # positive residual df while a constant regressor is fully absorbed by FE.
+    X = (1.0e150 * np.linspace(-1.0, 1.0, values_np.size, dtype=np.float64))[:, None]
+    model = PanelOLS(entity_effects=True, time_effects=True, cov_type="hc0").fit(
+        X, values_np, entity_ids=entity, time_ids=time
+    )
+    prediction = model.predict(X, entity_ids=entity, time_ids=time)
+    assert np.all(np.isfinite(prediction))
+    np.testing.assert_allclose(prediction, values_np, rtol=3e-12, atol=0.0)
