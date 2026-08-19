@@ -194,29 +194,75 @@ def _scaled_residual_r2(resid, centered, xp) -> Tuple[float, bool]:
 
 
 def _scaled_mean(values, xp):
-    """Return a mean with only the reduction-length scaling needed for safety."""
+    """Return a cancellation- and range-safe backend-native mean.
+
+    A uniform ``1/n`` prescale prevents same-sign overflow, but applying it to
+    every input would erase finite subnormal values before reduction. Scale only
+    when an observation is large enough that an unscaled same-sign sum could
+    overflow, then reuse the covariance layer's magnitude-tiered grouped sum so
+    low-order terms survive later cancellation.
+    """
     n = int(values.shape[0])
+    if n <= 0:
+        raise ValueError("mean requires at least one observation")
+    from statgpu.panel._covariance import _grouped_score_sums
+
     max_abs = xp.max(xp.abs(values))
-    limit = np.finfo(np.float64).max / float(max(n, 1))
+    limit = float(np.finfo(np.float64).max) / float(n)
+    dangerous = max_abs > float(limit)
     factor = xp.where(
-        max_abs > limit,
+        dangerous,
         xp.full_like(max_abs, float(n)),
         xp.ones_like(max_abs),
     )
-    return xp.sum(values / factor) * (factor / float(n))
-
+    scaled = values / factor
+    codes_np = np.zeros(n, dtype=np.int64)
+    total = _grouped_score_sums(
+        scaled.reshape(-1, 1), codes_np, n_groups=1, xp=xp
+    )[0, 0]
+    return xp.where(dangerous, total, total / float(n))
 
 def _scaled_group_means(values, groups, xp):
-    """Return group means without globally magnitude-normalizing safe groups."""
-    sizes = group_sizes(groups, xp=xp)
-    limit = np.finfo(np.float64).max / sizes
-    dangerous = (xp.abs(values) > limit) * 1.0
-    dangerous_group = group_means(dangerous, groups, xp=xp) > 0.0
-    factor = xp.where(dangerous_group, sizes, xp.ones_like(sizes))
-    # For a dangerous group of size m, group_means(values / m) * m equals
-    # the original mean but the same-sign accumulation is bounded by max|x|.
-    return group_means(values / factor, groups, xp=xp) * factor
+    """Return cancellation- and range-safe group means aligned to observations.
 
+    Statistical accumulation remains on the selected backend.  Only compact
+    integer group codes cross to the host, matching the panel metadata policy.
+    Groups whose same-sign sum could overflow are divided by their own count
+    before reduction; safe groups remain on their original scale so finite
+    subnormal means are not erased.  The covariance layer's magnitude-tiered
+    grouped sum then preserves low-order terms through large cancellation.
+    """
+    from statgpu.panel._covariance import _grouped_score_sums
+
+    codes_raw = np.asarray(_to_numpy(groups), dtype=np.int64).ravel()
+    if codes_raw.shape[0] != int(values.shape[0]):
+        raise ValueError("groups must match the number of observations")
+    _labels, codes_np = np.unique(codes_raw, return_inverse=True)
+    n_groups = int(codes_np.max()) + 1 if codes_np.size else 0
+    if n_groups <= 0:
+        raise ValueError("group means require at least one observation")
+
+    counts_np = np.bincount(codes_np, minlength=n_groups).astype(np.float64)
+    codes = xp_asarray(
+        codes_np, dtype=xp.int64, xp=xp, ref_arr=values
+    )
+    counts = xp_asarray(
+        counts_np, dtype=xp.float64, xp=xp, ref_arr=values
+    )
+    sizes = counts[codes]
+    limit = float(np.finfo(np.float64).max) / sizes
+    dangerous_obs = (xp.abs(values) > limit) * 1.0
+    dangerous_aligned = group_means(dangerous_obs, groups, xp=xp) > 0.0
+    factor = xp.where(dangerous_aligned, sizes, xp.ones_like(sizes))
+
+    compact = _grouped_score_sums(
+        (values / factor).reshape(-1, 1),
+        codes_np,
+        n_groups=n_groups,
+        xp=xp,
+    )[:, 0]
+    aligned = compact[codes]
+    return xp.where(dangerous_aligned, aligned, aligned / sizes)
 
 def _demean_matrix(X, entity_codes, xp):
     out = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
