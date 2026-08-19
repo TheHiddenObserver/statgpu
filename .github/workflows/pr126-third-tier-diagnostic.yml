@@ -4,6 +4,9 @@ on:
   push:
     branches: [agent/panel-p1-stage-c-covariance]
 
+permissions:
+  contents: write
+
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -12,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
@@ -22,4 +26,16 @@ jobs:
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
       - name: Run third-tier diagnostic
-        run: python dev/validation/pr126_third_tier_torch_diagnostic.py
+        run: |
+          mkdir -p dev/validation/results
+          python dev/validation/pr126_third_tier_torch_diagnostic.py \
+            | tee dev/validation/results/pr126_third_tier_torch_diagnostic.txt
+      - name: Persist diagnostic and remove temporary runner
+        run: |
+          rm dev/validation/pr126_third_tier_torch_diagnostic.py
+          rm .github/workflows/pr126-third-tier-diagnostic.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: record PR126 third-tier Torch diagnostic"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
