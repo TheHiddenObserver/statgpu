@@ -1,0 +1,55 @@
+name: PR126 FE effect recovery review
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate-commit:
+    if: github.event.pull_request.number == 126
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install maintained Torch CPU environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" pytest
+          python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+      - name: Apply FE effect recovery fix
+        run: python dev/validation/pr126_fix_fe_effect_recovery.py
+      - name: Run targeted review gates
+        run: |
+          python -m pytest dev/tests/test_panel_stage_b_torch_cpu.py -q --tb=short
+          python -m pytest \
+            dev/tests/test_panel_stage_c_physical_runner_contract.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            dev/tests/test_panel_two_way_demean_scale.py \
+            -q --tb=short
+          python -m compileall -q statgpu dev/benchmarks dev/tests
+          git diff --check
+      - name: Remove temporary review scaffolding
+        run: |
+          rm -f dev/validation/pr126_fix_fe_effect_recovery.py
+          rm -f .github/workflows/pr126-fe-effect-recovery-review.yml
+          git diff --check
+      - name: Commit validated fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "fix: stabilize panel fixed-effect recovery"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
