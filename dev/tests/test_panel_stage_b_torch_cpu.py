@@ -584,6 +584,10 @@ def test_stage_c_torch_cpu_two_way_unsafe_cross_cancels_before_restore():
     np.testing.assert_allclose(actual, expected, rtol=4e-12, atol=0.0)
 
 def test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component():
+    # This case must be order-independent. The full maintained Torch file once
+    # exposed an Inf here after earlier multi-tier covariance reductions even
+    # though the same case passed in isolation. The rare row-level compensated
+    # fallback keeps estimator cancellation ahead of backend reduction rounding.
     amplitude = 2.0 ** 660
     middle = 2.0 ** 600
     tiny = 2.0 ** 350

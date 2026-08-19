@@ -392,6 +392,53 @@ def _stable_inclusion_exclusion(V1, V2, V12, xp):
 
 
 
+def _dyadic_float_terms(value: float):
+    """Return an exact finite-float coefficient as signed powers of two."""
+    value = float(value)
+    if not np.isfinite(value):
+        raise ValueError("expansion coefficient must be finite")
+    if value == 0.0:
+        return []
+    sign = -1.0 if value < 0.0 else 1.0
+    numerator, denominator = abs(value).as_integer_ratio()
+    denominator_shift = int(denominator).bit_length() - 1
+    powers = []
+    bit = 0
+    while numerator:
+        if numerator & 1:
+            powers.append(sign * (2.0 ** (bit - denominator_shift)))
+        numerator >>= 1
+        bit += 1
+    powers.reverse()
+    return powers
+
+
+def _two_sum_matrix(left, right):
+    summed = left + right
+    virtual_right = summed - left
+    error = (left - (summed - virtual_right)) + (right - virtual_right)
+    return summed, error
+
+
+def _twofold_matrix_sum(terms, xp):
+    """Accumulate row-level matrix terms with two compensated error streams."""
+    if not terms:
+        raise ValueError("at least one matrix term is required")
+    total = xp.zeros_like(terms[0])
+    correction = xp.zeros_like(total)
+    residual_correction = xp.zeros_like(total)
+    for term in terms:
+        total, error = _two_sum_matrix(total, term)
+        correction, second_error = _two_sum_matrix(correction, error)
+        residual_correction, third_error = _two_sum_matrix(
+            residual_correction, second_error
+        )
+        residual_correction = residual_correction + third_error
+    return _stable_matrix_expansion_sum(
+        [residual_correction, correction, total], xp
+    )
+
+
 def _stable_matrix_expansion_sum(terms, xp):
     """Sum finite matrix terms with a floating-point expansion.
 
@@ -795,24 +842,31 @@ def two_way_clustered_covariance(
 
             terms = []
 
+            def _append_scaled_row_term(term, coefficient):
+                for dyadic in _dyadic_float_terms(coefficient):
+                    terms.append(term * float(dyadic))
+
             def _append_component_terms(components, correction, sign):
                 coefficient = float(sign) * float(correction)
                 for i, left in enumerate(components):
-                    terms.append(
-                        _symmetrize(left.T @ left) * coefficient
-                    )
+                    for row in range(int(left.shape[0])):
+                        vector = left[row]
+                        outer = vector[:, None] * vector[None, :]
+                        _append_scaled_row_term(outer, coefficient)
                     for right in components[:i]:
-                        cross = left.T @ right
-                        terms.append((cross + cross.T) * coefficient)
+                        for row in range(int(left.shape[0])):
+                            cross = left[row, :, None] * right[row, None, :]
+                            _append_scaled_row_term(cross + cross.T, coefficient)
 
-            # Every component is now certified safe for its own row reduction.
-            # Keep the full CGM expansion across magnitude tiers, but perform
-            # each component-pair reduction as one BLAS/GPU matrix product rather
-            # than one Python-level outer-product launch per cluster row.
+            # This branch is already the rare multi-tier precision fallback.
+            # Keep row products out of signed BLAS reductions and decompose float
+            # debias corrections into exact dyadic factors; then accumulate all
+            # estimator-level terms with two compensated error streams. Ordinary
+            # single-tier/vectorized covariance paths are unchanged.
             _append_component_terms(work1, correction1, 1.0)
             _append_component_terms(work2, correction2, 1.0)
             _append_component_terms(work12, correction12, -1.0)
-            cov_work = _stable_matrix_expansion_sum(terms, xp)
+            cov_work = _twofold_matrix_sum(terms, xp)
     cov = _restore_influence_covariance(
         cov_work, common_scale, projection_scale, design_scale, xp
     )
