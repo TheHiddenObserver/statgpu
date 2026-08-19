@@ -42,13 +42,13 @@ jobs:
           observed_group = np.asarray(group_means(values, groups, xp=np))
           print('CURRENT_SCALED_MEAN', observed_mean)
           print('PRE_FIX_GROUP_MEAN', observed_group.tolist())
-          # An earlier staging pass already repaired the diagnostic-only mean.
-          # The remaining production blocker is the shared fit-space reduction.
           assert observed_mean == 1.0 / 3.0
           assert np.all(observed_group == 0.0)
           PY
-      - name: Apply shared reduction fix
-        run: python dev/validation/pr126_diagnostic_cancellation_fix_once.py
+      - name: Apply reviewed fixes
+        run: |
+          python dev/validation/pr126_diagnostic_cancellation_fix_once.py
+          python dev/validation/pr126_fmb_label_fix_once.py
       - name: Run new focused regressions
         run: |
           python -m pytest \
@@ -68,6 +68,7 @@ jobs:
       - name: Remove staging artifacts
         run: |
           rm -f dev/validation/pr126_diagnostic_cancellation_fix_once.py
+          rm -f dev/validation/pr126_fmb_label_fix_once.py
           rm -f .github/workflows/pr126-shared-reduction-review-fix.yml
       - name: Commit validated review fix
         shell: bash
