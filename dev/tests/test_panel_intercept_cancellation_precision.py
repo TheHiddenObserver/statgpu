@@ -19,7 +19,7 @@ def _fixture():
 def _assert_coefficients(model, amplitude):
     coef = np.asarray(model.coef_, dtype=np.float64).ravel()
     # The SVD basis itself is rounded, so the restored coefficient need not be
-    # bitwise identical to the binary representation of 1/3.  Keep the oracle at
+    # bitwise identical to the binary representation of 1/3. Keep the oracle at
     # a few float64 ulps; the historical cancellation bug returned exactly zero.
     np.testing.assert_allclose(
         coef[0], 1.0 / 3.0, rtol=4.0 * np.finfo(np.float64).eps, atol=0.0
@@ -50,12 +50,18 @@ def _random_effects_common_scale_loss_fixture(*, amplitude, tiny_within):
 
 
 def _random_effects_theta_rounding_fixture():
-    # The within/between residual ratio is about 1e-34.  Its square root is a
+    # The within/between residual ratio is about 1e-34. Its square root is a
     # representable ~1e-17 complement, while 1-complement rounds to theta == 1.
     return _random_effects_common_scale_loss_fixture(
         amplitude=1.0e17,
         tiny_within=1.0,
     )
+
+
+def _fit_random_effects_precision_case(X, y, entity):
+    # HC0 skips the nonrobust-only Hausman sample fingerprint so these tests
+    # isolate the Swamy-Arora/quasi-demeaning path being audited.
+    return RandomEffects(cov_type="hc0").fit(X, y, entity_ids=entity)
 
 
 def test_pooled_ols_preserves_cancellation_tail_in_automatic_intercept_numpy():
@@ -100,7 +106,7 @@ def test_random_effects_fails_closed_when_quasi_demeaning_discards_component_num
         FloatingPointError,
         match="quasi-demeaning exceeds the float64 component range",
     ):
-        RandomEffects().fit(X, y, entity_ids=entity)
+        _fit_random_effects_precision_case(X, y, entity)
 
 
 @pytest.mark.parametrize(
@@ -121,7 +127,7 @@ def test_random_effects_fails_closed_when_common_rss_scale_loses_within_variance
         FloatingPointError,
         match="variance-component scaling exceeds the float64 common-residual range",
     ):
-        RandomEffects().fit(X, y, entity_ids=entity)
+        _fit_random_effects_precision_case(X, y, entity)
 
 
 def test_random_effects_preserves_pre_rounded_theta_complement_for_loss_certificate_numpy():
@@ -130,7 +136,7 @@ def test_random_effects_preserves_pre_rounded_theta_complement_for_loss_certific
         FloatingPointError,
         match="quasi-demeaning exceeds the float64 component range",
     ):
-        RandomEffects().fit(X, y, entity_ids=entity)
+        _fit_random_effects_precision_case(X, y, entity)
 
 
 def test_torch_cpu_public_automatic_intercepts_match_numpy_cancellation_tail():
@@ -182,8 +188,8 @@ def test_torch_cpu_random_effects_precision_guards_match_numpy():
     ]
     for (X, y, entity), message in fixtures:
         with pytest.raises(FloatingPointError, match=message):
-            RandomEffects().fit(
+            _fit_random_effects_precision_case(
                 torch.as_tensor(X, dtype=torch.float64),
                 torch.as_tensor(y, dtype=torch.float64),
-                entity_ids=torch.as_tensor(entity, dtype=torch.int64),
+                torch.as_tensor(entity, dtype=torch.int64),
             )
