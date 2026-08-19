@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-08-19  
 > Switch: [Chinese](../../cn/panel/first-difference-ols.md)
 
 ## Overview
@@ -116,7 +116,9 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 When `time_ids` is supplied, duplicate observations for the same entity and time raise an error because the chronological difference would be ambiguous. Calendar gaps are left as gaps: statgpu differences adjacent observed rows and does not insert missing periods or rescale by elapsed time.
 
-If the differenced predictors are exactly collinear, fitted values can still be computed but the coefficient vector is not unique. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit. Invalid covariance choices or unavailable explicitly requested GPU backends also raise clear errors.
+The differenced regression uses the shared certified panel least-squares policy. Cancellation-sensitive response projections use the magnitude-tiered reduction path; if a nonzero coefficient is below the numerically certifiable float64 projection resolution and the candidate materially violates least-squares stationarity, `.fit()` raises `FloatingPointError` instead of returning a finite but unreliable coefficient. This is distinct from exact collinearity. If the differenced predictors are exactly collinear, fitted values can still be computed but the coefficient vector is not unique, so coefficient-level standard errors, tests, p-values, and confidence intervals are disabled.
+
+Legacy `rsquared` is also range-safe. When the physical subtraction $\Delta y-\overline{\Delta y}$ would overflow near the float64 boundary, the response and residual are placed on a common dimensionless centering scale before the scale-invariant $R^2$ ratio is formed. Ordinary-scale centering is unchanged. Invalid covariance choices or unavailable explicitly requested GPU backends raise clear errors.
 
 ## FAQ
 
@@ -128,7 +130,7 @@ If the differenced predictors are exactly collinear, fitted values can still be 
 
 We construct the identical differenced sample in `statsmodels==0.14.6` and compare coefficients plus HC0/HC2/HC3 covariance and standard errors. Coefficients use `rtol=5e-10, atol=5e-12`; covariance/BSE use `rtol=5e-9, atol=5e-11`. Shared covariance checks are listed in the [validation matrix](covariance.md#validation-matrix).
 
-GPU consistency is tested separately by comparing CuPy and Torch results with NumPy at default `rtol=5e-6, atol=5e-7`.
+GPU consistency is tested separately by comparing CuPy and Torch results with NumPy at default `rtol=5e-6, atol=5e-7`. The current exact-head physical gate additionally exercises shared coefficient-resolution fail-closed behavior and an extreme differenced-response case whose physical centering would exceed float64 range.
 
 ## References
 
