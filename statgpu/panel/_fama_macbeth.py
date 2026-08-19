@@ -25,6 +25,7 @@ from statgpu.panel._linalg import (
     panel_lstsq_deferred_rank,
     panel_lstsq_gram_certified_batched,
 )
+from statgpu.panel._reductions import stable_mean
 from statgpu.panel._utils import (
     _zero_safe_statistic_ratio,
     factorize_panel_labels,
@@ -205,9 +206,12 @@ def _certified_period_betas(
     for code in eligible_codes:
         rank = rank_by_code[code]
         if rank < k:
+            period_label = time_labels[code]
+            if isinstance(period_label, np.generic):
+                period_label = period_label.item()
             raise ValueError(
                 "FamaMacBeth requires full column rank in every retained period; "
-                f"retained time period {time_labels[code]!r} is rank deficient "
+                f"retained time period {period_label!r} is rank deficient "
                 f"(rank={rank}, columns={k})"
             )
 
@@ -454,23 +458,11 @@ class FamaMacBeth(BasePanelModel):
         if T < 2:
             raise ValueError("FamaMacBeth requires at least 2 time periods after filtering")
 
-        # Protect the T-term reduction with the minimum scale needed for
-        # overflow safety.  Magnitude-normalizing each coordinate can underflow
-        # a small but representable remainder when large period coefficients
-        # cancel (e.g. +1e154, -1e154, 1e-170).
-        if xp.__name__ == "torch":
-            beta_scale = xp.max(xp.abs(betas), dim=0).values
-        else:
-            beta_scale = xp.max(xp.abs(betas), axis=0)
-        reduction_limit = np.finfo(np.float64).max / float(T)
-        mean_scale = xp.where(
-            beta_scale > reduction_limit,
-            xp.full_like(beta_scale, float(T)),
-            xp.ones_like(beta_scale),
-        )
-        avg_beta = xp.sum(betas / mean_scale, axis=0) * (
-            mean_scale / float(T)
-        )
+        # Use the shared tiered mean so period order cannot erase a small
+        # representable coefficient between large cancelling periods. Ordinary
+        # same-scale inputs collapse to one tier; only risky dynamic ranges pay
+        # for additional magnitude components.
+        avg_beta = stable_mean(betas, xp)
         if not bool(_to_float_scalar(xp.all(xp.isfinite(avg_beta)))):
             raise ValueError(
                 "FamaMacBeth average coefficient is non-finite; the retained-period "

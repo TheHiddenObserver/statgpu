@@ -1,13 +1,27 @@
 import numpy as np
 import pytest
 
+from statgpu.panel import FamaMacBeth
 from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+from statgpu.panel._utils import group_means, within_transform
+
+
+def _to_numpy(value):
+    if hasattr(value, "detach"):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def test_shared_group_mean_preserves_small_term_after_huge_cancellation_numpy():
+    values = np.asarray([1.0e308, 1.0, -1.0e308], dtype=np.float64)
+    groups = np.zeros(3, dtype=np.int64)
+    actual = np.asarray(group_means(values, groups, xp=np))
+    np.testing.assert_allclose(actual, np.full(3, 1.0 / 3.0), rtol=0.0, atol=0.0)
 
 
 def test_scaled_mean_preserves_small_term_after_huge_cancellation_numpy():
     values = np.asarray([1.0e308, 1.0, -1.0e308], dtype=np.float64)
-    actual = float(_scaled_mean(values, np))
-    np.testing.assert_allclose(actual, 1.0 / 3.0, rtol=0.0, atol=0.0)
+    assert float(_scaled_mean(values, np)) == 1.0 / 3.0
 
 
 def test_scaled_group_means_preserve_small_term_after_huge_cancellation_numpy():
@@ -20,48 +34,74 @@ def test_scaled_group_means_preserve_small_term_after_huge_cancellation_numpy():
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=0.0)
 
 
-def test_scaled_mean_preserves_smallest_subnormal_numpy():
+def test_shared_group_mean_scales_at_exact_overflow_boundary_numpy():
+    value = float(np.finfo(np.float64).max / 3.0)
+    values = np.asarray([value, value, value], dtype=np.float64)
+    groups = np.zeros(3, dtype=np.int64)
+    actual = np.asarray(group_means(values, groups, xp=np))
+    assert np.all(np.isfinite(actual))
+    np.testing.assert_array_equal(actual, np.full(3, value))
+    np.testing.assert_array_equal(
+        np.asarray(within_transform(values, groups, xp=np)), np.zeros(3)
+    )
+
+
+def test_shared_group_mean_preserves_smallest_subnormal_numpy():
     tiny = np.nextafter(0.0, 1.0)
     values = np.asarray([tiny, tiny, tiny], dtype=np.float64)
-    actual = float(_scaled_mean(values, np))
-    assert actual == tiny
+    groups = np.zeros(3, dtype=np.int64)
+    actual = np.asarray(group_means(values, groups, xp=np))
+    assert np.all(actual == tiny)
+    assert float(_scaled_mean(values, np)) == tiny
 
 
-def test_scaled_group_means_preserve_smallest_subnormal_numpy():
-    tiny = np.nextafter(0.0, 1.0)
-    values = np.asarray([tiny, tiny, tiny, 1.0e308, 1.0e308], dtype=np.float64)
-    groups = np.asarray([0, 0, 0, 1, 1], dtype=np.int64)
-    actual = np.asarray(_scaled_group_means(values, groups, np))
-    assert np.all(actual[:3] == tiny)
-    np.testing.assert_allclose(actual[3:], np.asarray([1.0e308, 1.0e308]))
+def _multiscale_fmb_fixture():
+    x = np.asarray([-2.0, -0.5, 0.5, 2.0], dtype=np.float64)
+    intercepts = np.asarray([1.0e150, 1.0, -1.0e150], dtype=np.float64)
+    X = np.tile(x, intercepts.size)[:, None]
+    y = np.concatenate([np.full(x.size, value) for value in intercepts])
+    time = np.repeat(np.arange(intercepts.size), x.size)
+    return X, y, time
 
 
-def test_scaled_mean_and_group_means_preserve_cancellation_torch_cpu():
+def test_fama_macbeth_average_preserves_middle_period_after_large_cancellation_numpy():
+    X, y, time = _multiscale_fmb_fixture()
+    model = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+    np.testing.assert_allclose(float(model.coef_[0]), 1.0 / 3.0, rtol=2e-14, atol=0.0)
+
+
+def test_torch_cpu_group_mean_and_fmb_cancellation_match_numpy():
     torch = pytest.importorskip("torch")
-    values = torch.tensor(
-        [1.0e308, 1.0, -1.0e308, 5.0, 5.0, 5.0], dtype=torch.float64
-    )
-    groups = torch.tensor([7, 7, 7, 3, 3, 3], dtype=torch.int64)
-
-    mean = _scaled_mean(values[:3], torch)
-    grouped = _scaled_group_means(values, groups, torch)
-
-    assert mean.device.type == "cpu"
-    assert grouped.device.type == "cpu"
-    np.testing.assert_allclose(float(mean), 1.0 / 3.0, rtol=0.0, atol=0.0)
+    values = torch.tensor([1.0e308, 1.0, -1.0e308], dtype=torch.float64)
+    groups = torch.zeros(3, dtype=torch.int64)
+    grouped = group_means(values, groups, xp=torch)
     np.testing.assert_allclose(
-        grouped.detach().cpu().numpy(),
-        np.asarray([1.0 / 3.0] * 3 + [5.0] * 3, dtype=np.float64),
-        rtol=0.0,
-        atol=0.0,
+        _to_numpy(grouped), np.full(3, 1.0 / 3.0), rtol=0.0, atol=0.0
+    )
+    assert float(_scaled_mean(values, torch)) == 1.0 / 3.0
+
+    X, y, time = _multiscale_fmb_fixture()
+    expected = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+    actual = FamaMacBeth(bandwidth=0).fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(time, dtype=torch.int64),
+    )
+    np.testing.assert_allclose(
+        _to_numpy(actual.coef_), np.asarray(expected.coef_), rtol=3e-13, atol=0.0
     )
 
 
-def test_scaled_mean_and_group_means_preserve_subnormal_torch_cpu():
+def test_torch_cpu_huge_constant_response_remains_degenerate():
     torch = pytest.importorskip("torch")
-    tiny = np.nextafter(0.0, 1.0)
-    values = torch.tensor([tiny, tiny, tiny], dtype=torch.float64)
-    groups = torch.tensor([0, 0, 0], dtype=torch.int64)
-    assert float(_scaled_mean(values, torch)) == tiny
-    grouped = _scaled_group_means(values, groups, torch)
-    assert np.all(grouped.detach().cpu().numpy() == tiny)
+    x_period = np.linspace(-1.0, 1.0, 16, dtype=np.float64)
+    X = np.tile(x_period, 4)[:, None]
+    y = np.full(X.shape[0], 6.0e307, dtype=np.float64)
+    time = np.repeat(np.arange(4), x_period.size)
+    model = FamaMacBeth(bandwidth=0).fit(
+        torch.as_tensor(X, dtype=torch.float64),
+        torch.as_tensor(y, dtype=torch.float64),
+        time_ids=torch.as_tensor(time, dtype=torch.int64),
+    )
+    assert model.fit_statistics_.rsquared_overall == 0.0
+    assert model.fit_statistics_.metadata["degenerate_total_ss"]["overall"] is True

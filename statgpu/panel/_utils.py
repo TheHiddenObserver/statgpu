@@ -40,6 +40,11 @@ from statgpu.backends import (
     _to_numpy,
 )
 
+from statgpu.panel._reductions import (
+    stable_group_means_preindexed,
+    stable_reduction_flags,
+)
+
 
 @dataclass
 class PanelSummary:
@@ -192,29 +197,40 @@ def _remap_to_contiguous(groups, xp):
     """Remap group labels to contiguous 0..n_groups-1 indices."""
     groups_np = _to_numpy(groups).ravel()
     unique_labels, indices_np = np.unique(groups_np, return_inverse=True)
+    indices_np = indices_np.astype(np.int64, copy=False)
     n_groups = len(unique_labels)
     indices = xp_asarray(indices_np, dtype=xp.int64, xp=xp, ref_arr=groups)
-    return indices, n_groups, unique_labels
-
+    return indices, n_groups, unique_labels, indices_np
 
 def _prepare_group_projection(groups, xp):
-    """Factorize one group vector once and cache backend-native projection data."""
+    """Factorize one group vector once and cache backend/host projection codes."""
     groups = xp_asarray(groups, xp=xp).ravel()
-    idx, n_groups, labels = _remap_to_contiguous(groups, xp)
+    idx, n_groups, labels, codes_np = _remap_to_contiguous(groups, xp)
     ones = xp_ones(int(idx.shape[0]), xp.float64, xp, idx)
     counts = _scatter_add(xp, idx, ones, n_groups)
     inv_counts = 1.0 / xp_maximum(counts, 1.0, xp)
-    return idx, n_groups, labels, counts, inv_counts
+    return idx, n_groups, labels, counts, inv_counts, codes_np
 
+def _compact_group_means(values, projection, xp, *, stable=None):
+    idx, n_groups, _labels, counts, inv_counts, codes_np = projection
+    if stable is None:
+        stable = bool(stable_reduction_flags(values, xp)[0])
+    if stable:
+        return stable_group_means_preindexed(
+            values,
+            idx,
+            codes_np,
+            n_groups=int(n_groups),
+            counts=counts,
+            xp=xp,
+        )
 
-def _compact_group_means(values, projection, xp):
-    idx, n_groups, _labels, counts, inv_counts = projection
-    # A group sum can overflow even though its mean is finite. Only groups whose
-    # raw accumulation is at risk are divided by their own count before the
-    # scatter-add; safe groups keep the historical arithmetic exactly.
+    # Common path: one scatter-add, with only the range scaling needed to avoid
+    # an overflowing same-sign group sum. Equality is included because
+    # DBL_MAX / m can round upward enough that m equal terms overflow.
     counts_aligned = counts[idx]
     limit = np.finfo(np.float64).max / xp_maximum(counts_aligned, 1.0, xp)
-    dangerous_obs = (xp.abs(values) > limit) * 1.0
+    dangerous_obs = (xp.abs(values) >= limit) * 1.0
     dangerous_count = _scatter_add(xp, idx, dangerous_obs, n_groups)
     factor_compact = xp.where(
         dangerous_count > 0.0, counts, xp.ones_like(counts)
@@ -223,18 +239,18 @@ def _compact_group_means(values, projection, xp):
     sums = _scatter_add(xp, idx, values / factor_aligned, n_groups)
     return sums * inv_counts * factor_compact
 
-
-def _within_preindexed(values, projection, xp):
-    means = _compact_group_means(values, projection, xp)
+def _within_preindexed(values, projection, xp, *, stable=None):
+    means = _compact_group_means(values, projection, xp, stable=stable)
     return values - means[projection[0]]
 
-
-def _within_matrix_preindexed(matrix, projection, xp):
+def _within_matrix_preindexed(matrix, projection, xp, *, stable_columns=None):
     result = matrix.copy() if hasattr(matrix, "copy") else matrix.clone()
     for j in range(int(matrix.shape[1])):
-        result[:, j] = _within_preindexed(matrix[:, j], projection, xp)
+        stable = None if stable_columns is None else bool(stable_columns[j])
+        result[:, j] = _within_preindexed(
+            matrix[:, j], projection, xp, stable=stable
+        )
     return result
-
 
 def _column_max_abs(matrix, xp):
     if getattr(xp, "__name__", "") == "torch":
@@ -242,15 +258,15 @@ def _column_max_abs(matrix, xp):
     return xp.max(xp.abs(matrix), axis=0)
 
 
-def _matrix_group_mean_max(matrix, projection, xp):
-    values = xp_zeros(
-        int(matrix.shape[1]), matrix.dtype, xp, matrix
-    )
+def _matrix_group_mean_max(matrix, projection, xp, *, stable_columns=None):
+    values = xp_zeros(int(matrix.shape[1]), matrix.dtype, xp, matrix)
     for j in range(int(matrix.shape[1])):
-        means = _compact_group_means(matrix[:, j], projection, xp)
+        stable = None if stable_columns is None else bool(stable_columns[j])
+        means = _compact_group_means(
+            matrix[:, j], projection, xp, stable=stable
+        )
         values[j] = xp.max(xp.abs(means))
     return values
-
 
 def _convergence_allowance(current_scale, level_scale, tol, xp):
     """Return relative tolerance unless a transformed direction is numerically absorbed."""
@@ -393,7 +409,7 @@ def make_group_dummies(groups, xp=None):
 
     groups = xp_asarray(groups, xp=xp).ravel()
     n = len(groups)
-    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
+    idx, n_groups, _, _codes_np = _remap_to_contiguous(groups, xp)
     D = xp_zeros((n, n_groups), xp.float64, xp, groups)
     if getattr(xp, "__name__", "") == "torch":
         row_idx = xp.arange(
@@ -456,6 +472,14 @@ def demean_variables(
     )
     y_level_scale = xp.max(xp.abs(y_d))
     X_level_scale = _column_max_abs(X_d, xp)
+    stability_matrix = (
+        xp.cat([y_d[:, None], X_d], dim=1)
+        if getattr(xp, '__name__', '') == 'torch'
+        else xp.concatenate([y_d[:, None], X_d], axis=1)
+    )
+    stability_flags = stable_reduction_flags(stability_matrix, xp)
+    y_stable = bool(stability_flags[0])
+    X_stable = stability_flags[1:]
 
     entity_projection = (
         None if entity_ids is None else _prepare_group_projection(entity_ids, xp)
@@ -465,8 +489,10 @@ def demean_variables(
     )
 
     if entity_projection is not None:
-        y_d = _within_preindexed(y_d, entity_projection, xp)
-        X_d = _within_matrix_preindexed(X_d, entity_projection, xp)
+        y_d = _within_preindexed(y_d, entity_projection, xp, stable=y_stable)
+        X_d = _within_matrix_preindexed(
+            X_d, entity_projection, xp, stable_columns=X_stable
+        )
 
     if time_projection is None:
         return y_d, X_d
@@ -474,27 +500,39 @@ def demean_variables(
     # A one-way time effect is an exact single projection. Alternation is needed
     # only when both entity and time effects are present.
     if entity_projection is None:
-        y_d = _within_preindexed(y_d, time_projection, xp)
-        X_d = _within_matrix_preindexed(X_d, time_projection, xp)
+        y_d = _within_preindexed(y_d, time_projection, xp, stable=y_stable)
+        X_d = _within_matrix_preindexed(
+            X_d, time_projection, xp, stable_columns=X_stable
+        )
         return y_d, X_d
 
     converged = False
     final_metric = float("inf")
     for _iteration in range(max_iter):
-        y_d = _within_preindexed(y_d, entity_projection, xp)
-        X_d = _within_matrix_preindexed(X_d, entity_projection, xp)
-        y_d = _within_preindexed(y_d, time_projection, xp)
-        X_d = _within_matrix_preindexed(X_d, time_projection, xp)
+        y_d = _within_preindexed(y_d, entity_projection, xp, stable=y_stable)
+        X_d = _within_matrix_preindexed(
+            X_d, entity_projection, xp, stable_columns=X_stable
+        )
+        y_d = _within_preindexed(y_d, time_projection, xp, stable=y_stable)
+        X_d = _within_matrix_preindexed(
+            X_d, time_projection, xp, stable_columns=X_stable
+        )
 
-        entity_y_means = _compact_group_means(y_d, entity_projection, xp)
-        time_y_means = _compact_group_means(y_d, time_projection, xp)
+        entity_y_means = _compact_group_means(
+            y_d, entity_projection, xp, stable=y_stable
+        )
+        time_y_means = _compact_group_means(
+            y_d, time_projection, xp, stable=y_stable
+        )
         y_violation = xp.maximum(
             xp.max(xp.abs(entity_y_means)), xp.max(xp.abs(time_y_means))
         )
         entity_X_violation = _matrix_group_mean_max(
-            X_d, entity_projection, xp
+            X_d, entity_projection, xp, stable_columns=X_stable
         )
-        time_X_violation = _matrix_group_mean_max(X_d, time_projection, xp)
+        time_X_violation = _matrix_group_mean_max(
+            X_d, time_projection, xp, stable_columns=X_stable
+        )
         X_violation = xp.maximum(entity_X_violation, time_X_violation)
 
         y_scale = xp.max(xp.abs(y_d))
@@ -546,20 +584,21 @@ def _recover_two_way_effects(
     values = xp_asarray(values, dtype=xp.float64, xp=xp).ravel()
     entity_projection = _prepare_group_projection(entity_ids, xp)
     time_projection = _prepare_group_projection(time_ids, xp)
-    e_idx, n_entities, _e_labels, _e_counts, _e_inv = entity_projection
-    t_idx, n_times, _t_labels, t_counts, _t_inv = time_projection
+    e_idx, n_entities, _e_labels, _e_counts, _e_inv, _e_codes_np = entity_projection
+    t_idx, n_times, _t_labels, t_counts, _t_inv, _t_codes_np = time_projection
     entity_effects = xp_zeros(n_entities, xp.float64, xp, values)
     time_effects = xp_zeros(n_times, xp.float64, xp, values)
     level_scale = xp.max(xp.abs(values))
+    stable = bool(stable_reduction_flags(values, xp)[0])
 
     converged = False
     final_metric = float("inf")
     for _iteration in range(int(max_iter)):
         entity_effects = _compact_group_means(
-            values - time_effects[t_idx], entity_projection, xp
+            values - time_effects[t_idx], entity_projection, xp, stable=stable
         )
         time_effects = _compact_group_means(
-            values - entity_effects[e_idx], time_projection, xp
+            values - entity_effects[e_idx], time_projection, xp, stable=stable
         )
 
         shift = xp.sum(time_effects * t_counts) / float(values.shape[0])
@@ -567,8 +606,8 @@ def _recover_two_way_effects(
         entity_effects = entity_effects + shift
 
         residual = values - entity_effects[e_idx] - time_effects[t_idx]
-        entity_means = _compact_group_means(residual, entity_projection, xp)
-        time_means = _compact_group_means(residual, time_projection, xp)
+        entity_means = _compact_group_means(residual, entity_projection, xp, stable=stable)
+        time_means = _compact_group_means(residual, time_projection, xp, stable=stable)
         violation = xp.maximum(
             xp.max(xp.abs(entity_means)), xp.max(xp.abs(time_means))
         )
