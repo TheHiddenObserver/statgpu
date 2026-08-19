@@ -1,0 +1,75 @@
+name: PR126 diagnostic cancellation review fix
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr126-diagnostic-cancellation-review-fix
+  cancel-in-progress: true
+
+jobs:
+  reproduce-fix-validate:
+    if: github.event.pull_request.head.ref == 'agent/panel-p1-stage-c-covariance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Reproduce finite cancellation bug
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+
+          values = np.asarray([1.0e308, 1.0, -1.0e308], dtype=np.float64)
+          mean = float(_scaled_mean(values, np))
+          grouped = np.asarray(
+              _scaled_group_means(values, np.asarray([0, 0, 0]), np)
+          )
+          print("PRE_FIX_MEAN", mean)
+          print("PRE_FIX_GROUP_MEAN", grouped.tolist())
+          assert mean == 0.0
+          assert np.all(grouped == 0.0)
+          PY
+      - name: Apply reviewed fix
+        run: python dev/validation/pr126_diagnostic_cancellation_fix_once.py
+      - name: Run focused diagnostic and covariance regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_diagnostic_cancellation_precision.py \
+            dev/tests/test_panel_stage_b_hausman_covariance.py \
+            dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_panel_stage_c_covariance.py \
+            -q --tb=short
+      - name: Run maintained panel test surface
+        run: python -m pytest dev/tests/test_panel*.py -q --tb=short
+      - name: Validate syntax and diff
+        run: |
+          python -m compileall -q statgpu/panel dev/tests/test_panel_diagnostic_cancellation_precision.py
+          git diff --check
+      - name: Remove staging artifacts
+        run: |
+          rm -f dev/validation/pr126_diagnostic_cancellation_fix_once.py
+          rm -f .github/workflows/pr126-diagnostic-cancellation-review-fix.yml
+      - name: Commit validated review fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: preserve diagnostic cancellation precision"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
