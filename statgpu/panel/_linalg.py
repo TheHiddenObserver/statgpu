@@ -64,7 +64,6 @@ def _svd_inverse_factors(X, xp):
 
 def _lstsq_working_design(X, xp, *, batched: bool):
     """Return an SVD working design plus its positive rescaling factor."""
-    namespace = getattr(xp, "__name__", "")
     target = float(np.sqrt(np.finfo(np.float64).tiny))
 
     def _factor(max_abs):
@@ -139,8 +138,18 @@ def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
     return Vh.T @ projected
 
 
-def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
-    """Mark an unresolved coordinate only when LS stationarity also fails badly."""
+def _resolution_failure_2d(
+    X_work,
+    U,
+    Vh,
+    inverse_values,
+    y,
+    params_work,
+    xp,
+    *,
+    ignore_first=False,
+):
+    """Mark an unresolved nonzero coordinate only when LS stationarity fails badly."""
     n = max(1, int(X_work.shape[0]))
     eps = float(np.finfo(np.float64).eps)
     y_scale = xp.max(xp.abs(y))
@@ -151,12 +160,16 @@ def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
     projection_scale = _axis_sum(
         xp.abs(X_pinv_work) * y_unit_abs.reshape(1, -1), xp, 1
     )
-    params_unit = xp.abs(params_work) / safe_y_scale
+    params_abs = xp.abs(params_work)
+    params_unit = params_abs / safe_y_scale
     resolution_risk = (
         (y_scale > 0.0)
+        & (params_abs > 0.0)
         & (projection_scale > 0.0)
         & (params_unit <= float(64.0 * n * eps) * projection_scale)
     )
+    if int(resolution_risk.shape[0]) > 0:
+        resolution_risk[0] = resolution_risk[0] & (~ignore_first)
 
     residual_unit = y / safe_y_scale - X_work @ (params_work / safe_y_scale)
     column_scale = _axis_max(xp.abs(X_work), xp, 0)
@@ -171,7 +184,17 @@ def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
     return xp.any(resolution_risk & stationarity_bad)
 
 
-def _resolution_failure_batched(X_work, U, Vh, inverse_values, y, params_work, xp):
+def _resolution_failure_batched(
+    X_work,
+    U,
+    Vh,
+    inverse_values,
+    y,
+    params_work,
+    xp,
+    *,
+    ignore_first=None,
+):
     """Vectorized form of the narrow SVD resolution/stationarity certificate."""
     if getattr(y, "ndim", None) != 2:
         return xp.zeros_like(X_work[:, 0, 0], dtype=bool)
@@ -186,12 +209,16 @@ def _resolution_failure_batched(X_work, U, Vh, inverse_values, y, params_work, x
     )
     y_unit_abs = xp.abs(y) / safe_y_scale[:, None]
     projection_scale = _axis_sum(xp.abs(X_pinv_work) * y_unit_abs[:, None, :], xp, 2)
-    params_unit = xp.abs(params_work) / safe_y_scale[:, None]
+    params_abs = xp.abs(params_work)
+    params_unit = params_abs / safe_y_scale[:, None]
     resolution_risk = (
         (y_scale[:, None] > 0.0)
+        & (params_abs > 0.0)
         & (projection_scale > 0.0)
         & (params_unit <= float(64.0 * n * eps) * projection_scale)
     )
+    if ignore_first is not None and int(resolution_risk.shape[1]) > 0:
+        resolution_risk[:, 0] = resolution_risk[:, 0] & (~ignore_first)
 
     residual_unit = y / safe_y_scale[:, None] - xp.matmul(
         X_work, (params_work / safe_y_scale[:, None])[..., None]
@@ -209,7 +236,14 @@ def _resolution_failure_batched(X_work, U, Vh, inverse_values, y, params_work, x
 
 
 def _gram_resolution_risk_batched(
-    safe_gram, transpose, rhs_input, params, certified, xp
+    safe_gram,
+    transpose,
+    rhs_input,
+    params,
+    certified,
+    xp,
+    *,
+    ignore_first=None,
 ):
     """Bound coordinate error from Gram-RHS rounding without mixing unrelated scales."""
     if getattr(rhs_input, "ndim", None) != 3 or int(rhs_input.shape[-1]) != 1:
@@ -222,7 +256,8 @@ def _gram_resolution_risk_batched(
         identity = xp.eye(k, dtype=safe_gram.dtype, device=safe_gram.device)
     else:
         identity = xp.eye(k, dtype=safe_gram.dtype)
-    inverse_gram = xp.linalg.solve(safe_gram, identity)
+    identity_batch = xp.broadcast_to(identity, safe_gram.shape)
+    inverse_gram = xp.linalg.solve(safe_gram, identity_batch)
     rhs_abs = xp.matmul(xp.abs(transpose), xp.abs(rhs_input))[..., 0]
     rhs_error = float(64.0 * n * eps) * rhs_abs
     beta_error = xp.matmul(xp.abs(inverse_gram), rhs_error[..., None])[..., 0]
@@ -231,6 +266,8 @@ def _gram_resolution_risk_batched(
         & (xp.abs(params) > 0.0)
         & (xp.abs(params) <= beta_error)
     )
+    if ignore_first is not None and int(risky.shape[1]) > 0:
+        risky[:, 0] = risky[:, 0] & (~ignore_first)
     return ~_axis_all(~risky, xp, 1)
 
 
@@ -329,7 +366,14 @@ def panel_lstsq(X, y, xp):
     failure = xp.zeros_like(rank_backend, dtype=bool)
     if not stable:
         failure = _resolution_failure_2d(
-            X_work, U, Vh, inverse_values, y_work, params_work, xp
+            X_work,
+            U,
+            Vh,
+            inverse_values,
+            y_work,
+            params_work,
+            xp,
+            ignore_first=has_constant,
         )
 
     restore = xp.zeros_like(params_work)
@@ -337,8 +381,6 @@ def panel_lstsq(X, y, xp):
     params = (params_work + restore) * design_scale
     finite = xp.all(xp.isfinite(params))
 
-    # Keep one explicit scalar status extraction: nonnegative values are the
-    # numerical rank; negative sentinels distinguish resolution/nonfinite errors.
     status = xp.where(failure, xp.full_like(rank_backend, -(k + 1)), rank_backend)
     status = xp.where(finite, status, xp.full_like(rank_backend, -2 * (k + 1)))
     status_value = int(_to_float_scalar(status))
@@ -368,7 +410,14 @@ def panel_lstsq_deferred_rank(X, y, xp):
     y_work = y - anchor
     params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=False)
     failure = _resolution_failure_2d(
-        X_work, U, Vh, inverse_values, y_work, params_work, xp
+        X_work,
+        U,
+        Vh,
+        inverse_values,
+        y_work,
+        params_work,
+        xp,
+        ignore_first=has_constant,
     )
     rank_backend = xp.where(failure, xp.zeros_like(rank_backend), rank_backend)
     restore = xp.zeros_like(params_work)
@@ -461,12 +510,11 @@ def panel_lstsq_gram_certified_batched(
             params_centered,
             certified,
             xp,
+            ignore_first=has_constant,
         )
         certified = certified & (~resolution_risk)
         restore = xp.zeros_like(params_centered)
-        restore[:, 0] = _safe_constant_restore(
-            anchor, constant_value, has_constant, xp
-        )
+        restore[:, 0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
         params = params_centered + restore
     return params, certified
 
@@ -502,13 +550,18 @@ def panel_lstsq_batched(X, y, xp):
     if getattr(y_work, "ndim", None) == 2:
         params_work = params_work[..., 0]
         failure = _resolution_failure_batched(
-            X_work, U, Vh, inverse_values, y_work, params_work, xp
+            X_work,
+            U,
+            Vh,
+            inverse_values,
+            y_work,
+            params_work,
+            xp,
+            ignore_first=has_constant,
         )
         ranks = xp.where(failure, xp.zeros_like(ranks), ranks)
         restore = xp.zeros_like(params_work)
-        restore[:, 0] = _safe_constant_restore(
-            anchor, constant_value, has_constant, xp
-        )
+        restore[:, 0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
         params = (params_work + restore) * design_scale[:, None]
     else:
         params = params_work * design_scale[:, None, None]
