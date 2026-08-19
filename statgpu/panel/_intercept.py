@@ -12,6 +12,23 @@ from statgpu.panel._linalg import (
 from statgpu.panel._reductions import grouped_score_sums, stable_reduction_flags
 
 
+def _svd_response_solution(U, Vh, inverse_values, y, xp, *, stable: bool):
+    """Return the working-design SVD solution for one response vector."""
+    weighted_u_t = inverse_values.reshape(-1, 1) * U.T
+    if not bool(stable):
+        projected = weighted_u_t @ y
+    else:
+        products = weighted_u_t.T * y.reshape(-1, 1)
+        codes_np = np.zeros(int(products.shape[0]), dtype=np.int64)
+        projected = grouped_score_sums(
+            products,
+            codes_np,
+            n_groups=1,
+            xp=xp,
+        )[0]
+    return Vh.T @ projected
+
+
 def panel_lstsq_stable_response(X, y, xp):
     """Use the shared SVD policy with a cancellation-safe response projection.
 
@@ -29,26 +46,96 @@ def panel_lstsq_stable_response(X, y, xp):
 
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
     U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
-    weighted_u_t = inverse_values.reshape(-1, 1) * U.T
-    products = weighted_u_t.T * y.reshape(-1, 1)
-    codes_np = np.zeros(int(products.shape[0]), dtype=np.int64)
-    projected = grouped_score_sums(
-        products,
-        codes_np,
-        n_groups=1,
-        xp=xp,
-    )[0]
-    return (Vh.T @ projected) * design_scale, rank
+    params_work = _svd_response_solution(
+        U,
+        Vh,
+        inverse_values,
+        y,
+        xp,
+        stable=True,
+    )
+    return params_work * design_scale, rank
 
 
 def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
-    """Stable-response solve for callers that construct an exact constant column."""
+    """Solve a panel regression with a known exact constant direction safely.
+
+    A large common response level is harmless statistically when the design
+    contains an exact constant, but a generic SVD response projection can mix
+    that level into otherwise small slope directions through rounded singular
+    vectors.  For full-rank designs, remove a range-safe midrange response
+    anchor along the exact constant direction before the shared SVD projection,
+    then restore the constant coefficient.  The SVD factors, rank cutoff, design
+    scaling, and slope parameterization are unchanged.
+
+    Rank-deficient fits deliberately keep the historical minimum-norm SVD
+    contract: shifting a response along one of several redundant constant
+    directions would otherwise choose a different coefficient representation.
+    """
     constant_index = int(constant_index)
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     if not 0 <= constant_index < int(X.shape[1]):
         raise ValueError("constant_index is out of range")
-    return panel_lstsq_stable_response(X, y, xp)
+
+    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
+    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
+    k = int(X.shape[1])
+
+    # Preserve the established minimum-norm representation for every
+    # rank-deficient design, including duplicated constant columns.
+    if int(rank) < k:
+        stable = bool(stable_reduction_flags(y, xp)[0])
+        params_work = _svd_response_solution(
+            U,
+            Vh,
+            inverse_values,
+            y,
+            xp,
+            stable=stable,
+        )
+        return params_work * design_scale, rank
+
+    constant_column = X[:, constant_index]
+    constant_value = constant_column[0]
+    exact_constant = (
+        xp.all(constant_column == constant_value)
+        & xp.isfinite(constant_value)
+        & (constant_value != 0.0)
+    )
+    if not bool(_to_float_scalar(exact_constant)):
+        raise ValueError(
+            "constant_index must identify one finite nonzero exact constant column"
+        )
+
+    # 0.5*min + 0.5*max avoids the overflow in (min+max)/2 and places the
+    # anchor between the finite response extrema.  Subtracting this common
+    # level therefore reduces dynamic range without inventing an out-of-range
+    # response difference, including mixed-sign near-DBL_MAX inputs.
+    y_min = xp.min(y)
+    y_max = xp.max(y)
+    response_anchor = 0.5 * y_min + 0.5 * y_max
+    centered_y = y - response_anchor
+
+    centered_stable = bool(stable_reduction_flags(centered_y, xp)[0])
+    params_work = _svd_response_solution(
+        U,
+        Vh,
+        inverse_values,
+        centered_y,
+        xp,
+        stable=centered_stable,
+    )
+    params = params_work * design_scale
+
+    restore = xp.zeros_like(params)
+    restore[constant_index] = response_anchor / constant_value
+    params = params + restore
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(params)))):
+        raise FloatingPointError(
+            "exact-constant least-squares coefficient restoration exceeds float64 range"
+        )
+    return params, rank
 
 
 def guarded_random_effects_common_sumsquares(left, right, xp):
@@ -113,7 +200,9 @@ def _quasi_component_loss(within, between, direct, candidate, xp):
         material_disagreement = xp.any(direct != candidate)
     else:
         difference_scale = xp.max(xp.abs(direct - candidate)) / global_scale
-        material_disagreement = difference_scale > float(np.sqrt(np.finfo(np.float64).eps))
+        material_disagreement = difference_scale > float(
+            np.sqrt(np.finfo(np.float64).eps)
+        )
 
     return xp.any(
         between_product_lost
