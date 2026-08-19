@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/first-difference-ols.md)
 
 ## Overview
@@ -116,7 +116,9 @@ model = FirstDifferenceOLS().fit(
 
 提供 `time_ids` 时，如果同一 entity 在同一 time 出现重复观测，模型会报错，因为无法唯一确定时间排序后的差分。calendar gap 会原样保留：statgpu 只对相邻的已观测 rows 做差，不会插入缺失时期，也不会按经过的时间长度重新缩放差分。
 
-如果差分后的 predictors 精确共线，fitted values 仍可能计算，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval。不支持的 covariance choice 或不可用的显式 GPU backend 同样会直接报错。
+差分回归使用共享的 certified panel least-squares policy。若 response projection 存在 cancellation risk，会进入 magnitude-tiered reduction；若某个非零 coefficient 已低于 float64 projection 可可靠分辨的尺度，并且候选解显著违反 least-squares stationarity，`.fit()` 会抛出 `FloatingPointError`，而不是返回有限但不可靠的 coefficient。这与精确共线不同：若差分 predictors 精确共线，fitted values 仍可能得到，但 coefficient vector 不唯一，因此 coefficient-level standard error、检验、p-value 与 confidence interval 会关闭。
+
+legacy `rsquared` 也采用 range-safe centering。当物理 subtraction $\Delta y-\overline{\Delta y}$ 在 float64 边界附近会溢出时，response 与 residual 会先放到同一个 dimensionless centering scale，再形成 scale-invariant 的 $R^2$ ratio；普通尺度下的 centering 不变。不支持的 covariance choice 或不可用的显式 GPU backend 仍直接报错。
 
 ## FAQ
 
@@ -128,7 +130,7 @@ model = FirstDifferenceOLS().fit(
 
 我们在 `statsmodels==0.14.6` 中构造完全相同的差分样本，再比较 coefficient 以及 HC0/HC2/HC3 covariance 和 standard error。coefficient 使用 `rtol=5e-10, atol=5e-12`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。共享 covariance 检查见 [validation matrix](covariance.md#validation-matrix)。
 
-GPU 一致性单独验证：CuPy 与 Torch 分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`。
+GPU 一致性单独验证：CuPy 与 Torch 分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`。当前 exact-head physical gate 还会验证 shared coefficient-resolution fail-closed，以及一个物理 centering 会超出 float64 range 的极端 differenced-response case。
 
 ## 参考（References）
 
