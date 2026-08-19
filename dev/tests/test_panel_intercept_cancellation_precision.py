@@ -40,7 +40,15 @@ def _assert_coefficients(model, amplitude):
 
 def _assert_common_level_slope(model, expected_slope):
     coef = np.asarray(model.coef_, dtype=np.float64).ravel()
-    np.testing.assert_allclose(coef[1], expected_slope, rtol=0.0, atol=0.0)
+    # SVD basis vectors are rounded even though the analytic slope is exactly 16.
+    # A few eps preserve that statistical oracle while separating it by many
+    # orders of magnitude from the historical result near 14.
+    np.testing.assert_allclose(
+        coef[1],
+        expected_slope,
+        rtol=8.0 * np.finfo(np.float64).eps,
+        atol=0.0,
+    )
 
 
 def _random_effects_component_loss_fixture():
