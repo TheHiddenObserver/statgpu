@@ -1,7 +1,7 @@
 # BetweenOLS
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-08-19  
 > Switch: [Chinese](../../cn/panel/between-ols.md)
 
 ## Overview
@@ -115,6 +115,8 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 ## Numerical and Strict Behavior
 
+The automatically added intercept uses the same cancellation-sensitive SVD response-projection guard as `PooledOLS`. Ordinary entity-mean responses keep the historical SVD/BLAS solve; magnitude/cancellation-sensitive responses retain the same SVD, rank cutoff, design scaling, and minimum-norm solution while replacing only the response projection reduction with the shared magnitude-tiered reducer. Legacy between $R^2$ centering also uses a range-safe working scale when physical `y-mean(y)` subtraction would overflow.
+
 If the entity-level regressors are exactly collinear, statgpu can still compute fitted values using a least-squares solution, but the coefficient vector is not unique. For that fit, coefficient-level standard errors, tests, p-values, and confidence intervals are disabled rather than being computed from an arbitrary coefficient representation.
 
 Invalid covariance choices raise an error. Likewise, an explicitly requested GPU backend must be available; statgpu does not silently run the model on CPU instead.
@@ -129,7 +131,7 @@ Invalid covariance choices raise an error. Likewise, an explicitly requested GPU
 
 We compare `BetweenOLS` with `statsmodels==0.14.6` after constructing the same entity-mean regression in both packages. The checks cover coefficients and HC0/HC2/HC3 standard errors/covariances: coefficients use `rtol=5e-10, atol=5e-12`, and covariance/BSE use `rtol=5e-9, atol=5e-11`. Shared covariance checks are summarized in the [validation matrix](covariance.md#validation-matrix).
 
-GPU consistency is tested separately by comparing CuPy and Torch results with NumPy using the Stage-C physical validation tolerance `rtol=5e-6, atol=5e-7`.
+GPU consistency is tested separately by comparing CuPy and Torch results with NumPy using the Stage-C physical validation tolerance `rtol=5e-6, atol=5e-7`. The dedicated `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate additionally verifies the cancellation-sensitive entity-mean intercept path on both physical GPU backends.
 
 ## References
 
