@@ -34,9 +34,7 @@ def _random_effects_component_loss_fixture():
     return X, y, entity
 
 
-def _random_effects_common_scale_loss_fixture():
-    amplitude = 1.0e308
-    tiny_within = 1.0e-100
+def _random_effects_common_scale_loss_fixture(*, amplitude, tiny_within):
     y = np.asarray(
         [amplitude, amplitude, tiny_within, -tiny_within, -amplitude, -amplitude],
         dtype=np.float64,
@@ -44,6 +42,15 @@ def _random_effects_common_scale_loss_fixture():
     X = np.ones((y.size, 1), dtype=np.float64)
     entity = np.repeat(np.arange(3, dtype=np.int64), 2)
     return X, y, entity
+
+
+def _random_effects_theta_rounding_fixture():
+    # The within/between residual ratio is about 1e-34.  Its square root is a
+    # representable ~1e-17 complement, while 1-complement rounds to theta == 1.
+    return _random_effects_common_scale_loss_fixture(
+        amplitude=1.0e17,
+        tiny_within=1.0,
+    )
 
 
 def test_pooled_ols_preserves_cancellation_tail_in_automatic_intercept_numpy():
@@ -91,11 +98,32 @@ def test_random_effects_fails_closed_when_quasi_demeaning_discards_component_num
         RandomEffects().fit(X, y, entity_ids=entity)
 
 
-def test_random_effects_fails_closed_when_common_rss_scale_erases_within_variance_numpy():
-    X, y, entity = _random_effects_common_scale_loss_fixture()
+@pytest.mark.parametrize(
+    ("amplitude", "tiny_within"),
+    [
+        (1.0e308, 1.0e-100),  # common normalization itself erases the residual
+        (1.0e100, 1.0e-100),  # normalized residual survives but its square does not
+    ],
+)
+def test_random_effects_fails_closed_when_common_rss_scale_loses_within_variance_numpy(
+    amplitude, tiny_within
+):
+    X, y, entity = _random_effects_common_scale_loss_fixture(
+        amplitude=amplitude,
+        tiny_within=tiny_within,
+    )
     with pytest.raises(
         FloatingPointError,
         match="variance-component scaling exceeds the float64 common-residual range",
+    ):
+        RandomEffects().fit(X, y, entity_ids=entity)
+
+
+def test_random_effects_preserves_pre_rounded_theta_complement_for_loss_certificate_numpy():
+    X, y, entity = _random_effects_theta_rounding_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="quasi-demeaning exceeds the float64 component range",
     ):
         RandomEffects().fit(X, y, entity_ids=entity)
 
@@ -121,29 +149,36 @@ def test_torch_cpu_public_automatic_intercepts_match_numpy_cancellation_tail():
     _assert_coefficients(between, amplitude)
 
 
-def test_torch_cpu_random_effects_quasi_demean_component_loss_fails_closed():
+def test_torch_cpu_random_effects_precision_guards_match_numpy():
     torch = pytest.importorskip("torch")
-    X, y, entity = _random_effects_component_loss_fixture()
-    with pytest.raises(
-        FloatingPointError,
-        match="quasi-demeaning exceeds the float64 component range",
-    ):
-        RandomEffects().fit(
-            torch.as_tensor(X, dtype=torch.float64),
-            torch.as_tensor(y, dtype=torch.float64),
-            entity_ids=torch.as_tensor(entity, dtype=torch.int64),
-        )
-
-
-def test_torch_cpu_random_effects_common_rss_scale_loss_fails_closed():
-    torch = pytest.importorskip("torch")
-    X, y, entity = _random_effects_common_scale_loss_fixture()
-    with pytest.raises(
-        FloatingPointError,
-        match="variance-component scaling exceeds the float64 common-residual range",
-    ):
-        RandomEffects().fit(
-            torch.as_tensor(X, dtype=torch.float64),
-            torch.as_tensor(y, dtype=torch.float64),
-            entity_ids=torch.as_tensor(entity, dtype=torch.int64),
-        )
+    fixtures = [
+        (
+            _random_effects_component_loss_fixture(),
+            "quasi-demeaning exceeds the float64 component range",
+        ),
+        (
+            _random_effects_common_scale_loss_fixture(
+                amplitude=1.0e308,
+                tiny_within=1.0e-100,
+            ),
+            "variance-component scaling exceeds the float64 common-residual range",
+        ),
+        (
+            _random_effects_common_scale_loss_fixture(
+                amplitude=1.0e100,
+                tiny_within=1.0e-100,
+            ),
+            "variance-component scaling exceeds the float64 common-residual range",
+        ),
+        (
+            _random_effects_theta_rounding_fixture(),
+            "quasi-demeaning exceeds the float64 component range",
+        ),
+    ]
+    for (X, y, entity), message in fixtures:
+        with pytest.raises(FloatingPointError, match=message):
+            RandomEffects().fit(
+                torch.as_tensor(X, dtype=torch.float64),
+                torch.as_tensor(y, dtype=torch.float64),
+                entity_ids=torch.as_tensor(entity, dtype=torch.int64),
+            )
