@@ -366,3 +366,11 @@ def test_stage_c_runner_registers_fixed_effect_map_range_audit():
         assert token in audit_source
     main_source = inspect.getsource(_MOD.main)
     assert '"fixed_effect_map_range": _fixed_effect_map_range_audit(backend)' in main_source
+
+
+
+def test_stage_c_runner_covers_pooling_f_column_cancellation_mean():
+    source = inspect.getsource(_MOD._diagnostic_scale_audit)
+    assert "_scaled_column_means" in source
+    assert "1.0e308" in source
+    assert "1.0 / 6.0" in source

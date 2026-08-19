@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from statgpu.panel import FamaMacBeth
+from statgpu.panel._diagnostic_context import _scaled_column_means
 from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
 from statgpu.panel._reductions import grouped_score_sums
 from statgpu.panel._utils import group_means, within_transform
@@ -154,3 +155,23 @@ def test_torch_cpu_huge_constant_response_remains_degenerate():
     )
     assert model.fit_statistics_.rsquared_overall == 0.0
     assert model.fit_statistics_.metadata["degenerate_total_ss"]["overall"] is True
+
+
+
+def test_pooling_f_column_mean_preserves_cancellation_tail_numpy():
+    values = np.asarray(
+        [[1.0e308], [1.0], [-1.0e308], [0.0], [0.0], [0.0]],
+        dtype=np.float64,
+    )
+    actual = np.asarray(_scaled_column_means(values, np), dtype=np.float64)
+    np.testing.assert_allclose(actual, np.asarray([1.0 / 6.0]), rtol=0.0, atol=0.0)
+
+
+def test_pooling_f_column_mean_preserves_cancellation_tail_torch_cpu():
+    torch = pytest.importorskip("torch")
+    values = torch.as_tensor(
+        [[1.0e308], [1.0], [-1.0e308], [0.0], [0.0], [0.0]],
+        dtype=torch.float64,
+    )
+    actual = _to_numpy(_scaled_column_means(values, torch))
+    np.testing.assert_allclose(actual, np.asarray([1.0 / 6.0]), rtol=0.0, atol=0.0)

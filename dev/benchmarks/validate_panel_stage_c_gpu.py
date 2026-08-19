@@ -31,6 +31,7 @@ from statgpu.panel import (
 )
 from statgpu.panel._covariance import _grouped_score_sums, hac_covariance, ols_covariance, two_way_clustered_covariance
 from statgpu.panel._diagnostic_context import (
+    _scaled_column_means,
     bp_lm_from_residuals,
     pooling_f_from_level_arrays,
 )
@@ -565,6 +566,25 @@ def _diagnostic_scale_audit(backend):
         xp = torch
     else:
         raise ValueError(backend)
+
+    # The pooled-null design mean must preserve a low-order column contribution
+    # beside huge cancellation, matching the shared scalar/group mean policy.
+    cancellation_values_np = np.asarray(
+        [[1.0e308], [1.0], [-1.0e308], [0.0], [0.0], [0.0]],
+        dtype=np.float64,
+    )
+    if backend == "cupy":
+        cancellation_values = xp.asarray(cancellation_values_np)
+    elif backend == "torch":
+        cancellation_values = xp.as_tensor(cancellation_values_np, dtype=xp.float64)
+    else:
+        cancellation_values = cancellation_values_np
+    cancellation_column_mean = _array(
+        _scaled_column_means(cancellation_values, xp)
+    )
+    np.testing.assert_allclose(
+        cancellation_column_mean, np.asarray([1.0 / 6.0]), rtol=0.0, atol=0.0
+    )
 
     # Pooling F: naive column/scalar means overflow after this common scaling,
     # while the centered regression and scale-invariant statistic are finite.

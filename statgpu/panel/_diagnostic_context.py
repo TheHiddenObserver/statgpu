@@ -197,23 +197,8 @@ def explicit_constant_column(X, *, xp):
 
 
 def _scaled_column_means(values, xp):
-    """Return column means without overflowing a finite reduction."""
-    n = int(values.shape[0])
-    if getattr(xp, "__name__", "") == "torch":
-        max_abs = xp.max(xp.abs(values), dim=0).values
-    else:
-        max_abs = xp.max(xp.abs(values), axis=0)
-    limit = np.finfo(np.float64).max / float(max(n, 1))
-    factor = xp.where(
-        max_abs > limit,
-        xp.full_like(max_abs, float(n)),
-        xp.ones_like(max_abs),
-    )
-    if getattr(xp, "__name__", "") == "torch":
-        summed = xp.sum(values / factor, dim=0)
-    else:
-        summed = xp.sum(values / factor, axis=0)
-    return summed * (factor / float(n))
+    """Return cancellation-safe column means on the shared panel reducer."""
+    return _scaled_mean(values, xp)
 
 
 def pooling_f_from_level_arrays(
