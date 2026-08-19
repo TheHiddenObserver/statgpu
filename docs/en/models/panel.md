@@ -1,7 +1,7 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-08-16  
+> Last updated: 2026-08-19  
 > Switch: [Chinese](../../cn/models/panel.md)
 
 `statgpu.panel` provides six panel-data estimators. These estimators should not be read as six unrelated data-generating processes. Several of them can be applied to the same underlying panel model but use different assumptions or different sources of variation to identify the coefficient of interest.
@@ -22,5 +22,7 @@ Each estimator page separates the **statistical model and identification assumpt
 Shared statistical definitions are collected in [covariance](../panel/covariance.md), [fit statistics](../panel/fit-statistics.md), and [diagnostics](../panel/diagnostics.md).
 
 All six estimators support NumPy CPU, CuPy CUDA, and Torch CUDA through the `device` parameter. Each estimator page includes CPU/GPU and formula examples. If `device="cuda"` or `device="torch"` is requested explicitly but that backend is unavailable, statgpu raises an error instead of silently switching to CPU.
+
+The shared panel least-squares policy is also fail-closed at extreme float64 coefficient scales. Cancellation-sensitive response projections use the maintained magnitude-tiered reducer, and a full-rank exact leading constant can remove a common response level before solving. If a non-constant coefficient is below the numerically certifiable resolution of the float64 projection and the resulting candidate materially violates least-squares stationarity, statgpu raises `FloatingPointError` rather than publishing a finite but unreliable coefficient. Fama-MacBeth applies the same principle period by period; a period coefficient-resolution failure is reported separately from genuine rank deficiency. Ordinary well-resolved fits retain the existing SVD/Gram paths.
 
 Panel fits are transactional. A new `fit()` attempt invalidates the previous fitted and inference state before work begins, and any exception during the new fit clears partially written outputs before it is re-raised. After a failed refit, `predict()` and `summary()` therefore report the estimator as unfitted rather than exposing coefficients or inference from either the previous data or an incomplete new fit. Formula-based prediction is also row-preserving: if Patsy would drop a prediction row because a modeled value is missing, or if a formula transformation produces NaN/Inf, prediction fails clearly instead of returning a shorter or non-finite result.
