@@ -56,43 +56,49 @@ def _two_sum(left, right):
     return summed, residual
 
 
-def grouped_score_sums(
-    scores,
-    codes_np,
-    *,
-    n_groups: int,
-    xp,
-    return_compensation: bool = False,
-    return_components: bool = False,
-):
-    """Sum grouped float64 scores while preserving recursive magnitude tiers.
-
-    Magnitude separation happens before any range scaling.  Only the current
-    tier is divided by its group count when its same-sign scatter reduction can
-    overflow, so a much smaller representable cancellation remainder is never
-    destroyed merely because another tier contains near-DBL_MAX observations.
-    """
+def _validate_group_reduction_inputs(scores, codes_np, *, n_groups: int, xp):
     codes_np = np.asarray(codes_np, dtype=np.int64).ravel()
     if codes_np.shape[0] != int(scores.shape[0]):
         raise ValueError("group codes must match the number of score rows")
     if int(n_groups) <= 0:
         raise ValueError("at least one group is required")
-    if return_compensation and return_components:
-        raise ValueError(
-            "return_compensation and return_components are mutually exclusive"
-        )
     codes = xp_asarray(codes_np, dtype=xp.int64, xp=xp, ref_arr=scores)
     counts_np = np.bincount(codes_np, minlength=int(n_groups)).astype(np.float64)
     counts = xp_asarray(
         counts_np, dtype=xp.float64, xp=xp, ref_arr=scores
     ).reshape(-1, 1)
+    return codes_np, codes, counts
+
+
+def _grouped_tier_components(
+    scores,
+    codes_np,
+    codes,
+    counts,
+    *,
+    n_groups: int,
+    xp,
+    target: str,
+):
+    """Return high/error components for grouped sums or grouped means.
+
+    Magnitude separation happens before range scaling. For a sum, a risky tier
+    is divided by its group count and restored after signed accumulation. For a
+    mean, a risky tier is already on its final mean scale after that division;
+    a safe tier is summed first and divided by the group count afterwards. This
+    keeps collectively representable subnormal tails from being erased by a
+    whole-group predivision performed only because another tier is huge.
+    """
+    if target not in {"sum", "mean"}:
+        raise ValueError("target must be 'sum' or 'mean'")
+
     split_ratio = xp.minimum(
         counts * float(8.0 * np.finfo(np.float64).eps),
         xp.full_like(counts, 0.25),
     )
-
     remaining = scores
     tiers = []
+
     for _ in range(128):
         tier_max = _group_abs_max(
             remaining, codes, codes_np, n_groups=int(n_groups), xp=xp
@@ -103,21 +109,28 @@ def grouped_score_sums(
         )
         main = xp.where(tail_mask, xp.zeros_like(remaining), remaining)
 
-        # Protect only this magnitude tier from same-sign scatter overflow.
-        # Keeping the factor tier-local is essential: uniformly scaling all
-        # scores would underflow an unrelated low-order tail before it reaches
-        # the next tier.
         main_max = _group_abs_max(
             main, codes, codes_np, n_groups=int(n_groups), xp=xp
         )
         limit = float(np.finfo(np.float64).max) / counts
-        tier_factor = xp.where(main_max > limit, counts, xp.ones_like(main_max))
-        main_work = main / tier_factor[codes]
+        dangerous = main_max >= limit
+        work_factor = xp.where(dangerous, counts, xp.ones_like(main_max))
+        main_work = main / work_factor[codes]
         positive_out, negative_out = _signed_parts(
             main_work, codes, codes_np, n_groups=int(n_groups), xp=xp
         )
         tier_sum, tier_error = _two_sum(positive_out, negative_out)
-        tiers.append((tier_sum * tier_factor, tier_error * tier_factor))
+
+        if target == "sum":
+            output_factor = work_factor
+        else:
+            output_factor = xp.where(
+                dangerous,
+                xp.ones_like(counts),
+                1.0 / counts,
+            )
+        tiers.append((tier_sum * output_factor, tier_error * output_factor))
+
         if not bool(_to_float_scalar(xp.any(tail_mask))):
             break
         remaining = xp.where(tail_mask, remaining, xp.zeros_like(remaining))
@@ -125,13 +138,10 @@ def grouped_score_sums(
         raise RuntimeError(
             "grouped score cancellation exceeded the float64 tier budget"
         )
+    return tiers
 
-    if return_components:
-        components = []
-        for tier_sum, tier_error in tiers:
-            components.extend((tier_sum, tier_error))
-        return components
 
+def _collapse_tier_components(tiers, xp, *, return_compensation: bool = False):
     def _collapse(parts):
         total = xp.zeros_like(tiers[0][0])
         correction = xp.zeros_like(total)
@@ -154,6 +164,59 @@ def grouped_score_sums(
     return summed + error
 
 
+def grouped_score_sums(
+    scores,
+    codes_np,
+    *,
+    n_groups: int,
+    xp,
+    return_compensation: bool = False,
+    return_components: bool = False,
+):
+    """Sum grouped float64 scores while preserving recursive magnitude tiers."""
+    if return_compensation and return_components:
+        raise ValueError(
+            "return_compensation and return_components are mutually exclusive"
+        )
+    codes_np, codes, counts = _validate_group_reduction_inputs(
+        scores, codes_np, n_groups=int(n_groups), xp=xp
+    )
+    tiers = _grouped_tier_components(
+        scores,
+        codes_np,
+        codes,
+        counts,
+        n_groups=int(n_groups),
+        xp=xp,
+        target="sum",
+    )
+    if return_components:
+        components = []
+        for tier_sum, tier_error in tiers:
+            components.extend((tier_sum, tier_error))
+        return components
+    return _collapse_tier_components(
+        tiers, xp, return_compensation=return_compensation
+    )
+
+
+def grouped_score_means(scores, codes_np, *, n_groups: int, xp):
+    """Return grouped float64 means with tier-local range protection."""
+    codes_np, codes, counts = _validate_group_reduction_inputs(
+        scores, codes_np, n_groups=int(n_groups), xp=xp
+    )
+    tiers = _grouped_tier_components(
+        scores,
+        codes_np,
+        codes,
+        counts,
+        n_groups=int(n_groups),
+        xp=xp,
+        target="mean",
+    )
+    return _collapse_tier_components(tiers, xp)
+
+
 def stable_mean(values, xp):
     """Return an axis-0 mean without avoidable overflow or lost cancellation."""
     original_ndim = int(values.ndim)
@@ -161,20 +224,11 @@ def stable_mean(values, xp):
     if int(matrix.ndim) != 2 or int(matrix.shape[0]) <= 0:
         raise ValueError("stable_mean requires a non-empty one- or two-dimensional array")
     n = int(matrix.shape[0])
-    max_abs = _column_abs_max(matrix, xp)
-    limit = float(np.finfo(np.float64).max) / float(n)
-    dangerous = max_abs >= float(limit)
-    factor = xp.where(
-        dangerous,
-        xp.full_like(max_abs, float(n)),
-        xp.ones_like(max_abs),
-    )
-    working = matrix / factor[None, :]
     codes_np = np.zeros(n, dtype=np.int64)
-    total = grouped_score_sums(
-        working, codes_np, n_groups=1, xp=xp
-    )[0]
-    mean = xp.where(dangerous, total, total / float(n))
+    mean = grouped_score_means(matrix, codes_np, n_groups=1, xp=xp)[0]
+
+    # Exactly constant finite columns have exactly that mean. Preserve the input
+    # value rather than introducing an avoidable divide/multiply rounding step.
     first = matrix[0]
     if _is_torch(xp):
         constant = xp.all(matrix == first[None, :], dim=0)
@@ -194,30 +248,16 @@ def stable_group_means_preindexed(
     xp,
 ):
     """Return compact group means with cancellation-safe tiered accumulation."""
+    del counts  # counts are reconstructed once inside the shared reducer.
     values_2d = values.reshape(-1, 1)
     codes_np = np.asarray(codes_np, dtype=np.int64).ravel()
-    counts_col = counts.reshape(-1, 1)
-    max_abs = _group_abs_max(
-        values_2d, codes, codes_np, n_groups=int(n_groups), xp=xp
-    )
-    limit = float(np.finfo(np.float64).max) / counts_col
-    dangerous = max_abs >= limit
-    factor = xp.where(dangerous, counts_col, xp.ones_like(max_abs))
-    working = values_2d / factor[codes]
-    total = grouped_score_sums(
-        working, codes_np, n_groups=int(n_groups), xp=xp
+    mean = grouped_score_means(
+        values_2d, codes_np, n_groups=int(n_groups), xp=xp
     )[:, 0]
-    mean = xp.where(
-        dangerous[:, 0],
-        total,
-        total / counts,
-    )
 
-    # Preserve an exactly constant group exactly.  This matters for degenerate
-    # TSS/within transformations: repeated finite constants should not acquire a
-    # synthetic residual solely from reduction order.
-    group_min = xp.full_like(counts, float("inf"))
-    group_max = xp.full_like(counts, float("-inf"))
+    # Preserve exactly constant groups exactly, including huge repeated values.
+    group_min = xp.full_like(mean, float("inf"))
+    group_max = xp.full_like(mean, float("-inf"))
     if hasattr(group_min, "scatter_reduce_"):
         group_min.scatter_reduce_(0, codes, values, reduce="amin", include_self=True)
         group_max.scatter_reduce_(0, codes, values, reduce="amax", include_self=True)
@@ -234,7 +274,7 @@ def stable_group_means_preindexed(
 def stable_reduction_flags(matrix, xp):
     """Return host boolean flags for columns needing tiered group reduction.
 
-    One packed transfer classifies all columns.  Ordinary columns keep the
+    One packed transfer classifies all columns. Ordinary columns keep the
     historical one-scatter fast path; only columns whose dynamic range can hide
     a recoverable float64 component, or whose same-sign reduction can overflow,
     use the tiered path during iterative fixed-effect projections.
