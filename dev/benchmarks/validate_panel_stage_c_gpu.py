@@ -418,6 +418,49 @@ def _two_way_effect_normalization_overflow_audit(backend):
         "max_abs_reconstruction_error": _max_abs(reconstructed, values_np),
     }
 
+
+def _common_scale_product_range_guard_audit(backend):
+    amplitude = 1.0e308
+    tiny = 1.0e-100
+    X_np = np.full((4, 1), 0.25, dtype=np.float64)
+    resid_np = np.asarray([-amplitude, tiny, amplitude, tiny], dtype=np.float64)
+    cluster1_np = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2_np = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    dummy_time = np.arange(4, dtype=np.int64)
+    X, resid, cluster1, _time = _to_backend(
+        X_np, resid_np, cluster1_np, dummy_time, backend
+    )
+    if backend == "numpy":
+        xp = np
+        cluster2 = cluster2_np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+        cluster2 = cp.asarray(cluster2_np)
+    elif backend == "torch":
+        import torch
+        xp = torch
+        cluster2 = torch.as_tensor(cluster2_np, dtype=torch.int64)
+    else:
+        raise ValueError(backend)
+    try:
+        two_way_clustered_covariance(
+            X, resid, cluster1, cluster2, xp=xp
+        )
+    except FloatingPointError as exc:
+        if "common-scale product range" not in str(exc):
+            raise
+    else:
+        raise AssertionError(
+            f"{backend}: common-scale product underflow did not fail closed"
+        )
+    return {
+        "status": "success",
+        "backend": backend,
+        "representable_exact_meat": 4.0 * tiny * tiny,
+        "failed_closed": True,
+    }
+
 def _nonfinite_covariance_guard_audit(backend):
     X_np = np.column_stack([np.ones(6), np.arange(6.0)])
     resid_np = np.linspace(-0.3, 0.4, 6)
@@ -1955,6 +1998,7 @@ def main():
             "projection_created_dynamic_range": _projection_created_dynamic_range_audit(backend),
             "fixed_effect_recovery_cancellation": _fixed_effect_recovery_cancellation_audit(backend),
             "two_way_effect_normalization_overflow": _two_way_effect_normalization_overflow_audit(backend),
+            "common_scale_product_range_guard": _common_scale_product_range_guard_audit(backend),
             "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }

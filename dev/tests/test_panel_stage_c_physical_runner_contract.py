@@ -335,3 +335,20 @@ def test_stage_c_runner_registers_two_way_effect_normalization_overflow_audit():
         '"two_way_effect_normalization_overflow": _two_way_effect_normalization_overflow_audit(backend)'
         in main_source
     )
+
+
+
+def test_stage_c_runner_registers_common_scale_product_range_guard():
+    audit_source = inspect.getsource(_MOD._common_scale_product_range_guard_audit)
+    for token in (
+        "1.0e308",
+        "1.0e-100",
+        "common-scale product range",
+        "failed_closed",
+    ):
+        assert token in audit_source
+    main_source = inspect.getsource(_MOD.main)
+    assert (
+        '"common_scale_product_range_guard": _common_scale_product_range_guard_audit(backend)'
+        in main_source
+    )

@@ -703,3 +703,17 @@ def test_stage_c_torch_cpu_two_way_effect_normalization_avoids_weight_overflow()
     np.testing.assert_allclose(
         reconstructed.detach().cpu().numpy(), values_np, rtol=0.0, atol=0.0
     )
+
+
+
+def test_stage_c_torch_cpu_two_way_common_scale_product_underflow_fails_closed():
+    amplitude = 1.0e308
+    tiny = 1.0e-100
+    X = torch.full((4, 1), 0.25, dtype=torch.float64)
+    resid = torch.as_tensor([-amplitude, tiny, amplitude, tiny], dtype=torch.float64)
+    cluster1 = torch.as_tensor([0, 0, 1, 1], dtype=torch.int64)
+    cluster2 = torch.as_tensor([0, 1, 0, 1], dtype=torch.int64)
+    with pytest.raises(FloatingPointError, match="common-scale product range"):
+        two_way_clustered_covariance(
+            X, resid, cluster1, cluster2, xp=torch
+        )

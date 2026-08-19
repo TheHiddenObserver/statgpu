@@ -512,6 +512,42 @@ def _component_row_reduction_needs_expansion(component_sets, xp) -> bool:
 
 
 
+def _row_min_nonzero(values, xp):
+    absolute = xp.abs(values)
+    sentinel = xp.full_like(absolute, float("inf"))
+    nonzero = xp.where(absolute > 0.0, absolute, sentinel)
+    if _is_torch(xp):
+        return xp.min(nonzero, dim=1).values
+    return xp.min(nonzero, axis=1)
+
+
+def _common_scale_product_range_lost(component_sets, xp) -> bool:
+    """Return whether a nonzero row product underflows on the common scale.
+
+    Multi-tier two-way covariance must put estimator components on one working
+    scale before inclusion-exclusion. A component can survive that division as
+    a nonzero subnormal while its self/cross product is already below the
+    smallest float64 subnormal. In that case silently evaluating the Gram would
+    discard a potentially recoverable final covariance contribution after the
+    larger estimator terms cancel, so the current float64 representation must
+    fail closed.
+    """
+    minimum = float(np.nextafter(0.0, 1.0))
+    risk = None
+    for components in component_sets:
+        row_minima = [_row_min_nonzero(component, xp) for component in components]
+        for i, left_min in enumerate(row_minima):
+            for right_min in row_minima[: i + 1]:
+                active = xp.isfinite(left_min) & xp.isfinite(right_min)
+                # Division avoids materializing the underflowing product itself.
+                threshold = minimum / right_min
+                local = xp.any(active & (left_min < threshold))
+                risk = local if risk is None else (risk | local)
+    if risk is None:
+        return False
+    return bool(_to_float_scalar(risk))
+
+
 def _retier_component_for_safe_gram(component, xp):
     """Split one grouped component into globally Gram-safe magnitude tiers.
 
@@ -842,6 +878,12 @@ def two_way_clustered_covariance(
             work1 = working_components[:n1]
             work2 = working_components[n1:n1 + n2]
             work12 = working_components[n1 + n2:]
+
+            if _common_scale_product_range_lost((work1, work2, work12), xp):
+                raise FloatingPointError(
+                    "two-way cluster score expansion exceeds the float64 "
+                    "common-scale product range"
+                )
 
             terms = []
 

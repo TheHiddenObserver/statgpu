@@ -78,7 +78,9 @@ $$
 
 对极端但仍有限的 score，grouped reduction 只在同号 partial sum 存在溢出风险的 group/coordinate 上使用 group-size working scale，并先分别累计正项与负项，再做最终 cancellation。shared residual-covariance 路径还会把 tiny-design scale 的恢复推迟到 covariance reduction 之后：working-SVD projection coordinate 只有在其与最大 residual 的乘积可能溢出时才做最小必要缩放，而 residual vector 本身不会被全局 magnitude normalization。one-way cluster score 与 Driscoll-Kraay period score 都先完成 grouping，再对 Gram product 使用刚好足以避免溢出的 per-coordinate working scale；已经安全的普通路径与 subnormal-design 路径不做额外 normalization，因此巨大 observation 旁边仍可表示的小 group/period contribution 不会被无关的全局尺度抹掉。和一般 float64 线性代数一样，这并不承诺在上游已经发生灾难性病态 cancellation 后恢复任意微小 remainder。
 
-双向 clustering 将两个 one-way cluster covariance 相加，再减去 paired cluster labels 对应的 covariance。三个 grouped-score component 都在恢复物理尺度之前形成；如果一个 clustering dimension 嵌套在另一个 dimension 中，statgpu 比较的是两者诱导的 partition 是否等价，而不是任意 integer code 是否逐元素相同，并在 working space 中代数消去相同的 marginal/intersection component。非嵌套情形则让三个 component 共用同一个最小 Gram working scale 后再做 inclusion-exclusion：
+双向 clustering 将两个 one-way cluster covariance 相加，再减去 paired cluster labels 对应的 covariance。三个 grouped-score component 都在恢复物理尺度之前形成；如果一个 clustering dimension 嵌套在另一个 dimension 中，statgpu 比较的是两者诱导的 partition 是否等价，而不是任意 integer code 是否逐元素相同，并在 working space 中代数消去相同的 marginal/intersection component。非嵌套情形则让三个 component 共用同一个最小 Gram working scale 后再做 inclusion-exclusion。如果这个 common score scale 虽然仍能把每个 grouped component 保持为非零，却会使某个数学上非零的 component self/cross product 在 inclusion-exclusion 之前先下溢为 0，statgpu 会显式抛出 `FloatingPointError`，而不会静默丢掉该项并报告零 covariance。这是当前 float64 common-Gram 表示的明确 working-range 边界。
+
+此时 estimator 仍定义为
 
 $$
 \widehat V_{1,2}=\widehat V_1+\widehat V_2-\widehat V_{12}.

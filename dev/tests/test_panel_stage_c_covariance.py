@@ -778,3 +778,21 @@ def test_two_way_extreme_many_groups_retiers_before_vectorized_gram(monkeypatch)
     # The fallback complexity is tied to magnitude tiers, not 256 intersection
     # rows.  This fixture previously produced roughly one thousand row terms.
     assert max(observed_term_counts) <= 30
+
+
+
+def test_two_way_clustered_covariance_fails_closed_on_common_scale_product_underflow():
+    amplitude = 1.0e308
+    tiny = 1.0e-100
+    X = np.full((4, 1), 0.25, dtype=np.float64)
+    resid = np.asarray([-amplitude, tiny, amplitude, tiny], dtype=np.float64)
+    cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+
+    # With influence rows equal to resid, CGM gives exactly 4*tiny**2, which is
+    # representable. A single common value scale, however, cannot represent the
+    # low-low product beside the 1e308 tier. Never silently publish zero.
+    expected_meat = 4.0 * tiny * tiny
+    assert expected_meat > 0.0 and np.isfinite(expected_meat)
+    with pytest.raises(FloatingPointError, match="common-scale product range"):
+        two_way_clustered_covariance(X, resid, cluster1, cluster2)
