@@ -67,14 +67,15 @@ def _quasi_component_loss(within, between, direct, candidate, xp):
     candidate_nonfinite = finite_components & (~xp.isfinite(candidate))
 
     comparison_scale = xp.maximum(xp.abs(direct), xp.abs(candidate))
-    tolerance = (
-        4096.0 * float(np.finfo(np.float64).eps)
-        * xp.maximum(comparison_scale, xp.full_like(comparison_scale, float(np.finfo(np.float64).tiny)))
+    safe_scale = xp.maximum(
+        comparison_scale,
+        xp.full_like(comparison_scale, float(np.finfo(np.float64).tiny)),
     )
+    relative_difference = xp.abs(direct / safe_scale - candidate / safe_scale)
     material_disagreement = (
         xp.isfinite(direct)
         & xp.isfinite(candidate)
-        & (xp.abs(direct - candidate) > tolerance)
+        & (relative_difference > 4096.0 * float(np.finfo(np.float64).eps))
     )
     return xp.any(
         between_product_lost
@@ -93,6 +94,8 @@ def guarded_random_effects_quasi_demean(
     X_within,
     theta,
     xp,
+    *,
+    one_minus_theta=None,
 ):
     """Materialize the historical RE transform, failing closed on component loss.
 
@@ -103,8 +106,12 @@ def guarded_random_effects_quasi_demean(
     equivalent component decomposition only as a certificate. If multiplication,
     addition, or catastrophic direct/decomposed disagreement loses information,
     raise rather than publish a finite but incorrect RandomEffects fit.
+
+    ``one_minus_theta`` may be supplied from the original positive square-root
+    variance ratio. That preserves a nonzero complement even when ``1-root`` has
+    already rounded to an exact ``theta == 1.0``.
     """
-    one_minus = 1.0 - theta
+    one_minus = 1.0 - theta if one_minus_theta is None else one_minus_theta
 
     y_between = one_minus * y_bar
     y_candidate = y_within + y_between
