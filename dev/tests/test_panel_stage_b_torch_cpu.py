@@ -717,3 +717,32 @@ def test_stage_c_torch_cpu_two_way_common_scale_product_underflow_fails_closed()
         two_way_clustered_covariance(
             X, resid, cluster1, cluster2, xp=torch
         )
+
+
+
+def test_stage_c_torch_cpu_fe_prediction_avoids_centered_map_overflow():
+    amplitude = 1.0e308
+    entity = np.asarray([0] + [1] * 10, dtype=np.int64)
+    X = np.concatenate(([0.0], np.linspace(-1.0, 1.0, 10)))[:, None]
+    y = np.asarray([amplitude] + [-amplitude] * 10, dtype=np.float64)
+    expected = y.copy()
+
+    numpy_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X, y, entity_ids=entity
+    )
+    numpy_prediction = numpy_model.predict(X, entity_ids=entity)
+    assert np.all(np.isfinite(numpy_prediction))
+    np.testing.assert_allclose(numpy_prediction, expected, rtol=0.0, atol=0.0)
+    assert np.isfinite(numpy_model._grand_mean)
+    assert np.isfinite(numpy_model._entity_effects_map[0])
+
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    torch_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X_t, y_t, entity_ids=entity_t
+    )
+    torch_prediction = torch_model.predict(X_t, entity_ids=entity_t)
+    assert np.all(np.isfinite(torch_prediction))
+    np.testing.assert_allclose(torch_prediction, expected, rtol=0.0, atol=0.0)
+    assert np.isfinite(torch_model._entity_effects_map[0])

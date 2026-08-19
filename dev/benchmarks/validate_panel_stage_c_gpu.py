@@ -461,6 +461,34 @@ def _common_scale_product_range_guard_audit(backend):
         "failed_closed": True,
     }
 
+
+def _fixed_effect_map_range_audit(backend):
+    amplitude = 1.0e308
+    entity = np.asarray([0] + [1] * 10, dtype=np.int64)
+    time = np.arange(11, dtype=np.int64)
+    X_np = np.concatenate(([0.0], np.linspace(-1.0, 1.0, 10)))[:, None]
+    y_np = np.asarray([amplitude] + [-amplitude] * 10, dtype=np.float64)
+    X, y, entity_b, _time_b = _to_backend(X_np, y_np, entity, time, backend)
+    model = PanelOLS(entity_effects=True, cov_type="hc0", device=_device(backend)).fit(
+        X, y, entity_ids=entity_b
+    )
+    prediction = _array(model.predict(X, entity_ids=entity_b))
+    if not np.all(np.isfinite(prediction)):
+        raise AssertionError(f"{backend}: FE map range audit produced non-finite prediction")
+    np.testing.assert_allclose(
+        prediction, y_np, rtol=0.0, atol=0.0,
+        err_msg=f"{backend}: FE map centered-range overflow",
+    )
+    if not np.isfinite(float(model._entity_effects_map[0])):
+        raise AssertionError(f"{backend}: FE map itself is non-finite")
+    return {
+        "status": "success",
+        "backend": backend,
+        "max_abs_prediction_error": _max_abs(prediction, y_np),
+        "grand_mean_finite": bool(np.isfinite(float(model._grand_mean))),
+        "effect_map_finite": True,
+    }
+
 def _nonfinite_covariance_guard_audit(backend):
     X_np = np.column_stack([np.ones(6), np.arange(6.0)])
     resid_np = np.linspace(-0.3, 0.4, 6)
@@ -1999,6 +2027,7 @@ def main():
             "fixed_effect_recovery_cancellation": _fixed_effect_recovery_cancellation_audit(backend),
             "two_way_effect_normalization_overflow": _two_way_effect_normalization_overflow_audit(backend),
             "common_scale_product_range_guard": _common_scale_product_range_guard_audit(backend),
+            "fixed_effect_map_range": _fixed_effect_map_range_audit(backend),
             "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }

@@ -501,10 +501,9 @@ class PanelOLS(BasePanelModel):
                 max_iter=self.demean_max_iter,
                 tol=self.demean_tol,
             )
-            # Normalize only the compact recovered effect vector. Subtracting
-            # the grand mean observation-by-observation can erase a recoverable
-            # low-order group contribution beside very large residual levels.
-            ent_effects_dev = ent_effects_dev - float(grand_mean)
+            # Store the recovered level effects directly.  A centered
+            # representation ``effect - grand_mean`` can overflow even when both
+            # operands and the final level prediction are finite.
             ent_effects = np.asarray(_to_numpy(ent_effects_dev)).ravel()
             time_effect_values = np.asarray(_to_numpy(time_effects_dev)).ravel()
             for i, eid in enumerate(entity_labels):
@@ -517,7 +516,7 @@ class PanelOLS(BasePanelModel):
                 ent_effects = _to_numpy(
                     _compact_group_means(
                         resid_orig, entity_projection, xp
-                    ) - float(grand_mean)
+                    )
                 ).ravel()
                 for i, eid in enumerate(entity_labels):
                     self._entity_effects_map[eid] = float(ent_effects[i])
@@ -527,7 +526,7 @@ class PanelOLS(BasePanelModel):
                 time_effect_values = _to_numpy(
                     _compact_group_means(
                         resid_orig, time_projection, xp
-                    ) - float(grand_mean)
+                    )
                 ).ravel()
                 for i, tid in enumerate(time_labels):
                     self._time_effects_map[tid] = float(time_effect_values[i])
@@ -722,9 +721,6 @@ class PanelOLS(BasePanelModel):
                         "same incidence component"
                     )
 
-        n_rows = int(prediction.shape[0])
-        uses_fitted_effect = np.zeros(n_rows, dtype=bool)
-
         def _effect_values(ids_np, mapping):
             if not mapping or ids_np is None:
                 return None, None
@@ -748,26 +744,16 @@ class PanelOLS(BasePanelModel):
         )
         if entity_effect is not None:
             prediction = prediction + entity_effect
-            uses_fitted_effect |= entity_known
         time_effect, time_known = _effect_values(
             time_ids_np, self._time_effects_map
         )
         if time_effect is not None:
             prediction = prediction + time_effect
-            uses_fitted_effect |= time_known
 
-        # Fixed-effect maps are recovered after centering the level residual by
-        # its grand mean.  Whenever a row actually uses a stored fitted effect,
-        # restore that common level component exactly once.  Rows whose labels
-        # are wholly unseen preserve the documented linear-only fallback.
-        if np.any(uses_fitted_effect):
-            grand_mean = xp_asarray(
-                uses_fitted_effect.astype(np.float64) * float(self._grand_mean),
-                dtype=xp.float64,
-                xp=xp,
-                ref_arr=prediction,
-            )
-            prediction = prediction + grand_mean
+        # Stored fixed-effect maps are already on the original level-residual
+        # scale.  Rows with unseen labels therefore retain the documented
+        # linear-only fallback without constructing a centered effect that may
+        # exceed float64 range.
 
         return np.asarray(_to_numpy(prediction), dtype=np.float64)
 

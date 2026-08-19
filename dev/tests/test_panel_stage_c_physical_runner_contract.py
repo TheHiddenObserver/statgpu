@@ -352,3 +352,17 @@ def test_stage_c_runner_registers_common_scale_product_range_guard():
         '"common_scale_product_range_guard": _common_scale_product_range_guard_audit(backend)'
         in main_source
     )
+
+
+
+def test_stage_c_runner_registers_fixed_effect_map_range_audit():
+    audit_source = inspect.getsource(_MOD._fixed_effect_map_range_audit)
+    for token in (
+        "1.0e308",
+        "FE map centered-range overflow",
+        "_entity_effects_map",
+        "effect_map_finite",
+    ):
+        assert token in audit_source
+    main_source = inspect.getsource(_MOD.main)
+    assert '"fixed_effect_map_range": _fixed_effect_map_range_audit(backend)' in main_source
