@@ -96,9 +96,6 @@ def test_fama_macbeth_torch_cpu_covariance_inference_matrix(
     "cov_type,expected_distribution_name,expected_pvalue_calls",
     [
         ("newey-west", "norm", 1),
-        # The fixture has T=3, hence df=2. The centralized inference helper uses
-        # the exact backend-native tail identity instead of approximate beta
-        # numerics on Torch versions without native betainc.
         ("nonrobust", None, 0),
     ],
 )
@@ -193,7 +190,7 @@ def _large_common_intercept_fixture(n_periods=4):
     return X, y, time_ids
 
 
-def test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_back():
+def test_fama_macbeth_torch_centers_large_common_intercept_before_gram_rhs():
     torch = pytest.importorskip("torch")
     X, y, time_ids = _large_common_intercept_fixture()
     expected = FamaMacBeth(bandwidth=0, device="cpu").fit(
@@ -205,11 +202,13 @@ def test_fama_macbeth_torch_gram_certificate_rejects_nonfinite_rhs_and_falls_bac
         time_ids=torch.as_tensor(time_ids, dtype=torch.int64),
     )
 
-    # X' y overflows in the Gram fast path even though the SVD projection and
-    # the true period coefficients are finite. Every period must therefore be
-    # routed to the rank-revealing fallback rather than certified with Inf beta.
+    # The exact period intercept now removes the common response level before
+    # forming X' y.  The Gram RHS stays finite, so all four well-conditioned
+    # periods remain on the certified batch path instead of needing SVD fallback.
     assert actual._backend_name == "torch"
-    assert actual._period_svd_fallbacks == actual.n_periods == 4
+    assert actual._period_solver_mode == "gram-certified"
+    assert actual._period_svd_fallbacks == 0
+    assert actual.n_periods == 4
     assert np.all(np.isfinite(_to_numpy(actual.betas_)))
     assert np.all(np.isfinite(_to_numpy(actual.coef_)))
     assert np.all(np.isfinite(_to_numpy(actual.cov_params_)))
