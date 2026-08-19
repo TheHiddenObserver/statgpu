@@ -102,23 +102,24 @@ def _quasi_component_loss(within, between, direct, candidate, xp):
     finite_components = xp.isfinite(within_values) & xp.isfinite(between_values)
     candidate_nonfinite = finite_components & (~xp.isfinite(candidate))
 
-    comparison_scale = xp.maximum(xp.abs(direct), xp.abs(candidate))
-    safe_scale = xp.maximum(
-        comparison_scale,
-        xp.full_like(comparison_scale, float(np.finfo(np.float64).tiny)),
-    )
-    relative_difference = xp.abs(direct / safe_scale - candidate / safe_scale)
-    material_disagreement = (
-        xp.isfinite(direct)
-        & xp.isfinite(candidate)
-        & (relative_difference > 4096.0 * float(np.finfo(np.float64).eps))
-    )
+    # Direct subtraction and the algebraically equivalent component form can
+    # differ by ordinary cancellation roundoff near individual zeros. Judge that
+    # disagreement against the scale of the full transformed object rather than
+    # an elementwise near-zero denominator. Exact nonzero->zero component losses
+    # remain covered independently above.
+    global_scale = xp.maximum(xp.max(xp.abs(direct)), xp.max(xp.abs(candidate)))
+    scale_value = _to_float_scalar(global_scale)
+    if scale_value == 0.0:
+        material_disagreement = xp.any(direct != candidate)
+    else:
+        difference_scale = xp.max(xp.abs(direct - candidate)) / global_scale
+        material_disagreement = difference_scale > float(np.sqrt(np.finfo(np.float64).eps))
+
     return xp.any(
         between_product_lost
         | addition_lost
         | candidate_nonfinite
-        | material_disagreement
-    )
+    ) | material_disagreement
 
 
 def guarded_random_effects_quasi_demean(
