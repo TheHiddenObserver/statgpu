@@ -1,7 +1,7 @@
 # PooledOLS
 
 > Language: English  
-> Last updated: 2026-08-16  
+> Last updated: 2026-08-19  
 > Switch: [Chinese](../../cn/panel/pooled-ols.md)
 
 ## Overview
@@ -112,6 +112,8 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 ## Numerical and Strict Behavior
 
+The automatically added constant is protected against response-cancellation loss. Ordinary responses keep the historical SVD/BLAS solve. When the response is classified as magnitude/cancellation sensitive, statgpu keeps the same SVD, numerical-rank cutoff, design scaling, and minimum-norm parameterization, but evaluates the SVD response projection with the shared magnitude-tiered reduction. For example, the representable intercept tail in a response such as `[2**55, 1, -2**55]` is not silently reduced to zero. Legacy pooled $R^2$ centering uses the same range-safe working-scale policy as the standardized diagnostics when physical `y-mean(y)` subtraction would overflow.
+
 Required metadata are checked before covariance is computed. For example, clustered covariance without `cluster`, Driscoll-Kraay without `time_index`, or a cluster array with the wrong shape raises an error rather than producing a different covariance estimator. Legacy HAC also rejects missing/non-finite time metadata instead of guessing an ordering.
 
 A new `fit()` attempt invalidates the previous fitted/inference state before work begins. If the refit fails at any later stage, partially written outputs are cleared as well; `predict()` and `summary()` then report the estimator as unfitted.
@@ -130,7 +132,7 @@ An explicit `device="cuda"` or `device="torch"` request also raises if that back
 
 We compare the public `PooledOLS` estimator with `linearmodels==7.0` for Driscoll-Kraay coefficients, covariance, and BSE, and for group-debiased clustered covariance. Coefficients use `rtol=2e-10, atol=2e-11`; covariance/BSE use `rtol=5e-9, atol=5e-11`. Definition-level HC, clustering, Driscoll-Kraay, default-bandwidth, and R `sandwich` checks are summarized in the [validation matrix](covariance.md#validation-matrix).
 
-GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in the PR #126 physical validation artifacts. The dedicated `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate additionally checks ordered-categorical legacy-HAC chronology, a lexical-order negative control, formula missing-row alignment, and requested/executed CuPy/Torch backend identity on the final exact source.
+GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in the PR #126 physical validation artifacts. The dedicated `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate additionally checks ordered-categorical legacy-HAC chronology, a lexical-order negative control, formula missing-row alignment, and requested/executed CuPy/Torch backend identity on the final exact source. The additional `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate checks the cancellation-sensitive automatic-intercept path on both physical GPU backends.
 
 ## References
 
