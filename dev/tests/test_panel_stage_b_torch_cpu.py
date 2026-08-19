@@ -20,7 +20,11 @@ from statgpu.panel._diagnostics import (
     _fingerprints_match,
     _hausman_quadratic,
 )
-from statgpu.panel._utils import _zero_safe_statistic_ratio
+from statgpu.panel._utils import (
+    _recover_two_way_effects,
+    _zero_safe_statistic_ratio,
+    demean_variables,
+)
 
 
 torch = pytest.importorskip("torch")
@@ -614,3 +618,63 @@ def test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component():
     ).detach().cpu().numpy()
     expected = np.asarray([[-4.0 * amplitude * tiny]], dtype=np.float64)
     np.testing.assert_allclose(actual, expected, rtol=3e-12, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_fe_effect_recovery_preserves_cancellation_tail():
+    # Public one-way prediction: the within fit is cancellation-safe, so the
+    # stored FE map must not reintroduce a raw scatter-add that loses the +1 tail.
+    amplitude = float(2.0 ** 55)
+    entity = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    X = np.asarray([0.0, 0.0, 0.0, -1.0, 0.0, 1.0], dtype=np.float64)[:, None]
+    y = np.asarray([amplitude, 1.0, -amplitude, 0.0, 0.0, 0.0], dtype=np.float64)
+    expected = np.asarray([1.0 / 3.0] * 3 + [0.0] * 3, dtype=np.float64)
+
+    numpy_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X, y, entity_ids=entity
+    )
+    np.testing.assert_allclose(
+        numpy_model.predict(X, entity_ids=entity), expected, rtol=0.0, atol=2e-15
+    )
+
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    torch_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X_t, y_t, entity_ids=entity_t
+    )
+    np.testing.assert_allclose(
+        torch_model.predict(X_t, entity_ids=entity_t),
+        expected,
+        rtol=0.0,
+        atol=2e-15,
+    )
+
+    # Two-way recovery: raw values are all the same order, but the first entity
+    # projection creates +/-1 beside +/-2**49.  The recovered FE residual must
+    # match the already hardened two-way within projection on the low-order rows.
+    level = float(2.0 ** 50)
+    values_np = np.asarray(
+        [1.5 * level, 0.5 * level, level + 1.0, level - 1.0,
+         0.5 * level, 1.5 * level],
+        dtype=np.float64,
+    )
+    entity2 = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    time2 = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    values_t = torch.as_tensor(values_np, dtype=torch.float64)
+    entity2_t = torch.as_tensor(entity2, dtype=torch.int64)
+    time2_t = torch.as_tensor(time2, dtype=torch.int64)
+    dummy_X_t = torch.arange(6, dtype=torch.float64)[:, None]
+    reference, _ = demean_variables(
+        values_t, dummy_X_t, entity2_t, time2_t, xp=torch, max_iter=200, tol=1e-12
+    )
+    entity_effect, time_effect = _recover_two_way_effects(
+        values_t, entity2_t, time2_t, torch, max_iter=200, tol=1e-12
+    )
+    recovered_residual = values_t - entity_effect[entity2_t] - time_effect[time2_t]
+    np.testing.assert_allclose(
+        recovered_residual[2:4].detach().cpu().numpy(),
+        reference[2:4].detach().cpu().numpy(),
+        rtol=0.0,
+        atol=2e-12,
+    )

@@ -590,7 +590,9 @@ def _recover_two_way_effects(
     The returned compact entity/time effects reproduce the joint least-squares
     projection on observed cells.  The time effects are normalized to have zero
     observation-weighted mean, with the compensating shift applied to entity
-    effects so fitted values are unchanged.
+    effects so fitted values are unchanged.  Ordinary-scale iterations retain
+    the fast group scatter path, but convergence is certified with the shared
+    cancellation-safe reducer whenever a projection creates new dynamic range.
     """
     values = xp_asarray(values, dtype=xp.float64, xp=xp).ravel()
     entity_projection = _prepare_group_projection(entity_ids, xp)
@@ -601,6 +603,27 @@ def _recover_two_way_effects(
     time_effects = xp_zeros(n_times, xp.float64, xp, values)
     level_scale = xp.max(xp.abs(values))
     stable = bool(stable_reduction_flags(values, xp)[0])
+
+    def _violation(residual, *, stable_mode):
+        entity_means = _compact_group_means(
+            residual, entity_projection, xp, stable=stable_mode
+        )
+        time_means = _compact_group_means(
+            residual, time_projection, xp, stable=stable_mode
+        )
+        return xp.maximum(
+            xp.max(xp.abs(entity_means)), xp.max(xp.abs(time_means))
+        )
+
+    def _metric(residual, violation):
+        residual_scale = xp.max(xp.abs(residual))
+        allowance = _convergence_allowance(
+            residual_scale, level_scale, tol, xp
+        )
+        return _to_float_scalar(
+            violation
+            / xp_maximum(allowance, np.finfo(np.float64).tiny, xp)
+        )
 
     converged = False
     final_metric = float("inf")
@@ -617,20 +640,28 @@ def _recover_two_way_effects(
         entity_effects = entity_effects + shift
 
         residual = values - entity_effects[e_idx] - time_effects[t_idx]
-        entity_means = _compact_group_means(residual, entity_projection, xp, stable=stable)
-        time_means = _compact_group_means(residual, time_projection, xp, stable=stable)
-        violation = xp.maximum(
-            xp.max(xp.abs(entity_means)), xp.max(xp.abs(time_means))
-        )
-        residual_scale = xp.max(xp.abs(residual))
-        allowance = _convergence_allowance(
-            residual_scale, level_scale, tol, xp
-        )
-        final_metric = _to_float_scalar(
-            violation
-            / xp_maximum(allowance, np.finfo(np.float64).tiny, xp)
-        )
+
+        # The first full pair of projections can create a cancellation scale
+        # absent from the level values.  Classify that transformed residual once
+        # so later ALS updates use the stable reducer immediately when needed.
+        if _iteration == 0 and not stable:
+            stable = bool(stable_reduction_flags(residual, xp)[0])
+
+        violation = _violation(residual, stable_mode=stable)
+        final_metric = _metric(residual, violation)
         if final_metric <= 1.0:
+            if not stable:
+                # A late cancellation can emerge only after several alternating
+                # projections.  Before accepting fast-path convergence, perform
+                # one packed risk classification and recompute the stopping
+                # criterion with the stable reducer if that risk is present.
+                certify_stable = bool(stable_reduction_flags(residual, xp)[0])
+                if certify_stable:
+                    stable = True
+                    violation = _violation(residual, stable_mode=True)
+                    final_metric = _metric(residual, violation)
+                    if final_metric > 1.0:
+                        continue
             converged = True
             break
 

@@ -48,6 +48,7 @@ from statgpu.panel._linalg import (
 )
 from statgpu.panel._reductions import stable_reduction_flags
 from statgpu.panel._utils import (
+    _recover_two_way_effects,
     _zero_safe_statistic_ratio,
     demean_variables,
     within_transform,
@@ -307,6 +308,73 @@ def _projection_created_dynamic_range_audit(backend):
         "max_abs_X_vs_numpy": _max_abs(X_actual, X_ref),
     }
 
+
+
+def _fixed_effect_recovery_cancellation_audit(backend):
+    """Keep public FE prediction maps on cancellation-safe group means."""
+    if backend == "numpy":
+        xp = np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+    elif backend == "torch":
+        import torch
+        xp = torch
+    else:
+        raise ValueError(backend)
+
+    amplitude = float(2.0 ** 55)
+    entity = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    time = np.arange(6, dtype=np.int64)
+    X_np = np.asarray([0.0, 0.0, 0.0, -1.0, 0.0, 1.0], dtype=np.float64)[:, None]
+    y_np = np.asarray([amplitude, 1.0, -amplitude, 0.0, 0.0, 0.0], dtype=np.float64)
+    X, y, entity_b, _time_b = _to_backend(X_np, y_np, entity, time, backend)
+    model = PanelOLS(entity_effects=True, cov_type="hc0", device=_device(backend)).fit(
+        X, y, entity_ids=entity_b
+    )
+    prediction = _array(model.predict(X, entity_ids=entity_b))
+    expected = np.asarray([1.0 / 3.0] * 3 + [0.0] * 3, dtype=np.float64)
+    np.testing.assert_allclose(
+        prediction, expected, rtol=0.0, atol=2e-15,
+        err_msg=f"{backend}: one-way FE prediction cancellation tail",
+    )
+    if _backend_name(model) != backend or getattr(model, "_predict_backend_name", None) != backend:
+        raise AssertionError(f"{backend}: FE prediction backend provenance drifted")
+
+    level = float(2.0 ** 50)
+    values_np = np.asarray(
+        [1.5 * level, 0.5 * level, level + 1.0, level - 1.0,
+         0.5 * level, 1.5 * level],
+        dtype=np.float64,
+    )
+    entity2 = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    time2 = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    dummy_X = np.arange(6, dtype=np.float64)[:, None]
+    X2, values, entity2_b, time2_b = _to_backend(
+        dummy_X, values_np, entity2, time2, backend
+    )
+    reference, _ = demean_variables(
+        values, X2, entity2_b, time2_b, xp=xp, max_iter=200, tol=1e-12
+    )
+    entity_effect, time_effect = _recover_two_way_effects(
+        values, entity2_b, time2_b, xp, max_iter=200, tol=1e-12
+    )
+    recovered = values - entity_effect[entity2_b] - time_effect[time2_b]
+    recovered_np = _array(recovered)
+    reference_np = _array(reference)
+    np.testing.assert_allclose(
+        recovered_np[2:4], reference_np[2:4], rtol=0.0, atol=2e-12,
+        err_msg=f"{backend}: two-way FE recovery projection-created risk",
+    )
+    return {
+        "status": "success",
+        "backend": backend,
+        "prediction_backend": getattr(model, "_predict_backend_name", None),
+        "max_abs_prediction_error": _max_abs(prediction, expected),
+        "max_abs_two_way_low_order_error": _max_abs(
+            recovered_np[2:4], reference_np[2:4]
+        ),
+    }
 
 def _nonfinite_covariance_guard_audit(backend):
     X_np = np.column_stack([np.ones(6), np.arange(6.0)])
@@ -1843,6 +1911,7 @@ def main():
             "zero_variance_inference": _zero_variance_inference_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
             "projection_created_dynamic_range": _projection_created_dynamic_range_audit(backend),
+            "fixed_effect_recovery_cancellation": _fixed_effect_recovery_cancellation_audit(backend),
             "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }

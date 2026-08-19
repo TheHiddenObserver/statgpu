@@ -301,3 +301,21 @@ def test_stage_c_runner_registers_projection_created_dynamic_range_gpu_audit():
         assert token in audit_source
     main_source = inspect.getsource(_MOD.main)
     assert '"projection_created_dynamic_range": _projection_created_dynamic_range_audit(backend)' in main_source
+
+
+
+def test_stage_c_runner_registers_fe_effect_recovery_gpu_audit():
+    audit_source = inspect.getsource(_MOD._fixed_effect_recovery_cancellation_audit)
+    for token in (
+        "PanelOLS",
+        "_recover_two_way_effects",
+        "demean_variables",
+        "one-way FE prediction cancellation tail",
+        "two-way FE recovery projection-created risk",
+    ):
+        assert token in audit_source
+    main_source = inspect.getsource(_MOD.main)
+    assert (
+        '"fixed_effect_recovery_cancellation": _fixed_effect_recovery_cancellation_audit(backend)'
+        in main_source
+    )

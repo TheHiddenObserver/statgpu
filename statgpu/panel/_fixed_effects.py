@@ -24,8 +24,9 @@ from statgpu.backends import (
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._linalg import panel_lstsq
 from statgpu.panel._utils import (
+    _compact_group_means,
+    _prepare_group_projection,
     _recover_two_way_effects,
-    _scatter_add,
     demean_variables,
     factorize_panel_labels,
 )
@@ -484,7 +485,6 @@ class PanelOLS(BasePanelModel):
         self._time_effects_map = {}
         resid_orig = y_arr - X_arr @ coef
         grand_mean = _to_float_scalar(_scaled_mean(resid_orig, xp))
-        resid_centered = resid_orig - grand_mean
         self._grand_mean = grand_mean
 
         if (
@@ -494,13 +494,17 @@ class PanelOLS(BasePanelModel):
             and time_arr is not None
         ):
             ent_effects_dev, time_effects_dev = _recover_two_way_effects(
-                resid_centered,
+                resid_orig,
                 entity_arr,
                 time_arr,
                 xp,
                 max_iter=self.demean_max_iter,
                 tol=self.demean_tol,
             )
+            # Normalize only the compact recovered effect vector. Subtracting
+            # the grand mean observation-by-observation can erase a recoverable
+            # low-order group contribution beside very large residual levels.
+            ent_effects_dev = ent_effects_dev - float(grand_mean)
             ent_effects = np.asarray(_to_numpy(ent_effects_dev)).ravel()
             time_effect_values = np.asarray(_to_numpy(time_effects_dev)).ravel()
             for i, eid in enumerate(entity_labels):
@@ -509,33 +513,21 @@ class PanelOLS(BasePanelModel):
                 self._time_effects_map[tid] = float(time_effect_values[i])
         else:
             if self.entity_effects and entity_arr is not None:
-                ent_sums = _scatter_add(
-                    xp, entity_arr, resid_centered, len(entity_labels)
-                )
-                ent_counts = _scatter_add(
-                    xp,
-                    entity_arr,
-                    xp.ones_like(resid_centered),
-                    len(entity_labels),
-                )
+                entity_projection = _prepare_group_projection(entity_arr, xp)
                 ent_effects = _to_numpy(
-                    ent_sums / xp_maximum(ent_counts, 1.0, xp)
+                    _compact_group_means(
+                        resid_orig, entity_projection, xp
+                    ) - float(grand_mean)
                 ).ravel()
                 for i, eid in enumerate(entity_labels):
                     self._entity_effects_map[eid] = float(ent_effects[i])
 
             if self.time_effects and time_arr is not None:
-                time_sums = _scatter_add(
-                    xp, time_arr, resid_centered, len(time_labels)
-                )
-                time_counts = _scatter_add(
-                    xp,
-                    time_arr,
-                    xp.ones_like(resid_centered),
-                    len(time_labels),
-                )
+                time_projection = _prepare_group_projection(time_arr, xp)
                 time_effect_values = _to_numpy(
-                    time_sums / xp_maximum(time_counts, 1.0, xp)
+                    _compact_group_means(
+                        resid_orig, time_projection, xp
+                    ) - float(grand_mean)
                 ).ravel()
                 for i, tid in enumerate(time_labels):
                     self._time_effects_map[tid] = float(time_effect_values[i])
