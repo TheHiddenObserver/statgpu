@@ -236,7 +236,7 @@ def _resolution_failure_batched(
 
 
 def _gram_resolution_risk_batched(
-    safe_gram,
+    inverse_gram,
     transpose,
     rhs_input,
     params,
@@ -250,14 +250,6 @@ def _gram_resolution_risk_batched(
         return xp.zeros_like(certified, dtype=bool)
     n = max(1, int(transpose.shape[-1]))
     eps = float(np.finfo(np.float64).eps)
-    k = int(safe_gram.shape[-1])
-    namespace = getattr(xp, "__name__", "")
-    if namespace == "torch":
-        identity = xp.eye(k, dtype=safe_gram.dtype, device=safe_gram.device)
-    else:
-        identity = xp.eye(k, dtype=safe_gram.dtype)
-    identity_batch = xp.broadcast_to(identity, safe_gram.shape)
-    inverse_gram = xp.linalg.solve(safe_gram, identity_batch)
     rhs_abs = xp.matmul(xp.abs(transpose), xp.abs(rhs_input))[..., 0]
     rhs_error = float(64.0 * n * eps) * rhs_abs
     beta_error = xp.matmul(xp.abs(inverse_gram), rhs_error[..., None])[..., 0]
@@ -443,7 +435,13 @@ def panel_lstsq_gram_certified_batched(
     *,
     min_eigen_ratio: float = _GRAM_CERTIFIED_MIN_EIGEN_RATIO,
 ):
-    """Return a fast Gram-solve candidate and a backend-native safety mask."""
+    """Return a fast Gram-solve candidate and a backend-native safety mask.
+
+    For the single-response path used by Fama-MacBeth, one augmented linear
+    solve returns both the candidate coefficients and ``G^{-1}`` needed by the
+    coordinatewise RHS-roundoff certificate. This keeps the new safety check
+    from adding a second Gram factorization on the GPU fast path.
+    """
     _validate_batched_lstsq_inputs(X, y)
     ratio = float(min_eigen_ratio)
     if not np.isfinite(ratio) or not 0.0 < ratio < 1.0:
@@ -491,20 +489,30 @@ def panel_lstsq_gram_certified_batched(
 
     safe_gram = xp.where(certified[..., None, None], gram, identity)
     safe_rhs = xp.where(certified[..., None, None], rhs, xp.zeros_like(rhs))
+    need_inverse = getattr(y_work, "ndim", None) == 2
+    if need_inverse:
+        identity_batch = xp.broadcast_to(identity, safe_gram.shape)
+        solve_rhs = xp.concatenate((safe_rhs, identity_batch), axis=-1)
+    else:
+        solve_rhs = safe_rhs
+
     if namespace == "torch" and hasattr(xp.linalg, "solve_ex"):
-        params, info = xp.linalg.solve_ex(safe_gram, safe_rhs, check_errors=False)
+        solved, info = xp.linalg.solve_ex(safe_gram, solve_rhs, check_errors=False)
         certified = certified & (info == 0)
     else:
-        params = xp.linalg.solve(safe_gram, safe_rhs)
+        solved = xp.linalg.solve(safe_gram, solve_rhs)
 
-    params_finite_view = xp.isfinite(params).reshape(int(params.shape[0]), -1)
-    params_finite = _axis_all(params_finite_view, xp, 1)
-    certified = certified & params_finite
+    rhs_width = int(safe_rhs.shape[-1])
+    params = solved[..., :rhs_width]
+    inverse_gram = solved[..., rhs_width:] if need_inverse else None
+    solved_finite_view = xp.isfinite(solved).reshape(int(solved.shape[0]), -1)
+    solved_finite = _axis_all(solved_finite_view, xp, 1)
+    certified = certified & solved_finite
 
-    if getattr(y_work, "ndim", None) == 2:
+    if need_inverse:
         params_centered = params[..., 0]
         resolution_risk = _gram_resolution_risk_batched(
-            safe_gram,
+            inverse_gram,
             transpose,
             rhs_input,
             params_centered,
