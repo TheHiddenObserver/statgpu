@@ -723,30 +723,20 @@ class PanelOLS(BasePanelModel):
 
         def _effect_values(ids_np, mapping):
             if not mapping or ids_np is None:
-                return None, None
-            known = np.fromiter(
-                (value in mapping for value in ids_np),
-                dtype=bool,
-                count=ids_np.shape[0],
-            )
+                return None
             values = np.fromiter(
                 (float(mapping.get(value, 0.0)) for value in ids_np),
                 dtype=np.float64,
                 count=ids_np.shape[0],
             )
-            return (
-                xp_asarray(values, dtype=xp.float64, xp=xp, ref_arr=prediction),
-                known,
+            return xp_asarray(
+                values, dtype=xp.float64, xp=xp, ref_arr=prediction
             )
 
-        entity_effect, entity_known = _effect_values(
-            entity_ids_np, self._entity_effects_map
-        )
+        entity_effect = _effect_values(entity_ids_np, self._entity_effects_map)
         if entity_effect is not None:
             prediction = prediction + entity_effect
-        time_effect, time_known = _effect_values(
-            time_ids_np, self._time_effects_map
-        )
+        time_effect = _effect_values(time_ids_np, self._time_effects_map)
         if time_effect is not None:
             prediction = prediction + time_effect
 

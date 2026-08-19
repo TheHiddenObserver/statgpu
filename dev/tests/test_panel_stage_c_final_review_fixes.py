@@ -1083,3 +1083,15 @@ def test_torch_tiny_design_matrix_rank_matches_shared_solver():
     direct_rank = panel_matrix_rank(X, torch)
     assert solver_rank == 2
     assert direct_rank == solver_rank
+
+
+
+def test_panel_predict_level_effects_do_not_build_obsolete_known_mask():
+    import inspect
+    from statgpu.panel import PanelOLS
+
+    source = inspect.getsource(PanelOLS.predict)
+    assert "uses_fitted_effect" not in source
+    assert "entity_known" not in source
+    assert "time_known" not in source
+    assert "value in mapping for value in ids_np" not in source
