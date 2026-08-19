@@ -34,6 +34,18 @@ def _random_effects_component_loss_fixture():
     return X, y, entity
 
 
+def _random_effects_common_scale_loss_fixture():
+    amplitude = 1.0e308
+    tiny_within = 1.0e-100
+    y = np.asarray(
+        [amplitude, amplitude, tiny_within, -tiny_within, -amplitude, -amplitude],
+        dtype=np.float64,
+    )
+    X = np.ones((y.size, 1), dtype=np.float64)
+    entity = np.repeat(np.arange(3, dtype=np.int64), 2)
+    return X, y, entity
+
+
 def test_pooled_ols_preserves_cancellation_tail_in_automatic_intercept_numpy():
     X, y, amplitude = _fixture()
     model = PooledOLS().fit(X, y)
@@ -60,11 +72,30 @@ def test_exact_constant_helper_preserves_rank_deficient_minimum_norm_contract_nu
     np.testing.assert_array_equal(actual_params, expected_params)
 
 
+def test_exact_constant_helper_keeps_risky_rank_deficient_minimum_norm_direction_numpy():
+    amplitude = float(2.0**55)
+    y = np.asarray([amplitude, 1.0, -amplitude], dtype=np.float64)
+    X = np.column_stack([np.ones(3), np.ones(3)])
+    params, rank = panel_lstsq_exact_constant(X, y, np, constant_index=0)
+    assert rank == 1
+    np.testing.assert_allclose(params, np.full(2, 1.0 / 6.0), rtol=2.0e-15, atol=0.0)
+    np.testing.assert_allclose(params[0], params[1], rtol=0.0, atol=0.0)
+
+
 def test_random_effects_fails_closed_when_quasi_demeaning_discards_component_numpy():
     X, y, entity = _random_effects_component_loss_fixture()
     with pytest.raises(
         FloatingPointError,
         match="quasi-demeaning exceeds the float64 component range",
+    ):
+        RandomEffects().fit(X, y, entity_ids=entity)
+
+
+def test_random_effects_fails_closed_when_common_rss_scale_erases_within_variance_numpy():
+    X, y, entity = _random_effects_common_scale_loss_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="variance-component scaling exceeds the float64 common-residual range",
     ):
         RandomEffects().fit(X, y, entity_ids=entity)
 
@@ -96,6 +127,20 @@ def test_torch_cpu_random_effects_quasi_demean_component_loss_fails_closed():
     with pytest.raises(
         FloatingPointError,
         match="quasi-demeaning exceeds the float64 component range",
+    ):
+        RandomEffects().fit(
+            torch.as_tensor(X, dtype=torch.float64),
+            torch.as_tensor(y, dtype=torch.float64),
+            entity_ids=torch.as_tensor(entity, dtype=torch.int64),
+        )
+
+
+def test_torch_cpu_random_effects_common_rss_scale_loss_fails_closed():
+    torch = pytest.importorskip("torch")
+    X, y, entity = _random_effects_common_scale_loss_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="variance-component scaling exceeds the float64 common-residual range",
     ):
         RandomEffects().fit(
             torch.as_tensor(X, dtype=torch.float64),
