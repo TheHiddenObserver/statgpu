@@ -4,66 +4,26 @@ from __future__ import annotations
 import numpy as np
 
 from statgpu.backends import _to_float_scalar
-from statgpu.panel._linalg import (
-    _lstsq_working_design,
-    _svd_inverse_factors,
-    panel_lstsq,
-)
-from statgpu.panel._reductions import grouped_score_sums, stable_reduction_flags
-
-
-def _svd_response_solution(U, Vh, inverse_values, y, xp, *, stable: bool):
-    """Return the working-design SVD solution for one response vector."""
-    weighted_u_t = inverse_values.reshape(-1, 1) * U.T
-    if not bool(stable):
-        projected = weighted_u_t @ y
-    else:
-        products = weighted_u_t.T * y.reshape(-1, 1)
-        codes_np = np.zeros(int(products.shape[0]), dtype=np.int64)
-        projected = grouped_score_sums(
-            products,
-            codes_np,
-            n_groups=1,
-            xp=xp,
-        )[0]
-    return Vh.T @ projected
+from statgpu.panel._linalg import panel_lstsq
 
 
 def panel_lstsq_stable_response(X, y, xp):
-    """Use the shared SVD policy with a cancellation-safe response projection.
+    """Delegate RandomEffects least squares to the shared certified panel solve.
 
-    The historical SVD path computes ``weighted_u_t @ y`` inside BLAS; reduction
-    order can erase a representable low-order component. For ordinary responses
-    this helper delegates to :func:`panel_lstsq`, which also applies the shared
-    coefficient-resolution certificate. Only responses already classified as
-    cancellation/range sensitive keep the explicit magnitude-tiered projection
-    here so RandomEffects can preserve its established transformed-fit policy.
+    The shared solver now owns exact-constant response anchoring, cancellation-
+    safe ``U' y`` reduction, numerical-rank policy, and coefficient-resolution
+    fail-closed checks. Retaining a separate RandomEffects SVD path would bypass
+    that last certificate precisely on the risky responses this helper formerly
+    handled itself.
     """
-    if getattr(X, "ndim", None) != 2:
-        raise ValueError("panel design must be two-dimensional")
-    if not bool(stable_reduction_flags(y, xp)[0]):
-        return panel_lstsq(X, y, xp)
-
-    X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
-    U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
-    params_work = _svd_response_solution(
-        U,
-        Vh,
-        inverse_values,
-        y,
-        xp,
-        stable=True,
-    )
-    return params_work * design_scale, rank
+    return panel_lstsq(X, y, xp)
 
 
 def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
     """Validate a known exact constant and use the shared certified panel solve.
 
-    The shared least-squares policy now owns response centering, stable ``U' y``
-    reduction, rank handling, and coefficient-resolution checks. Keeping another
-    SVD implementation here would let PooledOLS/BetweenOLS diverge from PanelOLS
-    and FirstDifferenceOLS on extreme coefficient scales. If the declared
+    The shared least-squares policy owns response centering, stable ``U' y``
+    reduction, rank handling, and coefficient-resolution checks. If the declared
     constant is not already the first column, a pure column permutation moves it
     there for the solve and the coefficient vector is permuted back afterwards.
     Column permutation preserves both the least-squares objective and the
