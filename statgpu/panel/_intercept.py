@@ -1,8 +1,9 @@
-"""Stable helpers for panel regressions with an exact constant column."""
+"""Precision helpers for panel response projections and quasi-demeaning."""
 from __future__ import annotations
 
 import numpy as np
 
+from statgpu.backends import _to_float_scalar
 from statgpu.panel._linalg import (
     _lstsq_working_design,
     _svd_inverse_factors,
@@ -11,29 +12,18 @@ from statgpu.panel._linalg import (
 from statgpu.panel._reductions import grouped_score_sums, stable_reduction_flags
 
 
-def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
+def panel_lstsq_stable_response(X, y, xp):
     """Use the shared SVD policy with a cancellation-safe response projection.
 
-    ``PooledOLS`` and ``BetweenOLS`` construct an exact nonzero constant column,
-    so a cancellation tail in the response can directly become the intercept.
     The historical SVD path computes ``weighted_u_t @ y`` inside BLAS; reduction
-    order can erase a representable low-order term before the coefficient is
-    formed.  For ordinary responses this helper is exactly :func:`panel_lstsq`.
-    Only responses already classified as cancellation/range sensitive replace
-    that one matrix-vector reduction with the shared magnitude-tiered grouped
-    sum.  SVD factors, rank cutoff, design rescaling, and minimum-norm
-    parameterization remain unchanged.
-
-    The implementation deliberately does *not* center observations first.  At
-    extreme magnitudes ``y - mean(y)`` can round the removed constant away on
-    large rows, making a later intercept restoration backend-order dependent.
+    order can erase a representable low-order component. For ordinary responses
+    this helper is exactly :func:`panel_lstsq`. Only responses already classified
+    as cancellation/range sensitive replace that one matrix-vector reduction
+    with the shared magnitude-tiered grouped sum. SVD factors, rank cutoff,
+    design rescaling, and minimum-norm parameterization remain unchanged.
     """
-    constant_index = int(constant_index)
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
-    if not 0 <= constant_index < int(X.shape[1]):
-        raise ValueError("constant_index is out of range")
-
     if not bool(stable_reduction_flags(y, xp)[0]):
         return panel_lstsq(X, y, xp)
 
@@ -49,3 +39,99 @@ def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
         xp=xp,
     )[0]
     return (Vh.T @ projected) * design_scale, rank
+
+
+def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
+    """Stable-response solve for callers that construct an exact constant column."""
+    constant_index = int(constant_index)
+    if getattr(X, "ndim", None) != 2:
+        raise ValueError("panel design must be two-dimensional")
+    if not 0 <= constant_index < int(X.shape[1]):
+        raise ValueError("constant_index is out of range")
+    return panel_lstsq_stable_response(X, y, xp)
+
+
+def _quasi_component_loss(within, between, direct, candidate, xp):
+    """Return a backend scalar marking unrecoverable component materialization."""
+    between_product_lost = (
+        (between[0] != 0.0) & (between[1] != 0.0) & (between[2] == 0.0)
+    )
+    within_values = within
+    between_values = between[2]
+    use_within = xp.abs(within_values) >= xp.abs(between_values)
+    large = xp.where(use_within, within_values, between_values)
+    small = xp.where(use_within, between_values, within_values)
+    addition_lost = (small != 0.0) & (candidate == large)
+
+    finite_components = xp.isfinite(within_values) & xp.isfinite(between_values)
+    candidate_nonfinite = finite_components & (~xp.isfinite(candidate))
+
+    comparison_scale = xp.maximum(xp.abs(direct), xp.abs(candidate))
+    tolerance = (
+        4096.0 * float(np.finfo(np.float64).eps)
+        * xp.maximum(comparison_scale, xp.full_like(comparison_scale, float(np.finfo(np.float64).tiny)))
+    )
+    material_disagreement = (
+        xp.isfinite(direct)
+        & xp.isfinite(candidate)
+        & (xp.abs(direct - candidate) > tolerance)
+    )
+    return xp.any(
+        between_product_lost
+        | addition_lost
+        | candidate_nonfinite
+        | material_disagreement
+    )
+
+
+def guarded_random_effects_quasi_demean(
+    y,
+    X,
+    y_bar,
+    X_bar,
+    y_within,
+    X_within,
+    theta,
+    xp,
+):
+    """Materialize the historical RE transform, failing closed on component loss.
+
+    ``y - theta*y_bar`` equals ``y_within + (1-theta)*y_bar`` and likewise for
+    every design column. The direct form preserves the established ordinary
+    rounding path, but at extreme scales it can discard a nonzero component that
+    a later regression would still identify. We evaluate the algebraically
+    equivalent component decomposition only as a certificate. If multiplication,
+    addition, or catastrophic direct/decomposed disagreement loses information,
+    raise rather than publish a finite but incorrect RandomEffects fit.
+    """
+    one_minus = 1.0 - theta
+
+    y_between = one_minus * y_bar
+    y_candidate = y_within + y_between
+    y_direct = y - theta * y_bar
+    y_risk = _quasi_component_loss(
+        y_within,
+        (one_minus, y_bar, y_between),
+        y_direct,
+        y_candidate,
+        xp,
+    )
+
+    one_minus_col = one_minus.reshape(-1, 1)
+    X_between = one_minus_col * X_bar
+    X_candidate = X_within + X_between
+    X_direct = X - theta.reshape(-1, 1) * X_bar
+    X_risk = _quasi_component_loss(
+        X_within,
+        (one_minus_col, X_bar, X_between),
+        X_direct,
+        X_candidate,
+        xp,
+    )
+
+    if bool(_to_float_scalar(y_risk | X_risk)):
+        raise FloatingPointError(
+            "RandomEffects quasi-demeaning exceeds the float64 component range; "
+            "the transformed fit would discard a nonzero within/between component"
+        )
+    return y_direct, X_direct
