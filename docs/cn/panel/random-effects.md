@@ -1,7 +1,7 @@
 # RandomEffects
 
 > 语言：中文  
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/random-effects.md)
 
 ## Overview
@@ -165,6 +165,10 @@ pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="dris
 
 改变 `cov_type` 不会重新拟合 random-effects model：variance components 与 coefficient 保持不变，只改变报告的不确定性。
 
+between/within auxiliary regression 与最终 GLS solve 在 response 存在极端 magnitude cancellation 时会使用共享 cancellation-sensitive SVD response projection；普通 response 仍保留历史 BLAS 路径以及相同的 SVD rank/minimum-norm policy。
+
+当单一 float64 common residual scale 会把非零 within/between residual 归一化成 0，或归一化后的 residual 虽然非零、但平方在 RSS 累加前下溢为 0 时，Swamy-Arora variance-component arithmetic 会 fail closed。quasi-demeaning 还会与代数等价的 `within + (1-theta)*mean` decomposition 进行数值 certificate：如果乘法、加法或 materially different transformed result 会丢掉非零 component，`fit()` 会抛出 `FloatingPointError`，而不是返回有限但错误的 GLS coefficient。实现会在形成 `theta=1-complement` 前保留正的 square-root complement，因此即便减法把 `theta` 舍入成精确 1，certificate 仍能看见原本可表示的 complement。这些是 float64 representation boundary，不是另一套统计定义。
+
 Swamy-Arora variance-component step 要求 within 与 between auxiliary regression 都具有正的 residual degrees of freedom。特别是当 entity 数不大于 between regression 的 identified rank 时，`fit()` 会直接报错，而不会人为构造 denominator 并返回不可靠的 random-effect variance。
 
 如果 transformed design 精确 rank deficient，fitted values 仍可能得到，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
@@ -181,7 +185,7 @@ Classical Hausman comparison 只在 [面板 diagnostics](diagnostics.md) 说明�
 
 我们**不宣称** RandomEffects coefficient 与其他 package 完全一致，因为 statgpu 使用自身的 Swamy-Arora variance-component construction。验证时先取 statgpu 得到的 quasi-demeaned $(X^*,y^*)$：robust 与 Driscoll-Kraay covariance 和 `linearmodels==7.0` 比较，HC2/HC3 covariance 和 `statsmodels==0.14.6` 比较。covariance comparison 使用 `rtol=5e-9, atol=5e-11`；见 [validation matrix](covariance.md#validation-matrix)。
 
-GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。
+GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；历史差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。新增的 `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate 还会在显式 requested/executed CuPy 与 Torch backend 上验证 Pooled/Between cancellation-tail coefficient，以及 RandomEffects variance/quasi-demeaning fail-closed boundary。
 
 ## 参考（References）
 
