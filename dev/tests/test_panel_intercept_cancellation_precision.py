@@ -1,10 +1,10 @@
-"""Regression coverage for cancellation-safe automatic panel intercepts."""
+"""Regression coverage for cancellation-safe panel response projections."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from statgpu.panel import BetweenOLS, PooledOLS
+from statgpu.panel import BetweenOLS, PooledOLS, RandomEffects
 from statgpu.panel._intercept import panel_lstsq_exact_constant
 from statgpu.panel._linalg import panel_lstsq
 
@@ -20,6 +20,18 @@ def _assert_coefficients(model, amplitude):
     coef = np.asarray(model.coef_, dtype=np.float64).ravel()
     np.testing.assert_allclose(coef[0], 1.0 / 3.0, rtol=0.0, atol=0.0)
     np.testing.assert_allclose(coef[1], -amplitude, rtol=2.0e-15, atol=0.0)
+
+
+def _random_effects_component_loss_fixture():
+    amplitude = float(2.0**55)
+    within = 8.0
+    levels = np.asarray([amplitude, 1.0, -amplitude], dtype=np.float64)
+    y = np.concatenate(
+        [np.asarray([level + within, level - within]) for level in levels]
+    )
+    X = np.ones((y.size, 1), dtype=np.float64)
+    entity = np.repeat(np.arange(levels.size, dtype=np.int64), 2)
+    return X, y, entity
 
 
 def test_pooled_ols_preserves_cancellation_tail_in_automatic_intercept_numpy():
@@ -48,6 +60,15 @@ def test_exact_constant_helper_preserves_rank_deficient_minimum_norm_contract_nu
     np.testing.assert_array_equal(actual_params, expected_params)
 
 
+def test_random_effects_fails_closed_when_quasi_demeaning_discards_component_numpy():
+    X, y, entity = _random_effects_component_loss_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="quasi-demeaning exceeds the float64 component range",
+    ):
+        RandomEffects().fit(X, y, entity_ids=entity)
+
+
 def test_torch_cpu_public_automatic_intercepts_match_numpy_cancellation_tail():
     torch = pytest.importorskip("torch")
     X, y, amplitude = _fixture()
@@ -67,3 +88,17 @@ def test_torch_cpu_public_automatic_intercepts_match_numpy_cancellation_tail():
         entity_ids=torch.as_tensor(entity, dtype=torch.int64),
     )
     _assert_coefficients(between, amplitude)
+
+
+def test_torch_cpu_random_effects_quasi_demean_component_loss_fails_closed():
+    torch = pytest.importorskip("torch")
+    X, y, entity = _random_effects_component_loss_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="quasi-demeaning exceeds the float64 component range",
+    ):
+        RandomEffects().fit(
+            torch.as_tensor(X, dtype=torch.float64),
+            torch.as_tensor(y, dtype=torch.float64),
+            entity_ids=torch.as_tensor(entity, dtype=torch.int64),
+        )
