@@ -3,6 +3,7 @@ import pytest
 
 from statgpu.panel import FamaMacBeth
 from statgpu.panel._diagnostics import _scaled_group_means, _scaled_mean
+from statgpu.panel._reductions import grouped_score_sums
 from statgpu.panel._utils import group_means, within_transform
 
 
@@ -10,6 +11,16 @@ def _to_numpy(value):
     if hasattr(value, "detach"):
         return value.detach().cpu().numpy()
     return np.asarray(value)
+
+
+def test_grouped_score_sum_preserves_subnormal_tail_at_exact_range_boundary_numpy():
+    boundary = float(np.finfo(np.float64).max / 3.0)
+    tiny = np.nextafter(0.0, 1.0)
+    scores = np.asarray([[boundary], [-boundary], [tiny]], dtype=np.float64)
+    actual = grouped_score_sums(
+        scores, np.zeros(3, dtype=np.int64), n_groups=1, xp=np
+    )
+    assert actual[0, 0] == tiny
 
 
 def test_shared_group_mean_preserves_small_term_after_huge_cancellation_numpy():
@@ -79,6 +90,16 @@ def test_torch_cpu_group_mean_and_fmb_cancellation_match_numpy():
         _to_numpy(grouped), np.full(3, 1.0 / 3.0), rtol=0.0, atol=0.0
     )
     assert float(_scaled_mean(values, torch)) == 1.0 / 3.0
+
+    boundary = float(np.finfo(np.float64).max / 3.0)
+    tiny = np.nextafter(0.0, 1.0)
+    scores = torch.tensor(
+        [[boundary], [-boundary], [tiny]], dtype=torch.float64
+    )
+    grouped_sum = grouped_score_sums(
+        scores, np.zeros(3, dtype=np.int64), n_groups=1, xp=torch
+    )
+    assert float(grouped_sum[0, 0]) == tiny
 
     X, y, time = _multiscale_fmb_fixture()
     expected = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
