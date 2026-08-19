@@ -21,25 +21,33 @@ replace_function(
     "statgpu/panel/_diagnostics.py",
     "_scaled_mean",
     r'''def _scaled_mean(values, xp):
-    """Return a cancellation-safe backend-native mean.
+    """Return a cancellation- and range-safe backend-native mean.
 
-    Scaling alone prevents overflow but does not preserve a small finite term
-    between nearly cancelling O(DBL_MAX) observations. Reuse the covariance
-    layer's magnitude-tiered grouped reduction after dividing each observation
-    by ``n``. The reduced quantity is the mean itself, so same-sign groups never
-    require an unrepresentable intermediate group sum.
+    A uniform ``1/n`` prescale prevents same-sign overflow, but applying it to
+    every input would erase finite subnormal values before reduction. Scale only
+    when an observation is large enough that an unscaled same-sign sum could
+    overflow, then reuse the covariance layer's magnitude-tiered grouped sum so
+    low-order terms survive later cancellation.
     """
     n = int(values.shape[0])
     if n <= 0:
         raise ValueError("mean requires at least one observation")
     from statgpu.panel._covariance import _grouped_score_sums
 
-    codes_np = np.zeros(n, dtype=np.int64)
-    scaled = values / float(n)
-    grouped = _grouped_score_sums(
-        scaled.reshape(-1, 1), codes_np, n_groups=1, xp=xp
+    max_abs = xp.max(xp.abs(values))
+    limit = float(np.finfo(np.float64).max) / float(n)
+    dangerous = max_abs > float(limit)
+    factor = xp.where(
+        dangerous,
+        xp.full_like(max_abs, float(n)),
+        xp.ones_like(max_abs),
     )
-    return grouped[0, 0]
+    scaled = values / factor
+    codes_np = np.zeros(n, dtype=np.int64)
+    total = _grouped_score_sums(
+        scaled.reshape(-1, 1), codes_np, n_groups=1, xp=xp
+    )[0, 0]
+    return xp.where(dangerous, total, total / float(n))
 ''',
 )
 
@@ -47,13 +55,14 @@ replace_function(
     "statgpu/panel/_diagnostics.py",
     "_scaled_group_means",
     r'''def _scaled_group_means(values, groups, xp):
-    """Return cancellation-safe group means aligned to observations.
+    """Return cancellation- and range-safe group means aligned to observations.
 
-    The numerical accumulation stays on the selected backend; only compact
-    integer group codes are materialized on the host, matching the panel
-    metadata policy. Each observation is divided by its group size before the
-    magnitude-tiered grouped reduction, so the reduced quantity is already a
-    mean and therefore remains representable for finite inputs.
+    Statistical accumulation remains on the selected backend.  Only compact
+    integer group codes cross to the host, matching the panel metadata policy.
+    Groups whose same-sign sum could overflow are divided by their own count
+    before reduction; safe groups remain on their original scale so finite
+    subnormal means are not erased.  The covariance layer's magnitude-tiered
+    grouped sum then preserves low-order terms through large cancellation.
     """
     from statgpu.panel._covariance import _grouped_score_sums
 
@@ -64,6 +73,7 @@ replace_function(
     n_groups = int(codes_np.max()) + 1 if codes_np.size else 0
     if n_groups <= 0:
         raise ValueError("group means require at least one observation")
+
     counts_np = np.bincount(codes_np, minlength=n_groups).astype(np.float64)
     codes = xp_asarray(
         codes_np, dtype=xp.int64, xp=xp, ref_arr=values
@@ -71,11 +81,20 @@ replace_function(
     counts = xp_asarray(
         counts_np, dtype=xp.float64, xp=xp, ref_arr=values
     )
-    scaled = values / counts[codes]
+    sizes = counts[codes]
+    limit = float(np.finfo(np.float64).max) / sizes
+    dangerous_obs = (xp.abs(values) > limit) * 1.0
+    dangerous_aligned = group_means(dangerous_obs, groups, xp=xp) > 0.0
+    factor = xp.where(dangerous_aligned, sizes, xp.ones_like(sizes))
+
     compact = _grouped_score_sums(
-        scaled.reshape(-1, 1), codes_np, n_groups=n_groups, xp=xp
+        (values / factor).reshape(-1, 1),
+        codes_np,
+        n_groups=n_groups,
+        xp=xp,
     )[:, 0]
-    return compact[codes]
+    aligned = compact[codes]
+    return xp.where(dangerous_aligned, aligned, aligned / sizes)
 ''',
 )
 
@@ -104,6 +123,22 @@ def test_scaled_group_means_preserve_small_term_after_huge_cancellation_numpy():
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=0.0)
 
 
+def test_scaled_mean_preserves_smallest_subnormal_numpy():
+    tiny = np.nextafter(0.0, 1.0)
+    values = np.asarray([tiny, tiny, tiny], dtype=np.float64)
+    actual = float(_scaled_mean(values, np))
+    assert actual == tiny
+
+
+def test_scaled_group_means_preserve_smallest_subnormal_numpy():
+    tiny = np.nextafter(0.0, 1.0)
+    values = np.asarray([tiny, tiny, tiny, 1.0e308, 1.0e308], dtype=np.float64)
+    groups = np.asarray([0, 0, 0, 1, 1], dtype=np.int64)
+    actual = np.asarray(_scaled_group_means(values, groups, np))
+    assert np.all(actual[:3] == tiny)
+    np.testing.assert_allclose(actual[3:], np.asarray([1.0e308, 1.0e308]))
+
+
 def test_scaled_mean_and_group_means_preserve_cancellation_torch_cpu():
     torch = pytest.importorskip("torch")
     values = torch.tensor(
@@ -123,6 +158,16 @@ def test_scaled_mean_and_group_means_preserve_cancellation_torch_cpu():
         rtol=0.0,
         atol=0.0,
     )
+
+
+def test_scaled_mean_and_group_means_preserve_subnormal_torch_cpu():
+    torch = pytest.importorskip("torch")
+    tiny = np.nextafter(0.0, 1.0)
+    values = torch.tensor([tiny, tiny, tiny], dtype=torch.float64)
+    groups = torch.tensor([0, 0, 0], dtype=torch.int64)
+    assert float(_scaled_mean(values, torch)) == tiny
+    grouped = _scaled_group_means(values, groups, torch)
+    assert np.all(grouped.detach().cpu().numpy() == tiny)
 ''',
     encoding="utf-8",
 )
