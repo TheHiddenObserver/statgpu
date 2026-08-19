@@ -175,6 +175,36 @@ def _stable_batched_response_sums(y, xp):
     return grouped_score_sums(scores, codes, n_groups=1, xp=xp)[0]
 
 
+def _ambiguous_zero_rhs_2d(X, y, xp, *, ignore_first=False):
+    """Return whether a nonconstant Gram RHS is an ambiguous rounded zero.
+
+    A raw dot product equal to zero is not evidence that the exact float-input
+    sum is zero when positive and negative terms are both present. Fama-MacBeth
+    uses this only after the Gram certificate has rejected the period. If such a
+    zero coordinate is not the separately stabilized exact constant, fail closed
+    rather than let a rounded SVD basis invent a finite low-order coefficient.
+    """
+    raw_rhs = X.T @ y
+    abs_rhs = _axis_sum(xp.abs(X) * xp.abs(y).reshape(-1, 1), xp, 0)
+    ambiguous = (raw_rhs == 0.0) & (abs_rhs > 0.0)
+    if int(ambiguous.shape[0]) > 0:
+        ambiguous[0] = ambiguous[0] & (~ignore_first)
+    return xp.any(ambiguous)
+
+
+def _ambiguous_zero_rhs_batched(X, y, xp, *, ignore_first=None):
+    """Vectorized ambiguous-zero certificate for Fama-MacBeth SVD fallbacks."""
+    if getattr(y, "ndim", None) != 2:
+        return xp.zeros_like(X[:, 0, 0], dtype=bool)
+    transpose = xp.swapaxes(X, -2, -1)
+    rhs = xp.matmul(transpose, y[..., None])[..., 0]
+    rhs_abs = xp.matmul(xp.abs(transpose), xp.abs(y[..., None]))[..., 0]
+    ambiguous = (rhs == 0.0) & (rhs_abs > 0.0)
+    if ignore_first is not None and int(ambiguous.shape[1]) > 0:
+        ambiguous[:, 0] = ambiguous[:, 0] & (~ignore_first)
+    return ~_axis_all(~ambiguous, xp, 1)
+
+
 def _resolution_failure_2d(
     X_work,
     U,
@@ -292,7 +322,7 @@ def _gram_resolution_risk_batched(
     *,
     ignore_first=None,
 ):
-    """Bound unresolved nonzero Gram coordinates from RHS rounding."""
+    """Bound unresolved Gram coordinates from RHS rounding."""
     if getattr(rhs_input, "ndim", None) != 3 or int(rhs_input.shape[-1]) != 1:
         return xp.zeros_like(certified, dtype=bool)
     n = max(1, int(transpose.shape[-1]))
@@ -302,7 +332,7 @@ def _gram_resolution_risk_batched(
     beta_error = xp.matmul(xp.abs(inverse_gram), rhs_error[..., None])[..., 0]
     risky = (
         certified[:, None]
-        & (xp.abs(params) > 0.0)
+        & (beta_error > 0.0)
         & (xp.abs(params) <= beta_error)
     )
     if ignore_first is not None and int(risky.shape[1]) > 0:
@@ -463,7 +493,12 @@ def panel_lstsq_deferred_rank(X, y, xp):
         xp,
         ignore_first=has_constant,
     )
-    rank_backend = xp.where(failure, xp.zeros_like(rank_backend), rank_backend)
+    ambiguous_zero = _ambiguous_zero_rhs_2d(
+        X_work, y_work, xp, ignore_first=has_constant
+    )
+    rank_backend = xp.where(
+        failure | ambiguous_zero, xp.zeros_like(rank_backend), rank_backend
+    )
     restore = xp.zeros_like(params_work)
     restore[0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
     return (params_work + restore) * design_scale, rank_backend
@@ -620,7 +655,12 @@ def panel_lstsq_batched(X, y, xp):
             xp,
             ignore_first=has_constant,
         )
-        ranks = xp.where(failure, xp.zeros_like(ranks), ranks)
+        ambiguous_zero = _ambiguous_zero_rhs_batched(
+            X_work, y_work, xp, ignore_first=has_constant
+        )
+        ranks = xp.where(
+            failure | ambiguous_zero, xp.zeros_like(ranks), ranks
+        )
         restore = xp.zeros_like(params_work)
         restore[:, 0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
         params = (params_work + restore) * design_scale[:, None]
