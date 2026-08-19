@@ -52,9 +52,6 @@ def _rank_mask_backend(X, singular_values, xp):
 
 def _rank_mask(X, singular_values, xp):
     retained, rank_backend = _rank_mask_backend(X, singular_values, xp)
-    # Keep the singular-value cutoff on the active backend. Only the final
-    # integer rank must cross the device boundary for fail-closed Python control
-    # flow; extracting s_max separately would add an avoidable GPU sync.
     rank = int(_to_float_scalar(rank_backend))
     return retained, rank
 
@@ -72,15 +69,7 @@ def _svd_inverse_factors(X, xp):
 
 
 def _lstsq_working_design(X, xp, *, batched: bool):
-    """Return an SVD working design plus its positive rescaling factor.
-
-    Uniform positive rescaling leaves the relative panel rank cutoff unchanged.
-    If an entire independent design lies below ``sqrt(DBL_MIN)``, raise its
-    largest element to that threshold before forming inverse retained singular
-    values. This prevents ``1 / s`` overflow for a full-rank subnormal design;
-    the final least-squares coefficient is multiplied by the same factor to
-    restore the original parameterization.
-    """
+    """Return an SVD working design plus its positive rescaling factor."""
     namespace = getattr(xp, "__name__", "")
     target = float(np.sqrt(np.finfo(np.float64).tiny))
 
@@ -116,9 +105,12 @@ def _lstsq_working_design(X, xp, *, batched: bool):
 
 def _first_constant_anchor_2d(X, y, full_rank, xp):
     """Return a safe response anchor for a full-rank exact first-column constant."""
-    zero = xp.zeros((), dtype=y.dtype)
+    ref = y.reshape(-1)[0]
+    zero = xp.zeros_like(ref)
+    one = xp.ones_like(ref)
+    false = xp.zeros_like(ref, dtype=bool)
     if getattr(y, "ndim", None) != 1 or int(X.shape[1]) == 0:
-        return zero, xp.ones((), dtype=y.dtype), xp.asarray(False)
+        return zero, one, false
     column = X[:, 0]
     value = column[0]
     exact = (
@@ -133,12 +125,12 @@ def _first_constant_anchor_2d(X, y, full_rank, xp):
 
 def _first_constant_anchor_batched(X, y, full_rank, xp):
     """Return per-batch anchors for full-rank exact first-column constants."""
-    batch = int(X.shape[0])
-    zero = xp.zeros((batch,), dtype=X.dtype)
+    ref = X[:, 0, 0]
+    zero = xp.zeros_like(ref)
+    one = xp.ones_like(ref)
+    false = xp.zeros_like(ref, dtype=bool)
     if getattr(y, "ndim", None) != 2 or int(X.shape[-1]) == 0:
-        return zero, xp.ones((batch,), dtype=X.dtype), xp.zeros(
-            (batch,), dtype=xp.bool
-        )
+        return zero, one, false
     column = X[:, :, 0]
     value = column[:, 0]
     exact = (
@@ -157,8 +149,6 @@ def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
     if not stable:
         return Vh.T @ (weighted_u_t @ y)
 
-    # Import lazily so covariance/pseudoinverse users do not pay for the
-    # magnitude-tiered reducer unless a response actually needs it.
     from statgpu.panel._reductions import grouped_score_sums
 
     products = weighted_u_t.T * y.reshape(-1, 1)
@@ -173,15 +163,7 @@ def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
 
 
 def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
-    """Return a backend scalar when a tiny coefficient is not numerically certified.
-
-    The trigger is intentionally narrow. A coordinate is considered at risk only
-    when its magnitude is at the roundoff scale of the absolute pseudoinverse
-    projection. We then require an independently large normal-equation residual
-    on column-normalized coordinates before rejecting the fit. Ordinary zeros and
-    well-resolved mixed-scale identity problems therefore remain valid, while a
-    finite SVD coefficient contaminated by a much larger direction fails closed.
-    """
+    """Return a backend scalar when a tiny coefficient is not numerically certified."""
     n = max(1, int(X_work.shape[0]))
     eps = float(np.finfo(np.float64).eps)
     y_scale = xp.max(xp.abs(y))
@@ -196,10 +178,7 @@ def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
     resolution_risk = (
         (y_scale > 0.0)
         & (projection_scale > 0.0)
-        & (
-            params_unit
-            <= float(64.0 * n * eps) * projection_scale
-        )
+        & (params_unit <= float(64.0 * n * eps) * projection_scale)
     )
 
     residual_unit = y / safe_y_scale - X_work @ (params_work / safe_y_scale)
@@ -214,10 +193,7 @@ def _resolution_failure_2d(X_work, U, Vh, inverse_values, y, params_work, xp):
     gradient_scale = _axis_sum(xp.abs(score_terms), xp, 0)
     stationarity_bad = (
         (gradient_scale > 0.0)
-        & (
-            xp.abs(gradient)
-            > float(4096.0 * n * eps) * gradient_scale
-        )
+        & (xp.abs(gradient) > float(4096.0 * n * eps) * gradient_scale)
     )
     return xp.any(resolution_risk & stationarity_bad)
 
@@ -227,7 +203,7 @@ def _resolution_failure_batched(
 ):
     """Vectorized form of the narrow SVD coefficient-resolution certificate."""
     if getattr(y, "ndim", None) != 2:
-        return xp.zeros((int(X_work.shape[0]),), dtype=xp.bool)
+        return xp.zeros_like(X_work[:, 0, 0], dtype=bool)
     n = max(1, int(X_work.shape[1]))
     eps = float(np.finfo(np.float64).eps)
     y_scale = _axis_max(xp.abs(y), xp, 1)
@@ -245,10 +221,7 @@ def _resolution_failure_batched(
     resolution_risk = (
         (y_scale[:, None] > 0.0)
         & (projection_scale > 0.0)
-        & (
-            params_unit
-            <= float(64.0 * n * eps) * projection_scale
-        )
+        & (params_unit <= float(64.0 * n * eps) * projection_scale)
     )
 
     residual_unit = y / safe_y_scale[:, None] - xp.matmul(
@@ -265,19 +238,15 @@ def _resolution_failure_batched(
     gradient_scale = _axis_sum(xp.abs(score_terms), xp, 1)
     stationarity_bad = (
         (gradient_scale > 0.0)
-        & (
-            xp.abs(gradient)
-            > float(4096.0 * n * eps) * gradient_scale
-        )
+        & (xp.abs(gradient) > float(4096.0 * n * eps) * gradient_scale)
     )
-    return _axis_all(~(resolution_risk & stationarity_bad), xp, 1) == False
+    return ~_axis_all(~(resolution_risk & stationarity_bad), xp, 1)
 
 
 def _gram_resolution_risk_batched(X, y, params, xp):
     """Conservatively reject Gram candidates below certified float64 resolution."""
-    batch = int(X.shape[0])
     if getattr(y, "ndim", None) != 2:
-        return xp.zeros((batch,), dtype=xp.bool)
+        return xp.zeros_like(X[:, 0, 0], dtype=bool)
     n = max(1, int(X.shape[1]))
     eps = float(np.finfo(np.float64).eps)
     y_scale = _axis_max(xp.abs(y), xp, 1)
@@ -294,9 +263,6 @@ def _gram_resolution_risk_batched(X, y, params, xp):
         xp.ones_like(column_norm_unit),
     )
     signal = (xp.abs(params) / safe_y_scale[:, None]) * safe_column_scale
-    # Gram certification already guarantees kappa_2(X) < about 100. The
-    # additional factor keeps this a conservative fail-closed certificate rather
-    # than a claim that normal equations can resolve machine-epsilon-scale beta.
     bound = float(128.0 * n * eps * 100.0) / safe_norm
     risky = (
         (y_scale[:, None] > 0.0)
@@ -307,15 +273,7 @@ def _gram_resolution_risk_batched(X, y, params, xp):
 
 
 def panel_svd_working_pseudoinverse(X, xp):
-    """Return a safe working-design pseudoinverse and its rescaling factor.
-
-    The returned pseudoinverse belongs to ``X_work = design_scale * X``.
-    Consumers that combine the pseudoinverse with residual or covariance scale
-    can therefore apply ``design_scale`` only after those smaller quantities
-    have reduced the dynamic range, instead of materializing an unrepresentable
-    original-scale ``X+`` or ``X+ X+^T`` first. The rank policy is identical to
-    :func:`panel_lstsq`.
-    """
+    """Return a safe working-design pseudoinverse and its rescaling factor."""
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
     U, Vh, inverse_values, rank = _svd_inverse_factors(X_work, xp)
     X_pinv_work = (Vh.T * inverse_values) @ U.T
@@ -323,14 +281,7 @@ def panel_svd_working_pseudoinverse(X, xp):
 
 
 def panel_working_pseudoinverse(X, xp):
-    """Return a working-design pseudoinverse with one-sync Gram certification.
-
-    The Gram candidate is uniformly scaled before ``X'X`` is formed, so the
-    certification calculation itself is range-safe without a host-side branch.
-    All finite/spectrum/solve checks remain backend-native until one final
-    boolean transfer. Certified full-rank designs use the normal-equation
-    candidate; every uncertified case falls back to the shared SVD cutoff.
-    """
+    """Return a working-design pseudoinverse with one-sync Gram certification."""
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     if int(X.shape[-1]) == 0:
@@ -371,10 +322,7 @@ def panel_working_pseudoinverse(X, xp):
         & xp.isfinite(smallest)
         & xp.isfinite(largest)
         & (largest > 0.0)
-        & (
-            smallest
-            > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO)
-        )
+        & (smallest > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO))
     )
 
     safe_gram = xp.where(certified, gram, identity)
@@ -389,7 +337,6 @@ def panel_working_pseudoinverse(X, xp):
     candidate = candidate / gram_scale
     certified = certified & xp.all(xp.isfinite(candidate))
 
-    # This is the only certification transfer on the accepted Gram path.
     if bool(_to_float_scalar(certified)):
         return X_work, candidate, design_scale, k
 
@@ -407,15 +354,7 @@ def panel_svd_pseudoinverse(X, xp):
 
 
 def panel_lstsq(X, y, xp):
-    """Return a certified minimum-norm least-squares solution.
-
-    Full-rank exact first-column constants remove a safe common response level
-    before projection. Cancellation/range-sensitive responses use the shared
-    magnitude-tiered reducer for ``diag(1/s) U' y``. For otherwise ordinary
-    responses, a narrow coordinate-resolution plus stationarity certificate
-    fails closed instead of publishing a finite coefficient contaminated by a
-    much larger SVD direction.
-    """
+    """Return a certified minimum-norm least-squares solution."""
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
@@ -455,15 +394,7 @@ def panel_lstsq(X, y, xp):
 
 
 def panel_lstsq_deferred_rank(X, y, xp):
-    """Return least-squares parameters plus a backend-native rank scalar.
-
-    The final numerical rank remains backend-native so Fama-MacBeth can pack its
-    fallback rank decisions. A full-rank exact first-column constant is safely
-    centered before the SVD projection. If an otherwise ordinary projection
-    fails the narrow coefficient-resolution/stationarity certificate, the
-    backend rank is set to zero so the caller fails closed instead of consuming
-    the unreliable coefficient vector.
-    """
+    """Return least-squares parameters plus a backend-native rank scalar."""
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
@@ -505,15 +436,7 @@ def panel_lstsq_gram_certified_batched(
     *,
     min_eigen_ratio: float = _GRAM_CERTIFIED_MIN_EIGEN_RATIO,
 ):
-    """Return a fast Gram-solve candidate and a backend-native safety mask.
-
-    The fast path is deliberately not a replacement for the shared SVD rank
-    policy. Clearly well-conditioned matrices are candidates only. A full-rank
-    exact first-column constant is response-centered before ``X' y`` so a huge
-    common level cannot overflow the Gram RHS or contaminate a smaller slope.
-    Candidates whose nonzero coordinates lie below the conservative float64
-    resolution bound are also rejected for SVD fallback.
-    """
+    """Return a fast Gram-solve candidate and a backend-native safety mask."""
     _validate_batched_lstsq_inputs(X, y)
     ratio = float(min_eigen_ratio)
     if not np.isfinite(ratio) or not 0.0 < ratio < 1.0:
@@ -525,8 +448,7 @@ def panel_lstsq_gram_certified_batched(
             "certified Gram solve requires NumPy, CuPy, or Torch batched linear algebra"
         )
 
-    batch = int(X.shape[0])
-    full_rank_candidate = xp.ones((batch,), dtype=xp.bool)
+    full_rank_candidate = xp.ones_like(X[:, 0, 0], dtype=bool)
     anchor, constant_value, has_constant = _first_constant_anchor_batched(
         X, y, full_rank_candidate, xp
     )
@@ -590,13 +512,7 @@ def panel_lstsq_gram_certified_batched(
 
 
 def panel_lstsq_batched(X, y, xp):
-    """Solve equal-shaped panel least-squares problems with one stacked SVD call.
-
-    NumPy and Torch use the same rank cutoff as :func:`panel_lstsq`. Full-rank
-    first-column constants remove a safe common response level. A vectorized
-    resolution/stationarity certificate maps unresolved SVD solutions to rank
-    zero so Fama-MacBeth fails closed after its single packed rank transfer.
-    """
+    """Solve equal-shaped panel least-squares problems with one stacked SVD call."""
     namespace = getattr(xp, "__name__", "")
     if namespace not in {"numpy", "torch"}:
         raise NotImplementedError(
