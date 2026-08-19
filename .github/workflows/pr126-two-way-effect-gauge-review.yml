@@ -40,7 +40,7 @@ jobs:
               ),
               (
                   '    X = np.ones((values_np.size, 1), dtype=np.float64)\\n',
-                  '    X = np.linspace(-1.0, 1.0, values_np.size, dtype=np.float64)[:, None]\\n',
+                  '    X = (1.0e150 * np.linspace(-1.0, 1.0, values_np.size, dtype=np.float64))[:, None]\\n',
                   'public gauge fixture design anchor',
               ),
           ]
