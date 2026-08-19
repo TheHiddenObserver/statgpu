@@ -139,13 +139,7 @@ def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
 
 
 def _svd_project_batched_stable(U, Vh, inverse_values, y, xp):
-    """Project batched single responses with stable per-period reductions.
-
-    This path is used only after the Fama-MacBeth Gram certificate rejects a
-    period batch. Keeping each period as one grouped reduction prevents a
-    cancellation-sensitive intercept or slope from being lost inside a batched
-    BLAS ``U' y`` reduction while retaining one stacked SVD call.
-    """
+    """Project batched single responses with stable per-period reductions."""
     from statgpu.panel._reductions import grouped_score_sums
 
     batch = int(U.shape[0])
@@ -161,6 +155,24 @@ def _svd_project_batched_stable(U, Vh, inverse_values, y, xp):
         xp=xp,
     )
     return xp.matmul(xp.swapaxes(Vh, -2, -1), projected[..., None])[..., 0]
+
+
+def _stable_batched_response_sums(y, xp):
+    """Return one magnitude-tiered sum for every row of a response batch.
+
+    The Fama-MacBeth first Gram-RHS coordinate is an exact constant times the
+    period response sum. Treat periods as columns of one grouped reduction so a
+    tail such as ``[2**55, 1, -2**55]`` is retained without a per-period Python
+    loop or host synchronization.
+    """
+    from statgpu.panel._reductions import grouped_score_sums
+
+    if getattr(y, "ndim", None) != 2:
+        raise ValueError("batched response sums require shape (batch, n_obs)")
+    n_obs = int(y.shape[1])
+    codes = np.zeros(n_obs, dtype=np.int64)
+    scores = xp.swapaxes(y, 0, 1)
+    return grouped_score_sums(scores, codes, n_groups=1, xp=xp)[0]
 
 
 def _resolution_failure_2d(
@@ -277,14 +289,10 @@ def _gram_resolution_risk_batched(
     params,
     certified,
     xp,
+    *,
+    ignore_first=None,
 ):
-    """Reject Gram coordinates whose RHS-roundoff interval is not resolved.
-
-    Zero candidates are included. In particular, a period intercept can be zero
-    only because ordinary ``X' y`` summation erased a representable cancellation
-    tail. Such periods leave the Gram fast path and are recomputed by the stable
-    SVD fallback, where a genuine exact zero is harmless.
-    """
+    """Bound unresolved nonzero Gram coordinates from RHS rounding."""
     if getattr(rhs_input, "ndim", None) != 3 or int(rhs_input.shape[-1]) != 1:
         return xp.zeros_like(certified, dtype=bool)
     n = max(1, int(transpose.shape[-1]))
@@ -294,9 +302,11 @@ def _gram_resolution_risk_batched(
     beta_error = xp.matmul(xp.abs(inverse_gram), rhs_error[..., None])[..., 0]
     risky = (
         certified[:, None]
-        & (beta_error > 0.0)
+        & (xp.abs(params) > 0.0)
         & (xp.abs(params) <= beta_error)
     )
+    if ignore_first is not None and int(risky.shape[1]) > 0:
+        risky[:, 0] = risky[:, 0] & (~ignore_first)
     return ~_axis_all(~risky, xp, 1)
 
 
@@ -479,11 +489,12 @@ def panel_lstsq_gram_certified_batched(
 ):
     """Return a fast Gram-solve candidate and a backend-native safety mask.
 
-    For the single-response path used by Fama-MacBeth, one augmented linear
-    solve returns both the candidate coefficients and ``G^{-1}`` needed by the
-    coordinatewise RHS-roundoff certificate. Any coordinate whose candidate is
-    not separated from that error bound, including a zero intercept, leaves the
-    Gram path and is recomputed by the stable SVD fallback.
+    For the single-response Fama-MacBeth path, the exact constant coordinate uses
+    a magnitude-tiered response sum before the Gram solve. This preserves a
+    cancellation tail in the period intercept without forcing genuine zero
+    intercept periods off the fast path. One augmented solve returns both the
+    candidate coefficients and ``G^{-1}`` needed to certify the remaining
+    non-constant coordinates, so the precision check still uses one factorization.
     """
     _validate_batched_lstsq_inputs(X, y)
     ratio = float(min_eigen_ratio)
@@ -506,6 +517,10 @@ def panel_lstsq_gram_certified_batched(
     gram = xp.matmul(transpose, X)
     rhs_input = y_work[..., None] if getattr(y_work, "ndim", None) == 2 else y_work
     rhs = xp.matmul(transpose, rhs_input)
+    if getattr(y_work, "ndim", None) == 2:
+        stable_response_sum = _stable_batched_response_sums(y_work, xp)
+        stable_first_rhs = constant_value * stable_response_sum
+        rhs[:, 0, 0] = xp.where(has_constant, stable_first_rhs, rhs[:, 0, 0])
 
     gram_finite_view = xp.isfinite(gram).reshape(int(gram.shape[0]), -1)
     gram_finite = _axis_all(gram_finite_view, xp, 1)
@@ -561,6 +576,7 @@ def panel_lstsq_gram_certified_batched(
             params_centered,
             certified,
             xp,
+            ignore_first=has_constant,
         )
         certified = certified & (~resolution_risk)
         restore = xp.zeros_like(params_centered)
@@ -570,13 +586,7 @@ def panel_lstsq_gram_certified_batched(
 
 
 def panel_lstsq_batched(X, y, xp):
-    """Solve equal-shaped panel least-squares fallbacks with one stacked SVD call.
-
-    NumPy and Torch use the shared SVD rank cutoff. For the single-response
-    Fama-MacBeth fallback, ``U' y`` is always reduced period-by-period through
-    the magnitude-tiered grouped reducer because the Gram certificate has already
-    identified ordinary projection arithmetic as potentially unsafe.
-    """
+    """Solve equal-shaped panel least-squares fallbacks with one stacked SVD call."""
     namespace = getattr(xp, "__name__", "")
     if namespace not in {"numpy", "torch"}:
         raise NotImplementedError(
@@ -599,9 +609,7 @@ def panel_lstsq_batched(X, y, xp):
     y_work = y - anchor[:, None] if getattr(y, "ndim", None) == 2 else y
 
     if getattr(y_work, "ndim", None) == 2:
-        params_work = _svd_project_batched_stable(
-            U, Vh, inverse_values, y_work, xp
-        )
+        params_work = _svd_project_batched_stable(U, Vh, inverse_values, y_work, xp)
         failure = _resolution_failure_batched(
             X_work,
             U,
