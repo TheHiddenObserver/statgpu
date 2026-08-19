@@ -786,7 +786,10 @@ def two_way_clustered_covariance(
             )
         else:
             component_sets = (components1, components2, components12)
-            if _component_row_reduction_needs_expansion(component_sets, xp):
+            needs_row_expansion = _component_row_reduction_needs_expansion(
+                component_sets, xp
+            )
+            if needs_row_expansion:
                 component_sets = _retier_component_sets_for_safe_gram(
                     component_sets, xp
                 )
@@ -842,31 +845,47 @@ def two_way_clustered_covariance(
 
             terms = []
 
-            def _append_scaled_row_term(term, coefficient):
-                for dyadic in _dyadic_float_terms(coefficient):
-                    terms.append(term * float(dyadic))
+            if needs_row_expansion:
+                def _append_scaled_row_term(term, coefficient):
+                    for dyadic in _dyadic_float_terms(coefficient):
+                        terms.append(term * float(dyadic))
 
-            def _append_component_terms(components, correction, sign):
-                coefficient = float(sign) * float(correction)
-                for i, left in enumerate(components):
-                    for row in range(int(left.shape[0])):
-                        vector = left[row]
-                        outer = vector[:, None] * vector[None, :]
-                        _append_scaled_row_term(outer, coefficient)
-                    for right in components[:i]:
+                def _append_component_terms(components, correction, sign):
+                    coefficient = float(sign) * float(correction)
+                    for i, left in enumerate(components):
                         for row in range(int(left.shape[0])):
-                            cross = left[row, :, None] * right[row, None, :]
-                            _append_scaled_row_term(cross + cross.T, coefficient)
+                            vector = left[row]
+                            outer = vector[:, None] * vector[None, :]
+                            _append_scaled_row_term(outer, coefficient)
+                        for right in components[:i]:
+                            for row in range(int(left.shape[0])):
+                                cross = left[row, :, None] * right[row, None, :]
+                                _append_scaled_row_term(cross + cross.T, coefficient)
 
-            # This branch is already the rare multi-tier precision fallback.
-            # Keep row products out of signed BLAS reductions and decompose float
-            # debias corrections into exact dyadic factors; then accumulate all
-            # estimator-level terms with two compensated error streams. Ordinary
-            # single-tier/vectorized covariance paths are unchanged.
-            _append_component_terms(work1, correction1, 1.0)
-            _append_component_terms(work2, correction2, 1.0)
-            _append_component_terms(work12, correction12, -1.0)
-            cov_work = _twofold_matrix_sum(terms, xp)
+                # Only the pathological cross-group dynamic-range branch uses
+                # row-level compensated accumulation.  Keep row products out of
+                # signed BLAS reductions and expand float debias corrections into
+                # exact dyadic factors before estimator-level cancellation.
+                _append_component_terms(work1, correction1, 1.0)
+                _append_component_terms(work2, correction2, 1.0)
+                _append_component_terms(work12, correction12, -1.0)
+                cov_work = _twofold_matrix_sum(terms, xp)
+            else:
+                def _append_vectorized_component_terms(components, correction, sign):
+                    coefficient = float(sign) * float(correction)
+                    for i, left in enumerate(components):
+                        terms.append(_symmetrize(left.T @ left) * coefficient)
+                        for right in components[:i]:
+                            cross = left.T @ right
+                            terms.append((cross + cross.T) * coefficient)
+
+                # Local grouped-score tiers do not by themselves require the
+                # row-level fallback.  If every cross-group component pair is
+                # certified safe, retain the vectorized BLAS/GPU expansion.
+                _append_vectorized_component_terms(work1, correction1, 1.0)
+                _append_vectorized_component_terms(work2, correction2, 1.0)
+                _append_vectorized_component_terms(work12, correction12, -1.0)
+                cov_work = _stable_matrix_expansion_sum(terms, xp)
     cov = _restore_influence_covariance(
         cov_work, common_scale, projection_scale, design_scale, xp
     )
