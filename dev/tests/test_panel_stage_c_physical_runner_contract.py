@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 from pathlib import Path
 
 import numpy as np
@@ -217,6 +218,7 @@ def test_stage_c_runner_hausman_scale_audit_is_executable():
         assert np.isfinite(case["pvalue"])
         np.testing.assert_allclose(case["statistic"], 1.0, rtol=3e-12, atol=0.0)
 
+
 def test_stage_c_runner_multiscale_grouping_audit_is_executable():
     audit = _MOD._multiscale_grouping_audit("numpy")
     assert audit["status"] == "success"
@@ -263,3 +265,13 @@ def test_stage_c_runner_multiscale_grouping_audit_is_executable():
         rtol=3e-12,
         atol=0.0,
     )
+
+
+def test_stage_c_runner_registers_shared_mean_gpu_audit():
+    audit_source = inspect.getsource(_MOD._cancellation_safe_mean_audit)
+    assert "_scaled_mean" in audit_source
+    assert "_scaled_group_means" in audit_source
+    assert "1.0e-320" in audit_source
+
+    main_source = inspect.getsource(_MOD.main)
+    assert '"cancellation_safe_mean": _cancellation_safe_mean_audit(backend)' in main_source
