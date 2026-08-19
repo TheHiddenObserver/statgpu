@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.panel import FirstDifferenceOLS, PanelOLS, PooledOLS
+from statgpu.panel import FamaMacBeth, FirstDifferenceOLS, PanelOLS, PooledOLS
 from statgpu.panel._linalg import panel_lstsq
 
 
@@ -30,10 +30,19 @@ def _mixed_coefficient_resolution_fixture():
     beta = np.asarray([amplitude, 16.0], dtype=np.float64)
     y = X @ beta
     assert np.linalg.cond(X) < 2.0
-    # These float64 inputs have the exact real-valued least-squares solution
-    # [2**55, 16]; the historical rounded-SVD projection produced a finite
-    # second coefficient near 10.46 with a large X' residual.
     return X, y
+
+
+def _fama_macbeth_resolution_fixture(n_periods=3):
+    X_period, _ = _mixed_coefficient_resolution_fixture()
+    beta = np.asarray([float(2.0**55), 16.0], dtype=np.float64)
+    y_period = X_period @ beta
+    X = np.tile(X_period, (n_periods, 1))
+    y = np.tile(y_period, n_periods)
+    time = np.repeat(np.arange(n_periods, dtype=np.int64), X_period.shape[0])
+    design = np.column_stack([np.ones(X_period.shape[0]), X_period])
+    assert np.linalg.cond(design) < 3.0
+    return X, y, time
 
 
 def _first_difference_from_transformed(X_diff, y_diff):
@@ -114,6 +123,15 @@ def test_first_difference_fails_closed_on_unresolved_mixed_coefficients_numpy():
         )
 
 
+def test_fama_macbeth_reports_resolution_failure_instead_of_rank_deficiency_numpy():
+    X, y, time = _fama_macbeth_resolution_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="FamaMacBeth period coefficient resolution exceeds float64 precision",
+    ):
+        FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+
+
 def test_first_difference_legacy_r2_handles_unrepresentable_physical_centering_numpy():
     X, y, entity, time = _first_difference_extreme_r2_fixture()
     model = FirstDifferenceOLS(cov_type="hc0").fit(
@@ -151,6 +169,17 @@ def test_torch_cpu_shared_panel_resolution_contract_matches_numpy():
             torch.as_tensor(X_bad, dtype=torch.float64),
             torch.as_tensor(y_bad, dtype=torch.float64),
             torch,
+        )
+
+    X_fmb, y_fmb, time_fmb = _fama_macbeth_resolution_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="FamaMacBeth period coefficient resolution exceeds float64 precision",
+    ):
+        FamaMacBeth(bandwidth=0).fit(
+            torch.as_tensor(X_fmb, dtype=torch.float64),
+            torch.as_tensor(y_fmb, dtype=torch.float64),
+            time_ids=torch.as_tensor(time_fmb, dtype=torch.int64),
         )
 
     X_fd, y_fd, entity, time = _first_difference_extreme_r2_fixture()
