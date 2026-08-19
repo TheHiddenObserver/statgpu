@@ -1,7 +1,7 @@
 # PooledOLS
 
 > 语言：中文  
-> 最后更新：2026-08-16  
+> 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/pooled-ols.md)
 
 ## Overview
@@ -112,6 +112,8 @@ model = PooledOLS().fit(
 
 ## Numerical and Strict Behavior
 
+自动添加的 constant/intercept 会防止 response cancellation 把可表示的低阶截距项静默抹掉。普通 response 完全保留历史 SVD/BLAS solve；只有当 response 被现有 classifier 判为 magnitude/cancellation-sensitive 时，才在保持同一个 SVD、numerical-rank cutoff、design scaling 与 minimum-norm parameterization 的前提下，用共享 magnitude-tiered reduction 计算 SVD response projection。例如 `[2**55, 1, -2**55]` 中可表示的 intercept tail 不会被错误降为 0。legacy pooled $R^2$ 在物理 `y-mean(y)` 可能溢出时也复用 range-safe working-scale centering。
+
 covariance 所需的附加信息会在计算前检查。例如，clustered covariance 缺少 `cluster`、Driscoll-Kraay 缺少 `time_index`，或 cluster 数组长度/形状不匹配时，都会直接报错，而不会自动改用另一种 covariance。legacy HAC 的 time metadata 若含 missing/non-finite value 也会 fail closed，而不会猜测排序。
 
 每次新的 `fit()` 都会先失效上一轮 fitted/inference state。如果 refit 在后续任意阶段失败，已经部分写入的新输出也会被清理；此后 `predict()` 与 `summary()` 会把 estimator 视为未拟合状态。
@@ -130,7 +132,7 @@ covariance 所需的附加信息会在计算前检查。例如，clustered covar
 
 我们将 `PooledOLS` 与 `linearmodels==7.0` 比较，覆盖 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。HC、cluster、Driscoll-Kraay、default bandwidth 与 R `sandwich` 的定义级检查见 [validation matrix](covariance.md#validation-matrix)。
 
-GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际最大差异保存在 PR #126 的 physical validation artifacts 中。专用的 `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate 还会在最终 exact source 上验证 ordered-categorical legacy-HAC chronology、lexical-order negative control、formula missing-row alignment，以及 requested/executed CuPy/Torch backend identity。
+GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际最大差异保存在 PR #126 的 physical validation artifacts 中。专用的 `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate 还会在最终 exact source 上验证 ordered-categorical legacy-HAC chronology、lexical-order negative control、formula missing-row alignment，以及 requested/executed CuPy/Torch backend identity。新增的 `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate 会在两个物理 GPU backend 上验证 cancellation-sensitive automatic-intercept 路径。
 
 ## 参考（References）
 
