@@ -58,7 +58,7 @@ def _fama_macbeth_intercept_cancellation_fixture(n_periods=3):
 
 
 def _fama_macbeth_nonconstant_zero_rhs_fixture(n_periods=3):
-    """Return a condition-one period design whose slope RHS rounds to zero."""
+    """Return a condition-one period design whose slope RHS loses a nonzero tail."""
     amplitude = float(2.0**55)
     x_period = np.asarray([1.0, -1.0, 1.0, -1.0], dtype=np.float64)
     y_period = np.asarray([-3.0, amplitude, 2.0, -amplitude], dtype=np.float64)
@@ -70,6 +70,19 @@ def _fama_macbeth_nonconstant_zero_rhs_fixture(n_periods=3):
     # In exact arithmetic over the supplied float64 values,
     # sum(y) = sum(x*y) = -1, so both coefficients equal -1/4. A BLAS
     # reduction can nevertheless return zero for the nonconstant RHS.
+    return X, y, time
+
+
+def _fama_macbeth_genuine_zero_rhs_fixture(n_periods=3):
+    """Return a condition-one period whose nonconstant RHS is genuinely zero."""
+    x_period = np.asarray([-1.0, 1.0, -1.0, 1.0], dtype=np.float64)
+    y_period = np.asarray([1.0, -1.0, -1.0, 1.0], dtype=np.float64)
+    X = np.tile(x_period, n_periods)[:, None]
+    y = np.tile(y_period, n_periods)
+    time = np.repeat(np.arange(n_periods, dtype=np.int64), x_period.size)
+    design = np.column_stack([np.ones(x_period.size), x_period])
+    assert np.linalg.cond(design) == 1.0
+    assert np.array_equal(design.T @ y_period, np.zeros(2, dtype=np.float64))
     return X, y, time
 
 
@@ -175,19 +188,27 @@ def test_fama_macbeth_preserves_period_intercept_cancellation_tail_numpy():
         coef[0], 1.0 / 3.0, rtol=8.0 * np.finfo(np.float64).eps, atol=0.0
     )
     np.testing.assert_allclose(betas[:, 1], -amplitude, rtol=2.0e-15, atol=0.0)
-    # The exact period intercept is repaired inside the Gram RHS itself, so this
-    # well-conditioned case should not pay for SVD fallback merely to retain 1/3.
     assert model._period_svd_fallbacks == 0
     assert model._period_solver_mode == "gram-certified"
 
 
-def test_fama_macbeth_fails_closed_on_ambiguous_zero_nonconstant_rhs_numpy():
+def test_fama_macbeth_fails_closed_when_stable_rhs_recovers_lost_nonconstant_tail_numpy():
     X, y, time = _fama_macbeth_nonconstant_zero_rhs_fixture()
     with pytest.raises(
         FloatingPointError,
         match="FamaMacBeth period coefficient resolution exceeds float64 precision",
     ):
         FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+
+
+def test_fama_macbeth_allows_genuine_zero_nonconstant_rhs_numpy():
+    X, y, time = _fama_macbeth_genuine_zero_rhs_fixture()
+    model = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+    betas = np.asarray(model.betas_, dtype=np.float64)
+    coef = np.asarray(model.coef_, dtype=np.float64)
+    np.testing.assert_allclose(betas, np.zeros_like(betas), rtol=0.0, atol=2.0e-15)
+    np.testing.assert_allclose(coef, np.zeros_like(coef), rtol=0.0, atol=2.0e-15)
+    assert model._period_svd_fallbacks == model.n_periods
 
 
 def test_first_difference_legacy_r2_handles_unrepresentable_physical_centering_numpy():
@@ -269,6 +290,26 @@ def test_torch_cpu_shared_panel_resolution_contract_matches_numpy():
             torch.as_tensor(y_zero, dtype=torch.float64),
             time_ids=torch.as_tensor(time_zero, dtype=torch.int64),
         )
+
+    X_exact, y_exact, time_exact = _fama_macbeth_genuine_zero_rhs_fixture()
+    fmb_exact = FamaMacBeth(bandwidth=0).fit(
+        torch.as_tensor(X_exact, dtype=torch.float64),
+        torch.as_tensor(y_exact, dtype=torch.float64),
+        time_ids=torch.as_tensor(time_exact, dtype=torch.int64),
+    )
+    np.testing.assert_allclose(
+        fmb_exact.betas_.detach().cpu().numpy(),
+        np.zeros_like(fmb_exact.betas_.detach().cpu().numpy()),
+        rtol=0.0,
+        atol=4.0e-15,
+    )
+    np.testing.assert_allclose(
+        fmb_exact.coef_.detach().cpu().numpy(),
+        np.zeros_like(fmb_exact.coef_.detach().cpu().numpy()),
+        rtol=0.0,
+        atol=4.0e-15,
+    )
+    assert fmb_exact._period_svd_fallbacks == fmb_exact.n_periods
 
     X_fd, y_fd, entity, time = _first_difference_extreme_r2_fixture()
     model = FirstDifferenceOLS(cov_type="hc0").fit(
