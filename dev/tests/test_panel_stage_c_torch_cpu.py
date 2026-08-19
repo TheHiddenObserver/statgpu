@@ -328,3 +328,26 @@ def test_stage_c_pooled_nonrobust_df2_torch_cpu_matches_numpy_high_precision():
     assert expected.df_resid == 2
     assert actual.df_resid == 2
     _assert_inference(actual, expected, rtol=2e-12, atol=2e-14)
+
+@pytest.mark.parametrize("kind", ["cluster", "two_way", "hac", "dk"])
+def test_stage_c_public_covariance_rejects_nonfinite_residual_torch_cpu(kind):
+    from statgpu.panel import clustered_covariance, hac_covariance
+
+    X = torch.column_stack(
+        [torch.ones(6, dtype=torch.float64), torch.arange(6, dtype=torch.float64)]
+    )
+    resid = torch.linspace(-0.3, 0.4, 6, dtype=torch.float64)
+    resid[2] = float("nan")
+    c1 = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    time = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="X and resid must contain only finite values"):
+        if kind == "cluster":
+            clustered_covariance(X, resid, c1)
+        elif kind == "two_way":
+            two_way_clustered_covariance(X, resid, c1, c2)
+        elif kind == "hac":
+            hac_covariance(X, resid, bandwidth=1)
+        else:
+            driscoll_kraay_covariance(X, resid, time, bandwidth=1)

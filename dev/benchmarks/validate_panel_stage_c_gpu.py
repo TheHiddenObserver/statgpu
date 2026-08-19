@@ -245,6 +245,45 @@ def _public_primitive_cases(X, y, entity, time, clusters, backend):
     }
 
 
+def _nonfinite_covariance_guard_audit(backend):
+    X_np = np.column_stack([np.ones(6), np.arange(6.0)])
+    resid_np = np.linspace(-0.3, 0.4, 6)
+    resid_np[2] = np.nan
+    c1 = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    time = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    dummy = np.arange(6, dtype=np.int64)
+    X, resid, _entity, _time = _to_backend(X_np, resid_np, dummy, time, backend)
+    if backend == "numpy":
+        xp = np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+    elif backend == "torch":
+        import torch
+        xp = torch
+    else:
+        raise ValueError(backend)
+
+    calls = {
+        "cluster": lambda: clustered_covariance(X, resid, c1, xp=xp),
+        "two_way": lambda: two_way_clustered_covariance(X, resid, c1, c2, xp=xp),
+        "hac": lambda: hac_covariance(X, resid, bandwidth=1, xp=xp),
+        "dk": lambda: driscoll_kraay_covariance(X, resid, time, bandwidth=1, xp=xp),
+    }
+    guards = {}
+    for name, call in calls.items():
+        try:
+            call()
+        except ValueError as exc:
+            if "X and resid must contain only finite values" not in str(exc):
+                raise AssertionError(f"{backend}: {name} raised wrong nonfinite error: {exc}") from exc
+            guards[name] = True
+        else:
+            raise AssertionError(f"{backend}: {name} accepted a NaN residual")
+    return {"status": "success", "backend": backend, "guards": guards}
+
+
 def _cancellation_safe_mean_audit(backend):
     values = np.asarray([1.0e154, -1.0e154, 1.0e-170], dtype=np.float64)
     grouped = np.asarray(
@@ -1740,6 +1779,7 @@ def main():
             "hausman_scale": _hausman_scale_audit(backend),
             "zero_variance_inference": _zero_variance_inference_audit(backend),
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
+            "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }
 

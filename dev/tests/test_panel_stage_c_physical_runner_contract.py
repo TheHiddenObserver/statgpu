@@ -275,3 +275,16 @@ def test_stage_c_runner_registers_shared_mean_gpu_audit():
 
     main_source = inspect.getsource(_MOD.main)
     assert '"cancellation_safe_mean": _cancellation_safe_mean_audit(backend)' in main_source
+
+def test_stage_c_runner_registers_nonfinite_covariance_gpu_guards():
+    audit_source = inspect.getsource(_MOD._nonfinite_covariance_guard_audit)
+    for token in (
+        "clustered_covariance",
+        "two_way_clustered_covariance",
+        "hac_covariance",
+        "driscoll_kraay_covariance",
+        "accepted a NaN residual",
+    ):
+        assert token in audit_source
+    main_source = inspect.getsource(_MOD.main)
+    assert '"nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend)' in main_source

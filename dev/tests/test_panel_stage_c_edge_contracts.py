@@ -274,3 +274,41 @@ def test_random_effects_requires_positive_between_residual_df():
         match=r"positive between residual degrees of freedom.*n_entities=2.*rank_between=2",
     ):
         RandomEffects().fit(X, y, entity_ids=entity)
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+@pytest.mark.parametrize("kind", ["cluster", "two_way", "hac", "dk"])
+def test_public_covariance_primitives_reject_nonfinite_residuals_numpy(kind, bad):
+    from statgpu.panel import (
+        clustered_covariance as public_clustered_covariance,
+        driscoll_kraay_covariance as public_dk_covariance,
+        hac_covariance as public_hac_covariance,
+        two_way_clustered_covariance as public_two_way_covariance,
+    )
+
+    X = np.column_stack([np.ones(6), np.arange(6.0)])
+    resid = np.linspace(-0.3, 0.4, 6)
+    resid[2] = bad
+    c1 = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    time = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+
+    with pytest.raises(ValueError, match="X and resid must contain only finite values"):
+        if kind == "cluster":
+            public_clustered_covariance(X, resid, c1)
+        elif kind == "two_way":
+            public_two_way_covariance(X, resid, c1, c2)
+        elif kind == "hac":
+            public_hac_covariance(X, resid, bandwidth=1)
+        else:
+            public_dk_covariance(X, resid, time, bandwidth=1)
+
+
+def test_public_covariance_primitives_reject_nonfinite_design_numpy():
+    from statgpu.panel import clustered_covariance as public_clustered_covariance
+
+    X = np.column_stack([np.ones(6), np.arange(6.0)])
+    X[1, 1] = np.nan
+    resid = np.linspace(-0.3, 0.4, 6)
+    groups = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    with pytest.raises(ValueError, match="X and resid must contain only finite values"):
+        public_clustered_covariance(X, resid, groups)

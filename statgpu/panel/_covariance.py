@@ -68,6 +68,13 @@ def _ensure_xp(xp=None, *arrays):
     return _get_xp(_resolve_backend("auto", *arrays))
 
 
+def _validate_covariance_finite_inputs(X, resid, xp):
+    """Fail closed before non-finite scores enter signed/group reductions."""
+    finite = xp.all(xp.isfinite(X)) & xp.all(xp.isfinite(resid))
+    if not bool(_to_float_scalar(finite)):
+        raise ValueError("X and resid must contain only finite values")
+
+
 def _is_torch(xp) -> bool:
     return getattr(xp, "__name__", "") == "torch"
 
@@ -581,6 +588,7 @@ def clustered_covariance(
     )
     if resid.shape[0] != n:
         raise ValueError("X and resid must have the same number of observations")
+    _validate_covariance_finite_inputs(X, resid, xp)
 
     (
         influence,
@@ -634,6 +642,7 @@ def two_way_clustered_covariance(
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
         raise ValueError("X and resid must have matching observation counts")
+    _validate_covariance_finite_inputs(X, resid, xp)
     n = int(X.shape[0])
     labels1, c1 = _factorize_1d_labels(cluster1, nobs=n, name="cluster1")
     labels2, c2 = _factorize_1d_labels(cluster2, nobs=n, name="cluster2")
@@ -844,6 +853,7 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
         raise ValueError("X and resid must have matching observation counts")
+    _validate_covariance_finite_inputs(X, resid, xp)
     n = int(X.shape[0])
 
     if bandwidth is None:
@@ -976,6 +986,7 @@ def driscoll_kraay_covariance(
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
     if X.ndim != 2 or resid.shape[0] != X.shape[0]:
         raise ValueError("X and resid must have matching observation counts")
+    _validate_covariance_finite_inputs(X, resid, xp)
     n = int(X.shape[0])
     labels, time_codes = _factorize_1d_labels(
         time_ids, nobs=n, name="time_ids"

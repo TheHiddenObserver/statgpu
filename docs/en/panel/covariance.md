@@ -136,7 +136,7 @@ The no-fixed-effect `PanelOLS` level regression is also compared with `statsmode
 
 Ill-conditioned full-rank stress tests use scale-aware tolerances because the covariance entries can become very large: HC0 against statsmodels uses `rtol=2e-6, atol=5e-3`, while the stable HC2/HC3 leverage checks use `rtol=5e-11, atol=5e-3` when variances can exceed $10^{10}$.
 
-CI tolerances in this table are pass/fail thresholds, not observed error measurements. The physical P100 validation additionally records the actual per-field `max_abs_differences` in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`; its summary is in `results/pr126_p100_fresh/validation_summary.txt`.
+CI tolerances in this table are pass/fail thresholds, not observed error measurements. Historical P100 validation records actual per-field `max_abs_differences` in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`, with a summary in `results/pr126_p100_fresh/validation_summary.txt`. Those artifacts predate the later shared reduction and public covariance fail-closed fixes and are reference-only; fresh exact-head CuPy/Torch CUDA validation is required for current acceptance.
 
 The corresponding external tests are `dev/tests/test_panel_stage_c_external.py`, `dev/tests/test_panel_stage_c_external_defaults.py`, `dev/tests/test_panel_stage_c_linearmodels_estimators.py`, and `dev/tests/test_panel_stage_c_r_external.py`.
 

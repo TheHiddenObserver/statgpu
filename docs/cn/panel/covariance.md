@@ -136,7 +136,7 @@ time ordering 会影响 Driscoll-Kraay。numeric 和 datetime labels 使用自�
 
 ill-conditioned 但 full-rank 的 stress tests 使用 scale-aware tolerance，因为 covariance entries 可能非常大：HC0 对 statsmodels 使用 `rtol=2e-6, atol=5e-3`；stable HC2/HC3 leverage checks 在 variance 可能超过 $10^{10}$ 时使用 `rtol=5e-11, atol=5e-3`。
 
-表中的 CI tolerance 是 pass/fail threshold，不是实际观测误差。P100 physical validation 另外保存每个字段实际的 `max_abs_differences`，位于 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`；summary 位于 `results/pr126_p100_fresh/validation_summary.txt`。
+表中的 CI tolerance 是 pass/fail threshold，不是实际观测误差。历史 P100 validation 保存了每个字段实际的 `max_abs_differences`，位于 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`，summary 位于 `results/pr126_p100_fresh/validation_summary.txt`。这些 artifact 早于后续 shared reduction 与 public covariance fail-closed 修复，只能作为历史参考；当前 acceptance 仍需要在 exact head 上重新完成 CuPy/Torch CUDA 验证。
 
 对应的 external tests 为 `dev/tests/test_panel_stage_c_external.py`、`dev/tests/test_panel_stage_c_external_defaults.py`、`dev/tests/test_panel_stage_c_linearmodels_estimators.py` 与 `dev/tests/test_panel_stage_c_r_external.py`。
 
