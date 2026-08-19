@@ -93,8 +93,10 @@ class FirstDifferenceOLS(BasePanelModel):
         df_resid = n - int(rank_diff)
         resid = y_diff - X_diff @ params
         from statgpu.panel._diagnostics import (
+            _centered_working_values,
+            _physical_common_scale,
+            _residual_on_centering_scale,
             _restore_squared_scale,
-            _scaled_mean,
             _scaled_residual_r2,
             _scaled_residual_variance,
             _scaled_unit_values,
@@ -117,12 +119,14 @@ class FirstDifferenceOLS(BasePanelModel):
             diag_floor=0.0,
         )
 
-        y_centered = y_diff - _scaled_mean(y_diff, xp)
+        y_centered, centering_scale = _centered_working_values(y_diff, xp)
+        resid_for_r2 = _residual_on_centering_scale(resid, centering_scale, xp)
         self.rsquared, r2_degenerate = _scaled_residual_r2(
-            resid, y_centered, xp
+            resid_for_r2, y_centered, xp
         )
         if r2_degenerate:
             self.rsquared = float("nan")
+
         resid_scale = xp.max(xp.abs(resid))
         centered_scale = xp.max(xp.abs(y_centered))
         resid_unit = _scaled_unit_values(resid, resid_scale, xp)
@@ -131,9 +135,12 @@ class FirstDifferenceOLS(BasePanelModel):
             _to_float_scalar(xp.sum(resid_unit * resid_unit)),
             _to_float_scalar(resid_scale),
         )
+        centered_physical_scale = _physical_common_scale(
+            centered_scale, centering_scale
+        )
         ss_tot = _restore_squared_scale(
             _to_float_scalar(xp.sum(centered_unit * centered_unit)),
-            _to_float_scalar(centered_scale),
+            centered_physical_scale,
         )
         self.nobs = n
         self.df_resid = df_resid
@@ -217,8 +224,6 @@ def _first_diff_transform(X, y, entity_ids, time_ids, xp):
             raise ValueError(
                 "FirstDifferenceOLS requires unique (entity_id, time_id) observations"
             )
-        # Differences are taken between consecutive observed times within each
-        # entity. Internal calendar gaps are therefore allowed and are not filled.
         sort_idx_np = np.lexsort((time_codes, eids_np))
     else:
         sort_idx_np = np.argsort(eids_np, kind="stable")
