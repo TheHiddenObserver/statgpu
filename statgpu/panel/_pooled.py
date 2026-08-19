@@ -11,13 +11,13 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._linalg import panel_lstsq
+from statgpu.panel._intercept import panel_lstsq_exact_constant
 from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
 def _panel_lstsq(X, y, xp):
-    """Use the shared panel SVD rank and working-scale policy."""
-    return panel_lstsq(X, y, xp)
+    """Use the shared panel SVD policy with an exact-constant precision guard."""
+    return panel_lstsq_exact_constant(X, y, xp, constant_index=0)
 
 
 class PooledOLS(BasePanelModel):
@@ -168,8 +168,10 @@ class PooledOLS(BasePanelModel):
             )
         resid = y_arr - X_arr @ params
         from statgpu.panel._diagnostics import (
+            _centered_working_values,
+            _physical_common_scale,
+            _residual_on_centering_scale,
             _restore_squared_scale,
-            _scaled_mean,
             _scaled_residual_r2,
             _scaled_residual_variance,
             _scaled_unit_values,
@@ -219,9 +221,10 @@ class PooledOLS(BasePanelModel):
             diag_floor=0.0,
         )
 
-        y_centered = y_arr - _scaled_mean(y_arr, xp)
+        y_centered, y_centering_scale = _centered_working_values(y_arr, xp)
+        resid_r2 = _residual_on_centering_scale(resid, y_centering_scale, xp)
         self.rsquared, r2_degenerate = _scaled_residual_r2(
-            resid, y_centered, xp
+            resid_r2, y_centered, xp
         )
         if r2_degenerate:
             self.rsquared = float("nan")
@@ -233,9 +236,12 @@ class PooledOLS(BasePanelModel):
             _to_float_scalar(xp.sum(resid_unit * resid_unit)),
             _to_float_scalar(resid_scale),
         )
+        physical_centered_scale = _physical_common_scale(
+            centered_scale, y_centering_scale
+        )
         ss_tot = _restore_squared_scale(
             _to_float_scalar(xp.sum(centered_unit * centered_unit)),
-            _to_float_scalar(centered_scale),
+            physical_centered_scale,
         )
         self.nobs = n
         self.rank_ = rank
