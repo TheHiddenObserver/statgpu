@@ -29,7 +29,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Reproduce current reduction failures
+      - name: Reproduce current shared group-mean failure
         run: |
           python - <<'PY'
           import numpy as np
@@ -40,9 +40,11 @@ jobs:
           groups = np.zeros(3, dtype=np.int64)
           observed_mean = float(_scaled_mean(values, np))
           observed_group = np.asarray(group_means(values, groups, xp=np))
-          print('PRE_FIX_SCALED_MEAN', observed_mean)
+          print('CURRENT_SCALED_MEAN', observed_mean)
           print('PRE_FIX_GROUP_MEAN', observed_group.tolist())
-          assert observed_mean == 0.0
+          # An earlier staging pass already repaired the diagnostic-only mean.
+          # The remaining production blocker is the shared fit-space reduction.
+          assert observed_mean == 1.0 / 3.0
           assert np.all(observed_group == 0.0)
           PY
       - name: Apply shared reduction fix
