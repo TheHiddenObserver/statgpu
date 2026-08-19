@@ -52,6 +52,16 @@ def _random_effects_component_loss_fixture():
     return X, y, entity
 
 
+def _random_effects_common_scale_loss_fixture(*, amplitude, tiny_within):
+    y = np.asarray(
+        [amplitude, amplitude, tiny_within, -tiny_within, -amplitude, -amplitude],
+        dtype=np.float64,
+    )
+    X = np.ones((y.size, 1), dtype=np.float64)
+    entity = np.repeat(np.arange(3, dtype=np.int64), 2)
+    return X, y, entity
+
+
 def _backend_arrays(backend: str, X, y, entity=None):
     if backend == "cupy":
         import cupy as cp
@@ -112,8 +122,8 @@ def _assert_model(model, *, backend: str, amplitude: float, label: str):
     return coef
 
 
-def _assert_random_effects_fail_closed(backend: str):
-    X_np, y_np, entity_np = _random_effects_component_loss_fixture()
+def _assert_random_effects_fail_closed(backend: str, fixture, message: str, label: str):
+    X_np, y_np, entity_np = fixture
     X, y, entity, _xp, device = _backend_arrays(
         backend, X_np, y_np, entity_np
     )
@@ -121,12 +131,10 @@ def _assert_random_effects_fail_closed(backend: str):
     try:
         model.fit(X, y, entity_ids=entity)
     except FloatingPointError as exc:
-        if "quasi-demeaning exceeds the float64 component range" not in str(exc):
+        if message not in str(exc):
             raise
     else:
-        raise AssertionError(
-            f"{backend}: RandomEffects did not fail closed on lost quasi-demean component"
-        )
+        raise AssertionError(f"{backend}: RandomEffects did not fail closed on {label}")
     if getattr(model, "_backend_name", None) != backend:
         raise AssertionError(
             f"{backend}: RandomEffects fail-closed path lost backend provenance"
@@ -157,7 +165,40 @@ def run(backend: str):
     between_coef = _assert_model(
         between, backend=backend, amplitude=amplitude, label="BetweenOLS"
     )
-    re_fail_closed = _assert_random_effects_fail_closed(backend)
+
+    quasi_fail = _assert_random_effects_fail_closed(
+        backend,
+        _random_effects_component_loss_fixture(),
+        "quasi-demeaning exceeds the float64 component range",
+        "lost quasi-demean component",
+    )
+    normalization_fail = _assert_random_effects_fail_closed(
+        backend,
+        _random_effects_common_scale_loss_fixture(
+            amplitude=1.0e308,
+            tiny_within=1.0e-100,
+        ),
+        "variance-component scaling exceeds the float64 common-residual range",
+        "common normalization loss",
+    )
+    square_fail = _assert_random_effects_fail_closed(
+        backend,
+        _random_effects_common_scale_loss_fixture(
+            amplitude=1.0e100,
+            tiny_within=1.0e-100,
+        ),
+        "variance-component scaling exceeds the float64 common-residual range",
+        "common RSS square underflow",
+    )
+    theta_rounding_fail = _assert_random_effects_fail_closed(
+        backend,
+        _random_effects_common_scale_loss_fixture(
+            amplitude=1.0e17,
+            tiny_within=1.0,
+        ),
+        "quasi-demeaning exceeds the float64 component range",
+        "pre-rounded theta-complement loss",
+    )
 
     return {
         "schema_version": 1,
@@ -181,7 +222,10 @@ def run(backend: str):
         },
         "pooled_coef": pooled_coef.tolist(),
         "between_coef": between_coef.tolist(),
-        "random_effects_component_loss_fail_closed": re_fail_closed,
+        "random_effects_quasi_component_fail_closed": quasi_fail,
+        "random_effects_common_normalization_fail_closed": normalization_fail,
+        "random_effects_common_square_fail_closed": square_fail,
+        "random_effects_theta_rounding_fail_closed": theta_rounding_fail,
         "status": "success",
     }
 
