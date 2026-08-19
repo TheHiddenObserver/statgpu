@@ -19,6 +19,8 @@ from statgpu.panel._covariance import (
     _dk_kernel_weights,
     _grouped_score_sums,
     _influence_rows,
+    _restore_coordinate_covariance,
+    _restore_influence_covariance,
     _symmetrize,
     clustered_covariance,
     driscoll_kraay_covariance,
@@ -796,3 +798,51 @@ def test_two_way_clustered_covariance_fails_closed_on_common_scale_product_under
     assert expected_meat > 0.0 and np.isfinite(expected_meat)
     with pytest.raises(FloatingPointError, match="common-scale product range"):
         two_way_clustered_covariance(X, resid, cluster1, cluster2)
+
+
+
+def test_covariance_restore_compensating_scales_avoid_transient_range_loss():
+    scale_np = np.asarray([1.0e200, 1.0e-200], dtype=np.float64)
+    for entry in (1.0e200, 1.0e-200):
+        covariance_np = np.asarray([[0.0, entry], [entry, 0.0]], dtype=np.float64)
+        expected = covariance_np.copy()
+        actual = _restore_coordinate_covariance(covariance_np, scale_np, np)
+        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=0.0)
+
+    # Compensation can also occur across delayed restoration stages. The first
+    # coordinate scale alone would overflow, but the projection scale restores
+    # a finite final covariance.
+    covariance_np = np.asarray([[1.0e100]], dtype=np.float64)
+    actual = _restore_influence_covariance(
+        covariance_np,
+        np.asarray([1.0e200]),
+        np.asarray([1.0e-100]),
+        1.0,
+        np,
+    )
+    np.testing.assert_allclose(actual, np.asarray([[1.0e300]]), rtol=5e-15, atol=0.0)
+
+
+def test_torch_covariance_restore_compensating_scales_avoid_transient_range_loss():
+    torch = pytest.importorskip("torch")
+    scale = torch.as_tensor([1.0e200, 1.0e-200], dtype=torch.float64)
+    for entry in (1.0e200, 1.0e-200):
+        covariance = torch.as_tensor([[0.0, entry], [entry, 0.0]], dtype=torch.float64)
+        actual = _restore_coordinate_covariance(covariance, scale, torch)
+        np.testing.assert_allclose(
+            actual.detach().cpu().numpy(), covariance.detach().cpu().numpy(),
+            rtol=0.0, atol=0.0
+        )
+
+    covariance = torch.as_tensor([[1.0e100]], dtype=torch.float64)
+    actual = _restore_influence_covariance(
+        covariance,
+        torch.as_tensor([1.0e200], dtype=torch.float64),
+        torch.as_tensor([1.0e-100], dtype=torch.float64),
+        1.0,
+        torch,
+    )
+    np.testing.assert_allclose(
+        actual.detach().cpu().numpy(), np.asarray([[1.0e300]]),
+        rtol=5e-15, atol=0.0
+    )

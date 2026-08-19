@@ -29,7 +29,14 @@ from statgpu.panel import (
     clustered_covariance,
     driscoll_kraay_covariance,
 )
-from statgpu.panel._covariance import _grouped_score_sums, hac_covariance, ols_covariance, two_way_clustered_covariance
+from statgpu.panel._covariance import (
+    _grouped_score_sums,
+    _restore_coordinate_covariance,
+    _restore_influence_covariance,
+    hac_covariance,
+    ols_covariance,
+    two_way_clustered_covariance,
+)
 from statgpu.panel._diagnostic_context import (
     _scaled_column_means,
     bp_lm_from_residuals,
@@ -523,6 +530,39 @@ def _two_way_effect_range_gauge_audit(backend):
         "max_abs_entity_effect": float(np.max(np.abs(entity_effect_np))),
         "max_abs_time_effect": float(np.max(np.abs(time_effect_np))),
         "max_abs_reconstruction_error": _max_abs(reconstructed, values_np),
+    }
+
+
+def _covariance_restore_range_audit(backend):
+    xp = __import__("torch") if backend == "torch" else __import__("cupy")
+    if backend == "torch":
+        scale = xp.as_tensor([1.0e200, 1.0e-200], dtype=xp.float64, device="cuda")
+        covariance = xp.as_tensor([[0.0, 1.0e200], [1.0e200, 0.0]], dtype=xp.float64, device="cuda")
+        stage_covariance = xp.as_tensor([[1.0e100]], dtype=xp.float64, device="cuda")
+        covariance_scale = xp.as_tensor([1.0e200], dtype=xp.float64, device="cuda")
+        projection_scale = xp.as_tensor([1.0e-100], dtype=xp.float64, device="cuda")
+    else:
+        scale = xp.asarray([1.0e200, 1.0e-200], dtype=xp.float64)
+        covariance = xp.asarray([[0.0, 1.0e200], [1.0e200, 0.0]], dtype=xp.float64)
+        stage_covariance = xp.asarray([[1.0e100]], dtype=xp.float64)
+        covariance_scale = xp.asarray([1.0e200], dtype=xp.float64)
+        projection_scale = xp.asarray([1.0e-100], dtype=xp.float64)
+    coordinate = _array(_restore_coordinate_covariance(covariance, scale, xp))
+    np.testing.assert_allclose(
+        coordinate, np.asarray([[0.0, 1.0e200], [1.0e200, 0.0]]),
+        rtol=0.0, atol=0.0
+    )
+    staged = _array(
+        _restore_influence_covariance(
+            stage_covariance, covariance_scale, projection_scale, 1.0, xp
+        )
+    )
+    np.testing.assert_allclose(staged, np.asarray([[1.0e300]]), rtol=5e-15, atol=0.0)
+    return {
+        "status": "success",
+        "backend": backend,
+        "coordinate_restore": float(coordinate[0, 1]),
+        "cross_stage_restore": float(staged[0, 0]),
     }
 
 
@@ -2085,6 +2125,7 @@ def main():
             "common_scale_product_range_guard": _common_scale_product_range_guard_audit(backend),
             "fixed_effect_map_range": _fixed_effect_map_range_audit(backend),
             "two_way_effect_range_gauge": _two_way_effect_range_gauge_audit(backend),
+            "covariance_restore_range": _covariance_restore_range_audit(backend),
             "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }

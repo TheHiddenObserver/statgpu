@@ -209,27 +209,73 @@ def _influence_rows(X, resid, xp):
     )
 
 
+def _range_safe_float_product(values, factors, xp):
+    """Multiply finite float64 factors without a range-unsafe association.
+
+    Decompose each operand with ``frexp`` and accumulate exponents separately.
+    Every mantissa stays in a compact interval, so compensating large/small
+    factors can cancel in exponent space before the one final ``ldexp``.
+    """
+    mantissa, exponent = xp.frexp(values)
+    for factor in factors:
+        if np.isscalar(factor):
+            factor_mantissa, factor_exponent = np.frexp(float(factor))
+        else:
+            factor_mantissa, factor_exponent = xp.frexp(factor)
+        mantissa = mantissa * factor_mantissa
+        exponent = exponent + factor_exponent
+    mantissa, normalization_exponent = xp.frexp(mantissa)
+    exponent = exponent + normalization_exponent
+    zero = mantissa == 0.0
+    underflow = exponent < -1073
+    overflow = exponent > 1024
+    if getattr(xp, "__name__", "") == "torch":
+        safe_exponent = xp.clamp(exponent, min=-1073, max=1024)
+        pow_fn = xp.pow
+    else:
+        safe_exponent = xp.clip(exponent, -1073, 1024)
+        pow_fn = xp.power
+    first_exponent = safe_exponent // 2
+    second_exponent = safe_exponent - first_exponent
+    base = xp.full_like(mantissa, 2.0)
+    result = mantissa * pow_fn(base, first_exponent)
+    result = result * pow_fn(base, second_exponent)
+    result = xp.where(zero | underflow, xp.zeros_like(result), result)
+    infinity = xp.full_like(result, float("inf"))
+    signed_infinity = xp.where(mantissa < 0.0, -infinity, infinity)
+    return xp.where(overflow & (~zero), signed_infinity, result)
+
+
 def _restore_coordinate_covariance(covariance, scale, xp):
-    """Restore a per-coordinate covariance scale without forming scale_i*scale_j."""
+    """Restore a per-coordinate covariance scale without transient range loss."""
     row = scale[:, None]
     col = scale[None, :]
-    large = xp.maximum(row, col)
-    small = xp.minimum(row, col)
-    return _symmetrize((covariance * large) * small)
+    return _symmetrize(_range_safe_float_product(covariance, (row, col), xp))
 
 
 def _restore_scalar_covariance(covariance, scale, xp):
-    """Restore one positive scalar score scale without materializing scale**2."""
-    return _symmetrize((covariance * scale) * scale)
+    """Restore one positive scalar score scale without transient range loss."""
+    return _symmetrize(_range_safe_float_product(covariance, (scale, scale), xp))
 
 
 def _restore_influence_covariance(
     covariance, covariance_scale, projection_scale, design_scale, xp
 ):
-    """Restore Gram, projection, then tiny-design scales after cancellation."""
-    covariance = _restore_coordinate_covariance(covariance, covariance_scale, xp)
-    covariance = _restore_coordinate_covariance(covariance, projection_scale, xp)
-    return _restore_scalar_covariance(covariance, design_scale, xp)
+    """Restore all delayed influence scales in one exponent-safe product."""
+    return _symmetrize(
+        _range_safe_float_product(
+            covariance,
+            (
+                covariance_scale[:, None],
+                covariance_scale[None, :],
+                projection_scale[:, None],
+                projection_scale[None, :],
+                design_scale,
+                design_scale,
+            ),
+            xp,
+        )
+    )
 
 
 def _cluster_grouped_scores(

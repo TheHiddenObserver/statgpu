@@ -383,3 +383,12 @@ def test_stage_c_runner_registers_two_way_effect_range_gauge_audit():
         assert token in source
     main_source = inspect.getsource(_MOD.main)
     assert '"two_way_effect_range_gauge": _two_way_effect_range_gauge_audit(backend)' in main_source
+
+
+
+def test_stage_c_runner_registers_covariance_restore_range_audit():
+    source = inspect.getsource(_MOD._covariance_restore_range_audit)
+    for token in ("1.0e200", "1.0e-200", "1.0e300", "cross_stage_restore"):
+        assert token in source
+    main_source = inspect.getsource(_MOD.main)
+    assert '"covariance_restore_range": _covariance_restore_range_audit(backend)' in main_source
