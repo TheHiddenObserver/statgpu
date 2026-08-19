@@ -1,0 +1,66 @@
+name: PR126 Torch third-tier order diagnostic
+
+on:
+  push:
+    branches: [agent/panel-p1-stage-c-covariance]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/panel-p1-stage-c-covariance
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install maintained Torch CPU environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" pytest
+          python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+      - name: Bisect test-order trigger
+        shell: bash
+        run: |
+          mkdir -p dev/validation/results
+          set +e
+          OUT=dev/validation/results/pr126_third_tier_order_diagnostic.txt
+          : > "$OUT"
+          run_case() {
+            echo "=== $1 ===" | tee -a "$OUT"
+            shift
+            python -m pytest "$@" -q --tb=short 2>&1 | tee -a "$OUT"
+            echo "exit=${PIPESTATUS[0]}" | tee -a "$OUT"
+          }
+          T=dev/tests/test_panel_stage_b_torch_cpu.py
+          THIRD="$T::test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component"
+          UNSAFE="$T::test_stage_c_torch_cpu_two_way_unsafe_cross_cancels_before_restore"
+          MULTI="$T::test_stage_c_torch_cpu_multiscale_group_cancellation"
+          DEBIAS="$T::test_stage_c_torch_cpu_two_way_group_debias_preserves_low_order_term"
+          SAFE="$T::test_stage_c_torch_cpu_two_way_safe_gram_preserves_low_order_term"
+          STRUCT="$T::test_stage_c_torch_cpu_two_way_nonnested_structural_cancellation"
+          MIXED="$T::test_stage_c_torch_cpu_preserves_mixed_range_cluster_and_dk_scores"
+          TINY="$T::test_stage_c_torch_cpu_delays_tiny_design_scale_until_group_cancellation"
+          run_case third-alone "$THIRD"
+          run_case unsafe-third "$UNSAFE" "$THIRD"
+          run_case multi-unsafe-third "$MULTI" "$UNSAFE" "$THIRD"
+          run_case safe-debias-multi-unsafe-third "$SAFE" "$DEBIAS" "$MULTI" "$UNSAFE" "$THIRD"
+          run_case structural-through-third "$STRUCT" "$SAFE" "$DEBIAS" "$MULTI" "$UNSAFE" "$THIRD"
+          run_case mixed-through-third "$MIXED" "$STRUCT" "$SAFE" "$DEBIAS" "$MULTI" "$UNSAFE" "$THIRD"
+          run_case tiny-through-third "$TINY" "$MIXED" "$STRUCT" "$SAFE" "$DEBIAS" "$MULTI" "$UNSAFE" "$THIRD"
+          run_case whole-file "$T"
+          exit 0
+      - name: Persist diagnostic and remove temporary workflow
+        run: |
+          rm .github/workflows/pr126-third-tier-order-diagnostic.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: record PR126 third-tier order diagnostic"
+          git push origin HEAD:agent/panel-p1-stage-c-covariance
