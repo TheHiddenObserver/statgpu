@@ -45,6 +45,18 @@ def _fama_macbeth_resolution_fixture(n_periods=3):
     return X, y, time
 
 
+def _fama_macbeth_intercept_cancellation_fixture(n_periods=3):
+    amplitude = float(2.0**55)
+    x_period = np.asarray([-1.0, 0.0, 1.0], dtype=np.float64)
+    y_period = np.asarray([amplitude, 1.0, -amplitude], dtype=np.float64)
+    X = np.tile(x_period, n_periods)[:, None]
+    y = np.tile(y_period, n_periods)
+    time = np.repeat(np.arange(n_periods, dtype=np.int64), x_period.size)
+    design = np.column_stack([np.ones(x_period.size), x_period])
+    assert np.linalg.cond(design) < 2.0
+    return X, y, time, amplitude
+
+
 def _first_difference_from_transformed(X_diff, y_diff):
     n = int(X_diff.shape[0])
     X = np.zeros((2 * n, int(X_diff.shape[1])), dtype=np.float64)
@@ -132,6 +144,25 @@ def test_fama_macbeth_reports_resolution_failure_instead_of_rank_deficiency_nump
         FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
 
 
+def test_fama_macbeth_preserves_period_intercept_cancellation_tail_numpy():
+    X, y, time, amplitude = _fama_macbeth_intercept_cancellation_fixture()
+    model = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+    betas = np.asarray(model.betas_, dtype=np.float64)
+    coef = np.asarray(model.coef_, dtype=np.float64)
+    np.testing.assert_allclose(
+        betas[:, 0],
+        np.full(model.n_periods, 1.0 / 3.0),
+        rtol=8.0 * np.finfo(np.float64).eps,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        coef[0], 1.0 / 3.0, rtol=8.0 * np.finfo(np.float64).eps, atol=0.0
+    )
+    np.testing.assert_allclose(betas[:, 1], -amplitude, rtol=2.0e-15, atol=0.0)
+    assert model._period_svd_fallbacks == model.n_periods
+    assert model._period_solver_mode == "gram-certified+svd-fallback"
+
+
 def test_first_difference_legacy_r2_handles_unrepresentable_physical_centering_numpy():
     X, y, entity, time = _first_difference_extreme_r2_fixture()
     model = FirstDifferenceOLS(cov_type="hc0").fit(
@@ -181,6 +212,24 @@ def test_torch_cpu_shared_panel_resolution_contract_matches_numpy():
             torch.as_tensor(y_fmb, dtype=torch.float64),
             time_ids=torch.as_tensor(time_fmb, dtype=torch.int64),
         )
+
+    X_tail, y_tail, time_tail, amplitude = _fama_macbeth_intercept_cancellation_fixture()
+    fmb_tail = FamaMacBeth(bandwidth=0).fit(
+        torch.as_tensor(X_tail, dtype=torch.float64),
+        torch.as_tensor(y_tail, dtype=torch.float64),
+        time_ids=torch.as_tensor(time_tail, dtype=torch.int64),
+    )
+    betas_tail = np.asarray(fmb_tail.betas_.detach().cpu(), dtype=np.float64)
+    coef_tail = np.asarray(fmb_tail.coef_.detach().cpu(), dtype=np.float64)
+    np.testing.assert_allclose(
+        betas_tail[:, 0],
+        np.full(fmb_tail.n_periods, 1.0 / 3.0),
+        rtol=1.2e-14,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(coef_tail[0], 1.0 / 3.0, rtol=1.2e-14, atol=0.0)
+    np.testing.assert_allclose(betas_tail[:, 1], -amplitude, rtol=4.0e-15, atol=0.0)
+    assert fmb_tail._period_svd_fallbacks == fmb_tail.n_periods
 
     X_fd, y_fd, entity, time = _first_difference_extreme_r2_fixture()
     model = FirstDifferenceOLS(cov_type="hc0").fit(
