@@ -51,6 +51,36 @@ def panel_lstsq_exact_constant(X, y, xp, *, constant_index: int = 0):
     return panel_lstsq_stable_response(X, y, xp)
 
 
+def guarded_random_effects_common_sumsquares(left, right, xp):
+    """Return common-scale RSS terms or fail if normalization erases a residual.
+
+    Swamy-Arora compares within and between residual variances on one common
+    physical scale. A single float64 normalization cannot safely represent two
+    nonzero residual series whose magnitudes are separated by more than the
+    subnormal range. Silently turning the smaller series into exact zeros would
+    force a false zero variance component, so reject that unsupported range.
+    """
+    from statgpu.panel._diagnostics import _scaled_unit_values
+
+    scale = xp.maximum(xp.max(xp.abs(left)), xp.max(xp.abs(right)))
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0, 0.0, 0.0
+    left_scaled = _scaled_unit_values(left, scale, xp)
+    right_scaled = _scaled_unit_values(right, scale, xp)
+    lost = xp.any((left != 0.0) & (left_scaled == 0.0)) | xp.any(
+        (right != 0.0) & (right_scaled == 0.0)
+    )
+    if bool(_to_float_scalar(lost)):
+        raise FloatingPointError(
+            "RandomEffects variance-component scaling exceeds the float64 "
+            "common-residual range"
+        )
+    left_ss = _to_float_scalar(xp.sum(left_scaled * left_scaled))
+    right_ss = _to_float_scalar(xp.sum(right_scaled * right_scaled))
+    return float(left_ss), float(right_ss), float(scale_value)
+
+
 def _quasi_component_loss(within, between, direct, candidate, xp):
     """Return a backend scalar marking unrecoverable component materialization."""
     between_product_lost = (
