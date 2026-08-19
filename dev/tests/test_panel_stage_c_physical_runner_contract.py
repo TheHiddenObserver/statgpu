@@ -319,3 +319,19 @@ def test_stage_c_runner_registers_fe_effect_recovery_gpu_audit():
         '"fixed_effect_recovery_cancellation": _fixed_effect_recovery_cancellation_audit(backend)'
         in main_source
     )
+
+
+
+def test_stage_c_runner_registers_two_way_effect_normalization_overflow_audit():
+    audit_source = inspect.getsource(_MOD._two_way_effect_normalization_overflow_audit)
+    for token in (
+        "1.0e308",
+        "_recover_two_way_effects",
+        "two-way FE normalization overflow audit",
+    ):
+        assert token in audit_source
+    main_source = inspect.getsource(_MOD.main)
+    assert (
+        '"two_way_effect_normalization_overflow": _two_way_effect_normalization_overflow_audit(backend)'
+        in main_source
+    )

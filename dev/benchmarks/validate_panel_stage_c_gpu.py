@@ -376,6 +376,48 @@ def _fixed_effect_recovery_cancellation_audit(backend):
         ),
     }
 
+
+def _two_way_effect_normalization_overflow_audit(backend):
+    if backend == "numpy":
+        xp = np
+    elif backend == "cupy":
+        import cupy as cp
+        xp = cp
+    elif backend == "torch":
+        import torch
+        xp = torch
+    else:
+        raise ValueError(backend)
+
+    amplitude = 1.0e308
+    entity = np.repeat(np.arange(2, dtype=np.int64), 4)
+    time = np.tile(np.arange(4, dtype=np.int64), 2)
+    values_np = np.tile(
+        np.asarray([amplitude, amplitude, -amplitude, -amplitude], dtype=np.float64),
+        2,
+    )
+    dummy_X = np.arange(8, dtype=np.float64)[:, None]
+    _X, values, entity_b, time_b = _to_backend(
+        dummy_X, values_np, entity, time, backend
+    )
+    entity_effect, time_effect = _recover_two_way_effects(
+        values, entity_b, time_b, xp, max_iter=20, tol=1e-12
+    )
+    reconstructed = _array(entity_effect[entity_b] + time_effect[time_b])
+    entity_np = _array(entity_effect)
+    time_np = _array(time_effect)
+    if not np.all(np.isfinite(entity_np)) or not np.all(np.isfinite(time_np)):
+        raise AssertionError(f"{backend}: two-way FE normalization produced non-finite effects")
+    np.testing.assert_allclose(
+        reconstructed, values_np, rtol=0.0, atol=0.0,
+        err_msg=f"{backend}: two-way FE normalization overflow audit",
+    )
+    return {
+        "status": "success",
+        "backend": backend,
+        "max_abs_reconstruction_error": _max_abs(reconstructed, values_np),
+    }
+
 def _nonfinite_covariance_guard_audit(backend):
     X_np = np.column_stack([np.ones(6), np.arange(6.0)])
     resid_np = np.linspace(-0.3, 0.4, 6)
@@ -1912,6 +1954,7 @@ def main():
             "cancellation_safe_mean": _cancellation_safe_mean_audit(backend),
             "projection_created_dynamic_range": _projection_created_dynamic_range_audit(backend),
             "fixed_effect_recovery_cancellation": _fixed_effect_recovery_cancellation_audit(backend),
+            "two_way_effect_normalization_overflow": _two_way_effect_normalization_overflow_audit(backend),
             "nonfinite_covariance_guards": _nonfinite_covariance_guard_audit(backend),
             "diagnostic_scale_reductions": diagnostic_scale,
         }

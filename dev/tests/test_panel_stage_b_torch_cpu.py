@@ -678,3 +678,28 @@ def test_stage_c_torch_cpu_fe_effect_recovery_preserves_cancellation_tail():
         rtol=0.0,
         atol=2e-12,
     )
+
+
+
+def test_stage_c_torch_cpu_two_way_effect_normalization_avoids_weight_overflow():
+    amplitude = 1.0e308
+    entity = np.repeat(np.arange(2, dtype=np.int64), 4)
+    time = np.tile(np.arange(4, dtype=np.int64), 2)
+    values_np = np.tile(
+        np.asarray([amplitude, amplitude, -amplitude, -amplitude], dtype=np.float64),
+        2,
+    )
+    values = torch.as_tensor(values_np, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    time_t = torch.as_tensor(time, dtype=torch.int64)
+
+    entity_effect, time_effect = _recover_two_way_effects(
+        values, entity_t, time_t, torch, max_iter=20, tol=1e-12
+    )
+    reconstructed = entity_effect[entity_t] + time_effect[time_t]
+    assert bool(torch.all(torch.isfinite(entity_effect)))
+    assert bool(torch.all(torch.isfinite(time_effect)))
+    assert bool(torch.all(torch.isfinite(reconstructed)))
+    np.testing.assert_allclose(
+        reconstructed.detach().cpu().numpy(), values_np, rtol=0.0, atol=0.0
+    )

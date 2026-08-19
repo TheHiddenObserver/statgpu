@@ -43,6 +43,7 @@ from statgpu.backends import (
 
 from statgpu.panel._reductions import (
     stable_group_means_preindexed,
+    stable_mean,
     stable_reduction_flags,
 )
 
@@ -598,7 +599,7 @@ def _recover_two_way_effects(
     entity_projection = _prepare_group_projection(entity_ids, xp)
     time_projection = _prepare_group_projection(time_ids, xp)
     e_idx, n_entities, _e_labels, _e_counts, _e_inv, _e_codes_np = entity_projection
-    t_idx, n_times, _t_labels, t_counts, _t_inv, _t_codes_np = time_projection
+    t_idx, n_times, _t_labels, _t_counts, _t_inv, _t_codes_np = time_projection
     entity_effects = xp_zeros(n_entities, xp.float64, xp, values)
     time_effects = xp_zeros(n_times, xp.float64, xp, values)
     level_scale = xp.max(xp.abs(values))
@@ -635,10 +636,6 @@ def _recover_two_way_effects(
             values - entity_effects[e_idx], time_projection, xp, stable=stable
         )
 
-        shift = xp.sum(time_effects * t_counts) / float(values.shape[0])
-        time_effects = time_effects - shift
-        entity_effects = entity_effects + shift
-
         residual = values - entity_effects[e_idx] - time_effects[t_idx]
 
         # The first full pair of projections can create a cancellation scale
@@ -671,6 +668,15 @@ def _recover_two_way_effects(
             f"max_iter={int(max_iter)}; final normalized group-mean violation="
             f"{final_metric:.6e}"
         )
+
+    # The entity/time decomposition has a common-shift null direction.  Apply
+    # the public normalization once, after convergence, so the iterative path
+    # never materializes ``time_effect * group_count``.  Expanding by ``t_idx``
+    # expresses the observation-weighted mean directly and lets the shared
+    # stable reducer preserve cancellation without an overflowing product.
+    shift = stable_mean(time_effects[t_idx], xp)
+    time_effects = time_effects - shift
+    entity_effects = entity_effects + shift
     return entity_effects, time_effects
 
 
