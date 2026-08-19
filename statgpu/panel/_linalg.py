@@ -138,6 +138,31 @@ def _svd_project_2d(U, Vh, inverse_values, y, xp, *, stable: bool):
     return Vh.T @ projected
 
 
+def _svd_project_batched_stable(U, Vh, inverse_values, y, xp):
+    """Project batched single responses with stable per-period reductions.
+
+    This path is used only after the Fama-MacBeth Gram certificate rejects a
+    period batch. Keeping each period as one grouped reduction prevents a
+    cancellation-sensitive intercept or slope from being lost inside a batched
+    BLAS ``U' y`` reduction while retaining one stacked SVD call.
+    """
+    from statgpu.panel._reductions import grouped_score_sums
+
+    batch = int(U.shape[0])
+    n_obs = int(U.shape[1])
+    weighted_u_t = xp.swapaxes(U, -2, -1) * inverse_values[..., :, None]
+    products = xp.swapaxes(weighted_u_t, -2, -1) * y[..., None]
+    flat_products = products.reshape(batch * n_obs, int(products.shape[-1]))
+    codes = np.repeat(np.arange(batch, dtype=np.int64), n_obs)
+    projected = grouped_score_sums(
+        flat_products,
+        codes,
+        n_groups=batch,
+        xp=xp,
+    )
+    return xp.matmul(xp.swapaxes(Vh, -2, -1), projected[..., None])[..., 0]
+
+
 def _resolution_failure_2d(
     X_work,
     U,
@@ -173,8 +198,12 @@ def _resolution_failure_2d(
 
     residual_unit = y / safe_y_scale - X_work @ (params_work / safe_y_scale)
     column_scale = _axis_max(xp.abs(X_work), xp, 0)
-    safe_column_scale = xp.where(column_scale > 0.0, column_scale, xp.ones_like(column_scale))
-    score_terms = (X_work / safe_column_scale.reshape(1, -1)) * residual_unit.reshape(-1, 1)
+    safe_column_scale = xp.where(
+        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
+    )
+    score_terms = (X_work / safe_column_scale.reshape(1, -1)) * residual_unit.reshape(
+        -1, 1
+    )
     gradient = _axis_sum(score_terms, xp, 0)
     gradient_scale = _axis_sum(xp.abs(score_terms), xp, 0)
     stationarity_bad = (
@@ -208,7 +237,9 @@ def _resolution_failure_batched(
         xp.swapaxes(U, -2, -1),
     )
     y_unit_abs = xp.abs(y) / safe_y_scale[:, None]
-    projection_scale = _axis_sum(xp.abs(X_pinv_work) * y_unit_abs[:, None, :], xp, 2)
+    projection_scale = _axis_sum(
+        xp.abs(X_pinv_work) * y_unit_abs[:, None, :], xp, 2
+    )
     params_abs = xp.abs(params_work)
     params_unit = params_abs / safe_y_scale[:, None]
     resolution_risk = (
@@ -224,8 +255,12 @@ def _resolution_failure_batched(
         X_work, (params_work / safe_y_scale[:, None])[..., None]
     )[..., 0]
     column_scale = _axis_max(xp.abs(X_work), xp, 1)
-    safe_column_scale = xp.where(column_scale > 0.0, column_scale, xp.ones_like(column_scale))
-    score_terms = (X_work / safe_column_scale[:, None, :]) * residual_unit[:, :, None]
+    safe_column_scale = xp.where(
+        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
+    )
+    score_terms = (
+        X_work / safe_column_scale[:, None, :]
+    ) * residual_unit[:, :, None]
     gradient = _axis_sum(score_terms, xp, 1)
     gradient_scale = _axis_sum(xp.abs(score_terms), xp, 1)
     stationarity_bad = (
@@ -242,10 +277,14 @@ def _gram_resolution_risk_batched(
     params,
     certified,
     xp,
-    *,
-    ignore_first=None,
 ):
-    """Bound coordinate error from Gram-RHS rounding without mixing unrelated scales."""
+    """Reject Gram coordinates whose RHS-roundoff interval is not resolved.
+
+    Zero candidates are included. In particular, a period intercept can be zero
+    only because ordinary ``X' y`` summation erased a representable cancellation
+    tail. Such periods leave the Gram fast path and are recomputed by the stable
+    SVD fallback, where a genuine exact zero is harmless.
+    """
     if getattr(rhs_input, "ndim", None) != 3 or int(rhs_input.shape[-1]) != 1:
         return xp.zeros_like(certified, dtype=bool)
     n = max(1, int(transpose.shape[-1]))
@@ -255,11 +294,9 @@ def _gram_resolution_risk_batched(
     beta_error = xp.matmul(xp.abs(inverse_gram), rhs_error[..., None])[..., 0]
     risky = (
         certified[:, None]
-        & (xp.abs(params) > 0.0)
+        & (beta_error > 0.0)
         & (xp.abs(params) <= beta_error)
     )
-    if ignore_first is not None and int(risky.shape[1]) > 0:
-        risky[:, 0] = risky[:, 0] & (~ignore_first)
     return ~_axis_all(~risky, xp, 1)
 
 
@@ -389,7 +426,12 @@ def panel_lstsq(X, y, xp):
 
 
 def panel_lstsq_deferred_rank(X, y, xp):
-    """Return least-squares parameters plus a backend-native rank scalar."""
+    """Return least-squares parameters plus a backend-native rank scalar.
+
+    This function is a Fama-MacBeth fallback after Gram rejection, so its
+    response projection always uses the stable grouped reducer. Rank remains
+    backend-native for the caller's existing packed control transfer.
+    """
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
@@ -400,7 +442,7 @@ def panel_lstsq_deferred_rank(X, y, xp):
         X_work, y, rank_backend == int(X_work.shape[1]), xp
     )
     y_work = y - anchor
-    params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=False)
+    params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=True)
     failure = _resolution_failure_2d(
         X_work,
         U,
@@ -439,8 +481,9 @@ def panel_lstsq_gram_certified_batched(
 
     For the single-response path used by Fama-MacBeth, one augmented linear
     solve returns both the candidate coefficients and ``G^{-1}`` needed by the
-    coordinatewise RHS-roundoff certificate. This keeps the new safety check
-    from adding a second Gram factorization on the GPU fast path.
+    coordinatewise RHS-roundoff certificate. Any coordinate whose candidate is
+    not separated from that error bound, including a zero intercept, leaves the
+    Gram path and is recomputed by the stable SVD fallback.
     """
     _validate_batched_lstsq_inputs(X, y)
     ratio = float(min_eigen_ratio)
@@ -518,7 +561,6 @@ def panel_lstsq_gram_certified_batched(
             params_centered,
             certified,
             xp,
-            ignore_first=has_constant,
         )
         certified = certified & (~resolution_risk)
         restore = xp.zeros_like(params_centered)
@@ -528,7 +570,13 @@ def panel_lstsq_gram_certified_batched(
 
 
 def panel_lstsq_batched(X, y, xp):
-    """Solve equal-shaped panel least-squares problems with one stacked SVD call."""
+    """Solve equal-shaped panel least-squares fallbacks with one stacked SVD call.
+
+    NumPy and Torch use the shared SVD rank cutoff. For the single-response
+    Fama-MacBeth fallback, ``U' y`` is always reduced period-by-period through
+    the magnitude-tiered grouped reducer because the Gram certificate has already
+    identified ordinary projection arithmetic as potentially unsafe.
+    """
     namespace = getattr(xp, "__name__", "")
     if namespace not in {"numpy", "torch"}:
         raise NotImplementedError(
@@ -550,13 +598,10 @@ def panel_lstsq_batched(X, y, xp):
     )
     y_work = y - anchor[:, None] if getattr(y, "ndim", None) == 2 else y
 
-    rhs = y_work[..., None] if getattr(y_work, "ndim", None) == 2 else y_work
-    weighted_u_t = xp.swapaxes(U, -2, -1) * inverse_values[..., :, None]
-    scaled = xp.matmul(weighted_u_t, rhs)
-    params_work = xp.matmul(xp.swapaxes(Vh, -2, -1), scaled)
-
     if getattr(y_work, "ndim", None) == 2:
-        params_work = params_work[..., 0]
+        params_work = _svd_project_batched_stable(
+            U, Vh, inverse_values, y_work, xp
+        )
         failure = _resolution_failure_batched(
             X_work,
             U,
@@ -572,6 +617,10 @@ def panel_lstsq_batched(X, y, xp):
         restore[:, 0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
         params = (params_work + restore) * design_scale[:, None]
     else:
+        rhs = y_work
+        weighted_u_t = xp.swapaxes(U, -2, -1) * inverse_values[..., :, None]
+        scaled = xp.matmul(weighted_u_t, rhs)
+        params_work = xp.matmul(xp.swapaxes(Vh, -2, -1), scaled)
         params = params_work * design_scale[:, None, None]
     return params, ranks
 
