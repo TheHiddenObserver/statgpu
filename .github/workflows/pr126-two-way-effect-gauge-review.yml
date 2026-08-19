@@ -27,7 +27,18 @@ jobs:
           python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e .
       - name: Apply two-way FE gauge fix
-        run: python dev/validation/pr126_fix_two_way_effect_gauge.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('dev/validation/pr126_fix_two_way_effect_gauge.py')
+          text = p.read_text(encoding='utf-8')
+          old = '    range_mode = xp.zeros_like(level_scale, dtype=xp.bool)\\n'
+          new = '    range_mode = level_scale < 0.0\\n'
+          if old not in text:
+              raise SystemExit('range-mode dtype staging anchor not found')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          python dev/validation/pr126_fix_two_way_effect_gauge.py
       - name: Run targeted review gates
         run: |
           python -m pytest \
