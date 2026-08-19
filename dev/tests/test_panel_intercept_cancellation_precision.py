@@ -18,7 +18,12 @@ def _fixture():
 
 def _assert_coefficients(model, amplitude):
     coef = np.asarray(model.coef_, dtype=np.float64).ravel()
-    np.testing.assert_allclose(coef[0], 1.0 / 3.0, rtol=0.0, atol=0.0)
+    # The SVD basis itself is rounded, so the restored coefficient need not be
+    # bitwise identical to the binary representation of 1/3.  Keep the oracle at
+    # a few float64 ulps; the historical cancellation bug returned exactly zero.
+    np.testing.assert_allclose(
+        coef[0], 1.0 / 3.0, rtol=4.0 * np.finfo(np.float64).eps, atol=0.0
+    )
     np.testing.assert_allclose(coef[1], -amplitude, rtol=2.0e-15, atol=0.0)
 
 
@@ -101,8 +106,8 @@ def test_random_effects_fails_closed_when_quasi_demeaning_discards_component_num
 @pytest.mark.parametrize(
     ("amplitude", "tiny_within"),
     [
-        (1.0e308, 1.0e-100),  # common normalization itself erases the residual
-        (1.0e100, 1.0e-100),  # normalized residual survives but its square does not
+        (1.0e308, 1.0e-100),
+        (1.0e100, 1.0e-100),
     ],
 )
 def test_random_effects_fails_closed_when_common_rss_scale_loses_within_variance_numpy(
