@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import numpy as np
 from numpy.testing import assert_allclose
 
 from statgpu import backends
+from statgpu.backends._cupy import CuPyBackend
 from statgpu.panel import _linalg, _utils
 
 
@@ -28,6 +30,26 @@ def test_cupy_scatter_add_never_routes_values_through_host(monkeypatch):
 
     actual = _utils._scatter_add(fake_cupy, indices, values, n_groups=3)
     assert_allclose(actual, np.array([2.0, 1.0, 4.0]))
+
+
+def test_cupy_availability_probe_does_not_switch_current_device(monkeypatch):
+    """Backend discovery must not force CUDA device 0 as a side effect."""
+
+    class ForbiddenDevice:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("availability probe attempted to construct/switch a device")
+
+    class Runtime:
+        @staticmethod
+        def getDeviceCount():
+            return 2
+
+    fake_cupy = SimpleNamespace(
+        cuda=SimpleNamespace(Device=ForbiddenDevice, runtime=Runtime()),
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    assert CuPyBackend().is_available() is True
 
 
 def test_cupy_reference_creation_helpers_enter_reference_device_context():
