@@ -29,7 +29,7 @@ def test_extreme_t2_tail_numpy_preserves_representable_subnormal_probability():
 
 
 def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
-    assert t2_gpu_gate.SCHEMA_VERSION == 1
+    assert t2_gpu_gate.SCHEMA_VERSION == 2
     assert t2_gpu_gate._validate_acceptance_backends(["cupy", "torch"]) == [
         "cupy",
         "torch",
@@ -40,3 +40,74 @@ def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
     expected = t2_gpu_gate._expected_tail(t2_gpu_gate._EXTREME_STATISTIC)
     assert expected > 0.0
     assert expected == pytest.approx(1.0e-308, rel=2e-15, abs=0.0)
+
+
+def test_extreme_t2_gpu_runner_rejects_cross_device_cupy_trace(monkeypatch):
+    class Device:
+        def __init__(self, device_id):
+            self.id = device_id
+
+    class FakeCuPyArray:
+        def __init__(self, device_id):
+            self.device = Device(device_id)
+
+    monkeypatch.setattr(
+        t2_gpu_gate,
+        "_is_cupy_array",
+        lambda value: isinstance(value, FakeCuPyArray),
+    )
+
+    same = FakeCuPyArray(0)
+    assert (
+        t2_gpu_gate._assert_cuda_native_and_same_device(same, same, same, "cupy")
+        == "cuda:0"
+    )
+    with pytest.raises(AssertionError, match="crossed CUDA devices"):
+        t2_gpu_gate._assert_cuda_native_and_same_device(
+            FakeCuPyArray(0), FakeCuPyArray(1), FakeCuPyArray(0), "cupy"
+        )
+
+
+def test_extreme_t2_gpu_runner_rejects_cross_device_torch_trace(monkeypatch):
+    class FakeTorchTensor:
+        def __init__(self, device):
+            self.device = device
+
+    monkeypatch.setattr(
+        t2_gpu_gate,
+        "_is_torch_array",
+        lambda value: isinstance(value, FakeTorchTensor),
+    )
+
+    same = FakeTorchTensor("cuda:0")
+    assert (
+        t2_gpu_gate._assert_cuda_native_and_same_device(same, same, same, "torch")
+        == "cuda:0"
+    )
+    with pytest.raises(AssertionError, match="crossed CUDA devices"):
+        t2_gpu_gate._assert_cuda_native_and_same_device(
+            FakeTorchTensor("cuda:0"),
+            FakeTorchTensor("cuda:1"),
+            FakeTorchTensor("cuda:0"),
+            "torch",
+        )
+
+
+def test_extreme_t2_gpu_runner_rejects_non_native_outputs(monkeypatch):
+    class FakeTorchTensor:
+        def __init__(self, device):
+            self.device = device
+
+    monkeypatch.setattr(
+        t2_gpu_gate,
+        "_is_torch_array",
+        lambda value: isinstance(value, FakeTorchTensor),
+    )
+
+    with pytest.raises(AssertionError, match="left the requested CUDA backend"):
+        t2_gpu_gate._assert_cuda_native_and_same_device(
+            FakeTorchTensor("cuda:0"),
+            np.asarray([1.0]),
+            FakeTorchTensor("cuda:0"),
+            "torch",
+        )
