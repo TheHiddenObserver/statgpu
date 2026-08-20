@@ -1,0 +1,52 @@
+"""Hosted contract for the Fama-MacBeth rank/precision physical GPU gate."""
+from __future__ import annotations
+
+import importlib.util
+import inspect
+from pathlib import Path
+
+import numpy as np
+
+
+_RUNNER = Path("dev/benchmarks/validate_fama_macbeth_rank_precision_precedence_gpu.py")
+_SPEC = importlib.util.spec_from_file_location("fmb_rank_precision_gpu", _RUNNER)
+assert _SPEC is not None and _SPEC.loader is not None
+_MOD = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MOD)
+
+
+def test_rank_precision_runner_fixture_keeps_rank_two_and_erases_raw_intercept_tail():
+    X, y, time, design, y_period = _MOD._fixture()
+    assert X.shape == (9, 2)
+    assert y.shape == (9,)
+    assert time.shape == (9,)
+    assert design.shape == (3, 3)
+    assert np.linalg.matrix_rank(design) == 2
+    assert (design.T @ y_period)[0] == 0.0
+    assert y_period[1] == 1.0
+
+
+def test_rank_precision_runner_locks_backend_and_failure_precedence_contract():
+    source = inspect.getsource(_MOD.run)
+    for token in (
+        'backend == "cupy"',
+        'backend == "torch"',
+        "panel_lstsq_deferred_rank",
+        "panel_lstsq_batched",
+        "except FloatingPointError",
+        "except ValueError",
+        '"rank=2, columns=3"',
+        '"fallback_svd_rank"',
+        '"public_rank_deficiency_value_error"',
+        '"precision_failure_misclassification": False',
+        '"git_sha": _git_sha()',
+        '"clean_worktree": True',
+    ):
+        assert token in source
+
+
+def test_rank_precision_runner_cli_requires_one_physical_backend():
+    source = inspect.getsource(_MOD.main)
+    assert 'choices=("cupy", "torch")' in source
+    assert '"--backend"' in source
+    assert '"--output"' in source
