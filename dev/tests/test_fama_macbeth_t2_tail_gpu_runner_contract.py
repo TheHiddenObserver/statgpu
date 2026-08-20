@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -118,3 +121,51 @@ def test_extreme_t2_gpu_runner_rejects_non_native_outputs(monkeypatch):
             FakeTorchTensor("cuda:0"),
             "torch",
         )
+
+
+def test_extreme_t2_gpu_runner_environment_uses_actual_execution_devices(monkeypatch):
+    calls = {}
+
+    class FakeCuPyRuntime:
+        @staticmethod
+        def getDeviceProperties(device_index):
+            calls["cupy"] = device_index
+            return {"name": b"fake-cupy-gpu"}
+
+    fake_cupy = SimpleNamespace(
+        __version__="99.1-cupy-runtime",
+        cuda=SimpleNamespace(runtime=FakeCuPyRuntime()),
+    )
+
+    class FakeTorchCuda:
+        @staticmethod
+        def get_device_name(device_index):
+            calls["torch"] = device_index
+            return "fake-torch-gpu"
+
+    fake_torch = SimpleNamespace(
+        __version__="99.2-torch-runtime",
+        cuda=FakeTorchCuda(),
+    )
+
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    environment = t2_gpu_gate._environment(
+        ["cupy", "torch"],
+        {
+            "cupy": {"execution_device": "cuda:3"},
+            "torch": {"execution_device": "cuda:5"},
+        },
+    )
+
+    assert calls == {"cupy": 3, "torch": 5}
+    assert environment["gpu_by_backend"] == {
+        "cupy": "fake-cupy-gpu",
+        "torch": "fake-torch-gpu",
+    }
+    assert environment["runtime_versions"] == {
+        "numpy": np.__version__,
+        "cupy": "99.1-cupy-runtime",
+        "torch": "99.2-torch-runtime",
+    }
