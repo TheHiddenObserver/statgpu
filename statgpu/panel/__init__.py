@@ -3,7 +3,8 @@ Panel data models with GPU acceleration.
 
 Provides fixed effects, random effects, pooled, between, first-difference,
 and Fama-MacBeth estimators for panel/longitudinal data, shared structured
-fit/test results, and panel covariance estimators.
+fit/test results, panel covariance estimators, and backend-native inference
+surfaces.
 """
 
 from ._fixed_effects import PanelOLS, FixedEffects
