@@ -234,10 +234,9 @@ def _stable_normal_equation_failure_2d(X, y, params, xp, *, ignore_first=False):
     """Reject a well-conditioned SVD fallback that disagrees with stable X' y.
 
     The check is intentionally restricted to Fama-MacBeth fallback periods whose
-    Gram matrix is safely separated from the rank boundary. A zero stable RHS is
-    left to the existing genuine-zero policy. This catches low-order coefficients
-    corrupted by rounded singular vectors without imposing stable reductions on
-    the ordinary Gram-certified fast path.
+    Gram matrix is safely separated from the rank boundary. This catches low-order
+    coefficients corrupted by rounded singular vectors without imposing stable
+    reductions on the ordinary Gram-certified fast path.
     """
     n = max(1, int(X.shape[0]))
     k = int(X.shape[1])
@@ -270,7 +269,6 @@ def _stable_normal_equation_failure_2d(X, y, params, xp, *, ignore_first=False):
     mismatch = (
         gram_safe
         & finite
-        & (stable_rhs != 0.0)
         & (
             xp.abs(stable_rhs - predicted_rhs)
             > float(4096.0 * n * eps) * normal_scale
@@ -291,9 +289,7 @@ def _stable_normal_equation_failure_batched(X, y, params, xp, *, ignore_first=No
     eps = float(np.finfo(np.float64).eps)
     transpose = xp.swapaxes(X, -2, -1)
     gram = xp.matmul(transpose, X)
-    gram_finite = _axis_all(
-        xp.isfinite(gram).reshape(batch, -1), xp, 1
-    )
+    gram_finite = _axis_all(xp.isfinite(gram).reshape(batch, -1), xp, 1)
     if getattr(xp, "__name__", "") == "torch":
         identity = xp.eye(k, dtype=X.dtype, device=X.device)
     else:
@@ -322,7 +318,6 @@ def _stable_normal_equation_failure_batched(X, y, params, xp, *, ignore_first=No
     mismatch = (
         gram_safe[:, None]
         & finite
-        & (stable_rhs != 0.0)
         & (
             xp.abs(stable_rhs - predicted_rhs)
             > float(4096.0 * n * eps) * normal_scale
@@ -616,6 +611,11 @@ def panel_lstsq_deferred_rank(X, y, xp):
     )
     y_work = y - anchor
     params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=True)
+    stable_rhs = _stable_rhs_2d(X_work, y_work, xp)
+    stable_zero_solution = full_rank & xp.all(stable_rhs == 0.0)
+    params_work = xp.where(
+        stable_zero_solution, xp.zeros_like(params_work), params_work
+    )
     failure = _resolution_failure_2d(
         X_work,
         U,
@@ -786,6 +786,11 @@ def panel_lstsq_batched(X, y, xp):
 
     if getattr(y_work, "ndim", None) == 2:
         params_work = _svd_project_batched_stable(U, Vh, inverse_values, y_work, xp)
+        stable_rhs = _stable_rhs_batched(X_work, y_work, xp)
+        stable_zero_solution = full_rank & _axis_all(stable_rhs == 0.0, xp, 1)
+        params_work = xp.where(
+            stable_zero_solution[:, None], xp.zeros_like(params_work), params_work
+        )
         failure = _resolution_failure_batched(
             X_work,
             U,
@@ -805,9 +810,7 @@ def panel_lstsq_batched(X, y, xp):
         precision_failure = full_rank & (
             failure | ambiguous_zero | stable_normal_failure
         )
-        ranks = xp.where(
-            precision_failure, xp.zeros_like(ranks), ranks
-        )
+        ranks = xp.where(precision_failure, xp.zeros_like(ranks), ranks)
         restore = xp.zeros_like(params_work)
         restore[:, 0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
         params = (params_work + restore) * design_scale[:, None]
