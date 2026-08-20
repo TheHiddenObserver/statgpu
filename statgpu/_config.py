@@ -26,13 +26,11 @@ class _DeviceManager:
         self._cuda_available = None
 
     def _check_cupy(self) -> bool:
-        """Check if CuPy is available and working."""
+        """Check if CuPy is available and working without changing devices."""
         if self._cupy_available is None:
             try:
                 import cupy as cp
-                # Test actual CUDA functionality
-                cp.cuda.Device(0).use()
-                self._cupy_available = True
+                self._cupy_available = int(cp.cuda.runtime.getDeviceCount()) > 0
             except Exception:
                 self._cupy_available = False
         return self._cupy_available
