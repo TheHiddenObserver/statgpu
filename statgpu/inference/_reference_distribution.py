@@ -87,8 +87,18 @@ def two_sided_reference_inference(
         # Evaluate the algebraically equivalent rationalized form below to avoid
         # catastrophic cancellation when x is large:
         #   2 / {sqrt(x^2+2) [sqrt(x^2+2) + x]}.
-        root = xp.sqrt(statistic_abs * statistic_abs + 2.0)
-        pvalues = 2.0 / (root * (root + statistic_abs))
+        # ``hypot`` keeps sqrt(x^2 + 2) finite whenever the mathematical root is
+        # representable, and the sequential divisions avoid overflowing the
+        # denominator product while a subnormal but nonzero tail is still
+        # representable in float64.
+        sqrt_two = xp_asarray(
+            np.sqrt(2.0),
+            dtype=xp.float64,
+            xp=xp,
+            ref_arr=statistic_abs,
+        )
+        root = xp.hypot(statistic_abs, sqrt_two)
+        pvalues = (2.0 / root) / (root + statistic_abs)
         alpha_dev = xp_asarray(
             alpha_f,
             dtype=xp.float64,
@@ -96,7 +106,7 @@ def two_sided_reference_inference(
             ref_arr=statistic_abs,
         )
         critical = (
-            xp.sqrt(xp_asarray(2.0, dtype=xp.float64, xp=xp, ref_arr=statistic_abs))
+            sqrt_two
             * (1.0 - alpha_dev)
             / xp.sqrt(alpha_dev * (2.0 - alpha_dev))
         )
