@@ -47,8 +47,7 @@ class CuPyBackend(BackendBase):
     def is_available(self) -> bool:
         try:
             import cupy as cp
-            cp.cuda.Device(0).use()
-            return True
+            return int(cp.cuda.runtime.getDeviceCount()) > 0
         except Exception:
             return False
 
