@@ -91,6 +91,8 @@ def _fit_on_device(cp, target: int):
     rng = np.random.default_rng(20260821)
     X_np = rng.normal(size=(48, 2)).astype(np.float64)
     y_np = (0.4 + 0.7 * X_np[:, 0] - 0.25 * X_np[:, 1]).astype(np.float64)
+    X_design_np = np.column_stack([np.ones(len(y_np)), X_np])
+    expected_coef = np.linalg.lstsq(X_design_np, y_np, rcond=None)[0]
 
     with cp.cuda.Device(target):
         X = cp.asarray(X_np)
@@ -102,10 +104,14 @@ def _fit_on_device(cp, target: int):
         model = PooledOLS(cov_type="hc0", device="cuda").fit(X, y)
         if getattr(model, "_backend_name", None) != "cupy":
             raise AssertionError("PooledOLS did not persist CuPy execution provenance")
-        params = getattr(model, "_params", None)
-        if params is None or not type(params).__module__.startswith("cupy"):
-            raise AssertionError("PooledOLS fit parameters left the CuPy backend")
-        _assert_device(params, target, "PooledOLS params")
+        if getattr(model, "_inference_backend_name", None) != "cupy":
+            raise AssertionError("PooledOLS inference did not persist CuPy backend provenance")
+        np.testing.assert_allclose(
+            np.asarray(model.coef_, dtype=np.float64),
+            expected_coef,
+            rtol=2.0e-12,
+            atol=2.0e-12,
+        )
         after_fit = int(cp.cuda.runtime.getDevice())
         if after_fit != target:
             raise AssertionError(
@@ -114,8 +120,9 @@ def _fit_on_device(cp, target: int):
 
     return X, probes, {
         "executed_backend": "cupy",
+        "inference_backend": "cupy",
         "execution_device": f"cuda:{target}",
-        "params_backend_native": True,
+        "coefficient_parity": True,
         "current_device_after_fit": f"cuda:{after_fit}",
     }
 
