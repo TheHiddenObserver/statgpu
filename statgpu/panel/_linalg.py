@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends import _to_float_scalar
+from statgpu.backends import _to_float_scalar, xp_eye
 
 
 _GRAM_CERTIFIED_MIN_EIGEN_RATIO = 1.0e-4
@@ -230,10 +230,7 @@ def _stable_normal_equation_failure_2d(X, y, params, xp, *, ignore_first=False):
     eps = float(np.finfo(np.float64).eps)
     gram = X.T @ X
     gram_finite = xp.all(xp.isfinite(gram))
-    if getattr(xp, "__name__", "") == "torch":
-        identity = xp.eye(k, dtype=X.dtype, device=X.device)
-    else:
-        identity = xp.eye(k, dtype=X.dtype)
+    identity = xp_eye(k, X.dtype, xp, X)
     spectrum_gram = xp.where(gram_finite, gram, identity)
     eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
     smallest = eigenvalues[0]
@@ -278,10 +275,7 @@ def _stable_normal_equation_failure_batched(X, y, params, xp, *, ignore_first=No
     transpose = xp.swapaxes(X, -2, -1)
     gram = xp.matmul(transpose, X)
     gram_finite = _axis_all(xp.isfinite(gram).reshape(batch, -1), xp, 1)
-    if getattr(xp, "__name__", "") == "torch":
-        identity = xp.eye(k, dtype=X.dtype, device=X.device)
-    else:
-        identity = xp.eye(k, dtype=X.dtype)
+    identity = xp_eye(k, X.dtype, xp, X)
     spectrum_gram = xp.where(gram_finite[:, None, None], gram, identity)
     eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
     smallest = eigenvalues[:, 0]
@@ -480,10 +474,7 @@ def panel_working_pseudoinverse(X, xp):
     gram_finite = xp.all(xp.isfinite(gram))
     rhs_finite = xp.all(xp.isfinite(rhs))
 
-    if namespace == "torch":
-        identity = xp.eye(k, dtype=X.dtype, device=X.device)
-    else:
-        identity = xp.eye(k, dtype=X.dtype)
+    identity = xp_eye(k, X.dtype, xp, X)
     spectrum_gram = xp.where(gram_finite, gram, identity)
     eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
     smallest = eigenvalues[0]
@@ -691,10 +682,7 @@ def panel_lstsq_gram_certified_batched(
     rhs_finite = _axis_all(rhs_finite_view, xp, 1)
 
     k = int(X.shape[-1])
-    if namespace == "torch":
-        identity = xp.eye(k, dtype=X.dtype, device=X.device)
-    else:
-        identity = xp.eye(k, dtype=X.dtype)
+    identity = xp_eye(k, X.dtype, xp, X)
     spectrum_gram = xp.where(gram_finite[..., None, None], gram, identity)
     eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
     smallest = eigenvalues[..., 0]
