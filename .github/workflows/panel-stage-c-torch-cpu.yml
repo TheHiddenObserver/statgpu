@@ -6,6 +6,7 @@ on:
     paths:
       - 'statgpu/panel/**'
       - 'statgpu/backends/__init__.py'
+      - 'statgpu/backends/_utils.py'
       - 'statgpu/inference/_reference_distribution.py'
       - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
       - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
@@ -29,6 +30,7 @@ on:
     paths:
       - 'statgpu/panel/**'
       - 'statgpu/backends/__init__.py'
+      - 'statgpu/backends/_utils.py'
       - 'statgpu/inference/_reference_distribution.py'
       - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
       - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
