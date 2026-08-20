@@ -29,6 +29,7 @@ def test_rank_precision_runner_fixture_keeps_rank_two_and_erases_raw_intercept_t
 
 def test_rank_precision_runner_locks_backend_and_failure_precedence_contract():
     source = inspect.getsource(_MOD.run)
+    trace_source = inspect.getsource(_MOD._trace_public_fallback)
     for token in (
         'backend == "cupy"',
         'backend == "torch"',
@@ -39,6 +40,7 @@ def test_rank_precision_runner_locks_backend_and_failure_precedence_contract():
         'executed_backend = str(trace[0]["namespace"])',
         "cp.__version__",
         "torch.__version__",
+        '"schema_version": 3',
         "except FloatingPointError",
         "except ValueError",
         '"rank=2, columns=3"',
@@ -54,6 +56,15 @@ def test_rank_precision_runner_locks_backend_and_failure_precedence_contract():
         '"clean_worktree": True',
     ):
         assert token in source
+    for token in (
+        '"params_native"',
+        '"rank_native"',
+        '"params_device"',
+        '"rank_device"',
+        "params, rank_backend = original",
+        "params, ranks = original",
+    ):
+        assert token in trace_source
 
 
 def test_rank_precision_runner_trace_validator_rejects_silent_fallback_evidence():
@@ -66,6 +77,10 @@ def test_rank_precision_runner_trace_validator_rejects_silent_fallback_evidence(
                 "y_native": True,
                 "x_device": 0,
                 "y_device": 0,
+                "params_native": True,
+                "rank_native": True,
+                "params_device": 0,
+                "rank_device": 0,
             }
         ],
     )
@@ -80,6 +95,12 @@ def test_rank_precision_runner_trace_validator_rejects_silent_fallback_evidence(
                 "y_device": "cuda:0",
                 "x_is_cuda": True,
                 "y_is_cuda": True,
+                "params_native": True,
+                "rank_native": True,
+                "params_device": "cuda:0",
+                "rank_device": "cuda:0",
+                "params_is_cuda": True,
+                "rank_is_cuda": True,
             }
         ],
     )
@@ -94,6 +115,27 @@ def test_rank_precision_runner_trace_validator_rejects_silent_fallback_evidence(
                     "y_native": False,
                     "x_device": None,
                     "y_device": None,
+                    "params_native": False,
+                    "rank_native": False,
+                    "params_device": None,
+                    "rank_device": None,
+                }
+            ],
+        )
+    with pytest.raises(AssertionError, match="returned non-native"):
+        _MOD._validate_public_trace(
+            "cupy",
+            [
+                {
+                    "namespace": "cupy",
+                    "x_native": True,
+                    "y_native": True,
+                    "x_device": 0,
+                    "y_device": 0,
+                    "params_native": False,
+                    "rank_native": False,
+                    "params_device": None,
+                    "rank_device": None,
                 }
             ],
         )
@@ -105,10 +147,16 @@ def test_rank_precision_runner_trace_validator_rejects_silent_fallback_evidence(
                     "namespace": "torch",
                     "x_native": True,
                     "y_native": True,
-                    "x_device": "cpu",
-                    "y_device": "cpu",
-                    "x_is_cuda": False,
-                    "y_is_cuda": False,
+                    "x_device": "cuda:0",
+                    "y_device": "cuda:0",
+                    "x_is_cuda": True,
+                    "y_is_cuda": True,
+                    "params_native": True,
+                    "rank_native": True,
+                    "params_device": "cpu",
+                    "rank_device": "cpu",
+                    "params_is_cuda": False,
+                    "rank_is_cuda": False,
                 }
             ],
         )
