@@ -202,14 +202,7 @@ def _stable_rhs_batched(X, y, xp):
 
 
 def _ambiguous_zero_rhs_2d(X, y, xp, *, ignore_first=False):
-    """Detect a raw zero RHS only when stable summation recovers a nonzero tail.
-
-    This check runs only on an already-unsafe Fama-MacBeth fallback. A genuine
-    exact-zero coordinate has both raw and magnitude-tiered RHS equal to zero and
-    remains eligible for the ordinary SVD/precision certificate. If the raw dot
-    is zero but the stable RHS is nonzero, a cancellation tail was actually lost;
-    a rounded SVD basis is not a reliable rescue, so the period fails closed.
-    """
+    """Detect a raw zero RHS only when stable summation recovers a nonzero tail."""
     raw_rhs = X.T @ y
     stable_rhs = _stable_rhs_2d(X, y, xp)
     ambiguous = (raw_rhs == 0.0) & (stable_rhs != 0.0)
@@ -231,13 +224,7 @@ def _ambiguous_zero_rhs_batched(X, y, xp, *, ignore_first=None):
 
 
 def _stable_normal_equation_failure_2d(X, y, params, xp, *, ignore_first=False):
-    """Reject a well-conditioned SVD fallback that disagrees with stable X' y.
-
-    The check is intentionally restricted to Fama-MacBeth fallback periods whose
-    Gram matrix is safely separated from the rank boundary. This catches low-order
-    coefficients corrupted by rounded singular vectors without imposing stable
-    reductions on the ordinary Gram-certified fast path.
-    """
+    """Reject a well-conditioned SVD fallback that disagrees with stable X' y."""
     n = max(1, int(X.shape[0]))
     k = int(X.shape[1])
     eps = float(np.finfo(np.float64).eps)
@@ -260,7 +247,8 @@ def _stable_normal_equation_failure_2d(X, y, params, xp, *, ignore_first=False):
     )
     stable_rhs = _stable_rhs_2d(X, y, xp)
     predicted_rhs = gram @ params
-    normal_scale = xp.abs(stable_rhs) + xp.abs(gram) @ xp.abs(params)
+    term_scale = xp.abs(gram) @ xp.abs(params)
+    normal_scale = xp.maximum(xp.abs(stable_rhs), term_scale)
     finite = (
         xp.isfinite(stable_rhs)
         & xp.isfinite(predicted_rhs)
@@ -307,9 +295,8 @@ def _stable_normal_equation_failure_batched(X, y, params, xp, *, ignore_first=No
     )
     stable_rhs = _stable_rhs_batched(X, y, xp)
     predicted_rhs = xp.matmul(gram, params[..., None])[..., 0]
-    normal_scale = xp.abs(stable_rhs) + xp.matmul(
-        xp.abs(gram), xp.abs(params)[..., None]
-    )[..., 0]
+    term_scale = xp.matmul(xp.abs(gram), xp.abs(params)[..., None])[..., 0]
+    normal_scale = xp.maximum(xp.abs(stable_rhs), term_scale)
     finite = (
         xp.isfinite(stable_rhs)
         & xp.isfinite(predicted_rhs)
@@ -612,7 +599,9 @@ def panel_lstsq_deferred_rank(X, y, xp):
     y_work = y - anchor
     params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=True)
     stable_rhs = _stable_rhs_2d(X_work, y_work, xp)
-    stable_zero_solution = full_rank & xp.all(stable_rhs == 0.0)
+    stable_zero_solution = (
+        full_rank & (design_scale == 1.0) & xp.all(stable_rhs == 0.0)
+    )
     params_work = xp.where(
         stable_zero_solution, xp.zeros_like(params_work), params_work
     )
@@ -787,7 +776,11 @@ def panel_lstsq_batched(X, y, xp):
     if getattr(y_work, "ndim", None) == 2:
         params_work = _svd_project_batched_stable(U, Vh, inverse_values, y_work, xp)
         stable_rhs = _stable_rhs_batched(X_work, y_work, xp)
-        stable_zero_solution = full_rank & _axis_all(stable_rhs == 0.0, xp, 1)
+        stable_zero_solution = (
+            full_rank
+            & (design_scale == 1.0)
+            & _axis_all(stable_rhs == 0.0, xp, 1)
+        )
         params_work = xp.where(
             stable_zero_solution[:, None], xp.zeros_like(params_work), params_work
         )
