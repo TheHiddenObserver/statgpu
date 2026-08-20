@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import platform
 import subprocess
@@ -15,7 +14,7 @@ import numpy as np
 from statgpu.backends import _is_cupy_array, _is_torch_array, _to_numpy
 from statgpu.inference._reference_distribution import two_sided_reference_inference
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _REQUIRED_BACKENDS = {"cupy", "torch"}
 _EXTREME_STATISTIC = 1.0e154
 
@@ -30,13 +29,6 @@ def _git_clean() -> bool:
     ).strip()
 
 
-def _version(name: str):
-    try:
-        return importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return None
-
-
 def _validate_acceptance_backends(backends):
     normalized = [value.strip() for value in backends if value.strip()]
     if len(normalized) != 2 or set(normalized) != _REQUIRED_BACKENDS:
@@ -49,6 +41,46 @@ def _validate_acceptance_backends(backends):
 def _expected_tail(statistic_value: float) -> float:
     root = np.hypot(float(statistic_value), np.sqrt(2.0))
     return (2.0 / root) / (root + float(statistic_value))
+
+
+def _cuda_device_label(value, backend: str):
+    if backend == "cupy":
+        device = getattr(value, "device", None)
+        device_id = getattr(device, "id", None)
+        return None if device_id is None else f"cuda:{int(device_id)}"
+    if backend == "torch":
+        device = getattr(value, "device", None)
+        return None if device is None else str(device)
+    raise ValueError(f"unsupported backend: {backend}")
+
+
+def _assert_cuda_native_and_same_device(statistic, pvalues, critical, backend: str):
+    if backend == "cupy":
+        native = all(
+            _is_cupy_array(value) for value in (statistic, pvalues, critical)
+        )
+    elif backend == "torch":
+        native = all(
+            _is_torch_array(value) for value in (statistic, pvalues, critical)
+        )
+    else:
+        raise ValueError(f"unsupported backend: {backend}")
+    if not native:
+        raise AssertionError(f"{backend}: t(2) inference left the requested CUDA backend")
+
+    labels = [
+        _cuda_device_label(value, backend)
+        for value in (statistic, pvalues, critical)
+    ]
+    if any(label is None or not label.startswith("cuda") for label in labels):
+        raise AssertionError(
+            f"{backend}: t(2) inference produced a non-CUDA device trace {labels}"
+        )
+    if len(set(labels)) != 1:
+        raise AssertionError(
+            f"{backend}: t(2) inference crossed CUDA devices {labels}"
+        )
+    return labels[0]
 
 
 def _backend_case(backend: str):
@@ -67,7 +99,7 @@ def _backend_case(backend: str):
         statistic = xp.as_tensor(
             [_EXTREME_STATISTIC], dtype=xp.float64, device="cuda"
         )
-        device = "cuda"
+        device = str(statistic.device)
     else:
         raise ValueError(f"unsupported backend: {backend}")
 
@@ -80,14 +112,9 @@ def _backend_case(backend: str):
         df=2,
         device=device,
     )
-    if backend == "cupy":
-        native = _is_cupy_array(pvalues) and _is_cupy_array(critical)
-    else:
-        native = _is_torch_array(pvalues) and _is_torch_array(critical)
-        native = native and str(pvalues.device).startswith("cuda")
-        native = native and str(critical.device).startswith("cuda")
-    if not native:
-        raise AssertionError(f"{backend}: t(2) inference left the requested CUDA backend")
+    execution_device = _assert_cuda_native_and_same_device(
+        statistic, pvalues, critical, backend
+    )
 
     observed = float(np.asarray(_to_numpy(pvalues), dtype=np.float64)[0])
     expected = _expected_tail(_EXTREME_STATISTIC)
@@ -103,35 +130,36 @@ def _backend_case(backend: str):
     return {
         "status": "success",
         "executed_backend": backend,
+        "execution_device": execution_device,
         "statistic": float(_EXTREME_STATISTIC),
         "pvalue": observed,
         "expected_pvalue": expected,
         "critical_value": critical_value,
         "pvalue_nonzero": True,
         "backend_native": True,
+        "same_cuda_device": True,
     }
 
 
 def _environment(backends):
     gpu_by_backend = {}
-    cupy_version = None
+    runtime_versions = {"numpy": np.__version__}
     if "cupy" in backends:
         import cupy as cp
 
         props = cp.cuda.runtime.getDeviceProperties(0)
         name = props["name"]
         gpu_by_backend["cupy"] = name.decode() if isinstance(name, bytes) else name
-        cupy_version = cp.__version__
+        runtime_versions["cupy"] = cp.__version__
     if "torch" in backends:
         import torch
 
         gpu_by_backend["torch"] = torch.cuda.get_device_name(0)
+        runtime_versions["torch"] = torch.__version__
     return {
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "numpy": _version("numpy"),
-        "cupy": cupy_version,
-        "torch": _version("torch"),
+        "runtime_versions": runtime_versions,
         "gpu_by_backend": gpu_by_backend,
     }
 
