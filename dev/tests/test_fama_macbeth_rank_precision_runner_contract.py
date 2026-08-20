@@ -37,6 +37,8 @@ def test_rank_precision_runner_locks_backend_and_failure_precedence_contract():
         "_trace_public_fallback(backend)",
         "_validate_public_trace(backend, trace)",
         'executed_backend = str(trace[0]["namespace"])',
+        "cp.__version__",
+        "torch.__version__",
         "except FloatingPointError",
         "except ValueError",
         '"rank=2, columns=3"',
