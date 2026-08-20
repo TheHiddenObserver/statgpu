@@ -54,6 +54,13 @@ def _cuda_device_label(value, backend: str):
     raise ValueError(f"unsupported backend: {backend}")
 
 
+def _cuda_device_index(label: str) -> int:
+    prefix, separator, suffix = str(label).partition(":")
+    if prefix != "cuda" or separator != ":" or not suffix.isdigit():
+        raise ValueError(f"invalid concrete CUDA device label: {label!r}")
+    return int(suffix)
+
+
 def _assert_cuda_native_and_same_device(statistic, pvalues, critical, backend: str):
     if backend == "cupy":
         native = all(
@@ -72,15 +79,17 @@ def _assert_cuda_native_and_same_device(statistic, pvalues, critical, backend: s
         _cuda_device_label(value, backend)
         for value in (statistic, pvalues, critical)
     ]
-    if any(label is None or not label.startswith("cuda") for label in labels):
+    try:
+        indices = [_cuda_device_index(label) for label in labels]
+    except (TypeError, ValueError) as exc:
         raise AssertionError(
             f"{backend}: t(2) inference produced a non-CUDA device trace {labels}"
-        )
-    if len(set(labels)) != 1:
+        ) from exc
+    if len(set(indices)) != 1:
         raise AssertionError(
             f"{backend}: t(2) inference crossed CUDA devices {labels}"
         )
-    return labels[0]
+    return f"cuda:{indices[0]}"
 
 
 def _backend_case(backend: str):
@@ -141,20 +150,22 @@ def _backend_case(backend: str):
     }
 
 
-def _environment(backends):
+def _environment(backends, results):
     gpu_by_backend = {}
     runtime_versions = {"numpy": np.__version__}
     if "cupy" in backends:
         import cupy as cp
 
-        props = cp.cuda.runtime.getDeviceProperties(0)
+        device_index = _cuda_device_index(results["cupy"]["execution_device"])
+        props = cp.cuda.runtime.getDeviceProperties(device_index)
         name = props["name"]
         gpu_by_backend["cupy"] = name.decode() if isinstance(name, bytes) else name
         runtime_versions["cupy"] = cp.__version__
     if "torch" in backends:
         import torch
 
-        gpu_by_backend["torch"] = torch.cuda.get_device_name(0)
+        device_index = _cuda_device_index(results["torch"]["execution_device"])
+        gpu_by_backend["torch"] = torch.cuda.get_device_name(device_index)
         runtime_versions["torch"] = torch.__version__
     return {
         "python": platform.python_version(),
@@ -195,7 +206,7 @@ def main():
         "status": "success",
         "validation_tier": "remote-full",
         "statistic": float(_EXTREME_STATISTIC),
-        "environment": _environment(backends),
+        "environment": _environment(backends, results),
         "backends": results,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
