@@ -9,7 +9,7 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_ones
 from statgpu.panel._base import BasePanelModel
 from statgpu.panel._intercept import panel_lstsq_exact_constant
 from statgpu.panel._utils import factorize_panel_labels, group_means
@@ -119,9 +119,7 @@ class BetweenOLS(BasePanelModel):
         )
 
         n_orig = X_arr.shape[0]
-        ones = xp.ones((n_orig, 1), dtype=xp.float64)
-        if hasattr(X_arr, "is_cuda"):
-            ones = ones.to(device=X_arr.device)
+        ones = xp_ones((n_orig, 1), xp.float64, xp, X_arr)
         X_full = xp.concatenate([ones, X_arr], axis=1)
         k = X_full.shape[1]
 
