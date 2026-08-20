@@ -137,10 +137,13 @@ def run(backend: str):
     if not _git_clean():
         raise RuntimeError("physical validation requires a clean git worktree")
 
+    cupy_runtime_version = None
+    torch_runtime_version = None
     X_np, y_np, time_np, design_np, y_period_np = _fixture()
     if backend == "cupy":
         import cupy as cp
 
+        cupy_runtime_version = str(cp.__version__)
         design = cp.asarray(design_np, dtype=cp.float64)
         y_period = cp.asarray(y_period_np, dtype=cp.float64)
         _params, rank_backend = panel_lstsq_deferred_rank(design, y_period, cp)
@@ -154,6 +157,7 @@ def run(backend: str):
 
         if not torch.cuda.is_available():
             raise RuntimeError("Torch CUDA is not available")
+        torch_runtime_version = str(torch.__version__)
         design = torch.as_tensor(design_np, dtype=torch.float64, device="cuda")
         y_period = torch.as_tensor(y_period_np, dtype=torch.float64, device="cuda")
         _params, ranks = panel_lstsq_batched(
@@ -218,9 +222,12 @@ def run(backend: str):
         "gpu": _gpu_name(backend),
         "packages": {
             "statgpu": _version("statgpu"),
-            "numpy": _version("numpy"),
-            "cupy": _version("cupy-cuda11x") or _version("cupy-cuda12x") or _version("cupy"),
-            "torch": _version("torch"),
+            "numpy": str(np.__version__),
+            "cupy": cupy_runtime_version
+            or _version("cupy-cuda11x")
+            or _version("cupy-cuda12x")
+            or _version("cupy"),
+            "torch": torch_runtime_version or _version("torch"),
         },
         "fallback_svd_rank": rank,
         "public_rank_deficiency_value_error": public_rank_failure,
