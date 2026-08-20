@@ -422,11 +422,26 @@ def _torch_dev(arr):
     return None
 
 
+def _cupy_dev(arr):
+    """Extract a CuPy device by duck type without importing CuPy eagerly."""
+    if (
+        arr is not None
+        and type(arr).__module__.startswith("cupy")
+        and hasattr(arr, "device")
+    ):
+        return arr.device
+    return None
+
+
 def xp_zeros(shape, dtype, xp, ref_arr=None):
     """Device-aware ``xp.zeros``.  *ref_arr* provides the target device."""
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.zeros(shape, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.zeros(shape, dtype=dtype)
     return xp.zeros(shape, dtype=dtype)
 
 
@@ -435,6 +450,10 @@ def xp_eye(n, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.eye(n, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.eye(n, dtype=dtype)
     return xp.eye(n, dtype=dtype)
 
 
@@ -445,6 +464,10 @@ def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.full(shape, fill_value, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.full(shape, fill_value, dtype=dtype)
     return xp.full(shape, fill_value, dtype=dtype)
 
 
@@ -515,12 +538,9 @@ def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
         if dtype is not None:
             kwargs['dtype'] = dtype
         return xp.asarray(data, **kwargs)
-    if (
-        ref_arr is not None
-        and type(ref_arr).__module__.startswith("cupy")
-        and hasattr(ref_arr, "device")
-    ):
-        with ref_arr.device:
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
             return (
                 xp.asarray(data, dtype=dtype)
                 if dtype is not None
@@ -536,6 +556,10 @@ def xp_empty(shape, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.empty(shape, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.empty(shape, dtype=dtype)
     return xp.empty(shape, dtype=dtype)
 
 
@@ -547,6 +571,10 @@ def xp_arange(n, dtype=None, xp=None, ref_arr=None):
         if dtype is not None:
             kwargs['dtype'] = dtype
         return xp.arange(n, **kwargs)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.arange(n, dtype=dtype) if dtype is not None else xp.arange(n)
     if dtype is not None:
         return xp.arange(n, dtype=dtype)
     return xp.arange(n)
@@ -557,6 +585,10 @@ def xp_ones(shape, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.ones(shape, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.ones(shape, dtype=dtype)
     return xp.ones(shape, dtype=dtype)
 
 
