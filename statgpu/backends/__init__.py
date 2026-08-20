@@ -44,82 +44,18 @@ from ._utils import (
     _move_torch_tensor,
     _torch_dev,
     _LINALG_ERRORS,
-    xp_zeros as _xp_zeros,
-    xp_eye as _xp_eye,
-    xp_full as _xp_full,
+    xp_zeros,
+    xp_eye,
+    xp_full,
     xp_astype,
     xp_asarray,
-    xp_empty as _xp_empty,
-    xp_arange as _xp_arange,
-    xp_ones as _xp_ones,
+    xp_empty,
+    xp_arange,
+    xp_ones,
     xp_maximum,
     xp_copy,
     xp_cholesky_solve,
 )
-
-
-def _cupy_reference_device(ref_arr):
-    """Return a CuPy reference device without importing CuPy eagerly."""
-    if (
-        ref_arr is not None
-        and type(ref_arr).__module__.startswith("cupy")
-        and hasattr(ref_arr, "device")
-    ):
-        return ref_arr.device
-    return None
-
-
-def _on_reference_device(ref_arr, factory):
-    """Run a creation helper on a CuPy reference device when one is supplied."""
-    device = _cupy_reference_device(ref_arr)
-    if device is None:
-        return factory()
-    with device:
-        return factory()
-
-
-def xp_zeros(shape, dtype, xp, ref_arr=None):
-    """Create zeros on the same Torch/CuPy device as ``ref_arr`` when supplied."""
-    return _on_reference_device(
-        ref_arr, lambda: _xp_zeros(shape, dtype, xp, ref_arr=ref_arr)
-    )
-
-
-def xp_eye(n, dtype, xp, ref_arr=None):
-    """Create an identity matrix on the same device as ``ref_arr`` when supplied."""
-    return _on_reference_device(
-        ref_arr, lambda: _xp_eye(n, dtype, xp, ref_arr=ref_arr)
-    )
-
-
-def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
-    """Create a full array on the same device as ``ref_arr`` when supplied."""
-    return _on_reference_device(
-        ref_arr,
-        lambda: _xp_full(shape, fill_value, dtype, xp, ref_arr=ref_arr),
-    )
-
-
-def xp_empty(shape, dtype, xp, ref_arr=None):
-    """Create an empty array on the same device as ``ref_arr`` when supplied."""
-    return _on_reference_device(
-        ref_arr, lambda: _xp_empty(shape, dtype, xp, ref_arr=ref_arr)
-    )
-
-
-def xp_arange(n, dtype=None, xp=None, ref_arr=None):
-    """Create a range on the same device as ``ref_arr`` when supplied."""
-    return _on_reference_device(
-        ref_arr, lambda: _xp_arange(n, dtype=dtype, xp=xp, ref_arr=ref_arr)
-    )
-
-
-def xp_ones(shape, dtype, xp, ref_arr=None):
-    """Create ones on the same Torch/CuPy device as ``ref_arr`` when supplied."""
-    return _on_reference_device(
-        ref_arr, lambda: _xp_ones(shape, dtype, xp, ref_arr=ref_arr)
-    )
-
 
 __all__ = [
     "BackendBase",
