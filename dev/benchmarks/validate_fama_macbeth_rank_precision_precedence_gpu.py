@@ -193,6 +193,7 @@ def run(backend: str):
     if not public_rank_failure:
         raise AssertionError(f"{backend}: rank-deficient period did not fail closed")
     _validate_public_trace(backend, trace)
+    executed_backend = str(trace[0]["namespace"])
 
     leaked_state = [
         name
@@ -210,7 +211,7 @@ def run(backend: str):
         "git_sha": _git_sha(),
         "clean_worktree": True,
         "requested_backend": backend,
-        "executed_backend": backend,
+        "executed_backend": executed_backend,
         "public_fallback_trace": trace,
         "public_failure_state_clean": True,
         "inference_state_published": False,
