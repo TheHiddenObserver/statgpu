@@ -68,6 +68,7 @@ def _trace_public_fallback(backend: str):
         original = fmb_module.panel_lstsq_deferred_rank
 
         def tracked(X, y, xp):
+            params, rank_backend = original(X, y, xp)
             trace.append(
                 {
                     "namespace": getattr(xp, "__name__", ""),
@@ -75,9 +76,17 @@ def _trace_public_fallback(backend: str):
                     "y_native": isinstance(y, cp.ndarray),
                     "x_device": int(X.device.id) if isinstance(X, cp.ndarray) else None,
                     "y_device": int(y.device.id) if isinstance(y, cp.ndarray) else None,
+                    "params_native": isinstance(params, cp.ndarray),
+                    "rank_native": isinstance(rank_backend, cp.ndarray),
+                    "params_device": int(params.device.id)
+                    if isinstance(params, cp.ndarray)
+                    else None,
+                    "rank_device": int(rank_backend.device.id)
+                    if isinstance(rank_backend, cp.ndarray)
+                    else None,
                 }
             )
-            return original(X, y, xp)
+            return params, rank_backend
 
         fmb_module.panel_lstsq_deferred_rank = tracked
         return trace, "panel_lstsq_deferred_rank", original
@@ -88,6 +97,7 @@ def _trace_public_fallback(backend: str):
         original = fmb_module.panel_lstsq_batched
 
         def tracked(X, y, xp):
+            params, ranks = original(X, y, xp)
             trace.append(
                 {
                     "namespace": getattr(xp, "__name__", ""),
@@ -97,9 +107,23 @@ def _trace_public_fallback(backend: str):
                     "y_device": str(y.device) if isinstance(y, torch.Tensor) else None,
                     "x_is_cuda": bool(X.is_cuda) if isinstance(X, torch.Tensor) else False,
                     "y_is_cuda": bool(y.is_cuda) if isinstance(y, torch.Tensor) else False,
+                    "params_native": isinstance(params, torch.Tensor),
+                    "rank_native": isinstance(ranks, torch.Tensor),
+                    "params_device": str(params.device)
+                    if isinstance(params, torch.Tensor)
+                    else None,
+                    "rank_device": str(ranks.device)
+                    if isinstance(ranks, torch.Tensor)
+                    else None,
+                    "params_is_cuda": bool(params.is_cuda)
+                    if isinstance(params, torch.Tensor)
+                    else False,
+                    "rank_is_cuda": bool(ranks.is_cuda)
+                    if isinstance(ranks, torch.Tensor)
+                    else False,
                 }
             )
-            return original(X, y, xp)
+            return params, ranks
 
         fmb_module.panel_lstsq_batched = tracked
         return trace, "panel_lstsq_batched", original
@@ -121,16 +145,37 @@ def _validate_public_trace(backend: str, trace):
             )
         if not call["x_native"] or not call["y_native"]:
             raise AssertionError(f"{backend}: public fallback received non-native arrays: {call}")
+        if not call["params_native"] or not call["rank_native"]:
+            raise AssertionError(f"{backend}: public fallback returned non-native arrays: {call}")
         if backend == "cupy":
-            if call["x_device"] is None or call["y_device"] is None:
-                raise AssertionError(f"cupy: missing CUDA device provenance: {call}")
+            devices = (
+                call["x_device"],
+                call["y_device"],
+                call["params_device"],
+                call["rank_device"],
+            )
+            if any(device is None for device in devices) or len(set(devices)) != 1:
+                raise AssertionError(f"cupy: inconsistent CUDA device provenance: {call}")
         else:
-            if not call["x_is_cuda"] or not call["y_is_cuda"]:
+            if not all(
+                (
+                    call["x_is_cuda"],
+                    call["y_is_cuda"],
+                    call["params_is_cuda"],
+                    call["rank_is_cuda"],
+                )
+            ):
                 raise AssertionError(f"torch: public fallback left CUDA: {call}")
-            if not str(call["x_device"]).startswith("cuda") or not str(
-                call["y_device"]
-            ).startswith("cuda"):
-                raise AssertionError(f"torch: unexpected fallback devices: {call}")
+            devices = (
+                str(call["x_device"]),
+                str(call["y_device"]),
+                str(call["params_device"]),
+                str(call["rank_device"]),
+            )
+            if any(not device.startswith("cuda") for device in devices) or len(
+                set(devices)
+            ) != 1:
+                raise AssertionError(f"torch: inconsistent fallback devices: {call}")
 
 
 def run(backend: str):
@@ -210,7 +255,7 @@ def run(backend: str):
         )
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "clean_worktree": True,
