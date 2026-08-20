@@ -230,6 +230,109 @@ def _ambiguous_zero_rhs_batched(X, y, xp, *, ignore_first=None):
     return ~_axis_all(~ambiguous, xp, 1)
 
 
+def _stable_normal_equation_failure_2d(X, y, params, xp, *, ignore_first=False):
+    """Reject a well-conditioned SVD fallback that disagrees with stable X' y.
+
+    The check is intentionally restricted to Fama-MacBeth fallback periods whose
+    Gram matrix is safely separated from the rank boundary. A zero stable RHS is
+    left to the existing genuine-zero policy. This catches low-order coefficients
+    corrupted by rounded singular vectors without imposing stable reductions on
+    the ordinary Gram-certified fast path.
+    """
+    n = max(1, int(X.shape[0]))
+    k = int(X.shape[1])
+    eps = float(np.finfo(np.float64).eps)
+    gram = X.T @ X
+    gram_finite = xp.all(xp.isfinite(gram))
+    if getattr(xp, "__name__", "") == "torch":
+        identity = xp.eye(k, dtype=X.dtype, device=X.device)
+    else:
+        identity = xp.eye(k, dtype=X.dtype)
+    spectrum_gram = xp.where(gram_finite, gram, identity)
+    eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
+    smallest = eigenvalues[0]
+    largest = eigenvalues[-1]
+    gram_safe = (
+        gram_finite
+        & xp.isfinite(smallest)
+        & xp.isfinite(largest)
+        & (largest > 0.0)
+        & (smallest > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO))
+    )
+    stable_rhs = _stable_rhs_2d(X, y, xp)
+    predicted_rhs = gram @ params
+    normal_scale = xp.abs(stable_rhs) + xp.abs(gram) @ xp.abs(params)
+    finite = (
+        xp.isfinite(stable_rhs)
+        & xp.isfinite(predicted_rhs)
+        & xp.isfinite(normal_scale)
+    )
+    mismatch = (
+        gram_safe
+        & finite
+        & (stable_rhs != 0.0)
+        & (
+            xp.abs(stable_rhs - predicted_rhs)
+            > float(4096.0 * n * eps) * normal_scale
+        )
+    )
+    if int(mismatch.shape[0]) > 0:
+        mismatch[0] = mismatch[0] & (~ignore_first)
+    return xp.any(mismatch)
+
+
+def _stable_normal_equation_failure_batched(X, y, params, xp, *, ignore_first=None):
+    """Vectorized stable normal-equation certificate for FMB SVD fallbacks."""
+    if getattr(y, "ndim", None) != 2:
+        return xp.zeros_like(X[:, 0, 0], dtype=bool)
+    batch = int(X.shape[0])
+    n = max(1, int(X.shape[1]))
+    k = int(X.shape[2])
+    eps = float(np.finfo(np.float64).eps)
+    transpose = xp.swapaxes(X, -2, -1)
+    gram = xp.matmul(transpose, X)
+    gram_finite = _axis_all(
+        xp.isfinite(gram).reshape(batch, -1), xp, 1
+    )
+    if getattr(xp, "__name__", "") == "torch":
+        identity = xp.eye(k, dtype=X.dtype, device=X.device)
+    else:
+        identity = xp.eye(k, dtype=X.dtype)
+    spectrum_gram = xp.where(gram_finite[:, None, None], gram, identity)
+    eigenvalues = xp.linalg.eigvalsh(spectrum_gram)
+    smallest = eigenvalues[:, 0]
+    largest = eigenvalues[:, -1]
+    gram_safe = (
+        gram_finite
+        & xp.isfinite(smallest)
+        & xp.isfinite(largest)
+        & (largest > 0.0)
+        & (smallest > largest * float(_GRAM_CERTIFIED_MIN_EIGEN_RATIO))
+    )
+    stable_rhs = _stable_rhs_batched(X, y, xp)
+    predicted_rhs = xp.matmul(gram, params[..., None])[..., 0]
+    normal_scale = xp.abs(stable_rhs) + xp.matmul(
+        xp.abs(gram), xp.abs(params)[..., None]
+    )[..., 0]
+    finite = (
+        xp.isfinite(stable_rhs)
+        & xp.isfinite(predicted_rhs)
+        & xp.isfinite(normal_scale)
+    )
+    mismatch = (
+        gram_safe[:, None]
+        & finite
+        & (stable_rhs != 0.0)
+        & (
+            xp.abs(stable_rhs - predicted_rhs)
+            > float(4096.0 * n * eps) * normal_scale
+        )
+    )
+    if ignore_first is not None and int(mismatch.shape[1]) > 0:
+        mismatch[:, 0] = mismatch[:, 0] & (~ignore_first)
+    return ~_axis_all(~mismatch, xp, 1)
+
+
 def _resolution_failure_2d(
     X_work,
     U,
@@ -526,7 +629,12 @@ def panel_lstsq_deferred_rank(X, y, xp):
     ambiguous_zero = _ambiguous_zero_rhs_2d(
         X_work, y_work, xp, ignore_first=has_constant
     )
-    precision_failure = full_rank & (failure | ambiguous_zero)
+    stable_normal_failure = _stable_normal_equation_failure_2d(
+        X_work, y_work, params_work, xp, ignore_first=has_constant
+    )
+    precision_failure = full_rank & (
+        failure | ambiguous_zero | stable_normal_failure
+    )
     rank_backend = xp.where(
         precision_failure, xp.zeros_like(rank_backend), rank_backend
     )
@@ -691,7 +799,12 @@ def panel_lstsq_batched(X, y, xp):
         ambiguous_zero = _ambiguous_zero_rhs_batched(
             X_work, y_work, xp, ignore_first=has_constant
         )
-        precision_failure = full_rank & (failure | ambiguous_zero)
+        stable_normal_failure = _stable_normal_equation_failure_batched(
+            X_work, y_work, params_work, xp, ignore_first=has_constant
+        )
+        precision_failure = full_rank & (
+            failure | ambiguous_zero | stable_normal_failure
+        )
         ranks = xp.where(
             precision_failure, xp.zeros_like(ranks), ranks
         )
