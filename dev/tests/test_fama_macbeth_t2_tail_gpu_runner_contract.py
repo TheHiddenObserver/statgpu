@@ -37,6 +37,13 @@ def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
     with pytest.raises(ValueError, match="requires exactly both GPU backends"):
         t2_gpu_gate._validate_acceptance_backends(["cupy"])
 
+    assert t2_gpu_gate._cuda_device_index("cuda:0") == 0
+    assert t2_gpu_gate._cuda_device_index("cuda:12") == 12
+    with pytest.raises(ValueError, match="concrete CUDA device label"):
+        t2_gpu_gate._cuda_device_index("cuda")
+    with pytest.raises(ValueError, match="concrete CUDA device label"):
+        t2_gpu_gate._cuda_device_index("cpu")
+
     expected = t2_gpu_gate._expected_tail(t2_gpu_gate._EXTREME_STATISTIC)
     assert expected > 0.0
     assert expected == pytest.approx(1.0e-308, rel=2e-15, abs=0.0)
