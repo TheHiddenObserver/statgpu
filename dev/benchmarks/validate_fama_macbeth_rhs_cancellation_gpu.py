@@ -71,8 +71,9 @@ def _nonzero_rhs_svd_drift_fixture(n_periods: int = 3):
 
 
 def _genuine_zero_rhs_fixture(n_periods: int = 3):
-    x_period = np.asarray([-1.0, 1.0, -1.0, 1.0], dtype=np.float64)
-    y_period = np.asarray([1.0, -1.0, -1.0, 1.0], dtype=np.float64)
+    amplitude = float(2.0**55)
+    x_period = np.asarray([1.0, -1.0, 1.0, -1.0], dtype=np.float64)
+    y_period = np.asarray([amplitude, -amplitude, -amplitude, amplitude], dtype=np.float64)
     X = np.tile(x_period, n_periods)[:, None]
     y = np.tile(y_period, n_periods)
     time = np.repeat(np.arange(n_periods, dtype=np.int64), x_period.size)
@@ -327,8 +328,8 @@ def run(backend: str):
     _assert_success_backend(zero_model, backend, zero_device)
     zero_betas = np.asarray(_to_numpy(zero_model.betas_), dtype=np.float64)
     zero_coef = np.asarray(_to_numpy(zero_model.coef_), dtype=np.float64)
-    np.testing.assert_allclose(zero_betas, np.zeros_like(zero_betas), rtol=0.0, atol=5.0e-15)
-    np.testing.assert_allclose(zero_coef, np.zeros_like(zero_coef), rtol=0.0, atol=5.0e-15)
+    np.testing.assert_array_equal(zero_betas, np.zeros_like(zero_betas))
+    np.testing.assert_array_equal(zero_coef, np.zeros_like(zero_coef))
     if zero_model._period_svd_fallbacks != zero_model.n_periods:
         raise AssertionError("genuine-zero RHS should be rechecked by the SVD fallback")
 
