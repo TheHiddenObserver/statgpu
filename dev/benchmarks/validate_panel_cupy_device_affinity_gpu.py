@@ -90,7 +90,12 @@ def _probe_device_neutrality(cp, expected_device: int):
 def _fit_on_device(cp, target: int):
     rng = np.random.default_rng(20260821)
     X_np = rng.normal(size=(48, 2)).astype(np.float64)
-    y_np = (0.4 + 0.7 * X_np[:, 0] - 0.25 * X_np[:, 1]).astype(np.float64)
+    y_np = (
+        0.4
+        + 0.7 * X_np[:, 0]
+        - 0.25 * X_np[:, 1]
+        + rng.normal(scale=0.15, size=X_np.shape[0])
+    ).astype(np.float64)
     X_design_np = np.column_stack([np.ones(len(y_np)), X_np])
     expected_coef = np.linalg.lstsq(X_design_np, y_np, rcond=None)[0]
 
