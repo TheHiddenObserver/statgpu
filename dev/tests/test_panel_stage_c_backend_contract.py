@@ -9,6 +9,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from statgpu import backends
+from statgpu._config import _DeviceManager
 from statgpu.backends._cupy import CuPyBackend
 from statgpu.panel import _linalg, _utils
 
@@ -32,9 +33,7 @@ def test_cupy_scatter_add_never_routes_values_through_host(monkeypatch):
     assert_allclose(actual, np.array([2.0, 1.0, 4.0]))
 
 
-def test_cupy_availability_probe_does_not_switch_current_device(monkeypatch):
-    """Backend discovery must not force CUDA device 0 as a side effect."""
-
+def _fake_cupy_availability_module():
     class ForbiddenDevice:
         def __init__(self, *_args, **_kwargs):
             raise AssertionError("availability probe attempted to construct/switch a device")
@@ -44,12 +43,23 @@ def test_cupy_availability_probe_does_not_switch_current_device(monkeypatch):
         def getDeviceCount():
             return 2
 
-    fake_cupy = SimpleNamespace(
+    return SimpleNamespace(
         cuda=SimpleNamespace(Device=ForbiddenDevice, runtime=Runtime()),
     )
-    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
 
+
+def test_cupy_availability_probe_does_not_switch_current_device(monkeypatch):
+    """Backend discovery must not force CUDA device 0 as a side effect."""
+    monkeypatch.setitem(sys.modules, "cupy", _fake_cupy_availability_module())
     assert CuPyBackend().is_available() is True
+
+
+def test_global_cupy_detection_does_not_switch_current_device(monkeypatch):
+    """Global AUTO-device resolution must use the same device-neutral probe."""
+    monkeypatch.setitem(sys.modules, "cupy", _fake_cupy_availability_module())
+    manager = _DeviceManager()
+    assert manager._check_cupy() is True
+    assert manager.cuda_available() is True
 
 
 def test_cupy_reference_creation_helpers_enter_reference_device_context():
