@@ -48,6 +48,11 @@ def test_fmb_rhs_runner_precision_controls_are_condition_one():
     X_zero, y_zero, _time_zero = _MOD._genuine_zero_rhs_fixture()
     zero_design = np.column_stack([np.ones(4), X_zero[:4, 0]])
     assert np.linalg.cond(zero_design) == 1.0
+    amplitude = float(2.0**55)
+    np.testing.assert_array_equal(
+        y_zero[:4],
+        np.asarray([amplitude, -amplitude, -amplitude, amplitude], dtype=np.float64),
+    )
     np.testing.assert_array_equal(
         zero_design.T @ y_zero[:4],
         np.zeros(2, dtype=np.float64),
