@@ -13,6 +13,7 @@ on:
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
       - 'dev/tests/test_fama_macbeth_batched_solver.py'
       - 'dev/tests/test_fama_macbeth_rank_precision_precedence.py'
+      - 'dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py'
       - 'dev/tests/test_panel_lstsq_resolution_precision.py'
       - 'dev/tests/test_panel_pr126_fmb_exact_period.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
@@ -31,6 +32,7 @@ on:
       - 'dev/tests/test_fama_macbeth_inference_matrix.py'
       - 'dev/tests/test_fama_macbeth_batched_solver.py'
       - 'dev/tests/test_fama_macbeth_rank_precision_precedence.py'
+      - 'dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py'
       - 'dev/tests/test_panel_lstsq_resolution_precision.py'
       - 'dev/tests/test_panel_pr126_fmb_exact_period.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
@@ -71,6 +73,7 @@ jobs:
             dev/tests/test_fama_macbeth_inference_matrix.py \
             dev/tests/test_fama_macbeth_batched_solver.py \
             dev/tests/test_fama_macbeth_rank_precision_precedence.py \
+            dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py \
             dev/tests/test_panel_lstsq_resolution_precision.py \
             dev/tests/test_panel_pr126_fmb_exact_period.py \
             dev/tests/test_panel_stage_c_torch_cpu.py \
