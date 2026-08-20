@@ -73,6 +73,27 @@ def _fama_macbeth_nonconstant_zero_rhs_fixture(n_periods=3):
     return X, y, time
 
 
+def _fama_macbeth_nonzero_rhs_svd_drift_fixture(n_periods=3):
+    """Return a condition-one period whose stable nonzero RHS exposes SVD drift."""
+    amplitude = float(2.0**55)
+    x_period = np.asarray([1.0, -1.0, 1.0, -1.0], dtype=np.float64)
+    y_period = np.asarray([-16.0, amplitude, -16.0, -amplitude], dtype=np.float64)
+    design = np.column_stack([np.ones(x_period.size), x_period])
+    assert np.linalg.cond(design) == 1.0
+    # Both ordinary and exact float-input normal-equation RHS coordinates are -32,
+    # so the OLS intercept and slope are both -8. The Gram certificate sends the
+    # small slope to fallback because its absolute roundoff bound is large, while
+    # rounded singular vectors can move the otherwise recoverable slope to about -6.
+    np.testing.assert_array_equal(
+        design.T @ y_period,
+        np.asarray([-32.0, -32.0], dtype=np.float64),
+    )
+    X = np.tile(x_period, n_periods)[:, None]
+    y = np.tile(y_period, n_periods)
+    time = np.repeat(np.arange(n_periods, dtype=np.int64), x_period.size)
+    return X, y, time
+
+
 def _fama_macbeth_genuine_zero_rhs_fixture(n_periods=3):
     """Return a condition-one period whose nonconstant RHS is genuinely zero."""
     x_period = np.asarray([-1.0, 1.0, -1.0, 1.0], dtype=np.float64)
@@ -201,6 +222,15 @@ def test_fama_macbeth_fails_closed_when_stable_rhs_recovers_lost_nonconstant_tai
         FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
 
 
+def test_fama_macbeth_fails_closed_when_stable_nonzero_rhs_exposes_svd_drift_numpy():
+    X, y, time = _fama_macbeth_nonzero_rhs_svd_drift_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="FamaMacBeth period coefficient resolution exceeds float64 precision",
+    ):
+        FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
+
+
 def test_fama_macbeth_allows_genuine_zero_nonconstant_rhs_numpy():
     X, y, time = _fama_macbeth_genuine_zero_rhs_fixture()
     model = FamaMacBeth(bandwidth=0, device="cpu").fit(X, y, time_ids=time)
@@ -289,6 +319,17 @@ def test_torch_cpu_shared_panel_resolution_contract_matches_numpy():
             torch.as_tensor(X_zero, dtype=torch.float64),
             torch.as_tensor(y_zero, dtype=torch.float64),
             time_ids=torch.as_tensor(time_zero, dtype=torch.int64),
+        )
+
+    X_drift, y_drift, time_drift = _fama_macbeth_nonzero_rhs_svd_drift_fixture()
+    with pytest.raises(
+        FloatingPointError,
+        match="FamaMacBeth period coefficient resolution exceeds float64 precision",
+    ):
+        FamaMacBeth(bandwidth=0).fit(
+            torch.as_tensor(X_drift, dtype=torch.float64),
+            torch.as_tensor(y_drift, dtype=torch.float64),
+            time_ids=torch.as_tensor(time_drift, dtype=torch.int64),
         )
 
     X_exact, y_exact, time_exact = _fama_macbeth_genuine_zero_rhs_fixture()
