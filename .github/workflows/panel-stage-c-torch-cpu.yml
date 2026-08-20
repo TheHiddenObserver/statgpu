@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'statgpu/backends/__init__.py'
       - 'statgpu/inference/_reference_distribution.py'
       - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
       - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
@@ -18,6 +19,7 @@ on:
       - 'dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py'
       - 'dev/tests/test_panel_lstsq_resolution_precision.py'
       - 'dev/tests/test_panel_pr126_fmb_exact_period.py'
+      - 'dev/tests/test_panel_stage_c_backend_contract.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
       - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
@@ -26,6 +28,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'statgpu/backends/__init__.py'
       - 'statgpu/inference/_reference_distribution.py'
       - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
       - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
@@ -39,6 +42,7 @@ on:
       - 'dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py'
       - 'dev/tests/test_panel_lstsq_resolution_precision.py'
       - 'dev/tests/test_panel_pr126_fmb_exact_period.py'
+      - 'dev/tests/test_panel_stage_c_backend_contract.py'
       - 'dev/tests/test_panel_stage_c_torch_cpu.py'
       - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
       - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
@@ -81,6 +85,7 @@ jobs:
             dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py \
             dev/tests/test_panel_lstsq_resolution_precision.py \
             dev/tests/test_panel_pr126_fmb_exact_period.py \
+            dev/tests/test_panel_stage_c_backend_contract.py \
             dev/tests/test_panel_stage_c_torch_cpu.py \
             dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
             dev/tests/test_panel_stage_c_final_review_fixes.py \
