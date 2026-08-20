@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+import statgpu.panel._fama_macbeth as fmb_module
 from statgpu.panel import FamaMacBeth
 from statgpu.panel._linalg import panel_lstsq_batched, panel_lstsq_deferred_rank
 
@@ -58,6 +59,80 @@ def _gpu_name(backend: str) -> str:
     return str(torch.cuda.get_device_name(torch.cuda.current_device()))
 
 
+def _trace_public_fallback(backend: str):
+    """Wrap the actual FMB fallback global and capture backend-native execution."""
+    trace = []
+    if backend == "cupy":
+        import cupy as cp
+
+        original = fmb_module.panel_lstsq_deferred_rank
+
+        def tracked(X, y, xp):
+            trace.append(
+                {
+                    "namespace": getattr(xp, "__name__", ""),
+                    "x_native": isinstance(X, cp.ndarray),
+                    "y_native": isinstance(y, cp.ndarray),
+                    "x_device": int(X.device.id) if isinstance(X, cp.ndarray) else None,
+                    "y_device": int(y.device.id) if isinstance(y, cp.ndarray) else None,
+                }
+            )
+            return original(X, y, xp)
+
+        fmb_module.panel_lstsq_deferred_rank = tracked
+        return trace, "panel_lstsq_deferred_rank", original
+
+    if backend == "torch":
+        import torch
+
+        original = fmb_module.panel_lstsq_batched
+
+        def tracked(X, y, xp):
+            trace.append(
+                {
+                    "namespace": getattr(xp, "__name__", ""),
+                    "x_native": isinstance(X, torch.Tensor),
+                    "y_native": isinstance(y, torch.Tensor),
+                    "x_device": str(X.device) if isinstance(X, torch.Tensor) else None,
+                    "y_device": str(y.device) if isinstance(y, torch.Tensor) else None,
+                    "x_is_cuda": bool(X.is_cuda) if isinstance(X, torch.Tensor) else False,
+                    "y_is_cuda": bool(y.is_cuda) if isinstance(y, torch.Tensor) else False,
+                }
+            )
+            return original(X, y, xp)
+
+        fmb_module.panel_lstsq_batched = tracked
+        return trace, "panel_lstsq_batched", original
+
+    raise ValueError(backend)
+
+
+def _restore_public_fallback(name: str, original):
+    setattr(fmb_module, name, original)
+
+
+def _validate_public_trace(backend: str, trace):
+    if not trace:
+        raise AssertionError(f"{backend}: public FamaMacBeth fit never entered GPU fallback")
+    for call in trace:
+        if call["namespace"] != backend:
+            raise AssertionError(
+                f"{backend}: public fallback namespace={call['namespace']!r}, expected {backend!r}"
+            )
+        if not call["x_native"] or not call["y_native"]:
+            raise AssertionError(f"{backend}: public fallback received non-native arrays: {call}")
+        if backend == "cupy":
+            if call["x_device"] is None or call["y_device"] is None:
+                raise AssertionError(f"cupy: missing CUDA device provenance: {call}")
+        else:
+            if not call["x_is_cuda"] or not call["y_is_cuda"]:
+                raise AssertionError(f"torch: public fallback left CUDA: {call}")
+            if not str(call["x_device"]).startswith("cuda") or not str(
+                call["y_device"]
+            ).startswith("cuda"):
+                raise AssertionError(f"torch: unexpected fallback devices: {call}")
+
+
 def run(backend: str):
     if not _git_clean():
         raise RuntimeError("physical validation requires a clean git worktree")
@@ -98,26 +173,47 @@ def run(backend: str):
         raise AssertionError(f"{backend}: fallback rank={rank}, expected 2")
 
     public_rank_failure = False
+    model = FamaMacBeth(device=device, bandwidth=0)
+    trace, traced_name, original = _trace_public_fallback(backend)
     try:
-        FamaMacBeth(device=device, bandwidth=0).fit(X, y, time_ids=time)
-    except FloatingPointError as exc:
-        raise AssertionError(
-            f"{backend}: rank deficiency was misreported as precision failure: {exc}"
-        ) from exc
-    except ValueError as exc:
-        text = str(exc)
-        if "rank deficient" not in text or "rank=2, columns=3" not in text:
-            raise
-        public_rank_failure = True
+        try:
+            model.fit(X, y, time_ids=time)
+        except FloatingPointError as exc:
+            raise AssertionError(
+                f"{backend}: rank deficiency was misreported as precision failure: {exc}"
+            ) from exc
+        except ValueError as exc:
+            text = str(exc)
+            if "rank deficient" not in text or "rank=2, columns=3" not in text:
+                raise
+            public_rank_failure = True
+    finally:
+        _restore_public_fallback(traced_name, original)
+
     if not public_rank_failure:
         raise AssertionError(f"{backend}: rank-deficient period did not fail closed")
+    _validate_public_trace(backend, trace)
+
+    leaked_state = [
+        name
+        for name in ("coef_", "betas_", "_backend_name", "_inference_result", "_xp")
+        if hasattr(model, name)
+    ]
+    if leaked_state or bool(getattr(model, "_fitted", False)):
+        raise AssertionError(
+            f"{backend}: failed public fit leaked fitted/backend state: {leaked_state}"
+        )
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "clean_worktree": True,
         "requested_backend": backend,
+        "executed_backend": backend,
+        "public_fallback_trace": trace,
+        "public_failure_state_clean": True,
+        "inference_state_published": False,
         "gpu": _gpu_name(backend),
         "packages": {
             "statgpu": _version("statgpu"),
