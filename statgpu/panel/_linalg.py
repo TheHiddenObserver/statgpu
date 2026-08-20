@@ -495,7 +495,10 @@ def panel_lstsq_deferred_rank(X, y, xp):
 
     This function is a Fama-MacBeth fallback after Gram rejection, so its
     response projection always uses the stable grouped reducer. Rank remains
-    backend-native for the caller's existing packed control transfer.
+    backend-native for the caller's existing packed control transfer. A
+    coefficient-resolution sentinel may replace that rank only after SVD has
+    already established full column rank; genuine rank deficiency remains the
+    authoritative public failure reason.
     """
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
@@ -503,8 +506,10 @@ def panel_lstsq_deferred_rank(X, y, xp):
     U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
     retained, rank_backend = _rank_mask_backend(X_work, singular_values, xp)
     inverse_values = _inverse_values(singular_values, retained, xp)
+    k = int(X_work.shape[1])
+    full_rank = rank_backend == k
     anchor, constant_value, has_constant = _first_constant_anchor_2d(
-        X_work, y, rank_backend == int(X_work.shape[1]), xp
+        X_work, y, full_rank, xp
     )
     y_work = y - anchor
     params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=True)
@@ -521,8 +526,9 @@ def panel_lstsq_deferred_rank(X, y, xp):
     ambiguous_zero = _ambiguous_zero_rhs_2d(
         X_work, y_work, xp, ignore_first=has_constant
     )
+    precision_failure = full_rank & (failure | ambiguous_zero)
     rank_backend = xp.where(
-        failure | ambiguous_zero, xp.zeros_like(rank_backend), rank_backend
+        precision_failure, xp.zeros_like(rank_backend), rank_backend
     )
     restore = xp.zeros_like(params_work)
     restore[0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
@@ -598,11 +604,11 @@ def panel_lstsq_gram_certified_batched(
     largest = eigenvalues[..., -1]
     certified = (
         gram_finite
+        & rhs_finite
         & xp.isfinite(smallest)
         & xp.isfinite(largest)
         & (largest > 0.0)
         & (smallest > largest * ratio)
-        & rhs_finite
     )
 
     safe_gram = xp.where(certified[..., None, None], gram, identity)
@@ -662,9 +668,11 @@ def panel_lstsq_batched(X, y, xp):
     retained = singular_values > largest[..., None] * float(cutoff_scale)
     ranks = _axis_sum(retained, xp, -1)
     inverse_values = _inverse_values(singular_values, retained, xp)
+    k = int(X_work.shape[-1])
+    full_rank = ranks == k
 
     anchor, constant_value, has_constant = _first_constant_anchor_batched(
-        X_work, y, ranks == int(X_work.shape[-1]), xp
+        X_work, y, full_rank, xp
     )
     y_work = y - anchor[:, None] if getattr(y, "ndim", None) == 2 else y
 
@@ -683,8 +691,9 @@ def panel_lstsq_batched(X, y, xp):
         ambiguous_zero = _ambiguous_zero_rhs_batched(
             X_work, y_work, xp, ignore_first=has_constant
         )
+        precision_failure = full_rank & (failure | ambiguous_zero)
         ranks = xp.where(
-            failure | ambiguous_zero, xp.zeros_like(ranks), ranks
+            precision_failure, xp.zeros_like(ranks), ranks
         )
         restore = xp.zeros_like(params_work)
         restore[:, 0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
