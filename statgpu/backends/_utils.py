@@ -563,21 +563,29 @@ def xp_empty(shape, dtype, xp, ref_arr=None):
     return xp.empty(shape, dtype=dtype)
 
 
-def xp_arange(n, dtype=None, xp=None, ref_arr=None):
-    """Device-aware ``xp.arange``.  *ref_arr* provides the target device."""
+def xp_arange(start, stop=None, dtype=None, xp=None, ref_arr=None):
+    """Device-aware ``xp.arange``.  *ref_arr* provides the target device.
+
+    Supports both single-argument ``xp_arange(n, ...)`` and range-form
+    ``xp_arange(start, stop, ...)`` calls.  Keyword callers may use
+    ``xp_arange(n, xp=xp, ref_arr=ref)`` as before.
+    """
+    args = (start,) if stop is None else (start, stop)
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         kwargs = {'device': dev}
         if dtype is not None:
             kwargs['dtype'] = dtype
-        return xp.arange(n, **kwargs)
+        return xp.arange(*args, **kwargs)
     cupy_dev = _cupy_dev(ref_arr)
     if cupy_dev is not None:
         with cupy_dev:
-            return xp.arange(n, dtype=dtype) if dtype is not None else xp.arange(n)
+            if dtype is not None:
+                return xp.arange(*args, dtype=dtype)
+            return xp.arange(*args)
     if dtype is not None:
-        return xp.arange(n, dtype=dtype)
-    return xp.arange(n)
+        return xp.arange(*args, dtype=dtype)
+    return xp.arange(*args)
 
 
 def xp_ones(shape, dtype, xp, ref_arr=None):

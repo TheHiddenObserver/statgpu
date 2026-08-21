@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_arange, xp_asarray
 from statgpu.inference._distributions_backend import get_distribution
 from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
 from statgpu.panel._reductions import stable_mean
@@ -907,14 +907,7 @@ def _hausman_quadratic(
 
 
 def _row_weights(n: int, xp, ref_arr):
-    if getattr(xp, "__name__", "") == "torch":
-        return xp.arange(
-            1,
-            int(n) + 1,
-            dtype=xp.float64,
-            device=ref_arr.device,
-        )
-    return xp.arange(1, int(n) + 1, dtype=xp.float64)
+    return xp_arange(1, int(n) + 1, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
 
 
 def _full_content_digest(X, y) -> str:

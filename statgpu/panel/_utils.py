@@ -33,6 +33,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from statgpu.backends import (
+    xp_arange,
     xp_asarray,
     xp_maximum,
     xp_ones,
@@ -182,7 +183,7 @@ def _scatter_add(xp, indices, values, n_groups):
     if backend_name == "cupy":
         # CuPy implements ``ufunc.at`` natively.  Do not route numerical values
         # through host NumPy when optional cupyx helpers are unavailable.
-        out = xp.zeros(n_groups, dtype=values.dtype)
+        out = xp_zeros(n_groups, values.dtype, xp, values)
         xp.add.at(out, indices, values)
         return out
 
@@ -413,15 +414,7 @@ def make_group_dummies(groups, xp=None):
     n = len(groups)
     idx, n_groups, _, _codes_np = _remap_to_contiguous(groups, xp)
     D = xp_zeros((n, n_groups), xp.float64, xp, groups)
-    if getattr(xp, "__name__", "") == "torch":
-        row_idx = xp.arange(
-            n,
-            device=getattr(groups, "device", None)
-            if hasattr(groups, "device")
-            else None,
-        )
-    else:
-        row_idx = xp.arange(n)
+    row_idx = xp_arange(n, xp=xp, ref_arr=groups)
     D[row_idx, idx] = 1.0
     return D
 
