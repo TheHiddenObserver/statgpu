@@ -75,11 +75,14 @@ def _solver_provenance(backend: str):
 
 
 def _expected_provenance(backend: str):
+    # The balanced 64x128 timing fixture is well conditioned, so every backend
+    # (including NumPy) retains all periods on the certified Gram path: one
+    # exact-size bucket, one packed rank control transfer, zero SVD fallbacks.
     if backend == "numpy":
         return {
-            "solver_mode": "serial",
-            "solver_batches": 64,
-            "control_syncs": 64,
+            "solver_mode": "gram-certified",
+            "solver_batches": 1,
+            "control_syncs": 1,
             "svd_fallbacks": 0,
             "n_periods": 64,
         }
