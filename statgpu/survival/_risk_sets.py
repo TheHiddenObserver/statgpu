@@ -21,6 +21,7 @@ from statgpu.backends import (
     _get_xp,
     _resolve_backend,
     _to_float_scalar,
+    _to_numpy,
     xp_asarray,
     xp_eye,
     xp_zeros,
@@ -273,6 +274,13 @@ def _group_max_1d(
         output.scatter_reduce_(
             0, group_codes, value, reduce="amax", include_self=True
         )
+    elif backend == "cupy":
+        # CuPy ``maximum.at`` returns inf for float64 magnitudes around
+        # 1e7..1e308 (observed on CuPy 13.6).  Use the sequential host scatter
+        # and restore the group maxima on the reference device.
+        output_np = np.full((n_groups,), -float("inf"), dtype=value.dtype)
+        np.maximum.at(output_np, _to_numpy(group_codes).ravel(), _to_numpy(value))
+        output = xp_asarray(output_np, dtype=value.dtype, xp=xp, ref_arr=value)
     else:
         output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
         xp.maximum.at(output, group_codes, value)

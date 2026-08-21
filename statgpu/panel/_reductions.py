@@ -24,7 +24,13 @@ def _group_abs_max(values, codes, codes_np, *, n_groups: int, xp):
     if hasattr(out, "scatter_reduce_"):
         out.scatter_reduce_(0, index, absolute, reduce="amax", include_self=True)
     elif type(out).__module__.startswith("cupy"):
-        xp.maximum.at(out, codes, absolute)
+        # CuPy ``maximum.at`` and ``cupyx.scatter_max`` corrupt float64
+        # magnitudes around 1e7..1e308 into inf (observed on CuPy 13.6), even
+        # with unique indices.  Fall back to the sequential host scatter and
+        # return the group maxima to the reference device.
+        out_np = np.zeros(shape, dtype=np.float64)
+        np.maximum.at(out_np, codes_np, _to_numpy(absolute))
+        out = xp_asarray(out_np, dtype=xp.float64, xp=xp, ref_arr=values)
     else:
         np.maximum.at(out, codes_np, absolute)
     return out
@@ -262,8 +268,18 @@ def stable_group_means_preindexed(
         group_min.scatter_reduce_(0, codes, values, reduce="amin", include_self=True)
         group_max.scatter_reduce_(0, codes, values, reduce="amax", include_self=True)
     elif type(group_min).__module__.startswith("cupy"):
-        xp.minimum.at(group_min, codes, values)
-        xp.maximum.at(group_max, codes, values)
+        # CuPy ``minimum.at``/``maximum.at`` return inf for float64 magnitudes
+        # around 1e7..1e308 (observed on CuPy 13.6).  Use the sequential host
+        # scatter and restore the group extrema on the reference device.
+        values_np = _to_numpy(values)
+        codes_flat = _to_numpy(codes).ravel()
+        out_np = np.zeros(mean.shape, dtype=np.float64)
+        group_min_np = np.full(out_np.shape, float("inf"))
+        group_max_np = np.full(out_np.shape, float("-inf"))
+        np.minimum.at(group_min_np, codes_flat, values_np)
+        np.maximum.at(group_max_np, codes_flat, values_np)
+        group_min = xp_asarray(group_min_np, dtype=xp.float64, xp=xp, ref_arr=mean)
+        group_max = xp_asarray(group_max_np, dtype=xp.float64, xp=xp, ref_arr=mean)
     else:
         np.minimum.at(group_min, codes_np, values)
         np.maximum.at(group_max, codes_np, values)
