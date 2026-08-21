@@ -538,8 +538,14 @@ def _numeric_stability_case(backend: str):
     )
 
     entity_ids = np.tile(np.arange(x_period.size, dtype=np.int64), n_periods)
+    # The overflow fixture above is slope-driven, so its between/overall
+    # variation is not degenerate.  Re-check the entity-aware scaled-R2
+    # contract on the constant-response version, where every total-SS
+    # direction is genuinely degenerate.
+    y_const = np.full(X.shape[0], 6.0e307, dtype=np.float64)
+    X_const_b, y_const_b = _arrays(X, y_const, backend)
     entity_model = FamaMacBeth(bandwidth=0, device=_device(backend)).fit(
-        Xb, yb, time_ids=time_ids, entity_ids=entity_ids
+        X_const_b, y_const_b, time_ids=time_ids, entity_ids=entity_ids
     )
     stats = entity_model.fit_statistics_
     if (

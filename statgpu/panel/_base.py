@@ -54,7 +54,14 @@ class BasePanelModel(BaseEstimator):
             except BaseException:
                 # A failed fit must expose neither the previous successful fit
                 # nor partially written outputs from the failed new request.
+                backend_name = getattr(self, "_backend_name", None)
                 self._reset_fit_state()
+                if backend_name is not None:
+                    # The failure executed on a concrete backend; retain the
+                    # execution provenance so fail-closed audits can attribute
+                    # the failure without reconstructing it from the requested
+                    # device (which cannot detect a silent fallback).
+                    self._backend_name = backend_name
                 raise
 
         transactional_fit.__statgpu_panel_transactional_fit__ = True

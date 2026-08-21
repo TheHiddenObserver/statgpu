@@ -53,16 +53,36 @@ def _common_level_fixture():
 
 def _mixed_coefficient_resolution_fixture():
     amplitude = float(2.0**55)
-    X = np.asarray(
-        [[2.0, 2.0], [-1.0, 2.0], [2.0, -2.0], [-2.0, 1.0]],
-        dtype=np.float64,
-    )
-    y = X @ np.asarray([amplitude, 16.0], dtype=np.float64)
+    # Zero-mean near-collinear columns.  The zero column means keep the
+    # constant-response anchor at zero even after PooledOLS prepends its
+    # intercept, so the huge response scale is preserved for the resolution
+    # check.  Adding the intercept keeps the design full-rank (the constant
+    # direction is orthogonal to both perturbation directions) while the
+    # condition number stays ~1e12, so the small coefficient sits below the
+    # float64 resolution of the huge response and SVD roundoff is unavoidable
+    # on every backend: the least-squares fit must fail closed.  The previous
+    # well-conditioned fixture only tripped the resolution check through a
+    # NumPy-SVD roundoff accident and could not fail closed after the
+    # numerically exact Torch gesvd driver was introduced.
+    delta = 1.0e-12
+    col1 = np.asarray([1.0, -1.0, 1.0, -1.0], dtype=np.float64)
+    col2 = col1 + delta * np.asarray([1.0, 1.0, -1.0, -1.0], dtype=np.float64)
+    X = np.column_stack([col1, col2])
+    y = X @ np.asarray([16.0, amplitude], dtype=np.float64)
     return X, y
 
 
 def _fama_macbeth_resolution_fixture(n_periods=3):
-    X_period, y_period = _mixed_coefficient_resolution_fixture()
+    # Well-conditioned period with a huge intercept and a small slope.  The
+    # certified Gram path applies a deterministic RHS-rounding error bound
+    # (independent of any SVD roundoff accident), so every backend must fail
+    # closed on the unresolved slope coordinate.
+    amplitude = float(2.0**55)
+    X_period = np.asarray(
+        [[2.0, 2.0], [-1.0, 2.0], [2.0, -2.0], [-2.0, 1.0]],
+        dtype=np.float64,
+    )
+    y_period = X_period @ np.asarray([amplitude, 16.0], dtype=np.float64)
     X = np.tile(X_period, (n_periods, 1))
     y = np.tile(y_period, n_periods)
     time = np.repeat(np.arange(n_periods, dtype=np.int64), X_period.shape[0])

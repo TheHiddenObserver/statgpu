@@ -34,6 +34,24 @@ def _axis_sum(values, xp, axis):
     return xp.sum(values, axis=axis)
 
 
+def _panel_svd(X, xp, *, full_matrices=False):
+    """Backend SVD with a numerically exact Torch CUDA driver.
+
+    cuSOLVER's default gesvdj driver leaks ~1e-16 into structurally-zero U
+    entries, which large responses amplify into spurious coefficients.  The
+    QR-based gesvd driver keeps those entries exact, matching the NumPy/LAPACK
+    reference.  Panel code calls ``torch.linalg`` directly (the array module is
+    ``torch`` itself), so the driver selection must happen here rather than in
+    the backend wrapper.
+    """
+    if getattr(xp, "__name__", "") == "torch" and getattr(X, "is_cuda", False):
+        try:
+            return xp.linalg.svd(X, full_matrices=full_matrices, driver="gesvd")
+        except (TypeError, RuntimeError):
+            pass
+    return xp.linalg.svd(X, full_matrices=full_matrices)
+
+
 def _rank_mask_backend(X, singular_values, xp):
     """Return the shared SVD retention mask and backend-native rank scalar."""
     if int(singular_values.shape[-1]) == 0:
@@ -57,7 +75,7 @@ def _inverse_values(singular_values, retained, xp):
 
 def _svd_inverse_factors(X, xp):
     """Return SVD factors, inverse singular values, and shared numerical rank."""
-    U, singular_values, Vh = xp.linalg.svd(X, full_matrices=False)
+    U, singular_values, Vh = _panel_svd(X, xp)
     retained, rank = _rank_mask(X, singular_values, xp)
     return U, Vh, _inverse_values(singular_values, retained, xp), rank
 
@@ -519,7 +537,7 @@ def panel_lstsq(X, y, xp):
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
-    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
+    U, singular_values, Vh = _panel_svd(X_work, xp)
     retained, rank_backend = _rank_mask_backend(X_work, singular_values, xp)
     inverse_values = _inverse_values(singular_values, retained, xp)
     k = int(X_work.shape[1])
@@ -579,7 +597,7 @@ def panel_lstsq_deferred_rank(X, y, xp):
     if getattr(X, "ndim", None) != 2:
         raise ValueError("panel design must be two-dimensional")
     X_work, design_scale = _lstsq_working_design(X, xp, batched=False)
-    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
+    U, singular_values, Vh = _panel_svd(X_work, xp)
     retained, rank_backend = _rank_mask_backend(X_work, singular_values, xp)
     inverse_values = _inverse_values(singular_values, retained, xp)
     k = int(X_work.shape[1])
@@ -747,7 +765,7 @@ def panel_lstsq_batched(X, y, xp):
     _validate_batched_lstsq_inputs(X, y)
 
     X_work, design_scale = _lstsq_working_design(X, xp, batched=True)
-    U, singular_values, Vh = xp.linalg.svd(X_work, full_matrices=False)
+    U, singular_values, Vh = _panel_svd(X_work, xp)
     cutoff_scale = max(int(X_work.shape[-2]), int(X_work.shape[-1])) * np.finfo(np.float64).eps
     largest = _axis_max(singular_values, xp, -1)
     retained = singular_values > largest[..., None] * float(cutoff_scale)
