@@ -492,10 +492,11 @@ def _scale_atol(reference, *, eps_power=1, factor=64.0):
     """Return an absolute tolerance scaled to the reference magnitude.
 
     Extreme-scale fixtures amplify structurally zero coordinates through
-    unavoidable SVD roundoff (beta coordinates by one eps factor, their
-    covariances by two), while the NumPy reference can be exactly zero by
-    accident.  The tolerance is scaled so those roundoff artifacts are
-    accepted without weakening the relative-parity check on resolved entries.
+    unavoidable SVD roundoff: beta coordinates and covariance entries both
+    leak at one eps factor of the dominant response/covariance scale, while
+    the NumPy reference can be exactly zero by accident.  The tolerance is
+    scaled so those roundoff artifacts are accepted without weakening the
+    relative-parity check on resolved entries.
     """
     scale = float(np.max(np.abs(np.asarray(reference, dtype=np.float64))))
     if scale <= 0.0 or not np.isfinite(scale):
@@ -593,7 +594,7 @@ def _numeric_stability_case(backend: str):
         _public_array(actual_cov.cov_params_),
         _public_array(ref_cov.cov_params_),
         rtol=2e-11,
-        atol=_scale_atol(ref_cov.cov_params_, eps_power=2),
+        atol=_scale_atol(ref_cov.cov_params_, eps_power=1),
     )
     # A second, analytic fixture gives different coefficient coordinates
     # radically different period-series scales while keeping the design exactly
@@ -625,7 +626,7 @@ def _numeric_stability_case(backend: str):
     )
     np.testing.assert_allclose(
         _public_array(mixed.cov_params_), expected_cov, rtol=3e-12,
-        atol=_scale_atol(expected_cov, eps_power=2),
+        atol=_scale_atol(expected_cov, eps_power=1),
     )
     if _public_array(mixed.cov_params_)[2, 2] <= 0.0:
         raise AssertionError("small coordinate variance underflowed to zero")
