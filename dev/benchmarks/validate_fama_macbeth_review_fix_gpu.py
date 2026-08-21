@@ -488,6 +488,21 @@ def _explicit_device_cross_container_case(backend: str):
     }
 
 
+def _scale_atol(reference, *, eps_power=1, factor=64.0):
+    """Return an absolute tolerance scaled to the reference magnitude.
+
+    Extreme-scale fixtures amplify structurally zero coordinates through
+    unavoidable SVD roundoff (beta coordinates by one eps factor, their
+    covariances by two), while the NumPy reference can be exactly zero by
+    accident.  The tolerance is scaled so those roundoff artifacts are
+    accepted without weakening the relative-parity check on resolved entries.
+    """
+    scale = float(np.max(np.abs(np.asarray(reference, dtype=np.float64))))
+    if scale <= 0.0 or not np.isfinite(scale):
+        return 0.0
+    return float(factor * np.finfo(np.float64).eps ** eps_power * scale)
+
+
 def _numeric_stability_case(backend: str):
     x_period = np.linspace(-1.0, 1.0, 16, dtype=np.float64)
     n_periods = 4
@@ -578,7 +593,7 @@ def _numeric_stability_case(backend: str):
         _public_array(actual_cov.cov_params_),
         _public_array(ref_cov.cov_params_),
         rtol=2e-11,
-        atol=0.0,
+        atol=_scale_atol(ref_cov.cov_params_, eps_power=2),
     )
     # A second, analytic fixture gives different coefficient coordinates
     # radically different period-series scales while keeping the design exactly
@@ -605,10 +620,12 @@ def _numeric_stability_case(backend: str):
         X_mixed_b, y_mixed_b, time_ids=time_mixed
     )
     np.testing.assert_allclose(
-        _public_array(mixed.betas_), expected_betas, rtol=3e-12, atol=0.0
+        _public_array(mixed.betas_), expected_betas, rtol=3e-12,
+        atol=_scale_atol(expected_betas, eps_power=1),
     )
     np.testing.assert_allclose(
-        _public_array(mixed.cov_params_), expected_cov, rtol=3e-12, atol=0.0
+        _public_array(mixed.cov_params_), expected_cov, rtol=3e-12,
+        atol=_scale_atol(expected_cov, eps_power=2),
     )
     if _public_array(mixed.cov_params_)[2, 2] <= 0.0:
         raise AssertionError("small coordinate variance underflowed to zero")
