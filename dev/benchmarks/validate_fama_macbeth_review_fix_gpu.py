@@ -492,7 +492,13 @@ def _numeric_stability_case(backend: str):
     x_period = np.linspace(-1.0, 1.0, 16, dtype=np.float64)
     n_periods = 4
     X = np.tile(x_period, n_periods)[:, None]
-    y = np.full(X.shape[0], 6.0e307, dtype=np.float64)
+    # A constant intercept plus a huge slope keeps the design response finite
+    # while every normal-equation RHS coordinate overflows float64: the
+    # per-period response sum is 16 * 6e307, the constant anchor only removes
+    # the midrange 3.3e307, and the slope coordinate is 1e308 * sum(x^2).  The
+    # certified Gram path must therefore reject every retained period and the
+    # SVD fallback must reproduce the NumPy serial reference exactly.
+    y = 6.0e307 + 1.0e308 * X[:, 0]
     time_ids = np.repeat(np.arange(n_periods), x_period.size)
 
     reference = FamaMacBeth(bandwidth=0, device="cpu").fit(
