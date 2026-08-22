@@ -523,6 +523,52 @@ def _stable_matrix_expansion_sum(terms, xp):
 
 
 
+def _row_expansion_residual_acceptable(component_sets, cov_work, xp) -> bool:
+    """Return whether a vectorized Gram may ignore the tier residuals.
+
+    The row-level fallback protects group-score tiers that a BLAS Gram would
+    round away and that a later inclusion-exclusion cancellation could expose.
+    ``component_sets`` are the retiered common-scale working components; the
+    first component of each set is its dominant tier and the remaining
+    components are residuals.  The residual is accepted when it is negligible
+    relative to the dominant component (its cross terms are then below eps of
+    the vectorized covariance result) and when its own Gram contribution is
+    below eps of that result.  Ordinary designs trip the conservative
+    min/max trigger without carrying any recoverable tier residual, so they
+    stay on the vectorized path.
+    """
+    eps = float(np.finfo(np.float64).eps)
+    residual_max = None
+    dominant_max = None
+    for components in component_sets:
+        for index, component in enumerate(components):
+            scale = float(_to_float_scalar(xp.max(xp.abs(component))))
+            if index == 0:
+                dominant_max = (
+                    scale if dominant_max is None else max(dominant_max, scale)
+                )
+            else:
+                residual_max = (
+                    scale if residual_max is None else max(residual_max, scale)
+                )
+    if residual_max is None or residual_max == 0.0:
+        return True
+    if dominant_max is None or dominant_max == 0.0:
+        return False
+    if residual_max > dominant_max * eps * 1024.0:
+        return False
+    result_scale = float(_to_float_scalar(xp.max(xp.abs(cov_work))))
+    if result_scale <= 0.0 or not np.isfinite(result_scale):
+        return False
+    # A residual row contributes roughly residual * dominant per Gram entry
+    # through the cross term and residual^2 through the self term; keep both
+    # below eps of the already computed vectorized result.
+    cross_contribution = float(residual_max) * float(dominant_max) * 4.0
+    self_contribution = float(residual_max) ** 2 * 4.0
+    limit = eps * result_scale * 1024.0
+    return (cross_contribution <= limit) and (self_contribution <= limit)
+
+
 def _component_row_reduction_needs_expansion(component_sets, xp) -> bool:
     """Return whether a BLAS row reduction can hide a recoverable component.
 
@@ -931,34 +977,69 @@ def two_way_clustered_covariance(
                     "common-scale product range"
                 )
 
-            terms = []
-
             if needs_row_expansion:
-                def _append_scaled_row_term(term, coefficient):
-                    for dyadic in _dyadic_float_terms(coefficient):
-                        terms.append(term * float(dyadic))
+                # The row-level fallback exists because a BLAS Gram can round
+                # away a small group-score tier that a later inclusion-exclusion
+                # cancellation would otherwise expose.  Ordinary designs only
+                # trip the conservative min/max trigger without carrying any
+                # recoverable tier residual; try the vectorized Gram first and
+                # fall back to the exact row products only when the residual
+                # contribution is not eps-negligible.
+                vectorized_terms = []
 
-                def _append_component_terms(components, correction, sign):
+                def _append_vectorized_component_terms(components, correction, sign):
                     coefficient = float(sign) * float(correction)
                     for i, left in enumerate(components):
-                        for row in range(int(left.shape[0])):
-                            vector = left[row]
-                            outer = vector[:, None] * vector[None, :]
-                            _append_scaled_row_term(outer, coefficient)
+                        vectorized_terms.append(
+                            _symmetrize(left.T @ left) * coefficient
+                        )
                         for right in components[:i]:
-                            for row in range(int(left.shape[0])):
-                                cross = left[row, :, None] * right[row, None, :]
-                                _append_scaled_row_term(cross + cross.T, coefficient)
+                            cross = left.T @ right
+                            vectorized_terms.append(
+                                (cross + cross.T) * coefficient
+                            )
 
-                # Only the pathological cross-group dynamic-range branch uses
-                # row-level compensated accumulation.  Keep row products out of
-                # signed BLAS reductions and expand float debias corrections into
-                # exact dyadic factors before estimator-level cancellation.
-                _append_component_terms(work1, correction1, 1.0)
-                _append_component_terms(work2, correction2, 1.0)
-                _append_component_terms(work12, correction12, -1.0)
-                cov_work = _twofold_matrix_sum(terms, xp)
+                _append_vectorized_component_terms(work1, correction1, 1.0)
+                _append_vectorized_component_terms(work2, correction2, 1.0)
+                _append_vectorized_component_terms(work12, correction12, -1.0)
+                cov_work = _stable_matrix_expansion_sum(vectorized_terms, xp)
+                if not _row_expansion_residual_acceptable(
+                    (work1, work2, work12), cov_work, xp
+                ):
+                    terms = []
+
+                    def _append_scaled_row_term(term, coefficient):
+                        for dyadic in _dyadic_float_terms(coefficient):
+                            terms.append(term * float(dyadic))
+
+                    def _append_component_terms(components, correction, sign):
+                        coefficient = float(sign) * float(correction)
+                        for i, left in enumerate(components):
+                            for row in range(int(left.shape[0])):
+                                vector = left[row]
+                                outer = vector[:, None] * vector[None, :]
+                                _append_scaled_row_term(outer, coefficient)
+                            for right in components[:i]:
+                                for row in range(int(left.shape[0])):
+                                    cross = left[row, :, None] * right[
+                                        row, None, :
+                                    ]
+                                    _append_scaled_row_term(
+                                        cross + cross.T, coefficient
+                                    )
+
+                    # Only the pathological cross-group dynamic-range branch
+                    # uses row-level compensated accumulation.  Keep row
+                    # products out of signed BLAS reductions and expand float
+                    # debias corrections into exact dyadic factors before
+                    # estimator-level cancellation.
+                    _append_component_terms(work1, correction1, 1.0)
+                    _append_component_terms(work2, correction2, 1.0)
+                    _append_component_terms(work12, correction12, -1.0)
+                    cov_work = _twofold_matrix_sum(terms, xp)
             else:
+                terms = []
+
                 def _append_vectorized_component_terms(components, correction, sign):
                     coefficient = float(sign) * float(correction)
                     for i, left in enumerate(components):
