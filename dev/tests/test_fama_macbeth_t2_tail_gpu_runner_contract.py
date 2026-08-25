@@ -73,6 +73,33 @@ def test_extreme_t1_tail_uses_well_conditioned_atan_identity():
     )
 
 
+def test_t1_tail_torch_uses_well_conditioned_atan_identity():
+    """df=1 must work on Torch too (maximum needs a tensor operand there)."""
+    torch = pytest.importorskip("torch")
+    for x in (1.0e15, 1.0e154, 1.0e155):
+        pvalues, critical = two_sided_reference_inference(
+            torch.tensor([x], dtype=torch.float64),
+            distribution="t",
+            alpha=0.05,
+            backend="torch",
+            xp=torch,
+            df=1,
+        )
+        observed = float(np.asarray(pvalues.detach().cpu()))
+        expected = 2.0 / (np.pi * float(x))
+        assert observed > 0.0
+        np.testing.assert_allclose(observed, expected, rtol=2e-15, atol=0.0)
+    pvalues, _ = two_sided_reference_inference(
+        torch.tensor([0.0], dtype=torch.float64),
+        distribution="t",
+        alpha=0.05,
+        backend="torch",
+        xp=torch,
+        df=1,
+    )
+    assert float(np.asarray(pvalues.detach().cpu())) == 1.0
+
+
 def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
     assert t2_gpu_gate.SCHEMA_VERSION == 2
     assert t2_gpu_gate._validate_acceptance_backends(["cupy", "torch"]) == [

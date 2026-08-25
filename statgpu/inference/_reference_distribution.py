@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends import xp_asarray
+from statgpu.backends import xp_asarray, xp_maximum
 from statgpu.inference._distributions_backend import get_distribution
 
 
@@ -88,7 +88,7 @@ def two_sided_reference_inference(
             dtype=xp.float64,
             xp=xp,
             ref_arr=statistic_abs,
-        ) / xp.maximum(statistic_abs, np.finfo(np.float64).tiny)
+        ) / xp_maximum(statistic_abs, np.finfo(np.float64).tiny, xp)
         # ``arctan`` (not the NumPy-2-only ``atan`` alias) so NumPy<2 CI
         # environments resolve the same backend call.
         pvalues = 2.0 * xp.arctan(inv) / np.pi
