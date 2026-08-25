@@ -589,21 +589,33 @@ class TestFormulaEdgeCases:
     def test_random_effects_ols_alias(self):
         assert RandomEffectsOLS is RandomEffects
 
-    def test_side_array_longer_than_original_rows_fails_closed(self):
+    def test_side_array_too_short_fails_closed_over_long_aligned(self):
         from statgpu.panel._formula import _align_formula_side_array
         from types import SimpleNamespace
 
-        # The formula retained rows [1, 3, 5] of a 6-row design, so a valid
-        # side array has exactly 6 entries; a longer one must not silently
-        # pick the wrong rows.
+        # The formula retained rows [1, 3, 5] of a 6-row design.  An over-long
+        # side array (e.g. 8 entries, or a 6-entry original length when Patsy
+        # dropped trailing rows) must be aligned by the retained positions, and
+        # only an array too short to cover the last retained row fails closed.
         design_info = SimpleNamespace(_statgpu_row_positions=np.asarray([1, 3, 5]))
         aligned = _align_formula_side_array(
             np.arange(6, dtype=np.float64), design_info, name="side"
         )
         np.testing.assert_array_equal(aligned, np.asarray([1.0, 3.0, 5.0]))
-        with pytest.raises(ValueError, match="original rows"):
+        # 8 entries: longer than the original 6 rows, still aligned.
+        over_long = _align_formula_side_array(
+            np.arange(8, dtype=np.float64), design_info, name="side"
+        )
+        np.testing.assert_array_equal(over_long, np.asarray([1.0, 3.0, 5.0]))
+        # 3 entries: exactly the retained length, passed through unchanged.
+        exact = _align_formula_side_array(
+            np.arange(3, dtype=np.float64), design_info, name="side"
+        )
+        np.testing.assert_array_equal(exact, np.asarray([0.0, 1.0, 2.0]))
+        # 2 entries: too short to cover retained row 5.
+        with pytest.raises(ValueError, match="too short|observations"):
             _align_formula_side_array(
-                np.arange(8, dtype=np.float64), design_info, name="side"
+                np.arange(2, dtype=np.float64), design_info, name="side"
             )
 
 

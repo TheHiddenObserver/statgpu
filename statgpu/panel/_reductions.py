@@ -6,6 +6,14 @@ import numpy as np
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_zeros
 
 
+# CuPy ``ufunc.at`` / ``cupyx.scatter_max`` begin corrupting float64 magnitudes
+# somewhere between 1e7 and 1e100 on CuPy 13.6.  A conservative one-decade
+# margin below the lowest observed corruption keeps ordinary magnitudes on the
+# native GPU scatter and reserves the sequential host fallback for risky
+# magnitudes.
+_CUPY_UFUNC_AT_SAFE_MAX = 1.0e6
+
+
 def _is_torch(xp) -> bool:
     return getattr(xp, "__name__", "") == "torch"
 
@@ -24,10 +32,14 @@ def _group_abs_max(values, codes, codes_np, *, n_groups: int, xp):
     if hasattr(out, "scatter_reduce_"):
         out.scatter_reduce_(0, index, absolute, reduce="amax", include_self=True)
     elif type(out).__module__.startswith("cupy"):
-        # CuPy ``maximum.at`` and ``cupyx.scatter_max`` corrupt float64
-        # magnitudes around 1e7..1e308 into inf (observed on CuPy 13.6), even
-        # with unique indices.  Fall back to the sequential host scatter and
-        # return the group maxima to the reference device.
+        # CuPy ``maximum.at``/``cupyx.scatter_max`` corrupt float64 magnitudes
+        # around 1e7..1e308 into inf (observed on CuPy 13.6), even with unique
+        # indices.  Ordinary magnitudes are far below the corruption range, so
+        # keep the native GPU scatter for them and fall back to the sequential
+        # host scatter only when a magnitude could hit the corruption window.
+        if float(_to_float_scalar(xp.max(absolute))) <= _CUPY_UFUNC_AT_SAFE_MAX:
+            xp.maximum.at(out, codes, absolute)
+            return out
         out_np = np.zeros(shape, dtype=np.float64)
         np.maximum.at(out_np, codes_np, _to_numpy(absolute))
         out = xp_asarray(out_np, dtype=xp.float64, xp=xp, ref_arr=values)
@@ -273,17 +285,26 @@ def stable_group_means_preindexed(
         group_max.scatter_reduce_(0, codes, values, reduce="amax", include_self=True)
     elif type(group_min).__module__.startswith("cupy"):
         # CuPy ``minimum.at``/``maximum.at`` return inf for float64 magnitudes
-        # around 1e7..1e308 (observed on CuPy 13.6).  Use the sequential host
-        # scatter and restore the group extrema on the reference device.
-        values_np = _to_numpy(values)
-        codes_flat = _to_numpy(codes).ravel()
-        out_np = np.zeros(mean.shape, dtype=np.float64)
-        group_min_np = np.full(out_np.shape, float("inf"))
-        group_max_np = np.full(out_np.shape, float("-inf"))
-        np.minimum.at(group_min_np, codes_flat, values_np)
-        np.maximum.at(group_max_np, codes_flat, values_np)
-        group_min = xp_asarray(group_min_np, dtype=xp.float64, xp=xp, ref_arr=mean)
-        group_max = xp_asarray(group_max_np, dtype=xp.float64, xp=xp, ref_arr=mean)
+        # around 1e7..1e308 (observed on CuPy 13.6).  Ordinary magnitudes keep
+        # the native GPU scatter; only risky magnitudes use the sequential
+        # host scatter and restore the group extrema on the reference device.
+        if float(_to_float_scalar(xp.max(xp.abs(values)))) <= _CUPY_UFUNC_AT_SAFE_MAX:
+            xp.minimum.at(group_min, codes, values)
+            xp.maximum.at(group_max, codes, values)
+        else:
+            values_np = _to_numpy(values)
+            codes_flat = _to_numpy(codes).ravel()
+            out_np = np.zeros(mean.shape, dtype=np.float64)
+            group_min_np = np.full(out_np.shape, float("inf"))
+            group_max_np = np.full(out_np.shape, float("-inf"))
+            np.minimum.at(group_min_np, codes_flat, values_np)
+            np.maximum.at(group_max_np, codes_flat, values_np)
+            group_min = xp_asarray(
+                group_min_np, dtype=xp.float64, xp=xp, ref_arr=mean
+            )
+            group_max = xp_asarray(
+                group_max_np, dtype=xp.float64, xp=xp, ref_arr=mean
+            )
     else:
         np.minimum.at(group_min, codes_np, values)
         np.maximum.at(group_max, codes_np, values)

@@ -823,6 +823,34 @@ def test_covariance_restore_compensating_scales_avoid_transient_range_loss():
     np.testing.assert_allclose(actual, np.asarray([[1.0e300]]), rtol=5e-15, atol=0.0)
 
 
+def test_dk_ordered_categorical_preserves_declared_chronology():
+    """Driscoll-Kraay must group by the declared category order (t1, t2, t10),
+    not the lexical order (t1, t10, t2) of the materialized labels."""
+    pandas = pytest.importorskip("pandas")
+    rng = np.random.default_rng(20260827)
+    labels = np.tile(np.array(["t1", "t2", "t10"], dtype=object), 4)
+    ordered = pandas.Categorical(
+        labels, categories=["t1", "t2", "t10"], ordered=True
+    )
+    numeric = np.tile(np.arange(3), 4)
+    X = rng.normal(size=(labels.size, 2))
+    resid = rng.normal(size=labels.size)
+
+    cov_ordered = driscoll_kraay_covariance(
+        X, resid, ordered, bandwidth=2, kernel="bartlett"
+    )
+    cov_numeric = driscoll_kraay_covariance(
+        X, resid, numeric, bandwidth=2, kernel="bartlett"
+    )
+    assert_allclose(cov_ordered, cov_numeric, rtol=1e-14, atol=1e-16)
+
+    lexical = np.asarray(ordered, dtype=object)
+    cov_lexical = driscoll_kraay_covariance(
+        X, resid, lexical, bandwidth=2, kernel="bartlett"
+    )
+    assert not np.allclose(cov_ordered, cov_lexical, rtol=1e-10, atol=1e-12)
+
+
 def test_torch_covariance_restore_compensating_scales_avoid_transient_range_loss():
     torch = pytest.importorskip("torch")
     scale = torch.as_tensor([1.0e200, 1.0e-200], dtype=torch.float64)

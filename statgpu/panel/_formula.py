@@ -441,13 +441,16 @@ def _align_formula_side_array(values, design_info, expected_n=None, name="array"
     if n_values == positions.shape[0]:
         return categorical if categorical is not None else arr
     if positions.size and n_values > int(positions.max()):
-        # ``positions`` are original-row indices retained by the formula, so a
-        # longer side array must have exactly one entry per original row.
-        # Anything else would silently pick the wrong rows.
-        if n_values != int(positions.max()) + 1:
+        # ``positions`` are original-row indices retained by the formula, so
+        # a longer side array only needs to cover the last retained row.  When
+        # Patsy drops trailing rows the original length can exceed
+        # ``positions.max() + 1``, so an over-long array is aligned by
+        # ``arr[positions]`` rather than rejected; only an array too short to
+        # cover the retained rows fails closed.
+        if n_values < int(positions.max()) + 1:
             raise ValueError(
                 f"{name} has {n_values} observations but the formula retained "
-                f"{int(positions.max()) + 1} original rows"
+                f"up to original row {int(positions.max())}"
             )
         if categorical is not None:
             return categorical.take(positions)
