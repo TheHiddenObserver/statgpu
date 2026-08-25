@@ -523,6 +523,22 @@ def _stable_matrix_expansion_sum(terms, xp):
 
 
 
+def _append_vectorized_component_terms(terms, components, correction, sign, xp):
+    """Append vectorized component-pair Gram terms for one cluster dimension.
+
+    Every retained tier of ``components`` contributes its own Gram and its
+    cross-Gram with each earlier tier.  The terms are consumed by
+    ``_stable_matrix_expansion_sum``; exact dyadic coefficient handling is
+    intentionally not applied here (BLAS reductions keep ordinary designs fast).
+    """
+    coefficient = float(sign) * float(correction)
+    for i, left in enumerate(components):
+        terms.append(_symmetrize(left.T @ left) * coefficient)
+        for right in components[:i]:
+            cross = left.T @ right
+            terms.append((cross + cross.T) * coefficient)
+
+
 def _row_expansion_residual_acceptable(component_sets, cov_work, xp) -> bool:
     """Return whether a vectorized Gram may ignore the tier residuals.
 
@@ -564,8 +580,12 @@ def _row_expansion_residual_acceptable(component_sets, cov_work, xp) -> bool:
     result_scale = float(_to_float_scalar(xp.max(xp.abs(cov_work))))
     if result_scale <= 0.0 or not np.isfinite(result_scale):
         return False
-    cross_contribution = float(residual_max) * float(dominant_max) * 4.0
-    self_contribution = float(residual_max) ** 2 * 4.0
+    # A residual row contributes roughly residual * dominant per Gram entry
+    # through the cross term (summed over n_rows rows) and residual^2 through
+    # the self term; keep both within the retiering floor of the vectorized
+    # result.
+    cross_contribution = float(residual_max) * float(dominant_max) * n_rows
+    self_contribution = float(residual_max) ** 2 * n_rows
     limit = result_scale * tier_floor
     return (cross_contribution <= limit) and (self_contribution <= limit)
 
@@ -987,22 +1007,15 @@ def two_way_clustered_covariance(
                 # fall back to the exact row products only when the residual
                 # contribution is not eps-negligible.
                 vectorized_terms = []
-
-                def _append_vectorized_component_terms(components, correction, sign):
-                    coefficient = float(sign) * float(correction)
-                    for i, left in enumerate(components):
-                        vectorized_terms.append(
-                            _symmetrize(left.T @ left) * coefficient
-                        )
-                        for right in components[:i]:
-                            cross = left.T @ right
-                            vectorized_terms.append(
-                                (cross + cross.T) * coefficient
-                            )
-
-                _append_vectorized_component_terms(work1, correction1, 1.0)
-                _append_vectorized_component_terms(work2, correction2, 1.0)
-                _append_vectorized_component_terms(work12, correction12, -1.0)
+                _append_vectorized_component_terms(
+                    vectorized_terms, work1, correction1, 1.0, xp
+                )
+                _append_vectorized_component_terms(
+                    vectorized_terms, work2, correction2, 1.0, xp
+                )
+                _append_vectorized_component_terms(
+                    vectorized_terms, work12, correction12, -1.0, xp
+                )
                 cov_work = _stable_matrix_expansion_sum(vectorized_terms, xp)
                 if not _row_expansion_residual_acceptable(
                     (work1, work2, work12), cov_work, xp
@@ -1040,21 +1053,18 @@ def two_way_clustered_covariance(
                     cov_work = _twofold_matrix_sum(terms, xp)
             else:
                 terms = []
-
-                def _append_vectorized_component_terms(components, correction, sign):
-                    coefficient = float(sign) * float(correction)
-                    for i, left in enumerate(components):
-                        terms.append(_symmetrize(left.T @ left) * coefficient)
-                        for right in components[:i]:
-                            cross = left.T @ right
-                            terms.append((cross + cross.T) * coefficient)
-
                 # Local grouped-score tiers do not by themselves require the
                 # row-level fallback.  If every cross-group component pair is
                 # certified safe, retain the vectorized BLAS/GPU expansion.
-                _append_vectorized_component_terms(work1, correction1, 1.0)
-                _append_vectorized_component_terms(work2, correction2, 1.0)
-                _append_vectorized_component_terms(work12, correction12, -1.0)
+                _append_vectorized_component_terms(
+                    terms, work1, correction1, 1.0, xp
+                )
+                _append_vectorized_component_terms(
+                    terms, work2, correction2, 1.0, xp
+                )
+                _append_vectorized_component_terms(
+                    terms, work12, correction12, -1.0, xp
+                )
                 cov_work = _stable_matrix_expansion_sum(terms, xp)
     cov = _restore_influence_covariance(
         cov_work, common_scale, projection_scale, design_scale, xp
