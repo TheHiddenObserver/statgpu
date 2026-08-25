@@ -546,48 +546,41 @@ def _row_expansion_residual_acceptable(component_sets, cov_work, xp) -> bool:
     round away and that a later inclusion-exclusion cancellation could expose.
     ``component_sets`` are the retiered common-scale working components; the
     first component of each set is its dominant tier and the remaining
-    components are residuals.  The retiering floor ``sqrt(16 n eps)`` already
-    promises that every retained tier is Gram-safe on its own; the residual is
-    accepted when it stays within that same floor relative to the dominant
-    component and when its cross/self Gram contribution stays within the floor
-    of the already computed vectorized result.  Ordinary designs therefore
-    stay vectorized, while deep-cancellation designs (whose vectorized result
+    components are residuals.  Gram cross terms only exist inside one cluster
+    dimension (between its own tiers), so each residual is bounded against its
+    own set's dominant tier with the set's own row count; the summed
+    contribution is then compared against the retiering floor
+    ``sqrt(16 n eps) * 16`` of the vectorized result.  Ordinary designs stay
+    vectorized, while deep-cancellation designs (whose vectorized result
     collapses toward zero) still fall back to the exact row products.
     """
     eps = float(np.finfo(np.float64).eps)
-    residual_max = None
-    dominant_max = None
+    total_cross = 0.0
+    total_self = 0.0
     n_rows = 1
     for components in component_sets:
-        for index, component in enumerate(components):
+        dominant_scale = float(
+            _to_float_scalar(xp.max(xp.abs(components[0])))
+        )
+        n_set = int(components[0].shape[0])
+        n_rows = max(n_rows, n_set)
+        tier_floor_set = float(np.sqrt(16.0 * n_set * eps)) * 16.0
+        for component in components[1:]:
             scale = float(_to_float_scalar(xp.max(xp.abs(component))))
-            if index == 0:
-                dominant_max = (
-                    scale if dominant_max is None else max(dominant_max, scale)
-                )
-                n_rows = max(n_rows, int(component.shape[0]))
-            else:
-                residual_max = (
-                    scale if residual_max is None else max(residual_max, scale)
-                )
-    if residual_max is None or residual_max == 0.0:
+            if scale == 0.0:
+                continue
+            if scale > dominant_scale * tier_floor_set:
+                return False
+            total_cross += scale * dominant_scale * n_set
+            total_self += scale * scale * n_set
+    if total_cross == 0.0 and total_self == 0.0:
         return True
-    if dominant_max is None or dominant_max == 0.0:
-        return False
-    tier_floor = float(np.sqrt(16.0 * n_rows * eps)) * 16.0
-    if residual_max > dominant_max * tier_floor:
-        return False
     result_scale = float(_to_float_scalar(xp.max(xp.abs(cov_work))))
     if result_scale <= 0.0 or not np.isfinite(result_scale):
         return False
-    # A residual row contributes roughly residual * dominant per Gram entry
-    # through the cross term (summed over n_rows rows) and residual^2 through
-    # the self term; keep both within the retiering floor of the vectorized
-    # result.
-    cross_contribution = float(residual_max) * float(dominant_max) * n_rows
-    self_contribution = float(residual_max) ** 2 * n_rows
+    tier_floor = float(np.sqrt(16.0 * n_rows * eps)) * 16.0
     limit = result_scale * tier_floor
-    return (cross_contribution <= limit) and (self_contribution <= limit)
+    return (total_cross <= limit) and (total_self <= limit)
 
 
 def _component_row_reduction_needs_expansion(component_sets, xp) -> bool:
