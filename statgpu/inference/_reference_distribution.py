@@ -77,9 +77,21 @@ def two_sided_reference_inference(
     df_f = float(df)
 
     if df_f == 1.0:
-        # Student-t(1) is exactly Cauchy.
+        # Student-t(1) is exactly Cauchy.  For x >= 0,
+        #   P(|T_1| >= x) = 1 - (1 - 2 atan(x) / pi) = 2 atan(1 / x) / pi,
+        # where atan(x) + atan(1/x) = pi/2 for x > 0 makes the second form
+        # well conditioned for large statistics: the survival-function form
+        # cancels subtractively and collapses to zero already around |t| ~ 1e15
+        # although the tail remains representable.
+        inv = xp_asarray(
+            1.0,
+            dtype=xp.float64,
+            xp=xp,
+            ref_arr=statistic_abs,
+        ) / xp.maximum(statistic_abs, np.finfo(np.float64).tiny)
+        pvalues = 2.0 * xp.atan(inv) / np.pi
         dist = get_distribution("cauchy", backend=backend, device=device)
-        return 2.0 * dist.sf(statistic_abs), dist.isf(alpha_f / 2.0)
+        return pvalues, dist.isf(alpha_f / 2.0)
 
     if df_f == 2.0:
         # For T_2 and x >= 0,

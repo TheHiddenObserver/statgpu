@@ -47,6 +47,10 @@ def _signed_parts(values, codes, codes_np, *, n_groups: int, xp):
         positive_out.scatter_add_(0, index, positive)
         negative_out.scatter_add_(0, index, negative)
     elif type(positive_out).__module__.startswith("cupy"):
+        # CuPy ``add.at`` uses atomic accumulation, so repeated indices are
+        # summed exactly like the NumPy sequential scatter; unlike CuPy's
+        # non-atomic ``maximum.at``/``scatter_max`` (which corrupt float64
+        # magnitudes around 1e7..1e308), the additive path is safe.
         xp.add.at(positive_out, codes, positive)
         xp.add.at(negative_out, codes, negative)
     else:

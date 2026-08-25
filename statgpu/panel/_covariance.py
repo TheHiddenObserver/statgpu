@@ -523,7 +523,7 @@ def _stable_matrix_expansion_sum(terms, xp):
 
 
 
-def _append_vectorized_component_terms(terms, components, correction, sign, xp):
+def _append_vectorized_component_terms(terms, components, correction, sign):
     """Append vectorized component-pair Gram terms for one cluster dimension.
 
     Every retained tier of ``components`` contributes its own Gram and its
@@ -559,6 +559,8 @@ def _row_expansion_residual_acceptable(component_sets, cov_work, xp) -> bool:
     total_self = 0.0
     n_rows = 1
     for components in component_sets:
+        if not components:
+            raise ValueError("empty cluster component set in residual acceptance")
         dominant_scale = float(
             _to_float_scalar(xp.max(xp.abs(components[0])))
         )
@@ -1001,14 +1003,11 @@ def two_way_clustered_covariance(
                 # contribution is not eps-negligible.
                 vectorized_terms = []
                 _append_vectorized_component_terms(
-                    vectorized_terms, work1, correction1, 1.0, xp
-                )
+                    vectorized_terms, work1, correction1, 1.0)
                 _append_vectorized_component_terms(
-                    vectorized_terms, work2, correction2, 1.0, xp
-                )
+                    vectorized_terms, work2, correction2, 1.0)
                 _append_vectorized_component_terms(
-                    vectorized_terms, work12, correction12, -1.0, xp
-                )
+                    vectorized_terms, work12, correction12, -1.0)
                 cov_work = _stable_matrix_expansion_sum(vectorized_terms, xp)
                 if not _row_expansion_residual_acceptable(
                     (work1, work2, work12), cov_work, xp
@@ -1050,14 +1049,11 @@ def two_way_clustered_covariance(
                 # row-level fallback.  If every cross-group component pair is
                 # certified safe, retain the vectorized BLAS/GPU expansion.
                 _append_vectorized_component_terms(
-                    terms, work1, correction1, 1.0, xp
-                )
+                    terms, work1, correction1, 1.0)
                 _append_vectorized_component_terms(
-                    terms, work2, correction2, 1.0, xp
-                )
+                    terms, work2, correction2, 1.0)
                 _append_vectorized_component_terms(
-                    terms, work12, correction12, -1.0, xp
-                )
+                    terms, work12, correction12, -1.0)
                 cov_work = _stable_matrix_expansion_sum(terms, xp)
     cov = _restore_influence_covariance(
         cov_work, common_scale, projection_scale, design_scale, xp

@@ -846,3 +846,60 @@ def test_torch_covariance_restore_compensating_scales_avoid_transient_range_loss
         actual.detach().cpu().numpy(), np.asarray([[1.0e300]]),
         rtol=5e-15, atol=0.0
     )
+
+
+def test_two_way_residual_acceptance_keeps_ordinary_designs_vectorized():
+    """The residual-acceptance check must accept ordinary designs and reject
+    deep-cancellation designs, so large balanced panels stay on the
+    vectorized Gram path while exact row products protect cancellation."""
+    accept = covariance_module._row_expansion_residual_acceptable
+    # Ordinary: the residual tier is tiny relative to the dominant tier and
+    # the vectorized result keeps its full scale.
+    ordinary_sets = (
+        (np.asarray([[1.0], [0.5], [0.25], [0.1]]),),
+        (np.asarray([[0.5], [0.4], [0.3], [0.2]]),),
+        (np.asarray([[0.2], [0.1], [0.0], [0.0]]),),
+    )
+    assert accept(ordinary_sets, np.asarray([[1.0]]), np) is True
+    # Ordinary with a genuine small tier: still negligible relative to the
+    # dominant component and to the vectorized result.
+    ordinary_tiered = (
+        (
+            np.asarray([[1.0], [0.5], [0.25], [0.1]]),
+            np.asarray([[1.0e-9], [5.0e-10], [0.0], [0.0]]),
+        ),
+        (np.asarray([[0.5], [0.4], [0.3], [0.2]]),),
+        (np.asarray([[0.2], [0.1], [0.0], [0.0]]),),
+    )
+    assert accept(ordinary_tiered, np.asarray([[1.0]]), np) is True
+    # Deep cancellation: the residual tier is comparable to the dominant tier
+    # and the vectorized result collapses toward zero, so the exact path is
+    # kept.
+    deep_sets = (
+        (
+            np.asarray([[1.0e154], [-1.0e154], [1.0e140]]),
+            np.asarray([[1.0e140], [-1.0e140], [1.0]]),
+        ),
+        (
+            np.asarray([[1.0e154], [-1.0e154], [1.0e140]]),
+            np.asarray([[1.0e140], [-1.0e140], [1.0]]),
+        ),
+        (
+            np.asarray([[2.0e154], [-2.0e154], [2.0e140]]),
+            np.asarray([[2.0e140], [-2.0e140], [2.0]]),
+        ),
+    )
+    assert accept(deep_sets, np.asarray([[0.0]]), np) is False
+    # A residual larger than the per-set retiering floor is never accepted.
+    oversized = (
+        (np.asarray([[1.0], [0.5], [0.25], [0.1]]),),
+        (
+            np.asarray([[1.0], [0.5], [0.25], [0.1]]),
+            np.asarray([[0.5], [0.25], [0.1], [0.05]]),
+        ),
+        (np.asarray([[0.2], [0.1], [0.0], [0.0]]),),
+    )
+    assert accept(oversized, np.asarray([[1.0]]), np) is False
+    # Empty component sets are rejected defensively.
+    with pytest.raises(ValueError):
+        accept(((),), np.asarray([[1.0]]), np)
