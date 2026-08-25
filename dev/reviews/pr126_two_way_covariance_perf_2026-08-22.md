@@ -123,6 +123,37 @@ loops in `_fixed_effects.py` for very large panels, and the host-transfer
 cost of the CuPy `maximum.at` fallback under tiered reduction (correctness
 first, gated by the risk classification).
 
+
+### Codex review findings (10bbdaa0)
+
+An independent review comment round on the PR produced six findings; all are
+resolved:
+
+1. **P1 — formula side-array alignment** (introduced by the earlier review):
+   positions.max() + 1 is not the original row count when Patsy drops
+   trailing rows, so valid full-length side arrays were rejected.  Over-long
+   arrays are now aligned by the retained positions and only arrays too short
+   to cover the last retained row fail closed; the test was updated.
+2. **P1 — Driscoll-Kraay ordered-categorical chronology**: confirmed the DK
+   path shares actorize_panel_metadata, which preserves declared category
+   order; a test now locks DK ordered == numeric equivalence and a lexical
+   negative control.
+3. **P1 — CuPy grouped min/max host round trips**: the sequential host
+   fallback was unconditional, copying the full score matrix to host in every
+   clustered/DK reduction.  Ordinary magnitudes (<= 1e6, one decade below the
+   observed corruption window) keep the native GPU scatter; only risky
+   magnitudes fall back.  Verified on P100: clustered fits stay ~1.3s at 10k
+   rows and the extreme 1e308 cancellation path still returns the exact
+   residual (0.25).
+4. **P2 — docs**: the Fama-MacBeth pages (en/cn) now record the fresh
+   exact-head P100 acceptance (12/12 runners) instead of the stale
+   'validation required' wording.
+5. **P2 — runner backend provenance**: already resolved — the runners validate
+   the fit-persisted _backend_name, not a device-derived guess.
+6. **P2 — demean convergence scale**: the alternating loop checks both entity
+   and time group-mean residuals every iteration, so a reintroduced entity
+   mean after the time projection is caught; no change needed.
+
 ## Files
 
 - `statgpu/panel/_covariance.py`: `_row_expansion_residual_acceptable` +
