@@ -96,6 +96,33 @@ A follow-up review of the acceptance check found and fixed two issues:
    certified-vectorized branches now share one
    `_append_vectorized_component_terms` implementation.
 
+### Independent re-review (`4a7c1ba9`)
+
+A further pass over the remaining PR-touched files (formula, reference
+distributions, fixed effects, random effects, between, first difference)
+found no CRITICAL/HIGH issues; the fixes recorded here:
+
+1. **Student-t(1) extreme tail** — the Cauchy survival function subtracts
+   `1 - (0.5 + atan(x)/pi)` and collapses to zero already around |t| ~ 1e15,
+   although the true tail stays representable.  The df=1 branch now evaluates
+   `2 atan(1/x)/pi` (well conditioned for large x), keeping the representable
+   tail at |t| = 1e154 (`6.37e-155`, exact to the `2/(pi x)` reference), with
+   zero statistics floored to `tiny` so no divide warning fires.
+2. **Formula side-array alignment** — a side array longer than the original
+   design rows was silently indexed by the retained-row positions; it is now
+   validated to match `positions.max() + 1` and fails closed otherwise.
+3. **CuPy `add.at` documented as safe** — atomic accumulation (unlike the
+   non-atomic `maximum.at`/`scatter_max` corruption fixed earlier), so the
+   additive scatter sites are retained with an explanatory comment.
+4. **Residual-acceptance unit tests** — lock the ordinary/deep-cancellation/
+   oversized/empty decisions of `_row_expansion_residual_acceptable`, plus a
+   defensive empty-set check.
+
+Deferred (documented, not blocking): union-find and predict-guard Python
+loops in `_fixed_effects.py` for very large panels, and the host-transfer
+cost of the CuPy `maximum.at` fallback under tiered reduction (correctness
+first, gated by the risk classification).
+
 ## Files
 
 - `statgpu/panel/_covariance.py`: `_row_expansion_residual_acceptable` +
