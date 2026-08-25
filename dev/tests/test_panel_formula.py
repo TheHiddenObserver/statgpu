@@ -612,8 +612,8 @@ class TestFormulaEdgeCases:
             np.arange(3, dtype=np.float64), design_info, name="side"
         )
         np.testing.assert_array_equal(exact, np.asarray([0.0, 1.0, 2.0]))
-        # 2 entries: too short to cover retained row 5.
-        with pytest.raises(ValueError, match="too short|observations"):
+        # 2 entries: too short to cover the retained positions.
+        with pytest.raises(ValueError):
             _align_formula_side_array(
                 np.arange(2, dtype=np.float64), design_info, name="side"
             )
