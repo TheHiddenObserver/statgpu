@@ -89,7 +89,9 @@ def two_sided_reference_inference(
             xp=xp,
             ref_arr=statistic_abs,
         ) / xp.maximum(statistic_abs, np.finfo(np.float64).tiny)
-        pvalues = 2.0 * xp.atan(inv) / np.pi
+        # ``arctan`` (not the NumPy-2-only ``atan`` alias) so NumPy<2 CI
+        # environments resolve the same backend call.
+        pvalues = 2.0 * xp.arctan(inv) / np.pi
         dist = get_distribution("cauchy", backend=backend, device=device)
         return pvalues, dist.isf(alpha_f / 2.0)
 
