@@ -5,8 +5,10 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'statgpu/_base.py'
       - 'statgpu/_config.py'
       - 'statgpu/backends/__init__.py'
+      - 'statgpu/backends/_torch.py'
       - 'statgpu/backends/_cupy.py'
       - 'statgpu/backends/_utils.py'
       - 'statgpu/inference/_reference_distribution.py'
@@ -33,8 +35,10 @@ on:
     branches: [master]
     paths:
       - 'statgpu/panel/**'
+      - 'statgpu/_base.py'
       - 'statgpu/_config.py'
       - 'statgpu/backends/__init__.py'
+      - 'statgpu/backends/_torch.py'
       - 'statgpu/backends/_cupy.py'
       - 'statgpu/backends/_utils.py'
       - 'statgpu/inference/_reference_distribution.py'

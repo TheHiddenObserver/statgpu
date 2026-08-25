@@ -276,11 +276,21 @@ def _group_max_1d(
         )
     elif backend == "cupy":
         # CuPy ``maximum.at`` returns inf for float64 magnitudes around
-        # 1e7..1e308 (observed on CuPy 13.6).  Use the sequential host scatter
-        # and restore the group maxima on the reference device.
-        output_np = np.full((n_groups,), -float("inf"), dtype=value.dtype)
-        np.maximum.at(output_np, _to_numpy(group_codes).ravel(), _to_numpy(value))
-        output = xp_asarray(output_np, dtype=value.dtype, xp=xp, ref_arr=value)
+        # 1e7..1e308 (observed on CuPy 13.6).  Ordinary magnitudes keep the
+        # native GPU scatter; only magnitudes that could hit the corruption
+        # window use the sequential host scatter and restore the group maxima
+        # on the reference device.
+        if float(_to_float_scalar(xp.max(xp.abs(value)))) <= 1.0e6:
+            output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
+            xp.maximum.at(output, group_codes, value)
+        else:
+            output_np = np.full(
+                (n_groups,), -float("inf"), dtype=value.dtype
+            )
+            np.maximum.at(
+                output_np, _to_numpy(group_codes).ravel(), _to_numpy(value)
+            )
+            output = xp_asarray(output_np, dtype=value.dtype, xp=xp, ref_arr=value)
     else:
         output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
         xp.maximum.at(output, group_codes, value)

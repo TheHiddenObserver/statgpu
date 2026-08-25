@@ -360,21 +360,18 @@ def _resolution_failure_2d(
     if int(resolution_risk.shape[0]) > 0:
         resolution_risk[0] = resolution_risk[0] & (~ignore_first)
 
-    residual_unit = y / safe_y_scale - X_work @ (params_work / safe_y_scale)
-    column_scale = _axis_max(xp.abs(X_work), xp, 0)
-    safe_column_scale = xp.where(
-        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
-    )
-    score_terms = (X_work / safe_column_scale.reshape(1, -1)) * residual_unit.reshape(
-        -1, 1
-    )
-    gradient = _axis_sum(score_terms, xp, 0)
-    gradient_scale = _axis_sum(xp.abs(score_terms), xp, 0)
-    stationarity_bad = (
-        (gradient_scale > 0.0)
-        & (xp.abs(gradient) > float(4096.0 * n * eps) * gradient_scale)
-    )
-    return xp.any(resolution_risk & stationarity_bad)
+    # A coordinate flagged by resolution_risk is genuinely unresolved when its
+    # own error bound exceeds it.  The bound uses the working-design
+    # pseudoinverse scale (``projection_scale``), which encodes the condition
+    # of X through 1/s_min, so it is deterministic and does not depend on the
+    # specific rounding of any SVD driver.  The factor is deliberately loose so
+    # an ill-conditioned direction's solved coefficient is flagged for any of
+    # the very different values an unstable SVD can return (e.g. 16 vs -2.7e12
+    # vs 12.14 across LAPACK versions); a well-conditioned ordinary
+    # coefficient is far above the same bound and is accepted.
+    coef_error_bound = 1024.0 * eps * projection_scale * safe_y_scale
+    resolution_unreliable = resolution_risk & (params_abs <= coef_error_bound)
+    return xp.any(resolution_unreliable)
 
 
 def _resolution_failure_batched(
@@ -415,23 +412,16 @@ def _resolution_failure_batched(
     if ignore_first is not None and int(resolution_risk.shape[1]) > 0:
         resolution_risk[:, 0] = resolution_risk[:, 0] & (~ignore_first)
 
-    residual_unit = y / safe_y_scale[:, None] - xp.matmul(
-        X_work, (params_work / safe_y_scale[:, None])[..., None]
-    )[..., 0]
-    column_scale = _axis_max(xp.abs(X_work), xp, 1)
-    safe_column_scale = xp.where(
-        column_scale > 0.0, column_scale, xp.ones_like(column_scale)
+    # Deterministic per-coordinate error bound from the working-design
+    # pseudoinverse scale (1/s_min), independent of the SVD driver's rounding.
+    # The loose factor covers the very different solved values an unstable
+    # direction can return across LAPACK versions; ordinary coefficients are
+    # far above the bound and accepted.
+    coef_error_bound = 1024.0 * eps * projection_scale * safe_y_scale[:, None]
+    resolution_unreliable = resolution_risk & (
+        params_abs <= coef_error_bound
     )
-    score_terms = (
-        X_work / safe_column_scale[:, None, :]
-    ) * residual_unit[:, :, None]
-    gradient = _axis_sum(score_terms, xp, 1)
-    gradient_scale = _axis_sum(xp.abs(score_terms), xp, 1)
-    stationarity_bad = (
-        (gradient_scale > 0.0)
-        & (xp.abs(gradient) > float(4096.0 * n * eps) * gradient_scale)
-    )
-    return ~_axis_all(~(resolution_risk & stationarity_bad), xp, 1)
+    return ~_axis_all(~resolution_unreliable, xp, 1)
 
 
 def _gram_resolution_risk_batched(
@@ -551,18 +541,27 @@ def panel_lstsq(X, y, xp):
 
     stable = bool(stable_reduction_flags(y_work, xp)[0])
     params_work = _svd_project_2d(U, Vh, inverse_values, y_work, xp, stable=stable)
-    failure = xp.zeros_like(rank_backend, dtype=bool)
-    if not stable:
-        failure = _resolution_failure_2d(
-            X_work,
-            U,
-            Vh,
-            inverse_values,
-            y_work,
-            params_work,
-            xp,
-            ignore_first=has_constant,
-        )
+    # The coefficient-resolution certificate runs on full-rank designs with
+    # more than one column.  ``stable`` only selects how the SVD projection sums
+    # cancellation-safe tiers, which is orthogonal to whether a coefficient is
+    # below the design's numerical resolution; skipping the check on the stable
+    # path let a stationary candidate for the already-rounded response pass even
+    # though the coefficient cannot be resolved (the certificate became
+    # LAPACK-version dependent).  A single-column design has condition number
+    # exactly one (no ill-conditioned direction), so its coefficient is either
+    # well resolved or, for a fixed-effect-absorbed column, irrelevant to the
+    # fit; a genuinely rank-deficient design skips the certificate too and the
+    # caller reports the actual numerical rank.
+    failure = _resolution_failure_2d(
+        X_work,
+        U,
+        Vh,
+        inverse_values,
+        y_work,
+        params_work,
+        xp,
+        ignore_first=has_constant,
+    ) & (rank_backend == k) & (k > 1)
 
     restore = xp.zeros_like(params_work)
     restore[0] = _safe_constant_restore(anchor, constant_value, has_constant, xp)
