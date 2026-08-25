@@ -85,7 +85,7 @@ def test_t1_tail_torch_uses_well_conditioned_atan_identity():
             xp=torch,
             df=1,
         )
-        observed = float(np.asarray(pvalues.detach().cpu()))
+        observed = float(np.asarray(pvalues.detach().cpu())[0])
         expected = 2.0 / (np.pi * float(x))
         assert observed > 0.0
         np.testing.assert_allclose(observed, expected, rtol=2e-15, atol=0.0)
@@ -97,7 +97,7 @@ def test_t1_tail_torch_uses_well_conditioned_atan_identity():
         xp=torch,
         df=1,
     )
-    assert float(np.asarray(pvalues.detach().cpu())) == 1.0
+    assert float(np.asarray(pvalues.detach().cpu())[0]) == 1.0
 
 
 def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
