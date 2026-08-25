@@ -31,6 +31,48 @@ def test_extreme_t2_tail_numpy_preserves_representable_subnormal_probability():
     assert np.isfinite(float(np.asarray(critical)))
 
 
+def test_extreme_t1_tail_uses_well_conditioned_atan_identity():
+    """df=1 must keep the representable tail at extreme statistics instead of
+    the subtractive Cauchy survival collapse (which reaches zero already
+    around |t| ~ 1e15)."""
+    for statistic_value in (1.0e15, 1.0e154, 1.0e155):
+        pvalues, critical = two_sided_reference_inference(
+            np.asarray([statistic_value], dtype=np.float64),
+            distribution="t",
+            alpha=0.05,
+            backend="numpy",
+            xp=np,
+            df=1,
+        )
+        observed = float(np.asarray(pvalues)[0])
+        expected = 2.0 / (np.pi * float(statistic_value))
+        assert observed > 0.0
+        np.testing.assert_allclose(observed, expected, rtol=2e-15, atol=0.0)
+        assert np.isfinite(float(np.asarray(critical)))
+    # |T_1| >= 0 has probability one; the zero statistic must not warn.
+    pvalues, _ = two_sided_reference_inference(
+        np.asarray([0.0], dtype=np.float64),
+        distribution="t",
+        alpha=0.05,
+        backend="numpy",
+        xp=np,
+        df=1,
+    )
+    assert float(np.asarray(pvalues)[0]) == 1.0
+    # Ordinary-scale check: |T_1| >= 1 has probability 0.5.
+    pvalues, _ = two_sided_reference_inference(
+        np.asarray([1.0], dtype=np.float64),
+        distribution="t",
+        alpha=0.05,
+        backend="numpy",
+        xp=np,
+        df=1,
+    )
+    np.testing.assert_allclose(
+        float(np.asarray(pvalues)[0]), 0.5, rtol=1e-15, atol=0.0
+    )
+
+
 def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
     assert t2_gpu_gate.SCHEMA_VERSION == 2
     assert t2_gpu_gate._validate_acceptance_backends(["cupy", "torch"]) == [

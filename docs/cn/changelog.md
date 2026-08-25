@@ -16,6 +16,15 @@ Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator
 
 物理验证按照 exact-source evidence chain 记录。历史 Stage-C 与 Fama-MacBeth artifact 只继续对各自原始 numerical head 有效。此前接受的 P100 source `8c60db00f5ea986aed96b1f1dce3f5c3b4f0bcd4` 对当前 PR branch 已属于历史证据，因为后续 review-fix loop 修改了有效的 Fama-MacBeth 与 shared panel least-squares 路径；在提升 merge readiness 之前必须重新完成 exact-head CuPy/Torch CUDA acceptance。Tesla P100 上，broad Stage-C runner 在 CuPy 与 Torch 上各自通过 35/35 estimator/covariance case 与 12/12 public primitive；专用 HAC chronology runner 也通过 ordered-categorical/numeric 等价、lexical negative control 和 shared backend-native Student-t inference。Fama-MacBeth 现在对 exact-size GPU batch 使用保守的 Gram-spectrum certificate：只有明显 well-conditioned 的 period 才允许使用 batched Gram solve，任何 uncertified period 仍由原有 SVD rank policy 负责。accepted scaling artifact 中，CuPy/Torch 的 GPU-over-NumPy median-time ratio 分别为：micro（64×128×4）**0.549/0.343**、medium（128×1,024×8）**0.204/0.168**、large（128×4,096×16）**0.114/0.109**，对应约 1.82×/2.92×、4.91×/5.97× 和 8.75×/9.16× speedup。所有 measured GPU scale 都是一个 `gram-certified` batch、一次 control synchronization、零 SVD fallback；该 resident-array timing protocol 不包含 host-to-device input transfer，因此这些结果属于特定 workload/hardware 的物理证据，不是普遍 GPU 性能保证。focused Fama-MacBeth gate 同时验证 chronology/formula/rank/inference、backend-native public array、backend-native distribution inference 与 prediction/device provenance。最终四个 physical runner 的 artifact 均保存在 `results/pr126_p100_fama_fix/`，并指向同一个 numerical source。
 
+### 验证（2026-08-22）
+
+针对 PR 分支的最新一轮 review-fix 循环继续加固数值与设备路径，并在 exact head `5068da3f` 上重跑完整物理矩阵：
+
+- **双向聚类协方差性能**：精确的逐行 dyadic two-sum fallback（普通均衡面板在约 6.5k 行以上必然触发，10k 行时每次 CuPy fit 约 1000 秒）现在由 residual-acceptance 检查门控——普通设计停留在向量化 Gram 路径，只有真正可恢复的 cancellation residual 才回退到精确行级展开。Tesla P100 上 `pooled_cluster_two_way` 的 10k 行 CuPy fit 从 **约 1018 秒降到约 1.3 秒**（Torch 约 0.2 秒；100k 行约 0.4 秒），`benchmark_panel_stage_c_covariance.py` 的 60 行矩阵约 40 秒完成（此前超时）。
+- **数值加固**：CuPy `maximum.at`/`cupyx.scatter_max` 对 1e7..1e308 量级的 float64 返回 `inf`（CuPy 13.6 实测），组内 min/max scatter 改为顺序 host scatter；Torch CUDA SVD 改用精确 `gesvd` driver（默认 `gesvdj` 会在结构零位置泄漏约 1e-16，被巨大响应放大）；失败的 panel fit 保留实际执行后端 provenance；Student-t(1) 的 p-value 改用良态的 `2 atan(1/x)/pi` 形式，极端统计量（如 |t|=1e154）保留可表示尾部（此前 subtractive survival 在约 1e15 即坍缩为 0）；formula side-array 对齐对超长输入 fail closed。
+- **CuPy 设备亲和性**：后端可用性探测不再切换当前 CUDA device，panel 分配（scatter 目标、dummy 矩阵、行权重、SVD 单位阵）绑定到参考 device；新增物理 device-affinity gate（`validate_panel_cupy_device_affinity_gpu.py`）覆盖 CuPy 与 Torch CUDA。
+- 全部 12 个 physical runner 在 exact head 的 Tesla P100（CuPy 13.6.0 / Torch 2.0.0+cu117）上通过：Stage-C correctness（每后端 35 case + 12 primitive）、focused Fama-MacBeth oracle + certified-Gram provenance、HAC chronology、极端 t(2) 尾部、device affinity、Fama-MacBeth scaling、RHS cancellation、rank precedence、intercept cancellation。产物：`results/pr126_perf_fix_528d967e/`、`results/pr126_review_fix_da3604ee/`。
+
 ## 2026-08-08
 
 ### PR #122 — Panel Tier-1 diagnostics Stage B

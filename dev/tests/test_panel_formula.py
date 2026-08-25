@@ -589,6 +589,23 @@ class TestFormulaEdgeCases:
     def test_random_effects_ols_alias(self):
         assert RandomEffectsOLS is RandomEffects
 
+    def test_side_array_longer_than_original_rows_fails_closed(self):
+        from statgpu.panel._formula import _align_formula_side_array
+        from types import SimpleNamespace
+
+        # The formula retained rows [1, 3, 5] of a 6-row design, so a valid
+        # side array has exactly 6 entries; a longer one must not silently
+        # pick the wrong rows.
+        design_info = SimpleNamespace(_statgpu_row_positions=np.asarray([1, 3, 5]))
+        aligned = _align_formula_side_array(
+            np.arange(6, dtype=np.float64), design_info, name="side"
+        )
+        np.testing.assert_array_equal(aligned, np.asarray([1.0, 3.0, 5.0]))
+        with pytest.raises(ValueError, match="original rows"):
+            _align_formula_side_array(
+                np.arange(8, dtype=np.float64), design_info, name="side"
+            )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
