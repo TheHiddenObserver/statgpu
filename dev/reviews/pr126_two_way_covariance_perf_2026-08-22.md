@@ -154,6 +154,19 @@ resolved:
    and time group-mean residuals every iteration, so a reintroduced entity
    mean after the time projection is caught; no change needed.
 
+
+### Final independent re-review (e7d4d37a)
+
+A closing pass re-examined the previously-touched code plus the remaining core
+panel paths (_fama_macbeth.py fit/covariance/inference, _pooled.py fit and
+covariance dispatch, formula side-array boundaries, reference-distribution
+edge cases, and the CuPy grouped min/max condition gate).  No new
+CRITICAL/HIGH/MEDIUM issues were found; the only follow-up was a test
+correction (
+etained-length side arrays pass through unchanged, only
+too-short arrays fail closed).  CI is fully green and the exact-head P100
+matrix (12/12 physical runners) passes.
+
 ## Files
 
 - `statgpu/panel/_covariance.py`: `_row_expansion_residual_acceptable` +
