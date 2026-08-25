@@ -80,6 +80,22 @@ vectorized result; the bound was aligned to `sqrt(16 n eps) * 16`.
 - Generated frontend/docs benchmark assets refreshed deterministically from a
   clean worktree (`ffc848fc`) so the CI `staleness` gate passes.
 
+## Review-fix follow-up (same day)
+
+A follow-up review of the acceptance check found and fixed two issues:
+
+1. **Per-dimension residual bound** (`5068da3f`).  The first follow-up attempt
+   scaled the cross contribution by the maximum row count across cluster
+   dimensions, but Gram cross terms only exist *inside* one dimension (between
+   its own tiers) with that dimension's own row count.  The maximum-row bound
+   created phantom cross terms and rejected ordinary balanced panels again
+   (10k-row fit went back to the exact path).  Each residual is now bounded
+   against its own set's dominant tier and row count; 10k-row CuPy fits stay
+   at ~1.3s and 100k-row at ~0.4s.
+2. **Shared vectorized terms builder** (`dfb1db2f`) — the vectorized-first and
+   certified-vectorized branches now share one
+   `_append_vectorized_component_terms` implementation.
+
 ## Files
 
 - `statgpu/panel/_covariance.py`: `_row_expansion_residual_acceptable` +
