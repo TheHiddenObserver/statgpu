@@ -593,27 +593,27 @@ class TestFormulaEdgeCases:
         from statgpu.panel._formula import _align_formula_side_array
         from types import SimpleNamespace
 
-        # The formula retained rows [1, 3, 5] of a 6-row design.  An over-long
-        # side array (e.g. 8 entries, or a 6-entry original length when Patsy
-        # dropped trailing rows) must be aligned by the retained positions, and
-        # only an array too short to cover the last retained row fails closed.
-        design_info = SimpleNamespace(_statgpu_row_positions=np.asarray([1, 3, 5]))
+        # The formula retained rows [1, 3, 5] of a 6-row design.  A side array
+        # must match either the original 6-row formula-data length (aligned by
+        # retained positions) or the retained length of 3 (already aligned).
+        design_info = SimpleNamespace(
+            _statgpu_row_positions=np.asarray([1, 3, 5]),
+            _statgpu_original_rows=6,
+        )
         aligned = _align_formula_side_array(
             np.arange(6, dtype=np.float64), design_info, name="side"
         )
         np.testing.assert_array_equal(aligned, np.asarray([1.0, 3.0, 5.0]))
-        # 8 entries: longer than the original 6 rows, still aligned.
-        over_long = _align_formula_side_array(
-            np.arange(8, dtype=np.float64), design_info, name="side"
-        )
-        np.testing.assert_array_equal(over_long, np.asarray([1.0, 3.0, 5.0]))
-        # 3 entries: exactly the retained length, passed through unchanged.
         exact = _align_formula_side_array(
             np.arange(3, dtype=np.float64), design_info, name="side"
         )
         np.testing.assert_array_equal(exact, np.asarray([0.0, 1.0, 2.0]))
-        # 2 entries: too short to cover the retained positions.
-        with pytest.raises(ValueError):
+        # Any other length assigns metadata from a different frame.
+        with pytest.raises(ValueError, match="formula data has"):
+            _align_formula_side_array(
+                np.arange(8, dtype=np.float64), design_info, name="side"
+            )
+        with pytest.raises(ValueError, match="formula data has"):
             _align_formula_side_array(
                 np.arange(2, dtype=np.float64), design_info, name="side"
             )

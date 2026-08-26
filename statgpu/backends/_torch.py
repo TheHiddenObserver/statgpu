@@ -447,7 +447,7 @@ class TorchBackend(BackendBase):
                 return torch.linalg.svd(
                     a, full_matrices=full_matrices, driver="gesvd"
                 )
-        except (AttributeError, TypeError, RuntimeError):
+        except AttributeError:
             pass
         return torch.linalg.svd(a, full_matrices=full_matrices)
 

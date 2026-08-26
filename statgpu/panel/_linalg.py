@@ -45,10 +45,10 @@ def _panel_svd(X, xp, *, full_matrices=False):
     the backend wrapper.
     """
     if getattr(xp, "__name__", "") == "torch" and getattr(X, "is_cuda", False):
-        try:
-            return xp.linalg.svd(X, full_matrices=full_matrices, driver="gesvd")
-        except (TypeError, RuntimeError):
-            pass
+        # Fail closed if the exact driver is unavailable: silently retrying
+        # with the default gesvdj driver reintroduces the structurally-zero U
+        # leakage this helper exists to prevent.
+        return xp.linalg.svd(X, full_matrices=full_matrices, driver="gesvd")
     return xp.linalg.svd(X, full_matrices=full_matrices)
 
 

@@ -286,6 +286,7 @@ def parse_panel_formula(formula, data):
     parser = FormulaParser(main_formula)
     y_arr, X_arr, design_info = parser.eval(data)
     setattr(design_info, "_statgpu_row_positions", np.asarray(parser._row_positions, dtype=np.int64))
+    setattr(design_info, "_statgpu_original_rows", int(len(data)))
 
     formula_column_names = list(design_info.column_names)
     has_intercept = "Intercept" in formula_column_names
@@ -312,6 +313,7 @@ def _parse_formula_panel(formula, data):
     parser = FormulaParser(formula)
     y_arr, X_arr, design_info = parser.eval(data)
     setattr(design_info, "_statgpu_row_positions", np.asarray(parser._row_positions, dtype=np.int64))
+    setattr(design_info, "_statgpu_original_rows", int(len(data)))
     return y_arr, X_arr, design_info
 
 
@@ -440,24 +442,19 @@ def _align_formula_side_array(values, design_info, expected_n=None, name="array"
     positions = np.asarray(positions, dtype=np.int64)
     if n_values == positions.shape[0]:
         return categorical if categorical is not None else arr
-    if positions.size and n_values > int(positions.max()):
-        # ``positions`` are original-row indices retained by the formula, so
-        # a longer side array only needs to cover the last retained row.  When
-        # Patsy drops trailing rows the original length can exceed
-        # ``positions.max() + 1``, so an over-long array is aligned by
-        # ``arr[positions]`` rather than rejected; only an array too short to
-        # cover the retained rows fails closed.
-        if n_values < int(positions.max()) + 1:
-            raise ValueError(
-                f"{name} has {n_values} observations but the formula retained "
-                f"up to original row {int(positions.max())}"
-            )
-        if categorical is not None:
-            return categorical.take(positions)
-        return arr[positions]
-    if positions.size == 0 and n_values == 0:
-        return categorical if categorical is not None else arr
-    raise ValueError(f"{name} has {n_values} observations and cannot be aligned to the {positions.shape[0]} rows retained by the formula")
+    # ``positions`` are original-row indices retained by the formula.  A side
+    # array must match either the original formula-data row count (it will be
+    # aligned by the retained positions) or the retained row count (already
+    # aligned).  Anything else would assign metadata from a different frame.
+    original_rows = int(getattr(design_info, "_statgpu_original_rows", -1))
+    if n_values != original_rows:
+        raise ValueError(
+            f"{name} has {n_values} observations but the formula data has "
+            f"{original_rows} rows ({positions.shape[0]} retained)"
+        )
+    if categorical is not None:
+        return categorical.take(positions)
+    return arr[positions]
 
 
 def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept):
