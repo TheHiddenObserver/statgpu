@@ -29,6 +29,7 @@ from statgpu.backends import (
 from statgpu.backends._utils import (
     _is_complex_array,
     _normalize_integer_codes,
+    _CUPY_UFUNC_AT_SAFE_MAX,
 )
 from statgpu.survival._concordance import concordance_tile_shape
 
@@ -280,7 +281,7 @@ def _group_max_1d(
         # native GPU scatter; only magnitudes that could hit the corruption
         # window use the sequential host scatter and restore the group maxima
         # on the reference device.
-        if float(_to_float_scalar(xp.max(xp.abs(value)))) <= 1.0e6:
+        if float(_to_float_scalar(xp.max(xp.abs(value)))) <= _CUPY_UFUNC_AT_SAFE_MAX:
             output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
             xp.maximum.at(output, group_codes, value)
         else:

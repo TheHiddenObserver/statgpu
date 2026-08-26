@@ -338,7 +338,7 @@ def _resolution_failure_2d(
     *,
     ignore_first=False,
 ):
-    """Mark an unresolved nonzero coordinate only when LS stationarity fails badly."""
+    """Mark a coordinate whose solved value is below the design resolution."""
     n = max(1, int(X_work.shape[0]))
     eps = float(np.finfo(np.float64).eps)
     y_scale = xp.max(xp.abs(y))
@@ -360,18 +360,15 @@ def _resolution_failure_2d(
     if int(resolution_risk.shape[0]) > 0:
         resolution_risk[0] = resolution_risk[0] & (~ignore_first)
 
-    # A coordinate flagged by resolution_risk is genuinely unresolved when its
-    # own error bound exceeds it.  The bound uses the working-design
-    # pseudoinverse scale (``projection_scale``), which encodes the condition
-    # of X through 1/s_min, so it is deterministic and does not depend on the
-    # specific rounding of any SVD driver.  The factor is deliberately loose so
-    # an ill-conditioned direction's solved coefficient is flagged for any of
-    # the very different values an unstable SVD can return (e.g. 16 vs -2.7e12
-    # vs 12.14 across LAPACK versions); a well-conditioned ordinary
-    # coefficient is far above the same bound and is accepted.
-    coef_error_bound = 1024.0 * eps * projection_scale * safe_y_scale
-    resolution_unreliable = resolution_risk & (params_abs <= coef_error_bound)
-    return xp.any(resolution_unreliable)
+    # ``resolution_risk`` is itself the deterministic certificate: its
+    # threshold (64 n eps * projection_scale) already encodes the per-column
+    # pseudoinverse scale (1/s_min through X_pinv_work) and therefore the
+    # design's condition, independent of the specific rounding of any SVD
+    # driver.  Requiring an additional residual-stationarity confirmation let a
+    # numerically stationary candidate for the already-rounded response pass
+    # even though the coefficient cannot be resolved, which made the
+    # certificate LAPACK-version dependent.
+    return xp.any(resolution_risk)
 
 
 def _resolution_failure_batched(
@@ -385,7 +382,7 @@ def _resolution_failure_batched(
     *,
     ignore_first=None,
 ):
-    """Vectorized form of the narrow SVD resolution/stationarity certificate."""
+    """Vectorized form of the narrow coefficient-resolution certificate."""
     if getattr(y, "ndim", None) != 2:
         return xp.zeros_like(X_work[:, 0, 0], dtype=bool)
     n = max(1, int(X_work.shape[1]))
@@ -412,16 +409,10 @@ def _resolution_failure_batched(
     if ignore_first is not None and int(resolution_risk.shape[1]) > 0:
         resolution_risk[:, 0] = resolution_risk[:, 0] & (~ignore_first)
 
-    # Deterministic per-coordinate error bound from the working-design
-    # pseudoinverse scale (1/s_min), independent of the SVD driver's rounding.
-    # The loose factor covers the very different solved values an unstable
-    # direction can return across LAPACK versions; ordinary coefficients are
-    # far above the bound and accepted.
-    coef_error_bound = 1024.0 * eps * projection_scale * safe_y_scale[:, None]
-    resolution_unreliable = resolution_risk & (
-        params_abs <= coef_error_bound
-    )
-    return ~_axis_all(~resolution_unreliable, xp, 1)
+    # ``resolution_risk`` is itself the deterministic certificate (see the 2-D
+    # variant): its threshold already encodes the per-column pseudoinverse
+    # scale, independent of the SVD driver's rounding.
+    return ~_axis_all(~resolution_risk, xp, 1)
 
 
 def _gram_resolution_risk_batched(
@@ -622,7 +613,7 @@ def panel_lstsq_deferred_rank(X, y, xp):
         params_work,
         xp,
         ignore_first=has_constant,
-    )
+    ) & (k > 1)
     ambiguous_zero = _ambiguous_zero_rhs_2d(
         X_work, y_work, xp, ignore_first=has_constant
     )

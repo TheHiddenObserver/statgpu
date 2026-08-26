@@ -3,15 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from statgpu.backends._utils import _CUPY_UFUNC_AT_SAFE_MAX
 from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_zeros
-
-
-# CuPy ``ufunc.at`` / ``cupyx.scatter_max`` begin corrupting float64 magnitudes
-# somewhere between 1e7 and 1e100 on CuPy 13.6.  A conservative one-decade
-# margin below the lowest observed corruption keeps ordinary magnitudes on the
-# native GPU scatter and reserves the sequential host fallback for risky
-# magnitudes.
-_CUPY_UFUNC_AT_SAFE_MAX = 1.0e6
 
 
 def _is_torch(xp) -> bool:

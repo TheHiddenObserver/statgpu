@@ -411,6 +411,13 @@ def _torch_to_cupy_dlpack(x):
 # Device-aware array creation helpers
 # ---------------------------------------------------------------------------
 
+# CuPy ``ufunc.at`` / ``cupyx.scatter_max`` begin corrupting float64
+# magnitudes somewhere between 1e7 and 1e100 on CuPy 13.6.  Magnitudes at or
+# below this bound keep the native GPU scatter; anything larger must use the
+# sequential host fallback.
+_CUPY_UFUNC_AT_SAFE_MAX = 1.0e6
+
+
 def _torch_dev(arr):
     """Extract device from a torch tensor, or ``None`` for non-torch arrays."""
     try:
