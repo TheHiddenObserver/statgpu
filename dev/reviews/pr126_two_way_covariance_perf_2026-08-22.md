@@ -167,6 +167,30 @@ etained-length side arrays pass through unchanged, only
 too-short arrays fail closed).  CI is fully green and the exact-head P100
 matrix (12/12 physical runners) passes.
 
+
+### Resolution-certificate hardening (cffb9584 -> 5d1d01c4)
+
+An independent randomized audit (3000+ designs, kappa in [1, 1e15]) of the
+resolution-certificate rework found that the fixed 1024x error-bound factor
+left a detection gap: the risk window 64 n eps * projection_scale grows with
+n while the fixed bound did not, so for n > 16 some ill-conditioned
+coordinates silently accepted coefficients with up to ~3e-4 relative error.
+panel_lstsq_deferred_rank also lacked the (rank == k) & (k > 1) gate, so a
+k==1 exact solve was mis-sentineled to rank 0.
+
+The certificate is now 
+esolution_risk itself: its threshold already encodes
+the per-column pseudoinverse scale (1/s_min), making it deterministic and
+independent of any SVD driver's rounding.  panel_lstsq_deferred_rank gets
+the same gate, the CuPy ufunc.at safe-magnitude bound is shared from
+ackends/_utils.py (no longer duplicated in survival/_risk_sets.py), and the
+stale stationarity docstrings are corrected.
+
+Verified locally (3013 passed) and on Tesla P100 at exact head 5d1d01c4
+(stage_c, fama_optimized, hac_chronology, t2_tail all pass; CuPy grouped
+maxima conditional gate keeps ordinary fits fast and extreme magnitudes exact;
+clustered two-way stays ~1.1s at 10k rows).
+
 ## Files
 
 - `statgpu/panel/_covariance.py`: `_row_expansion_residual_acceptable` +
