@@ -48,7 +48,16 @@ def _panel_svd(X, xp, *, full_matrices=False):
         # Fail closed if the exact driver is unavailable: silently retrying
         # with the default gesvdj driver reintroduces the structurally-zero U
         # leakage this helper exists to prevent.
-        return xp.linalg.svd(X, full_matrices=full_matrices, driver="gesvd")
+        try:
+            return xp.linalg.svd(X, full_matrices=full_matrices, driver="gesvd")
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Torch CUDA SVD with the exact gesvd driver failed; statgpu "
+                "does not fall back to the default gesvdj driver because its "
+                "structurally-zero U leakage can corrupt coefficients at "
+                "extreme scales. Original error: "
+                f"{exc}"
+            ) from exc
     return xp.linalg.svd(X, full_matrices=full_matrices)
 
 

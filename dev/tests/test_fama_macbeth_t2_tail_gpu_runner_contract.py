@@ -100,6 +100,27 @@ def test_t1_tail_torch_uses_well_conditioned_atan_identity():
     assert float(np.asarray(pvalues.detach().cpu())[0]) == 1.0
 
 
+def test_panel_svd_fails_closed_when_gesvd_unavailable():
+    """The Torch CUDA SVD must raise when the exact gesvd driver fails rather
+    than silently retrying with the leaky default driver."""
+    from statgpu.panel import _linalg as panel_linalg
+
+    class _FakeLinalg:
+        @staticmethod
+        def svd(a, full_matrices=True, driver=None):
+            raise RuntimeError("cusolver gesvd unavailable")
+
+    class _FakeXp:
+        __name__ = "torch"
+        linalg = _FakeLinalg()
+
+    class _FakeCudaArray:
+        is_cuda = True
+
+    with pytest.raises(RuntimeError, match="does not fall back"):
+        panel_linalg._panel_svd(_FakeCudaArray(), _FakeXp())
+
+
 def test_extreme_t2_gpu_runner_contract_requires_both_cuda_backends():
     assert t2_gpu_gate.SCHEMA_VERSION == 2
     assert t2_gpu_gate._validate_acceptance_backends(["cupy", "torch"]) == [
