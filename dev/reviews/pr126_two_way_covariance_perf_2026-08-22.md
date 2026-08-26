@@ -191,6 +191,17 @@ Verified locally (3013 passed) and on Tesla P100 at exact head 5d1d01c4
 maxima conditional gate keeps ordinary fits fast and extreme magnitudes exact;
 clustered two-way stays ~1.1s at 10k rows).
 
+
+### Closing review sweep (42845413)
+
+A final independent pass over the previously-unreviewed covariance paths
+(one-way clustered_covariance, HAC kernel weights, Driscoll-Kraay grouping)
+and the Fama-MacBeth/PooledOLS fit pipelines found no new issues: the one-way
+clustered path has no multi-tier fallback (fast by construction), the HAC/DK
+kernel-weight computation is intentionally host-side on small arrays, and the
+fit/covariance dispatch is device-consistent.  CI fully green; local suite at
+3013 passed.
+
 ## Files
 
 - `statgpu/panel/_covariance.py`: `_row_expansion_residual_acceptable` +
