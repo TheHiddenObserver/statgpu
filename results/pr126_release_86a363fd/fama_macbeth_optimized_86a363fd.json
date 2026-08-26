@@ -1,0 +1,553 @@
+{
+  "schema_version": 5,
+  "git_sha": "86a363fd67be1c6197b0d7a5c19bb34b6b0e6ccf",
+  "required_backends": [
+    "cupy",
+    "torch"
+  ],
+  "validated_backends": [
+    "cupy",
+    "torch"
+  ],
+  "working_tree_clean_before": true,
+  "working_tree_clean_after_checks": true,
+  "status": "success",
+  "validation_tier": "remote-full",
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "numpy": "1.24.2",
+    "pandas": "2.0.0",
+    "patsy": "1.0.2",
+    "cupy": "13.6.0",
+    "torch": "2.0.0",
+    "gpu_by_backend": {
+      "cupy": "Tesla P100-SXM2-16GB",
+      "torch": "Tesla P100-SXM2-16GB"
+    }
+  },
+  "timing_claim": "same-workload synchronized NumPy/GPU timing for audit only; no universal speedup claim",
+  "backends": {
+    "cupy": {
+      "status": "success",
+      "executed_backend": "cupy",
+      "inference_backend": "cupy",
+      "array_ordered_categorical": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "cupy"
+        },
+        "max_abs_differences": {
+          "coef": 3.469446951953614e-17,
+          "betas": 1.1102230246251565e-16,
+          "bse": 5.551115123125783e-17,
+          "tvalues": 1.3877787807814457e-16,
+          "pvalues": 1.1102230246251565e-16,
+          "conf_int": 2.7755575615628914e-16,
+          "cov_params": 2.7755575615628914e-17,
+          "prediction": 5.551115123125783e-17
+        }
+      },
+      "formula_ordered_categorical_alignment": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": [
+            "Intercept",
+            "x"
+          ],
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "cupy"
+        },
+        "max_abs_differences": {
+          "coef": 3.469446951953614e-17,
+          "betas": 1.1102230246251565e-16,
+          "bse": 2.7755575615628914e-17,
+          "tvalues": 1.6653345369377348e-16,
+          "pvalues": 1.1102230246251565e-16,
+          "conf_int": 2.220446049250313e-16,
+          "cov_params": 1.3877787807814457e-17,
+          "prediction": 2.7755575615628914e-17
+        }
+      },
+      "nonrobust_inference": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "t",
+          "distribution": "t",
+          "df": 2.0,
+          "cov_type": "nonrobust",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": null,
+          "inference_backend": "cupy"
+        },
+        "max_abs_differences": {
+          "coef": 3.469446951953614e-17,
+          "betas": 1.1102230246251565e-16,
+          "bse": 5.551115123125783e-17,
+          "tvalues": 8.326672684688674e-17,
+          "pvalues": 2.220446049250313e-16,
+          "conf_int": 4.440892098500626e-16,
+          "cov_params": 5.551115123125783e-17,
+          "prediction": 5.551115123125783e-17
+        }
+      },
+      "rank_deficient_retained_period_rejected": true,
+      "exactly_identified_full_rank_period": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "period_observation_counts": [
+          3,
+          5,
+          5
+        ],
+        "design_columns_including_intercept": 3,
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "cupy"
+        },
+        "max_abs_differences": {
+          "coef": 1.6653345369377348e-16,
+          "betas": 4.440892098500626e-16,
+          "bse": 2.220446049250313e-16,
+          "tvalues": 8.881784197001252e-16,
+          "pvalues": 3.3306690738754696e-16,
+          "conf_int": 6.661338147750939e-16,
+          "cov_params": 1.3877787807814457e-16,
+          "prediction": 3.0531133177191805e-16
+        }
+      },
+      "explicit_device_overrides_foreign_input_container": {
+        "status": "success",
+        "foreign_input_backend": "torch",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "cupy"
+        },
+        "max_abs_differences": {
+          "coef": 1.6653345369377348e-16,
+          "betas": 4.440892098500626e-16,
+          "bse": 2.220446049250313e-16,
+          "tvalues": 8.881784197001252e-16,
+          "pvalues": 3.3306690738754696e-16,
+          "conf_int": 6.661338147750939e-16,
+          "cov_params": 1.3877787807814457e-16,
+          "prediction": 3.0531133177191805e-16
+        }
+      },
+      "numeric_stability_and_gram_fallback": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "gram_rhs_overflow_svd_fallbacks": 4,
+        "n_periods": 4,
+        "common_intercept": 6e+307,
+        "entity_aware_r2": {
+          "within": 0.0,
+          "between": 0.0,
+          "overall": 0.0
+        },
+        "scaled_covariance_slope_variance": 2.2222222222222221e+307,
+        "mixed_scale_small_variance": 3.3333333333333337e-21,
+        "mixed_scale_zero_variance_statistic": 0.0,
+        "cancellation_safe_average": 3.333333333333333e-171,
+        "subnormal_cross_covariance": 1.6468854861374885e-170
+      },
+      "square_rank_deficient_retained_period_rejected": true,
+      "no_intercept_formula_rejections": {
+        "y ~ 0 + x": true,
+        "y ~ x - 1": true
+      },
+      "performance": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "inference_backend": "cupy",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 64,
+          "effective_bandwidth": 2,
+          "inference_backend": "cupy"
+        },
+        "n_times": 64,
+        "observations_per_period": 128,
+        "n_features": 4,
+        "warmup": 2,
+        "repeats": 5,
+        "numpy_baseline": {
+          "samples_seconds": [
+            0.010373592376708984,
+            0.010395228862762451,
+            0.010316550731658936,
+            0.010258674621582031,
+            0.010334610939025879
+          ],
+          "median_seconds": 0.010334610939025879
+        },
+        "backend_timing": {
+          "samples_seconds": [
+            0.014918416738510132,
+            0.014911532402038574,
+            0.013729363679885864,
+            0.013751804828643799,
+            0.013870477676391602
+          ],
+          "median_seconds": 0.013870477676391602
+        },
+        "backend_over_numpy_median_ratio": 1.3421383502704947,
+        "max_abs_differences_vs_numpy": {
+          "coef": 2.220446049250313e-16,
+          "betas": 1.2212453270876722e-15,
+          "bse": 1.3877787807814457e-17,
+          "tvalues": 1.7053025658242404e-13,
+          "pvalues": 1.8063613016687095e-46,
+          "conf_int": 2.220446049250313e-16,
+          "cov_params": 8.673617379884035e-19,
+          "prediction": 8.881784197001252e-16
+        },
+        "optimization_notes": {
+          "period_solver": "GPU periods are grouped by exact row count and first use a batched Gram-spectrum certificate. Clearly well-conditioned designs with lambda_min(X'X)/lambda_max(X'X) > 1e-4 use a batched Gram solve; uncertified periods are not allowed to consume that candidate.",
+          "rank_cutoff": "The condition certificate does not replace the maintained SVD rank definition. Every uncertified period falls back to the original max(n_t,k)*eps*s_max SVD policy; Torch may stack the unsafe subset, while CuPy retains supported 2-D SVD fallback solves.",
+          "control_synchronization": "control_syncs counts host synchronizations needed to select a fail-closed path. On an all-certified bucket this is the certificate-mask transfer; an SVD fallback adds a rank-vector transfer.",
+          "distribution_inference": "p-values and critical values use the selected NumPy/CuPy/Torch inference backend directly; GPU fits do not round-trip the statistic vector through NumPy/SciPy for distribution evaluation",
+          "reporting_snapshot": "Fama-MacBeth packs coefficient/BSE/statistic/p-value/CI reporting fields on the active backend and performs one small NumPy reporting snapshot after numerical inference",
+          "input_validation": "direct X/y fits reuse the BaseEstimator public finite-input guard and do not repeat a second full device scan inside FamaMacBeth; formula arrays retain the post-Patsy internal finite check",
+          "remaining_structure": "the certificate mask still crosses the device boundary once per exact-size bucket for fail-closed fallback selection, and the full fit still includes covariance, inference, reporting and fit statistics; use the scaling runner for workload crossover evidence",
+          "interpretation": "ratio > 1 means the requested backend is slower than NumPy on the micro fixture; no universal GPU speedup claim is made"
+        },
+        "solver_provenance": {
+          "numpy": {
+            "solver_mode": "gram-certified",
+            "solver_batches": 1,
+            "control_syncs": 1,
+            "svd_fallbacks": 0,
+            "n_periods": 64
+          },
+          "cupy": {
+            "solver_mode": "gram-certified",
+            "solver_batches": 1,
+            "control_syncs": 1,
+            "svd_fallbacks": 0,
+            "n_periods": 64
+          }
+        }
+      }
+    },
+    "torch": {
+      "status": "success",
+      "executed_backend": "torch",
+      "inference_backend": "torch",
+      "array_ordered_categorical": {
+        "status": "success",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "torch"
+        },
+        "max_abs_differences": {
+          "coef": 3.469446951953614e-17,
+          "betas": 1.1102230246251565e-16,
+          "bse": 2.7755575615628914e-17,
+          "tvalues": 1.6653345369377348e-16,
+          "pvalues": 1.1102230246251565e-16,
+          "conf_int": 2.220446049250313e-16,
+          "cov_params": 1.3877787807814457e-17,
+          "prediction": 5.551115123125783e-17
+        }
+      },
+      "formula_ordered_categorical_alignment": {
+        "status": "success",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": [
+            "Intercept",
+            "x"
+          ],
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "torch"
+        },
+        "max_abs_differences": {
+          "coef": 3.469446951953614e-17,
+          "betas": 1.1102230246251565e-16,
+          "bse": 5.551115123125783e-17,
+          "tvalues": 1.6653345369377348e-16,
+          "pvalues": 1.1102230246251565e-16,
+          "conf_int": 2.220446049250313e-16,
+          "cov_params": 1.3877787807814457e-17,
+          "prediction": 2.7755575615628914e-17
+        }
+      },
+      "nonrobust_inference": {
+        "status": "success",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "t",
+          "distribution": "t",
+          "df": 2.0,
+          "cov_type": "nonrobust",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": null,
+          "inference_backend": "torch"
+        },
+        "max_abs_differences": {
+          "coef": 3.469446951953614e-17,
+          "betas": 1.1102230246251565e-16,
+          "bse": 1.1102230246251565e-16,
+          "tvalues": 6.938893903907228e-17,
+          "pvalues": 2.220446049250313e-16,
+          "conf_int": 4.440892098500626e-16,
+          "cov_params": 8.326672684688674e-17,
+          "prediction": 5.551115123125783e-17
+        }
+      },
+      "rank_deficient_retained_period_rejected": true,
+      "exactly_identified_full_rank_period": {
+        "status": "success",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "period_observation_counts": [
+          3,
+          5,
+          5
+        ],
+        "design_columns_including_intercept": 3,
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "torch"
+        },
+        "max_abs_differences": {
+          "coef": 5.551115123125783e-17,
+          "betas": 4.440892098500626e-16,
+          "bse": 2.220446049250313e-16,
+          "tvalues": 8.881784197001252e-16,
+          "pvalues": 2.498001805406602e-16,
+          "conf_int": 6.661338147750939e-16,
+          "cov_params": 1.3877787807814457e-16,
+          "prediction": 8.326672684688674e-17
+        }
+      },
+      "explicit_device_overrides_foreign_input_container": {
+        "status": "success",
+        "foreign_input_backend": "cupy",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 3,
+          "effective_bandwidth": 1,
+          "inference_backend": "torch"
+        },
+        "max_abs_differences": {
+          "coef": 5.551115123125783e-17,
+          "betas": 4.440892098500626e-16,
+          "bse": 2.220446049250313e-16,
+          "tvalues": 8.881784197001252e-16,
+          "pvalues": 2.498001805406602e-16,
+          "conf_int": 6.661338147750939e-16,
+          "cov_params": 1.3877787807814457e-16,
+          "prediction": 8.326672684688674e-17
+        }
+      },
+      "numeric_stability_and_gram_fallback": {
+        "status": "success",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "gram_rhs_overflow_svd_fallbacks": 4,
+        "n_periods": 4,
+        "common_intercept": 6e+307,
+        "entity_aware_r2": {
+          "within": 0.0,
+          "between": 0.0,
+          "overall": 0.0
+        },
+        "scaled_covariance_slope_variance": 2.222222222222223e+307,
+        "mixed_scale_small_variance": 3.3333333333333337e-21,
+        "mixed_scale_zero_variance_statistic": 0.0,
+        "cancellation_safe_average": 3.333333333333333e-171,
+        "subnormal_cross_covariance": 1.6468854861374885e-170
+      },
+      "square_rank_deficient_retained_period_rejected": true,
+      "no_intercept_formula_rejections": {
+        "y ~ 0 + x": true,
+        "y ~ x - 1": true
+      },
+      "performance": {
+        "status": "success",
+        "executed_backend": "torch",
+        "inference_backend": "torch",
+        "inference_result": {
+          "result_type": "ParameterInferenceResult",
+          "method": "fama_macbeth",
+          "statistic_name": "z",
+          "distribution": "normal",
+          "df": null,
+          "cov_type": "newey-west",
+          "feature_names": null,
+          "covariance_source": "period_coefficient_series",
+          "n_periods": 64,
+          "effective_bandwidth": 2,
+          "inference_backend": "torch"
+        },
+        "n_times": 64,
+        "observations_per_period": 128,
+        "n_features": 4,
+        "warmup": 2,
+        "repeats": 5,
+        "numpy_baseline": {
+          "samples_seconds": [
+            0.010507255792617798,
+            0.010560661554336548,
+            0.010453790426254272,
+            0.010492533445358276,
+            0.010488659143447876
+          ],
+          "median_seconds": 0.010492533445358276
+        },
+        "backend_timing": {
+          "samples_seconds": [
+            0.008022069931030273,
+            0.008709430694580078,
+            0.008270174264907837,
+            0.008055835962295532,
+            0.008041739463806152
+          ],
+          "median_seconds": 0.008055835962295532
+        },
+        "backend_over_numpy_median_ratio": 0.7677684330717384,
+        "max_abs_differences_vs_numpy": {
+          "coef": 2.220446049250313e-16,
+          "betas": 9.992007221626409e-16,
+          "bse": 1.3877787807814457e-17,
+          "tvalues": 5.684341886080802e-14,
+          "pvalues": 1.8063613016687095e-46,
+          "conf_int": 2.220446049250313e-16,
+          "cov_params": 8.673617379884035e-19,
+          "prediction": 8.881784197001252e-16
+        },
+        "optimization_notes": {
+          "period_solver": "GPU periods are grouped by exact row count and first use a batched Gram-spectrum certificate. Clearly well-conditioned designs with lambda_min(X'X)/lambda_max(X'X) > 1e-4 use a batched Gram solve; uncertified periods are not allowed to consume that candidate.",
+          "rank_cutoff": "The condition certificate does not replace the maintained SVD rank definition. Every uncertified period falls back to the original max(n_t,k)*eps*s_max SVD policy; Torch may stack the unsafe subset, while CuPy retains supported 2-D SVD fallback solves.",
+          "control_synchronization": "control_syncs counts host synchronizations needed to select a fail-closed path. On an all-certified bucket this is the certificate-mask transfer; an SVD fallback adds a rank-vector transfer.",
+          "distribution_inference": "p-values and critical values use the selected NumPy/CuPy/Torch inference backend directly; GPU fits do not round-trip the statistic vector through NumPy/SciPy for distribution evaluation",
+          "reporting_snapshot": "Fama-MacBeth packs coefficient/BSE/statistic/p-value/CI reporting fields on the active backend and performs one small NumPy reporting snapshot after numerical inference",
+          "input_validation": "direct X/y fits reuse the BaseEstimator public finite-input guard and do not repeat a second full device scan inside FamaMacBeth; formula arrays retain the post-Patsy internal finite check",
+          "remaining_structure": "the certificate mask still crosses the device boundary once per exact-size bucket for fail-closed fallback selection, and the full fit still includes covariance, inference, reporting and fit statistics; use the scaling runner for workload crossover evidence",
+          "interpretation": "ratio > 1 means the requested backend is slower than NumPy on the micro fixture; no universal GPU speedup claim is made"
+        },
+        "solver_provenance": {
+          "numpy": {
+            "solver_mode": "gram-certified",
+            "solver_batches": 1,
+            "control_syncs": 1,
+            "svd_fallbacks": 0,
+            "n_periods": 64
+          },
+          "torch": {
+            "solver_mode": "gram-certified",
+            "solver_batches": 1,
+            "control_syncs": 1,
+            "svd_fallbacks": 0,
+            "n_periods": 64
+          }
+        }
+      }
+    }
+  },
+  "optimized_wrapper": true,
+  "focused_runner_schema_version": 3,
+  "performance_interpretation": "micro timing remains comparable with historical PR126 focused evidence; scaling/crossover conclusions must use benchmark_fama_macbeth_scaling_gpu.py"
+}

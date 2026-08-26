@@ -1,0 +1,4202 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-26T15:52:22.727492Z",
+  "git_sha": "86a363fd67be1c6197b0d7a5c19bb34b6b0e6ccf",
+  "working_tree_clean": true,
+  "status": "success",
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "gpu": "Tesla P100-SXM2-16GB",
+    "packages": {
+      "statgpu": "0.2.5",
+      "numpy": "1.24.2",
+      "scipy": "1.10.1",
+      "cupy": "13.6.0",
+      "torch": "2.0.0"
+    }
+  },
+  "tolerances": {
+    "rtol": 5e-06,
+    "atol": 5e-07
+  },
+  "dataset": {
+    "nobs": 74,
+    "n_entities": 10,
+    "n_times": 8,
+    "n_features": 2,
+    "unbalanced": true
+  },
+  "case_count_per_backend": 35,
+  "public_primitive_count_per_backend": 12,
+  "backends": {
+    "cupy": {
+      "status": "success",
+      "requested_backend": "cupy",
+      "cases": {
+        "pooled_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 2.842170943040401e-14,
+            "pvalues": 6.331740687315346e-17,
+            "conf_int": 9.992007221626409e-16,
+            "covariance": 1.4230153513872246e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 2.7755575615628914e-17,
+            "tvalues": 3.907985046680551e-14,
+            "pvalues": 7.28583859910259e-17,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 2.3852447794681098e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.734723475976807e-18,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.01403571600796132,
+            "leverage_max": 0.23145706236692967,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 2.7755575615628914e-17,
+            "tvalues": 3.552713678800501e-14,
+            "pvalues": 9.194034422677078e-17,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 2.3852447794681098e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.734723475976807e-18,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.01403571600796132,
+            "leverage_max": 0.23145706236692967,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_cluster_one_way": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 4.85722573273506e-17,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 3.885780586188048e-16,
+            "conf_int": 9.992007221626409e-16,
+            "covariance": 5.366800753803247e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 1,
+            "cluster_group_counts": [
+              10
+            ],
+            "group_debias": false,
+            "group_debias_factors": [
+              1.0
+            ],
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_cluster_two_way_group_debias": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 2.42861286636753e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 4.440892098500626e-16,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 5.204170427930421e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ],
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_dk_bartlett": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 1.5265566588595902e-16,
+            "tvalues": 1.0373923942097463e-12,
+            "pvalues": 5.594483210025203e-17,
+            "conf_int": 1.2212453270876722e-15,
+            "covariance": 5.2583805365546965e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_dk_qs": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 1.8214596497756474e-16,
+            "tvalues": 1.2505552149377763e-12,
+            "pvalues": 5.984795992119984e-17,
+            "conf_int": 1.2212453270876722e-15,
+            "covariance": 5.936006894358137e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "qs",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 7,
+            "all_observed_lags_weighted": true,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_legacy_hac": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.4210854715202004e-14,
+            "pvalues": 9.974659986866641e-18,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 9.22418879559933e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.row_order_hac": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hac",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "row_order_hac": true,
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 4.540068328441404e-65,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 9.41900637346782e-19,
+            "prediction": 1.1102230246251565e-15,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": "cupy",
+          "prediction_contract": "entity_effect_prediction"
+        },
+        "panel_entity_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 1.6924899950042265e-61,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 1.1722935989999517e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 2.168404344971009e-19,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546327,
+            "leverage_max": 0.1952994856279332,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 1.734723475976807e-17,
+            "tvalues": 3.197442310920451e-14,
+            "pvalues": 2.551436263923068e-58,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 1.463672932855431e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 2.168404344971009e-19,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546327,
+            "leverage_max": 0.1952994856279332,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_two_way_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.469446951953614e-18,
+            "tvalues": 5.329070518200751e-15,
+            "pvalues": 1.930827396292532e-55,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 2.168404344971009e-19,
+            "prediction": 2.220446049250313e-16,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.7947076036992655e-19,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.00046885308092296183,
+            "leverage_max": 0.15430313435799767,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": "cupy",
+          "prediction_contract": "two_way_effect_prediction"
+        },
+        "panel_two_way_cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 4.440892098500626e-16,
+            "bse": 3.469446951953614e-17,
+            "tvalues": 2.842170943040401e-14,
+            "pvalues": 1.1901516718909434e-59,
+            "conf_int": 5.551115123125783e-16,
+            "covariance": 2.3852447794681098e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ],
+            "design_rank": 2,
+            "design_columns": 2,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_two_way_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 4.85722573273506e-17,
+            "tvalues": 1.0658141036401503e-13,
+            "pvalues": 7.090958945884469e-67,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 2.0599841277224584e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 17,
+            "design_rank": 2,
+            "design_columns": 2,
+            "rank_deficient_extension": false,
+            "df_scale": 1.3454545454545455,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_explicit_constant_robust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.0658141036401503e-14,
+            "pvalues": 4.85722573273506e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 6.369687763352339e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0422535211267605,
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_explicit_constant_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.0658141036401503e-14,
+            "pvalues": 5.551115123125783e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 6.098637220230962e-19,
+            "prediction": 2.220446049250313e-16,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": "cupy",
+          "prediction_contract": "omitted_explicit_constant"
+        },
+        "random_effects_explicit_constant_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 4.5102810375396984e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 4.336808689942018e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 6.938893903907228e-18,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.013773465636365018,
+            "leverage_max": 0.23398280044939526,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_explicit_constant_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-15,
+            "pvalues": 6.591949208711867e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 5.149960319306146e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 6.938893903907228e-18,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.013773465636365018,
+            "leverage_max": 0.23398280044939526,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_cluster_two_way": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.5612511283791264e-17,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 5.273559366969494e-16,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 3.469446951953614e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ],
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 2.949029909160572e-17,
+            "tvalues": 1.7053025658242404e-13,
+            "pvalues": 4.336808689942018e-17,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.0842021724855044e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "parzen",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 5.551115123125783e-16,
+            "pvalues": 3.3306690738754696e-16,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 1.734723475976807e-17,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.7763568394002505e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 4.779275733397357e-58,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 4.336808689942018e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 2.7755575615628914e-16,
+            "pvalues": 3.3306690738754696e-16,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 3.8163916471489756e-17,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.7763568394002505e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.3877787807814457e-17,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631299,
+            "leverage_max": 0.49672782581248365,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 9.396438433917875e-53,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 3.2526065174565133e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143434,
+            "leverage_max": 0.20961579624221388,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 2.7755575615628914e-17,
+            "tvalues": 8.881784197001252e-16,
+            "pvalues": 2.220446049250313e-16,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 6.938893903907228e-17,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 3.552713678800501e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.3877787807814457e-17,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631299,
+            "leverage_max": 0.49672782581248365,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 7.483741188258148e-50,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 4.336808689942018e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143434,
+            "leverage_max": 0.20961579624221388,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 6.776263578034403e-20,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 2.220446049250313e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.326672684688674e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.3010426069826053e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 7.105427357601002e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 2.710505431213761e-20,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 1.7053025658242404e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 3.469446951953614e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 9.486769009248164e-20,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 2.220446049250313e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.4210526315789473,
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 8.326672684688674e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.734723475976807e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 7.105427357601002e-15,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.1538461538461537,
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.6263032587282567e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 1.7053025658242404e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0263157894736843,
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 3.469446951953614e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0384615384615385,
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_rank_boundary_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_differences": {
+            "coef": 2.8796409701215e-16,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 2.220446049250313e-16,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 4.440892098500626e-16,
+            "fit_statistics.rsquared_adj": 3.3306690738754696e-16,
+            "fit_statistics.f_statistic": 2.020605904817785e-14,
+            "fit_statistics.f_pvalue": 4.440892098500626e-15,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 10,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 2,
+            "design_columns": 3,
+            "rank_deficient_extension": true,
+            "df_scale": 1.0204081632653061,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        }
+      },
+      "public_primitives": {
+        "cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 8.673617379884035e-19
+        },
+        "driscoll_kraay_qs": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 4.336808689942018e-19
+        },
+        "ill_conditioned_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 30929317.125
+        },
+        "ill_conditioned_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 18577135.875
+        },
+        "ill_conditioned_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 252664.75
+        },
+        "ill_conditioned_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 170369115.75
+        },
+        "rank_boundary_nonrobust": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 6.106226635438361e-16
+        },
+        "rank_boundary_hc0": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 4.440892098500626e-16
+        },
+        "rank_boundary_hc2": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 4.996003610813204e-16
+        },
+        "rank_boundary_hc3": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 5.551115123125783e-16
+        },
+        "rank_boundary_cluster": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 2.7755575615628914e-16
+        },
+        "rank_boundary_dk": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "max_abs_difference": 1.6653345369377348e-16
+        }
+      },
+      "prediction_contracts": {
+        "two_way_disconnected": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "prediction_backend": "cupy",
+          "guards": {
+            "cross_component": true,
+            "entity_only": true,
+            "time_only": true,
+            "known_entity_unknown_time": true,
+            "unknown_entity_known_time": true
+          },
+          "max_abs_differences": {
+            "observed": 0.0,
+            "same_component": 0.0,
+            "both_unseen": 0.0
+          }
+        },
+        "two_way_connected_partial_labels": {
+          "status": "success",
+          "executed_backend": "cupy",
+          "prediction_backend": "cupy",
+          "guards": {
+            "entity_only": true,
+            "time_only": true,
+            "known_entity_unknown_time": true,
+            "unknown_entity_known_time": true
+          },
+          "max_abs_differences": {
+            "both_known": 0.0,
+            "both_unseen": 0.0
+          }
+        }
+      },
+      "level_constant_contract": {
+        "status": "success",
+        "executed_backend": "cupy",
+        "prediction_backend": "cupy",
+        "constant_index": 0,
+        "constant_value": 1.0,
+        "df_resid": 94,
+        "f_df": [
+          1.0,
+          94.0
+        ],
+        "max_abs_differences_vs_pooled": {
+          "coef": 0.0,
+          "bse": 0.0,
+          "prediction": 0.0,
+          "rsquared_overall": 0.0,
+          "rsquared_adj": 1.1102230246251565e-16,
+          "f_statistic": 2.2737367544323206e-13,
+          "f_pvalue": 0.0
+        },
+        "values": {
+          "coef": [
+            1.163938920003259,
+            0.6503982092673445
+          ],
+          "bse": [
+            0.016369396871560138,
+            0.016337358946190376
+          ],
+          "prediction": [
+            1.604381262884517,
+            0.9731154302131291,
+            1.1240941885719007,
+            2.3619609079953596,
+            1.2520289384722807,
+            2.3392404294632336,
+            0.6349121690610631,
+            1.9022069192873308,
+            2.1718165414272423,
+            1.3752945655874325,
+            1.823874201580185,
+            2.7933540558475465
+          ],
+          "rsquared_overall": 0.9440101205807286,
+          "rsquared_adj": 0.9434144835656301,
+          "f_statistic": 1584.874842649613,
+          "f_pvalue": 1.1102230246251565e-16
+        },
+        "max_abs_differences_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "bse": 0.0,
+          "prediction": 4.440892098500626e-16,
+          "rsquared_overall": 0.0,
+          "rsquared_adj": 1.1102230246251565e-16,
+          "f_statistic": 6.821210263296962e-13,
+          "f_pvalue": 0.0
+        }
+      },
+      "numerical_primitives": {
+        "tiny_design_lstsq": {
+          "status": "success",
+          "backend": "cupy",
+          "rank": 2,
+          "matrix_rank": 2,
+          "params": [
+            1.0000000000000002,
+            2.0000000000000004
+          ]
+        },
+        "gram_overflow_certificate": {
+          "status": "success",
+          "backend": "cupy",
+          "rank": 2,
+          "params": [
+            1.0,
+            2.0
+          ]
+        },
+        "covariance_extreme_scale": {
+          "status": "success",
+          "backend": "cupy",
+          "one_way": [
+            [
+              9.8e+307
+            ]
+          ],
+          "two_way": [
+            [
+              9.8e+307
+            ]
+          ],
+          "group_cancellation": [
+            [
+              0.0
+            ],
+            [
+              0.0
+            ]
+          ],
+          "hac": [
+            [
+              9.000000000000001e+306
+            ]
+          ],
+          "driscoll_kraay": [
+            [
+              9.600000000000001e+306
+            ]
+          ],
+          "lag_accumulator_hac": [
+            [
+              1.0799999999999997e+308
+            ]
+          ],
+          "lag_accumulator_driscoll_kraay": [
+            [
+              1.2599999999999998e+308
+            ]
+          ],
+          "pregram_hac": [
+            [
+              9.999999999999998e+307
+            ]
+          ],
+          "pregram_driscoll_kraay": [
+            [
+              1.111111111111111e+308
+            ]
+          ],
+          "two_way_component_cancellation": [
+            [
+              0.0
+            ]
+          ],
+          "tiny_design_cluster_cancellation": [
+            [
+              0.0
+            ]
+          ],
+          "mixed_cluster": [
+            [
+              1e-200
+            ]
+          ],
+          "mixed_two_way": [
+            [
+              1e-200
+            ]
+          ],
+          "mixed_two_way_permuted": [
+            [
+              1e-200
+            ]
+          ],
+          "mixed_driscoll_kraay": [
+            [
+              1.5e-200
+            ]
+          ],
+          "nonnested_two_way_structural_cancellation": [
+            [
+              -4.000000000000001
+            ]
+          ],
+          "nonnested_two_way_safe_gram_cancellation": [
+            [
+              -4.0
+            ]
+          ],
+          "nonnested_two_way_group_debias_cancellation": [
+            [
+              6.0
+            ]
+          ]
+        },
+        "multiscale_grouping": {
+          "status": "success",
+          "backend": "cupy",
+          "grouped": [
+            [
+              1.0
+            ],
+            [
+              1.0
+            ]
+          ],
+          "one_way": [
+            [
+              2.0
+            ]
+          ],
+          "driscoll_kraay": [
+            [
+              2.6666666666666665
+            ]
+          ],
+          "deep_two_way": [
+            [
+              0.0
+            ]
+          ],
+          "unsafe_cross_two_way": [
+            [
+              3.999999999999432e+305
+            ]
+          ],
+          "third_tier_two_way": [
+            [
+              -4.388899255034951e+304
+            ]
+          ]
+        },
+        "hausman_scale": {
+          "status": "success",
+          "backend": "cupy",
+          "cases": {
+            "large": {
+              "statistic": 1.0,
+              "pvalue": 0.31731050786291115,
+              "df": 1.0
+            },
+            "subnormal": {
+              "statistic": 1.0,
+              "pvalue": 0.31731050786291115,
+              "df": 1.0
+            }
+          },
+          "large_singular_range_rejected": true,
+          "dense_large_statistic": 0.9999999999999998,
+          "dense_projection_range_rejected": true
+        },
+        "zero_variance_inference": {
+          "status": "success",
+          "backend": "cupy",
+          "zero_coefficient_statistic": 0.0,
+          "positive_zero_variance_is_inf": true,
+          "negative_zero_variance_is_inf": true,
+          "tiny_positive_bse_statistics": [
+            2.0,
+            -3.0000000000000004
+          ]
+        },
+        "cancellation_safe_mean": {
+          "status": "success",
+          "backend": "cupy",
+          "mean": 3.333333333333333e-171
+        },
+        "projection_created_dynamic_range": {
+          "status": "success",
+          "backend": "cupy",
+          "raw_stability_flag": false,
+          "post_entity_stability_flag": true,
+          "max_abs_y_vs_numpy": 0.0,
+          "max_abs_X_vs_numpy": 0.0
+        },
+        "fixed_effect_recovery_cancellation": {
+          "status": "success",
+          "backend": "cupy",
+          "prediction_backend": "cupy",
+          "max_abs_prediction_error": 0.0,
+          "max_abs_two_way_low_order_error": 0.0
+        },
+        "two_way_effect_normalization_overflow": {
+          "status": "success",
+          "backend": "cupy",
+          "max_abs_reconstruction_error": 0.0
+        },
+        "common_scale_product_range_guard": {
+          "status": "success",
+          "backend": "cupy",
+          "representable_exact_meat": 4e-200,
+          "failed_closed": true
+        },
+        "fixed_effect_map_range": {
+          "status": "success",
+          "backend": "cupy",
+          "max_abs_prediction_error": 0.0,
+          "grand_mean_finite": true,
+          "effect_map_finite": true
+        },
+        "two_way_effect_range_gauge": {
+          "status": "success",
+          "backend": "cupy",
+          "max_abs_entity_effect": 1.4999999999999984e+308,
+          "max_abs_time_effect": 9.999999999999992e+307,
+          "max_abs_reconstruction_error": 8.98128139290624e+292
+        },
+        "covariance_restore_range": {
+          "status": "success",
+          "backend": "cupy",
+          "coordinate_restore": 1e+200,
+          "cross_stage_restore": 9.999999999999999e+299
+        },
+        "nonfinite_covariance_guards": {
+          "status": "success",
+          "backend": "cupy",
+          "guards": {
+            "cluster": true,
+            "two_way": true,
+            "hac": true,
+            "dk": true
+          }
+        },
+        "diagnostic_scale_reductions": {
+          "status": "success",
+          "backend": "cupy",
+          "pooling_f_statistic": 13.83471074380162,
+          "pooling_f_pvalue": 6.374899712091597e-05,
+          "classical_f_statistic": 484.3149789850479,
+          "classical_f_pvalue": 8.409594132174902e-10,
+          "bp_lm_statistic": 1.747425206996001,
+          "bp_lm_pvalue": 0.18620074738591402,
+          "max_abs_differences_vs_numpy": {
+            "pooling_f_statistic": 3.552713678800501e-15,
+            "pooling_f_pvalue": 0.0,
+            "classical_f_statistic": 0.0,
+            "classical_f_pvalue": 0.0,
+            "bp_lm_statistic": 4.440892098500626e-16,
+            "bp_lm_pvalue": 5.551115123125783e-17
+          }
+        }
+      }
+    },
+    "torch": {
+      "status": "success",
+      "requested_backend": "torch",
+      "cases": {
+        "pooled_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 3.197442310920451e-14,
+            "pvalues": 6.331740687315346e-17,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 1.2739375526704677e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 3.469446951953614e-17,
+            "tvalues": 4.263256414560601e-14,
+            "pvalues": 7.28583859910259e-17,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 2.6020852139652106e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.014035716007961321,
+            "leverage_max": 0.23145706236692967,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 4.163336342344337e-17,
+            "tvalues": 4.263256414560601e-14,
+            "pvalues": 8.326672684688674e-17,
+            "conf_int": 9.992007221626409e-16,
+            "covariance": 3.0357660829594124e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.014035716007961321,
+            "leverage_max": 0.23145706236692967,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_cluster_one_way": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 3.469446951953614e-17,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 3.885780586188048e-16,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 5.5294310796760726e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 1,
+            "cluster_group_counts": [
+              10
+            ],
+            "group_debias": false,
+            "group_debias_factors": [
+              1.0
+            ],
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_cluster_two_way_group_debias": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 2.949029909160572e-17,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 4.163336342344337e-16,
+            "conf_int": 8.881784197001252e-16,
+            "covariance": 4.87890977618477e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ],
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_dk_bartlett": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 1.474514954580286e-16,
+            "tvalues": 1.0089706847793423e-12,
+            "pvalues": 5.0306980803327406e-17,
+            "conf_int": 1.2212453270876722e-15,
+            "covariance": 4.811147140404426e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_dk_qs": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.881784197001252e-16,
+            "bse": 1.717376241217039e-16,
+            "tvalues": 1.1795009413617663e-12,
+            "pvalues": 5.377642775528102e-17,
+            "conf_int": 1.2212453270876722e-15,
+            "covariance": 5.4752209710517974e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "qs",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 7,
+            "all_observed_lags_weighted": true,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "pooled_legacy_hac": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 1.4210854715202004e-14,
+            "pvalues": 1.9949319973733282e-17,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 1.0570971181733668e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.row_order_hac": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hac",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "row_order_hac": true,
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 2.1316282072803006e-14,
+            "pvalues": 4.540068328441404e-65,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 9.486769009248164e-19,
+            "prediction": 1.1102230246251565e-15,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": "torch",
+          "prediction_contract": "entity_effect_prediction"
+        },
+        "panel_entity_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-14,
+            "pvalues": 1.6924899950042265e-61,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 1.1655173354219173e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.2526065174565133e-19,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546328,
+            "leverage_max": 0.1952994856279332,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 3.3306690738754696e-16,
+            "bse": 1.734723475976807e-17,
+            "tvalues": 3.197442310920451e-14,
+            "pvalues": 2.551436263923068e-58,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 1.463672932855431e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 3.2526065174565133e-19,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0005744684754546328,
+            "leverage_max": 0.1952994856279332,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_two_way_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 1.236239323038783e-55,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 4.336808689942018e-19,
+            "prediction": 5.551115123125783e-17,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 2.7755575615628914e-17,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0004688530809229622,
+            "leverage_max": 0.15430313435799767,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": "torch",
+          "prediction_contract": "two_way_effect_prediction"
+        },
+        "panel_two_way_cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 0.0,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 1.8396788915177e-59,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 6.505213034913027e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 1.1368683772161603e-13,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ],
+            "design_rank": 2,
+            "design_columns": 2,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_two_way_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.8163916471489756e-17,
+            "tvalues": 7.105427357601002e-14,
+            "pvalues": 4.9262894188817315e-67,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 1.734723475976807e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 17,
+            "design_rank": 2,
+            "design_columns": 2,
+            "rank_deficient_extension": false,
+            "df_scale": 1.3454545454545455,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_explicit_constant_robust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 3.9898639947466563e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 5.692061405548898e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0422535211267605,
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_explicit_constant_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 2.6020852139652106e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 5.421010862427522e-19,
+            "prediction": 4.440892098500626e-16,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": "torch",
+          "prediction_contract": "omitted_explicit_constant"
+        },
+        "random_effects_explicit_constant_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 7.105427357601002e-15,
+            "pvalues": 2.42861286636753e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 7.589415207398531e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.013773465636365025,
+            "leverage_max": 0.23398280044939523,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_explicit_constant_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.7763568394002505e-15,
+            "pvalues": 3.642919299551295e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 6.505213034913027e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.013773465636365025,
+            "leverage_max": 0.23398280044939523,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_cluster_two_way": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.3877787807814457e-17,
+            "tvalues": 2.842170943040401e-14,
+            "pvalues": 8.326672684688674e-17,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 2.3310346708438345e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.cluster_dimensions": 0.0,
+            "covariance_metadata.cluster_group_counts": 0.0,
+            "covariance_metadata.group_debias": 0.0,
+            "covariance_metadata.group_debias_factors": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "clustered",
+            "cluster_dimensions": 2,
+            "cluster_group_counts": [
+              10,
+              8,
+              74
+            ],
+            "group_debias": true,
+            "group_debias_factors": [
+              1.0960960960960962,
+              1.1274131274131274,
+              1.0
+            ],
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 1.9081958235744878e-17,
+            "tvalues": 9.947598300641403e-14,
+            "pvalues": 1.3877787807814457e-17,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 1.328147661294743e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "parzen",
+            "bandwidth": 2,
+            "n_periods": 8,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 3,
+            "design_columns": 3,
+            "rank_deficient_extension": false,
+            "df_scale": 1.0422535211267605,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 8.881784197001252e-16,
+            "pvalues": 1.1102230246251565e-16,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 2.0816681711721685e-17,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 3,
+            "design_columns": 3,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.469446951953614e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 8.801832809006799e-57,
+            "conf_int": 1.6653345369377348e-16,
+            "covariance": 1.0842021724855044e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc0",
+            "design_rank": 2,
+            "design_columns": 2,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 8.881784197001252e-16,
+            "pvalues": 3.3306690738754696e-16,
+            "conf_int": 3.3306690738754696e-16,
+            "covariance": 4.163336342344337e-17,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.3877787807814457e-17,
+            "covariance_metadata.leverage_max": 5.551115123125783e-17,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631299,
+            "leverage_max": 0.4967278258124837,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 0.0,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 1.9706419493355544e-52,
+            "conf_int": 1.1102230246251565e-16,
+            "covariance": 0.0,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc2",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143434,
+            "leverage_max": 0.20961579624221388,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 5.551115123125783e-17,
+            "tvalues": 2.220446049250313e-16,
+            "pvalues": 1.1102230246251565e-16,
+            "conf_int": 4.440892098500626e-16,
+            "covariance": 5.551115123125783e-17,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 1.3877787807814457e-17,
+            "covariance_metadata.leverage_max": 5.551115123125783e-17,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 3,
+            "design_columns": 3,
+            "leverage_min": 0.12370974688631299,
+            "leverage_max": 0.4967278258124837,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 3,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.1102230246251565e-16,
+            "bse": 3.469446951953614e-18,
+            "tvalues": 3.552713678800501e-15,
+            "pvalues": 9.461587073726373e-49,
+            "conf_int": 2.220446049250313e-16,
+            "covariance": 1.0842021724855044e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.leverage_min": 0.0,
+            "covariance_metadata.leverage_max": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "hc3",
+            "design_rank": 2,
+            "design_columns": 2,
+            "leverage_min": 0.0006345976206143434,
+            "leverage_max": 0.20961579624221388,
+            "coefficient_inference_applicable": true
+          },
+          "fit_rank": 2,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": true,
+          "coefficient_inference_reason": null,
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 6.776263578034403e-20,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 2.220446049250313e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.326672684688674e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.3010426069826053e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.0842021724855044e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_rank_deficient_nonrobust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 3.469446951953614e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "nonrobust",
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_entity_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 8.131516293641283e-20,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 2.220446049250313e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.4210526315789473,
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "between_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 8.326672684688674e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.734723475976807e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.1538461538461537,
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "first_difference_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 5.551115123125783e-17,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.3552527156068805e-19,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 2.220446049250313e-16,
+            "fit_statistics.rsquared_overall": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_adj": 0.0,
+            "fit_statistics.f_statistic": 0.0,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0263157894736843,
+            "design_rank": 1,
+            "design_columns": 2,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 1,
+          "parameter_count": 2,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=1, columns=2); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "random_effects_rank_deficient_robust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 1.6653345369377348e-16,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 3.469446951953614e-18,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 1.1102230246251565e-16,
+            "fit_statistics.rsquared_overall": 0.0,
+            "fit_statistics.rsquared_adj": 1.1102230246251565e-16,
+            "fit_statistics.f_statistic": 5.684341886080802e-14,
+            "fit_statistics.f_pvalue": 0.0,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.hc_equivalent": 0.0,
+            "covariance_metadata.hc1_correction": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "robust",
+            "hc_equivalent": "hc1",
+            "hc1_correction": 1.0384615384615385,
+            "design_rank": 2,
+            "design_columns": 3,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        },
+        "panel_rank_boundary_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_differences": {
+            "coef": 2.8102520310824275e-16,
+            "bse": 0.0,
+            "tvalues": 0.0,
+            "pvalues": 0.0,
+            "conf_int": 0.0,
+            "covariance": 1.942890293094024e-16,
+            "prediction": 0.0,
+            "coefficient_inference_applicable": 0.0,
+            "coefficient_inference_reason": 0.0,
+            "prediction_backend": 0.0,
+            "prediction_contract": 0.0,
+            "nobs": 0.0,
+            "df_resid": 0.0,
+            "fit_statistics.rsquared_within": 0.0,
+            "fit_statistics.rsquared_between": 0.0,
+            "fit_statistics.rsquared_overall": 4.440892098500626e-16,
+            "fit_statistics.rsquared_adj": 3.3306690738754696e-16,
+            "fit_statistics.f_statistic": 2.020605904817785e-14,
+            "fit_statistics.f_pvalue": 4.440892098500626e-15,
+            "covariance_metadata.covariance": 0.0,
+            "covariance_metadata.kernel": 0.0,
+            "covariance_metadata.bandwidth": 0.0,
+            "covariance_metadata.n_periods": 0.0,
+            "covariance_metadata.max_weighted_lag": 0.0,
+            "covariance_metadata.all_observed_lags_weighted": 0.0,
+            "covariance_metadata.extra_df": 0.0,
+            "covariance_metadata.design_rank": 0.0,
+            "covariance_metadata.design_columns": 0.0,
+            "covariance_metadata.rank_deficient_extension": 0.0,
+            "covariance_metadata.df_scale": 0.0,
+            "covariance_metadata.coefficient_inference_applicable": 0.0,
+            "covariance_metadata.coefficient_inference_reason": 0.0
+          },
+          "covariance_metadata": {
+            "covariance": "driscoll-kraay",
+            "kernel": "bartlett",
+            "bandwidth": 2,
+            "n_periods": 10,
+            "max_weighted_lag": 2,
+            "all_observed_lags_weighted": false,
+            "extra_df": 0,
+            "design_rank": 2,
+            "design_columns": 3,
+            "rank_deficient_extension": true,
+            "df_scale": 1.0204081632653061,
+            "coefficient_inference_applicable": false,
+            "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available"
+          },
+          "fit_rank": 2,
+          "parameter_count": 3,
+          "coefficient_inference_applicable": false,
+          "coefficient_inference_reason": "coefficient-level inference is unavailable because the fit-space design is rank deficient (rank=2, columns=3); fitted values and identified fit-space quantities remain available",
+          "prediction_backend": null,
+          "prediction_contract": null
+        }
+      },
+      "public_primitives": {
+        "cluster_group_debias": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 4.336808689942018e-19
+        },
+        "driscoll_kraay_qs": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 2.168404344971009e-19
+        },
+        "ill_conditioned_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 30929316.875
+        },
+        "ill_conditioned_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 18680574.0
+        },
+        "ill_conditioned_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 467677.875
+        },
+        "ill_conditioned_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 170369115.5
+        },
+        "rank_boundary_nonrobust": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 6.106226635438361e-16
+        },
+        "rank_boundary_hc0": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 4.996003610813204e-16
+        },
+        "rank_boundary_hc2": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 6.661338147750939e-16
+        },
+        "rank_boundary_hc3": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 4.996003610813204e-16
+        },
+        "rank_boundary_cluster": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 2.498001805406602e-16
+        },
+        "rank_boundary_dk": {
+          "status": "success",
+          "executed_backend": "torch",
+          "max_abs_difference": 2.7755575615628914e-16
+        }
+      },
+      "prediction_contracts": {
+        "two_way_disconnected": {
+          "status": "success",
+          "executed_backend": "torch",
+          "prediction_backend": "torch",
+          "guards": {
+            "cross_component": true,
+            "entity_only": true,
+            "time_only": true,
+            "known_entity_unknown_time": true,
+            "unknown_entity_known_time": true
+          },
+          "max_abs_differences": {
+            "observed": 0.0,
+            "same_component": 0.0,
+            "both_unseen": 0.0
+          }
+        },
+        "two_way_connected_partial_labels": {
+          "status": "success",
+          "executed_backend": "torch",
+          "prediction_backend": "torch",
+          "guards": {
+            "entity_only": true,
+            "time_only": true,
+            "known_entity_unknown_time": true,
+            "unknown_entity_known_time": true
+          },
+          "max_abs_differences": {
+            "both_known": 0.0,
+            "both_unseen": 0.0
+          }
+        }
+      },
+      "level_constant_contract": {
+        "status": "success",
+        "executed_backend": "torch",
+        "prediction_backend": "torch",
+        "constant_index": 0,
+        "constant_value": 1.0,
+        "df_resid": 94,
+        "f_df": [
+          1.0,
+          94.0
+        ],
+        "max_abs_differences_vs_pooled": {
+          "coef": 0.0,
+          "bse": 0.0,
+          "prediction": 0.0,
+          "rsquared_overall": 0.0,
+          "rsquared_adj": 0.0,
+          "f_statistic": 0.0,
+          "f_pvalue": 0.0
+        },
+        "values": {
+          "coef": [
+            1.163938920003259,
+            0.6503982092673445
+          ],
+          "bse": [
+            0.016369396871560138,
+            0.016337358946190376
+          ],
+          "prediction": [
+            1.604381262884517,
+            0.9731154302131291,
+            1.1240941885719007,
+            2.3619609079953596,
+            1.2520289384722807,
+            2.3392404294632336,
+            0.6349121690610631,
+            1.9022069192873308,
+            2.1718165414272423,
+            1.3752945655874325,
+            1.823874201580185,
+            2.7933540558475465
+          ],
+          "rsquared_overall": 0.9440101205807286,
+          "rsquared_adj": 0.9434144835656301,
+          "f_statistic": 1584.8748426496131,
+          "f_pvalue": 1.1102230246251565e-16
+        },
+        "max_abs_differences_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "bse": 0.0,
+          "prediction": 4.440892098500626e-16,
+          "rsquared_overall": 0.0,
+          "rsquared_adj": 1.1102230246251565e-16,
+          "f_statistic": 9.094947017729282e-13,
+          "f_pvalue": 0.0
+        }
+      },
+      "numerical_primitives": {
+        "tiny_design_lstsq": {
+          "status": "success",
+          "backend": "torch",
+          "rank": 2,
+          "matrix_rank": 2,
+          "params": [
+            1.0000000000000002,
+            2.0000000000000004
+          ]
+        },
+        "gram_overflow_certificate": {
+          "status": "success",
+          "backend": "torch",
+          "rank": 2,
+          "params": [
+            1.0,
+            2.0
+          ]
+        },
+        "covariance_extreme_scale": {
+          "status": "success",
+          "backend": "torch",
+          "one_way": [
+            [
+              9.8e+307
+            ]
+          ],
+          "two_way": [
+            [
+              9.8e+307
+            ]
+          ],
+          "group_cancellation": [
+            [
+              0.0
+            ],
+            [
+              0.0
+            ]
+          ],
+          "hac": [
+            [
+              9.000000000000001e+306
+            ]
+          ],
+          "driscoll_kraay": [
+            [
+              9.600000000000001e+306
+            ]
+          ],
+          "lag_accumulator_hac": [
+            [
+              1.0800000000000003e+308
+            ]
+          ],
+          "lag_accumulator_driscoll_kraay": [
+            [
+              1.2600000000000003e+308
+            ]
+          ],
+          "pregram_hac": [
+            [
+              1e+308
+            ]
+          ],
+          "pregram_driscoll_kraay": [
+            [
+              1.1111111111111112e+308
+            ]
+          ],
+          "two_way_component_cancellation": [
+            [
+              0.0
+            ]
+          ],
+          "tiny_design_cluster_cancellation": [
+            [
+              0.0
+            ]
+          ],
+          "mixed_cluster": [
+            [
+              1e-200
+            ]
+          ],
+          "mixed_two_way": [
+            [
+              1e-200
+            ]
+          ],
+          "mixed_two_way_permuted": [
+            [
+              1e-200
+            ]
+          ],
+          "mixed_driscoll_kraay": [
+            [
+              1.5e-200
+            ]
+          ],
+          "nonnested_two_way_structural_cancellation": [
+            [
+              -4.000000000000001
+            ]
+          ],
+          "nonnested_two_way_safe_gram_cancellation": [
+            [
+              -4.0
+            ]
+          ],
+          "nonnested_two_way_group_debias_cancellation": [
+            [
+              6.0
+            ]
+          ]
+        },
+        "multiscale_grouping": {
+          "status": "success",
+          "backend": "torch",
+          "grouped": [
+            [
+              1.0
+            ],
+            [
+              1.0
+            ]
+          ],
+          "one_way": [
+            [
+              2.0
+            ]
+          ],
+          "driscoll_kraay": [
+            [
+              2.6666666666666665
+            ]
+          ],
+          "deep_two_way": [
+            [
+              0.0
+            ]
+          ],
+          "unsafe_cross_two_way": [
+            [
+              4.00000000000024e+305
+            ]
+          ],
+          "third_tier_two_way": [
+            [
+              -4.388899255034951e+304
+            ]
+          ]
+        },
+        "hausman_scale": {
+          "status": "success",
+          "backend": "torch",
+          "cases": {
+            "large": {
+              "statistic": 1.0,
+              "pvalue": 0.31731050786291115,
+              "df": 1.0
+            },
+            "subnormal": {
+              "statistic": 1.0,
+              "pvalue": 0.31731050786291115,
+              "df": 1.0
+            }
+          },
+          "large_singular_range_rejected": true,
+          "dense_large_statistic": 0.9999999999999998,
+          "dense_projection_range_rejected": true
+        },
+        "zero_variance_inference": {
+          "status": "success",
+          "backend": "torch",
+          "zero_coefficient_statistic": 0.0,
+          "positive_zero_variance_is_inf": true,
+          "negative_zero_variance_is_inf": true,
+          "tiny_positive_bse_statistics": [
+            2.0,
+            -3.0000000000000004
+          ]
+        },
+        "cancellation_safe_mean": {
+          "status": "success",
+          "backend": "torch",
+          "mean": 3.333333333333333e-171
+        },
+        "projection_created_dynamic_range": {
+          "status": "success",
+          "backend": "torch",
+          "raw_stability_flag": false,
+          "post_entity_stability_flag": true,
+          "max_abs_y_vs_numpy": 0.0,
+          "max_abs_X_vs_numpy": 0.0
+        },
+        "fixed_effect_recovery_cancellation": {
+          "status": "success",
+          "backend": "torch",
+          "prediction_backend": "torch",
+          "max_abs_prediction_error": 0.0,
+          "max_abs_two_way_low_order_error": 0.0
+        },
+        "two_way_effect_normalization_overflow": {
+          "status": "success",
+          "backend": "torch",
+          "max_abs_reconstruction_error": 0.0
+        },
+        "common_scale_product_range_guard": {
+          "status": "success",
+          "backend": "torch",
+          "representable_exact_meat": 4e-200,
+          "failed_closed": true
+        },
+        "fixed_effect_map_range": {
+          "status": "success",
+          "backend": "torch",
+          "max_abs_prediction_error": 0.0,
+          "grand_mean_finite": true,
+          "effect_map_finite": true
+        },
+        "two_way_effect_range_gauge": {
+          "status": "success",
+          "backend": "torch",
+          "max_abs_entity_effect": 1.4999999999999984e+308,
+          "max_abs_time_effect": 9.999999999999992e+307,
+          "max_abs_reconstruction_error": 8.98128139290624e+292
+        },
+        "covariance_restore_range": {
+          "status": "success",
+          "backend": "torch",
+          "coordinate_restore": 1e+200,
+          "cross_stage_restore": 9.999999999999999e+299
+        },
+        "nonfinite_covariance_guards": {
+          "status": "success",
+          "backend": "torch",
+          "guards": {
+            "cluster": true,
+            "two_way": true,
+            "hac": true,
+            "dk": true
+          }
+        },
+        "diagnostic_scale_reductions": {
+          "status": "success",
+          "backend": "torch",
+          "pooling_f_statistic": 13.834710743801624,
+          "pooling_f_pvalue": 6.374899712091597e-05,
+          "classical_f_statistic": 484.3149789850479,
+          "classical_f_pvalue": 8.409594132174902e-10,
+          "bp_lm_statistic": 1.747425206996001,
+          "bp_lm_pvalue": 0.18620074738591402,
+          "max_abs_differences_vs_numpy": {
+            "pooling_f_statistic": 0.0,
+            "pooling_f_pvalue": 0.0,
+            "classical_f_statistic": 0.0,
+            "classical_f_pvalue": 0.0,
+            "bp_lm_statistic": 4.440892098500626e-16,
+            "bp_lm_pvalue": 5.551115123125783e-17
+          }
+        }
+      }
+    }
+  }
+}

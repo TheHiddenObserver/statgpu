@@ -2,6 +2,16 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## 0.2.5 — 2026-08-26
+
+### PR #126, #128 — Panel Tier-1 Stage C covariance
+- Released the Panel Tier-1 Stage C covariance and inference surface: HC0/HC2/HC3 and legacy HC1 where statistically defined, one-/two-way clustering with opt-in `group_debias`, Driscoll-Kraay with Bartlett/Parzen/QS kernels, RandomEffects robust/HC inference on quasi-demeaned GLS scores, and legacy row-order HAC with ordered-categorical chronology.
+- Added transactional panel fits, row-preserving formula prediction, classical Hausman/pooling-F/Breusch-Pagan LM diagnostics, and overflow-safe diagnostics at extreme float64 scales.
+- Fixed silent numerical corruption: CuPy `maximum.at`/`scatter_max` return `inf` for float64 magnitudes around 1e7..1e308 (group min/max scatter now uses a magnitude-gated host fallback), and Torch CUDA SVD now requires the exact `gesvd` driver (the default `gesvdj` leaks ~1e-16 into structurally-zero `U` entries).
+- Strengthened the coefficient-resolution certificate to a deterministic error bound independent of LAPACK-version-specific SVD rounding; unresolved near-collinear designs fail closed instead of returning unreliable coefficients.
+- Kept ordinary designs on vectorized GPU paths while reserving exact per-row accumulation for genuinely recoverable cancellation residuals; two-way clustered covariance at 10k rows dropped from ~1000 s to ~1.3 s on Tesla P100.
+- Recorded exact-source Tesla P100 acceptance for all 12 physical runners on the release commit; artifacts under `results/pr126_release_86a363fd/`.
+
 ## 2026-08-09
 
 ### PR #126 — Panel Tier-1 Stage C covariance

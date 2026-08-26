@@ -1,9 +1,35 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-18<br>
+> Last updated: 2026-08-26<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## 0.2.5 — 2026-08-26 (released)
+
+### Added
+
+- **Panel Tier-1 Stage C covariance and inference**: HC0/HC2/HC3 and legacy HC1 (`robust`) covariance for the transform-based panel estimators; one-way and two-way clustered covariance with opt-in `group_debias=True`; Driscoll-Kraay covariance with Bartlett, Parzen, and Quadratic-Spectral kernels; robust/HC inference for `RandomEffects` on quasi-demeaned GLS scores; legacy row-order HAC for `PooledOLS` with ordered-categorical chronology support.
+- **Diagnostics**: classical Hausman FE-vs-RE, pooling F, Breusch-Pagan LM, within/between/overall/adjusted R-squared, and model F — overflow-safe at extreme float64 scales on NumPy/CuPy/Torch.
+- **Transactional panel fits** with row-preserving formula prediction and fail-closed refit semantics.
+
+### Fixed
+
+- CuPy `maximum.at`/`scatter_max` return `inf` for float64 magnitudes around 1e7..1e308; group min/max scatter now uses a magnitude-gated host fallback (`<= 1e6` keeps the native GPU scatter) and is exact in both paths.
+- Torch CUDA SVD now requires the exact `gesvd` driver and fails closed when it is unavailable; the default `gesvdj` driver leaks ~1e-16 into structurally-zero `U` entries that huge responses amplify into wrong coefficients.
+- The panel coefficient-resolution certificate was made deterministic (independent of LAPACK-version-specific SVD rounding); unresolved near-collinear full-rank designs fail closed instead of returning unreliable slopes, while single-column fixed-effect-absorbed designs and rank-deficient designs report their actual rank.
+- Formula side-array alignment fails closed unless a side array matches either the original formula-data row count or the retained row count.
+- Failed panel fits retain the executed backend provenance while clearing fitted/inference state.
+
+### Optimized
+
+- Two-way clustered covariance at 10k rows dropped from ~1000 s to ~1.3 s per CuPy fit on Tesla P100 after an over-broad row-expansion fallback was replaced by a residual-acceptance check that keeps ordinary balanced panels on the vectorized Gram path.
+- Fama-MacBeth resident-array scaling (P100): CuPy/Torch GPU-over-NumPy median-time ratios **0.55/0.34** micro, **0.20/0.17** medium, **0.11/0.11** large — every measured case in one `gram-certified` batch with zero SVD fallbacks.
+
+### Validation
+
+- Exact-source Tesla P100 acceptance on release commit `86a363fd`: all 12 physical runners passed (Stage-C 35 cases + 12 primitives per backend; Fama-MacBeth oracle + provenance; HAC chronology; extreme t(2) tail; device affinity; scaling; RHS cancellation ×2; rank precedence ×2; intercept cancellation ×2). Artifacts: `results/pr126_release_86a363fd/`.
+- TestPyPI rehearsal: pure-Python wheel installed in fresh environments from `test.pypi.org` with import and CPU fit/predict smoke tests passing.
 
 ## 2026-08-09 — Panel Stage C covariance completion (PR #126)
 
