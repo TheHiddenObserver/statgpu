@@ -86,7 +86,17 @@
       "status": "partial_canonical",
       "source_ids": [
         "new-modules-20260624-bcbdb676223b",
-        "panel-stage-b-pr122-20260809-2056f836bfe2"
+        "panel-stage-b-pr122-20260809-2056f836bfe2",
+        "panel-stage-c-validation-pr126-20260811-af2227efe3cd",
+        "panel-stage-c-performance-pr126-20260811-409974070022",
+        "panel-stage-c-rank-policy-validation-pr126-20260811-c67ada7ec59f",
+        "panel-stage-c-rank-policy-performance-pr126-20260811-f27bef0b7c55",
+        "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
+        "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
+        "panel-stage-c-identifiability-validation-pr126-20260812-2d929bccf1c7",
+        "panel-stage-c-identifiability-performance-pr126-20260812-2238002d491f",
+        "panel-stage-c-final-validation-pr126-20260813-62fbf89e58fb",
+        "panel-stage-c-final-performance-pr126-20260813-980ffe9bd392"
       ],
       "representative_dimensions": [
         "estimator",
@@ -94,10 +104,16 @@
         "aligned_scale",
         "physical_validation",
         "diagnostics",
-        "inference_regression"
+        "inference_regression",
+        "covariance",
+        "n_times",
+        "timing_protocol",
+        "coefficient_inference_applicability",
+        "prediction_backend",
+        "two_way_fe_timing"
       ],
       "issue": "#108",
-      "disposition": "June timing rows cover aligned PanelOLS and RandomEffects. PR #122 adds canonical validation-only CuPy/Torch evidence for the 17-case Stage-B estimator matrix, five Hausman diagnostics per backend (including a physically applicable nonzero-effect statistic/p-value/df path), backend provenance, Stage-A inference regression, and the disconnected two-way FE df=1 physical boundary; broader performance/covariance timing remains open."
+      "disposition": "June timing rows and PR #122 Stage-B diagnostics remain canonical historical/current coverage. PR #126 final Stage-C physical acceptance is now backed by the immutable fresh P100 v5 pair measured on 5f0cea9216321361842bc3c438219084a4cf5538: CuPy and Torch each pass 35 estimator integrations plus 12 public primitives (47/47), including connected and disconnected two-way prediction identifiability guards, level-constant parity, and backend provenance. Synchronized performance contains 60 rows (54 base, four high-T QS, two unbalanced two-way-FE). Historical Stage-C v1-v4 sources remain immutable audit evidence and are not overwritten. No Stage-C speedup claim is made."
     },
     {
       "capability_id": "gam-nonparametric",

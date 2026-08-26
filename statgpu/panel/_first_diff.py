@@ -9,17 +9,18 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._utils import factorize_panel_labels
+from statgpu.panel._linalg import panel_lstsq
+from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
 class FirstDifferenceOLS(BasePanelModel):
     """First-difference OLS estimator for panel data.
 
-    Transforms the data by taking first differences within each entity:
-    ``Δy_t = y_t - y_{t-1}``, ``ΔX_t = X_t - X_{t-1}``, then runs OLS
-    on the differenced data.
+    Transforms the data by taking first differences within each entity and runs
+    OLS on the retained differenced sample. Stage C adds transformed-fit-space
+    HC0/HC2/HC3 covariance while preserving historical HC1 ``robust`` behavior.
     """
 
     def __init__(
@@ -30,16 +31,19 @@ class FirstDifferenceOLS(BasePanelModel):
         n_jobs: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
-        self.cov_type = cov_type.lower()
+        from statgpu.panel._covariance import normalize_covariance_type
+
+        self.cov_type = normalize_covariance_type(cov_type)
         self.alpha = alpha
-        if self.cov_type not in ("nonrobust", "robust"):
-            raise ValueError("cov_type must be 'nonrobust' or 'robust'")
+        if self.cov_type not in ("nonrobust", "robust", "hc0", "hc2", "hc3"):
+            raise ValueError(
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', 'hc2', or 'hc3'"
+            )
         self.fit_statistics_ = None
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the first-difference OLS model."""
-        # Preserve the existing contract: an explicit entity side array is
-        # required even when the numerical design is supplied by a formula.
+        self._reset_fit_state()
         if entity_ids is None:
             raise ValueError("entity_ids is required for FirstDifferenceOLS")
 
@@ -79,20 +83,26 @@ class FirstDifferenceOLS(BasePanelModel):
         )
         n, k = X_diff.shape
 
-        XtX = X_diff.T @ X_diff
-        Xty = X_diff.T @ y_diff
-        try:
-            params = xp.linalg.solve(XtX, Xty)
-        except _LINALG_ERRORS:
-            params = xp.linalg.pinv(X_diff) @ y_diff
+        params, rank_diff = panel_lstsq(X_diff, y_diff, xp)
 
-        if n <= k:
+        if n <= rank_diff:
             raise ValueError(
-                f"positive residual degrees of freedom required; n={n}, k={k}"
+                "positive residual degrees of freedom required; "
+                f"n={n}, rank={rank_diff}"
             )
-        df_resid = n - k
+        df_resid = n - int(rank_diff)
         resid = y_diff - X_diff @ params
-        scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
+        from statgpu.panel._diagnostics import (
+            _centered_working_values,
+            _physical_common_scale,
+            _residual_on_centering_scale,
+            _restore_squared_scale,
+            _scaled_residual_r2,
+            _scaled_residual_variance,
+            _scaled_unit_values,
+        )
+
+        scale = _scaled_residual_variance(resid, df_resid, xp)
 
         self._panel_store_ols_inference(
             X_diff,
@@ -101,30 +111,49 @@ class FirstDifferenceOLS(BasePanelModel):
             scale=scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank_diff,
             cov_type=self._cov_type,
-            allowed=("nonrobust", "robust"),
+            allowed=("nonrobust", "robust", "hc0", "hc2", "hc3"),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
-            diag_floor=1e-30,
+            diag_floor=0.0,
         )
 
-        y_bar = xp.mean(y_diff)
-        ss_tot = _to_float_scalar(xp.sum((y_diff - y_bar) ** 2))
-        ss_res = _to_float_scalar(xp.sum(resid * resid))
-        self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+        y_centered, centering_scale = _centered_working_values(y_diff, xp)
+        resid_for_r2 = _residual_on_centering_scale(resid, centering_scale, xp)
+        self.rsquared, r2_degenerate = _scaled_residual_r2(
+            resid_for_r2, y_centered, xp
+        )
+        if r2_degenerate:
+            self.rsquared = float("nan")
+
+        resid_scale = xp.max(xp.abs(resid))
+        centered_scale = xp.max(xp.abs(y_centered))
+        resid_unit = _scaled_unit_values(resid, resid_scale, xp)
+        centered_unit = _scaled_unit_values(y_centered, centered_scale, xp)
+        ss_res = _restore_squared_scale(
+            _to_float_scalar(xp.sum(resid_unit * resid_unit)),
+            _to_float_scalar(resid_scale),
+        )
+        centered_physical_scale = _physical_common_scale(
+            centered_scale, centering_scale
+        )
+        ss_tot = _restore_squared_scale(
+            _to_float_scalar(xp.sum(centered_unit * centered_unit)),
+            centered_physical_scale,
+        )
         self.nobs = n
         self.df_resid = df_resid
 
         from statgpu.panel._diagnostic_context import build_model_fit_statistics
-        from statgpu.panel._diagnostics import _matrix_rank
 
-        rank_diff = _matrix_rank(X_diff, xp)
         diagnostic_df = n - rank_diff
-        # The primary FD fit has no constant, so its total fit-space df is the
-        # number of retained first differences.  Standard within/between/overall
-        # R² are still evaluated using the level coefficient vector, matching the
-        # parameter-based panel definition rather than redefining them on Δy.
-        ss_tot_diag = _to_float_scalar(xp.sum(y_diff * y_diff))
+        y_diff_scale = xp.max(xp.abs(y_diff))
+        y_diff_unit = _scaled_unit_values(y_diff, y_diff_scale, xp)
+        ss_tot_diag = _restore_squared_scale(
+            _to_float_scalar(xp.sum(y_diff_unit * y_diff_unit)),
+            _to_float_scalar(y_diff_scale),
+        )
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,
             X_arr,
@@ -185,10 +214,17 @@ def _first_diff_transform(X, y, entity_ids, time_ids, xp):
     """
     eids_np = _to_numpy(entity_ids).ravel()
     if time_ids is not None:
-        tids_np = np.asarray(_to_numpy(time_ids)).ravel()
-        if tids_np.shape[0] != eids_np.shape[0]:
-            raise ValueError("time_ids must have the same length as entity_ids")
-        sort_idx_np = np.lexsort((tids_np, eids_np))
+        _time_labels, time_codes = factorize_panel_metadata(
+            time_ids, name="time_ids", expected_n=eids_np.shape[0]
+        )
+        pairs = np.column_stack(
+            [np.asarray(eids_np, dtype=np.int64), np.asarray(time_codes, dtype=np.int64)]
+        )
+        if np.unique(pairs, axis=0).shape[0] != pairs.shape[0]:
+            raise ValueError(
+                "FirstDifferenceOLS requires unique (entity_id, time_id) observations"
+            )
+        sort_idx_np = np.lexsort((time_codes, eids_np))
     else:
         sort_idx_np = np.argsort(eids_np, kind="stable")
 

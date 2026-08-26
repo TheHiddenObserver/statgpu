@@ -1,0 +1,275 @@
+{
+  "schema_version": 2,
+  "git_sha": "da3604ee8d23e513995c703401d5a93e4dbc96f6",
+  "status": "success",
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "numpy": "1.24.2",
+    "pandas": "2.0.0",
+    "patsy": "1.0.2",
+    "cupy": "13.6.0",
+    "torch": "2.0.0",
+    "gpu_by_backend": {
+      "cupy": "Tesla P100-SXM2-16GB",
+      "torch": "Tesla P100-SXM2-16GB"
+    }
+  },
+  "thread_environment": {
+    "OMP_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "NUMEXPR_NUM_THREADS": null
+  },
+  "timing_protocol": {
+    "warmup": 2,
+    "repeats": 5,
+    "input_residency": "NumPy arrays resident on host; CuPy/Torch arrays transferred to GPU before warmup/timed samples",
+    "synchronization": "GPU synchronized immediately before and after every timed fit"
+  },
+  "timing_scope": "resident-array end-to-end FamaMacBeth.fit timing with explicit GPU synchronization before and after each sample; host-to-device input transfer is intentionally excluded",
+  "interpretation": "backend_over_numpy_median_ratio < 1 (speedup_over_numpy > 1) means the GPU backend is faster than the serial NumPy reference on that scale",
+  "solver_interpretation": "GPU solver_mode=gram-certified means every retained period passed the conservative Gram-spectrum certificate and svd_fallbacks=0. control_syncs counts the host control transfers needed to choose the fail-closed path; uncertified periods must fall back to the maintained SVD rank policy.",
+  "fixtures": {
+    "micro": {
+      "shape": {
+        "n_times": 64,
+        "observations_per_period": 128,
+        "n_features": 4,
+        "n_rows": 8192,
+        "design_columns_with_intercept": 5
+      },
+      "numpy": {
+        "samples_seconds": [
+          0.010405182838439941,
+          0.010446310043334961,
+          0.01030990481376648,
+          0.010301530361175537,
+          0.010355174541473389
+        ],
+        "median_seconds": 0.010355174541473389,
+        "rows_per_second": 791102.0685542591,
+        "solver_mode": "gram-certified",
+        "solver_batches": 1,
+        "control_syncs": 1,
+        "svd_fallbacks": 0
+      },
+      "backends": {
+        "cupy": {
+          "samples_seconds": [
+            0.01825442910194397,
+            0.018083572387695312,
+            0.017975151538848877,
+            0.01859450340270996,
+            0.018268942832946777
+          ],
+          "median_seconds": 0.01825442910194397,
+          "rows_per_second": 448767.8006390027,
+          "backend_over_numpy_median_ratio": 1.7628316189971853,
+          "speedup_over_numpy": 0.567269153345948,
+          "solver_mode": "gram-certified",
+          "solver_batches": 1,
+          "control_syncs": 1,
+          "svd_fallbacks": 0,
+          "max_abs_differences_vs_numpy": {
+            "coef": 1.1102230246251565e-16,
+            "betas": 7.771561172376096e-16,
+            "bse": 2.0816681711721685e-17,
+            "tvalues": 1.4210854715202004e-13,
+            "pvalues": 1.2031737451292323e-66,
+            "conf_int": 1.1102230246251565e-16,
+            "cov_params": 1.3010426069826053e-18,
+            "prediction": 4.440892098500626e-16
+          }
+        },
+        "torch": {
+          "samples_seconds": [
+            0.008147001266479492,
+            0.008045405149459839,
+            0.008046448230743408,
+            0.008004724979400635,
+            0.007978767156600952
+          ],
+          "median_seconds": 0.008045405149459839,
+          "rows_per_second": 1018220.9407502621,
+          "backend_over_numpy_median_ratio": 0.7769453925896933,
+          "speedup_over_numpy": 1.2870917435610594,
+          "solver_mode": "gram-certified",
+          "solver_batches": 1,
+          "control_syncs": 1,
+          "svd_fallbacks": 0,
+          "max_abs_differences_vs_numpy": {
+            "coef": 1.1102230246251565e-16,
+            "betas": 5.551115123125783e-16,
+            "bse": 6.938893903907228e-18,
+            "tvalues": 1.2789769243681803e-13,
+            "pvalues": 2.0864284597616745e-68,
+            "conf_int": 2.220446049250313e-16,
+            "cov_params": 6.505213034913027e-19,
+            "prediction": 4.440892098500626e-16
+          }
+        }
+      }
+    },
+    "medium": {
+      "shape": {
+        "n_times": 128,
+        "observations_per_period": 1024,
+        "n_features": 8,
+        "n_rows": 131072,
+        "design_columns_with_intercept": 9
+      },
+      "numpy": {
+        "samples_seconds": [
+          0.1319969892501831,
+          0.1304667890071869,
+          0.13070368766784668,
+          0.1314144730567932,
+          0.13167732954025269
+        ],
+        "median_seconds": 0.1314144730567932,
+        "rows_per_second": 997393.9471899323,
+        "solver_mode": "gram-certified",
+        "solver_batches": 1,
+        "control_syncs": 1,
+        "svd_fallbacks": 0
+      },
+      "backends": {
+        "cupy": {
+          "samples_seconds": [
+            0.07473856210708618,
+            0.07418087124824524,
+            0.0735238790512085,
+            0.0717642605304718,
+            0.07140567898750305
+          ],
+          "median_seconds": 0.0735238790512085,
+          "rows_per_second": 1782713.3400933584,
+          "backend_over_numpy_median_ratio": 0.5594808345001222,
+          "speedup_over_numpy": 1.7873713241553075,
+          "solver_mode": "gram-certified",
+          "solver_batches": 1,
+          "control_syncs": 1,
+          "svd_fallbacks": 0,
+          "max_abs_differences_vs_numpy": {
+            "coef": 2.220446049250313e-16,
+            "betas": 2.1094237467877974e-15,
+            "bse": 1.0408340855860843e-17,
+            "tvalues": 4.433786671143025e-12,
+            "pvalues": 1.837790828682397e-54,
+            "conf_int": 2.220446049250313e-16,
+            "cov_params": 5.421010862427522e-19,
+            "prediction": 1.3322676295501878e-15
+          }
+        },
+        "torch": {
+          "samples_seconds": [
+            0.017109006643295288,
+            0.017771810293197632,
+            0.017540425062179565,
+            0.016994088888168335,
+            0.017484337091445923
+          ],
+          "median_seconds": 0.017484337091445923,
+          "rows_per_second": 7496538.148084892,
+          "backend_over_numpy_median_ratio": 0.1330472716189315,
+          "speedup_over_numpy": 7.516125568242832,
+          "solver_mode": "gram-certified",
+          "solver_batches": 1,
+          "control_syncs": 1,
+          "svd_fallbacks": 0,
+          "max_abs_differences_vs_numpy": {
+            "coef": 3.3306690738754696e-16,
+            "betas": 2.6645352591003757e-15,
+            "bse": 8.456776945386935e-18,
+            "tvalues": 5.6843418860808015e-12,
+            "pvalues": 2.6560028342400244e-54,
+            "conf_int": 4.440892098500626e-16,
+            "cov_params": 4.726443845678996e-19,
+            "prediction": 7.771561172376096e-16
+          }
+        }
+      }
+    },
+    "large": {
+      "shape": {
+        "n_times": 128,
+        "observations_per_period": 4096,
+        "n_features": 16,
+        "n_rows": 524288,
+        "design_columns_with_intercept": 17
+      },
+      "numpy": {
+        "samples_seconds": [
+          0.65300253033638,
+          0.6256666481494904,
+          0.6243352890014648,
+          0.6329686939716339,
+          0.6678973138332367
+        ],
+        "median_seconds": 0.6329686939716339,
+        "rows_per_second": 828300.0486332041,
+        "solver_mode": "gram-certified",
+        "solver_batches": 1,
+        "control_syncs": 1,
+        "svd_fallbacks": 0
+      },
+      "backends": {
+        "cupy": {
+          "samples_seconds": [
+            0.2429942786693573,
+            0.24865630269050598,
+            0.25203099846839905,
+            0.25538432598114014,
+            0.26646509766578674
+          ],
+          "median_seconds": 0.25203099846839905,
+          "rows_per_second": 2080252.0451298293,
+          "backend_over_numpy_median_ratio": 0.39817292840661983,
+          "speedup_over_numpy": 2.511471596026704,
+          "solver_mode": "gram-certified",
+          "solver_batches": 1,
+          "control_syncs": 1,
+          "svd_fallbacks": 0,
+          "max_abs_differences_vs_numpy": {
+            "coef": 2.7755575615628914e-16,
+            "betas": 2.4424906541753444e-15,
+            "bse": 1.8865117801247777e-17,
+            "tvalues": 3.54702933691442e-11,
+            "pvalues": 1.4573089238849006e-99,
+            "conf_int": 3.3306690738754696e-16,
+            "cov_params": 4.334691107573882e-19,
+            "prediction": 1.3322676295501878e-15
+          }
+        },
+        "torch": {
+          "samples_seconds": [
+            0.05313870310783386,
+            0.05800461769104004,
+            0.0534992516040802,
+            0.05241510272026062,
+            0.053338825702667236
+          ],
+          "median_seconds": 0.053338825702667236,
+          "rows_per_second": 9829387.750727754,
+          "backend_over_numpy_median_ratio": 0.08426771530829862,
+          "speedup_over_numpy": 11.866940931547017,
+          "solver_mode": "gram-certified",
+          "solver_batches": 1,
+          "control_syncs": 1,
+          "svd_fallbacks": 0,
+          "max_abs_differences_vs_numpy": {
+            "coef": 2.220446049250313e-16,
+            "betas": 3.552713678800501e-15,
+            "bse": 2.1467203015212988e-17,
+            "tvalues": 4.0245140553452075e-11,
+            "pvalues": 5.660645055325467e-98,
+            "conf_int": 2.220446049250313e-16,
+            "cov_params": 6.505213034913027e-19,
+            "prediction": 1.3322676295501878e-15
+          }
+        }
+      }
+    }
+  }
+}

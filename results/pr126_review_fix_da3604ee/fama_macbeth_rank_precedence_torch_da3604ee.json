@@ -1,0 +1,38 @@
+{
+  "clean_worktree": true,
+  "executed_backend": "torch",
+  "fallback_svd_rank": 2,
+  "git_sha": "da3604ee8d23e513995c703401d5a93e4dbc96f6",
+  "gpu": "Tesla P100-SXM2-16GB",
+  "inference_state_published": false,
+  "packages": {
+    "cupy": "13.6.0",
+    "numpy": "1.24.2",
+    "statgpu": "0.2.4",
+    "torch": "2.0.0+cu117"
+  },
+  "precision_failure_misclassification": false,
+  "public_failure_state_clean": true,
+  "public_fallback_trace": [
+    {
+      "namespace": "torch",
+      "params_device": "cuda:0",
+      "params_is_cuda": true,
+      "params_native": true,
+      "rank_device": "cuda:0",
+      "rank_is_cuda": true,
+      "rank_native": true,
+      "x_device": "cuda:0",
+      "x_is_cuda": true,
+      "x_native": true,
+      "y_device": "cuda:0",
+      "y_is_cuda": true,
+      "y_native": true
+    }
+  ],
+  "public_rank_deficiency_value_error": true,
+  "requested_backend": "torch",
+  "schema_version": 3,
+  "status": "success",
+  "timestamp_utc": "2026-08-21T23:59:59.967658+00:00"
+}

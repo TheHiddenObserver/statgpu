@@ -1,0 +1,11 @@
+git_sha=8c60db00f5ea986aed96b1f1dce3f5c3b4f0bcd4
+
+numpy = 1.24.2
+scipy = 1.10.1
+pandas = 2.0.0
+patsy = 1.0.2
+cupy = 13.6.0
+torch = 2.0.0+cu117
+torch.version.cuda = 11.7
+torch.cuda.device = Tesla P100-SXM2-16GB
+cupy.device = Tesla P100-SXM2-16GB

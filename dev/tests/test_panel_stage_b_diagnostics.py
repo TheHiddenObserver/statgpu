@@ -267,15 +267,16 @@ def _demean_by_entity(values, entity):
     return out
 
 
-def test_panelols_pooling_f_uses_standard_diagnostic_df_not_legacy_inference_df():
+def test_panelols_pooling_f_and_public_inference_share_standard_fe_df():
     X, y, entity, _ = _balanced_panel()
     model = PanelOLS(entity_effects=True).fit(X, y, entity_ids=entity)
 
-    # Stage-A legacy inference df remains untouched.
-    assert model.df_resid == len(y) - X.shape[1] - (len(np.unique(entity)) - 1)
     diagnostic_df = model.fit_statistics_.metadata["diagnostic_df"]
-    assert diagnostic_df["df_resid"] == model.df_resid - 1
+    expected_df = len(y) - X.shape[1] - len(np.unique(entity))
+    assert model.df_resid == expected_df
+    assert diagnostic_df["df_resid"] == model.df_resid
     assert diagnostic_df["effect_rank"] == len(np.unique(entity))
+    assert model.fit_statistics_.metadata["public_df_resid_basis"] == "standard"
 
     yw = _demean_by_entity(y, entity)
     Xw = _demean_by_entity(X, entity)

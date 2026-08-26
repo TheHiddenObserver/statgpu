@@ -205,8 +205,13 @@ jobs:
           assert linearmodels.__version__ == "7.0"
           print("linearmodels", linearmodels.__version__)
           PY
-      - name: Run Panel Stage B external alignment
-        run: python -m pytest dev/tests/test_panel_stage_b_linearmodels.py -q --tb=short
+      - name: Run maintained panel external alignment
+        run: |
+          python -m pytest \
+            dev/tests/test_panel_stage_b_linearmodels.py \
+            dev/tests/test_fama_macbeth_linearmodels_external.py \
+            dev/tests/test_panel_pr126_fmb_exact_period.py \
+            -q --tb=short
 
   static-contracts:
     runs-on: ubuntu-latest

@@ -6,9 +6,25 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from statgpu.panel import FamaMacBeth, PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel import BetweenOLS, FamaMacBeth, FirstDifferenceOLS, PanelOLS, PooledOLS, RandomEffects
+from statgpu.panel._covariance import (
+    _grouped_score_sums,
+    clustered_covariance,
+    driscoll_kraay_covariance,
+    hac_covariance,
+    two_way_clustered_covariance,
+)
 from statgpu.panel._diagnostic_context import explicit_constant_column
-from statgpu.panel._diagnostics import _diagnostic_identity, _fingerprints_match
+from statgpu.panel._diagnostics import (
+    _diagnostic_identity,
+    _fingerprints_match,
+    _hausman_quadratic,
+)
+from statgpu.panel._utils import (
+    _recover_two_way_effects,
+    _zero_safe_statistic_ratio,
+    demean_variables,
+)
 
 
 torch = pytest.importorskip("torch")
@@ -139,7 +155,7 @@ def test_stage_b_disconnected_two_way_fe_torch_cpu_uses_component_df():
     assert_allclose(actual.conf_int_, expected.conf_int_, rtol=1e-10, atol=1e-10)
     assert actual.df_resid == expected.df_resid == 1
     assert actual.fit_statistics_.metadata["legacy_df_resid"] == 0
-    assert actual.fit_statistics_.metadata["public_df_resid_basis"] == "component-aware"
+    assert actual.fit_statistics_.metadata["public_df_resid_basis"] == "standard"
     assert actual.fit_statistics_.metadata["diagnostic_df"] == expected.fit_statistics_.metadata["diagnostic_df"]
     assert actual.fit_statistics_.metadata["diagnostic_df"]["incidence_components"] == 3
 
@@ -259,3 +275,523 @@ def test_stage_b_fama_macbeth_torch_cpu_r2_matches_numpy_without_ols_f():
     assert actual.fit_statistics_.f_statistic is None
     assert actual.fit_statistics_.f_pvalue is None
     assert actual.fit_statistics_.f_df is None
+
+def test_stage_c_torch_cpu_zero_variance_and_response_scale_equivariance():
+    tiny = np.nextafter(0.0, 1.0)
+    params = torch.tensor([0.0, tiny, -tiny], dtype=torch.float64)
+    bse = torch.zeros(3, dtype=torch.float64)
+    statistic = _zero_safe_statistic_ratio(params, bse, torch).detach().cpu().numpy()
+    assert statistic[0] == 0.0
+    assert np.isposinf(statistic[1])
+    assert np.isneginf(statistic[2])
+
+    rng = np.random.default_rng(1230)
+    n_entities, n_times = 10, 5
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    x = rng.normal(size=entity.size)
+    X = x[:, None]
+    alpha = np.repeat(rng.normal(scale=0.3, size=n_entities), n_times)
+    y = 0.65 * x + alpha + rng.normal(scale=0.16, size=entity.size)
+    X_t, y_t, entity_t, time_t = _torch_arrays(X, y, entity, time)
+    response_scale = 1.0e-20
+
+    reference_between = BetweenOLS(cov_type="hc0").fit(X_t, y_t, entity_ids=entity_t)
+    scaled_between = BetweenOLS(cov_type="hc0").fit(
+        X_t, response_scale * y_t, entity_ids=entity_t
+    )
+    reference_fd = FirstDifferenceOLS(cov_type="hc0").fit(
+        X_t, y_t, entity_ids=entity_t, time_ids=time_t
+    )
+    scaled_fd = FirstDifferenceOLS(cov_type="hc0").fit(
+        X_t, response_scale * y_t, entity_ids=entity_t, time_ids=time_t
+    )
+    for reference, scaled in (
+        (reference_between, scaled_between),
+        (reference_fd, scaled_fd),
+    ):
+        assert_allclose(scaled.coef_, response_scale * reference.coef_, rtol=2e-9, atol=0.0)
+        assert_allclose(scaled.bse_, response_scale * reference.bse_, rtol=2e-8, atol=0.0)
+        assert_allclose(scaled.tvalues_, reference.tvalues_, rtol=2e-8, atol=2e-11)
+        assert_allclose(scaled.pvalues_, reference.pvalues_, rtol=2e-8, atol=2e-13)
+
+
+def test_stage_c_torch_cpu_extreme_covariance_combinations_remain_finite():
+    amplitude = 1.4e154
+    X = torch.ones((4, 1), dtype=torch.float64)
+    resid = torch.tensor([amplitude, amplitude, -amplitude, -amplitude], dtype=torch.float64)
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    expected = np.asarray([[0.5 * amplitude * amplitude]], dtype=np.float64)
+    one_way = clustered_covariance(X, resid, groups, xp=torch)
+    two_way = two_way_clustered_covariance(X, resid, groups, groups, xp=torch)
+    assert_allclose(one_way, expected, rtol=5e-14, atol=0.0)
+    assert_allclose(two_way, expected, rtol=6e-14, atol=0.0)
+
+    cancel_groups = np.asarray([0, 0, 0, 0, 1, 1], dtype=np.int64)
+    score_amplitude = 1.6e308
+    scores = torch.tensor(
+        [[score_amplitude], [score_amplitude], [-score_amplitude], [-score_amplitude], [1.0], [-1.0]],
+        dtype=torch.float64,
+    )
+    grouped = _grouped_score_sums(scores, cancel_groups, n_groups=2, xp=torch)
+    assert_allclose(grouped, np.zeros((2, 1)), rtol=0.0, atol=0.0)
+
+    n = 16
+    influence_amplitude = 3.0e153
+    X_hac = torch.ones((n, 1), dtype=torch.float64)
+    signs = torch.where(
+        torch.arange(n) % 2 == 0,
+        torch.tensor(1.0, dtype=torch.float64),
+        torch.tensor(-1.0, dtype=torch.float64),
+    )
+    resid_hac = (n * influence_amplitude) * signs
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[influence_amplitude ** 2]], dtype=np.float64)
+    assert_allclose(
+        hac_covariance(X_hac, resid_hac, bandwidth=1, xp=torch),
+        expected_hac,
+        rtol=8e-14,
+        atol=0.0,
+    )
+    assert_allclose(
+        driscoll_kraay_covariance(X_hac, resid_hac, time, bandwidth=1, xp=torch),
+        expected_hac * (n / (n - 1.0)),
+        rtol=8e-14,
+        atol=0.0,
+    )
+
+
+def test_stage_c_torch_cpu_lag_accumulator_preserves_finite_hac_and_dk():
+    n = 7
+    bandwidth = 4
+    influence_sq = 2.0e307
+    influence_amp = float(np.sqrt(influence_sq))
+    signs_np = np.asarray([1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0])
+    X = torch.ones((n, 1), dtype=torch.float64)
+    resid = torch.as_tensor(n * influence_amp * signs_np, dtype=torch.float64)
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[5.4 * influence_sq]], dtype=np.float64)
+    assert_allclose(
+        hac_covariance(X, resid, bandwidth=bandwidth, xp=torch),
+        expected_hac,
+        rtol=1.2e-13,
+        atol=0.0,
+    )
+    assert_allclose(
+        driscoll_kraay_covariance(
+            X, resid, time, bandwidth=bandwidth, kernel="bartlett", xp=torch
+        ),
+        expected_hac * (n / (n - 1.0)),
+        rtol=1.5e-13,
+        atol=0.0,
+    )
+
+
+
+def test_stage_c_torch_cpu_pregram_and_two_way_component_cancellation():
+    n = 10
+    influence_sq = 1.0e308
+    influence_amp = float(np.sqrt(influence_sq))
+    signs_np = np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    X = torch.ones((n, 1), dtype=torch.float64)
+    resid = torch.as_tensor(n * influence_amp * signs_np, dtype=torch.float64)
+    time = np.arange(n, dtype=np.int64)
+    expected_hac = np.asarray([[influence_sq]], dtype=np.float64)
+    assert_allclose(
+        hac_covariance(X, resid, bandwidth=1, xp=torch),
+        expected_hac,
+        rtol=2.0e-13,
+        atol=0.0,
+    )
+    assert_allclose(
+        driscoll_kraay_covariance(X, resid, time, bandwidth=1, xp=torch),
+        expected_hac * (n / (n - 1.0)),
+        rtol=2.5e-13,
+        atol=0.0,
+    )
+
+    n2 = 4
+    component_sq = 5.0e307
+    component_amp = float(np.sqrt(component_sq))
+    X2 = torch.ones((n2, 1), dtype=torch.float64)
+    resid2 = torch.as_tensor(
+        n2 * component_amp * np.asarray([1.0, -1.0, 1.0, -1.0]),
+        dtype=torch.float64,
+    )
+    unique = np.arange(n2, dtype=np.int64)
+    pairs = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    reference = clustered_covariance(X2, resid2, pairs, xp=torch)
+    actual = two_way_clustered_covariance(X2, resid2, unique, pairs, xp=torch)
+    assert_allclose(actual, reference, rtol=3.0e-13, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_delays_tiny_design_scale_until_group_cancellation():
+    tiny = 1.0e-320
+    X = torch.ones((4, 1), dtype=torch.float64) * tiny
+    resid = torch.as_tensor([1.0, -1.0, 1.0, -1.0], dtype=torch.float64)
+    groups = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    actual = clustered_covariance(X, resid, groups, xp=torch)
+    assert_allclose(actual, np.zeros((1, 1)), rtol=0.0, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_preserves_mixed_range_cluster_and_dk_scores():
+    X = torch.ones((3, 1), dtype=torch.float64)
+    resid = torch.as_tensor([1.5e308, -1.5e308, 3.0e-100], dtype=torch.float64)
+    coarse = np.asarray([0, 0, 1], dtype=np.int64)
+    unique = np.asarray([0, 1, 2], dtype=np.int64)
+    time = np.asarray([0, 0, 1], dtype=np.int64)
+    clustered = clustered_covariance(X, resid, coarse, xp=torch)
+    two_way = two_way_clustered_covariance(X, resid, unique, coarse, xp=torch)
+    dk = driscoll_kraay_covariance(X, resid, time, bandwidth=0, xp=torch)
+    assert_allclose(clustered, np.asarray([[1.0e-200]]), rtol=5.0e-13, atol=0.0)
+    assert_allclose(two_way, clustered, rtol=5.0e-13, atol=0.0)
+    assert_allclose(dk, np.asarray([[1.5e-200]]), rtol=6.0e-13, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_nested_partition_code_permutation_is_exact():
+    X = torch.ones((3, 1), dtype=torch.float64)
+    resid = torch.as_tensor([1.5e308, -1.5e308, 3.0e-100], dtype=torch.float64)
+    coarse = np.asarray([1, 1, 0], dtype=np.int64)
+    fine = np.asarray([0, 1, 2], dtype=np.int64)
+    reference = clustered_covariance(X, resid, coarse, xp=torch)
+    actual = two_way_clustered_covariance(X, resid, coarse, fine, xp=torch)
+    assert_allclose(actual, reference, rtol=5e-13, atol=0.0)
+
+
+def test_stage_b_torch_cpu_hausman_host_quadratic_is_scale_safe():
+    # Hausman forms the small covariance-difference quadratic on host after the
+    # backend-specific FE/RE fits.  Keep both floating-point scale extremes in
+    # the maintained Torch job so GPU-originated results cannot regress here.
+    for variance, difference in (
+        (1.0e308, np.sqrt(1.0e308)),
+        (1.0e-320, np.sqrt(1.0e-320)),
+    ):
+        result = _hausman_quadratic([difference], [[variance]])
+        assert result.applicable, result.reason
+        assert_allclose(result.statistic, 1.0, rtol=3e-12, atol=0.0)
+
+
+def test_stage_c_torch_cpu_two_way_nonnested_structural_cancellation():
+    n = 4
+    amplitude = 1.0e154
+    small = 1.0e-154
+    X = torch.full((n, 1), 0.5, dtype=torch.float64)
+    target_scores = torch.tensor(
+        [-amplitude, small, amplitude, -small], dtype=torch.float64
+    )
+    resid = 2.0 * target_scores
+    cluster1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, xp=torch
+    ).detach().cpu().numpy()
+    np.testing.assert_allclose(
+        actual, np.asarray([[-4.0 * amplitude * small]]), rtol=2e-12, atol=0.0
+    )
+
+
+def test_stage_c_torch_cpu_two_way_safe_gram_preserves_low_order_term():
+    amplitude = 1.0e150
+    small = 1.0e-150
+    X = torch.full((4, 1), 0.5, dtype=torch.float64)
+    scores = torch.tensor([-amplitude, small, amplitude, -small], dtype=torch.float64)
+    resid = 2.0 * scores
+    c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(X, resid, c1, c2, xp=torch)
+    np.testing.assert_allclose(actual.detach().cpu().numpy(), [[-4.0]], rtol=5e-13, atol=0.0)
+
+
+def test_stage_c_torch_cpu_two_way_group_debias_preserves_low_order_term():
+    amplitude = 1.0e154
+    small = 1.0e-154
+    X = torch.full((4, 1), 0.5, dtype=torch.float64)
+    scores = torch.tensor([-amplitude, amplitude, amplitude, small], dtype=torch.float64)
+    resid = 2.0 * scores
+    c1 = np.asarray([0, 0, 1, 1], dtype=np.int64)
+    c2 = np.asarray([0, 1, 0, 1], dtype=np.int64)
+    actual = two_way_clustered_covariance(
+        X, resid, c1, c2, xp=torch, group_debias=True
+    )
+    np.testing.assert_allclose(actual.detach().cpu().numpy(), [[6.0]], rtol=5e-13, atol=0.0)
+
+
+def test_stage_b_torch_cpu_hausman_large_singular_range_guard():
+    result = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e200]),
+        np.diag(np.asarray([1.0e308, 0.0])),
+    )
+    assert result.applicable is False
+    assert "outside the identified covariance-difference range" in result.reason
+
+
+def test_stage_b_torch_cpu_hausman_dense_large_covariance_scale():
+    result = _hausman_quadratic(
+        np.asarray([1.0e154, 1.0e154]),
+        np.full((2, 2), 1.0e308, dtype=np.float64),
+    )
+    assert result.applicable, result.reason
+    np.testing.assert_allclose(result.statistic, 1.0, rtol=5e-13, atol=0.0)
+
+def test_stage_c_torch_cpu_multiscale_group_cancellation():
+    scores = torch.tensor(
+        [1.0e154, -1.0e154, 1.0, 1.0],
+        dtype=torch.float64,
+    )
+    groups = np.asarray([0, 0, 0, 1], dtype=np.int64)
+    X = torch.full((4, 1), 0.5, dtype=torch.float64)
+    resid = 2.0 * scores
+
+    grouped = _grouped_score_sums(
+        scores[:, None], groups, n_groups=2, xp=torch
+    ).detach().cpu().numpy()
+    np.testing.assert_array_equal(
+        grouped, np.asarray([[1.0], [1.0]])
+    )
+    one_way = clustered_covariance(
+        X, resid, groups, xp=torch
+    ).detach().cpu().numpy()
+    dk = driscoll_kraay_covariance(
+        X, resid, groups, bandwidth=0, xp=torch
+    ).detach().cpu().numpy()
+    np.testing.assert_allclose(
+        one_way, np.asarray([[2.0]]), rtol=2e-15, atol=0.0
+    )
+    np.testing.assert_allclose(
+        dk, np.asarray([[8.0 / 3.0]]), rtol=3e-15, atol=0.0
+    )
+
+def test_stage_c_torch_cpu_two_way_unsafe_cross_cancels_before_restore():
+    amplitude = 1.0e200
+    low1 = 1.0e108
+    low2 = low1 * (1.0 + 1.0e-3)
+    scores_np = np.asarray(
+        [
+            -amplitude, low1, amplitude, -low1,
+            -amplitude, -low2, amplitude, low2,
+        ],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray([0, 0, 1, 1, 2, 2, 3, 3], dtype=np.int64)
+    cluster2 = np.asarray([0, 1, 0, 1, 2, 3, 2, 3], dtype=np.int64)
+    X = torch.full((8, 1), 0.5, dtype=torch.float64)
+    resid = torch.as_tensor(4.0 * scores_np, dtype=torch.float64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, xp=torch
+    ).detach().cpu().numpy()
+    expected = np.asarray(
+        [[4.0 * amplitude * (low2 - low1)]], dtype=np.float64
+    )
+    np.testing.assert_allclose(actual, expected, rtol=4e-12, atol=0.0)
+
+def test_stage_c_torch_cpu_two_way_preserves_third_magnitude_component():
+    # This case must be order-independent. The full maintained Torch file once
+    # exposed an Inf here after earlier multi-tier covariance reductions even
+    # though the same case passed in isolation. The rare row-level compensated
+    # fallback keeps estimator cancellation ahead of backend reduction rounding.
+    amplitude = 2.0 ** 660
+    middle = 2.0 ** 600
+    tiny = 2.0 ** 350
+    scores_np = np.asarray(
+        [
+            -amplitude, middle, tiny, amplitude, -middle, -tiny,
+            -amplitude, -middle, amplitude, middle,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ],
+        dtype=np.float64,
+    )
+    cluster1 = np.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    cluster2 = np.asarray(
+        [0, 1, 1, 0, 1, 1, 2, 3, 2, 3, 4, 5, 6, 7, 8, 9],
+        dtype=np.int64,
+    )
+    X = torch.full((16, 1), 0.5, dtype=torch.float64)
+    resid = torch.as_tensor(8.0 * scores_np, dtype=torch.float64)
+    actual = two_way_clustered_covariance(
+        X, resid, cluster1, cluster2, xp=torch
+    ).detach().cpu().numpy()
+    expected = np.asarray([[-4.0 * amplitude * tiny]], dtype=np.float64)
+    np.testing.assert_allclose(actual, expected, rtol=3e-12, atol=0.0)
+
+
+
+def test_stage_c_torch_cpu_fe_effect_recovery_preserves_cancellation_tail():
+    # Public one-way prediction: the within fit is cancellation-safe, so the
+    # stored FE map must not reintroduce a raw scatter-add that loses the +1 tail.
+    amplitude = float(2.0 ** 55)
+    entity = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64)
+    X = np.asarray([0.0, 0.0, 0.0, -1.0, 0.0, 1.0], dtype=np.float64)[:, None]
+    y = np.asarray([amplitude, 1.0, -amplitude, 0.0, 0.0, 0.0], dtype=np.float64)
+    expected = np.asarray([1.0 / 3.0] * 3 + [0.0] * 3, dtype=np.float64)
+
+    numpy_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X, y, entity_ids=entity
+    )
+    np.testing.assert_allclose(
+        numpy_model.predict(X, entity_ids=entity), expected, rtol=0.0, atol=2e-15
+    )
+
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    torch_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X_t, y_t, entity_ids=entity_t
+    )
+    np.testing.assert_allclose(
+        torch_model.predict(X_t, entity_ids=entity_t),
+        expected,
+        rtol=0.0,
+        atol=2e-15,
+    )
+
+    # Two-way recovery: raw values are all the same order, but the first entity
+    # projection creates +/-1 beside +/-2**49.  The recovered FE residual must
+    # match the already hardened two-way within projection on the low-order rows.
+    level = float(2.0 ** 50)
+    values_np = np.asarray(
+        [1.5 * level, 0.5 * level, level + 1.0, level - 1.0,
+         0.5 * level, 1.5 * level],
+        dtype=np.float64,
+    )
+    entity2 = np.asarray([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    time2 = np.asarray([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    values_t = torch.as_tensor(values_np, dtype=torch.float64)
+    entity2_t = torch.as_tensor(entity2, dtype=torch.int64)
+    time2_t = torch.as_tensor(time2, dtype=torch.int64)
+    dummy_X_t = torch.arange(6, dtype=torch.float64)[:, None]
+    reference, _ = demean_variables(
+        values_t, dummy_X_t, entity2_t, time2_t, xp=torch, max_iter=200, tol=1e-12
+    )
+    entity_effect, time_effect = _recover_two_way_effects(
+        values_t, entity2_t, time2_t, torch, max_iter=200, tol=1e-12
+    )
+    recovered_residual = values_t - entity_effect[entity2_t] - time_effect[time2_t]
+    np.testing.assert_allclose(
+        recovered_residual[2:4].detach().cpu().numpy(),
+        reference[2:4].detach().cpu().numpy(),
+        rtol=0.0,
+        atol=2e-12,
+    )
+
+
+
+def test_stage_c_torch_cpu_two_way_effect_normalization_avoids_weight_overflow():
+    amplitude = 1.0e308
+    entity = np.repeat(np.arange(2, dtype=np.int64), 4)
+    time = np.tile(np.arange(4, dtype=np.int64), 2)
+    values_np = np.tile(
+        np.asarray([amplitude, amplitude, -amplitude, -amplitude], dtype=np.float64),
+        2,
+    )
+    values = torch.as_tensor(values_np, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    time_t = torch.as_tensor(time, dtype=torch.int64)
+
+    entity_effect, time_effect = _recover_two_way_effects(
+        values, entity_t, time_t, torch, max_iter=20, tol=1e-12
+    )
+    reconstructed = entity_effect[entity_t] + time_effect[time_t]
+    assert bool(torch.all(torch.isfinite(entity_effect)))
+    assert bool(torch.all(torch.isfinite(time_effect)))
+    assert bool(torch.all(torch.isfinite(reconstructed)))
+    np.testing.assert_allclose(
+        reconstructed.detach().cpu().numpy(), values_np, rtol=0.0, atol=0.0
+    )
+
+
+
+def test_stage_c_torch_cpu_two_way_common_scale_product_underflow_fails_closed():
+    amplitude = 1.0e308
+    tiny = 1.0e-100
+    X = torch.full((4, 1), 0.25, dtype=torch.float64)
+    resid = torch.as_tensor([-amplitude, tiny, amplitude, tiny], dtype=torch.float64)
+    cluster1 = torch.as_tensor([0, 0, 1, 1], dtype=torch.int64)
+    cluster2 = torch.as_tensor([0, 1, 0, 1], dtype=torch.int64)
+    with pytest.raises(FloatingPointError, match="common-scale product range"):
+        two_way_clustered_covariance(
+            X, resid, cluster1, cluster2, xp=torch
+        )
+
+
+
+def test_stage_c_torch_cpu_fe_prediction_avoids_centered_map_overflow():
+    amplitude = 1.0e308
+    entity = np.asarray([0] + [1] * 10, dtype=np.int64)
+    X = np.concatenate(([0.0], np.linspace(-1.0, 1.0, 10)))[:, None]
+    y = np.asarray([amplitude] + [-amplitude] * 10, dtype=np.float64)
+    expected = y.copy()
+
+    numpy_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X, y, entity_ids=entity
+    )
+    numpy_prediction = numpy_model.predict(X, entity_ids=entity)
+    assert np.all(np.isfinite(numpy_prediction))
+    np.testing.assert_allclose(numpy_prediction, expected, rtol=0.0, atol=0.0)
+    assert np.isfinite(numpy_model._grand_mean)
+    assert np.isfinite(numpy_model._entity_effects_map[0])
+
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    entity_t = torch.as_tensor(entity, dtype=torch.int64)
+    torch_model = PanelOLS(entity_effects=True, cov_type="hc0").fit(
+        X_t, y_t, entity_ids=entity_t
+    )
+    torch_prediction = torch_model.predict(X_t, entity_ids=entity_t)
+    assert np.all(np.isfinite(torch_prediction))
+    np.testing.assert_allclose(torch_prediction, expected, rtol=0.0, atol=0.0)
+    assert np.isfinite(torch_model._entity_effects_map[0])
+
+
+
+def test_stage_c_two_way_effect_range_gauge_keeps_finite_exact_fit():
+    amplitude = 5.0e307
+    edges = np.asarray(
+        [[0, 1], [2, 4], [1, 4], [2, 1], [4, 0], [5, 2],
+         [5, 4], [3, 0], [3, 1], [5, 3], [0, 4]],
+        dtype=np.int64,
+    )
+    signs = np.asarray([-1, 1, 1, -1, 1, -1, -1, -1, 1, -1, 1], dtype=np.float64)
+    entity = np.repeat(edges[:, 0], 2)
+    time = np.repeat(edges[:, 1], 2)
+    values_np = np.repeat(amplitude * signs, 2)
+
+    for xp, values, entity_ids, time_ids in (
+        (np, values_np, entity, time),
+        (
+            torch,
+            torch.as_tensor(values_np, dtype=torch.float64),
+            torch.as_tensor(entity, dtype=torch.int64),
+            torch.as_tensor(time, dtype=torch.int64),
+        ),
+    ):
+        entity_effect, time_effect = _recover_two_way_effects(
+            values, entity_ids, time_ids, xp, max_iter=500, tol=1e-12
+        )
+        entity_np = np.asarray(
+            entity_effect.detach().cpu().numpy() if hasattr(entity_effect, "detach") else entity_effect
+        )
+        time_np = np.asarray(
+            time_effect.detach().cpu().numpy() if hasattr(time_effect, "detach") else time_effect
+        )
+        assert np.all(np.isfinite(entity_np))
+        assert np.all(np.isfinite(time_np))
+        assert float(np.max(np.abs(entity_np))) <= 3.01 * amplitude
+        assert float(np.max(np.abs(time_np))) <= 2.01 * amplitude
+        reconstructed = entity_np[entity] + time_np[time]
+        np.testing.assert_allclose(reconstructed, values_np, rtol=3e-12, atol=0.0)
+
+    # Public fit/predict must inherit the same finite gauge. Duplicate edges give
+    # positive residual df while a constant regressor is fully absorbed by FE.
+    X = (1.0e150 * np.linspace(-1.0, 1.0, values_np.size, dtype=np.float64))[:, None]
+    model = PanelOLS(entity_effects=True, time_effects=True, cov_type="hc0").fit(
+        X, values_np, entity_ids=entity, time_ids=time
+    )
+    prediction = model.predict(X, entity_ids=entity, time_ids=time)
+    assert np.all(np.isfinite(prediction))
+    np.testing.assert_allclose(prediction, values_np, rtol=3e-12, atol=0.0)

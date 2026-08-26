@@ -167,17 +167,19 @@ def test_panel_ols_entity_effect_golden_contract():
         X, y, entity_ids=entity
     )
     assert_allclose(model.coef_, [1.40026731, -0.83017523], rtol=RTOL, atol=ATOL)
-    assert_allclose(model.bse_, [0.03123062, 0.03078126], rtol=RTOL, atol=ATOL)
-    assert model.df_resid == 31
+    # Stage-C correctness revision: public inference counts the full entity
+    # nuisance rank, matching the explicit entity-dummy regression.
+    assert_allclose(model.bse_, [0.03174686, 0.03129007], rtol=RTOL, atol=ATOL)
+    assert model.df_resid == 30
     assert_allclose(model.rsquared_within, 0.9881458232165806, rtol=1e-12)
     assert_allclose(model._grand_mean, 0.49095910222140393, rtol=1e-12)
     assert set(model._entity_effects_map) == set(np.unique(entity))
-    # Current prediction adds the stored entity effect to X beta, but not the
-    # separately stored grand mean. Freeze that behavior rather than changing
-    # it as part of the Stage-A architecture refactor.
+    # Full level prediction restores the separately stored grand mean when
+    # a fitted entity effect is used.
     assert_allclose(
         model.predict(X[:4], entity_ids=entity[:4]),
-        [-1.17565613, -1.55218831, 0.49083732, 1.84934445],
+        np.array([-1.17565613, -1.55218831, 0.49083732, 1.84934445])
+        + model._grand_mean,
         rtol=RTOL,
         atol=ATOL,
     )
@@ -191,8 +193,10 @@ def test_panel_ols_two_way_golden_contract():
         entity_effects=True, time_effects=True, device="cpu"
     ).fit(X, y, entity_ids=entity, time_ids=time)
     assert_allclose(model.coef_, [1.39729530, -0.82027722], rtol=RTOL, atol=ATOL)
-    assert_allclose(model.bse_, [0.03275315, 0.03341182], rtol=RTOL, atol=ATOL)
-    assert model.df_resid == 27
+    # Stage-C correctness revision: connected two-way FE has nuisance rank
+    # N + T - 1, so the public residual df is 26 for this fixture.
+    assert_allclose(model.bse_, [0.03337708, 0.03404829], rtol=RTOL, atol=ATOL)
+    assert model.df_resid == 26
     assert_allclose(model.rsquared_within, 0.9878363795416668, rtol=1e-12)
     assert set(model._entity_effects_map) == set(np.unique(entity))
     assert set(model._time_effects_map) == set(np.unique(time))

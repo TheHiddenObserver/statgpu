@@ -65,7 +65,7 @@ def test_fit_statistics_populated_for_ols_style_panel_estimators():
         assert model.fit_statistics_.f_df is not None
 
 
-def test_two_way_fe_uses_standard_effect_rank_without_changing_legacy_df():
+def test_two_way_fe_public_df_uses_standard_effect_rank():
     X, y, entity, time = _panel(seed=1241)
     model = PanelOLS(entity_effects=True, time_effects=True).fit(
         X,
@@ -74,19 +74,19 @@ def test_two_way_fe_uses_standard_effect_rank_without_changing_legacy_df():
         time_ids=time,
     )
     n = len(y)
-    k = X.shape[1]
     N = len(np.unique(entity))
     T = len(np.unique(time))
-    assert model.df_resid == n - k - (N - 1) - (T - 1)
     diag = model.fit_statistics_.metadata["diagnostic_df"]
     assert diag["effect_rank"] == N + T - 1
-    assert diag["df_resid"] == n - np.linalg.matrix_rank(
+    expected_df = n - np.linalg.matrix_rank(
         X
         - np.vstack([X[entity == g].mean(axis=0) for g in entity])
         - np.vstack([X[time == t].mean(axis=0) for t in time])
         + X.mean(axis=0)
     ) - (N + T - 1)
-    assert diag["df_resid"] == model.df_resid - 1
+    assert diag["df_resid"] == expected_df
+    assert model.df_resid == expected_df
+    assert model.fit_statistics_.metadata["public_df_resid_basis"] == "standard"
     assert model.fit_statistics_.metadata["legacy_rsquared_within"] == model.rsquared_within
 
 

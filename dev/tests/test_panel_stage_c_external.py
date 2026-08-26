@@ -1,0 +1,244 @@
+"""Pinned external-definition checks for Panel Stage C covariance."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from numpy.testing import assert_allclose
+
+linearmodels = pytest.importorskip("linearmodels")
+statsmodels = pytest.importorskip("statsmodels.api")
+
+from linearmodels.iv.covariance import KERNEL_LOOKUP
+from linearmodels.panel.covariance import ClusteredCovariance, DriscollKraay
+
+from statgpu.panel._covariance import (
+    _dk_kernel_weights,
+    clustered_covariance,
+    driscoll_kraay_covariance,
+    ols_covariance,
+    two_way_clustered_covariance,
+)
+
+
+def _regression(seed=12700, *, n_entities=9, n_times=7):
+    rng = np.random.default_rng(seed)
+    entity = np.repeat(np.arange(n_entities), n_times)
+    time = np.tile(np.arange(n_times), n_entities)
+    X = np.column_stack([np.ones(entity.size), rng.normal(size=(entity.size, 2))])
+    beta = np.array([0.25, 0.7, -0.4])
+    eps = rng.normal(scale=0.3, size=entity.size)
+    y = X @ beta + eps
+    params = np.linalg.lstsq(X, y, rcond=None)[0]
+    return X, y, params, entity, time
+
+
+def _ill_conditioned_regression(seed=12709):
+    rng = np.random.default_rng(seed)
+    n = 50
+    x = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    X = np.column_stack([np.ones(n), x, x + 1.0e-9 * noise])
+    y = X @ np.array([0.4, 0.8, -0.35]) + rng.normal(scale=0.25, size=n)
+    assert np.linalg.matrix_rank(X) == 3
+    assert np.linalg.cond(X) > 1.0e8
+    assert np.linalg.cond(X.T @ X) > 1.0e15
+    return X, y
+
+
+def _stable_hc_reference(X, resid, cov_type):
+    U, singular_values, Vh = np.linalg.svd(X, full_matrices=False)
+    cutoff = max(X.shape) * np.finfo(np.float64).eps * singular_values[0]
+    retained = singular_values > cutoff
+    inverse_values = np.zeros_like(singular_values)
+    inverse_values[retained] = 1.0 / singular_values[retained]
+    X_pinv = (Vh.T * inverse_values) @ U.T
+    projection_rows = X_pinv.T
+    leverage = np.sum(X * projection_rows, axis=1)
+    if cov_type == "hc0":
+        adjusted = resid
+    elif cov_type == "hc2":
+        adjusted = resid / np.sqrt(1.0 - leverage)
+    elif cov_type == "hc3":
+        adjusted = resid / (1.0 - leverage)
+    else:
+        raise ValueError(cov_type)
+    influence = projection_rows * adjusted[:, None]
+    return influence.T @ influence, leverage
+
+
+@pytest.mark.parametrize("cov_type", ["HC2", "HC3"])
+def test_hc2_hc3_fit_space_covariance_matches_statsmodels(cov_type):
+    X, y, params, entity, time = _regression(seed=12701)
+    resid = y - X @ params
+    actual = ols_covariance(X, resid, cov_type=cov_type.lower())
+    expected = (
+        statsmodels.OLS(y, X)
+        .fit()
+        .get_robustcov_results(cov_type=cov_type)
+        .cov_params()
+    )
+    assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)
+
+
+def test_ill_conditioned_full_rank_hc0_matches_statsmodels():
+    X, y = _ill_conditioned_regression()
+    fit = statsmodels.OLS(y, X).fit()
+    actual = ols_covariance(X, np.asarray(fit.resid), cov_type="hc0")
+    expected = fit.get_robustcov_results(cov_type="HC0").cov_params()
+    assert_allclose(actual, expected, rtol=2e-6, atol=5e-3)
+    assert np.all(np.isfinite(actual))
+    assert np.all(np.diag(actual) >= 0.0)
+    assert np.max(np.diag(actual)) > 1.0e10
+
+
+@pytest.mark.parametrize("cov_type", ["hc2", "hc3"])
+def test_ill_conditioned_full_rank_hc2_hc3_use_stable_leverage(cov_type):
+    X, y = _ill_conditioned_regression()
+    fit = statsmodels.OLS(y, X).fit()
+    metadata = {}
+    actual = ols_covariance(
+        X,
+        np.asarray(fit.resid),
+        cov_type=cov_type,
+        metadata=metadata,
+    )
+    expected, leverage = _stable_hc_reference(
+        X,
+        np.asarray(fit.resid),
+        cov_type,
+    )
+    assert_allclose(actual, expected, rtol=5e-11, atol=5e-3)
+    assert leverage.min() >= -1.0e-12
+    assert leverage.max() <= 1.0 + 1.0e-12
+    assert metadata["leverage_min"] >= -1.0e-12
+    assert metadata["leverage_max"] <= 1.0 + 1.0e-12
+    assert np.all(np.isfinite(actual))
+    assert np.all(np.diag(actual) >= 0.0)
+    assert np.max(np.diag(actual)) > 1.0e10
+
+
+def test_qs_extreme_bandwidth_uses_small_argument_limit():
+    canonical, weights = _dk_kernel_weights(
+        "qs", bandwidth=1_000_000_000, max_lag=2
+    )
+    assert canonical == "qs"
+    assert_allclose(weights[1:], np.ones(2), rtol=0.0, atol=2e-16)
+
+
+def test_one_way_group_debiased_cluster_matches_linearmodels_primitive():
+    X, y, params, entity, time = _regression(seed=12702)
+    resid = y - X @ params
+    actual = clustered_covariance(
+        X, resid, entity, group_debias=True
+    )
+    expected = ClusteredCovariance(
+        y[:, None],
+        X,
+        params[:, None],
+        entity[:, None],
+        time[:, None],
+        debiased=False,
+        extra_df=0,
+        clusters=entity,
+        group_debias=True,
+    ).cov
+    assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)
+
+
+def test_two_way_group_debiased_cluster_matches_linearmodels_primitive():
+    X, y, params, entity, time = _regression(seed=12703)
+    resid = y - X @ params
+    clusters = np.column_stack([entity, time])
+    actual = two_way_clustered_covariance(
+        X,
+        resid,
+        entity,
+        time,
+        group_debias=True,
+    )
+    expected = ClusteredCovariance(
+        y[:, None],
+        X,
+        params[:, None],
+        entity[:, None],
+        time[:, None],
+        debiased=False,
+        extra_df=0,
+        clusters=clusters,
+        group_debias=True,
+    ).cov
+    assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)
+
+
+@pytest.mark.parametrize(
+    "kernel,lm_kernel",
+    [
+        ("bartlett", "bartlett"),
+        ("parzen", "parzen"),
+        ("qs", "qs"),
+    ],
+)
+def test_dk_kernel_weights_match_linearmodels(kernel, lm_kernel):
+    canonical, actual = _dk_kernel_weights(kernel, bandwidth=2, max_lag=8)
+    reference = np.asarray(KERNEL_LOOKUP[lm_kernel](2.0, 8), dtype=np.float64)
+    expected = np.zeros_like(actual)
+    expected[: reference.size] = reference
+    assert_allclose(actual, expected, rtol=5e-14, atol=5e-15)
+    if canonical == "qs":
+        assert reference.size == actual.size
+        assert np.count_nonzero(actual[1:]) == 8
+    else:
+        assert np.all(actual[reference.size :] == 0.0)
+
+
+@pytest.mark.parametrize("kernel", ["bartlett", "parzen", "qs"])
+def test_driscoll_kraay_full_rank_covariance_matches_linearmodels(kernel):
+    X, y, params, entity, time = _regression(seed=12704)
+    resid = y - X @ params
+    actual = driscoll_kraay_covariance(
+        X,
+        resid,
+        time,
+        bandwidth=2,
+        kernel=kernel,
+        extra_df=0,
+    )
+    expected = DriscollKraay(
+        y[:, None],
+        X,
+        params[:, None],
+        entity[:, None],
+        time[:, None],
+        debiased=True,
+        extra_df=0,
+        kernel=kernel,
+        bandwidth=2.0,
+    ).cov
+    assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)
+
+
+def test_driscoll_kraay_extra_df_matches_linearmodels_scale():
+    X, y, params, entity, time = _regression(seed=12705)
+    resid = y - X @ params
+    extra_df = 5
+    actual = driscoll_kraay_covariance(
+        X,
+        resid,
+        time,
+        bandwidth=2,
+        kernel="bartlett",
+        extra_df=extra_df,
+    )
+    expected = DriscollKraay(
+        y[:, None],
+        X,
+        params[:, None],
+        entity[:, None],
+        time[:, None],
+        debiased=True,
+        extra_df=extra_df,
+        kernel="bartlett",
+        bandwidth=2.0,
+    ).cov
+    assert_allclose(actual, expected, rtol=5e-12, atol=5e-14)

@@ -1,0 +1,103 @@
+name: Panel Stage C external covariance
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'statgpu/panel/**'
+      - 'dev/tests/test_fama_macbeth_linearmodels_external.py'
+      - 'dev/tests/test_panel_stage_c_external.py'
+      - 'dev/tests/test_panel_stage_c_external_defaults.py'
+      - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
+      - 'dev/tests/test_panel_stage_c_r_external.py'
+      - '.github/workflows/panel-stage-c-external.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'statgpu/panel/**'
+      - 'dev/tests/test_fama_macbeth_linearmodels_external.py'
+      - 'dev/tests/test_panel_stage_c_external.py'
+      - 'dev/tests/test_panel_stage_c_external_defaults.py'
+      - 'dev/tests/test_panel_stage_c_linearmodels_estimators.py'
+      - 'dev/tests/test_panel_stage_c_r_external.py'
+      - '.github/workflows/panel-stage-c-external.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  external-definitions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned references
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . 'linearmodels==7.0' 'statsmodels==0.14.6' pytest
+      - name: Confirm reference versions
+        run: |
+          python - <<'PY'
+          import linearmodels, statsmodels
+          assert linearmodels.__version__ == '7.0'
+          assert statsmodels.__version__ == '0.14.6'
+          print('linearmodels', linearmodels.__version__)
+          print('statsmodels', statsmodels.__version__)
+          PY
+      - name: Run Stage C external covariance alignment
+        run: |
+          python -m pytest \
+            dev/tests/test_fama_macbeth_linearmodels_external.py \
+            dev/tests/test_panel_stage_c_external.py \
+            dev/tests/test_panel_stage_c_external_defaults.py \
+            dev/tests/test_panel_stage_c_linearmodels_estimators.py \
+            -q --tb=short
+
+  r-external-alignment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      STATGPU_RUN_R_PANEL_EXTERNAL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.4.2'
+      - name: Install statgpu test environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Install exact R external references
+        run: |
+          Rscript - <<'RS'
+          options(repos = c(CRAN = 'https://cloud.r-project.org'))
+          install.packages('remotes')
+          remotes::install_version(
+            'sandwich',
+            version = '3.1-3',
+            repos = 'https://cloud.r-project.org',
+            upgrade = 'never'
+          )
+          remotes::install_version(
+            'plm',
+            version = '2.6-7',
+            repos = 'https://cloud.r-project.org',
+            upgrade = 'never'
+          )
+          stopifnot(requireNamespace('sandwich', quietly = TRUE))
+          stopifnot(requireNamespace('plm', quietly = TRUE))
+          stopifnot(as.character(packageVersion('plm')) == '2.6.7')
+          stopifnot(as.character(packageVersion('sandwich')) == '3.1.3')
+          cat('R', R.version.string, '\n')
+          cat('plm', as.character(packageVersion('plm')), '\n')
+          cat('sandwich', as.character(packageVersion('sandwich')), '\n')
+          RS
+      - name: Run R plm and sandwich alignment
+        run: |
+          python -m pytest dev/tests/test_panel_stage_c_r_external.py -q --tb=short

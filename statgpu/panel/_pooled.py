@@ -9,34 +9,23 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_ones
 from statgpu.panel._base import BasePanelModel
-from statgpu.panel._utils import factorize_panel_labels
+from statgpu.panel._intercept import panel_lstsq_exact_constant
+from statgpu.panel._utils import factorize_panel_labels, factorize_panel_metadata
 
 
 def _panel_lstsq(X, y, xp):
-    """Return least-squares coefficients and the effective design rank."""
-    if getattr(xp, "__name__", "") == "torch":
-        params = xp.linalg.pinv(X) @ y
-        rank = int(_to_float_scalar(xp.linalg.matrix_rank(X)))
-        return params, rank
-    try:
-        result = xp.linalg.lstsq(X, y, rcond=None)
-        params = result[0]
-        rank = int(_to_float_scalar(result[2]))
-        return params, rank
-    except (TypeError, AttributeError, np.linalg.LinAlgError):
-        params = xp.linalg.pinv(X) @ y
-        rank = int(_to_float_scalar(xp.linalg.matrix_rank(X)))
-        return params, rank
+    """Use the shared panel SVD policy with an exact-constant precision guard."""
+    return panel_lstsq_exact_constant(X, y, xp, constant_index=0)
 
 
 class PooledOLS(BasePanelModel):
     """Pooled OLS estimator for panel data.
 
-    Runs OLS on the pooled (stacked) panel data without any demeaning
-    or transformation. Supports the existing nonrobust, HC1 robust,
-    clustered, and HAC covariance estimators.
+    Runs OLS on the pooled stacked panel. ``robust`` preserves the historical
+    HC1 contract, while Stage C adds HC0/HC2/HC3 and Driscoll-Kraay. ``hac``
+    remains the legacy row-order Newey-West covariance.
     """
 
     def __init__(
@@ -47,16 +36,34 @@ class PooledOLS(BasePanelModel):
         kernel: str = "bartlett",
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
+        *,
+        group_debias: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
-        self.cov_type = cov_type.lower()
+        from statgpu.panel._covariance import normalize_covariance_type
+
+        self.cov_type = normalize_covariance_type(cov_type)
         self.alpha = alpha
         self.bandwidth = bandwidth
         self.kernel = kernel
-        if self.cov_type not in ("nonrobust", "robust", "clustered", "hac"):
+        self.group_debias = group_debias
+        allowed = {
+            "nonrobust",
+            "robust",
+            "hc0",
+            "hc2",
+            "hc3",
+            "clustered",
+            "hac",
+            "driscoll-kraay",
+        }
+        if self.cov_type not in allowed:
             raise ValueError(
-                "cov_type must be 'nonrobust', 'robust', 'clustered', or 'hac'"
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', "
+                "'hc2', 'hc3', 'clustered', 'hac', 'driscoll-kraay', 'dk', or 'kernel'"
             )
+        if not isinstance(group_debias, (bool, np.bool_)):
+            raise ValueError("group_debias must be boolean")
         self.fit_statistics_ = None
 
     def fit(
@@ -71,9 +78,10 @@ class PooledOLS(BasePanelModel):
     ):
         """Fit the pooled OLS model.
 
-        ``entity_ids`` is optional and does not affect coefficients.  When
+        ``entity_ids`` is optional and does not affect coefficients. When
         supplied it enables Stage-B within/between R² and the one-way panel
-        Breusch-Pagan random-effects LM diagnostic.
+        Breusch-Pagan random-effects LM diagnostic. ``time_index`` supplies the
+        legacy row-HAC order and the Stage-C Driscoll-Kraay time grouping.
         """
         (
             y_data,
@@ -98,6 +106,16 @@ class PooledOLS(BasePanelModel):
         cluster = aligned["cluster"]
         time_index = aligned["time_index"]
         entity_ids = aligned["entity_ids"]
+        if formula is not None:
+            if not bool(self._formula_has_intercept):
+                raise ValueError(
+                    "PooledOLS always includes an intercept; explicit no-intercept "
+                    "formulas are not supported"
+                )
+            self._feature_names = [
+                "Intercept",
+                *list(self._feature_names or []),
+            ]
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
         entity_arr = None
@@ -110,17 +128,25 @@ class PooledOLS(BasePanelModel):
                 expected_n=X_arr.shape[0],
             )
 
-        # HAC depends on temporal ordering. Metadata may remain on CPU, while
-        # the numerical arrays are reordered on their selected backend. Stage B
-        # carries entity diagnostic codes through the identical permutation so
-        # BP/R² sufficient statistics cannot become misaligned with residuals.
+        if self._cov_type == "clustered" and cluster is None:
+            raise ValueError("cluster is required for cov_type='clustered'")
+        if self._cov_type == "driscoll-kraay" and time_index is None:
+            raise ValueError("time_index is required for Driscoll-Kraay covariance")
+        if bool(self.group_debias) and self._cov_type != "clustered":
+            raise ValueError("group_debias=True requires cov_type='clustered'")
+
+        # Preserve the legacy ordered-sequence HAC contract, but derive the
+        # chronological ordering through the same metadata factorizer used by
+        # the other panel time-indexed paths. In particular, an ordered pandas
+        # categorical must follow its declared category order rather than the
+        # lexical order of the materialized labels.
         if self._cov_type == "hac" and time_index is not None:
-            time_values = np.asarray(_to_numpy(time_index))
-            if time_values.ndim != 1 or time_values.shape[0] != X_arr.shape[0]:
-                raise ValueError(
-                    "time_index must be one-dimensional with length n_samples"
-                )
-            order_np = np.argsort(time_values, kind="stable")
+            _time_labels, time_codes = factorize_panel_metadata(
+                time_index,
+                name="time_index",
+                expected_n=X_arr.shape[0],
+            )
+            order_np = np.argsort(time_codes, kind="stable")
             order = xp_asarray(order_np, dtype=xp.int64, xp=xp, ref_arr=X_arr)
             X_arr = X_arr[order]
             y_arr = y_arr[order]
@@ -128,9 +154,7 @@ class PooledOLS(BasePanelModel):
                 entity_arr = entity_arr[order]
 
         n = X_arr.shape[0]
-        ones = xp.ones((n, 1), dtype=xp.float64)
-        if hasattr(X_arr, "is_cuda"):
-            ones = ones.to(device=X_arr.device)
+        ones = xp_ones((n, 1), xp.float64, xp, X_arr)
         X_arr = xp.concatenate([ones, X_arr], axis=1)
 
         n, _ = X_arr.shape
@@ -141,21 +165,28 @@ class PooledOLS(BasePanelModel):
                 f"positive residual degrees of freedom required; n={n}, rank={rank}"
             )
         resid = y_arr - X_arr @ params
-        scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
+        from statgpu.panel._diagnostics import (
+            _centered_working_values,
+            _physical_common_scale,
+            _residual_on_centering_scale,
+            _restore_squared_scale,
+            _scaled_residual_r2,
+            _scaled_residual_variance,
+            _scaled_unit_values,
+        )
+
+        scale = _scaled_residual_variance(resid, df_resid, xp)
 
         cluster_for_cov = cluster
         if self._cov_type == "clustered":
-            if cluster is None:
-                raise ValueError("cluster is required for cov_type='clustered'")
-            # Preserve the existing validation/factorization behavior before
-            # delegating to the shared covariance registry.
-            cluster_for_cov, _ = factorize_panel_labels(
-                cluster,
-                xp,
-                ref_arr=X_arr,
-                name="cluster",
-                expected_n=n,
-            )
+            cluster_np = np.asarray(_to_numpy(cluster))
+            if cluster_np.ndim not in (1, 2) or cluster_np.shape[0] != n:
+                raise ValueError(
+                    "cluster must have n_samples rows and one or two cluster dimensions"
+                )
+            if cluster_np.ndim == 2 and cluster_np.shape[1] not in (1, 2):
+                raise ValueError("cluster must contain one or two cluster dimensions")
+            cluster_for_cov = cluster_np
 
         self._panel_store_ols_inference(
             X_arr,
@@ -164,21 +195,52 @@ class PooledOLS(BasePanelModel):
             scale=scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank,
             cov_type=self._cov_type,
             cluster=cluster_for_cov,
+            time_ids=time_index,
             bandwidth=self.bandwidth,
             kernel=self.kernel,
-            allowed=("nonrobust", "robust", "clustered", "hac"),
+            group_debias=bool(self.group_debias),
+            extra_df=0,
+            allowed=(
+                "nonrobust",
+                "robust",
+                "hc0",
+                "hc2",
+                "hc3",
+                "clustered",
+                "hac",
+                "driscoll-kraay",
+            ),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
             # PooledOLS historically used sqrt(diag(V)) without clipping.
-            diag_floor=None,
+            diag_floor=0.0,
         )
 
-        y_mean = xp.mean(y_arr)
-        ss_tot = _to_float_scalar(xp.sum((y_arr - y_mean) ** 2))
-        ss_res = _to_float_scalar(xp.sum(resid * resid))
-        self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+        y_centered, y_centering_scale = _centered_working_values(y_arr, xp)
+        resid_r2 = _residual_on_centering_scale(resid, y_centering_scale, xp)
+        self.rsquared, r2_degenerate = _scaled_residual_r2(
+            resid_r2, y_centered, xp
+        )
+        if r2_degenerate:
+            self.rsquared = float("nan")
+        resid_scale = xp.max(xp.abs(resid))
+        centered_scale = xp.max(xp.abs(y_centered))
+        resid_unit = _scaled_unit_values(resid, resid_scale, xp)
+        centered_unit = _scaled_unit_values(y_centered, centered_scale, xp)
+        ss_res = _restore_squared_scale(
+            _to_float_scalar(xp.sum(resid_unit * resid_unit)),
+            _to_float_scalar(resid_scale),
+        )
+        physical_centered_scale = _physical_common_scale(
+            centered_scale, y_centering_scale
+        )
+        ss_tot = _restore_squared_scale(
+            _to_float_scalar(xp.sum(centered_unit * centered_unit)),
+            physical_centered_scale,
+        )
         self.nobs = n
         self.rank_ = rank
         self.df_resid = df_resid

@@ -16,10 +16,12 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_arange, xp_asarray
 from statgpu.inference._distributions_backend import get_distribution
+from statgpu.panel._linalg import panel_lstsq, panel_matrix_rank
+from statgpu.panel._reductions import stable_mean
 from statgpu.panel._results import PanelFitStatistics, PanelTestResult
-from statgpu.panel._utils import group_means
+from statgpu.panel._utils import group_means, group_sizes
 
 __all__ = [
     "hausman_test",
@@ -74,7 +76,7 @@ def _applicable(
 
 
 def _matrix_rank(X, xp) -> int:
-    return int(_to_float_scalar(xp.linalg.matrix_rank(X)))
+    return panel_matrix_rank(X, xp)
 
 
 def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
@@ -89,6 +91,67 @@ def _relative_tolerance(*values: float, factor: float = 256.0) -> float:
     return float(factor) * np.finfo(np.float64).eps * scale
 
 
+def _safe_l2_norm(values) -> float:
+    """Return a float64 L2 norm without avoidable squaring overflow."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return 0.0
+    scale = float(np.max(np.abs(values)))
+    if scale == 0.0:
+        return 0.0
+    if not np.isfinite(scale):
+        return float("inf")
+    unit_norm = float(np.sqrt(np.sum((values / scale) ** 2)))
+    if unit_norm == 0.0:
+        return 0.0
+    if scale > float(np.finfo(np.float64).max) / unit_norm:
+        return float("inf")
+    return float(scale * unit_norm)
+
+
+def _restore_squared_scale(value: float, scale: float) -> float:
+    """Restore ``value * scale**2`` without avoidable intermediate overflow."""
+    value = float(value)
+    scale = float(scale)
+    if value < 0.0 or scale < 0.0 or np.isnan(value) or np.isnan(scale):
+        return float("nan")
+    if value == 0.0 or scale == 0.0:
+        return 0.0
+    root = float(np.sqrt(value))
+    scaled_root = root * scale
+    if scaled_root > np.sqrt(np.finfo(np.float64).max):
+        return float("inf")
+    return float(scaled_root * scaled_root)
+
+
+def _scaled_unit_values(values, scale, xp):
+    """Normalize by a scalar scale without dividing by a subnormal denominator."""
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return values
+    target = float(np.sqrt(np.finfo(np.float64).tiny))
+    if scale_value < target:
+        relative = scale / float(target)
+        factor = 1.0 / relative
+        values_work = values * factor
+        scale_work = scale * factor
+        return values_work / scale_work
+    return values / scale
+
+
+def _common_scaled_sumsquares(left, right, xp):
+    """Return two sums of squares normalized by one common backend scale."""
+    scale = xp.maximum(xp.max(xp.abs(left)), xp.max(xp.abs(right)))
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0, 0.0, 0.0
+    left_scaled = _scaled_unit_values(left, scale, xp)
+    right_scaled = _scaled_unit_values(right, scale, xp)
+    left_ss = _to_float_scalar(xp.sum(left_scaled * left_scaled))
+    right_ss = _to_float_scalar(xp.sum(right_scaled * right_scaled))
+    return float(left_ss), float(right_ss), float(scale_value)
+
+
 def _safe_r2(ss_res: float, ss_tot: float) -> Tuple[float, bool]:
     """Return linearmodels-style parameter R² and a degenerate-TSS flag."""
     ss_res = float(ss_res)
@@ -98,10 +161,90 @@ def _safe_r2(ss_res: float, ss_tot: float) -> Tuple[float, bool]:
     return 1.0 - ss_res / ss_tot, False
 
 
+def _scaled_residual_variance(resid, df_resid: int, xp) -> float:
+    """Return ``sum(resid**2) / df_resid`` without avoidable RSS overflow."""
+    if int(df_resid) <= 0:
+        raise ValueError("df_resid must be positive")
+    scale = xp.max(xp.abs(resid))
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0
+    unit = _scaled_unit_values(resid, scale, xp)
+    norm_sq = _to_float_scalar(xp.sum(unit * unit))
+    root = scale_value * float(
+        np.sqrt(norm_sq / float(int(df_resid)))
+    )
+    if root > np.sqrt(np.finfo(np.float64).max):
+        return float("inf")
+    return float(root * root)
+
+
+def _scaled_residual_r2(resid, centered, xp) -> Tuple[float, bool]:
+    """Return R² from a common scale without overflow in squared reductions."""
+    resid_scale = xp.max(xp.abs(resid))
+    centered_scale = xp.max(xp.abs(centered))
+    scale = xp.maximum(resid_scale, centered_scale)
+    scale_value = _to_float_scalar(scale)
+    if scale_value == 0.0:
+        return 0.0, True
+    resid_scaled = _scaled_unit_values(resid, scale, xp)
+    centered_scaled = _scaled_unit_values(centered, scale, xp)
+    ss_res = _to_float_scalar(xp.sum(resid_scaled * resid_scaled))
+    ss_tot = _to_float_scalar(xp.sum(centered_scaled * centered_scaled))
+    return _safe_r2(ss_res, ss_tot)
+
+
+def _scaled_mean(values, xp):
+    """Return an axis-0 mean without avoidable overflow or lost cancellation."""
+    return stable_mean(values, xp)
+
+def _centered_working_values(values, xp):
+    """Center ``values`` without materializing an overflowing level difference.
+
+    Returns ``(centered, scale)`` where ``scale is None`` preserves the ordinary
+    physical-scale path.  Only when ``max|value| + |mean|`` can exceed DBL_MAX do
+    we center normalized values; callers of this helper use scale-invariant RSS
+    or R-squared reductions and can put comparison residuals on the same scale.
+    """
+    mean = _scaled_mean(values, xp)
+    maximum = xp.max(xp.abs(values))
+    safe_limit = float(np.finfo(np.float64).max) - xp.abs(mean)
+    if bool(_to_float_scalar(maximum <= safe_limit)):
+        return values - mean, None
+    if _to_float_scalar(maximum) == 0.0:
+        return values, None
+    unit = _scaled_unit_values(values, maximum, xp)
+    return unit - _scaled_mean(unit, xp), maximum
+
+
+def _residual_on_centering_scale(resid, scale, xp):
+    if scale is None:
+        return resid
+    return _scaled_unit_values(resid, scale, xp)
+
+
+def _physical_common_scale(common_scale, centering_scale) -> float:
+    value = _to_float_scalar(common_scale)
+    if centering_scale is None:
+        return float(value)
+    level = _to_float_scalar(centering_scale)
+    if value == 0.0 or level == 0.0:
+        return 0.0
+    if value > float(np.finfo(np.float64).max) / level:
+        return float("inf")
+    return float(value * level)
+
+
+def _scaled_group_means(values, groups, xp):
+    """Return cancellation-safe group means aligned to observations."""
+    return group_means(values, groups, xp=xp)
+
 def _demean_matrix(X, entity_codes, xp):
     out = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
     for j in range(int(X.shape[1])):
-        out[:, j] = X[:, j] - group_means(X[:, j], entity_codes, xp=xp)
+        out[:, j] = X[:, j] - _scaled_group_means(
+            X[:, j], entity_codes, xp
+        )
     return out
 
 
@@ -129,10 +272,17 @@ def _parameter_r2_components(
     """
     params = params.ravel()
     overall_resid = y - X @ params
-    overall_center = y - xp.mean(y) if has_constant else y
-    overall_ss_res = _to_float_scalar(xp.sum(overall_resid * overall_resid))
-    overall_ss_tot = _to_float_scalar(xp.sum(overall_center * overall_center))
-    overall, deg_o = _safe_r2(overall_ss_res, overall_ss_tot)
+    if has_constant:
+        overall_center, overall_center_scale = _centered_working_values(y, xp)
+        overall_resid_work = _residual_on_centering_scale(
+            overall_resid, overall_center_scale, xp
+        )
+    else:
+        overall_center = y
+        overall_resid_work = overall_resid
+    overall, deg_o = _scaled_residual_r2(
+        overall_resid_work, overall_center, xp
+    )
 
     if entity_codes is None:
         return None, None, overall, {
@@ -141,25 +291,34 @@ def _parameter_r2_components(
             "overall": deg_o,
         }
 
-    y_mean_aligned = group_means(y, entity_codes, xp=xp)
+    y_mean_aligned = _scaled_group_means(y, entity_codes, xp)
     X_mean_aligned = X.clone() if getattr(xp, "__name__", "") == "torch" else X.copy()
     for j in range(int(X.shape[1])):
-        X_mean_aligned[:, j] = group_means(X[:, j], entity_codes, xp=xp)
+        X_mean_aligned[:, j] = _scaled_group_means(
+            X[:, j], entity_codes, xp
+        )
     first = _first_group_indices(entity_codes, xp, X)
     y_between = y_mean_aligned[first]
     X_between = X_mean_aligned[first]
     between_resid = y_between - X_between @ params
-    between_center = y_between - xp.mean(y_between) if has_constant else y_between
-    between_ss_res = _to_float_scalar(xp.sum(between_resid * between_resid))
-    between_ss_tot = _to_float_scalar(xp.sum(between_center * between_center))
-    between, deg_b = _safe_r2(between_ss_res, between_ss_tot)
+    if has_constant:
+        between_center, between_center_scale = _centered_working_values(
+            y_between, xp
+        )
+        between_resid_work = _residual_on_centering_scale(
+            between_resid, between_center_scale, xp
+        )
+    else:
+        between_center = y_between
+        between_resid_work = between_resid
+    between, deg_b = _scaled_residual_r2(
+        between_resid_work, between_center, xp
+    )
 
     y_within = y - y_mean_aligned
     X_within = _demean_matrix(X, entity_codes, xp)
     within_resid = y_within - X_within @ params
-    within_ss_res = _to_float_scalar(xp.sum(within_resid * within_resid))
-    within_ss_tot = _to_float_scalar(xp.sum(y_within * y_within))
-    within, deg_w = _safe_r2(within_ss_res, within_ss_tot)
+    within, deg_w = _scaled_residual_r2(within_resid, y_within, xp)
 
     return within, between, overall, {
         "within": deg_w,
@@ -213,31 +372,62 @@ def _classical_model_f(
         return None, None, None, metadata
 
     resid = y - X @ params.ravel()
-    rss_u = _to_float_scalar(xp.sum(resid * resid))
+    centering_scale = None
     if restricted_X is not None:
-        beta_r = xp.linalg.pinv(restricted_X) @ y
+        beta_r, _ = panel_lstsq(restricted_X, y, xp)
         resid_r = y - restricted_X @ beta_r
-        rss_r = _to_float_scalar(xp.sum(resid_r * resid_r))
     elif has_constant:
-        y_r = y - xp.mean(y)
-        rss_r = _to_float_scalar(xp.sum(y_r * y_r))
+        resid_r, centering_scale = _centered_working_values(y, xp)
+        resid = _residual_on_centering_scale(resid, centering_scale, xp)
     else:
-        rss_r = _to_float_scalar(xp.sum(y * y))
+        resid_r = y
+
+    # F is invariant to a common positive residual scale. Work with one shared
+    # scale so tiny nonzero unrestricted RSS is not rounded to zero and huge
+    # restricted/unrestricted RSS values do not become Inf/Inf before the ratio.
+    common_scale = xp.maximum(xp.max(xp.abs(resid)), xp.max(xp.abs(resid_r)))
+    common_scale_value = _physical_common_scale(
+        common_scale, centering_scale
+    )
+    if common_scale_value == 0.0:
+        rss_u = 0.0
+        rss_r = 0.0
+    else:
+        resid_u_scaled = _scaled_unit_values(resid, common_scale, xp)
+        resid_r_scaled = _scaled_unit_values(resid_r, common_scale, xp)
+        rss_u = _to_float_scalar(xp.sum(resid_u_scaled * resid_u_scaled))
+        rss_r = _to_float_scalar(xp.sum(resid_r_scaled * resid_r_scaled))
 
     diff = rss_r - rss_u
     tol = _relative_tolerance(rss_r, rss_u)
     if diff < -tol:
         metadata["unavailable_reason"] = "restricted RSS is materially below unrestricted RSS"
-        metadata["rss_restricted"] = float(rss_r)
-        metadata["rss_unrestricted"] = float(rss_u)
+        metadata["rss_restricted"] = _restore_squared_scale(
+            rss_r, common_scale_value
+        )
+        metadata["rss_unrestricted"] = _restore_squared_scale(
+            rss_u, common_scale_value
+        )
+        metadata["rss_restricted_normalized"] = float(rss_r)
+        metadata["rss_unrestricted_normalized"] = float(rss_u)
+        metadata["rss_common_scale"] = float(common_scale_value)
         return None, None, None, metadata
     if diff < 0.0:
         diff = 0.0
         metadata["roundoff_normalized"] = True
 
-    metadata["rss_restricted"] = float(rss_r)
-    metadata["rss_unrestricted"] = float(rss_u)
-    if rss_u <= tol:
+    metadata["rss_restricted"] = _restore_squared_scale(
+        rss_r, common_scale_value
+    )
+    metadata["rss_unrestricted"] = _restore_squared_scale(
+        rss_u, common_scale_value
+    )
+    metadata["rss_restricted_normalized"] = float(rss_r)
+    metadata["rss_unrestricted_normalized"] = float(rss_u)
+    metadata["rss_common_scale"] = float(common_scale_value)
+    # The common-scale reduction already prevents underflow. A merely small
+    # unrestricted RSS is a large finite F statistic, not an exact fit.
+    if rss_u == 0.0:
         if diff > tol:
             metadata["exact_fit"] = True
             return (
@@ -295,6 +485,31 @@ def _build_fit_statistics(
         ),
         restricted_X=f_restricted_X,
     )
+    fit_y = y if f_y is None else f_y
+    fit_X = X if f_X is None else f_X
+    fit_params = params if f_params is None else f_params
+    fit_has_constant = (
+        bool(has_constant) if f_has_constant is None else bool(f_has_constant)
+    )
+    fit_resid = fit_y - fit_X @ fit_params.ravel()
+    if fit_has_constant:
+        fit_centered, fit_centering_scale = _centered_working_values(
+            fit_y, xp
+        )
+        fit_resid_work = _residual_on_centering_scale(
+            fit_resid, fit_centering_scale, xp
+        )
+    else:
+        fit_centered = fit_y
+        fit_centering_scale = None
+        fit_resid_work = fit_resid
+    rss_adj, tss_adj, adjusted_scale_work = _common_scaled_sumsquares(
+        fit_resid_work, fit_centered, xp
+    )
+    adjusted_scale = _physical_common_scale(
+        adjusted_scale_work, fit_centering_scale
+    )
+
     meta = {} if metadata is None else dict(metadata)
     meta.setdefault("r2_definition", "parameter-based")
     meta["degenerate_total_ss"] = degenerate
@@ -303,6 +518,8 @@ def _build_fit_statistics(
         "df_resid": int(df_resid),
     }
     meta["model_f"] = f_meta
+    meta["adjusted_r2_common_scale"] = float(adjusted_scale)
+    meta["adjusted_r2_uses_common_scale"] = True
     if entity_codes is None:
         meta.setdefault("unavailable", {})["within_between_r2"] = (
             "entity_ids were not supplied"
@@ -312,8 +529,8 @@ def _build_fit_statistics(
         rsquared_between=between,
         rsquared_overall=overall,
         rsquared_adj=_adjusted_r2(
-            rss=float(rss_fit),
-            tss=float(tss_fit),
+            rss=float(rss_adj),
+            tss=float(tss_adj),
             df_resid=int(df_resid),
             df_total=int(df_total),
         ),
@@ -331,14 +548,28 @@ def _pooling_f_from_sums(
     df_num: int,
     df_denom: int,
     metadata: Optional[Dict[str, Any]] = None,
+    rss_common_scale: Optional[float] = None,
 ) -> PanelTestResult:
     null = "all included fixed effects are jointly zero"
     alternative = "at least one included fixed effect is nonzero"
     meta = {} if metadata is None else dict(metadata)
+    if rss_common_scale is None:
+        rss_pooled_public = float(rss_pooled)
+        rss_effects_public = float(rss_effects)
+    else:
+        rss_pooled_public = _restore_squared_scale(
+            rss_pooled, rss_common_scale
+        )
+        rss_effects_public = _restore_squared_scale(
+            rss_effects, rss_common_scale
+        )
+        meta["rss_pooled_normalized"] = float(rss_pooled)
+        meta["rss_effects_normalized"] = float(rss_effects)
+        meta["rss_common_scale"] = float(rss_common_scale)
     meta.update(
         {
-            "rss_pooled": float(rss_pooled),
-            "rss_effects": float(rss_effects),
+            "rss_pooled": float(rss_pooled_public),
+            "rss_effects": float(rss_effects_public),
             "classical_homoskedastic": True,
         }
     )
@@ -367,7 +598,7 @@ def _pooling_f_from_sums(
         diff = 0.0
         meta["roundoff_normalized"] = True
 
-    if float(rss_effects) <= tol:
+    if float(rss_effects) == 0.0:
         if diff > tol:
             meta["exact_fit"] = True
             return _applicable(
@@ -485,16 +716,50 @@ def _hausman_quadratic(
             reason="Hausman test has no common estimable slope coefficients",
         )
 
-    D = 0.5 * (D + D.T)
-    eigvals, eigvecs = np.linalg.eigh(D)
-    norm_D = float(np.linalg.norm(D, ord=2)) if D.size else 0.0
-    tol = _relative_tolerance(norm_D, factor=256.0 * max(1, d.size))
+    # Reuse the covariance layer's range-safe symmetric average.  The
+    # mathematical input is a covariance difference, so doubling two finite
+    # same-sign entries near DBL_MAX must not turn a representable matrix into
+    # Inf before the eigendecomposition.
+    from statgpu.panel._covariance import _symmetrize
+
+    D = np.asarray(_symmetrize(D), dtype=np.float64)
+    matrix_scale = float(np.max(np.abs(D))) if D.size else 0.0
+    if not np.isfinite(matrix_scale):
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason="covariance difference contains non-finite values",
+        )
+    if matrix_scale == 0.0:
+        D_work = D
+    else:
+        D_work = D / matrix_scale
+    eigvals_work, eigvecs = np.linalg.eigh(D_work)
+    norm_work = float(np.linalg.norm(D_work, ord=2)) if D_work.size else 0.0
+    tol_work = _relative_tolerance(
+        norm_work, factor=256.0 * max(1, d.size)
+    )
+
+    def _restore_linear(value: float) -> float:
+        value = float(value)
+        if value == 0.0 or matrix_scale == 0.0:
+            return 0.0
+        limit = float(np.finfo(np.float64).max) / abs(value)
+        if matrix_scale > limit:
+            return float(np.copysign(np.inf, value))
+        return float(value * matrix_scale)
+
     meta = {
-        "eigen_tolerance": tol,
-        "minimum_eigenvalue": float(eigvals.min()),
-        "maximum_eigenvalue": float(eigvals.max()),
+        "eigen_scale": float(matrix_scale),
+        "eigen_tolerance": _restore_linear(tol_work),
+        "eigen_tolerance_normalized": float(tol_work),
+        "minimum_eigenvalue": _restore_linear(float(eigvals_work.min())),
+        "maximum_eigenvalue": _restore_linear(float(eigvals_work.max())),
+        "minimum_eigenvalue_normalized": float(eigvals_work.min()),
+        "maximum_eigenvalue_normalized": float(eigvals_work.max()),
     }
-    if float(eigvals.min()) < -tol:
+    if float(eigvals_work.min()) < -tol_work:
         return _inapplicable(
             null=null,
             alternative=alternative,
@@ -503,7 +768,7 @@ def _hausman_quadratic(
             metadata=meta,
         )
 
-    positive = eigvals > tol
+    positive = eigvals_work > tol_work
     rank = int(np.count_nonzero(positive))
     meta["rank"] = rank
     if rank == 0:
@@ -516,24 +781,98 @@ def _hausman_quadratic(
             metadata=meta,
         )
 
+
     basis = eigvecs[:, positive]
-    projected = basis @ (basis.T @ d)
-    null_component = d - projected
-    range_tol = _relative_tolerance(np.linalg.norm(d), factor=1024.0)
-    meta["range_tolerance"] = float(range_tol)
-    meta["nullspace_component_norm"] = float(np.linalg.norm(null_component))
-    if float(np.linalg.norm(null_component)) > range_tol:
+
+    # Range membership is scale invariant.  Normalize d before the dense
+    # eigenspace projection so several finite O(DBL_MAX) coordinates cannot
+    # overflow in basis.T @ d before the range guard is evaluated.
+    d_scale = float(np.max(np.abs(d))) if d.size else 0.0
+    if not np.isfinite(d_scale):
         return _inapplicable(
             null=null,
             alternative=alternative,
             distribution="chi2",
             df=float(rank),
-            reason="coefficient difference has a component outside the identified covariance-difference range",
+            reason="coefficient difference contains non-finite values",
+            metadata=meta,
+        )
+    d_work = d if d_scale == 0.0 else d / d_scale
+    coordinates_work = basis.T @ d_work
+    projected_work = basis @ coordinates_work
+    null_work = d_work - projected_work
+
+    d_norm_normalized = float(np.linalg.norm(d_work))
+    null_norm_work = float(np.linalg.norm(null_work))
+    range_tol_work = (
+        1024.0 * np.finfo(np.float64).eps * d_norm_normalized
+    )
+
+    def _restore_d_scale(value: float) -> float:
+        value = float(value)
+        if value == 0.0 or d_scale == 0.0:
+            return 0.0
+        if d_scale > float(np.finfo(np.float64).max) / abs(value):
+            return float(np.copysign(np.inf, value))
+        return float(value * d_scale)
+
+    d_norm = _restore_d_scale(d_norm_normalized)
+    null_norm = _restore_d_scale(null_norm_work)
+    range_tol = _restore_d_scale(range_tol_work)
+    meta["range_tolerance"] = float(range_tol)
+    meta["nullspace_component_norm"] = float(null_norm)
+
+    comparison_factor = max(
+        float(np.max(np.abs(d_work))) if d_work.size else 0.0,
+        float(np.max(np.abs(null_work))) if null_work.size else 0.0,
+    )
+    comparison_scale = _restore_d_scale(comparison_factor)
+    if comparison_factor == 0.0:
+        outside_range = False
+        range_tol_normalized = 0.0
+        null_norm_normalized = 0.0
+    else:
+        d_normalized = d_work / comparison_factor
+        null_normalized = null_work / comparison_factor
+        d_norm_comparison = float(np.linalg.norm(d_normalized))
+        null_norm_normalized = float(np.linalg.norm(null_normalized))
+        range_tol_normalized = (
+            1024.0 * np.finfo(np.float64).eps * d_norm_comparison
+        )
+        outside_range = (
+            null_norm_normalized > range_tol_normalized
+        )
+    meta["range_comparison_scale"] = float(comparison_scale)
+    meta["range_tolerance_normalized"] = float(range_tol_normalized)
+    meta["nullspace_component_norm_normalized"] = float(
+        null_norm_normalized
+    )
+    if outside_range:
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            df=float(rank),
+            reason=(
+                "coefficient difference has a component outside the "
+                "identified covariance-difference range"
+            ),
             metadata=meta,
         )
 
-    inv_eigs = 1.0 / eigvals[positive]
-    statistic = float((basis.T @ d).T @ (inv_eigs * (basis.T @ d)))
+    # Evaluate d' D+ d in standardized eigencoordinates instead of
+    # materializing 1/lambda.  For a positive subnormal eigenvalue, 1/lambda
+    # can overflow even when (u'd)^2/lambda is perfectly representable.
+    eig_standardized = (
+        coordinates_work / np.sqrt(eigvals_work[positive])
+    )
+    if d_scale == 0.0:
+        standardized = eig_standardized
+    else:
+        scale_ratio = d_scale / np.sqrt(matrix_scale)
+        standardized = eig_standardized * scale_ratio
+    statistic = float(np.sum(standardized * standardized))
+    meta["quadratic_evaluation"] = "standardized_eigencoordinates"
     stat_tol = 256.0 * np.finfo(np.float64).eps * max(1.0, abs(statistic))
     if statistic < -stat_tol:
         return _inapplicable(
@@ -568,14 +907,7 @@ def _hausman_quadratic(
 
 
 def _row_weights(n: int, xp, ref_arr):
-    if getattr(xp, "__name__", "") == "torch":
-        return xp.arange(
-            1,
-            int(n) + 1,
-            dtype=xp.float64,
-            device=ref_arr.device,
-        )
-    return xp.arange(1, int(n) + 1, dtype=xp.float64)
+    return xp_arange(1, int(n) + 1, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
 
 
 def _full_content_digest(X, y) -> str:
@@ -814,6 +1146,32 @@ def hausman_test(fe_model, re_model) -> PanelTestResult:
             alternative=alternative,
             distribution="chi2",
             reason="classical Hausman requires nonrobust FE covariance; robust auxiliary Hausman is not implemented in Stage B",
+        )
+    if str(getattr(re_model, "_cov_type", "nonrobust")).lower() != "nonrobust":
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason="classical Hausman requires nonrobust RE covariance; robust auxiliary Hausman is not implemented in Stage C",
+        )
+
+    unavailable = []
+    for label, model in (("FE", fe_model), ("RE", re_model)):
+        if not bool(getattr(model, "_coefficient_inference_available", True)):
+            model_reason = getattr(model, "_coefficient_inference_reason", None)
+            unavailable.append(
+                f"{label}: {model_reason or 'coefficient vector is not uniquely identified'}"
+            )
+    if unavailable:
+        return _inapplicable(
+            null=null,
+            alternative=alternative,
+            distribution="chi2",
+            reason=(
+                "classical Hausman requires uniquely identified coefficient vectors; "
+                + "; ".join(unavailable)
+            ),
+            metadata={"coefficient_inference_unavailable": tuple(unavailable)},
         )
 
     left_id = getattr(fe_model, "_panel_diagnostic_identity", None)

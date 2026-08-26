@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
-from statgpu.backends import _to_numpy
+from statgpu.panel._utils import factorize_panel_metadata
 
 
 @dataclass(frozen=True)
@@ -67,19 +67,14 @@ class PanelIndexInfo:
 def _factorize_metadata(values, name: str, nobs: int):
     if values is None:
         return None, None, None
-    # Entity/time identifiers are metadata and may safely be factorized on the
-    # host. Use the common backend conversion so CuPy/Torch CUDA labels do not
-    # rely on an invalid implicit ``np.asarray`` device transfer.
-    arr = np.asarray(_to_numpy(values))
-    if arr.ndim != 1 or arr.size == 0:
-        raise ValueError(f"{name} must be a non-empty one-dimensional array")
-    if arr.shape[0] != nobs:
-        raise ValueError(f"{name} must have {nobs} observations")
-    try:
-        labels, codes = np.unique(arr, return_inverse=True)
-    except TypeError as exc:
-        raise ValueError(f"{name} must contain mutually comparable labels") from exc
-    counts = np.bincount(codes, minlength=len(labels)).astype(np.int64, copy=False)
+    labels, codes = factorize_panel_metadata(
+        values,
+        name=name,
+        expected_n=int(nobs),
+    )
+    counts = np.bincount(codes, minlength=len(labels)).astype(
+        np.int64, copy=False
+    )
     return codes.astype(np.int64, copy=False), labels, counts
 
 

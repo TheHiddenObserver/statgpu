@@ -24,6 +24,26 @@
       "label": "Tesla P100 PR #122 Panel Stage B validation \u2014 2026-08-09",
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64"
+    },
+    "remote-p100-pr126-20260811": {
+      "label": "Tesla P100 PR #126 Panel Stage C \u2014 2026-08-11",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64"
+    },
+    "remote-p100-pr126-20260812": {
+      "label": "Tesla P100 PR #126 Panel Stage C rank-df \u2014 2026-08-12",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64"
+    },
+    "remote-p100-pr126-identifiability-20260812": {
+      "label": "Tesla P100 PR #126 Panel Stage C identifiability \u2014 2026-08-12",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64"
+    },
+    "remote-p100-pr126-final-20260813": {
+      "label": "Tesla P100 PR #126 final fresh acceptance \u2014 2026-08-13",
+      "gpu": "Tesla P100-SXM2-16GB",
+      "cpu": "x86_64"
     }
   },
   "frameworks": {
@@ -102,6 +122,46 @@
     "panel-stage-b-pr122-20260809": {
       "label": "Panel Stage B physical validation \u2014 PR #122 \u2014 2026-08-09",
       "env_id": "remote-p100-pr122-20260809"
+    },
+    "panel-stage-c-pr126-validation-20260811": {
+      "label": "Panel Stage C physical validation \u2014 PR #126 \u2014 2026-08-11",
+      "env_id": "remote-p100-pr126-20260811"
+    },
+    "panel-stage-c-pr126-performance-20260811": {
+      "label": "Panel Stage C synchronized performance \u2014 PR #126 \u2014 2026-08-11",
+      "env_id": "remote-p100-pr126-20260811"
+    },
+    "panel-stage-c-pr126-rank-policy-validation-20260811": {
+      "label": "Panel Stage C rank-policy physical validation \u2014 PR #126 \u2014 2026-08-11",
+      "env_id": "remote-p100-pr126-20260811"
+    },
+    "panel-stage-c-pr126-rank-policy-performance-20260811": {
+      "label": "Panel Stage C rank-policy synchronized performance \u2014 PR #126 \u2014 2026-08-11",
+      "env_id": "remote-p100-pr126-20260811"
+    },
+    "panel-stage-c-pr126-rank-df-validation-20260812": {
+      "label": "Panel Stage C rank-df physical validation \u2014 PR #126 \u2014 2026-08-12",
+      "env_id": "remote-p100-pr126-20260812"
+    },
+    "panel-stage-c-pr126-rank-df-performance-20260812": {
+      "label": "Panel Stage C rank-df synchronized performance \u2014 PR #126 \u2014 2026-08-12",
+      "env_id": "remote-p100-pr126-20260812"
+    },
+    "panel-stage-c-pr126-identifiability-validation-20260812": {
+      "label": "Panel Stage C identifiability physical validation \u2014 PR #126 \u2014 2026-08-12",
+      "env_id": "remote-p100-pr126-identifiability-20260812"
+    },
+    "panel-stage-c-pr126-identifiability-performance-20260812": {
+      "label": "Panel Stage C identifiability synchronized performance \u2014 PR #126 \u2014 2026-08-12",
+      "env_id": "remote-p100-pr126-identifiability-20260812"
+    },
+    "panel-stage-c-pr126-final-validation-20260813": {
+      "label": "Panel Stage C final physical acceptance \u2014 PR #126 \u2014 2026-08-13",
+      "env_id": "remote-p100-pr126-final-20260813"
+    },
+    "panel-stage-c-pr126-final-performance-20260813": {
+      "label": "Panel Stage C final synchronized performance \u2014 PR #126 \u2014 2026-08-13",
+      "env_id": "remote-p100-pr126-final-20260813"
     }
   },
   "sources": [
@@ -255,6 +315,156 @@
       "measurement_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
       "raw_git_sha": "2701aa9feb3796c33c94e6480fcb78c80c6a809c",
       "provenance_note": "Final PR #122 Stage-B correctness/backend-provenance source. Exact clean P100 measurement 2701aa9feb3796c33c94e6480fcb78c80c6a809c passed all 17 estimator cases and five Hausman diagnostics on each of CuPy and Torch, with requested/executed backend identity and no CPU fallback. The dedicated hausman_applicable_nonzero_effect fixture is applicable on both GPU backends with df=1 and statistic/p-value agreement versus NumPy at floating-point noise. Raw artifact results/pr122_p100/panel_stage_b_gpu_validation_2701aa9f.json has Git blob fa3a253e6d882a4e69be29e7e3b1dce7b223b9a9 and was committed by 0d0d654d825cea872672f27d02107a58048b345f. The older focused disconnected-FE artifact results/pr122_p100/panel_stage_b_disconnected_fe_gpu_validation_a57efcea.json (Git blob 3bda0b2040479ba8201e2722eb990ba086c3f3b9, measurement a57efcea29b0e87ecb89865c5a6902d5773812c6) is retained only as supplementary evidence for the unchanged df=1 path. No timing was collected."
+    },
+    {
+      "source_id": "panel-stage-c-validation-pr126-20260811-af2227efe3cd",
+      "comparison_id": "panel-stage-c-pr126-validation-20260811",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json",
+      "sha256": "af2227efe3cd0ab77472ff1d6584233d475f6ed5c4c4d36d318efc127d143f63",
+      "parser": "panel_stage_c_physical_validation",
+      "parser_version": "1.0",
+      "env_id": "remote-p100-pr126-20260811",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-11",
+      "measurement_git_sha": "ec511f539adeaaedf310f92248200d0868577532",
+      "raw_git_sha": "ec511f539adeaaedf310f92248200d0868577532",
+      "provenance_note": "Final PR #126 post-re-audit exact-clean P100 correctness/backend-provenance evidence. Raw artifact commit e1a155bf77b416e0873a037015aaafd22371ab11; Git blob a02fcad0eefd5993d2ae05b8d00a55e5ca1d885f; SHA-256 af2227efe3cd0ab77472ff1d6584233d475f6ed5c4c4d36d318efc127d143f63. CuPy and Torch each pass 26 estimator covariance cases plus six direct public covariance primitives (32/32 per backend), including full-rank ill-conditioned HC0/HC2/HC3/Driscoll-Kraay, with requested/executed backend identity and no numerical CPU fallback. Earlier 5ed763be, aad53587, c151550a, and 9c0b3050 measurements remain immutable historical evidence."
+    },
+    {
+      "source_id": "panel-stage-c-performance-pr126-20260811-409974070022",
+      "comparison_id": "panel-stage-c-pr126-performance-20260811",
+      "path": "results/pr126_p100/panel_stage_c_performance_ec511f53.json",
+      "sha256": "4099740700221ffdae2770427a5ad0fca7dc3c1ec0f47173caf166aa56a1fca0",
+      "parser": "panel_stage_c_performance",
+      "parser_version": "1.0",
+      "env_id": "remote-p100-pr126-20260811",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-11",
+      "measurement_git_sha": "ec511f539adeaaedf310f92248200d0868577532",
+      "raw_git_sha": "ec511f539adeaaedf310f92248200d0868577532",
+      "provenance_note": "Final PR #126 post-re-audit synchronized end-to-end P100 timing evidence. Raw artifact commit e1a155bf77b416e0873a037015aaafd22371ab11; Git blob 76d6eabeefc6e04095270a5df8a231cb150ea220; SHA-256 4099740700221ffdae2770427a5ad0fca7dc3c1ec0f47173caf166aa56a1fca0. 58 synchronized rows cover three base scales plus bounded N=10000, k=2, T=200 QS all-lag cases on both CuPy and Torch. No speedup or CPU-baseline claim is encoded. Earlier 5ed763be, aad53587, c151550a, and 9c0b3050 artifacts remain immutable historical evidence."
+    },
+    {
+      "source_id": "panel-stage-c-rank-policy-validation-pr126-20260811-c67ada7ec59f",
+      "comparison_id": "panel-stage-c-pr126-rank-policy-validation-20260811",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_3dc7df19.json",
+      "sha256": "c67ada7ec59ff85d6a652714dc45cdae81efc67a4c13fe853c85d0712fc689ad",
+      "parser": "panel_stage_c_rank_policy_physical_validation",
+      "parser_version": "2.0",
+      "env_id": "remote-p100-pr126-20260811",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-11",
+      "measurement_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "raw_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "provenance_note": "PR #126 final rank-policy exact-clean P100 correctness/backend-provenance evidence. Raw artifact commit be679c13357475b8d26db42661b557fbea2f327f; Git blob 5de153023af751ff960969483c11fb77dc115456; SHA-256 c67ada7ec59ff85d6a652714dc45cdae81efc67a4c13fe853c85d0712fc689ad. CuPy 13.6.0 and Torch each pass 27 estimator integrations plus 12 direct public covariance primitives (39/39 per backend), including PanelOLS numerical-rank-boundary Driscoll-Kraay integration and nonrobust/HC0/HC2/HC3/cluster/DK rank-boundary primitives. Every estimator/primitive records requested/executed backend identity, the measurement tree is clean, and no numerical CPU fallback is accepted. Historical ec511f53 and earlier Stage-C sources remain immutable and are not overwritten."
+    },
+    {
+      "source_id": "panel-stage-c-rank-policy-performance-pr126-20260811-f27bef0b7c55",
+      "comparison_id": "panel-stage-c-pr126-rank-policy-performance-20260811",
+      "path": "results/pr126_p100/panel_stage_c_performance_3dc7df19.json",
+      "sha256": "f27bef0b7c55db8a8d31f0574e3133760649c28a9089b3c7d3cfcc121009e152",
+      "parser": "panel_stage_c_rank_policy_performance",
+      "parser_version": "2.0",
+      "env_id": "remote-p100-pr126-20260811",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-11",
+      "measurement_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "raw_git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+      "provenance_note": "PR #126 final rank-policy exact-clean P100 synchronized timing evidence. Raw artifact commit be679c13357475b8d26db42661b557fbea2f327f; Git blob 5e903cf0bd9a5f73e9273d9cc3488cb5e13219da; SHA-256 f27bef0b7c55db8a8d31f0574e3133760649c28a9089b3c7d3cfcc121009e152. All 58 synchronized end-to-end fit rows pass: 54 base rows over three maintained scales plus four bounded N=10000, k=2, T=200 QS all-lag rows on CuPy/Torch. Every sample is finite/positive and each stored median equals the median of its raw samples; no speedup or CPU-baseline claim is encoded. This timing artifact records packages.cupy as null because the performance runner queried the distribution name cupy while the environment installs a CUDA-suffixed CuPy distribution. The paired required exact-head correctness source independently records CuPy 13.6.0, and the timing runner imported CuPy and failed closed unless each timed fit persisted the requested backend. This is documented provenance, not a synthesized timing-artifact field."
+    },
+    {
+      "source_id": "panel-stage-c-rank-df-validation-pr126-20260812-0b4eb5810ad0",
+      "comparison_id": "panel-stage-c-pr126-rank-df-validation-20260812",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_f1546476.json",
+      "sha256": "0b4eb5810ad0b49adef9aa3089c7058683d0134efbbf6502aa3d57f3ff6c0766",
+      "parser": "panel_stage_c_rank_df_physical_validation",
+      "parser_version": "3.0",
+      "env_id": "remote-p100-pr126-20260812",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-12",
+      "measurement_git_sha": "f154647665788df2570439a1cc154a43f509aa45",
+      "raw_git_sha": "f154647665788df2570439a1cc154a43f509aa45",
+      "provenance_note": "PR #126 post-rank-df exact-clean P100 correctness/backend-provenance evidence. Raw artifact commit 2cda842d24f38a1ba95b949215b5779556168a2a; Git blob 47a0ee156b57f783fcd420565c431c5439589b9f; SHA-256 0b4eb5810ad0b49adef9aa3089c7058683d0134efbbf6502aa3d57f3ff6c0766. CuPy 13.6.0 and Torch 2.0.0 each pass 35 estimator integrations plus 12 direct public covariance primitives (47/47 per backend). The eight exact-collinearity nonrobust/HC1 estimator cases record fit_rank < parameter_count; requested/executed backend identity is required for every estimator and primitive. Historical Stage-C v1/v2 sources remain immutable and are not overwritten."
+    },
+    {
+      "source_id": "panel-stage-c-rank-df-performance-pr126-20260812-09337cc62c94",
+      "comparison_id": "panel-stage-c-pr126-rank-df-performance-20260812",
+      "path": "results/pr126_p100/panel_stage_c_performance_f1546476.json",
+      "sha256": "09337cc62c942cff040685ab3a667a743fea01047d9843849d567f53aa6d2b5e",
+      "parser": "panel_stage_c_rank_df_performance",
+      "parser_version": "3.0",
+      "env_id": "remote-p100-pr126-20260812",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-12",
+      "measurement_git_sha": "f154647665788df2570439a1cc154a43f509aa45",
+      "raw_git_sha": "f154647665788df2570439a1cc154a43f509aa45",
+      "provenance_note": "PR #126 post-rank-df synchronized end-to-end P100 timing evidence. Raw artifact commit 2cda842d24f38a1ba95b949215b5779556168a2a; Git blob c5b8757fd6d43a8043caf55cadc8f9c481fbf8bb; SHA-256 09337cc62c942cff040685ab3a667a743fea01047d9843849d567f53aa6d2b5e. The immutable source contains 58 synchronized rows with three positive finite raw samples per row and exact stored medians, including bounded high-T quadratic-spectral cases on CuPy and Torch. No CPU speedup claim is encoded. Historical Stage-C v1/v2 sources remain immutable and are not overwritten."
+    },
+    {
+      "source_id": "panel-stage-c-identifiability-validation-pr126-20260812-2d929bccf1c7",
+      "comparison_id": "panel-stage-c-pr126-identifiability-validation-20260812",
+      "path": "results/pr126_p100/panel_stage_c_gpu_validation_a99726e1.json",
+      "sha256": "2d929bccf1c7a0ade385c495bd6a3144cd607dec413c80857e455263c9f1f017",
+      "parser": "panel_stage_c_identifiability_physical_validation",
+      "parser_version": "4.0",
+      "env_id": "remote-p100-pr126-identifiability-20260812",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-12",
+      "measurement_git_sha": "a99726e19c535dfcd0a94711bbc8be6aac437584",
+      "raw_git_sha": "a99726e19c535dfcd0a94711bbc8be6aac437584",
+      "provenance_note": "PR #126 exact-clean a99726e1 P100 correctness evidence committed immutably in ccc46da6c5f2dee025c7715e39215db69b2872b8; Git blob ca40d98e48e7747c080f7bf1868cf355ada048a5; SHA-256 2d929bccf1c7a0ade385c495bd6a3144cd607dec413c80857e455263c9f1f017. CuPy and Torch each pass 35 estimator integrations plus 12 public covariance primitives (47/47). Every fitted estimator persists the requested/executed backend identity. All nine rank-deficient acceptance cases, including the DK rank boundary, record fit_rank < parameter_count, coefficient_inference_applicable=false, and an explicit rank-deficiency reason. Representative PanelOLS and RandomEffects predictions persist the requested prediction backend. No numerical CPU fallback is accepted."
+    },
+    {
+      "source_id": "panel-stage-c-identifiability-performance-pr126-20260812-2238002d491f",
+      "comparison_id": "panel-stage-c-pr126-identifiability-performance-20260812",
+      "path": "results/pr126_p100/panel_stage_c_performance_a99726e1.json",
+      "sha256": "2238002d491fe9397890af1d5e87162458f0a98b293ecf41f6b8831e5a9152b6",
+      "parser": "panel_stage_c_identifiability_performance",
+      "parser_version": "4.0",
+      "env_id": "remote-p100-pr126-identifiability-20260812",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-12",
+      "measurement_git_sha": "a99726e19c535dfcd0a94711bbc8be6aac437584",
+      "raw_git_sha": "a99726e19c535dfcd0a94711bbc8be6aac437584",
+      "provenance_note": "PR #126 exact-clean a99726e1 P100 synchronized timing evidence committed immutably in ccc46da6c5f2dee025c7715e39215db69b2872b8; Git blob e1b61e05ea93425947d1e6a7b35d38227d22c358; SHA-256 2238002d491fe9397890af1d5e87162458f0a98b293ecf41f6b8831e5a9152b6. All 60 synchronized end-to-end fit rows pass: 54 base rows, four bounded N=10000, k=2, T=200 QS all-lag rows, and two N=10000, k=2, T=20 unbalanced two-way-FE rows. Every row has three finite positive samples and an exact stored median. Schema v3 persists the requested backend label, not a second row-local executed_backend field; the exact immutable runner fails closed before returning elapsed time unless the fitted model persists _backend_name equal to that requested backend. The paired required correctness source independently persists fit execution and prediction backend provenance. No executed_backend field is synthesized and no CPU-speedup claim is made."
+    },
+    {
+      "source_id": "panel-stage-c-final-validation-pr126-20260813-62fbf89e58fb",
+      "comparison_id": "panel-stage-c-pr126-final-validation-20260813",
+      "path": "results/pr126_p100_fresh/panel_stage_c_correctness_p100.json",
+      "sha256": "62fbf89e58fb706b6edbf106ba21650961ea235db1e5bf8a9660f6f0af6821bf",
+      "parser": "panel_stage_c_final_physical_validation",
+      "parser_version": "5.0",
+      "env_id": "remote-p100-pr126-final-20260813",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-13",
+      "measurement_git_sha": "5f0cea9216321361842bc3c438219084a4cf5538",
+      "raw_git_sha": "5f0cea9216321361842bc3c438219084a4cf5538",
+      "provenance_note": "PR #126 final exact-clean fresh P100 correctness/backend-provenance evidence. Measured source 5f0cea9216321361842bc3c438219084a4cf5538; raw artifact commit c578f9af48c4322a6deec126f0e1440bb3519852; Git blob f3f57c3504bcdc40fe20fc6bda49274bca769d4b; SHA-256 62fbf89e58fb706b6edbf106ba21650961ea235db1e5bf8a9660f6f0af6821bf. CuPy 13.6.0 and Torch 2.0.0 each pass 35 estimator integrations plus 12 public covariance primitives (47/47 per backend), connected/disconnected two-way prediction guards, level-constant inference/prediction parity, and requested/executed backend provenance. Historical v1-v4 Stage-C sources remain immutable audit evidence."
+    },
+    {
+      "source_id": "panel-stage-c-final-performance-pr126-20260813-980ffe9bd392",
+      "comparison_id": "panel-stage-c-pr126-final-performance-20260813",
+      "path": "results/pr126_p100_fresh/panel_stage_c_performance_p100.json",
+      "sha256": "980ffe9bd3929186e061bae8886109ba1bdbc3ba9c82436c6a3c883257081c28",
+      "parser": "panel_stage_c_final_performance",
+      "parser_version": "5.0",
+      "env_id": "remote-p100-pr126-final-20260813",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-08-13",
+      "measurement_git_sha": "5f0cea9216321361842bc3c438219084a4cf5538",
+      "raw_git_sha": "5f0cea9216321361842bc3c438219084a4cf5538",
+      "provenance_note": "PR #126 final exact-clean fresh P100 synchronized timing evidence. Measured source 5f0cea9216321361842bc3c438219084a4cf5538; raw artifact commit c578f9af48c4322a6deec126f0e1440bb3519852; Git blob 6d649b68e48ab6ae931129df01d7ce05e2147576; SHA-256 980ffe9bd3929186e061bae8886109ba1bdbc3ba9c82436c6a3c883257081c28. The immutable source contains 60 synchronized rows: 54 base, four bounded N=10000 k=2 T=200 QS, and two N=10000 k=2 T=20 unbalanced two-way-FE rows, with three finite positive samples per row and exact medians. No CPU speedup claim is encoded."
     }
   ]
 }

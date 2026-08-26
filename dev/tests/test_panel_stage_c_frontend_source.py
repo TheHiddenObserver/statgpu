@@ -1,0 +1,340 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from dev.benchmarks.frontend_data.parsers.panel_stage_c import (
+    parse_panel_stage_c_performance,
+    parse_panel_stage_c_physical_validation,
+)
+from dev.benchmarks.frontend_data.parsers.panel_stage_c_rank_policy import (
+    parse_panel_stage_c_rank_policy_performance,
+    parse_panel_stage_c_rank_policy_physical_validation,
+)
+from dev.benchmarks.frontend_data.parsers.panel_stage_c_rank_df import (
+    parse_panel_stage_c_rank_df_performance,
+    parse_panel_stage_c_rank_df_physical_validation,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+CORRECTNESS = ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_ec511f53.json"
+PERFORMANCE = ROOT / "results/pr126_p100/panel_stage_c_performance_ec511f53.json"
+RANK_POLICY_CORRECTNESS = (
+    ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_3dc7df19.json"
+)
+RANK_POLICY_PERFORMANCE = (
+    ROOT / "results/pr126_p100/panel_stage_c_performance_3dc7df19.json"
+)
+ENV_ID = "remote-p100-pr126-20260811"
+RANK_DF_CORRECTNESS = (
+    ROOT / "results/pr126_p100/panel_stage_c_gpu_validation_f1546476.json"
+)
+RANK_DF_PERFORMANCE = (
+    ROOT / "results/pr126_p100/panel_stage_c_performance_f1546476.json"
+)
+RANK_DF_ENV_ID = "remote-p100-pr126-20260812"
+
+
+def test_stage_c_validation_parser_emits_exact_physical_matrix():
+    runs, models, warnings = parse_panel_stage_c_physical_validation(CORRECTNESS, ENV_ID)
+    assert warnings == []
+    assert len(runs) == 64
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 12
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all("timing" not in run["metrics"] for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_stage_c_performance_parser_emits_timing_without_speedup():
+    runs, _, warnings = parse_panel_stage_c_performance(PERFORMANCE, ENV_ID)
+    assert warnings == []
+    assert len(runs) == 58
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    base = [run for run in runs if run["parameters"]["scenario"] == "base"]
+    high_t = [run for run in runs if run["parameters"]["scenario"] == "high_t_qs"]
+    assert len(base) == 54
+    assert len(high_t) == 4
+    assert {run["backend"] for run in high_t} == {"cupy", "torch"}
+    assert {run["parameters"]["n_times"] for run in high_t} == {200}
+    assert {run["model_id"] for run in high_t} == {"PooledOLS", "PanelOLS"}
+    assert {run["scale"]["scale_key"] for run in base} == {
+        "n10000_p2_t20", "n100000_p2_t20", "n100000_p10_t20"
+    }
+    assert {run["scale"]["scale_key"] for run in high_t} == {"n10000_p2_t200"}
+    assert {run["scale"]["label"] for run in high_t} == {"10K×2 · T=200"}
+
+
+def test_stage_c_performance_parser_fails_closed_on_high_t_contract(tmp_path):
+    data = json.loads(PERFORMANCE.read_text(encoding="utf-8"))
+    data["high_t_scale"] = "10000x2x20"
+    broken = tmp_path / "broken_performance.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="high-T scale drifted"):
+        parse_panel_stage_c_performance(broken, ENV_ID)
+
+
+def test_stage_c_validation_parser_fails_closed_on_case_identity(tmp_path):
+    data = json.loads(CORRECTNESS.read_text(encoding="utf-8"))
+    del data["backends"]["cupy"]["cases"]["pooled_hc0"]
+    broken = tmp_path / "broken_validation.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="case identity drifted"):
+        parse_panel_stage_c_physical_validation(broken, ENV_ID)
+
+
+def test_stage_c_performance_parser_fails_closed_on_base_matrix_drift(tmp_path):
+    data = json.loads(PERFORMANCE.read_text(encoding="utf-8"))
+    base_rows = [row for row in data["rows"] if row["scenario"] == "base"]
+    assert len(base_rows) == 54
+    base_rows[0]["case"] = base_rows[1]["case"]
+    broken = tmp_path / "broken_base_matrix.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="base matrix drifted"):
+        parse_panel_stage_c_performance(broken, ENV_ID)
+
+
+def test_stage_c_performance_parser_fails_closed_on_high_t_backend_matrix_drift(tmp_path):
+    data = json.loads(PERFORMANCE.read_text(encoding="utf-8"))
+    high_t = [row for row in data["rows"] if row["scenario"] == "high_t_qs"]
+    assert len(high_t) == 4
+    high_t[0]["backend"] = "torch"
+    broken = tmp_path / "broken_high_t_matrix.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="high-T QS matrix drifted"):
+        parse_panel_stage_c_performance(broken, ENV_ID)
+
+
+def test_rank_policy_validation_parser_emits_39_checks_per_backend():
+    runs, models, warnings = parse_panel_stage_c_rank_policy_physical_validation(
+        RANK_POLICY_CORRECTNESS, ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 78
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 24
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all(run["parameters"]["measurement_git_sha"] == (
+        "3dc7df19176f8fb881a8d37e9d75b4f75e71b058"
+    ) for run in runs)
+    boundary = [
+        run for run in runs
+        if run["variant"] == "rank-policy-panel-rank-boundary-dk"
+    ]
+    assert len(boundary) == 2
+    assert {run["backend"] for run in boundary} == {"cupy", "torch"}
+    assert all(
+        run["parameters"]["covariance_metadata"]["design_rank"] == 2
+        and run["parameters"]["covariance_metadata"]["design_columns"] == 3
+        and run["parameters"]["covariance_metadata"]["rank_deficient_extension"] is True
+        for run in boundary
+    )
+    rank_primitives = {
+        run["variant"] for run in runs
+        if run["model_id"] == "PanelCovariancePrimitive"
+        and "rank-boundary" in run["variant"]
+    }
+    assert rank_primitives == {
+        "rank-policy-public-rank-boundary-nonrobust",
+        "rank-policy-public-rank-boundary-hc0",
+        "rank-policy-public-rank-boundary-hc2",
+        "rank-policy-public-rank-boundary-hc3",
+        "rank-policy-public-rank-boundary-cluster",
+        "rank-policy-public-rank-boundary-dk",
+    }
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_rank_policy_performance_parser_emits_58_synchronized_rows():
+    runs, models, warnings = parse_panel_stage_c_rank_policy_performance(
+        RANK_POLICY_PERFORMANCE, ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 58
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "3dc7df19176f8fb881a8d37e9d75b4f75e71b058"
+        for run in runs
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects"
+    }
+    assert len([run for run in runs if run["parameters"]["scenario"] == "base"]) == 54
+    assert len([run for run in runs if run["parameters"]["scenario"] == "high_t_qs"]) == 4
+
+
+def test_rank_policy_validation_parser_fails_closed_on_boundary_metadata(tmp_path):
+    data = json.loads(RANK_POLICY_CORRECTNESS.read_text(encoding="utf-8"))
+    data["backends"]["cupy"]["cases"]["panel_rank_boundary_dk"][
+        "covariance_metadata"
+    ]["rank_deficient_extension"] = False
+    broken = tmp_path / "broken_rank_policy_validation.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="rank-boundary covariance metadata drifted"):
+        parse_panel_stage_c_rank_policy_physical_validation(broken, ENV_ID)
+
+
+def test_rank_policy_validation_parser_fails_closed_on_primitive_identity(tmp_path):
+    data = json.loads(RANK_POLICY_CORRECTNESS.read_text(encoding="utf-8"))
+    del data["backends"]["torch"]["public_primitives"]["rank_boundary_hc3"]
+    broken = tmp_path / "broken_rank_policy_primitives.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="public primitive identity drifted"):
+        parse_panel_stage_c_rank_policy_physical_validation(broken, ENV_ID)
+
+
+def test_rank_policy_performance_parser_fails_closed_on_gpu_provenance(tmp_path):
+    data = json.loads(RANK_POLICY_PERFORMANCE.read_text(encoding="utf-8"))
+    data["environment"]["gpu_by_backend"]["cupy"] = "unexpected GPU"
+    broken = tmp_path / "broken_rank_policy_performance.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="GPU provenance drifted"):
+        parse_panel_stage_c_rank_policy_performance(broken, ENV_ID)
+
+
+def test_rank_df_validation_parser_emits_47_checks_per_backend():
+    runs, models, warnings = parse_panel_stage_c_rank_df_physical_validation(
+        RANK_DF_CORRECTNESS, RANK_DF_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 94
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 24
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "f154647665788df2570439a1cc154a43f509aa45"
+        for run in runs
+    )
+    rank_deficient = [
+        run
+        for run in runs
+        if "rank-deficient" in run["variant"]
+        and run["model_id"] != "PanelCovariancePrimitive"
+    ]
+    assert len(rank_deficient) == 16
+    assert {run["backend"] for run in rank_deficient} == {"cupy", "torch"}
+    assert all(
+        0 < run["parameters"]["fit_rank"] < run["parameters"]["parameter_count"]
+        for run in rank_deficient
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_rank_df_validation_parser_fails_closed_on_identified_rank_contract(tmp_path):
+    data = json.loads(RANK_DF_CORRECTNESS.read_text(encoding="utf-8"))
+    case = data["backends"]["cupy"]["cases"]["between_rank_deficient_nonrobust"]
+    case["fit_rank"] = case["parameter_count"]
+    broken = tmp_path / "broken_rank_df_validation.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="identified-rank contract drifted"):
+        parse_panel_stage_c_rank_df_physical_validation(broken, RANK_DF_ENV_ID)
+
+
+def test_rank_df_performance_parser_emits_58_synchronized_rows():
+    runs, models, warnings = parse_panel_stage_c_rank_df_performance(
+        RANK_DF_PERFORMANCE, RANK_DF_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 58
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "f154647665788df2570439a1cc154a43f509aa45"
+        for run in runs
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects"
+    }
+
+
+def test_rank_df_performance_parser_fails_closed_on_median_drift(tmp_path):
+    data = json.loads(RANK_DF_PERFORMANCE.read_text(encoding="utf-8"))
+    data["rows"][0]["median_seconds"] *= 1.5
+    broken = tmp_path / "broken_rank_df_performance.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="reported median does not match raw samples"):
+        parse_panel_stage_c_rank_df_performance(broken, RANK_DF_ENV_ID)
+
+
+# PR126 final fresh-P100 v5 canonical source
+from dev.benchmarks.frontend_data.parsers.panel_stage_c_final import (
+    parse_panel_stage_c_final_performance,
+    parse_panel_stage_c_final_physical_validation,
+)
+
+FINAL_CORRECTNESS = ROOT / "results/pr126_p100_fresh/panel_stage_c_correctness_p100.json"
+FINAL_PERFORMANCE = ROOT / "results/pr126_p100_fresh/panel_stage_c_performance_p100.json"
+FINAL_ENV_ID = "remote-p100-pr126-final-20260813"
+
+
+def test_final_stage_c_v5_validation_emits_47_checks_per_backend():
+    runs, models, warnings = parse_panel_stage_c_final_physical_validation(
+        FINAL_CORRECTNESS, FINAL_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 94
+    assert {run["backend"] for run in runs} == {"cupy", "torch"}
+    assert sum(run["model_id"] == "PanelCovariancePrimitive" for run in runs) == 24
+    assert all(run["metrics"]["validation"]["status"] == "pass" for run in runs)
+    assert all(
+        run["parameters"]["measurement_git_sha"]
+        == "5f0cea9216321361842bc3c438219084a4cf5538"
+        for run in runs
+    )
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects", "BetweenOLS",
+        "FirstDifferenceOLS", "PanelCovariancePrimitive",
+    }
+
+
+def test_final_stage_c_v5_performance_emits_60_synchronized_rows():
+    runs, models, warnings = parse_panel_stage_c_final_performance(
+        FINAL_PERFORMANCE, FINAL_ENV_ID
+    )
+    assert warnings == []
+    assert len(runs) == 60
+    assert len([run for run in runs if run["parameters"]["scenario"] == "base"]) == 54
+    assert len([run for run in runs if run["parameters"]["scenario"] == "high_t_qs"]) == 4
+    assert len([run for run in runs if run["parameters"]["scenario"] == "two_way_unbalanced"]) == 2
+    assert all(run["metrics"]["timing"]["fit_time_ms"] > 0 for run in runs)
+    assert all("speedup" not in run["metrics"] for run in runs)
+    assert {model["model_id"] for model in models} == {
+        "PooledOLS", "PanelOLS", "RandomEffects"
+    }
+
+
+def test_final_stage_c_v5_fails_closed_on_prediction_guard_drift(tmp_path):
+    data = json.loads(FINAL_CORRECTNESS.read_text(encoding="utf-8"))
+    data["backends"]["cupy"]["prediction_contracts"]["two_way_disconnected"]["guards"][
+        "cross_component"
+    ] = False
+    broken = tmp_path / "broken_final_prediction.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="prediction contract drifted"):
+        parse_panel_stage_c_final_physical_validation(broken, FINAL_ENV_ID)
+
+
+def test_final_stage_c_v5_fails_closed_on_level_constant_backend_drift(tmp_path):
+    data = json.loads(FINAL_CORRECTNESS.read_text(encoding="utf-8"))
+    data["backends"]["torch"]["level_constant_contract"]["prediction_backend"] = "numpy"
+    broken = tmp_path / "broken_final_level_constant.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="level-constant contract drifted"):
+        parse_panel_stage_c_final_physical_validation(broken, FINAL_ENV_ID)

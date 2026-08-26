@@ -1,0 +1,107 @@
+name: Panel Stage C Torch CPU
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'statgpu/panel/**'
+      - 'statgpu/_base.py'
+      - 'statgpu/_config.py'
+      - 'statgpu/backends/__init__.py'
+      - 'statgpu/backends/_torch.py'
+      - 'statgpu/backends/_cupy.py'
+      - 'statgpu/backends/_utils.py'
+      - 'statgpu/inference/_reference_distribution.py'
+      - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_t2_tail_gpu.py'
+      - 'dev/benchmarks/validate_panel_cupy_device_affinity_gpu.py'
+      - 'dev/tests/test_fama_macbeth_review_fixes.py'
+      - 'dev/tests/test_fama_macbeth_inference_matrix.py'
+      - 'dev/tests/test_fama_macbeth_t2_tail_gpu_runner_contract.py'
+      - 'dev/tests/test_fama_macbeth_batched_solver.py'
+      - 'dev/tests/test_fama_macbeth_rank_precision_precedence.py'
+      - 'dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py'
+      - 'dev/tests/test_panel_cupy_device_affinity_runner_contract.py'
+      - 'dev/tests/test_panel_lstsq_resolution_precision.py'
+      - 'dev/tests/test_panel_pr126_fmb_exact_period.py'
+      - 'dev/tests/test_panel_stage_c_backend_contract.py'
+      - 'dev/tests/test_panel_stage_c_torch_cpu.py'
+      - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
+      - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
+      - '.github/workflows/panel-stage-c-torch-cpu.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'statgpu/panel/**'
+      - 'statgpu/_base.py'
+      - 'statgpu/_config.py'
+      - 'statgpu/backends/__init__.py'
+      - 'statgpu/backends/_torch.py'
+      - 'statgpu/backends/_cupy.py'
+      - 'statgpu/backends/_utils.py'
+      - 'statgpu/inference/_reference_distribution.py'
+      - 'dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_optimized_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py'
+      - 'dev/benchmarks/validate_fama_macbeth_t2_tail_gpu.py'
+      - 'dev/benchmarks/validate_panel_cupy_device_affinity_gpu.py'
+      - 'dev/tests/test_fama_macbeth_review_fixes.py'
+      - 'dev/tests/test_fama_macbeth_inference_matrix.py'
+      - 'dev/tests/test_fama_macbeth_t2_tail_gpu_runner_contract.py'
+      - 'dev/tests/test_fama_macbeth_batched_solver.py'
+      - 'dev/tests/test_fama_macbeth_rank_precision_precedence.py'
+      - 'dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py'
+      - 'dev/tests/test_panel_cupy_device_affinity_runner_contract.py'
+      - 'dev/tests/test_panel_lstsq_resolution_precision.py'
+      - 'dev/tests/test_panel_pr126_fmb_exact_period.py'
+      - 'dev/tests/test_panel_stage_c_backend_contract.py'
+      - 'dev/tests/test_panel_stage_c_torch_cpu.py'
+      - 'dev/tests/test_panel_stage_c_rank_deficient_matrix.py'
+      - 'dev/tests/test_panel_stage_c_final_review_fixes.py'
+      - '.github/workflows/panel-stage-c-torch-cpu.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  torch-2-0-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install maintained Torch CPU environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<2" pytest
+          python -m pip install "torch==2.0.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+      - name: Confirm maintained Torch version
+        run: |
+          python - <<'PY'
+          import torch
+          assert torch.__version__.startswith('2.0.1')
+          assert not torch.cuda.is_available()
+          print('torch', torch.__version__, 'device=cpu')
+          PY
+      - name: Run Stage C Torch CPU covariance parity
+        run: |
+          python -m pytest \
+            dev/tests/test_fama_macbeth_review_fixes.py \
+            dev/tests/test_fama_macbeth_inference_matrix.py \
+            dev/tests/test_fama_macbeth_t2_tail_gpu_runner_contract.py \
+            dev/tests/test_fama_macbeth_batched_solver.py \
+            dev/tests/test_fama_macbeth_rank_precision_precedence.py \
+            dev/tests/test_fama_macbeth_stable_zero_rhs_precision.py \
+            dev/tests/test_panel_cupy_device_affinity_runner_contract.py \
+            dev/tests/test_panel_lstsq_resolution_precision.py \
+            dev/tests/test_panel_pr126_fmb_exact_period.py \
+            dev/tests/test_panel_stage_c_backend_contract.py \
+            dev/tests/test_panel_stage_c_torch_cpu.py \
+            dev/tests/test_panel_stage_c_rank_deficient_matrix.py \
+            dev/tests/test_panel_stage_c_final_review_fixes.py \
+            -q --tb=short

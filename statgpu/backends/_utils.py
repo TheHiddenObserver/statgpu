@@ -411,6 +411,13 @@ def _torch_to_cupy_dlpack(x):
 # Device-aware array creation helpers
 # ---------------------------------------------------------------------------
 
+# CuPy ``ufunc.at`` / ``cupyx.scatter_max`` begin corrupting float64
+# magnitudes somewhere between 1e7 and 1e100 on CuPy 13.6.  Magnitudes at or
+# below this bound keep the native GPU scatter; anything larger must use the
+# sequential host fallback.
+_CUPY_UFUNC_AT_SAFE_MAX = 1.0e6
+
+
 def _torch_dev(arr):
     """Extract device from a torch tensor, or ``None`` for non-torch arrays."""
     try:
@@ -422,11 +429,26 @@ def _torch_dev(arr):
     return None
 
 
+def _cupy_dev(arr):
+    """Extract a CuPy device by duck type without importing CuPy eagerly."""
+    if (
+        arr is not None
+        and type(arr).__module__.startswith("cupy")
+        and hasattr(arr, "device")
+    ):
+        return arr.device
+    return None
+
+
 def xp_zeros(shape, dtype, xp, ref_arr=None):
     """Device-aware ``xp.zeros``.  *ref_arr* provides the target device."""
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.zeros(shape, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.zeros(shape, dtype=dtype)
     return xp.zeros(shape, dtype=dtype)
 
 
@@ -435,6 +457,10 @@ def xp_eye(n, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.eye(n, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.eye(n, dtype=dtype)
     return xp.eye(n, dtype=dtype)
 
 
@@ -445,6 +471,10 @@ def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.full(shape, fill_value, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.full(shape, fill_value, dtype=dtype)
     return xp.full(shape, fill_value, dtype=dtype)
 
 
@@ -515,12 +545,9 @@ def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
         if dtype is not None:
             kwargs['dtype'] = dtype
         return xp.asarray(data, **kwargs)
-    if (
-        ref_arr is not None
-        and type(ref_arr).__module__.startswith("cupy")
-        and hasattr(ref_arr, "device")
-    ):
-        with ref_arr.device:
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
             return (
                 xp.asarray(data, dtype=dtype)
                 if dtype is not None
@@ -536,20 +563,36 @@ def xp_empty(shape, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.empty(shape, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.empty(shape, dtype=dtype)
     return xp.empty(shape, dtype=dtype)
 
 
-def xp_arange(n, dtype=None, xp=None, ref_arr=None):
-    """Device-aware ``xp.arange``.  *ref_arr* provides the target device."""
+def xp_arange(start, stop=None, dtype=None, xp=None, ref_arr=None):
+    """Device-aware ``xp.arange``.  *ref_arr* provides the target device.
+
+    Supports both single-argument ``xp_arange(n, ...)`` and range-form
+    ``xp_arange(start, stop, ...)`` calls.  Keyword callers may use
+    ``xp_arange(n, xp=xp, ref_arr=ref)`` as before.
+    """
+    args = (start,) if stop is None else (start, stop)
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         kwargs = {'device': dev}
         if dtype is not None:
             kwargs['dtype'] = dtype
-        return xp.arange(n, **kwargs)
+        return xp.arange(*args, **kwargs)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            if dtype is not None:
+                return xp.arange(*args, dtype=dtype)
+            return xp.arange(*args)
     if dtype is not None:
-        return xp.arange(n, dtype=dtype)
-    return xp.arange(n)
+        return xp.arange(*args, dtype=dtype)
+    return xp.arange(*args)
 
 
 def xp_ones(shape, dtype, xp, ref_arr=None):
@@ -557,6 +600,10 @@ def xp_ones(shape, dtype, xp, ref_arr=None):
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
     if dev is not None:
         return xp.ones(shape, dtype=dtype, device=dev)
+    cupy_dev = _cupy_dev(ref_arr)
+    if cupy_dev is not None:
+        with cupy_dev:
+            return xp.ones(shape, dtype=dtype)
     return xp.ones(shape, dtype=dtype)
 
 

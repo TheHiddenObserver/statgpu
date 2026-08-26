@@ -42,7 +42,7 @@ def panel_df():
 
 @pytest.fixture
 def panel_arrays(panel_df):
-    """Extract arrays from the panel DataFrame."""
+    """Extract arrays from the panel DataFrame for testing."""
     return {
         'X': panel_df[['x1', 'x2']].values,
         'y': panel_df['y'].values,
@@ -88,6 +88,19 @@ class TestSplitPanelFormula:
         assert main == "y~x1+x2"
         assert fe == ["entity", "time"]
 
+    @pytest.mark.parametrize(
+        "formula",
+        [
+            'Q("y|raw") ~ x1 + x2',
+            'y ~ x1 + Q("x|raw")',
+            "Q('y|raw') ~ x1 + Q('x|raw')",
+        ],
+    )
+    def test_pipe_inside_quoted_name_is_not_panel_separator(self, formula):
+        main, fe = _split_panel_formula(formula)
+        assert main == formula
+        assert fe == []
+
 
 class TestStripPanelTokens:
 
@@ -118,6 +131,34 @@ class TestStripPanelTokens:
         assert entity is False
         assert time is False
         assert clean == "y ~ x1 + x2"
+
+    @pytest.mark.parametrize(
+        "name", ["EntityEffectsScore", "TimeEffectsTrend", "FixedEffectsWeight"]
+    )
+    def test_magic_token_substrings_remain_ordinary_identifiers(self, name):
+        formula = f"y ~ x1 + {name}"
+        clean, entity, time = _strip_panel_tokens(formula)
+        assert clean == formula
+        assert entity is False
+        assert time is False
+
+    def test_magic_token_inside_transform_is_not_rewritten(self):
+        formula = "y ~ x1 + C(EntityEffects)"
+        clean, entity, time = _strip_panel_tokens(formula)
+        assert clean == formula
+        assert entity is False
+        assert time is False
+
+    def test_magic_token_inside_quoted_response_name_is_not_rewritten(self):
+        formula = 'Q("y~EntityEffects") ~ x1'
+        clean, entity, time = _strip_panel_tokens(formula)
+        assert clean == formula
+        assert entity is False
+        assert time is False
+
+    def test_quoted_response_tilde_does_not_hide_effects_only_failure(self):
+        with pytest.raises(ValueError, match="no predictors after removing panel tokens"):
+            _strip_panel_tokens('Q("y~value") ~ EntityEffects')
 
 
 # ============================================================================
@@ -168,6 +209,60 @@ class TestPanelOLSFormula:
         assert m.entity_effects is True
         assert m.time_effects is True
 
+    def test_quoted_response_name_with_tilde_and_magic_token_is_not_rewritten(self, panel_df):
+        data = panel_df.copy()
+        data["y~EntityEffects"] = data["y"].to_numpy()
+        actual = PanelOLS().fit(formula='Q("y~EntityEffects") ~ x1', data=data)
+        expected_X = np.column_stack(
+            [np.ones(len(data)), data["x1"].to_numpy()]
+        )
+        expected = PanelOLS().fit(expected_X, data["y~EntityEffects"].to_numpy())
+        assert actual.entity_effects is False
+        assert actual.time_effects is False
+        assert actual._feature_names == ["Intercept", "x1"]
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
+    def test_quoted_pipe_column_names_remain_ordinary_patsy_terms(self, panel_df):
+        data = panel_df.copy()
+        data["y|raw"] = data["y"].to_numpy()
+        data["x|raw"] = data["x1"].to_numpy()
+        actual = PanelOLS().fit(
+            formula='Q("y|raw") ~ Q("x|raw")',
+            data=data,
+        )
+        expected_X = np.column_stack(
+            [np.ones(len(data)), data["x|raw"].to_numpy()]
+        )
+        expected = PanelOLS().fit(expected_X, data["y|raw"].to_numpy())
+        assert actual.entity_effects is False
+        assert actual.time_effects is False
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
+    def test_magic_token_prefix_regressor_is_not_silently_rewritten(self, panel_df):
+        data = panel_df.copy()
+        data["Score"] = np.linspace(-1.5, 1.5, len(data))
+        data["EntityEffectsScore"] = 0.4 * data["x1"] - 0.2 * data["x2"]
+        actual = PanelOLS().fit(formula="y ~ EntityEffectsScore", data=data)
+        expected_X = np.column_stack(
+            [np.ones(len(data)), data["EntityEffectsScore"].to_numpy()]
+        )
+        expected = PanelOLS().fit(expected_X, data["y"].to_numpy())
+        assert actual.entity_effects is False
+        assert actual.time_effects is False
+        assert actual._feature_names == ["Intercept", "EntityEffectsScore"]
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
+    @pytest.mark.parametrize(
+        "formula",
+        [
+            "y ~ x1 + EntityEffects | time",
+            "y ~ x1 + TimeEffects | entity",
+        ],
+    )
+    def test_token_and_pipe_fixed_effect_syntax_cannot_be_mixed(self, panel_df, formula):
+        with pytest.raises(ValueError, match="cannot combine.*effect tokens.*pipe"):
+            PanelOLS().fit(formula=formula, data=panel_df)
+
     def test_predict_with_dataframe(self, panel_df):
         """After fitting with formula, predict(df) should work."""
         m = PanelOLS()
@@ -180,7 +275,6 @@ class TestPanelOLSFormula:
         m = PanelOLS()
         m.fit(formula="y ~ x1 + x2 | entity + time", data=panel_df)
         s = m.summary()
-        # Check that feature names are available
         assert hasattr(s, 'coef')
 
     def test_no_formula_backward_compat(self, panel_arrays):
@@ -193,6 +287,66 @@ class TestPanelOLSFormula:
         assert m.coef_ is not None
         assert len(m.coef_) == 2
 
+    def test_pipe_named_ids_reject_conflicting_explicit_metadata(self, panel_df):
+        entity_conflict = np.roll(panel_df["entity"].to_numpy(), 1)
+        with pytest.raises(ValueError, match=r"entity_ids conflicts.*entity"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | entity",
+                data=panel_df,
+                entity_ids=entity_conflict,
+            )
+
+        time_conflict = np.roll(panel_df["time"].to_numpy(), 1)
+        with pytest.raises(ValueError, match=r"time_ids conflicts.*time"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | entity + time",
+                data=panel_df,
+                time_ids=time_conflict,
+            )
+
+    def test_pipe_named_ids_allow_redundant_matching_metadata(self, panel_df):
+        expected = PanelOLS().fit(
+            formula="y ~ x1 + x2 | entity + time", data=panel_df
+        )
+        actual = PanelOLS().fit(
+            formula="y ~ x1 + x2 | entity + time",
+            data=panel_df,
+            entity_ids=panel_df["entity"].to_numpy(),
+            time_ids=panel_df["time"].to_numpy(),
+        )
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+        assert_allclose(actual.bse_, expected.bse_, rtol=0, atol=3e-12)
+
+    def test_missing_pipe_column_cannot_be_replaced_by_explicit_ids(self, panel_df):
+        with pytest.raises(ValueError, match=r"missing_entity.*not found in data"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | missing_entity",
+                data=panel_df,
+                entity_ids=panel_df["entity"].to_numpy(),
+            )
+
+    def test_missing_second_pipe_column_cannot_fall_back_to_default_time(self, panel_df):
+        with pytest.raises(ValueError, match=r"missing_time.*not found in data"):
+            PanelOLS().fit(
+                formula="y ~ x1 + x2 | entity + missing_time",
+                data=panel_df,
+            )
+
+    def test_effect_token_without_named_column_still_accepts_explicit_ids(self, panel_df):
+        data = panel_df.drop(columns=["entity"]).copy()
+        explicit = panel_df["entity"].to_numpy()
+        actual = PanelOLS().fit(
+            formula="y ~ x1 + x2 + EntityEffects",
+            data=data,
+            entity_ids=explicit,
+        )
+        expected = PanelOLS(entity_effects=True).fit(
+            data[["x1", "x2"]].to_numpy(),
+            data["y"].to_numpy(),
+            entity_ids=explicit,
+        )
+        assert_allclose(actual.coef_, expected.coef_, rtol=0, atol=3e-12)
+
 
 # ============================================================================
 # RandomEffects formula tests
@@ -201,17 +355,35 @@ class TestPanelOLSFormula:
 class TestRandomEffectsFormula:
 
     def test_pipe_syntax(self, panel_df, panel_arrays):
-        """y ~ x1 + x2 | entity should match array interface."""
+        """Implicit formula intercept matches an explicit constant array model."""
         m_formula = RandomEffects()
         m_formula.fit(formula="y ~ x1 + x2 | entity", data=panel_df)
+
+        X_with_constant = np.column_stack(
+            [np.ones(len(panel_arrays['y'])), panel_arrays['X']]
+        )
+        m_array = RandomEffects()
+        m_array.fit(
+            X=X_with_constant, y=panel_arrays['y'],
+            entity_ids=panel_arrays['entity_ids'],
+        )
+
+        assert_allclose(m_formula.coef_, m_array.coef_, rtol=1e-6)
+        assert m_formula._feature_names == ["Intercept", "x1", "x2"]
+
+    def test_formula_explicit_no_intercept_matches_no_constant_array(
+        self, panel_df, panel_arrays
+    ):
+        m_formula = RandomEffects()
+        m_formula.fit(formula="y ~ 0 + x1 + x2 | entity", data=panel_df)
 
         m_array = RandomEffects()
         m_array.fit(
             X=panel_arrays['X'], y=panel_arrays['y'],
             entity_ids=panel_arrays['entity_ids'],
         )
-
         assert_allclose(m_formula.coef_, m_array.coef_, rtol=1e-6)
+        assert m_formula._feature_names == ["x1", "x2"]
 
     def test_predict_with_dataframe(self, panel_df):
         m = RandomEffects()
@@ -226,6 +398,54 @@ class TestRandomEffectsFormula:
             entity_ids=panel_arrays['entity_ids'],
         )
         assert m.coef_ is not None
+
+    @pytest.mark.parametrize(
+        "token", ["EntityEffects", "FixedEffects", "TimeEffects"]
+    )
+    def test_random_effects_rejects_fixed_effect_magic_tokens(self, panel_df, token):
+        with pytest.raises(ValueError, match=r"does not support fixed-effect formula tokens"):
+            RandomEffects(cov_type="dk", bandwidth=1).fit(
+                formula=f"y ~ x1 + x2 + {token}",
+                data=panel_df,
+                entity_ids=panel_df["entity"].to_numpy(),
+                time_ids=panel_df["time"].to_numpy(),
+            )
+
+    def test_pipe_named_entity_rejects_conflicting_explicit_ids(self, panel_df):
+        conflict = np.roll(panel_df["entity"].to_numpy(), 1)
+        with pytest.raises(ValueError, match=r"entity_ids conflicts.*entity"):
+            RandomEffects().fit(
+                formula="y ~ x1 + x2 | entity",
+                data=panel_df,
+                entity_ids=conflict,
+            )
+
+    def test_second_pipe_variable_requires_driscoll_kraay(self, panel_df):
+        with pytest.raises(ValueError, match=r"second time variable.*driscoll-kraay"):
+            RandomEffects().fit(
+                formula="y ~ x1 + x2 | entity + time",
+                data=panel_df,
+            )
+
+    def test_second_pipe_variable_supplies_dk_time_metadata(self, panel_df):
+        actual = RandomEffects(cov_type="dk", bandwidth=1).fit(
+            formula="y ~ x1 + x2 | entity + time",
+            data=panel_df,
+        )
+        X = np.column_stack(
+            [
+                np.ones(len(panel_df)),
+                panel_df[["x1", "x2"]].to_numpy(),
+            ]
+        )
+        expected = RandomEffects(cov_type="dk", bandwidth=1).fit(
+            X,
+            panel_df["y"].to_numpy(),
+            entity_ids=panel_df["entity"].to_numpy(),
+            time_ids=panel_df["time"].to_numpy(),
+        )
+        assert_allclose(actual.coef_, expected.coef_, rtol=2e-12, atol=2e-13)
+        assert_allclose(actual.bse_, expected.bse_, rtol=2e-11, atol=2e-13)
 
 
 # ============================================================================
@@ -324,6 +544,28 @@ class TestFamaMacBethFormula:
 
 class TestFormulaEdgeCases:
 
+    def test_formula_prediction_rejects_rows_dropped_by_patsy(self, panel_df):
+        model = PooledOLS().fit(formula="y ~ x1 + x2", data=panel_df)
+        prediction_data = panel_df.copy()
+        prediction_data.loc[prediction_data.index[7], "x1"] = np.nan
+        with pytest.raises(
+            ValueError,
+            match=r"preserve one output row per input row",
+        ):
+            model.predict(prediction_data)
+
+    def test_formula_prediction_rejects_nonfinite_transformed_design(self, panel_df):
+        data = panel_df.copy()
+        data["z"] = np.linspace(1.0, 2.0, len(data))
+        model = PooledOLS().fit(formula="y ~ I(1 / z)", data=data)
+        prediction_data = data.copy()
+        prediction_data.loc[prediction_data.index[3], "z"] = 0.0
+        with pytest.raises(
+            ValueError,
+            match=r"formula prediction design must contain only finite values",
+        ):
+            model.predict(prediction_data)
+
     def test_formula_without_data_raises(self):
         m = PooledOLS()
         with pytest.raises(ValueError, match="data is None"):
@@ -346,6 +588,35 @@ class TestFormulaEdgeCases:
 
     def test_random_effects_ols_alias(self):
         assert RandomEffectsOLS is RandomEffects
+
+    def test_side_array_too_short_fails_closed_over_long_aligned(self):
+        from statgpu.panel._formula import _align_formula_side_array
+        from types import SimpleNamespace
+
+        # The formula retained rows [1, 3, 5] of a 6-row design.  A side array
+        # must match either the original 6-row formula-data length (aligned by
+        # retained positions) or the retained length of 3 (already aligned).
+        design_info = SimpleNamespace(
+            _statgpu_row_positions=np.asarray([1, 3, 5]),
+            _statgpu_original_rows=6,
+        )
+        aligned = _align_formula_side_array(
+            np.arange(6, dtype=np.float64), design_info, name="side"
+        )
+        np.testing.assert_array_equal(aligned, np.asarray([1.0, 3.0, 5.0]))
+        exact = _align_formula_side_array(
+            np.arange(3, dtype=np.float64), design_info, name="side"
+        )
+        np.testing.assert_array_equal(exact, np.asarray([0.0, 1.0, 2.0]))
+        # Any other length assigns metadata from a different frame.
+        with pytest.raises(ValueError, match="formula data has"):
+            _align_formula_side_array(
+                np.arange(8, dtype=np.float64), design_info, name="side"
+            )
+        with pytest.raises(ValueError, match="formula data has"):
+            _align_formula_side_array(
+                np.arange(2, dtype=np.float64), design_info, name="side"
+            )
 
 
 if __name__ == "__main__":

@@ -47,14 +47,28 @@ def _split_panel_formula(formula: str) -> Tuple[str, List[str]]:
     >>> _split_panel_formula("y ~ x1 + x2")
     ('y ~ x1 + x2', [])
     """
-    # Find the top-level | (not inside parentheses)
+    # Find the top-level pipe separator without treating quoted column
+    # names or nested Patsy/Python expressions as fixed-effect syntax.
     depth = 0
+    quote = None
+    escaped = False
     pipe_pos = -1
     for i, ch in enumerate(formula):
-        if ch == '(':
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            continue
+        if ch in "([{":
             depth += 1
-        elif ch == ')':
-            depth -= 1
+        elif ch in ")]}":
+            depth = max(depth - 1, 0)
         elif ch == '|' and depth == 0:
             pipe_pos = i
             break
@@ -77,50 +91,126 @@ def _split_panel_formula(formula: str) -> Tuple[str, List[str]]:
     return main, fe_vars
 
 
+def _top_level_formula_rhs_start(formula: str):
+    """Return the index after the top-level formula separator, if present."""
+    depth = 0
+    quote = None
+    escaped = False
+    for i, ch in enumerate(formula):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            continue
+        if ch in "([{":
+            depth += 1
+            continue
+        if ch in ")]}":
+            depth = max(depth - 1, 0)
+            continue
+        if depth == 0 and ch == "~":
+            return i + 1
+    return None
+
+
+def _top_level_panel_token_spans(formula: str, token: str):
+    """Return top-level RHS spans where ``token`` is a complete identifier."""
+    rhs_start = _top_level_formula_rhs_start(formula)
+    if rhs_start is None:
+        return []
+
+    i = rhs_start
+    depth = 0
+    quote = None
+    escaped = False
+    spans = []
+    while i < len(formula):
+        ch = formula[i]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            i += 1
+            continue
+        if ch in "([{":
+            depth += 1
+            i += 1
+            continue
+        if ch in ")]}":
+            depth = max(depth - 1, 0)
+            i += 1
+            continue
+        if depth == 0 and formula.startswith(token, i):
+            left = formula[i - 1] if i > 0 else ""
+            j = i + len(token)
+            right = formula[j] if j < len(formula) else ""
+            left_ok = not (left.isalnum() or left == "_")
+            right_ok = not (right.isalnum() or right == "_")
+            if left_ok and right_ok:
+                spans.append((i, j))
+                i = j
+                continue
+        i += 1
+    return spans
+
+
 def _strip_panel_tokens(formula: str) -> Tuple[str, bool, bool]:
-    """Detect and strip linearmodels-style tokens from a formula.
+    """Detect top-level linearmodels effect tokens without substring rewriting.
 
-    Parameters
-    ----------
-    formula : str
-        Formula string, e.g. ``"y ~ x1 + EntityEffects + TimeEffects"``.
-
-    Returns
-    -------
-    clean_formula : str
-        Formula with tokens removed.
-    entity_effects : bool
-        True if ``EntityEffects`` or ``FixedEffects`` token was present.
-    time_effects : bool
-        True if ``TimeEffects`` token was present.
+    Magic tokens are recognized only as complete identifiers at the top level
+    of the main formula RHS. Identifiers such as ``EntityEffectsScore`` and
+    occurrences inside transforms such as ``C(EntityEffects)`` remain ordinary
+    Patsy expressions rather than being rewritten by string substitution.
     """
     entity_effects = False
     time_effects = False
-
     clean = formula
+
     for token in _PANEL_TOKENS:
-        if token in clean:
-            if token in ("EntityEffects", "FixedEffects"):
-                entity_effects = True
-            elif token == "TimeEffects":
-                time_effects = True
-            # Remove the token and surrounding + signs
-            clean = clean.replace(f"+ {token}", "").replace(f"+{token}", "")
-            clean = clean.replace(f"{token} +", "").replace(f"{token}+", "")
-            clean = clean.replace(token, "")
+        spans = _top_level_panel_token_spans(clean, token)
+        if not spans:
+            continue
+        if token in ("EntityEffects", "FixedEffects"):
+            entity_effects = True
+        elif token == "TimeEffects":
+            time_effects = True
 
-    # Clean up whitespace
-    clean = ' '.join(clean.split())
+        for token_start, token_end in reversed(spans):
+            left = token_start - 1
+            while left >= 0 and clean[left].isspace():
+                left -= 1
+            right = token_end
+            while right < len(clean) and clean[right].isspace():
+                right += 1
+            if left >= 0 and clean[left] == "+":
+                clean = clean[:left] + clean[token_end:]
+            elif right < len(clean) and clean[right] == "+":
+                clean = clean[:token_start] + clean[right + 1:]
+            else:
+                clean = clean[:token_start] + clean[token_end:]
 
-    # Validate that formula has at least one predictor after token removal
-    if '~' in clean:
-        rhs = clean.split('~', 1)[1].strip()
-        if not rhs or rhs in ('+', '-', '*', '/'):
+    clean = clean.strip()
+    rhs_start = _top_level_formula_rhs_start(clean)
+    if rhs_start is not None:
+        rhs = clean[rhs_start:].strip()
+        if not rhs or rhs in ("+", "-", "*", "/"):
             raise ValueError(
-                f"Formula has no predictors after removing panel tokens. "
-                f"Original: '{formula}', cleaned: '{clean}'"
+                "Formula has no predictors after removing panel tokens. "
+                f"Original: {formula!r}, cleaned: {clean!r}"
             )
-
     return clean, entity_effects, time_effects
 
 
@@ -153,18 +243,31 @@ def parse_panel_formula(formula, data):
     feature_names : list of str
         Names of regressor columns.
     """
-    # Step 1: Strip linearmodels-style tokens
-    clean_formula, token_entity, token_time = _strip_panel_tokens(formula)
+    # Step 1: isolate the fixest pipe before interpreting magic tokens.
+    # Tokens apply only to the main Patsy formula, never to FE variable names.
+    main_formula, fe_vars = _split_panel_formula(formula)
 
-    # Step 2: Split on | (fixest syntax)
-    main_formula, fe_vars = _split_panel_formula(clean_formula)
+    # Step 2: detect linearmodels-style tokens in the main formula only.
+    clean_formula, token_entity, token_time = _strip_panel_tokens(main_formula)
+    if fe_vars and (token_entity or token_time):
+        raise ValueError(
+            "Panel formulas cannot combine linearmodels-style effect tokens "
+            "with fixest pipe fixed effects; choose one fixed-effect syntax"
+        )
+    main_formula = clean_formula
 
-    # Merge token-based and pipe-based FE specifications
+    # Merge the selected FE specification into the fit request.
     entity_effects = token_entity
     time_effects = token_time
 
     entity_ids = None
     time_ids = None
+
+    if len(fe_vars) > 2:
+        raise ValueError(
+            "Panel formula fixed effects support at most two variables "
+            "(entity and time); high-dimensional FE (>2) is not supported"
+        )
 
     if fe_vars:
         # Map FE variables to entity/time
@@ -177,23 +280,13 @@ def parse_panel_formula(formula, data):
             time_effects = True
             if fe_vars[1] in data.columns:
                 time_ids = data[fe_vars[1]].values
-        if len(fe_vars) > 2:
-            # For >2 FE vars, we still extract entity and time
-            # but warn that high-dim FE is not yet supported
-            import warnings
-            warnings.warn(
-                f"Formula has {len(fe_vars)} fixed effect variables. "
-                f"Only the first two are used as entity/time effects. "
-                f"High-dimensional FE (>2) is not yet supported.",
-                UserWarning,
-                stacklevel=3,
-            )
 
     # Step 3: Parse the main formula with patsy
     from statgpu.core.formula import FormulaParser
     parser = FormulaParser(main_formula)
     y_arr, X_arr, design_info = parser.eval(data)
     setattr(design_info, "_statgpu_row_positions", np.asarray(parser._row_positions, dtype=np.int64))
+    setattr(design_info, "_statgpu_original_rows", int(len(data)))
 
     formula_column_names = list(design_info.column_names)
     has_intercept = "Intercept" in formula_column_names
@@ -220,6 +313,7 @@ def _parse_formula_panel(formula, data):
     parser = FormulaParser(formula)
     y_arr, X_arr, design_info = parser.eval(data)
     setattr(design_info, "_statgpu_row_positions", np.asarray(parser._row_positions, dtype=np.int64))
+    setattr(design_info, "_statgpu_original_rows", int(len(data)))
     return y_arr, X_arr, design_info
 
 
@@ -271,13 +365,18 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
              entity_ids, time_ids,
              entity_effects, time_effects,
              feature_names, has_intercept) = parse_panel_formula(formula, data)
-            # For linearmodels tokens, try to extract entity/time from DataFrame
-            if entity_effects and entity_ids is None and hasattr(data, 'columns'):
-                if 'entity' in data.columns:
-                    entity_ids = data['entity'].values
-            if time_effects and time_ids is None and hasattr(data, 'columns'):
-                if 'time' in data.columns:
-                    time_ids = data['time'].values
+            # Only effect-token syntax may use conventional entity/time
+            # column names.  A pipe formula names its metadata explicitly and
+            # must fail closed if that named column is absent.
+            _pipe_main, pipe_vars = _split_panel_formula(formula)
+            del _pipe_main
+            if not pipe_vars:
+                if entity_effects and entity_ids is None and hasattr(data, 'columns'):
+                    if 'entity' in data.columns:
+                        entity_ids = data['entity'].values
+                if time_effects and time_ids is None and hasattr(data, 'columns'):
+                    if 'time' in data.columns:
+                        time_ids = data['time'].values
             entity_ids = _align_formula_side_array(entity_ids, design_info, len(y_arr), "entity_ids")
             time_ids = _align_formula_side_array(time_ids, design_info, len(y_arr), "time_ids")
         else:
@@ -306,26 +405,56 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
                 None, None, False, False)
 
 
+def _ordered_categorical_array(values):
+    """Return an ordered categorical array-like without importing pandas."""
+    candidate = getattr(values, "array", values)
+    dtype = getattr(candidate, "dtype", None)
+    if (
+        getattr(dtype, "categories", None) is not None
+        and bool(getattr(dtype, "ordered", False))
+        and getattr(candidate, "codes", None) is not None
+    ):
+        return candidate
+    return None
+
+
 def _align_formula_side_array(values, design_info, expected_n=None, name="array"):
     """Align an observation-level side array with rows retained by Patsy."""
     if values is None:
         return None
-    arr = np.asarray(values)
-    if arr.ndim == 0:
-        raise ValueError(f"{name} must be observation-level")
+
+    categorical = _ordered_categorical_array(values)
+    if categorical is None:
+        arr = np.asarray(values)
+        if arr.ndim == 0:
+            raise ValueError(f"{name} must be observation-level")
+        n_values = int(arr.shape[0])
+    else:
+        arr = None
+        n_values = int(len(categorical))
+
     positions = getattr(design_info, "_statgpu_row_positions", None)
     if positions is None:
-        if expected_n is not None and arr.shape[0] != expected_n:
+        if expected_n is not None and n_values != expected_n:
             raise ValueError(f"{name} must have {expected_n} observations")
-        return arr
+        return categorical if categorical is not None else arr
+
     positions = np.asarray(positions, dtype=np.int64)
-    if arr.shape[0] == positions.shape[0]:
-        return arr
-    if positions.size and arr.shape[0] > int(positions.max()):
-        return arr[positions]
-    if positions.size == 0 and arr.shape[0] == 0:
-        return arr
-    raise ValueError(f"{name} has {arr.shape[0]} observations and cannot be aligned to the {positions.shape[0]} rows retained by the formula")
+    if n_values == positions.shape[0]:
+        return categorical if categorical is not None else arr
+    # ``positions`` are original-row indices retained by the formula.  A side
+    # array must match either the original formula-data row count (it will be
+    # aligned by the retained positions) or the retained row count (already
+    # aligned).  Anything else would assign metadata from a different frame.
+    original_rows = int(getattr(design_info, "_statgpu_original_rows", -1))
+    if n_values != original_rows:
+        raise ValueError(
+            f"{name} has {n_values} observations but the formula data has "
+            f"{original_rows} rows ({positions.shape[0]} retained)"
+        )
+    if categorical is not None:
+        return categorical.take(positions)
+    return arr[positions]
 
 
 def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept):
@@ -338,13 +467,24 @@ def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept)
     """
     if design_info is not None and hasattr(X, 'columns'):
         import patsy
+
+        expected_rows = int(len(X))
         X_arr = patsy.build_design_matrices([design_info], X)[0]
+        if int(X_arr.shape[0]) != expected_rows:
+            raise ValueError(
+                "formula prediction must preserve one output row per input row; "
+                "missing or invalid modeled values caused Patsy to drop rows"
+            )
 
         # Always strip intercept if formula had one — it was stripped during fit
         col_names = list(design_info.column_names)
         if formula_has_intercept and "Intercept" in col_names:
             intercept_idx = col_names.index("Intercept")
             X_arr = np.delete(X_arr, intercept_idx, axis=1)
+
+        from statgpu.backends._validation import check_finite
+
+        check_finite(np.asarray(X_arr), name="formula prediction design")
     else:
         # Preserve NumPy/CuPy/Torch input. The estimator performs
         # backend-aware dtype/device conversion downstream.

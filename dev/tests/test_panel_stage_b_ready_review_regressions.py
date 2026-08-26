@@ -42,7 +42,7 @@ def test_disconnected_two_way_fe_uses_component_rank_before_df_gate() -> None:
     metadata = model.fit_statistics_.metadata
     diagnostic_df = metadata["diagnostic_df"]
     assert metadata["legacy_df_resid"] == 0
-    assert metadata["public_df_resid_basis"] == "component-aware"
+    assert metadata["public_df_resid_basis"] == "standard"
     assert model.df_resid == 1
     assert diagnostic_df["incidence_components"] == 3
     assert diagnostic_df["effect_rank"] == 7

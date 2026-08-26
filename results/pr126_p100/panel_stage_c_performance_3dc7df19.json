@@ -1,0 +1,895 @@
+{
+  "schema_version": 2,
+  "git_sha": "3dc7df19176f8fb881a8d37e9d75b4f75e71b058",
+  "working_tree_clean": true,
+  "benchmark": "panel_stage_c_covariance_fit_overhead",
+  "timing_scope": "synchronized end-to-end estimator fit",
+  "input_residency": "X/y/entity/time preloaded on selected GPU backend; cluster labels remain CPU metadata",
+  "high_t_scale": "10000x2x200",
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "gpu_by_backend": {
+      "cupy": "Tesla P100-SXM2-16GB",
+      "torch": "Tesla P100-SXM2-16GB"
+    },
+    "packages": {
+      "statgpu": "0.2.4",
+      "numpy": "1.24.2",
+      "cupy": null,
+      "torch": "2.0.0"
+    }
+  },
+  "rows": [
+    {
+      "backend": "cupy",
+      "case": "pooled_nonrobust",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.00776064395904541,
+      "samples_seconds": [
+        0.007914930582046509,
+        0.00776064395904541,
+        0.007625550031661987
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_hc3",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.006732434034347534,
+      "samples_seconds": [
+        0.006716936826705933,
+        0.006796091794967651,
+        0.006732434034347534
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_cluster_two_way",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.01613140106201172,
+      "samples_seconds": [
+        0.016326040029525757,
+        0.01613140106201172,
+        0.015955805778503418
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_dk_qs",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.009047985076904297,
+      "samples_seconds": [
+        0.009078264236450195,
+        0.009047985076904297,
+        0.009006589651107788
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_nonrobust",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.01834636926651001,
+      "samples_seconds": [
+        0.018434613943099976,
+        0.01834636926651001,
+        0.01799371838569641
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_hc3",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.015040785074234009,
+      "samples_seconds": [
+        0.015362083911895752,
+        0.015018731355667114,
+        0.015040785074234009
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_dk",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.017508268356323242,
+      "samples_seconds": [
+        0.017462223768234253,
+        0.017645299434661865,
+        0.017508268356323242
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "random_effects_nonrobust",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.022712618112564087,
+      "samples_seconds": [
+        0.02267247438430786,
+        0.023043662309646606,
+        0.022712618112564087
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "random_effects_hc3",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.019906729459762573,
+      "samples_seconds": [
+        0.020093142986297607,
+        0.019906729459762573,
+        0.019630998373031616
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_nonrobust",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.008214205503463745,
+      "samples_seconds": [
+        0.008361756801605225,
+        0.00818207859992981,
+        0.008214205503463745
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_hc3",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.006714433431625366,
+      "samples_seconds": [
+        0.006734907627105713,
+        0.00665399432182312,
+        0.006714433431625366
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_cluster_two_way",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.01609724760055542,
+      "samples_seconds": [
+        0.01609724760055542,
+        0.016330242156982422,
+        0.015902042388916016
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_dk_qs",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.008417606353759766,
+      "samples_seconds": [
+        0.008445262908935547,
+        0.008417606353759766,
+        0.008401304483413696
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_nonrobust",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.016139209270477295,
+      "samples_seconds": [
+        0.016143113374710083,
+        0.016139209270477295,
+        0.01607644557952881
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_hc3",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.013045430183410645,
+      "samples_seconds": [
+        0.012990951538085938,
+        0.013045430183410645,
+        0.013106554746627808
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_dk",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.015081733465194702,
+      "samples_seconds": [
+        0.015081733465194702,
+        0.015134662389755249,
+        0.01504504680633545
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "random_effects_nonrobust",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.020145297050476074,
+      "samples_seconds": [
+        0.020101189613342285,
+        0.020145297050476074,
+        0.020159870386123657
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "random_effects_hc3",
+      "scenario": "base",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.017007261514663696,
+      "samples_seconds": [
+        0.01703372597694397,
+        0.01700526475906372,
+        0.017007261514663696
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.010367751121520996,
+      "samples_seconds": [
+        0.010367751121520996,
+        0.010393291711807251,
+        0.010307639837265015
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.008391737937927246,
+      "samples_seconds": [
+        0.008350163698196411,
+        0.008391737937927246,
+        0.008443444967269897
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_cluster_two_way",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.0794563889503479,
+      "samples_seconds": [
+        0.08222272992134094,
+        0.0794563889503479,
+        0.07930120825767517
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_dk_qs",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.013786494731903076,
+      "samples_seconds": [
+        0.013786494731903076,
+        0.013764649629592896,
+        0.01396632194519043
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.052842944860458374,
+      "samples_seconds": [
+        0.052842944860458374,
+        0.052908122539520264,
+        0.0523565411567688
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.03926238417625427,
+      "samples_seconds": [
+        0.038645386695861816,
+        0.03926238417625427,
+        0.039750367403030396
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_dk",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.05140501260757446,
+      "samples_seconds": [
+        0.05352872610092163,
+        0.05140501260757446,
+        0.05114465951919556
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "random_effects_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.06767621636390686,
+      "samples_seconds": [
+        0.06730201840400696,
+        0.06820505857467651,
+        0.06767621636390686
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "random_effects_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.05782005190849304,
+      "samples_seconds": [
+        0.05659693479537964,
+        0.05782005190849304,
+        0.05914536118507385
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.010186642408370972,
+      "samples_seconds": [
+        0.01046133041381836,
+        0.010186642408370972,
+        0.010120779275894165
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.008973538875579834,
+      "samples_seconds": [
+        0.008966237306594849,
+        0.008973538875579834,
+        0.008984506130218506
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_cluster_two_way",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.08122989535331726,
+      "samples_seconds": [
+        0.08105114102363586,
+        0.08297666907310486,
+        0.08122989535331726
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_dk_qs",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.014496177434921265,
+      "samples_seconds": [
+        0.014594018459320068,
+        0.014496177434921265,
+        0.014486193656921387
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.05375891923904419,
+      "samples_seconds": [
+        0.05375891923904419,
+        0.05344650149345398,
+        0.05394178628921509
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.04121997952461243,
+      "samples_seconds": [
+        0.04148778319358826,
+        0.04113960266113281,
+        0.04121997952461243
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_dk",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.05629459023475647,
+      "samples_seconds": [
+        0.05607542395591736,
+        0.05681324005126953,
+        0.05629459023475647
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "random_effects_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.07273104786872864,
+      "samples_seconds": [
+        0.07273104786872864,
+        0.07156109809875488,
+        0.07527253031730652
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "random_effects_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 2,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.059042006731033325,
+      "samples_seconds": [
+        0.059124767780303955,
+        0.059042006731033325,
+        0.058825790882110596
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.017150968313217163,
+      "samples_seconds": [
+        0.017217397689819336,
+        0.01714986562728882,
+        0.017150968313217163
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.0134563148021698,
+      "samples_seconds": [
+        0.01353427767753601,
+        0.0134563148021698,
+        0.013454258441925049
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_cluster_two_way",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.08759072422981262,
+      "samples_seconds": [
+        0.08759072422981262,
+        0.08907932043075562,
+        0.08139440417289734
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_dk_qs",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.018228113651275635,
+      "samples_seconds": [
+        0.017894059419631958,
+        0.018228113651275635,
+        0.018231302499771118
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.1338726282119751,
+      "samples_seconds": [
+        0.12641078233718872,
+        0.1338726282119751,
+        0.13863605260849
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.0979718565940857,
+      "samples_seconds": [
+        0.0979718565940857,
+        0.09788620471954346,
+        0.09815508127212524
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_dk",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.1121324896812439,
+      "samples_seconds": [
+        0.11255088448524475,
+        0.11160153150558472,
+        0.1121324896812439
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "random_effects_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.20320245623588562,
+      "samples_seconds": [
+        0.20194950699806213,
+        0.20320245623588562,
+        0.20495250821113586
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "random_effects_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.1650550663471222,
+      "samples_seconds": [
+        0.1650550663471222,
+        0.16536670923233032,
+        0.1648244559764862
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.014981359243392944,
+      "samples_seconds": [
+        0.015234172344207764,
+        0.014981359243392944,
+        0.014967590570449829
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.013959676027297974,
+      "samples_seconds": [
+        0.013942211866378784,
+        0.013959676027297974,
+        0.013971269130706787
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_cluster_two_way",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.08870309591293335,
+      "samples_seconds": [
+        0.08824765682220459,
+        0.09025433659553528,
+        0.08870309591293335
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_dk_qs",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.01969081163406372,
+      "samples_seconds": [
+        0.019616127014160156,
+        0.01969081163406372,
+        0.01970955729484558
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.1324809193611145,
+      "samples_seconds": [
+        0.13256341218948364,
+        0.1324809193611145,
+        0.13237214088439941
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.09798547625541687,
+      "samples_seconds": [
+        0.09784287214279175,
+        0.09828701615333557,
+        0.09798547625541687
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_dk",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.11343955993652344,
+      "samples_seconds": [
+        0.11362186074256897,
+        0.11343955993652344,
+        0.11318397521972656
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "random_effects_nonrobust",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.1961921751499176,
+      "samples_seconds": [
+        0.2021106481552124,
+        0.1961921751499176,
+        0.1934586763381958
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "random_effects_hc3",
+      "scenario": "base",
+      "n_samples": 100000,
+      "n_features": 10,
+      "n_times": 20,
+      "repeats": 3,
+      "median_seconds": 0.16589343547821045,
+      "samples_seconds": [
+        0.1677449643611908,
+        0.16589343547821045,
+        0.16535773873329163
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "pooled_dk_qs",
+      "scenario": "high_t_qs",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 200,
+      "repeats": 3,
+      "median_seconds": 0.024521738290786743,
+      "samples_seconds": [
+        0.024521738290786743,
+        0.024601012468338013,
+        0.024499088525772095
+      ]
+    },
+    {
+      "backend": "cupy",
+      "case": "panel_entity_dk_qs",
+      "scenario": "high_t_qs",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 200,
+      "repeats": 3,
+      "median_seconds": 0.034518420696258545,
+      "samples_seconds": [
+        0.03466665744781494,
+        0.03431686758995056,
+        0.034518420696258545
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "pooled_dk_qs",
+      "scenario": "high_t_qs",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 200,
+      "repeats": 3,
+      "median_seconds": 0.017109453678131104,
+      "samples_seconds": [
+        0.017109453678131104,
+        0.017113685607910156,
+        0.017050474882125854
+      ]
+    },
+    {
+      "backend": "torch",
+      "case": "panel_entity_dk_qs",
+      "scenario": "high_t_qs",
+      "n_samples": 10000,
+      "n_features": 2,
+      "n_times": 200,
+      "repeats": 3,
+      "median_seconds": 0.024973303079605103,
+      "samples_seconds": [
+        0.025073379278182983,
+        0.024973303079605103,
+        0.024926483631134033
+      ]
+    }
+  ]
+}

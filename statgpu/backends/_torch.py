@@ -438,6 +438,17 @@ class TorchBackend(BackendBase):
     def svd(self, a, full_matrices=True):
         """Singular value decomposition."""
         import torch
+        try:
+            if a.is_cuda:
+                # cuSOLVER's default gesvdj driver leaks ~1e-16 into
+                # structurally-zero U entries, which large responses amplify
+                # into spurious coefficients.  The QR-based gesvd driver keeps
+                # those entries exact, matching the NumPy/LAPACK reference.
+                return torch.linalg.svd(
+                    a, full_matrices=full_matrices, driver="gesvd"
+                )
+        except AttributeError:
+            pass
         return torch.linalg.svd(a, full_matrices=full_matrices)
 
     def solve(self, A, b):

@@ -9,8 +9,9 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_ones
 from statgpu.panel._base import BasePanelModel
+from statgpu.panel._intercept import panel_lstsq_exact_constant
 from statgpu.panel._utils import factorize_panel_labels, group_means
 
 
@@ -18,12 +19,14 @@ class BetweenOLS(BasePanelModel):
     """Between-entity OLS estimator for panel data.
 
     Collapses the data to entity means and runs OLS on the collapsed data.
-    An intercept is added automatically.
+    An intercept is added automatically. Stage C adds transformed-fit-space
+    HC0/HC2/HC3 covariance while preserving the historical HC1 ``robust`` path.
 
     Parameters
     ----------
-    cov_type : str, default='nonrobust'
-        Covariance estimator: ``'nonrobust'`` or ``'robust'`` (HC1).
+    cov_type : {'nonrobust', 'robust', 'hc0', 'hc1', 'hc2', 'hc3'}, default='nonrobust'
+        Covariance estimator. ``robust`` and ``hc1`` are the same historical
+        HC1 contract; HC2/HC3 use leverage from the entity-mean fit-space design.
     alpha : float, default=0.05
         Significance level for confidence intervals.
     device : str or Device, default='auto'
@@ -38,9 +41,9 @@ class BetweenOLS(BasePanelModel):
     bse_ : ndarray, shape (k,)
         Standard errors.
     tvalues_ : ndarray, shape (k,)
-        t-statistics.
+        Coefficient test statistics.
     pvalues_ : ndarray, shape (k,)
-        Two-sided p-values.
+        Coefficient p-values.
     conf_int_ : ndarray, shape (k, 2)
         Confidence intervals.
     rsquared : float
@@ -61,16 +64,19 @@ class BetweenOLS(BasePanelModel):
         n_jobs: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
-        self.cov_type = cov_type.lower()
+        from statgpu.panel._covariance import normalize_covariance_type
+
+        self.cov_type = normalize_covariance_type(cov_type)
         self.alpha = alpha
-        if self.cov_type not in ("nonrobust", "robust"):
-            raise ValueError("cov_type must be 'nonrobust' or 'robust'")
+        if self.cov_type not in ("nonrobust", "robust", "hc0", "hc2", "hc3"):
+            raise ValueError(
+                "cov_type must be one of 'nonrobust', 'robust', 'hc0', 'hc1', 'hc2', or 'hc3'"
+            )
         self.fit_statistics_ = None
 
     def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the between OLS model."""
-        # Preserve the pre-Stage-A requirement: BetweenOLS always requires an
-        # explicit entity_ids side array, including for formula-based fitting.
+        self._reset_fit_state()
         if entity_ids is None:
             raise ValueError("entity_ids is required for BetweenOLS")
 
@@ -91,6 +97,16 @@ class BetweenOLS(BasePanelModel):
             side_arrays={"entity_ids": entity_ids},
         )
         entity_ids = aligned["entity_ids"]
+        if formula is not None:
+            if not bool(self._formula_has_intercept):
+                raise ValueError(
+                    "BetweenOLS always includes an intercept; explicit no-intercept "
+                    "formulas are not supported"
+                )
+            self._feature_names = [
+                "Intercept",
+                *list(self._feature_names or []),
+            ]
 
         backend, xp, X_arr, y_arr = self._panel_prepare_numeric(X_data, y_data)
         self._panel_set_index_info(X_arr.shape[0], entity_ids=entity_ids)
@@ -103,10 +119,7 @@ class BetweenOLS(BasePanelModel):
         )
 
         n_orig = X_arr.shape[0]
-        # Add intercept exactly as before.
-        ones = xp.ones((n_orig, 1), dtype=xp.float64)
-        if hasattr(X_arr, "is_cuda"):
-            ones = ones.to(device=X_arr.device)
+        ones = xp_ones((n_orig, 1), xp.float64, xp, X_arr)
         X_full = xp.concatenate([ones, X_arr], axis=1)
         k = X_full.shape[1]
 
@@ -119,21 +132,29 @@ class BetweenOLS(BasePanelModel):
             X_mean_aligned[:, j] = group_means(X_full[:, j], eids, xp=xp)
         X_mean = X_mean_aligned[first_idx]
 
-        XtX = X_mean.T @ X_mean
-        Xty = X_mean.T @ y_mean
-        try:
-            params = xp.linalg.solve(XtX, Xty)
-        except _LINALG_ERRORS:
-            params = xp.linalg.pinv(X_mean) @ y_mean
+        params, rank_mean = panel_lstsq_exact_constant(
+            X_mean, y_mean, xp, constant_index=0
+        )
 
         resid = y_mean - X_mean @ params
         n = n_groups
-        if n <= k:
+        if n <= rank_mean:
             raise ValueError(
-                f"positive residual degrees of freedom required; groups={n}, parameters={k}"
+                "positive residual degrees of freedom required; "
+                f"groups={n}, rank={rank_mean}"
             )
-        df_resid = n - k
-        scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
+        df_resid = n - int(rank_mean)
+        from statgpu.panel._diagnostics import (
+            _centered_working_values,
+            _physical_common_scale,
+            _residual_on_centering_scale,
+            _restore_squared_scale,
+            _scaled_residual_r2,
+            _scaled_residual_variance,
+            _scaled_unit_values,
+        )
+
+        scale = _scaled_residual_variance(resid, df_resid, xp)
 
         self._panel_store_ols_inference(
             X_mean,
@@ -142,24 +163,41 @@ class BetweenOLS(BasePanelModel):
             scale=scale,
             df_resid=df_resid,
             backend=backend,
+            fit_rank=rank_mean,
             cov_type=self._cov_type,
-            allowed=("nonrobust", "robust"),
+            allowed=("nonrobust", "robust", "hc0", "hc2", "hc3"),
             hc1_correction=n / df_resid if self._cov_type == "robust" else None,
             distribution_df=df_resid,
-            diag_floor=1e-30,
+            diag_floor=0.0,
         )
 
-        y_bar = xp.mean(y_mean)
-        ss_tot = _to_float_scalar(xp.sum((y_mean - y_bar) ** 2))
-        ss_res = _to_float_scalar(xp.sum(resid * resid))
-        self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+        y_centered, y_centering_scale = _centered_working_values(y_mean, xp)
+        resid_r2 = _residual_on_centering_scale(resid, y_centering_scale, xp)
+        self.rsquared, r2_degenerate = _scaled_residual_r2(
+            resid_r2, y_centered, xp
+        )
+        if r2_degenerate:
+            self.rsquared = float("nan")
+        resid_scale = xp.max(xp.abs(resid))
+        centered_scale = xp.max(xp.abs(y_centered))
+        resid_unit = _scaled_unit_values(resid, resid_scale, xp)
+        centered_unit = _scaled_unit_values(y_centered, centered_scale, xp)
+        ss_res = _restore_squared_scale(
+            _to_float_scalar(xp.sum(resid_unit * resid_unit)),
+            _to_float_scalar(resid_scale),
+        )
+        physical_centered_scale = _physical_common_scale(
+            centered_scale, y_centering_scale
+        )
+        ss_tot = _restore_squared_scale(
+            _to_float_scalar(xp.sum(centered_unit * centered_unit)),
+            physical_centered_scale,
+        )
         self.nobs = n
         self.df_resid = df_resid
 
         from statgpu.panel._diagnostic_context import build_model_fit_statistics
-        from statgpu.panel._diagnostics import _matrix_rank
 
-        rank_mean = _matrix_rank(X_mean, xp)
         diagnostic_df = n - rank_mean
         self.fit_statistics_ = build_model_fit_statistics(
             y_arr,

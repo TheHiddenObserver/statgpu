@@ -21,6 +21,7 @@ from statgpu.backends import (
     _get_xp,
     _resolve_backend,
     _to_float_scalar,
+    _to_numpy,
     xp_asarray,
     xp_eye,
     xp_zeros,
@@ -28,6 +29,7 @@ from statgpu.backends import (
 from statgpu.backends._utils import (
     _is_complex_array,
     _normalize_integer_codes,
+    _CUPY_UFUNC_AT_SAFE_MAX,
 )
 from statgpu.survival._concordance import concordance_tile_shape
 
@@ -273,6 +275,23 @@ def _group_max_1d(
         output.scatter_reduce_(
             0, group_codes, value, reduce="amax", include_self=True
         )
+    elif backend == "cupy":
+        # CuPy ``maximum.at`` returns inf for float64 magnitudes around
+        # 1e7..1e308 (observed on CuPy 13.6).  Ordinary magnitudes keep the
+        # native GPU scatter; only magnitudes that could hit the corruption
+        # window use the sequential host scatter and restore the group maxima
+        # on the reference device.
+        if float(_to_float_scalar(xp.max(xp.abs(value)))) <= _CUPY_UFUNC_AT_SAFE_MAX:
+            output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
+            xp.maximum.at(output, group_codes, value)
+        else:
+            output_np = np.full(
+                (n_groups,), -float("inf"), dtype=value.dtype
+            )
+            np.maximum.at(
+                output_np, _to_numpy(group_codes).ravel(), _to_numpy(value)
+            )
+            output = xp_asarray(output_np, dtype=value.dtype, xp=xp, ref_arr=value)
     else:
         output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
         xp.maximum.at(output, group_codes, value)
