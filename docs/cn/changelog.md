@@ -29,7 +29,7 @@
 ### 验证
 
 - 发布 commit \86a363fd\ 上的 exact-source Tesla P100 验收：12 个 physical runner 全部通过。产物：esults/pr126_release_86a363fd/\。
-- TestPyPI 彩排：纯 Python wheel 在干净环境中从 \	est.pypi.org\ 安装并通过导入与 CPU fit/predict smoke test。
+- TestPyPI 彩排：纯 Python wheel 在干净环境中从 `test.pypi.org` 安装并通过导入与 CPU fit/predict smoke test。
 
 ## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）
 
