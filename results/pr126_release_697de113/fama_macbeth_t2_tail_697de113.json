@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "git_sha": "697de1138fefc8482018b71f5e28ecd88f4742c0",
+  "required_backends": [
+    "cupy",
+    "torch"
+  ],
+  "validated_backends": [
+    "cupy",
+    "torch"
+  ],
+  "working_tree_clean_before": true,
+  "working_tree_clean_after_checks": true,
+  "status": "success",
+  "validation_tier": "remote-full",
+  "statistic": 1e+154,
+  "environment": {
+    "python": "3.9.16",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "runtime_versions": {
+      "numpy": "1.24.2",
+      "cupy": "13.6.0",
+      "torch": "2.0.0+cu117"
+    },
+    "gpu_by_backend": {
+      "cupy": "Tesla P100-SXM2-16GB",
+      "torch": "Tesla P100-SXM2-16GB"
+    }
+  },
+  "backends": {
+    "cupy": {
+      "status": "success",
+      "executed_backend": "cupy",
+      "execution_device": "cuda:0",
+      "statistic": 1e+154,
+      "pvalue": 1e-308,
+      "expected_pvalue": 1e-308,
+      "critical_value": 4.302652729749464,
+      "pvalue_nonzero": true,
+      "backend_native": true,
+      "same_cuda_device": true
+    },
+    "torch": {
+      "status": "success",
+      "executed_backend": "torch",
+      "execution_device": "cuda:0",
+      "statistic": 1e+154,
+      "pvalue": 1e-308,
+      "expected_pvalue": 1e-308,
+      "critical_value": 4.302652729749464,
+      "pvalue_nonzero": true,
+      "backend_native": true,
+      "same_cuda_device": true
+    }
+  }
+}
