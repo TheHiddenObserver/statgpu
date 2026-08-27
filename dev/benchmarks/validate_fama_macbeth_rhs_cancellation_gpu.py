@@ -264,7 +264,7 @@ def _expected_precision_failure(backend, X, y, time, device, execution_device):
     return trace
 
 
-def run(backend: str):
+def run(backend: str, validation_tier: str):
     if not _git_clean():
         raise RuntimeError("physical validation requires a clean git worktree")
 
@@ -337,7 +337,7 @@ def run(backend: str):
         "schema_version": 3,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
-        "validation_tier": args.validation_tier,
+        "validation_tier": validation_tier,
         "clean_worktree": True,
         "requested_backend": backend,
         "executed_backend": getattr(model, "_backend_name", None),
@@ -385,7 +385,7 @@ def main():
     )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
-    result = run(args.backend)
+    result = run(args.backend, args.validation_tier)
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
