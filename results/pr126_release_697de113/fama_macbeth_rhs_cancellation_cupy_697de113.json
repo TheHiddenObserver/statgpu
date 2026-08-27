@@ -1,0 +1,101 @@
+{
+  "clean_worktree": true,
+  "executed_backend": "cupy",
+  "execution_device": 0,
+  "genuine_zero_rhs": {
+    "max_abs_beta": 0.0,
+    "max_abs_coef": 0.0,
+    "svd_fallbacks": 3
+  },
+  "git_sha": "697de1138fefc8482018b71f5e28ecd88f4742c0",
+  "gpu": "Tesla P100-SXM2-16GB",
+  "intercept_tail": {
+    "intercept": 0.3333333333333333,
+    "slope": -3.602879701896397e+16,
+    "solver_mode": "gram-certified",
+    "svd_fallbacks": 0
+  },
+  "lost_nonconstant_rhs_tail_fail_closed": true,
+  "lost_nonconstant_rhs_trace": [
+    {
+      "namespace": "cupy",
+      "params_device": 0,
+      "params_native": true,
+      "rank_device": 0,
+      "rank_native": true,
+      "x_device": 0,
+      "x_native": true,
+      "y_device": 0,
+      "y_native": true
+    },
+    {
+      "namespace": "cupy",
+      "params_device": 0,
+      "params_native": true,
+      "rank_device": 0,
+      "rank_native": true,
+      "x_device": 0,
+      "x_native": true,
+      "y_device": 0,
+      "y_native": true
+    },
+    {
+      "namespace": "cupy",
+      "params_device": 0,
+      "params_native": true,
+      "rank_device": 0,
+      "rank_native": true,
+      "x_device": 0,
+      "x_native": true,
+      "y_device": 0,
+      "y_native": true
+    }
+  ],
+  "nonzero_rhs_svd_drift_fail_closed": true,
+  "nonzero_rhs_svd_drift_trace": [
+    {
+      "namespace": "cupy",
+      "params_device": 0,
+      "params_native": true,
+      "rank_device": 0,
+      "rank_native": true,
+      "x_device": 0,
+      "x_native": true,
+      "y_device": 0,
+      "y_native": true
+    },
+    {
+      "namespace": "cupy",
+      "params_device": 0,
+      "params_native": true,
+      "rank_device": 0,
+      "rank_native": true,
+      "x_device": 0,
+      "x_native": true,
+      "y_device": 0,
+      "y_native": true
+    },
+    {
+      "namespace": "cupy",
+      "params_device": 0,
+      "params_native": true,
+      "rank_device": 0,
+      "rank_native": true,
+      "x_device": 0,
+      "x_native": true,
+      "y_device": 0,
+      "y_native": true
+    }
+  ],
+  "packages": {
+    "cupy": "13.6.0",
+    "numpy": "1.24.2",
+    "statgpu": "0.2.5",
+    "torch": "2.0.0"
+  },
+  "requested_backend": "cupy",
+  "schema_version": 3,
+  "status": "success",
+  "timestamp_utc": "2026-08-27T00:17:43.445845+00:00",
+  "validation_tier": "remote-full"
+}

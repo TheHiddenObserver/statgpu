@@ -876,6 +876,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--expected-sha", required=True)
+    parser.add_argument(
+        "--validation-tier",
+        required=True,
+        choices=("local-minimal", "local-full", "remote-full"),
+        help=(
+            "evidence tier supplied by the runner orchestrator; the script never "
+            "infers remote execution so local runs cannot silently claim remote-full"
+        ),
+    )
     parser.add_argument("--backends", default="cupy,torch")
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--repeats", type=int, default=5)
@@ -930,7 +939,7 @@ def main():
         "working_tree_clean_before": clean_before,
         "working_tree_clean_after_checks": clean_after_checks,
         "status": "success",
-        "validation_tier": "remote-full",
+        "validation_tier": args.validation_tier,
         "environment": _environment(backends),
         "timing_claim": (
             "same-workload synchronized NumPy/GPU timing for audit only; "

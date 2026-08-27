@@ -202,7 +202,7 @@ def _assert_random_effects_fail_closed(backend: str, fixture, message: str, labe
     return True
 
 
-def run(backend: str):
+def run(backend: str, validation_tier: str):
     if not _git_clean():
         raise RuntimeError("physical validation requires a clean git worktree")
 
@@ -358,6 +358,7 @@ def run(backend: str):
         "schema_version": 2,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
+        "validation_tier": validation_tier,
         "clean_worktree": True,
         "requested_backend": backend,
         "executed_backends": {
@@ -396,9 +397,18 @@ def run(backend: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--backend", required=True, choices=("cupy", "torch"))
+    parser.add_argument(
+        "--validation-tier",
+        required=True,
+        choices=("local-minimal", "local-full", "remote-full"),
+        help=(
+            "evidence tier supplied by the runner orchestrator; the script never "
+            "infers remote execution so local runs cannot silently claim remote-full"
+        ),
+    )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
-    result = run(args.backend)
+    result = run(args.backend, args.validation_tier)
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
