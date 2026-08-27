@@ -28,7 +28,7 @@
 
 ### Validation
 
-- Exact-source Tesla P100 acceptance on release commit `86a363fd`: all 12 physical runners passed (Stage-C 35 cases + 12 primitives per backend; Fama-MacBeth oracle + provenance; HAC chronology; extreme t(2) tail; device affinity; scaling; RHS cancellation ×2; rank precedence ×2; intercept cancellation ×2). Artifacts: `results/pr126_release_86a363fd/`.
+- Exact-source Tesla P100 acceptance on release commit `86a363fd`: all 12 physical runners passed (Stage-C 35 cases + 12 primitives per backend; Fama-MacBeth oracle + provenance; HAC chronology; extreme t(2) tail; device affinity; scaling; RHS cancellation ×2; rank precedence ×2; intercept cancellation ×2). Artifacts: `results/pr126_release_697de113/`.
 - TestPyPI rehearsal: pure-Python wheel installed in fresh environments from `test.pypi.org` with import and CPU fit/predict smoke tests passing.
 
 ## 2026-08-09 — Panel Stage C covariance completion (PR #126)
