@@ -2219,6 +2219,7 @@ def main():
         "schema_version": CORRECTNESS_SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": sha,
+        "validation_tier": "remote-full",
         "working_tree_clean": True,
         "status": "success",
         "environment": _environment(backends),

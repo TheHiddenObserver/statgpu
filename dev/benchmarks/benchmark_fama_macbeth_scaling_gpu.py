@@ -165,6 +165,7 @@ def main():
     payload = {
         "schema_version": 2,
         "git_sha": sha,
+        "validation_tier": "remote-full",
         "status": "success",
         "environment": _environment(backends),
         "thread_environment": {

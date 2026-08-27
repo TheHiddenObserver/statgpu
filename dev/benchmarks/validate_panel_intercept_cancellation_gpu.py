@@ -358,6 +358,7 @@ def run(backend: str):
         "schema_version": 2,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
+        "validation_tier": "remote-full",
         "clean_worktree": True,
         "requested_backend": backend,
         "executed_backends": {
