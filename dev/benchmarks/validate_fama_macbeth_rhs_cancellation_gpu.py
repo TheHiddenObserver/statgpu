@@ -337,7 +337,7 @@ def run(backend: str):
         "schema_version": 3,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
-        "validation_tier": "remote-full",
+        "validation_tier": args.validation_tier,
         "clean_worktree": True,
         "requested_backend": backend,
         "executed_backend": getattr(model, "_backend_name", None),
@@ -374,6 +374,15 @@ def run(backend: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--backend", required=True, choices=("cupy", "torch"))
+    parser.add_argument(
+        "--validation-tier",
+        required=True,
+        choices=("local-minimal", "local-full", "remote-full"),
+        help=(
+            "evidence tier supplied by the runner orchestrator; the script never "
+            "infers remote execution so local runs cannot silently claim remote-full"
+        ),
+    )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     result = run(args.backend)

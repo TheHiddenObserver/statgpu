@@ -1925,6 +1925,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--expected-sha", required=True)
+    parser.add_argument(
+        "--validation-tier",
+        required=True,
+        choices=("local-minimal", "local-full", "remote-full"),
+        help=(
+            "evidence tier supplied by the runner orchestrator; the script never "
+            "infers remote execution so local runs cannot silently claim remote-full"
+        ),
+    )
     parser.add_argument("--backends", default="cupy,torch")
     parser.add_argument("--rtol", type=float, default=5e-6)
     parser.add_argument("--atol", type=float, default=5e-7)
@@ -2219,7 +2228,7 @@ def main():
         "schema_version": CORRECTNESS_SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": sha,
-        "validation_tier": "remote-full",
+        "validation_tier": args.validation_tier,
         "working_tree_clean": True,
         "status": "success",
         "environment": _environment(backends),

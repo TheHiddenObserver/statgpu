@@ -24,11 +24,11 @@
 ### 优化
 
 - Tesla P100 上两路聚类协方差 10k 行每次 CuPy fit 从约 1000 秒降至约 1.3 秒（过度宽泛的行级展开 fallback 改为 residual-acceptance 检查，普通均衡面板停留在向量化 Gram 路径）。
-- Fama-MacBeth resident-array scaling（P100，本发布产物）：CuPy/Torch 的 GPU-over-NumPy median-time ratio 为 micro **1.406/0.763**、medium **0.180/0.127**、large **0.088/0.084**——Torch 在每个规模都快于 NumPy，CuPy 自 micro 起 crossover，全部测量均为单次 `gram-certified` batch、零 SVD fallback。
+- Fama-MacBeth resident-array scaling（P100，本发布产物）：CuPy/Torch 的 GPU-over-NumPy median-time ratio 为 micro **1.314/0.706**、medium **0.174/0.126**、large **0.092/0.084**——Torch 在每个规模都快于 NumPy（1.4×/7.9×/11.9×），CuPy 自 medium 起 crossover，micro 启动开销段略慢于 NumPy，全部测量均为单次 `gram-certified` batch、零 SVD fallback。
 
 ### 验证
 
-- 发布 commit \86a363fd\ 上的 exact-source Tesla P100 验收：12 个 physical runner 全部通过。产物：esults/pr126_release_86a363fd/\。
+- 已在经验证的数值源 `697de113` 上完成 exact-source Tesla P100 验收：12 个 physical runner 全部通过。产物：`results/pr126_release_697de113/`。发布 head 本身是 PR #128 合入 `master` 的 merge commit；`697de113` 是这些 artifact 所验证的不可变数值源。
 - TestPyPI 彩排：纯 Python wheel 在干净环境中从 `test.pypi.org` 安装并通过导入与 CPU fit/predict smoke test。
 
 ## 2026-08-09 — Panel Stage C 协方差补齐（PR #126）

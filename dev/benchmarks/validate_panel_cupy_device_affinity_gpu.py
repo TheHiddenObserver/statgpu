@@ -156,6 +156,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--expected-sha", required=True)
+    parser.add_argument(
+        "--validation-tier",
+        required=True,
+        choices=("local-minimal", "local-full", "remote-full"),
+        help=(
+            "evidence tier supplied by the runner orchestrator; the script never "
+            "infers remote execution so local runs cannot silently claim remote-full"
+        ),
+    )
     args = parser.parse_args()
 
     sha = _git_sha()
@@ -187,7 +196,7 @@ def main():
     payload = {
         "schema_version": SCHEMA_VERSION,
         "status": "success",
-        "validation_tier": "remote-full",
+        "validation_tier": args.validation_tier,
         "git_sha": sha,
         "working_tree_clean_before": clean_before,
         "working_tree_clean_after_checks": clean_after_checks,

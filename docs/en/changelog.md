@@ -24,11 +24,11 @@
 ### Optimized
 
 - Two-way clustered covariance at 10k rows dropped from ~1000 s to ~1.3 s per CuPy fit on Tesla P100 after an over-broad row-expansion fallback was replaced by a residual-acceptance check that keeps ordinary balanced panels on the vectorized Gram path.
-- Fama-MacBeth resident-array scaling (P100, this release's artifact): CuPy/Torch GPU-over-NumPy median-time ratios **1.406/0.763** micro, **0.180/0.127** medium, **0.088/0.084** large — Torch faster than NumPy at every scale, CuPy crossing over from micro onward, every measured case in one `gram-certified` batch with zero SVD fallbacks.
+- Fama-MacBeth resident-array scaling (P100, this release's artifact): CuPy/Torch GPU-over-NumPy median-time ratios **1.314/0.706** micro, **0.174/0.126** medium, **0.092/0.084** large — Torch faster than NumPy at every scale (1.4×/7.9×/11.9×), CuPy crossing over from the medium workload onward, every measured case in one `gram-certified` batch with zero SVD fallbacks.
 
 ### Validation
 
-- Exact-source Tesla P100 acceptance on release commit `86a363fd`: all 12 physical runners passed (Stage-C 35 cases + 12 primitives per backend; Fama-MacBeth oracle + provenance; HAC chronology; extreme t(2) tail; device affinity; scaling; RHS cancellation ×2; rank precedence ×2; intercept cancellation ×2). Artifacts: `results/pr126_release_697de113/`.
+- Exact-source Tesla P100 acceptance on the validated numerical source `697de113`: all 12 physical runners passed (Stage-C 35 cases + 12 primitives per backend; Fama-MacBeth oracle + provenance; HAC chronology; extreme t(2) tail; device affinity; scaling; RHS cancellation ×2; rank precedence ×2; intercept cancellation ×2). Artifacts: `results/pr126_release_697de113/`. The release head itself is the PR #128 merge commit onto `master`; `697de113` is the immutable numerical source those artifacts validated.
 - TestPyPI rehearsal: pure-Python wheel installed in fresh environments from `test.pypi.org` with import and CPU fit/predict smoke tests passing.
 
 ## 2026-08-09 — Panel Stage C covariance completion (PR #126)

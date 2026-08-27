@@ -235,6 +235,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--expected-sha", required=True)
+    parser.add_argument(
+        "--validation-tier",
+        required=True,
+        choices=("local-minimal", "local-full", "remote-full"),
+        help=(
+            "evidence tier supplied by the runner orchestrator; the script never "
+            "infers remote execution so local runs cannot silently claim remote-full"
+        ),
+    )
     parser.add_argument("--backends", default="cupy,torch")
     args = parser.parse_args()
 
@@ -261,7 +270,7 @@ def main():
         "required_backends": sorted(_REQUIRED_BACKENDS),
         "validated_backends": backends,
         "status": "success",
-        "validation_tier": "remote-full",
+        "validation_tier": args.validation_tier,
         "environment": _environment(backends),
         "backends": results,
     }

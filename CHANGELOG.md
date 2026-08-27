@@ -10,7 +10,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Fixed silent numerical corruption: CuPy `maximum.at`/`scatter_max` return `inf` for float64 magnitudes around 1e7..1e308 (group min/max scatter now uses a magnitude-gated host fallback), and Torch CUDA SVD now requires the exact `gesvd` driver (the default `gesvdj` leaks ~1e-16 into structurally-zero `U` entries).
 - Strengthened the coefficient-resolution certificate to a deterministic error bound independent of LAPACK-version-specific SVD rounding; unresolved near-collinear designs fail closed instead of returning unreliable coefficients.
 - Kept ordinary designs on vectorized GPU paths while reserving exact per-row accumulation for genuinely recoverable cancellation residuals; two-way clustered covariance at 10k rows dropped from ~1000 s to ~1.3 s on Tesla P100.
-- Recorded exact-source Tesla P100 acceptance for all 12 physical runners on the release commit; artifacts under `results/pr126_release_697de113/`.
+- Recorded exact-source Tesla P100 acceptance for all 12 physical runners on the validated numerical source `697de113`; artifacts under `results/pr126_release_697de113/`.
 
 ## 2026-08-09
 
