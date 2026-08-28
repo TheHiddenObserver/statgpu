@@ -524,6 +524,7 @@ def _host_transfer_case(backend: str, concrete_device: str):
         )
         model._penalty = model._resolve_penalty()
         model._selected_backend_name = backend
+        model._selected_backend_device = concrete_device
         model.coef_ = np.asarray([0.8, -0.35, 0.2, 0.55, -0.1])
         model.intercept_ = -0.4
         model._compute_post_fit_gaussian_inference(X_native, y_native)
