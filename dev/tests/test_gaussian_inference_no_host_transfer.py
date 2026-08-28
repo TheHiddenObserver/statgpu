@@ -81,6 +81,7 @@ def test_pglm_torch_numerics_finish_before_any_reporting_snapshot(monkeypatch):
     )
     model._penalty = model._resolve_penalty()
     model._selected_backend_name = "torch"
+    model._selected_backend_device = "cpu"
     model.coef_ = coef.copy()
     model.intercept_ = float(intercept)
 
