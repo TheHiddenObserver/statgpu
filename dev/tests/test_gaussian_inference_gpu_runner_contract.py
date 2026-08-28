@@ -100,4 +100,7 @@ def test_linear_regression_gpu_scalar_critical_values_are_backend_explicit():
     ).read_text()
     assert 'norm.ppf(0.975, backend="cupy")' in linear_source
     assert 'norm.ppf(0.975, backend="torch", device=torch_device)' in linear_source
+    assert 'self._selected_backend_device = str(X_arr.device)' in linear_source
+    assert 'self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"' in linear_source
+    assert 'getattr(self, "_selected_backend_device", "")' in linear_source
     assert 't.two_sided_critical_value(alpha, df=df_resid, backend="cupy")' in cupy_source

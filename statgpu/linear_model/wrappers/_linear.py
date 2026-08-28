@@ -383,6 +383,12 @@ class LinearRegression(BaseEstimator):
 
         X_arr = self._to_array(X_arr, backend=backend_name)
         y_arr = self._to_array(y_arr, backend=backend_name)
+        if backend_name == "torch":
+            self._selected_backend_device = str(X_arr.device)
+        elif backend_name == "cupy":
+            self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"
+        else:
+            self._selected_backend_device = "cpu"
         if y_arr.ndim == 2 and y_arr.shape[1] == 1:
             y_arr = y_arr.reshape(-1)
         self._y = y_arr
@@ -994,14 +1000,14 @@ class LinearRegression(BaseEstimator):
         method = "classical" if self._cov_type == "nonrobust" else "sandwich"
         distribution = "t" if self._cov_type == "nonrobust" else "normal"
         backend_name = str(getattr(self, "_selected_backend_name", "numpy")).lower()
-        if backend_name == "torch":
-            numerical_device = _get_torch_device_str()
-        elif backend_name == "cupy":
-            import cupy as cp
-
-            numerical_device = f"cuda:{int(cp.cuda.runtime.getDevice())}"
-        else:
+        numerical_device = str(getattr(self, "_selected_backend_device", ""))
+        if backend_name == "numpy":
             numerical_device = "cpu"
+        elif not numerical_device.startswith("cuda:"):
+            raise RuntimeError(
+                "LinearRegression inference is missing concrete executed-device "
+                f"provenance for backend={backend_name!r}: {numerical_device!r}"
+            )
         result = GaussianInferenceResult(
             params=self._params,
             bse=self._bse,
