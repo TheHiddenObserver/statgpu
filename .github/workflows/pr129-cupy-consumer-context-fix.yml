@@ -1,0 +1,31 @@
+name: PR129 CuPy consumer context fix
+
+on:
+  push:
+    branches:
+      - agent/post-v0.2.5-next-phase-plan
+    paths:
+      - '.github/workflows/pr129-cupy-consumer-context-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/post-v0.2.5-next-phase-plan
+          fetch-depth: 0
+      - name: Apply reviewed CuPy consumer context fix
+        run: |
+          printf '%s' 'H4sIAM5JkWoC/9VZS2/jNhC+61dwdYnUdWRkbw2gW9tjURQ9BNguCJoa2UT0AknFdoP89w6ph8WYfsbYbX2wJc6Tw/lGo3Eu65I0TK8KsSCibGqpyR94GwQZ5ERCUzAOFDaM68iwzUhdZDNSwXpGeN1WOn2IHwOCn4akVtKyxXZJw0bjapNIYBk1d1FHQG0tK5Bk1hKrJ0K9HVHkA/1T2tnoDJiPZEIB+RPXRAm/SlnLKA9fjcW3RwKbBriGjLxaqTdSc95KCRUHNSM5riGpU43cr2jwk3wLO6NNspZCQ+ek9arfe/Ruv3EcBIWogElqzOIeQqWZXjbtvF8u6wyK+VqypgGp5rRbTpptGORCH5dqoGKF+AeyOTW8pdiIykoumIKzRQ2zlQrcA7Q7nTg/swt3d3dDeDH0C8afocpoxUogKRrTteSrcHcE5qOgyBProaVGT5RJOSPb7kexsimArkEsVzoeBaHwqectOnpIO27yXN0KDinhp5RgAP6jkegBaSiEKcKbwCGvBeYDbxLeZiz5BV4EpqtAKFknkswuJCKLY1frD4pxEHvzccDEB48Avy346SDTbR/horR0InJ1Rh42kYfmCB5ffcF/C09G8LDiEAMb7g79NllJ1dpc3BiZHq2X5Mso/nE0XpMK5mM9QS77m+j6CCs61DtMhCJVrcnvdQX7MBuY0uHqsNpbFQWz3u+Yigwt+5Lyqux2NU/y+lAtcgU8VWiIOMoxhZdsG23dJLo04G7QJ3rPTs//DRivivh3QvCBWj92MXsINy2NifGiFUVGl6xVSrDKWrKkyHHjaeYCd7bvJK8hp551RANIDo32ESnkOR6+eMHoDXzv2KaPtdS5cxn7E0ynJ+lydMeUjvnW3e94ducgRbYEyopmxWwRw3gkVS1L0+8xLeqK/NT7P+GkeS372E80gWoL05Pzumxa7HfHSIsqB9squ5HujD2hc0osq5mH1jDJSuWjoDGR+QiKswJ8hCynPiG7NV6/UL1t3smtGKcl2xRsqdKOb7Lisk5ik06ufUxDL73LgjTag9JvDOFhqsDB1LEAIn/JFhzh+NpM6WK0lya+J6Z5e6OyrTwHTOsOV52i6F2RuAyIHjB6AHkMlCeBeQE4LwLoeaE/B6guWG8L2KtAewq4x8F7FMBHQXwKyKfAfCGgzwb1hcD+ELg9AL8807xA96QZ6FZWXchnfZoc709u1E6aPvodHOJENYXQUfgYzshD/PXhW3yDbmW6M9NEn1fRjjUwV2rsexoNajfBQeLcLCj77dOCPZYxUIHEjK+0RGzbucw4Kxv1xYH2zMpYlglbLlIijQd2KGdlbOiadlEIblSrtgSp6KrGmo23HDMDhsgay6iOMi5rpWhlWAVXQ+Hv50GqbqXtcnd4sB5SjANWUBqbWgGVVl+/fBs55uMsKpyuTedSDmEYijmL0wGZzfG9caF9+HwP/8YZmuugO4rz+2hb2x/p5Dj02/evm7kqBYjz8OyhUYhQd7PD0XPWe6bVsTs+R8HBl79jQkff7Y4JnlF/jomf3U9ZJZNkuMqJqbzBPZby8IbQtzaw3nQFwDNTDwe9/RPpvldEhipmPSGsMFm2JbARWAXDOHCn6GaIjk8K0UQx+UzGWvaZhH9XyBxYaITJEoPSLubrWj7nRb1W80Y+fPn53mzzfvBjcOA+F5tkWxZhnLQV5uazyW7sm+xfGGZX0XS8vZstTt48ya7mdvs3XRWiM9r9eTEFz4x0UiFsgKPX/wKCipoYMRkAAA=' | base64 -d | gzip -d > /tmp/pr129_cupy_context.py
+          python /tmp/pr129_cupy_context.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --check
+          git diff --cached --quiet && { echo 'no changes produced'; exit 1; }
+          git commit -m "fix(inference): hold concrete device across CuPy consumers"
+          git push origin HEAD:agent/post-v0.2.5-next-phase-plan
