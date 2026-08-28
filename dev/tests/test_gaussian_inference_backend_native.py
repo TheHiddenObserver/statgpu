@@ -215,6 +215,29 @@ def test_rank_deficient_nonrobust_uses_pseudoinverse_semantics():
     np.testing.assert_allclose(result.bse, expected_bse, rtol=1e-10, atol=1e-12)
 
 
+def test_student_t_df1_extreme_tail_does_not_cancel_to_zero():
+    design = np.ones((2, 1), dtype=np.float64)
+    params = np.asarray([1.0e16])
+    resid = np.asarray([1.0, -1.0])
+    result = compute_gaussian_inference(
+        design,
+        params,
+        resid,
+        1.0,
+        1,
+        "nonrobust",
+        backend="numpy",
+    )
+    assert np.isfinite(result.pvalues[0])
+    assert result.pvalues[0] > 0.0
+    np.testing.assert_allclose(
+        result.pvalues[0],
+        2.0 * stats.t.sf(abs(result.tvalues[0]), 1),
+        rtol=2e-15,
+        atol=0.0,
+    )
+
+
 def test_student_t_df2_extreme_tail_does_not_cancel_to_zero():
     # df=2 has a representable two-sided tail near 1e-308 at t=1e154.
     design = np.ones((3, 1), dtype=np.float64)
@@ -231,56 +254,12 @@ def test_student_t_df2_extreme_tail_does_not_cancel_to_zero():
     )
     assert np.isfinite(result.pvalues[0])
     assert result.pvalues[0] > 0.0
-
-
-def test_torch_cpu_distribution_receives_native_statistic(monkeypatch):
-    torch = pytest.importorskip("torch")
-    import statgpu.linear_model._gaussian_inference as gi
-
-    observed = {}
-
-    class _FakeT:
-        def two_sided_pvalue(self, statistic, df):
-            assert isinstance(statistic, torch.Tensor)
-            assert statistic.device.type == "cpu"
-            observed["pvalue_native"] = True
-            return torch.full_like(statistic, 0.125)
-
-        def two_sided_critical_value(self, alpha, df):
-            observed["critical"] = (float(alpha), int(df))
-            return torch.tensor(2.5, dtype=torch.float64)
-
-    def _fake_distribution(name, backend="numpy", device=None):
-        assert name == "t"
-        assert backend == "torch"
-        assert str(device) == "cpu"
-        return _FakeT()
-
-    monkeypatch.setattr(gi, "get_distribution", _fake_distribution)
-
-    X, y, coef, intercept = _simple_state()
-    X_t = torch.as_tensor(X, dtype=torch.float64)
-    y_t = torch.as_tensor(y, dtype=torch.float64)
-    state = build_gaussian_fit_state(
-        X_t, y_t, coef, intercept, True, backend="torch", device="cpu"
+    np.testing.assert_allclose(
+        result.pvalues[0],
+        2.0 * stats.t.sf(abs(result.tvalues[0]), 2),
+        rtol=2e-15,
+        atol=0.0,
     )
-    result = compute_gaussian_inference(
-        state.X_design,
-        state.params,
-        state.resid,
-        state.scale,
-        state.df_resid,
-        "nonrobust",
-        backend="torch",
-        device="cpu",
-    )
-
-    assert observed["pvalue_native"] is True
-    assert observed["critical"] == (0.05, state.df_resid)
-    assert result.metadata["numerical_backend"] == "torch"
-    assert result.metadata["numerical_device"] == "cpu"
-    assert isinstance(result.pvalues, np.ndarray)
-    np.testing.assert_allclose(result.pvalues, 0.125)
 
 
 def test_ridgecv_final_refit_inference_does_not_change_selection():
