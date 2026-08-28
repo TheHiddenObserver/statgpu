@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   repair:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +27,6 @@ jobs:
 
           frozen = "3180add336b41017f4cd5a5e6721a6470a797360"
 
-          # Restore the full reviewed plan, then change only its live status and
-          # append the physical-failure reopening note.
           plan_path = Path("dev/plans/gaussian_inference_backend_native_plan.md")
           plan = subprocess.check_output(
               ["git", "show", f"{frozen}:{plan_path.as_posix()}"], text=True
@@ -66,8 +63,6 @@ CuPy + Torch CUDA evidence must be rerun from that exact clean head.
 """
           plan_path.write_text(plan)
 
-          # Production fix: use the CuPy-supported triangular solve used by
-          # maintained repository paths instead of the nonexistent cp.linalg API.
           linear_path = Path("statgpu/linear_model/wrappers/_linear.py")
           linear = linear_path.read_text()
           import_anchor = (
@@ -87,8 +82,6 @@ CuPy + Torch CUDA evidence must be rerun from that exact clean head.
           linear = linear.replace("cp.linalg.solve_triangular(", "solve_triangular(")
           linear_path.write_text(linear)
 
-          # Validator fix: a hand-built post-fit fixture must provide the same
-          # concrete-device provenance that real fit() records.
           runner_path = Path("dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py")
           runner = runner_path.read_text()
           runner_anchor = (
@@ -107,7 +100,6 @@ CuPy + Torch CUDA evidence must be rerun from that exact clean head.
           runner = runner.replace(runner_anchor, runner_replacement, 1)
           runner_path.write_text(runner)
 
-          # Hosted/static regression lock for both physical findings.
           test_path = Path("dev/tests/test_gaussian_inference_gpu_runner_contract.py")
           tests = test_path.read_text()
           marker = "\ndef test_cupy_public_consumers_hold_concrete_device_context_across_numerics():\n"
