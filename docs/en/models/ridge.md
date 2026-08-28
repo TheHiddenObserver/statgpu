@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-07-12  
+> Last updated: 2026-08-28  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/ridge.md)
 
@@ -65,6 +65,12 @@ Comparing the two libraries with the same numerical `alpha` compares different o
 - `compute_inference=True` returns `_bse`, `_tvalues`, `_pvalues`, `_conf_int`.
 - Weighted inference uses the weighted design `[sqrt(w), sqrt(w) * X]`, so the intercept column, residuals, bread, and meat follow the same weighting convention as estimation.
 
+The inference normal equations use the same average-loss penalty mapping as fitting: the numerical ridge term is `n * alpha` without weights and `sample_weight.sum() * alpha` with analytic weights. The intercept remains unpenalized.
+
+For the migrated shared Gaussian path, covariance, standard errors, test statistics, reference-distribution p-values, and confidence-interval critical values remain on the executed NumPy/CuPy/Torch backend. Only after this numerical work is complete are the established reporting arrays snapshotted to NumPy. `_inference_result.metadata` records the numerical backend/device and the `post_numerical_inference` reporting boundary. Explicit CUDA/Torch fits fail closed rather than silently substituting NumPy inference when executed-backend provenance is unavailable.
+
+The low-degree Student-t reference path uses the maintained stable df=1 and df=2 identities, so representable extreme tails are not rounded to zero merely because a naive `1-CDF` subtraction or `t**2` intermediate is ill-conditioned.
+
 ## Parameters
 
 | Parameter | Default | Description |
@@ -101,7 +107,7 @@ m_gpu.fit(X, y, sample_weight=w)
 
 ## strict/approx difference
 
-No separate public approximate mode is exposed. CPU tests cover the exact/FISTA, weighted/unweighted, formula, inference, and RidgeCV contracts. Physical CuPy/Torch CUDA numerical and performance validation remains part of the remote validation gate.
+No separate public approximate mode is exposed. Hosted tests cover exact/FISTA, weighted/unweighted, formula, covariance/inference, RidgeCV final-refit inference, backend provenance, and the numerical/reporting transfer boundary. Physical CuPy/Torch CUDA acceptance remains a separate exact-source remote gate and must be rerun whenever the maintained validator contract changes.
 
 ## Outputs
 
@@ -116,12 +122,14 @@ No separate public approximate mode is exposed. CPU tests cover the exact/FISTA,
 - Why does the same `alpha` differ from sklearn? The residual term has a different normalization; apply the mapping above.
 - Does rescaling all sample weights change the model? No. The weighted loss is divided by `sum(sample_weight)`.
 - When should I set `hac_maxlags`? When using `cov_type="hac"` with time dependence; otherwise leave the default.
+- Are GPU inference arrays exposed as CuPy/Torch objects? No. Numerical inference stays backend-native, but the established public reporting attributes remain NumPy snapshots after numerical inference completes.
 
 ## External Validation
 
 - Internal consistency is tested against the average-loss closed form and the generic penalized-linear estimator.
 - sklearn comparisons use the explicit unweighted or weighted alpha mapping.
 - Weighted exact/FISTA, formula-row alignment, inference, and RidgeCV weight-rescaling invariance are covered in `dev/tests/test_ridge_weighted_consistency.py`.
+- Issue #127 backend-native inference regressions and the physical CUDA acceptance contract live in `dev/tests/test_gaussian_inference_*.py` and `dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py`.
 
 ## References
 
