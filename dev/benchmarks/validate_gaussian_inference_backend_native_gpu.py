@@ -3,7 +3,8 @@
 
 Canonical evidence requires both GPU backends, exact source identity, a clean
 candidate tree, explicit validation tier, backend/device provenance, numerical
-parity, and the maintained small-df tail boundary.
+parity, a behavioral pre-reporting host-transfer guard, and the maintained
+small-df tail boundary.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import numpy as np
 
 from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGeneralizedLinearModel, RidgeCV
+import statgpu.linear_model._gaussian_inference as _gi_module
+import statgpu.linear_model.penalized._base as _pglm_base_module
 from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
@@ -27,7 +30,7 @@ from statgpu.linear_model._gaussian_inference import (
     robust_covariance_numpy,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _REQUIRED_BACKENDS = ("cupy", "torch")
 _VALIDATION_TIERS = ("local-minimal", "local-full", "remote-full")
 
@@ -279,6 +282,129 @@ def _consumer_case(backend: str, cov_type: str, weighted: bool):
     }
 
 
+def _host_transfer_case(backend: str, concrete_device: str):
+    """Behaviorally prove no Gaussian/PGLM host snapshot precedes distribution work."""
+    X, y, _ = _problem(seed=130)
+    X_native = _as_backend(X, backend)
+    y_native = _as_backend(y, backend)
+    _assert_same_native_device(X_native, backend, concrete_device)
+    _assert_same_native_device(y_native, backend, concrete_device)
+
+    phase = {
+        "reporting_allowed": False,
+        "gi_snapshots": 0,
+        "pglm_snapshots": 0,
+        "reference_distribution_completed": False,
+    }
+    real_gi_to_numpy = _gi_module._to_numpy
+    real_pglm_to_numpy = _pglm_base_module._to_numpy
+    real_reference = _gi_module.two_sided_reference_inference
+
+    def guarded_gi_to_numpy(value):
+        if not phase["reporting_allowed"]:
+            raise AssertionError(
+                "Gaussian numerical inference attempted a host snapshot before "
+                "reference-distribution work completed"
+            )
+        phase["gi_snapshots"] += 1
+        return real_gi_to_numpy(value)
+
+    def guarded_pglm_to_numpy(value):
+        if not phase["reporting_allowed"]:
+            raise AssertionError(
+                "PGLM reporting state attempted a host snapshot before numerical "
+                "Gaussian inference completed"
+            )
+        phase["pglm_snapshots"] += 1
+        return real_pglm_to_numpy(value)
+
+    def guarded_reference(
+        statistic_abs,
+        *,
+        distribution,
+        alpha,
+        backend: str,
+        xp,
+        df=None,
+        device=None,
+    ):
+        if backend != requested_backend:
+            raise AssertionError(
+                f"reference distribution backend mismatch: {backend} != {requested_backend}"
+            )
+        _assert_same_native_device(statistic_abs, requested_backend, concrete_device)
+        result = real_reference(
+            statistic_abs,
+            distribution=distribution,
+            alpha=alpha,
+            backend=backend,
+            xp=xp,
+            df=df,
+            device=device,
+        )
+        phase["reference_distribution_completed"] = True
+        phase["reporting_allowed"] = True
+        return result
+
+    requested_backend = backend
+    _gi_module._to_numpy = guarded_gi_to_numpy
+    _pglm_base_module._to_numpy = guarded_pglm_to_numpy
+    _gi_module.two_sided_reference_inference = guarded_reference
+    try:
+        device_arg = "cuda" if backend == "cupy" else "torch"
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error",
+            penalty="l2",
+            alpha=0.05,
+            fit_intercept=True,
+            device=device_arg,
+            compute_inference=True,
+            cov_type="nonrobust",
+        )
+        model._penalty = model._resolve_penalty()
+        model._selected_backend_name = backend
+        model.coef_ = np.asarray([0.8, -0.35, 0.2, 0.55, -0.1])
+        model.intercept_ = -0.4
+        model._compute_post_fit_gaussian_inference(X_native, y_native)
+    finally:
+        _gi_module._to_numpy = real_gi_to_numpy
+        _pglm_base_module._to_numpy = real_pglm_to_numpy
+        _gi_module.two_sided_reference_inference = real_reference
+
+    if not phase["reference_distribution_completed"]:
+        raise AssertionError("reference distribution did not complete on the requested backend")
+    if phase["gi_snapshots"] <= 0 or phase["pglm_snapshots"] <= 0:
+        raise AssertionError(
+            "host-transfer guard did not observe the established post-inference reporting snapshot"
+        )
+    result = model._inference_result
+    if result is None:
+        raise AssertionError("host-transfer case did not publish inference result")
+    meta = dict(result.metadata)
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"host-transfer case backend mismatch: {meta}")
+    if str(meta.get("numerical_device", "")) != concrete_device:
+        raise AssertionError(f"host-transfer case device mismatch: {meta}")
+
+    return {
+        "case": "host_transfer_provenance",
+        "requested_backend": backend,
+        "executed_inference_backend": meta.get("numerical_backend"),
+        "executed_inference_device": meta.get("numerical_device"),
+        "reporting_boundary": meta.get("reporting_boundary"),
+        "pre_reporting_host_transfers": 0,
+        "gaussian_reporting_snapshots": int(phase["gi_snapshots"]),
+        "pglm_reporting_snapshots": int(phase["pglm_snapshots"]),
+        "reference_distribution_completed_on_backend": True,
+        "instrumented_modules": [
+            "statgpu.linear_model._gaussian_inference",
+            "statgpu.linear_model.penalized._base",
+        ],
+        "no_silent_fallback": True,
+        "status": "success",
+    }
+
+
 def _functional_edge_cases(backend: str, concrete_device: str):
     # Rank-deficient native inference and NumPy parity.
     x = np.arange(1.0, 9.0)
@@ -516,6 +642,7 @@ def run_backend(backend: str):
     for cov_type in ("nonrobust", "hc3", "hac"):
         cases.append(_consumer_case(backend, cov_type, weighted=False))
     cases.append(_consumer_case(backend, "nonrobust", weighted=True))
+    cases.append(_host_transfer_case(backend, concrete_device))
     cases.append(_functional_edge_cases(backend, concrete_device))
     cases.append(_small_df_tail_case(backend, concrete_device))
     cases.append(_ridgecv_case(backend))
