@@ -139,6 +139,38 @@ def test_weighted_ridge_uses_weight_sum_for_penalty_mapping():
     assert result.metadata["ridge_alpha"] == pytest.approx(np.sum(weights) * alpha)
 
 
+def test_weighted_hc3_matches_explicit_weighted_sandwich_formula():
+    X, y, coef, intercept = _problem()
+    weights = np.linspace(0.4, 2.2, X.shape[0])
+    state = build_gaussian_fit_state(
+        X,
+        y,
+        coef,
+        intercept,
+        True,
+        sample_weight=weights,
+        backend="numpy",
+    )
+    result = compute_gaussian_inference(
+        state.X_design,
+        state.params,
+        state.resid,
+        state.scale,
+        state.df_resid,
+        "hc3",
+        backend="numpy",
+    )
+    expected_cov = _independent_covariance(
+        state.X_design, state.resid, "hc3", state.df_resid
+    )
+    np.testing.assert_allclose(
+        result.bse,
+        np.sqrt(np.maximum(np.diag(expected_cov), 0.0)),
+        rtol=1e-10,
+        atol=1e-12,
+    )
+
+
 def test_torch_cpu_all_covariances_match_numpy():
     torch = pytest.importorskip("torch")
     X, y, coef, intercept = _problem()
@@ -179,3 +211,50 @@ def test_torch_cpu_all_covariances_match_numpy():
         np.testing.assert_allclose(got.conf_int, ref.conf_int, rtol=2e-7, atol=1e-10)
         assert got.metadata["numerical_backend"] == "torch"
         assert got.metadata["numerical_device"] == "cpu"
+
+
+def test_torch_float32_preserves_native_dtype_and_agrees_with_float64_reference():
+    torch = pytest.importorskip("torch")
+    X, y, coef, intercept = _problem()
+    reference_state = build_gaussian_fit_state(
+        X, y, coef, intercept, True, backend="numpy"
+    )
+    reference = compute_gaussian_inference(
+        reference_state.X_design,
+        reference_state.params,
+        reference_state.resid,
+        reference_state.scale,
+        reference_state.df_resid,
+        "hc3",
+        backend="numpy",
+    )
+
+    state = build_gaussian_fit_state(
+        torch.as_tensor(X, dtype=torch.float32),
+        torch.as_tensor(y, dtype=torch.float32),
+        np.asarray(coef, dtype=np.float32),
+        np.float32(intercept),
+        True,
+        backend="torch",
+        device="cpu",
+    )
+    assert state.X_design.dtype == torch.float32
+    assert state.resid.dtype == torch.float32
+    assert state.params.dtype == torch.float32
+
+    got = compute_gaussian_inference(
+        state.X_design,
+        state.params,
+        state.resid,
+        state.scale,
+        state.df_resid,
+        "hc3",
+        backend="torch",
+        device="cpu",
+    )
+    np.testing.assert_allclose(got.bse, reference.bse, rtol=5e-4, atol=2e-5)
+    np.testing.assert_allclose(got.tvalues, reference.tvalues, rtol=8e-4, atol=5e-5)
+    np.testing.assert_allclose(got.pvalues, reference.pvalues, rtol=2e-3, atol=2e-5)
+    np.testing.assert_allclose(got.conf_int, reference.conf_int, rtol=8e-4, atol=5e-5)
+    assert got.metadata["numerical_backend"] == "torch"
+    assert got.metadata["numerical_device"] == "cpu"
