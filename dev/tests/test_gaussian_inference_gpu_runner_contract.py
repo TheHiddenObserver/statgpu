@@ -176,3 +176,27 @@ def test_exact_l2_precomputed_gpu_inference_has_concrete_device_contract():
     assert '"numerical_device": str(X.device)' in source
     assert source.count('"reporting_boundary": "post_numerical_inference"') >= 2
 
+def test_penalized_gaussian_router_uses_fit_time_concrete_device_authority():
+    base_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "penalized"
+        / "_base.py"
+    ).read_text()
+    fit_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "penalized"
+        / "_fit_mixin.py"
+    ).read_text()
+
+    assert "self._selected_backend_device = None" in base_source
+    assert 'getattr(self, "_selected_backend_device", None)' in base_source
+    assert "device=selected_device" in base_source
+    assert "missing concrete executed-device provenance" in base_source
+    assert 'self._selected_backend_device = str(X_arr.device)' in fit_source
+    assert 'self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"' in fit_source
+    assert "with cp.cuda.Device(int(X.device.id))" in fit_source
+

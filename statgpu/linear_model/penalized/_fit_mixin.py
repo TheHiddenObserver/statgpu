@@ -461,6 +461,12 @@ class _PenalizedFitMixin:
 
         X_arr = self._to_array(X, backend=backend_name)
         y_arr = self._to_array(y, backend=backend_name)
+        if backend_name == "torch":
+            self._selected_backend_device = str(X_arr.device)
+        elif backend_name == "cupy":
+            self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"
+        else:
+            self._selected_backend_device = "cpu"
 
         if backend_name == "torch":
             self._fit_torch(X_arr, y_arr, _sw_arr)
@@ -1100,11 +1106,23 @@ class _PenalizedFitMixin:
                 coef_full_gpu = coef.reshape(-1)
 
             if self._compute_inference_enabled:
-                infer_fn = getattr(self, f'_precompute_exact_l2_inference_{"torch" if is_torch else "cupy"}')
-                infer_fn(
-                    X, y, XtX, X_mean, coef_full_gpu, n_samples,
-                    sample_weight=sw, normalization=n_eff,
+                infer_fn = getattr(
+                    self,
+                    f'_precompute_exact_l2_inference_{"torch" if is_torch else "cupy"}',
                 )
+                if backend_name == "cupy":
+                    import cupy as cp
+
+                    with cp.cuda.Device(int(X.device.id)):
+                        infer_fn(
+                            X, y, XtX, X_mean, coef_full_gpu, n_samples,
+                            sample_weight=sw, normalization=n_eff,
+                        )
+                else:
+                    infer_fn(
+                        X, y, XtX, X_mean, coef_full_gpu, n_samples,
+                        sample_weight=sw, normalization=n_eff,
+                    )
 
             coef_np = _to_numpy(coef)
             if self._effective_intercept:

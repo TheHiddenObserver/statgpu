@@ -273,6 +273,7 @@ class PenalizedGeneralizedLinearModel(
         self._formula_has_intercept = None
         self._selected_solver = None
         self._selected_backend_name = None
+        self._selected_backend_device = None
         self._init_coef = None
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
@@ -351,22 +352,25 @@ class PenalizedGeneralizedLinearModel(
             )
 
         # Generic fit may pass original NumPy inputs here even after a GPU fit.
-        # The executed fit backend, not the input container type, is authoritative.
-        X_native = self._to_array(X, backend=backend_name)
-        y_native = self._to_array(y, backend=backend_name)
-        sw_native = (
-            None
-            if sample_weight is None
-            else self._to_array(sample_weight, backend=backend_name)
-        )
+        # The executed fit backend *and concrete device*, not the input container
+        # type or ambient CUDA state, are authoritative.
+        selected_device = getattr(self, "_selected_backend_device", None)
+        if backend_name == "numpy":
+            selected_device = "cpu"
+        elif not str(selected_device or "").startswith("cuda:"):
+            raise RuntimeError(
+                "Gaussian inference is missing concrete executed-device provenance "
+                f"for backend={backend_name!r}: {selected_device!r}"
+            )
         state = build_gaussian_fit_state(
-            X_native,
-            y_native,
+            X,
+            y,
             self.coef_,
             self.intercept_,
             self._effective_intercept,
-            sample_weight=sw_native,
+            sample_weight=sample_weight,
             backend=backend_name,
+            device=selected_device,
         )
         ridge_alpha = state.normalization * self._ridge_alpha_for_exact()
         result = compute_gaussian_inference(
