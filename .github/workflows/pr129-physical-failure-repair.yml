@@ -1,0 +1,164 @@
+name: PR129 physical failure repair
+
+on:
+  push:
+    branches:
+      - agent/post-v0.2.5-next-phase-plan
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply physical-validation review fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          frozen = "3180add336b41017f4cd5a5e6721a6470a797360"
+
+          # Restore the full reviewed plan, then change only its live status and
+          # append the physical-failure reopening note.
+          plan_path = Path("dev/plans/gaussian_inference_backend_native_plan.md")
+          plan = subprocess.check_output(
+              ["git", "show", f"{frozen}:{plan_path.as_posix()}"], text=True
+          )
+          old_status = (
+              "Production implementation status: **implemented; hosted/review clean; "
+              "physical CUDA pending (`PARTIAL_REMOTE_PENDING`)**"
+          )
+          new_status = (
+              "Production implementation status: **physical CUDA exposed candidate defects; "
+              "review/fix reopened**"
+          )
+          if old_status not in plan:
+              raise SystemExit("expected frozen plan status not found")
+          plan = plan.replace(old_status, new_status, 1)
+          plan += """
+
+## 20. Physical acceptance reopening — 2026-08-28
+
+Exact-head `remote-full` execution on frozen candidate
+`3180add336b41017f4cd5a5e6721a6470a797360` exposed two candidate-intrinsic
+failures and revoked the previous `PARTIAL_REMOTE_PENDING` hard exit:
+
+1. the maintained CuPy `LinearRegression` path called the nonexistent
+   `cp.linalg.solve_triangular` symbol instead of the maintained
+   `cupyx.scipy.linalg.solve_triangular` implementation;
+2. `_host_transfer_case` manually invoked the fail-closed post-fit inference
+   router after setting backend provenance but omitted concrete device
+   provenance, so the validator deterministically rejected its own fixture.
+
+Both defects must be repaired and regression-locked before hosted review can
+close again. After a fresh hosted/review clean head is frozen, canonical
+CuPy + Torch CUDA evidence must be rerun from that exact clean head.
+"""
+          plan_path.write_text(plan)
+
+          # Production fix: use the CuPy-supported triangular solve used by
+          # maintained repository paths instead of the nonexistent cp.linalg API.
+          linear_path = Path("statgpu/linear_model/wrappers/_linear.py")
+          linear = linear_path.read_text()
+          import_anchor = (
+              "        import cupy as cp\n"
+              "        from statgpu.backends._gpu_inference_cupy import ("
+          )
+          import_replacement = (
+              "        import cupy as cp\n"
+              "        from cupyx.scipy.linalg import solve_triangular\n"
+              "        from statgpu.backends._gpu_inference_cupy import ("
+          )
+          if import_anchor not in linear:
+              raise SystemExit("CuPy LinearRegression import anchor not found")
+          linear = linear.replace(import_anchor, import_replacement, 1)
+          if linear.count("cp.linalg.solve_triangular(") != 2:
+              raise SystemExit("unexpected cp.linalg.solve_triangular count")
+          linear = linear.replace("cp.linalg.solve_triangular(", "solve_triangular(")
+          linear_path.write_text(linear)
+
+          # Validator fix: a hand-built post-fit fixture must provide the same
+          # concrete-device provenance that real fit() records.
+          runner_path = Path("dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py")
+          runner = runner_path.read_text()
+          runner_anchor = (
+              "        model._penalty = model._resolve_penalty()\n"
+              "        model._selected_backend_name = backend\n"
+              "        model.coef_ = np.asarray([0.8, -0.35, 0.2, 0.55, -0.1])"
+          )
+          runner_replacement = (
+              "        model._penalty = model._resolve_penalty()\n"
+              "        model._selected_backend_name = backend\n"
+              "        model._selected_backend_device = concrete_device\n"
+              "        model.coef_ = np.asarray([0.8, -0.35, 0.2, 0.55, -0.1])"
+          )
+          if runner_anchor not in runner:
+              raise SystemExit("host-transfer provenance anchor not found")
+          runner = runner.replace(runner_anchor, runner_replacement, 1)
+          runner_path.write_text(runner)
+
+          # Hosted/static regression lock for both physical findings.
+          test_path = Path("dev/tests/test_gaussian_inference_gpu_runner_contract.py")
+          tests = test_path.read_text()
+          marker = "\ndef test_cupy_public_consumers_hold_concrete_device_context_across_numerics():\n"
+          regression_test = '''
+
+def test_physical_cuda_failure_regressions_are_locked():
+    linear_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "wrappers"
+        / "_linear.py"
+    ).read_text()
+    runner_source = RUNNER.read_text()
+
+    assert "from cupyx.scipy.linalg import solve_triangular" in linear_source
+    assert "cp.linalg.solve_triangular" not in linear_source
+    assert "model._selected_backend_device = concrete_device" in runner_source
+'''
+          if marker not in tests:
+              raise SystemExit("contract-test insertion marker not found")
+          if "def test_physical_cuda_failure_regressions_are_locked" in tests:
+              raise SystemExit("physical failure regression test already exists")
+          tests = tests.replace(marker, regression_test + marker, 1)
+          test_path.write_text(tests)
+          PY
+
+          rm .github/workflows/pr129-physical-failure-repair.yml
+
+      - name: Validate repair before commit
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]" ruff
+          python -m compileall -q \
+            statgpu/linear_model/wrappers/_linear.py \
+            dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
+            dev/tests/test_gaussian_inference_gpu_runner_contract.py
+          ruff check \
+            statgpu/linear_model/wrappers/_linear.py \
+            dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
+            dev/tests/test_gaussian_inference_gpu_runner_contract.py \
+            --select F821,E9,F63,F7,F82
+          python -m pytest dev/tests/test_gaussian_inference_gpu_runner_contract.py -q --tb=short
+          git diff --check
+
+      - name: Commit repaired source and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(inference): repair physical CUDA acceptance defects"
+          git push origin HEAD:${GITHUB_REF_NAME}
