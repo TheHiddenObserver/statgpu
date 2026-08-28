@@ -7,25 +7,27 @@ Status: planning review/fix in progress; production work not started
 
 ## 1. Goal
 
-Migrate the maintained Gaussian linear-model inference path so covariance, standard errors, test statistics, p-values, and confidence intervals execute on the selected NumPy/CuPy/Torch backend without silent full-array GPU-to-CPU fallback.
+Migrate the maintained Gaussian linear-model inference path so covariance, standard errors, test statistics, p-values, and confidence intervals execute on the selected NumPy/CuPy/Torch numerical backend without silent full-design/residual fallback to NumPy/SciPy.
 
-The migration changes execution locality and backend provenance, not established statistical definitions. A final NumPy reporting snapshot may remain where required by the existing result-container API, but it must occur only after numerical inference has completed.
+The change is an execution-locality and provenance repair. It does not redefine established Gaussian/Ridge statistics, fitting objectives, penalties, CV selection, formula semantics, or public reporting results.
+
+A NumPy reporting snapshot may remain after numerical inference where required by the established result/reporting API. The implementation must therefore separate **backend-native numerical inference state** from **legacy reporting state** instead of forcing one representation to serve both purposes.
 
 This work is intentionally narrower than a repository-wide inference rewrite.
 
-## 2. Impact classification
+## 2. Impact classification and capability decisions
 
 Active axes:
 
-- public backend/device contract;
+- backend/device locality and failure behavior;
 - inference;
-- numerical correctness and precision;
-- backend-native array ownership and device locality;
-- linear-model and penalized-Gaussian compatibility;
-- formula regression compatibility;
-- CV final-refit inference where the shared Gaussian path is consumed;
+- numerical precision;
+- public reporting compatibility;
+- formula regression compatibility for formula-facing consumers;
+- Ridge/L2 objective-scale preservation;
+- CV final-refit inference where the repaired path is consumed;
 - physical-GPU validation and provenance;
-- documentation and evidence artifacts.
+- documentation/evidence artifacts.
 
 Inactive axes:
 
@@ -33,53 +35,57 @@ Inactive axes:
 - new penalties;
 - solver redesign;
 - new model families;
-- new CV selection algorithms;
+- new CV selection/path algorithms;
 - sparse-input support;
-- repository-wide removal of SciPy.
+- repository-wide removal of SciPy;
+- new formula support;
+- user-facing GPU speedup claims.
 
-Eliminating unintended full-array GPU-to-CPU inference transfers is a correctness/backend-contract gate. GPU speedup is not a completion claim for this issue and requires separate synchronized benchmark evidence if advertised.
+Eliminating unintended full-design/residual GPU-to-CPU inference transfers is a correctness/backend-contract gate, not merely a performance optimization.
 
-### 2.1 Capability decisions
+### 2.1 Minimum known capability table
 
-The table below is the minimum known public surface before the mandatory consumer inventory. Phase 1 must add any newly discovered public consumer before production edits continue.
+Phase 1 must extend this table if another public Gaussian consumer is discovered before production edits continue.
 
 | Public capability | backend | CV | inference | formula | benchmark |
 | --- | --- | --- | --- | --- | --- |
 | `LinearRegression` | `three-backend` | `non-tunable` | `supported` | `supported` | `not-performance-sensitive` |
-| `Ridge` / Gaussian squared-error L2 direct fit | `three-backend` | `supported` through the maintained Ridge/unified CV surface; no CV expansion in #127 | `supported` | `supported` | `not-performance-sensitive` |
-| `RidgeCV` final refit | `three-backend` | `supported` | `supported` on the final `Ridge` refit when `compute_inference=True` | `not-formula-facing` | `not-performance-sensitive` |
-| Other public Gaussian/L2 consumers discovered in Phase 1 | must resolve to `three-backend` or require explicit approved deferral | preserve current supported/non-tunable decision; no new CV capability | preserve current supported/estimation-only contract | preserve current supported/not-formula-facing contract | default `not-performance-sensitive` unless a claim activates benchmark gate |
+| `Ridge` | `three-backend` | `supported` via maintained Ridge CV surface | `supported` | `supported` | `not-performance-sensitive` |
+| `RidgeCV` | `three-backend` | `supported` | `supported` on final refit when enabled | `not-formula-facing` | `not-performance-sensitive` |
+| `PenalizedLinearRegression`, squared-error + L2 path | `three-backend` | `supported` through maintained penalized CV surface | `supported` when enabled | `supported` | `not-performance-sensitive` |
 
-`planned` is not an acceptable completion state for an already supported inference/backend capability. If inventory reveals a public consumer whose current documented contract conflicts with this table, stop and amend the plan/decision explicitly rather than silently narrowing support.
+A newly discovered public consumer must receive one of the repository's explicit capability decisions before it enters implementation scope. `planned` is not a valid completion state for an already maintained backend or inference capability.
 
-### 2.2 Objective, penalty, and CV non-change contract
+### 2.2 Adjacent shared-mixin boundary
 
-#127 does not change the fitting objective, regularization path, selected hyperparameter, or CV scoring definition.
+`statgpu/linear_model/penalized/_inference_mixin.py` also dispatches non-L2 inference paths. #127 must not accidentally reroute or redefine:
 
-For Ridge/L2 paths, preserve the repository's current average-loss convention and exact-solve scaling. In particular, current direct/CV implementations solve unnormalized normal equations with the equivalent `n_eff * alpha` L2 contribution, where `n_eff` is the sample count or the declared weight normalization for weighted fits. Inference bread/penalty construction must preserve the same mapping rather than introducing a new `alpha`, `lambda`, or `C` convention.
+- L1/debiased inference;
+- ElasticNet/debiased inference;
+- SCAD/MCP oracle or bootstrap inference;
+- other already documented estimation-only/failure behavior.
 
-External Ridge comparisons must state the equivalent penalty mapping explicitly. A mismatch is fixed in the comparison/mapping layer; the statgpu fit objective is not changed merely to match an external package.
-
-`RidgeCV` already selects alpha and performs a final `Ridge(..., compute_inference=...)` refit. #127 may change only the numerical locality/provenance of that final inference, not folds, alpha grid, scoring, selection, tie behavior, or final-refit coefficient semantics.
+These penalty families are **not** added to #127's implementation scope, but their branch dispatch and established outputs are regression surfaces whenever the shared mixin is edited.
 
 ## 3. Mandatory consumer and data-lifecycle inventory
 
-Before production edits, resolve and record the exact consumer graph.
+Before implementation, record the exact consumer graph and array lifecycle.
 
-Known direct/shared locations include:
+Known shared/consumer locations include:
 
 1. `statgpu/linear_model/_gaussian_inference.py`;
 2. `statgpu/linear_model/wrappers/_linear.py`;
-3. `statgpu/linear_model/penalized/_inference_mixin.py`.
+3. `statgpu/linear_model/penalized/_inference_mixin.py`;
+4. `statgpu/linear_model/wrappers/_ridge.py`;
+5. `statgpu/linear_model/cv/_ridge_cv.py` for final-refit ownership.
 
-Known public consumers include at least `LinearRegression`, `Ridge`, the Gaussian/L2 penalized path used by `Ridge`, and `RidgeCV` final refit. Inventory every additional public wrapper and maintained CV final-refit path that reaches these helpers or implements equivalent Gaussian inference behavior.
-
-For every consumer record:
+For every public consumer record:
 
 - requested device/backend;
-- executed fit backend;
+- executed fit backend and concrete device;
 - where design, residuals, parameters, scale, and weights are created;
-- every `_to_numpy()` / `np.asarray()` boundary before inference completion;
+- whether a backend-native fit buffer already exists;
+- every `_to_numpy()`, `np.asarray()`, or equivalent host boundary before numerical inference completion;
 - covariance implementation reached;
 - distribution implementation reached;
 - final reporting conversion;
@@ -88,88 +94,105 @@ For every consumer record:
 - scalar versus multi-target behavior;
 - CV final-refit ownership where applicable.
 
-The implementation scope is the resolved Gaussian consumer graph. It is not every `scipy.stats` import under `statgpu/linear_model`.
+The scope is this resolved Gaussian consumer graph, not every `scipy.stats` import under `statgpu/linear_model`.
 
-If the inventory discovers another public Gaussian consumer, amend the capability table and consumer matrix before implementation rather than leaving it silently CPU-oriented.
+If inventory finds another public Gaussian consumer, update the capability table and plan before editing that consumer.
 
-## 4. Backward-compatibility contract
+## 4. Statistical and optimization non-change contract
 
-Freeze established ordinary-regime NumPy behavior for:
+Freeze established ordinary-regime behavior for:
 
 - nonrobust inference;
 - HC0 / HC1 / HC2 / HC3;
-- Bartlett HAC and existing lag semantics;
-- degrees of freedom;
-- Ridge/L2 inference and intercept-penalty treatment;
+- Bartlett HAC and lag semantics;
+- residual degrees of freedom;
+- Ridge/L2 covariance and intercept-penalty treatment;
 - weighted inference;
-- rank-deficient / pseudoinverse behavior;
+- rank-deficient/pseudoinverse behavior;
 - scalar and multi-target output shape/order;
 - formula feature names/order;
-- `summary()` and inference-result fields;
-- sklearn clone, fitted-state, and transactional-refit behavior;
-- RidgeCV folds, alpha candidates, selected alpha, scoring, final-refit coefficients, and failure transactionality.
+- sklearn clone/fitted-state/transactional-refit behavior;
+- RidgeCV folds, candidate alphas, scoring, selected alpha, final-refit coefficients, and failure transactionality.
 
-Public result types and established reporting types remain unchanged unless an independent API change is explicitly approved.
+Historical output is not frozen when it is a demonstrated precision defect; small-df/extreme-tail behavior follows maintained distribution precision requirements.
 
-Historical output is not frozen when it is demonstrably a numerical precision defect. Small-df and extreme-tail tests must follow the maintained backend-distribution precision contract rather than preserve cancellation-induced artifacts.
+### 4.1 Ridge/L2 objective and penalty mapping
 
-## 5. Numerical-state versus reporting-state boundary
+#127 must not change the fit objective or regularization convention.
 
-Define one explicit boundary.
+Current Ridge direct/CV paths use the repository's average-loss convention and equivalent `n_eff * alpha` contribution in unnormalized normal equations, with `n_eff` equal to the declared sample/weight normalization. Inference bread/penalty construction must preserve that same mapping.
 
-### Numerical inference state
+External Ridge comparisons must state equivalent objective and penalty scaling explicitly. Do not change statgpu's objective merely to match an external framework.
 
-Remain on the selected backend through:
+`RidgeCV` already selects alpha and performs a final `Ridge(..., compute_inference=...)` refit. #127 may change the locality/provenance of that final inference only; it must not change fold generation, candidate grid, scoring, selection, tie behavior, or final fit semantics.
 
-- design construction after formula parsing;
-- weighting;
-- residual handling;
+## 5. Two-state architecture: numerical state and reporting state
+
+This separation is a hard design requirement.
+
+### 5.1 Backend-native numerical inference state
+
+Keep the numerical working state on the selected backend through:
+
+- post-formula design transfer;
+- weight application;
+- residual construction;
 - Gram/bread construction;
 - inverse/pseudoinverse;
-- covariance bread/meat calculations;
-- standard errors;
-- test statistics;
-- distribution CDF/SF/quantile evaluation;
+- covariance meat/bread calculations;
+- BSE and statistic calculation;
+- normal/Student-t probability and quantile evaluation;
 - confidence-interval endpoints.
 
-### Reporting snapshot
-
-Only after numerical inference completes may arrays be converted to the established result/reporting representation.
-
-Do not convert full design, residual, covariance-working, or statistic arrays to NumPy merely to populate inference.
-
-The reporting boundary must be centralized or otherwise machine-auditable so tests can distinguish an allowed final snapshot from an accidental pre-inference host transfer.
-
-## 6. Backend-native fit-state construction
-
-Refactor `GaussianFitState` or replace it with an equivalent backend-neutral numerical-state object.
+A backend-neutral numerical-state object may replace or supplement `GaussianFitState`. It must not be typed or implemented as NumPy-only storage.
 
 Requirements:
 
-- no NumPy-array-only type contract for numerical state;
 - create intercept columns on the selected backend;
-- construct weighted design/residual arrays with backend-native operations;
-- preserve dtype and concrete CUDA device;
-- do not infer intercept-penalty policy by copying/scanning a GPU design on CPU when fit metadata already identifies the intercept;
-- preserve existing weighted Ridge normalization and the direct/CV alpha scale described in Section 2.2;
-- formula/Patsy parsing may remain CPU-side, but after model-matrix transfer numerical fitting/inference must not silently return to NumPy.
-
-## 7. Backend-native linear algebra
-
-For each maintained backend:
-
-- compute `X'X`, Ridge penalty additions, and bread matrices natively;
-- reuse existing backend abstraction and rank-failure helpers;
-- preserve concrete Torch device placement;
+- use backend-native weight operations;
+- preserve dtype and concrete Torch/CUDA device;
+- use fit metadata for intercept penalty policy instead of scanning a GPU design on CPU when possible;
 - catch only recognized rank/linear-algebra failures for pseudoinverse recovery;
-- keep OOM, device, dtype, shape, programming, and contract errors fatal;
-- do not introduce an independent rank policy unless parity evidence demonstrates that the existing policy is insufficient.
+- OOM, device, dtype, shape, programming, and contract errors remain fatal.
 
-Rank-deficient behavior remains a separate regression surface from full-rank behavior.
+### 5.2 Established reporting state
 
-## 8. Covariance migration
+Do **not** solve #127 by permanently changing legacy reporting attributes to CuPy/Torch arrays.
 
-Maintain the current Gaussian covariance surface:
+After numerical inference completes, populate the established representation expected by current result/reporting code. This may include NumPy snapshots for attributes such as:
+
+- `_X_design` where retained for reporting/diagnostics;
+- `_y`;
+- `_resid`;
+- `_params`;
+- `_bse`;
+- `_tvalues` / `_zvalues`;
+- `_pvalues`;
+- `_conf_int`;
+- `_inference_result`.
+
+The implementation may instead refactor reporting consumers to accept backend-neutral data, but that would enlarge public/adjacent scope and requires separate review justification. The default #127 design is therefore: **native numerical state first, established reporting snapshot second**.
+
+Existing downstream reporting/fit-statistic behavior must remain valid, including where exposed:
+
+- `summary()`;
+- `rsquared` / adjusted R-squared;
+- `fvalue` / F p-value;
+- `llf`;
+- `aic`;
+- `bic`.
+
+A pre-existing small public coefficient/intercept snapshot is not by itself evidence of numerical fallback. The prohibited behavior is using host-side full design/residual/covariance/statistic state to perform numerical GPU inference that the public contract says is running on CuPy/Torch.
+
+### 5.3 Formula boundary
+
+Patsy/dataframe formula parsing may remain CPU-side. After the resulting model matrix and aligned side arrays are transferred to the selected backend, numerical fit/inference must not silently return to NumPy before the reporting boundary.
+
+Do not add formula support to `RidgeCV` or any other currently non-formula-facing consumer as part of #127.
+
+## 6. Backend-native covariance and linear algebra
+
+Maintain the existing covariance surface:
 
 - `nonrobust`;
 - `hc0`;
@@ -178,47 +201,48 @@ Maintain the current Gaussian covariance surface:
 - `hc3`;
 - `hac`.
 
-A common semantic dispatcher is allowed, but code unification is not itself a goal.
+For all maintained numerical backends:
 
-Before deleting or bypassing covariance/HAC helpers in `LinearRegression`, determine whether they are active and whether they own numerical or performance semantics, including mixed-precision HAC selection.
+- compute Gram/bread and Ridge penalty additions natively;
+- preserve existing rank/pseudoinverse semantics;
+- keep leverage, scores, HAC lag accumulation, and covariance working arrays native;
+- do not introduce an `n x n` hat matrix;
+- preserve concrete Torch device placement;
+- do not broaden exception recovery.
 
-Rules:
+Before deleting/bypassing any existing `LinearRegression` covariance or HAC helper, prove whether it is active and whether it owns behavior such as mixed-precision HAC selection. Code unification is not a goal; statistical and device behavior are.
 
-- do not remove an active helper solely because a shared helper exists;
-- remove duplication only after call-graph and golden-regression evidence proves it redundant;
-- do not change HC corrections or HAC lag/kernel definitions merely to simplify dispatch;
-- keep full numerical arrays on the selected backend.
+## 7. Backend-native distribution inference
 
-## 9. Distribution inference
+Estimator-level direct `scipy.stats.t` / `scipy.stats.norm` numerical inference must be replaced by the maintained inference-distribution infrastructure.
 
-Replace estimator-level direct `scipy.stats.t` / `scipy.stats.norm` numerical inference with the maintained inference-distribution infrastructure.
+Requirements:
 
-Required behavior:
+- inference backend matches executed numerical backend;
+- concrete Torch device is preserved;
+- normal/Student-t p-values and critical values use shared maintained distribution logic;
+- no estimator-specific SciPy fallback for explicit CuPy/Torch inference.
 
-- inference backend matches the executed numerical backend;
-- concrete Torch CUDA device is preserved;
-- normal/Student-t p-values and critical values use maintained shared distribution logic;
-- no estimator-specific SciPy fallback for explicit CuPy/Torch execution.
+Existing CPU LUT/cache construction internal to the shared distribution subsystem is not automatically estimator fallback. It is acceptable only if user statistic arrays are not transferred to CPU for the actual evaluation and the numerical result remains on the requested backend/device until reporting conversion.
 
-Existing internal LUT/cache construction inside the shared distribution subsystem is not automatically estimator fallback. It remains acceptable only when user design/residual/statistic arrays are not moved to CPU and the actual numerical inference result stays on the requested backend/device.
+If a required shared distribution primitive itself moves the actual statistic vector to CPU, treat that as a blocking inference-layer defect.
 
-If the shared distribution layer moves the actual statistic vector to CPU for a required Gaussian case, treat that as a blocking inference-layer defect rather than hiding it in #127.
+## 8. Multi-target and synchronization policy
 
-## 10. Multi-target inference
+Correctness/locality precede vectorization.
 
-Correctness and locality come before vectorization.
+A per-target loop is acceptable when:
 
-An initial per-target loop is acceptable if:
+- each target remains on the selected backend;
+- no target-by-target full-array GPU-to-CPU-to-GPU round trip occurs;
+- output shape/order remains unchanged;
+- scalar synchronization inside the loop is audited and bounded.
 
-- every target remains on the selected backend;
-- there is no target-by-target GPU-to-CPU-to-GPU round trip;
-- output identities and ordering remain unchanged.
+Vectorize only when numerical equivalence and memory behavior are demonstrated.
 
-Vectorize only when numerical equivalence is demonstrated and temporary GPU memory remains bounded.
+## 9. Provenance contract
 
-## 11. Provenance contract
-
-Tests and physical evidence must distinguish:
+Tests and physical artifacts must distinguish:
 
 - requested backend;
 - executed fit backend;
@@ -226,15 +250,13 @@ Tests and physical evidence must distinguish:
 - concrete execution device;
 - reporting representation.
 
-Prefer additive/internal provenance or existing inference metadata instead of changing public result shapes.
+Prefer internal/additive metadata over changing public result shapes. Input type alone is not proof of executed backend.
 
-Input array type alone is not proof of executed backend.
+## 10. Required hosted regression matrix
 
-## 12. Hosted test matrix
+### 10.1 Golden statistical regression
 
-### 12.1 Golden NumPy regression
-
-Freeze pre-migration ordinary-regime results for:
+Freeze ordinary-regime results for:
 
 - nonrobust;
 - HC0-HC3;
@@ -242,96 +264,109 @@ Freeze pre-migration ordinary-regime results for:
 - weighted/unweighted;
 - intercept/no-intercept;
 - Ridge/L2;
-- scalar target;
-- multi-target;
-- full rank;
-- rank deficient.
+- scalar/multi-target;
+- full-rank/rank-deficient.
 
-### 12.2 Three-backend inference matrix
+### 10.2 Inference result/reporting contract
 
-For NumPy, CuPy, and Torch validate:
+For maintained consumers verify applicable:
+
+- `_inference_result`;
+- `_params`;
+- `_bse`;
+- `_tvalues` or `_zvalues`;
+- `_pvalues`;
+- `_conf_int`;
+- `summary()`;
+- covariance type and df metadata;
+- `rsquared`, adjusted R-squared, F statistic/F p-value, LLF, AIC, and BIC where currently exposed.
+
+The migration must not make these fail merely because the numerical path became backend-native.
+
+### 10.3 Three-backend execution matrix
+
+For NumPy, CuPy, and Torch verify:
 
 - covariance;
 - BSE;
-- t/z statistic;
+- statistic;
 - p-value;
-- confidence interval;
-- degrees of freedom;
-- inference-result fields;
-- actual execution provenance.
+- CI;
+- df;
+- actual fit/inference backend and concrete device;
+- no silent fallback.
 
-Use Torch CPU hosted coverage for as much Torch implementation as possible; final Torch CUDA evidence remains physical.
+Use Torch CPU hosted coverage where useful; final CUDA evidence remains physical.
 
-### 12.3 Precision matrix
+### 10.4 Shared-mixin non-L2 regression guards
 
-Explicitly cover:
+When `_inference_mixin.py` changes, add focused guards showing existing L1/ElasticNet/SCAD/MCP dispatch is not unintentionally redirected through the L2 Gaussian helper and that documented inference/estimation-only behavior remains unchanged.
+
+This is regression protection, not scope expansion.
+
+### 10.5 Precision matrix
+
+Cover:
 
 - small residual df;
 - Student-t df=1 and df=2;
 - central probabilities;
 - extreme but float64-representable tails;
 - normal-tail cases;
-- confidence-interval critical values.
+- CI critical values.
 
-Use the strongest available reference and maintain or improve repository precision.
+Use the strongest available analytic/reference implementation. Precision failure is blocking.
 
-### 12.4 External alignment
+### 10.6 External alignment
 
 Use:
 
 - analytic closed forms where available;
-- pre-migration NumPy/SciPy behavior as migration oracle for ordinary cases;
-- statsmodels OLS/WLS for nonrobust and HC/HAC inference where definitions align;
-- analytic Ridge covariance identities plus coefficient alignment for Ridge/L2 cases.
+- pre-migration NumPy/SciPy behavior as an ordinary-regime migration oracle;
+- statsmodels OLS/WLS for matched nonrobust/HC/HAC definitions;
+- analytic/matched Ridge covariance identities.
 
-Record intercept convention, weighting, covariance type, HAC lag definition, df convention, Ridge objective/penalty scaling, and tolerance.
+Record intercept, weighting, covariance type, HAC lag definition, df convention, Ridge penalty mapping, and tolerance.
 
-### 12.5 Formula regression
+### 10.7 Formula regression
 
-For formula-facing consumers verify:
+For formula-facing consumers verify intercept, categorical/reference behavior, interactions/transforms already supported, missing-row alignment, feature names/order, and array/formula numerical agreement.
 
-- array/formula numerical agreement;
-- Patsy missing-row alignment;
-- intercept semantics;
-- feature names and summary ordering;
-- CPU-side formula parsing does not imply CPU numerical inference after backend transfer.
+### 10.8 RidgeCV final-refit regression
 
-Do not add formula support to a currently non-formula-facing consumer such as `RidgeCV` as part of #127.
+`RidgeCV` is a confirmed consumer because it selects alpha and constructs a final `Ridge(..., compute_inference=...)` estimator.
 
-### 12.6 CV final-refit regression
+Prove:
 
-`RidgeCV` is a confirmed final-refit consumer because it selects alpha and constructs a final `Ridge(..., compute_inference=...)` estimator. Add representative coverage proving:
+- fold/candidate semantics unchanged;
+- scores and selected alpha unchanged;
+- refit device unchanged;
+- final coefficients/intercept unchanged within tolerance;
+- final inference executes on the intended backend;
+- failed final refit remains transactional.
 
-- folds and candidate alpha semantics remain unchanged;
-- scoring/selection and selected alpha remain unchanged;
-- final refit selects the intended backend;
-- final-refit inference uses that backend;
-- final coefficients/intercept remain unchanged within tolerance;
-- failed final refit remains transactional;
-- no new CV capability or tuning behavior is introduced.
+If inventory finds another Gaussian/L2 CV final-refit consumer, add it to the capability table and choose representative coverage.
 
-If Phase 1 discovers another maintained Gaussian/L2 CV final-refit consumer, add it to the capability table and choose representative matrix coverage rather than assuming RidgeCV is exhaustive.
+### 10.9 No-host-transfer and failure tests
 
-## 13. No-host-transfer and failure tests
+For explicit GPU execution prove:
 
-For explicit GPU execution prove that:
+- no full design/residual/covariance/statistic host conversion before numerical inference completes;
+- estimator-level SciPy inference is not invoked;
+- unsupported operations fail closed;
+- rank recovery does not swallow unrelated errors;
+- Torch concrete device is preserved;
+- failed inference does not leave misleading partial reporting state.
 
-- `_to_numpy()` or equivalent full-array conversion cannot occur before the designated reporting boundary;
-- estimator-level SciPy numerical inference is not invoked;
-- unsupported backend operations fail closed;
-- rank recovery does not catch unrelated exceptions;
-- concrete Torch device is preserved;
-- failed inference does not leave a misleading partially populated inference result.
+Behavioral/instrumented tests are primary evidence; source-text guards alone are insufficient.
 
-Behavioral/instrumented tests are primary evidence. Source-text guards may supplement them but must not be the only proof.
-
-## 14. Physical GPU validator
+## 11. Physical GPU validator
 
 Add a dedicated maintained validator, for example:
 
 `dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py`
 
-Finalize and review the validator contract before canonical physical evidence is collected.
+Finalize and review the validator contract **before** canonical physical evidence is collected.
 
 Required artifact fields:
 
@@ -346,166 +381,172 @@ Required artifact fields:
 - concrete CUDA device;
 - Python/CuPy/Torch versions;
 - GPU model;
-- covariance case identity;
+- case/covariance identity;
 - maximum covariance/BSE/statistic/p-value/CI errors;
 - rank/full-rank disposition;
 - weighted/multi-target disposition;
 - no-silent-fallback result;
-- host-transfer/provenance evidence;
+- host-transfer/provenance result;
 - overall status.
 
-Physical cases must cover both CuPy CUDA and Torch CUDA and include nonrobust, representative HC, HAC, Ridge/L2, weighted, rank-deficient, multi-target, small-df/tail inference, and at least one `RidgeCV` final-refit inference case.
+Physical matrix includes CuPy CUDA and Torch CUDA with at least:
 
-### Validator freeze rule
+- nonrobust;
+- representative HC;
+- HAC;
+- Ridge/L2;
+- weighted inference;
+- rank-deficient inference;
+- multi-target inference;
+- small-df/tail inference;
+- one `RidgeCV` final-refit inference case.
 
-Canonical evidence is tied to both numerical implementation and the validator acceptance contract.
+### 11.1 Validator freeze rule
 
-If the validator, acceptance logic, provenance checks, or case matrix changes after a physical run, rerun affected canonical evidence on an exact clean candidate head.
+Canonical evidence is tied to both numerical implementation and validator acceptance contract.
 
-Do not classify historical artifacts generated by an older validator contract as proof of a newer contract.
+If validator code changes only in non-semantic reporting prose, document that fact. If its case matrix, acceptance thresholds, provenance checks, backend/device checks, or pass/fail logic changes after a run, rerun affected canonical evidence on an exact clean candidate head.
 
-## 15. Performance boundary
+Historical artifacts generated under an older validator contract are historical evidence only; they do not prove the newer contract.
 
-Do not promise GPU speedup as part of #127.
+## 12. Performance boundary
+
+#127 makes no GPU speedup claim.
 
 Measure enough to establish:
 
-- no full-array device-to-host inference transfer;
-- no pathological per-target synchronization loop;
+- no full-design/residual device-to-host inference transfer;
+- no pathological synchronization loop;
 - no new dense `n x n` materialization;
-- no obvious performance regression introduced solely by the migration.
+- no obvious regression caused solely by the migration.
 
-User-facing speed/crossover claims require separate synchronized benchmark artifacts.
+A user-facing speed/crossover claim activates the full synchronized benchmark gate and machine-readable performance artifacts.
 
-## 16. Documentation
+## 13. Documentation
 
 Update EN first, CN second where applicable:
 
-- linear-model inference/device documentation;
-- Ridge/penalized Gaussian documentation when its execution behavior changes;
-- device-and-memory documentation if it currently implies CPU inference;
+- linear-model inference/device docs;
+- Ridge/penalized Gaussian docs when execution behavior changes;
+- device-and-memory docs if current wording implies CPU inference;
 - root/EN/CN changelogs.
 
-Document this boundary explicitly:
+Document the boundary precisely:
 
-> Numerical covariance and reference-distribution inference are backend-native; the established public result/reporting layer may take one final NumPy snapshot after numerical inference completes.
+> Numerical covariance and reference-distribution inference are backend-native; established reporting attributes/results may take a final NumPy snapshot after numerical inference completes.
 
-Do not claim that every inference implementation in the repository is backend-native.
+Do not claim every repository inference implementation is backend-native.
 
-## 17. Implementation and review sequence
+## 14. Implementation and review sequence
 
 ### Phase 1 — inventory and golden freeze
 
-- resolve exact consumer matrix and finalize the capability table;
-- resolve direct and indirect CV consumers;
-- freeze NumPy/statistical behavior;
-- freeze reporting/API shapes;
-- record active/dead duplicate helpers;
-- record exact Ridge/L2 objective and penalty mapping used by each touched direct/CV consumer.
+- resolve exact consumer matrix and finalize capability table;
+- freeze public/reporting outputs and ordinary statistical behavior;
+- identify active/dead duplicate helpers;
+- record direct/CV Ridge scaling;
+- identify adjacent non-L2 mixin branches requiring regression guards.
 
-### Phase 2 — numerical state
+### Phase 2 — native numerical state
 
-- preserve design/residual/parameter/weight arrays on backend;
-- introduce explicit reporting boundary;
-- add backend/device provenance.
+- introduce/reuse backend-native inference working state;
+- keep design/residual/weights/linear algebra native;
+- preserve explicit device provenance.
 
-### Phase 3 — covariance and linear algebra
+### Phase 3 — covariance and distribution
 
-- backend-native bread/inverse/pinv;
-- backend-native HC/HAC execution;
-- preserve Ridge/intercept/rank semantics and objective scaling.
+- migrate bread/meat/BSE/statistics;
+- route normal/t inference through shared distribution backend;
+- preserve rank, HAC, Ridge, and precision behavior.
 
-### Phase 4 — distribution inference
+### Phase 4 — reporting boundary
 
-- route normal/t inference through maintained distribution backend;
-- add small-df/extreme-tail gates;
-- preserve concrete Torch device.
+- convert only after numerical inference;
+- repopulate established reporting attributes/result container;
+- verify summary and downstream fit-statistic properties.
 
-### Phase 5 — consumers
+### Phase 5 — consumers and CV
 
-- migrate `LinearRegression`;
-- migrate bounded penalized Gaussian/L2 consumer graph;
-- cover `RidgeCV` final refit and any additional confirmed CV consumers;
-- preserve formula behavior without expanding formula surface.
+- `LinearRegression`;
+- bounded Gaussian/L2 penalized path and `Ridge`;
+- `RidgeCV` final refit;
+- any additional consumer explicitly added during Phase 1;
+- non-L2 shared-mixin regression guards.
 
 ### Phase 6 — hosted validation
 
-- run three-backend matrix;
-- run analytic/statsmodels alignment;
-- run direct/CV objective-scale regression;
-- run no-host-transfer/failure tests;
-- run maintained hosted CI.
+- three-backend matrix;
+- analytic/statsmodels alignment;
+- objective-scale regression;
+- formula/reporting/CV transaction tests;
+- no-host-transfer/failure guards;
+- full maintained hosted CI.
 
 ### Phase 7 — implementation review/fix
 
-Run `.claude/skills/code-review.md` in auto-fix mode and repeat until:
+Run `.claude/skills/code-review.md` in auto-fix mode until:
 
 - CRITICAL = 0;
 - HIGH = 0;
-- relevant actionable MEDIUM = 0, or a remaining MEDIUM is explicitly bounded as a follow-up and does not conceal a completion gate.
+- relevant actionable MEDIUM = 0, or a remaining MEDIUM is explicitly bounded as a non-blocking follow-up and does not conceal a completion gate.
 
-### Phase 8 — validator freeze
+### Phase 8 — validator freeze and physical acceptance
 
-Complete and review the physical validator and negative controls before remote canonical execution.
+- review validator/negative controls first;
+- run exact clean-head CuPy + Torch CUDA acceptance;
+- persist canonical evidence.
 
-### Phase 9 — physical acceptance
+### Phase 9 — post-physical re-review
 
-Run exact clean-head CuPy and Torch CUDA acceptance and commit canonical evidence.
+If production numerical code, validator case/threshold/provenance logic, or pass/fail semantics changed after physical validation, rerun affected evidence. Evidence/docs-only changes must prove that none of those acceptance inputs changed.
 
-### Phase 10 — post-physical re-review
+### Phase 10 — docs and final gates
 
-If only evidence/docs were added, prove numerical source and validator acceptance logic did not change.
+Synchronize docs/changelogs, rerun hosted gates, and produce the hard-exit report.
 
-If production code or validator acceptance logic changed, rerun affected physical evidence.
-
-### Phase 11 — docs and completion
-
-Synchronize documentation/changelogs and rerun the complete hosted gate set.
-
-## 18. Completion criteria
+## 15. Completion criteria
 
 #127 is `COMPLETE` only when:
 
-- exact consumer graph and final capability table are documented;
+- exact consumer graph and capability table are final;
 - numerical Gaussian inference stays on the selected NumPy/CuPy/Torch backend;
-- explicit GPU execution has no silent NumPy/SciPy fallback;
-- final reporting conversion is the only allowed full-array NumPy snapshot;
-- nonrobust/HC0-HC3/HAC semantics pass;
-- Ridge/intercept, weighted, and objective/penalty scaling semantics pass;
-- scalar/multi-target and rank-deficient paths pass;
+- explicit GPU inference has no silent numerical NumPy/SciPy fallback;
+- established reporting attributes/results still work after final conversion;
+- nonrobust/HC0-HC3/HAC behavior passes;
+- Ridge/intercept/weight/objective-scale behavior passes;
+- scalar/multi-target/rank-deficient behavior passes;
 - small-df/extreme-tail precision passes;
-- formula behavior remains compatible without accidental surface expansion;
-- `RidgeCV` and any additional confirmed CV final-refit inference consumers remain statistically/transactionally unchanged except for backend-local inference execution;
-- actual fit/inference backend is machine-auditable;
-- hosted tests and external alignment pass;
+- formula-facing behavior remains compatible;
+- non-L2 shared-mixin branches remain unchanged;
+- RidgeCV and any additional confirmed CV final-refit consumers remain statistically/transactionally unchanged except for backend-local inference execution;
+- actual fit/inference backend/device is auditable;
+- hosted/external gates pass;
 - exact clean-head CuPy and Torch CUDA acceptance passes;
-- validator and canonical evidence correspond to the same acceptance contract;
+- canonical evidence matches the validator contract that defines acceptance;
 - EN/CN documentation is synchronized;
 - final review has no unresolved CRITICAL/HIGH/relevant actionable MEDIUM findings.
 
-If local work is complete and only physical GPU or remote external evidence remains, use `PARTIAL_REMOTE_PENDING`. Missing local correctness, backend, formula, precision, CV, or provenance evidence is not eligible for that status.
+If local work is complete and only physical GPU or remote external evidence remains, use `PARTIAL_REMOTE_PENDING`. Missing local correctness, backend, inference, reporting, formula, precision, CV, or provenance evidence is not eligible for that status.
 
-## 19. Explicit non-goals
+## 16. Explicit non-goals
 
 - no repository-wide inference rewrite;
 - no removal of every SciPy import from `linear_model`;
-- no new model family;
-- no new covariance definition;
-- no solver redesign;
+- no redesign of all reporting/result containers;
+- no new loss/penalty/solver behavior;
+- no new CV selection/path behavior;
+- no new formula surface;
 - no sparse-input work;
 - no penalized-multinomial work;
-- no public result-container redesign;
-- no new CV selection/path behavior;
-- no new formula support for non-formula-facing consumers;
 - no mandatory multi-target vectorization;
 - no GPU speedup claim without separate synchronized evidence.
 
-## 20. Successor sequencing
+## 17. Successor sequencing
 
 After #127:
 
 1. #105 — systematic linear/GLM inference benchmark and canonical dashboard evidence;
-2. #108 — complete canonical Panel estimator/covariance evidence using fresh or source/validator-contract-matched provenance rather than automatic reuse of the disputed 0.2.5 final-release artifact chain;
+2. #108 — Panel canonical estimator/covariance evidence using fresh or source/validator-contract-matched provenance rather than automatic reuse of the disputed 0.2.5 final-release artifact chain;
 3. feature lanes may proceed independently when they do not compete for the same backend/inference surface:
    - #94 -> #95 for survival;
    - #96 -> #98 for multinomial;
