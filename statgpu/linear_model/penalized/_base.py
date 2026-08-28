@@ -8,6 +8,7 @@ from __future__ import annotations
 
 __all__ = ["PenalizedGeneralizedLinearModel", "SelectivePenalty"]
 
+from contextlib import nullcontext
 from typing import Optional, Union, Dict, TYPE_CHECKING
 import numpy as np
 
@@ -295,6 +296,14 @@ class PenalizedGeneralizedLinearModel(
         """Take the allowed post-inference NumPy reporting snapshot."""
         return np.asarray(_to_numpy(value), dtype=float)
 
+    @staticmethod
+    def _cupy_linalg_errstate():
+        """Enable CuPy solver-status errors while tolerating lightweight test doubles."""
+        import cupyx
+
+        errstate = getattr(cupyx, "errstate", None)
+        return nullcontext() if errstate is None else errstate(linalg="raise")
+
     def _apply_gaussian_reporting_state(self, state):
         """Populate established reporting fields after numerical inference."""
         self._X_design = self._reporting_array(state.X_design)
@@ -308,21 +317,16 @@ class PenalizedGeneralizedLinearModel(
 
     def _solve_exact_cupy(self, XtX, Xty, normalization):
         """Run the existing exact-L2 CuPy solve with cuSOLVER errors enabled."""
-        import cupyx
-
-        # CuPy documents that cuSOLVER-backed routines can otherwise return
-        # invalid values for singular/indefinite inputs.  Keep this scoped so
-        # statgpu never mutates the caller's global CuPy linalg error policy.
-        with cupyx.errstate(linalg="raise"):
+        # CuPy>=13 exposes cupyx.errstate. The null context is only for the
+        # lightweight maintenance test double that exercises exception routing.
+        with self._cupy_linalg_errstate():
             return _PenalizedFitMixin._solve_exact_cupy(
                 self, XtX, Xty, normalization
             )
 
     def _precompute_exact_l2_inference_cupy(self, *args, **kwargs):
         """Run existing exact-L2 inference with cuSOLVER errors enabled."""
-        import cupyx
-
-        with cupyx.errstate(linalg="raise"):
+        with self._cupy_linalg_errstate():
             return _PenalizedInferenceMixin._precompute_exact_l2_inference_cupy(
                 self, *args, **kwargs
             )

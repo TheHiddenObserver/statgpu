@@ -637,7 +637,10 @@ def xp_cholesky_solve(A, b, xp):
     For numpy, uses scipy.linalg.solve_triangular.
     """
     if hasattr(A, 'get'):  # CuPy: no solve_triangular, use general solve directly
-        return xp.linalg.solve(A, b)
+        import cupyx
+
+        with cupyx.errstate(linalg="raise"):
+            return xp.linalg.solve(A, b)
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
         vector_rhs = getattr(b, "ndim", 0) == 1

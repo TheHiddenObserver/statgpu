@@ -3,7 +3,7 @@
 
 This companion to the full Gaussian inference matrix exercises the CuPy
 cuSOLVER failure paths that can otherwise return silent NaNs for singular
-normal equations.  Canonical evidence requires exact source identity, a clean
+normal equations. Canonical evidence requires exact source identity, a clean
 tree, remote-full provenance, and CPU parity for the maintained recovery paths.
 """
 
@@ -19,6 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+from statgpu.backends._utils import xp_cholesky_solve
 from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearModel
 from statgpu.linear_model._gaussian_inference import compute_gaussian_inference
 
@@ -220,6 +222,37 @@ def _exact_l2_case(cp, concrete_device: str):
     }
 
 
+def _shared_solve_failure_case(cp, concrete_device: str):
+    with cp.cuda.Device(int(concrete_device.split(":", 1)[1])):
+        matrix = cp.asarray([[1.0, 1.0], [1.0, 1.0]], dtype=cp.float64)
+        rhs = cp.asarray([1.0, 1.0], dtype=cp.float64)
+
+    try:
+        value = xp_cholesky_solve(matrix, rhs, cp)
+    except Exception as exc:
+        if not _linalg_exception_is_rank_failure(exc):
+            raise AssertionError(
+                "shared CuPy solve raised an unrelated failure instead of a rank failure: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        error_type = type(exc).__name__
+        error_message = str(exc)
+    else:
+        returned = np.asarray(_to_numpy(value), dtype=np.float64)
+        raise AssertionError(
+            "shared CuPy solve silently returned for a singular system instead of "
+            f"surfacing a rank failure: {returned!r}"
+        )
+
+    return {
+        "case": "shared_xp_solve_rank_failure_visible",
+        "executed_device": concrete_device,
+        "error_type": error_type,
+        "error": error_message,
+        "status": "success",
+    }
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True)
@@ -268,6 +301,9 @@ def main(argv=None) -> int:
             artifact["results"].append(_linear_case(cp, concrete_device, "nonrobust"))
             artifact["results"].append(_linear_case(cp, concrete_device, "hc3"))
             artifact["results"].append(_exact_l2_case(cp, concrete_device))
+            artifact["results"].append(
+                _shared_solve_failure_case(cp, concrete_device)
+            )
         clean_after = _clean_worktree()
         if not clean_after:
             raise RuntimeError(

@@ -19,6 +19,7 @@ def test_cupy_solver_status_errors_are_scoped_at_maintained_rank_recovery_sites(
     inference_source = (
         ROOT / "statgpu" / "backends" / "_gpu_inference_cupy.py"
     ).read_text()
+    utils_source = (ROOT / "statgpu" / "backends" / "_utils.py").read_text()
     linear_source = (
         ROOT / "statgpu" / "linear_model" / "wrappers" / "_linear.py"
     ).read_text()
@@ -29,15 +30,22 @@ def test_cupy_solver_status_errors_are_scoped_at_maintained_rank_recovery_sites(
     assert "import cupyx" in inference_source
     assert 'with cupyx.errstate(linalg="raise"):' in inference_source
 
+    assert "def xp_cholesky_solve" in utils_source
+    assert "import cupyx" in utils_source
+    assert 'with cupyx.errstate(linalg="raise"):' in utils_source
+    assert "return xp.linalg.solve(A, b)" in utils_source
+
     assert "import cupyx" in linear_source
     assert linear_source.count('with cupyx.errstate(linalg="raise"):') >= 3
     assert "cp.linalg.cholesky(XtX)" in linear_source
     assert "cp.linalg.lstsq(X_design, y, rcond=None)" in linear_source
     assert "cp.linalg.inv(XtX_cov)" in linear_source
 
+    assert "def _cupy_linalg_errstate" in base_source
+    assert 'getattr(cupyx, "errstate", None)' in base_source
+    assert "nullcontext() if errstate is None" in base_source
     assert "def _solve_exact_cupy" in base_source
     assert "def _precompute_exact_l2_inference_cupy" in base_source
-    assert base_source.count('with cupyx.errstate(linalg="raise"):') >= 2
     assert "_PenalizedFitMixin._solve_exact_cupy" in base_source
     assert "_PenalizedInferenceMixin._precompute_exact_l2_inference_cupy" in base_source
 
@@ -81,6 +89,13 @@ def test_penalized_exact_l2_overrides_enable_and_restore_cupy_errstate(monkeypat
     assert state == {"depth": 0, "entries": 2}
 
 
+def test_penalized_errstate_wrapper_allows_lightweight_exception_test_double(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cupyx", types.SimpleNamespace())
+    model = object.__new__(PenalizedGeneralizedLinearModel)
+    with model._cupy_linalg_errstate():
+        pass
+
+
 def test_focused_physical_runner_locks_all_defect3_recovery_paths():
     source = (
         ROOT
@@ -101,6 +116,9 @@ def test_focused_physical_runner_locks_all_defect3_recovery_paths():
         'alpha=0.0',
         'solver="exact"',
         'device="cuda"',
+        "shared_xp_solve_rank_failure_visible",
+        "xp_cholesky_solve(matrix, rhs, cp)",
+        "_linalg_exception_is_rank_failure(exc)",
         '"working_tree_clean_after_checks"',
         'artifact["status"] = "failure"',
     ):

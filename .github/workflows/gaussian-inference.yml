@@ -6,6 +6,7 @@ on:
     paths:
       - 'statgpu/linear_model/_gaussian_inference.py'
       - 'statgpu/backends/_gpu_inference_cupy.py'
+      - 'statgpu/backends/_utils.py'
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_fit_mixin.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
@@ -98,6 +99,7 @@ jobs:
           python -m compileall -q \
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/backends/_gpu_inference_cupy.py \
+            statgpu/backends/_utils.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
@@ -117,6 +119,7 @@ jobs:
           ruff check \
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/backends/_gpu_inference_cupy.py \
+            statgpu/backends/_utils.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
