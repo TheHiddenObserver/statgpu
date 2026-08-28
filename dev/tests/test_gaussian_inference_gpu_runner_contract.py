@@ -29,7 +29,7 @@ def test_runner_requires_exact_two_backend_matrix():
 
 def test_runner_schema_and_validation_tiers_are_frozen():
     runner = _load_runner()
-    assert runner.SCHEMA_VERSION == 3
+    assert runner.SCHEMA_VERSION == 4
     assert runner._REQUIRED_BACKENDS == ("cupy", "torch")
     assert runner._VALIDATION_TIERS == (
         "local-minimal",
@@ -51,6 +51,11 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"reporting_boundary"',
         '"no_silent_fallback"',
         '"host_transfer_provenance"',
+        '"linear_regression_nonrobust"',
+        '"linear_regression_hc3"',
+        '"linear_regression_hac"',
+        '"distribution_backends"',
+        "_linear_regression_case(backend, concrete_device, cov_type)",
         '"pre_reporting_host_transfers"',
         '"reference_distribution_completed_on_backend"',
         "_host_transfer_case(backend, concrete_device)",
@@ -77,3 +82,22 @@ def test_runner_small_df_reference_is_nonzero_at_extreme_float64_tail():
     expected = runner._expected_t2_two_sided(statistic)
     assert expected > 0.0
     assert expected < 1e-300
+
+
+def test_linear_regression_gpu_scalar_critical_values_are_backend_explicit():
+    linear_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "wrappers"
+        / "_linear.py"
+    ).read_text()
+    cupy_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "backends"
+        / "_gpu_inference_cupy.py"
+    ).read_text()
+    assert 'norm.ppf(0.975, backend="cupy")' in linear_source
+    assert 'norm.ppf(0.975, backend="torch", device=torch_device)' in linear_source
+    assert 't.two_sided_critical_value(alpha, df=df_resid, backend="cupy")' in cupy_source

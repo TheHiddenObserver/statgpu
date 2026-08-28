@@ -14,7 +14,7 @@ from statgpu.inference._distributions_backend import (
 
 def t_two_tail_pvalues_gpu(t_abs, df_resid):
     """Backward-compatible alias for two-sided t p-values on GPU."""
-    return t.two_sided_pvalue(t_abs, df=df_resid)
+    return t.two_sided_pvalue(t_abs, df=df_resid, backend="cupy")
 
 
 def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
@@ -23,17 +23,18 @@ def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
         alpha,
         df=df_resid,
         max_bisect_steps=max_bisect_steps,
+        backend="cupy",
     )
 
 
 def norm_two_tail_pvalues_gpu(z_abs):
     """Backward-compatible alias for two-sided normal p-values on GPU."""
-    return norm.two_sided_pvalue(z_abs)
+    return norm.two_sided_pvalue(z_abs, backend="cupy")
 
 
 def norm_crit_gpu_two_tail(alpha):
     """Backward-compatible alias for two-sided normal critical value on GPU."""
-    return norm.two_sided_critical_value(alpha)
+    return norm.two_sided_critical_value(alpha, backend="cupy")
 
 
 def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
@@ -85,12 +86,12 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
     
     # p-values (two-tailed t-test), entirely on GPU.
-    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid)
+    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid, backend="cupy")
     
     # Confidence intervals (95%)
     alpha = 0.05  # two-tailed significance level for 95% CI
     t_crit_gpu = cp.asarray(
-        t.two_sided_critical_value(alpha, df=df_resid),
+        t.two_sided_critical_value(alpha, df=df_resid, backend="cupy"),
         dtype=bse_gpu.dtype,
     )
     

@@ -379,6 +379,7 @@ class LinearRegression(BaseEstimator):
         # never make a GPU -> CPU -> GPU round trip.
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
+        self._selected_backend_name = backend_name
 
         X_arr = self._to_array(X_arr, backend=backend_name)
         y_arr = self._to_array(y_arr, backend=backend_name)
@@ -598,7 +599,7 @@ class LinearRegression(BaseEstimator):
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
-                z_crit = norm.ppf(0.975)
+                z_crit = norm.ppf(0.975, backend="cupy")
                 self._conf_int_gpu = cp.stack([
                     coef_flat - z_crit * self._bse_gpu,
                     coef_flat + z_crit * self._bse_gpu,
@@ -865,7 +866,7 @@ class LinearRegression(BaseEstimator):
                 self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = torch.clamp(2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device), 0.0, 1.0)
-                z_crit = norm.ppf(0.975, device=torch_device)
+                z_crit = norm.ppf(0.975, backend="torch", device=torch_device)
                 self._conf_int_gpu = torch.stack([
                     coef_flat - z_crit * self._bse_gpu,
                     coef_flat + z_crit * self._bse_gpu,
@@ -992,6 +993,15 @@ class LinearRegression(BaseEstimator):
     def _wrap_gaussian_inference_result(self):
         method = "classical" if self._cov_type == "nonrobust" else "sandwich"
         distribution = "t" if self._cov_type == "nonrobust" else "normal"
+        backend_name = str(getattr(self, "_selected_backend_name", "numpy")).lower()
+        if backend_name == "torch":
+            numerical_device = _get_torch_device_str()
+        elif backend_name == "cupy":
+            import cupy as cp
+
+            numerical_device = f"cuda:{int(cp.cuda.runtime.getDevice())}"
+        else:
+            numerical_device = "cpu"
         result = GaussianInferenceResult(
             params=self._params,
             bse=self._bse,
@@ -1003,7 +1013,13 @@ class LinearRegression(BaseEstimator):
             df=self._df_resid,
             method=method,
             feature_names=self._inference_feature_names(),
-            metadata={"alpha": 0.05},
+            metadata={
+                "alpha": 0.05,
+                "numerical_backend": backend_name,
+                "numerical_device": numerical_device,
+                "reporting_backend": "numpy",
+                "reporting_boundary": "post_numerical_inference",
+            },
         )
         result.apply_to(self)
 

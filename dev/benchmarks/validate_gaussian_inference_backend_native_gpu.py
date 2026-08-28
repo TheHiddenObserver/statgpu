@@ -20,7 +20,8 @@ from pathlib import Path
 import numpy as np
 
 from statgpu.backends import _to_numpy
-from statgpu.linear_model import PenalizedGeneralizedLinearModel, RidgeCV
+from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearModel, RidgeCV
+import statgpu.inference._distributions_backend as _dist_module
 import statgpu.linear_model._gaussian_inference as _gi_module
 import statgpu.linear_model.penalized._base as _pglm_base_module
 from statgpu.linear_model._gaussian_inference import (
@@ -30,7 +31,7 @@ from statgpu.linear_model._gaussian_inference import (
     robust_covariance_numpy,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _REQUIRED_BACKENDS = ("cupy", "torch")
 _VALIDATION_TIERS = ("local-minimal", "local-full", "remote-full")
 
@@ -125,6 +126,128 @@ def _max_error(a, b) -> float:
     b = np.asarray(b, dtype=np.float64)
     return float(np.max(np.abs(a - b))) if a.size else 0.0
 
+
+
+def _distribution_backend_name(distribution) -> str:
+    sf_name = type(getattr(distribution, "_sf", None)).__name__
+    return {
+        "CuPySpecialFunctions": "cupy",
+        "TorchSpecialFunctions": "torch",
+        "ScipySpecialFunctions": "numpy",
+    }.get(sf_name, sf_name or "unknown")
+
+
+def _linear_regression_case(backend: str, concrete_device: str, cov_type: str):
+    X, y, weights = _problem(seed=131)
+    sw = weights if cov_type == "hc3" else None
+    cpu = LinearRegression(
+        device="cpu",
+        compute_inference=True,
+        cov_type=cov_type,
+        hac_maxlags=2,
+    ).fit(X, y, sample_weight=sw)
+
+    X_native = _as_backend(X, backend)
+    y_native = _as_backend(y, backend)
+    sw_native = None if sw is None else _as_backend(sw, backend)
+    _assert_same_native_device(X_native, backend, concrete_device)
+    _assert_same_native_device(y_native, backend, concrete_device)
+
+    distribution_backends = []
+    helper_calls = {"count": 0}
+    real_resolve = _dist_module.DistributionProxy._resolve
+
+    def guarded_resolve(proxy, kwargs, *arrays):
+        distribution = real_resolve(proxy, kwargs, *arrays)
+        resolved = _distribution_backend_name(distribution)
+        distribution_backends.append(resolved)
+        if resolved != backend:
+            raise AssertionError(
+                f"LinearRegression {cov_type} distribution fallback: "
+                f"expected={backend}, resolved={resolved}"
+            )
+        return distribution
+
+    _dist_module.DistributionProxy._resolve = guarded_resolve
+    if backend == "cupy":
+        import statgpu.backends._gpu_inference_cupy as inference_module
+        helper_name = "compute_inference_gpu"
+    else:
+        import statgpu.backends._gpu_inference_torch as inference_module
+        helper_name = "compute_inference_torch"
+    real_helper = getattr(inference_module, helper_name)
+
+    def guarded_helper(X_design, resid, scale, df_resid, params, *args, **kwargs):
+        _assert_same_native_device(X_design, backend, concrete_device)
+        _assert_same_native_device(resid, backend, concrete_device)
+        _assert_same_native_device(params, backend, concrete_device)
+        helper_calls["count"] += 1
+        return real_helper(X_design, resid, scale, df_resid, params, *args, **kwargs)
+
+    setattr(inference_module, helper_name, guarded_helper)
+    try:
+        gpu = LinearRegression(
+            device="cuda" if backend == "cupy" else "torch",
+            compute_inference=True,
+            cov_type=cov_type,
+            hac_maxlags=2,
+        ).fit(X_native, y_native, sample_weight=sw_native)
+    finally:
+        setattr(inference_module, helper_name, real_helper)
+        _dist_module.DistributionProxy._resolve = real_resolve
+
+    result = gpu._inference_result
+    if result is None:
+        raise AssertionError("LinearRegression GPU inference result is missing")
+    meta = dict(result.metadata)
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"LinearRegression backend provenance mismatch: {meta}")
+    if str(meta.get("numerical_device", "")) != concrete_device:
+        raise AssertionError(f"LinearRegression device provenance mismatch: {meta}")
+    if meta.get("reporting_boundary") != "post_numerical_inference":
+        raise AssertionError(f"LinearRegression reporting boundary missing: {meta}")
+    if cov_type == "nonrobust" and helper_calls["count"] != 1:
+        raise AssertionError(
+            f"LinearRegression {backend} nonrobust helper count={helper_calls['count']}"
+        )
+    if cov_type != "nonrobust" and not distribution_backends:
+        raise AssertionError("LinearRegression distribution backend was not observed")
+
+    errors = {
+        "coef": _max_error(gpu.coef_, cpu.coef_),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+    limits = {
+        "coef": 2e-6,
+        "bse": 2e-5,
+        "statistic": 2e-4,
+        "pvalue": 2e-4,
+        "ci": 5e-5,
+    }
+    for key, limit in limits.items():
+        if not np.isfinite(errors[key]) or errors[key] > limit:
+            raise AssertionError(
+                f"LinearRegression {backend} {cov_type} {key} error "
+                f"{errors[key]:.3e} exceeds {limit:.3e}"
+            )
+    return {
+        "case": f"linear_regression_{cov_type}",
+        "requested_backend": backend,
+        "executed_backend": meta.get("numerical_backend"),
+        "executed_inference_backend": meta.get("numerical_backend"),
+        "executed_inference_device": meta.get("numerical_device"),
+        "reporting_backend": meta.get("reporting_backend"),
+        "reporting_boundary": meta.get("reporting_boundary"),
+        "distribution_backends": distribution_backends,
+        "native_nonrobust_helper_calls": int(helper_calls["count"]),
+        "errors": errors,
+        "limits": limits,
+        "no_silent_fallback": True,
+        "status": "success",
+    }
 
 def _fit_pglm(X, y, *, device: str, cov_type: str, sample_weight=None):
     model = PenalizedGeneralizedLinearModel(
@@ -639,6 +762,8 @@ def _ridgecv_case(backend: str):
 def run_backend(backend: str):
     _, concrete_device, runtime_version = _backend_runtime(backend)
     cases = []
+    for cov_type in ("nonrobust", "hc3", "hac"):
+        cases.append(_linear_regression_case(backend, concrete_device, cov_type))
     for cov_type in ("nonrobust", "hc3", "hac"):
         cases.append(_consumer_case(backend, cov_type, weighted=False))
     cases.append(_consumer_case(backend, "nonrobust", weighted=True))
