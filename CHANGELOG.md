@@ -2,6 +2,15 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-08-28
+
+### PR #129 / Issue #127 — Gaussian linear-model backend-native inference
+- Migrated maintained Gaussian linear-model covariance, standard-error, test-statistic, p-value, and confidence-interval numerical work to the executed NumPy/CuPy/Torch backend while preserving the established final NumPy reporting snapshot.
+- Routed normal/Student-t inference through the maintained shared reference-distribution layer, including stable df=1/df=2 extreme-tail handling, and made missing/invalid executed-backend provenance fail closed instead of silently falling back to NumPy.
+- Preserved Ridge/L2 average-loss semantics and the `n_eff * alpha` inference mapping, including weighted fits and `RidgeCV` final-refit inference; added public `LinearRegression`, formula, robust/weighted, rank-deficient, multi-target, float32, external statsmodels, and no-host-transfer regression coverage.
+- Added focused hosted CI and a maintained exact-SHA physical CUDA validator covering CuPy/Torch backend/device provenance, clean-tree checks, covariance/BSE/statistic/p-value/CI errors, weighted/rank/multi-target/small-df cases, and a `RidgeCV` final-refit case.
+- Validation remains intentionally incomplete while PR #129 is draft: hosted PR gates and exact clean-head CuPy/Torch CUDA acceptance must pass before #127 can be marked `COMPLETE`. No GPU speedup claim is made.
+
 ## 0.2.5 — 2026-08-26
 
 ### PR #126, #128 — Panel Tier-1 Stage C covariance
@@ -58,7 +67,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ### PR #116 — Torch LogisticRegressionCV strict-CUDA repair
 
-- Fixed the mixed-precision Torch strict-CUDA `LogisticRegressionCV` failure by allocating batched IRLS parameters and ridge diagonals in the active CV working dtype and keeping candidate path outputs backend-native through validation scoring.
+- Fixed the mixed-precision Torch strict-CUDA `LogisticRegressionCV` failure by allocating batched IRLS parameters and ridge diagonals in the active working dtype and keeping candidate path outputs backend-native through validation scoring.
 - Added regression coverage for float32/float64 CV, weighted and unweighted fitting, intercept/no-intercept paths, and the full CV selector, plus a Python 3.9 + Torch 2.0 CPU CI gate so optional-Torch coverage cannot silently skip.
 - Validated the unchanged numerical implementation head `e6e4846b06604ed53e65fc9afd9054bd5777098f` on Tesla P100 with PyTorch 2.0.0+cu117/CUDA 11.7 and CuPy 13.6.0: all 18 statgpu canonical CV backend runs succeeded without CPU fallback, including `LogisticRegressionCV` on NumPy, CuPy, and Torch.
 - Retained the historical pre-fix P100 failure source unchanged and registered the exact-head post-fix source under `results/pr116_p100/`; focused physical validation evidence is retained separately from dashboard timing data.
