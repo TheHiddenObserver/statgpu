@@ -324,21 +324,31 @@ class PenalizedGeneralizedLinearModel(
             )
             if precomputed and self._inference_result is not None:
                 metadata = self._inference_result.metadata
-                metadata.setdefault(
-                    "numerical_backend",
-                    str(getattr(self, "_selected_backend_name", None) or "numpy"),
-                )
+                selected_backend = getattr(self, "_selected_backend_name", None)
+                if selected_backend not in ("numpy", "cupy", "torch"):
+                    raise RuntimeError(
+                        "Gaussian inference is missing valid executed-backend provenance; "
+                        "refusing to report a silent NumPy fallback."
+                    )
+                metadata.setdefault("numerical_backend", selected_backend)
                 metadata.setdefault("reporting_backend", "numpy")
                 metadata.setdefault(
                     "reporting_boundary", "post_numerical_inference"
                 )
             return
 
-        backend_name = str(
-            getattr(self, "_selected_backend_name", None) or "numpy"
-        ).lower()
+        selected_backend = getattr(self, "_selected_backend_name", None)
+        if selected_backend is None:
+            raise RuntimeError(
+                "Gaussian inference requires executed-backend provenance from fit; "
+                "_selected_backend_name is missing."
+            )
+        backend_name = str(selected_backend).lower()
         if backend_name not in ("numpy", "cupy", "torch"):
-            backend_name = "numpy"
+            raise RuntimeError(
+                f"Unsupported executed backend provenance {selected_backend!r}; "
+                "refusing to fall back to NumPy inference."
+            )
 
         # Generic fit may pass original NumPy inputs here even after a GPU fit.
         # The executed fit backend, not the input container type, is authoritative.
