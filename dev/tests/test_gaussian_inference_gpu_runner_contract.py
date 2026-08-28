@@ -193,6 +193,9 @@ def test_penalized_gaussian_router_uses_fit_time_concrete_device_authority():
 
     assert "self._selected_backend_device = None" in base_source
     assert 'getattr(self, "_selected_backend_device", None)' in base_source
+    assert "device_label = str(selected_device or \"\")" in base_source
+    assert 'elif backend_name == "cupy":' in base_source
+    assert 'device_label != "cpu" and not device_label.startswith("cuda:")' in base_source
     assert "device=selected_device" in base_source
     assert "missing concrete executed-device provenance" in base_source
     assert 'self._selected_backend_device = str(X_arr.device)' in fit_source
