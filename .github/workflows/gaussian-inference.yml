@@ -7,6 +7,8 @@ on:
       - 'statgpu/linear_model/_gaussian_inference.py'
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
+      - 'statgpu/linear_model/wrappers/_linear.py'
+      - 'statgpu/linear_model/wrappers/_ridge.py'
       - 'dev/tests/test_gaussian_inference_*.py'
       - 'dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py'
       - '.github/workflows/gaussian-inference.yml'
@@ -92,6 +94,8 @@ jobs:
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/wrappers/_linear.py \
+            statgpu/linear_model/wrappers/_ridge.py \
             dev/tests/test_gaussian_inference_backend_native.py \
             dev/tests/test_gaussian_inference_covariance_matrix.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
@@ -104,6 +108,8 @@ jobs:
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/wrappers/_linear.py \
+            statgpu/linear_model/wrappers/_ridge.py \
             dev/tests/test_gaussian_inference_backend_native.py \
             dev/tests/test_gaussian_inference_covariance_matrix.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
