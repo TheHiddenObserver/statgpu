@@ -518,12 +518,27 @@ class LinearRegression(BaseEstimator):
         
         # Ensure CuPy arrays and retain raw arrays for weighted diagnostics.
         X_raw = cp.asarray(X)
-        y_raw = cp.asarray(y)
+        cupy_device_id = int(X_raw.device.id)
+        with cp.cuda.Device(cupy_device_id):
+            y_raw = cp.asarray(y)
+        if int(y_raw.device.id) != cupy_device_id:
+            raise RuntimeError(
+                "LinearRegression CuPy response is on a different CUDA device "
+                f"from X: X=cuda:{cupy_device_id}, y=cuda:{int(y_raw.device.id)}"
+            )
+        self._selected_backend_device = f"cuda:{cupy_device_id}"
         y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
 
         sw = None
         if sample_weight is not None:
-            sw = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+            with cp.cuda.Device(cupy_device_id):
+                sw = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+            if int(sw.device.id) != cupy_device_id:
+                raise RuntimeError(
+                    "LinearRegression CuPy sample_weight is on a different CUDA "
+                    f"device from X: X=cuda:{cupy_device_id}, "
+                    f"sample_weight=cuda:{int(sw.device.id)}"
+                )
             if sw.shape[0] != n_samples:
                 raise ValueError("sample_weight must have length n_samples")
             valid = cp.all(cp.isfinite(sw)) & cp.all(sw >= 0) & (cp.sum(sw) > 0)
@@ -536,7 +551,8 @@ class LinearRegression(BaseEstimator):
         else:
             X_fit = X_raw
             y_fit = y_2d
-            intercept_column = cp.ones((n_samples, 1), dtype=X_raw.dtype)
+            with cp.cuda.Device(cupy_device_id):
+                intercept_column = cp.ones((n_samples, 1), dtype=X_raw.dtype)
 
         if self._effective_fit_intercept:
             X_design = cp.column_stack([intercept_column, X_fit])
@@ -605,7 +621,8 @@ class LinearRegression(BaseEstimator):
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
-                z_crit = norm.ppf(0.975, backend="cupy")
+                with cp.cuda.Device(cupy_device_id):
+                    z_crit = norm.ppf(0.975, backend="cupy")
                 self._conf_int_gpu = cp.stack([
                     coef_flat - z_crit * self._bse_gpu,
                     coef_flat + z_crit * self._bse_gpu,
@@ -773,11 +790,17 @@ class LinearRegression(BaseEstimator):
 
         # Ensure Torch tensors on correct device
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
-        torch_device = _get_torch_device_str()
+        torch_device = (
+            str(X.device) if isinstance(X, torch.Tensor) else _get_torch_device_str()
+        )
         if not isinstance(X, torch.Tensor):
             X = torch.from_numpy(np.asarray(X)).to(torch_device)
+        torch_device = str(X.device)
         if not isinstance(y, torch.Tensor):
             y = torch.from_numpy(np.asarray(y)).to(torch_device)
+        elif str(y.device) != torch_device:
+            y = y.to(torch_device)
+        self._selected_backend_device = torch_device
 
         if X.dtype != torch.float64:
             X = X.to(torch.float64)

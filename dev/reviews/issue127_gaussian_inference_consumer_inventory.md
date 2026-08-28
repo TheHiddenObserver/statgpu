@@ -12,7 +12,7 @@ post-fit data lifecycle.
 
 | Public capability | Fit backend | Inference contract | Formula | CV/final refit | #127 disposition |
 | --- | --- | --- | --- | --- | --- |
-| `LinearRegression` | NumPy/CuPy/Torch | Supported; single-response GPU inference already backend-native in v0.2.5 | Supported | Non-tunable | Preserve existing GPU path; shared CPU helper migrates to common backend-aware implementation |
+| `LinearRegression` | NumPy/CuPy/Torch | Supported; single-response GPU inference is backend-native after #127 review hardening | Supported | Non-tunable | Preserve statistical definitions while hardening scalar distribution routing, concrete-device provenance, and fail-closed rank recovery |
 | `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l2")` | NumPy/CuPy/Torch | Supported when `compute_inference=True` | Supported | Direct estimator | **In scope**; public generic consumer discovered during implementation review |
 | `PenalizedLinearRegression(..., penalty="l2")` | NumPy/CuPy/Torch | Supported when enabled | Supported | Penalized CV selection exists separately | Inherits the generic PGLM #127 router |
 | `Ridge` | NumPy/CuPy/Torch | Supported by default | Supported | `RidgeCV` | Inherits generic router for non-precomputed paths; existing exact-GPU precomputed inference remains native |
@@ -47,8 +47,11 @@ reporting arrays. GPU multi-output inference already fails closed with a clear
 into a CPU fallback or advertise new support.
 
 Consequently, #127 does not rewrite the large backend-specific
-`LinearRegression` fitting implementation. Its CPU/shared-helper calls benefit
-from the common migration while existing GPU numerical behavior remains frozen.
+`LinearRegression` fitting implementation or change its statistical definitions.
+Its CPU/shared-helper calls benefit from the common migration, while review fixes
+harden the existing GPU path so scalar reference-distribution calls remain on the
+executed backend, auxiliary tensors follow the concrete execution device, and
+non-rank linear-algebra failures remain fail-closed.
 
 ### Penalized Gaussian/L2
 

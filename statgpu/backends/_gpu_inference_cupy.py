@@ -5,6 +5,7 @@ All statistical computations on GPU.
 
 import numpy as np
 
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.inference._distributions_backend import (
     norm,
     t,
@@ -66,20 +67,24 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
         Confidence intervals on GPU.
     """
     import cupy as cp
-    
+
+    device_id = int(X_design.device.id)
     # Compute (X'X)^-1 on GPU
     XtX = cp.matmul(X_design.T, X_design)
-    
+
     try:
         # Use Cholesky for inversion
         L = cp.linalg.cholesky(XtX)
-        identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
+        with cp.cuda.Device(device_id):
+            identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
         XtX_inv = cp.linalg.solve(L.T, cp.linalg.solve(L, identity))
-    except Exception:
-        # Fallback to pseudo-inverse
+    except Exception as exc:
+        if not _linalg_exception_is_rank_failure(exc):
+            raise
+        # Pseudoinverse recovery is reserved for rank/definiteness failures.
         XtX_inv = cp.linalg.pinv(XtX)
-    
-    # Standard errors: sqrt(scale * diag((X'X)^-1))
+
+# Standard errors: sqrt(scale * diag((X'X)^-1))
     bse_gpu = cp.sqrt(cp.maximum(scale * cp.diag(XtX_inv), 0.0))
 
     # t-statistics (add epsilon to avoid division by zero for collinear features)
@@ -90,10 +95,11 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     
     # Confidence intervals (95%)
     alpha = 0.05  # two-tailed significance level for 95% CI
-    t_crit_gpu = cp.asarray(
-        t.two_sided_critical_value(alpha, df=df_resid, backend="cupy"),
-        dtype=bse_gpu.dtype,
-    )
+    with cp.cuda.Device(device_id):
+        t_crit_gpu = cp.asarray(
+            t.two_sided_critical_value(alpha, df=df_resid, backend="cupy"),
+            dtype=bse_gpu.dtype,
+        )
     
     margin = t_crit_gpu * bse_gpu
     conf_int_lower = params_gpu - margin

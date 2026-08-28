@@ -31,7 +31,7 @@ from statgpu.linear_model._gaussian_inference import (
     robust_covariance_numpy,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _REQUIRED_BACKENDS = ("cupy", "torch")
 _VALIDATION_TIERS = ("local-minimal", "local-full", "remote-full")
 
@@ -246,6 +246,44 @@ def _linear_regression_case(backend: str, concrete_device: str, cov_type: str):
         "errors": errors,
         "limits": limits,
         "no_silent_fallback": True,
+        "status": "success",
+    }
+
+
+def _cupy_nonrank_failure_case(concrete_device: str):
+    import cupy as cp
+    from statgpu.backends._gpu_inference_cupy import compute_inference_gpu
+
+    X = _as_backend(np.column_stack([np.ones(8), np.arange(8.0)]), "cupy")
+    resid = _as_backend(np.linspace(-0.2, 0.2, 8), "cupy")
+    params = _as_backend(np.asarray([0.5, 0.1]), "cupy")
+    _assert_same_native_device(X, "cupy", concrete_device)
+
+    real_cholesky = cp.linalg.cholesky
+
+    def synthetic_nonrank_failure(*args, **kwargs):
+        raise RuntimeError("synthetic CUDA out-of-memory sentinel")
+
+    cp.linalg.cholesky = synthetic_nonrank_failure
+    try:
+        try:
+            compute_inference_gpu(X, resid, 1.0, 6, params)
+        except RuntimeError as exc:
+            if "synthetic CUDA out-of-memory sentinel" not in str(exc):
+                raise
+        else:
+            raise AssertionError(
+                "CuPy non-rank linalg failure was swallowed by pseudoinverse recovery"
+            )
+    finally:
+        cp.linalg.cholesky = real_cholesky
+
+    return {
+        "case": "cupy_nonrank_failure_fail_closed",
+        "requested_backend": "cupy",
+        "executed_inference_backend": "cupy",
+        "executed_inference_device": concrete_device,
+        "nonrank_failure_propagated": True,
         "status": "success",
     }
 
@@ -764,6 +802,8 @@ def run_backend(backend: str):
     cases = []
     for cov_type in ("nonrobust", "hc3", "hac"):
         cases.append(_linear_regression_case(backend, concrete_device, cov_type))
+    if backend == "cupy":
+        cases.append(_cupy_nonrank_failure_case(concrete_device))
     for cov_type in ("nonrobust", "hc3", "hac"):
         cases.append(_consumer_case(backend, cov_type, weighted=False))
     cases.append(_consumer_case(backend, "nonrobust", weighted=True))
