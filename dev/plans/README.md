@@ -30,14 +30,19 @@ Use open GitHub issues and active pull requests, summarized in [`ISSUES.md`](ISS
 
 Module plans in this directory provide design, literature, and historical context. Their checklists are not a reliable current capability/priority inventory unless the document states a recent verified release/commit.
 
-## Verified baseline
+## Planning baseline
 
-- Last verified release: **statgpu 0.2.5**
-- Last verified commit: `84f8bc7e17f66466b3a325cbb007b6cb41843821`
-- Verification/rebaseline date: **2026-08-28**
-- The 0.2.5 release is the current `master` baseline for new planning.
+- Current published release: **statgpu 0.2.5**
+- Current `master` planning baseline: `84f8bc7e17f66466b3a325cbb007b6cb41843821`
+- Reconciliation date: **2026-08-28**
 - Benchmark/dashboard synchronization, canonical CV source, audited source catalog, and production QA tracked by #90/#91/#92/#100 are completed work rather than active queue items.
 - Panel Tier-1 implementation delivered through the 0.2.5 line must be reconciled against #93 issue state rather than reimplemented from stale planning text.
+
+### Known release-evidence caveat
+
+The 0.2.5 release is a valid planning/code baseline, but its final release-validator evidence chain has a known provenance gap. Physical artifacts under `results/pr126_release_697de113/` were generated before the maintained physical-runner contract was later changed in PR #128. They remain historical evidence for the numerical source they identify but do not prove the later validator acceptance contract.
+
+This is an evidence/provenance limitation, not by itself proof of a numerical defect. Future planning and #93/#108 evidence work must keep that distinction explicit and must not present the historical artifacts as current evidence for a newer validator contract.
 
 The release baseline does not imply that every historical plan item is complete. It establishes the code/documentation snapshot from which new work must branch.
 
@@ -50,7 +55,7 @@ The release baseline does not imply that every historical plan item is complete.
 | `TO_DO.md` | Mandatory summary checklist | Compact hard-gate checklist plus active queue; subordinate to `.claude` and `dev/AGENTS.md`, not a weaker alternative. |
 | `gaussian_inference_backend_native_plan.md` | Active implementation plan | Issue #127: backend-native Gaussian linear-model numerical inference, consumer inventory, provenance, precision, validator, and review/fix contract. |
 | `panel_framework_proposal.md` | Delivered-design/reference document | Panel architecture/design context. Validate against 0.2.5 implementation and #93 evidence; do not treat old unchecked work as current scope. |
-| `panel_stage_c_plan.md` | Delivered phase reference | Stage-C covariance design and acceptance context for the 0.2.5 Panel line; useful for provenance/review, not a new implementation queue. |
+| `panel_p1_stage_c_covariance_plan.md` | Delivered phase reference | Stage-C covariance design and acceptance context for the 0.2.5 Panel line; useful for provenance/review, not a new implementation queue. |
 | `plan_survival.md` | Active module reference | Cox Phase 1 status and Survival Phase 2+ design context; executable scope is #94/#95. |
 | `cran_r_package_mapping.md` | Comparative reference | Method-family gap map. Individual rows may lag current implementation. |
 | `plan_anova.md` | Historical research plan | Early implementation-status header is stale; use implemented-methods/model docs for current ANOVA support. |
@@ -67,7 +72,7 @@ The immediate implementation plan is #127 / [`gaussian_inference_backend_native_
 
 Its purpose is to close a correctness/backend-locality gap exposed by the 0.2.5 work before expanding another broad model family. It must inventory the real Gaussian inference consumer graph, preserve statistical behavior, keep numerical inference on the selected backend, reuse shared distribution infrastructure, prove execution provenance, and freeze the physical validator before canonical GPU evidence is collected.
 
-After #127, #105 should establish systematic linear/GLM inference evidence against the repaired contract. #108 is the evidence successor for the released Panel capability. Feature lanes #94 -> #95, #96 -> #98, and #97 remain valid subsequent work when they do not compete for the same backend/inference surface.
+After #127, #105 should establish systematic linear/GLM inference evidence against the repaired contract. #108 is the evidence successor for the released Panel capability, subject to fresh source/validator provenance rather than automatic reuse of the disputed final-release artifact chain. Feature lanes #94 -> #95, #96 -> #98, and #97 remain valid subsequent work when they do not compete for the same backend/inference surface.
 
 ## Planning rules
 
