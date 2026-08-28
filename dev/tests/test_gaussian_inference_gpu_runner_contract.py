@@ -157,3 +157,22 @@ def test_shared_gaussian_cupy_allocations_follow_reference_device():
     assert 'device_id = int(X_arr.device.id)' in shared_source
     assert 'with cp.cuda.Device(device_id):' in shared_source
     assert 'with xp.cuda.Device(int(X.device.id)):' in shared_source
+
+def test_exact_l2_precomputed_gpu_inference_has_concrete_device_contract():
+    source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "penalized"
+        / "_inference_mixin.py"
+    ).read_text()
+
+    assert "device_id = int(X.device.id)" in source
+    assert "with cp.cuda.Device(device_id)" in source
+    assert 'backend="cupy"' in source
+    assert '"numerical_backend": "cupy"' in source
+    assert '"numerical_device": f"cuda:{device_id}"' in source
+    assert '"numerical_backend": "torch"' in source
+    assert '"numerical_device": str(X.device)' in source
+    assert source.count('"reporting_boundary": "post_numerical_inference"') >= 2
+
