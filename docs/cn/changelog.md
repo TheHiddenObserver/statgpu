@@ -1,9 +1,23 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-26<br>
+> 最后更新：2026-08-28<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — Gaussian 后端原生推断（PR #129 / Issue #127）
+
+### 变更
+
+- 维护中的 Gaussian 线性模型现在把协方差、标准误、统计量、p-value 与置信区间的**数值计算**保留在实际执行的 NumPy/CuPy/Torch 后端；数值推断完成后，既有 reporting attributes/results 仍可生成最终 NumPy snapshot。
+- Normal/Student-t 推断统一路由到维护中的 reference-distribution 层，并覆盖稳定的 df=1/df=2 极端尾部；若 executed-backend provenance 缺失或非法，则 fail closed，而不是静默选择 NumPy。
+- Ridge/L2 推断保持既有 average-loss 约定与正规方程中的 `n_eff * alpha` 映射，包括 weighted fit 与 `RidgeCV` final-refit inference。
+
+### 验证
+
+- 增加 public `LinearRegression`、formula、weighted/robust、rank-deficient、multi-target、float32、statsmodels 对齐、no-host-transfer、non-L2 delegation 以及 Ridge/RidgeCV regression coverage，并增加 focused hosted CI workflow。
+- 增加 maintained exact-SHA physical CUDA validator，覆盖 CuPy/Torch 的 clean-tree 证明、requested/executed backend 与具体 device provenance、covariance/BSE/statistic/p-value/CI 误差、weighted/rank/multi-target/small-df，以及 `RidgeCV` final-refit inference。
+- PR #129 仍保持 draft；只有 hosted gates 与 exact clean-head CuPy/Torch CUDA acceptance 都通过后，#127 才能标记为 `COMPLETE`。本变更不做 GPU speedup 声明。
 
 ## 0.2.5 — 2026-08-26（已发布）
 
