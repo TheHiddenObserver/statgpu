@@ -1,9 +1,9 @@
 # statgpu Roadmap
 
 > Canonical development roadmap  
-> Last verified release: **0.2.5**  
-> Last verified commit: `84f8bc7e17f66466b3a325cbb007b6cb41843821`  
-> Last verified: **2026-08-28**
+> Planning baseline release: **0.2.5**  
+> Planning baseline commit: `84f8bc7e17f66466b3a325cbb007b6cb41843821`  
+> Reconciled: **2026-08-28**
 
 ## 1. Purpose and authority
 
@@ -18,11 +18,17 @@ Roadmap priorities and issue scope may narrow work, but they may not weaken hard
 
 ## 2. Baseline after 0.2.5
 
-Version 0.2.5 extends the earlier 0.2.4 correctness baseline with the completed Panel Tier-1 implementation line released through the 0.2.5 cycle, including shared panel infrastructure, diagnostics/fit statistics, expanded covariance support, and maintained physical-GPU validation evidence for the delivered numerical paths.
+Version 0.2.5 contains the Panel Tier-1 implementation line delivered through the release cycle, including shared panel infrastructure, diagnostics/fit statistics, and expanded covariance/inference support. PR #126 is merged and is the Stage-C implementation source incorporated into the 0.2.5 baseline.
 
 The benchmark dashboard synchronization, canonical CV source, audited benchmark-source catalog, and production QA work tracked by #90, #91, #92, and #100 are also complete. They are no longer active execution items.
 
-The next cycle should prioritize correctness and execution-contract debt exposed by the 0.2.5 work before opening another broad model family. In particular, #127 identifies a maintained Gaussian linear-model inference path that still forces numerical state through NumPy/SciPy even when fitting occurs on CuPy/Torch.
+### Known 0.2.5 evidence caveat
+
+The published 0.2.5 release must not be described as having a fully closed final-validator evidence chain. The release audit found that the physical artifacts under `results/pr126_release_697de113/` were generated before the maintained physical-runner contract was subsequently changed in PR #128. Those artifacts remain historical evidence for the numerical source they identify, but under `RELEASING.md` they do not prove the later validator acceptance contract.
+
+This provenance gap does **not** by itself demonstrate a defect in the released numerical implementation. It does mean planning, #93 closure/evidence reconciliation, and future benchmark work must distinguish implementation evidence from final release-validator provenance and must not promote the historical artifacts as proof of a newer acceptance contract.
+
+The next implementation cycle should prioritize correctness and execution-contract debt exposed by the 0.2.5 work before opening another broad model family. In particular, #127 identifies a maintained Gaussian linear-model inference path that still forces numerical state through NumPy/SciPy even when fitting occurs on CuPy/Torch.
 
 ## 3. Prioritization principles
 
@@ -46,9 +52,11 @@ Keep `ROADMAP.md`, `TO_DO.md`, `ISSUES.md`, and `dev/plans/README.md` synchroniz
 Required maintenance:
 
 - remove completed #90/#91/#92/#100 from active execution queues;
-- audit #93 against merged Stage A/B/C and 0.2.5 release evidence;
+- audit #93 against merged Stage A/B/C implementation and its original acceptance evidence;
+- keep the separate PR #128 release-validator provenance caveat visible during that audit;
 - do not reopen delivered Panel numerical scope merely because #93 remains open;
-- classify any remaining #93 work as issue/evidence reconciliation unless a concrete missing acceptance criterion is demonstrated;
+- do not treat historical release artifacts produced under an older runner contract as proof of the final PR #128 validator contract;
+- classify any remaining #93 work as issue/evidence reconciliation unless a concrete missing production acceptance criterion is demonstrated;
 - keep future roadmap changes tied to issues, merged implementation, tests, release evidence, or maintained plans.
 
 ### P1 — Gaussian inference backend-native execution
@@ -82,7 +90,7 @@ Required coverage includes coefficient, covariance, BSE, statistic, p-value, CI,
 
 The Panel Tier-1 implementation is released; the remaining benchmark work should therefore be treated as evidence breadth, not as a reason to repeat #93 implementation.
 
-Extend canonical Panel coverage across maintained estimators and covariance variants with synchronized backend timing, exact method/covariance identities, external alignment, and machine-readable provenance.
+Extend canonical Panel coverage across maintained estimators and covariance variants with synchronized backend timing, exact method/covariance identities, external alignment, and machine-readable provenance. Do not reuse the disputed final-release validator artifacts as current canonical acceptance evidence unless a source/validator identity audit proves the required contract.
 
 ### P2 — survival foundations
 
