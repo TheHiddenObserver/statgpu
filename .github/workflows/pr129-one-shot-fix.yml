@@ -1,0 +1,312 @@
+name: PR129 one-shot backend-contract fix
+
+on:
+  push:
+    branches:
+      - agent/post-v0.2.5-next-phase-plan
+    paths:
+      - '.github/workflows/pr129-one-shot-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/post-v0.2.5-next-phase-plan
+          fetch-depth: 0
+      - name: Apply reviewed final fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise RuntimeError(f"{path}: expected {count} occurrences, found {actual}: {old!r}")
+              p.write_text(text.replace(old, new))
+
+          # LinearRegression: publish executed-backend provenance and force
+          # scalar critical-value evaluation onto the executed GPU backend.
+          replace_exact(
+              "statgpu/linear_model/wrappers/_linear.py",
+              "        backend_name = backend.name\n\n        X_arr = self._to_array(X_arr, backend=backend_name)\n",
+              "        backend_name = backend.name\n        self._selected_backend_name = backend_name\n\n        X_arr = self._to_array(X_arr, backend=backend_name)\n",
+          )
+          replace_exact(
+              "statgpu/linear_model/wrappers/_linear.py",
+              "                z_crit = norm.ppf(0.975)\n",
+              "                z_crit = norm.ppf(0.975, backend=\"cupy\")\n",
+          )
+          replace_exact(
+              "statgpu/linear_model/wrappers/_linear.py",
+              "                z_crit = norm.ppf(0.975, device=torch_device)\n",
+              "                z_crit = norm.ppf(0.975, backend=\"torch\", device=torch_device)\n",
+          )
+          replace_exact(
+              "statgpu/linear_model/wrappers/_linear.py",
+              "    def _wrap_gaussian_inference_result(self):\n        method = \"classical\" if self._cov_type == \"nonrobust\" else \"sandwich\"\n        distribution = \"t\" if self._cov_type == \"nonrobust\" else \"normal\"\n        result = GaussianInferenceResult(\n",
+              "    def _wrap_gaussian_inference_result(self):\n        method = \"classical\" if self._cov_type == \"nonrobust\" else \"sandwich\"\n        distribution = \"t\" if self._cov_type == \"nonrobust\" else \"normal\"\n        backend_name = str(getattr(self, \"_selected_backend_name\", \"numpy\")).lower()\n        if backend_name == \"torch\":\n            numerical_device = _get_torch_device_str()\n        elif backend_name == \"cupy\":\n            import cupy as cp\n\n            numerical_device = f\"cuda:{int(cp.cuda.runtime.getDevice())}\"\n        else:\n            numerical_device = \"cpu\"\n        result = GaussianInferenceResult(\n",
+          )
+          replace_exact(
+              "statgpu/linear_model/wrappers/_linear.py",
+              "            metadata={\"alpha\": 0.05},\n",
+              "            metadata={\n                \"alpha\": 0.05,\n                \"numerical_backend\": backend_name,\n                \"numerical_device\": numerical_device,\n                \"reporting_backend\": \"numpy\",\n                \"reporting_boundary\": \"post_numerical_inference\",\n            },\n",
+          )
+
+          # CuPy nonrobust helper: scalar t/normal critical values must not
+          # resolve through the proxy's scalar-auto NumPy fallback.
+          replace_exact(
+              "statgpu/backends/_gpu_inference_cupy.py",
+              "    return t.two_sided_pvalue(t_abs, df=df_resid)\n",
+              "    return t.two_sided_pvalue(t_abs, df=df_resid, backend=\"cupy\")\n",
+          )
+          replace_exact(
+              "statgpu/backends/_gpu_inference_cupy.py",
+              "        max_bisect_steps=max_bisect_steps,\n    )\n",
+              "        max_bisect_steps=max_bisect_steps,\n        backend=\"cupy\",\n    )\n",
+          )
+          replace_exact(
+              "statgpu/backends/_gpu_inference_cupy.py",
+              "    return norm.two_sided_pvalue(z_abs)\n",
+              "    return norm.two_sided_pvalue(z_abs, backend=\"cupy\")\n",
+          )
+          replace_exact(
+              "statgpu/backends/_gpu_inference_cupy.py",
+              "    return norm.two_sided_critical_value(alpha)\n",
+              "    return norm.two_sided_critical_value(alpha, backend=\"cupy\")\n",
+          )
+          replace_exact(
+              "statgpu/backends/_gpu_inference_cupy.py",
+              "    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid)\n",
+              "    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid, backend=\"cupy\")\n",
+          )
+          replace_exact(
+              "statgpu/backends/_gpu_inference_cupy.py",
+              "        t.two_sided_critical_value(alpha, df=df_resid),\n",
+              "        t.two_sided_critical_value(alpha, df=df_resid, backend=\"cupy\"),\n",
+          )
+
+          # Physical validator: include LinearRegression as an explicit public
+          # CuPy/Torch consumer and prove both helper/device and distribution routing.
+          replace_exact(
+              "dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py",
+              "from statgpu.linear_model import PenalizedGeneralizedLinearModel, RidgeCV\n",
+              "from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearModel, RidgeCV\nimport statgpu.inference._distributions_backend as _dist_module\n",
+          )
+          replace_exact(
+              "dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py",
+              "SCHEMA_VERSION = 3\n",
+              "SCHEMA_VERSION = 4\n",
+          )
+          marker = "\ndef _fit_pglm(X, y, *, device: str, cov_type: str, sample_weight=None):\n"
+          p = Path("dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py")
+          text = p.read_text()
+          if text.count(marker) != 1:
+              raise RuntimeError("physical validator insertion marker mismatch")
+          linear_case = r'''
+
+def _distribution_backend_name(distribution) -> str:
+    sf_name = type(getattr(distribution, "_sf", None)).__name__
+    if sf_name == "CuPySpecialFunctions":
+        return "cupy"
+    if sf_name == "TorchSpecialFunctions":
+        return "torch"
+    if sf_name == "ScipySpecialFunctions":
+        return "numpy"
+    return sf_name or "unknown"
+
+
+def _linear_regression_case(backend: str, concrete_device: str, cov_type: str):
+    X, y, weights = _problem(seed=131)
+    sw = weights if cov_type == "hc3" else None
+    cpu = LinearRegression(
+        device="cpu",
+        compute_inference=True,
+        cov_type=cov_type,
+        hac_maxlags=2,
+    ).fit(X, y, sample_weight=sw)
+
+    X_native = _as_backend(X, backend)
+    y_native = _as_backend(y, backend)
+    sw_native = None if sw is None else _as_backend(sw, backend)
+    _assert_same_native_device(X_native, backend, concrete_device)
+    _assert_same_native_device(y_native, backend, concrete_device)
+
+    distribution_backends = []
+    helper_calls = {"count": 0}
+    real_resolve = _dist_module.DistributionProxy._resolve
+
+    def guarded_resolve(proxy, kwargs, *arrays):
+        distribution = real_resolve(proxy, kwargs, *arrays)
+        resolved = _distribution_backend_name(distribution)
+        distribution_backends.append(resolved)
+        if resolved != backend:
+            raise AssertionError(
+                f"LinearRegression {cov_type} distribution fallback: "
+                f"expected={backend}, resolved={resolved}"
+            )
+        return distribution
+
+    _dist_module.DistributionProxy._resolve = guarded_resolve
+    if backend == "cupy":
+        import statgpu.backends._gpu_inference_cupy as inference_module
+        helper_name = "compute_inference_gpu"
+    else:
+        import statgpu.backends._gpu_inference_torch as inference_module
+        helper_name = "compute_inference_torch"
+    real_helper = getattr(inference_module, helper_name)
+
+    def guarded_helper(X_design, resid, scale, df_resid, params, *args, **kwargs):
+        _assert_same_native_device(X_design, backend, concrete_device)
+        _assert_same_native_device(resid, backend, concrete_device)
+        _assert_same_native_device(params, backend, concrete_device)
+        helper_calls["count"] += 1
+        return real_helper(
+            X_design, resid, scale, df_resid, params, *args, **kwargs
+        )
+
+    setattr(inference_module, helper_name, guarded_helper)
+    try:
+        gpu = LinearRegression(
+            device="cuda" if backend == "cupy" else "torch",
+            compute_inference=True,
+            cov_type=cov_type,
+            hac_maxlags=2,
+        ).fit(X_native, y_native, sample_weight=sw_native)
+    finally:
+        setattr(inference_module, helper_name, real_helper)
+        _dist_module.DistributionProxy._resolve = real_resolve
+
+    result = gpu._inference_result
+    if result is None:
+        raise AssertionError("LinearRegression GPU inference result is missing")
+    meta = dict(result.metadata)
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"LinearRegression backend provenance mismatch: {meta}")
+    if str(meta.get("numerical_device", "")) != concrete_device:
+        raise AssertionError(f"LinearRegression device provenance mismatch: {meta}")
+    if meta.get("reporting_boundary") != "post_numerical_inference":
+        raise AssertionError(f"LinearRegression reporting boundary missing: {meta}")
+    if cov_type == "nonrobust" and helper_calls["count"] != 1:
+        raise AssertionError(
+            f"LinearRegression {backend} nonrobust helper count={helper_calls['count']}"
+        )
+    if not distribution_backends:
+        raise AssertionError("LinearRegression distribution backend was not observed")
+
+    errors = {
+        "coef": _max_error(gpu.coef_, cpu.coef_),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+    limits = {
+        "coef": 2e-6,
+        "bse": 2e-5,
+        "statistic": 2e-4,
+        "pvalue": 2e-4,
+        "ci": 5e-5,
+    }
+    for key, limit in limits.items():
+        if not np.isfinite(errors[key]) or errors[key] > limit:
+            raise AssertionError(
+                f"LinearRegression {backend} {cov_type} {key} error "
+                f"{errors[key]:.3e} exceeds {limit:.3e}"
+            )
+    return {
+        "case": f"linear_regression_{cov_type}",
+        "requested_backend": backend,
+        "executed_backend": meta.get("numerical_backend"),
+        "executed_inference_backend": meta.get("numerical_backend"),
+        "executed_inference_device": meta.get("numerical_device"),
+        "reporting_backend": meta.get("reporting_backend"),
+        "reporting_boundary": meta.get("reporting_boundary"),
+        "distribution_backends": distribution_backends,
+        "native_nonrobust_helper_calls": int(helper_calls["count"]),
+        "errors": errors,
+        "limits": limits,
+        "no_silent_fallback": True,
+        "status": "success",
+    }
+'''
+          p.write_text(text.replace(marker, linear_case + marker))
+          replace_exact(
+              "dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py",
+              "    cases = []\n    for cov_type in (\"nonrobust\", \"hc3\", \"hac\"):\n",
+              "    cases = []\n    for cov_type in (\"nonrobust\", \"hc3\", \"hac\"):\n        cases.append(_linear_regression_case(backend, concrete_device, cov_type))\n    for cov_type in (\"nonrobust\", \"hc3\", \"hac\"):\n",
+          )
+
+          # Hosted contract checks freeze the expanded validator and the scalar
+          # critical-value backend fix.
+          replace_exact(
+              "dev/tests/test_gaussian_inference_gpu_runner_contract.py",
+              "    assert runner.SCHEMA_VERSION == 3\n",
+              "    assert runner.SCHEMA_VERSION == 4\n",
+          )
+          replace_exact(
+              "dev/tests/test_gaussian_inference_gpu_runner_contract.py",
+              "        '\"host_transfer_provenance\"',\n",
+              "        '\"host_transfer_provenance\"',\n        '\"linear_regression_nonrobust\"',\n        '\"linear_regression_hc3\"',\n        '\"linear_regression_hac\"',\n        '\"distribution_backends\"',\n        \"_linear_regression_case(backend, concrete_device, cov_type)\",\n",
+          )
+          p = Path("dev/tests/test_gaussian_inference_gpu_runner_contract.py")
+          text = p.read_text()
+          text += r'''
+
+
+def test_linear_regression_gpu_scalar_critical_values_are_backend_explicit():
+    linear_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "wrappers"
+        / "_linear.py"
+    ).read_text()
+    cupy_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "backends"
+        / "_gpu_inference_cupy.py"
+    ).read_text()
+    assert 'norm.ppf(0.975, backend="cupy")' in linear_source
+    assert 'backend="torch", device=torch_device' in linear_source
+    assert 't.two_sided_critical_value(alpha, df=df_resid, backend="cupy")' in cupy_source
+'''
+          p.write_text(text)
+
+          # Focused CI must follow all changed production sources.
+          replace_exact(
+              ".github/workflows/gaussian-inference.yml",
+              "      - 'statgpu/linear_model/_gaussian_inference.py'\n",
+              "      - 'statgpu/linear_model/_gaussian_inference.py'\n      - 'statgpu/backends/_gpu_inference_cupy.py'\n",
+          )
+          replace_exact(
+              ".github/workflows/gaussian-inference.yml",
+              "            statgpu/linear_model/_gaussian_inference.py \\\n",
+              "            statgpu/linear_model/_gaussian_inference.py \\\n            statgpu/backends/_gpu_inference_cupy.py \\\n",
+              count=2,
+          )
+
+          # Revert unrelated historical PR #116 wording churn.
+          replace_exact(
+              "CHANGELOG.md",
+              "active working dtype and keeping candidate path outputs backend-native",
+              "active CV working dtype and keeping candidate path outputs backend-native",
+          )
+
+          # Remove this one-shot workflow from the resulting branch diff.
+          Path(".github/workflows/pr129-one-shot-fix.yml").unlink()
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --check
+          git diff --cached --quiet && { echo 'no changes produced'; exit 1; }
+          git commit -m "fix(inference): close LinearRegression GPU provenance gap"
+          git push origin HEAD:agent/post-v0.2.5-next-phase-plan
