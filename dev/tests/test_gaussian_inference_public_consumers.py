@@ -115,3 +115,24 @@ def test_non_gaussian_branch_still_delegates_to_shared_inference_mixin(monkeypat
 
     assert len(calls) == 1
     assert calls[0][0] is model
+
+
+@pytest.mark.parametrize("backend_name", [None, "unknown-backend"])
+def test_l2_inference_fails_closed_without_valid_fit_backend_provenance(backend_name):
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        device="cpu",
+        compute_inference=True,
+    )
+    X, y, coef, intercept = _data()
+    model._penalty = model._resolve_penalty()
+    model._selected_backend_name = backend_name
+    model.coef_ = coef.copy()
+    model.intercept_ = float(intercept)
+
+    with pytest.raises(RuntimeError, match="backend provenance|executed backend"):
+        model._compute_post_fit_gaussian_inference(X, y)
+    assert model._inference_result is None
+    assert model._bse is None
