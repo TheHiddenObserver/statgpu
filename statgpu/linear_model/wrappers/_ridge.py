@@ -160,6 +160,10 @@ class Ridge(_PenalizedLinearRegression):
         self._scale = np.nan
         self.n_iter_ = 1
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
+        # This optimized branch is itself the executed fit implementation rather
+        # than the shared backend dispatcher, so publish its provenance before
+        # inference consumes the executed-backend contract.
+        self._selected_backend_name = "numpy"
 
         # Build design matrix and compute residuals only when inference is needed
         if self._compute_inference_enabled:
