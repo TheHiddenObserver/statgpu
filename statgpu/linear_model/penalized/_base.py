@@ -362,32 +362,43 @@ class PenalizedGeneralizedLinearModel(
                 "Gaussian inference is missing concrete executed-device provenance "
                 f"for backend={backend_name!r}: {selected_device!r}"
             )
-        state = build_gaussian_fit_state(
-            X,
-            y,
-            self.coef_,
-            self.intercept_,
-            self._effective_intercept,
-            sample_weight=sample_weight,
-            backend=backend_name,
-            device=selected_device,
-        )
-        ridge_alpha = state.normalization * self._ridge_alpha_for_exact()
-        result = compute_gaussian_inference(
-            state.X_design,
-            state.params,
-            state.resid,
-            state.scale,
-            state.df_resid,
-            self._cov_type,
-            hac_maxlags=self._hac_maxlags,
-            ridge_alpha=ridge_alpha,
-            ridge_penalize_intercept=(
-                False if self._effective_intercept else True
-            ),
-            backend=backend_name,
-            device=state.device,
-        )
+        def _run_gaussian_inference_on_fit_device():
+            state = build_gaussian_fit_state(
+                X,
+                y,
+                self.coef_,
+                self.intercept_,
+                self._effective_intercept,
+                sample_weight=sample_weight,
+                backend=backend_name,
+                device=selected_device,
+            )
+            ridge_alpha = state.normalization * self._ridge_alpha_for_exact()
+            result = compute_gaussian_inference(
+                state.X_design,
+                state.params,
+                state.resid,
+                state.scale,
+                state.df_resid,
+                self._cov_type,
+                hac_maxlags=self._hac_maxlags,
+                ridge_alpha=ridge_alpha,
+                ridge_penalize_intercept=(
+                    False if self._effective_intercept else True
+                ),
+                backend=backend_name,
+                device=state.device,
+            )
+            return state, result
+
+        if backend_name == "cupy":
+            import cupy as cp
+
+            cupy_device_id = int(str(selected_device).split(":", 1)[1])
+            with cp.cuda.Device(cupy_device_id):
+                state, result = _run_gaussian_inference_on_fit_device()
+        else:
+            state, result = _run_gaussian_inference_on_fit_device()
 
         # Convert only after covariance, distribution, p-value, and CI work.
         self._apply_gaussian_reporting_state(state)

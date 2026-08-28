@@ -463,15 +463,26 @@ class _PenalizedFitMixin:
         y_arr = self._to_array(y, backend=backend_name)
         if backend_name == "torch":
             self._selected_backend_device = str(X_arr.device)
+            y_arr = y_arr.to(X_arr.device)
+            if _sw_arr is not None:
+                _sw_arr = _sw_arr.to(X_arr.device)
         elif backend_name == "cupy":
-            self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"
+            import cupy as cp
+
+            cupy_device_id = int(X_arr.device.id)
+            self._selected_backend_device = f"cuda:{cupy_device_id}"
+            with cp.cuda.Device(cupy_device_id):
+                y_arr = cp.asarray(y_arr)
+                if _sw_arr is not None:
+                    _sw_arr = cp.asarray(_sw_arr)
         else:
             self._selected_backend_device = "cpu"
 
         if backend_name == "torch":
             self._fit_torch(X_arr, y_arr, _sw_arr)
         elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, _sw_arr)
+            with cp.cuda.Device(cupy_device_id):
+                self._fit_gpu(X_arr, y_arr, _sw_arr)
         else:
             self._fit_cpu(X_arr, y_arr, _sw_arr)
 

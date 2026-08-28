@@ -200,3 +200,34 @@ def test_penalized_gaussian_router_uses_fit_time_concrete_device_authority():
     assert 'self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"' in fit_source
     assert "with cp.cuda.Device(int(X.device.id))" in fit_source
 
+def test_cupy_public_consumers_hold_concrete_device_context_across_numerics():
+    linear_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "wrappers"
+        / "_linear.py"
+    ).read_text()
+    fit_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "penalized"
+        / "_fit_mixin.py"
+    ).read_text()
+    base_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "penalized"
+        / "_base.py"
+    ).read_text()
+
+    assert "with cp.cuda.Device(int(X_arr.device.id))" in linear_source
+    assert "cupy_device_id = int(X_arr.device.id)" in fit_source
+    assert "y_arr = cp.asarray(y_arr)" in fit_source
+    assert "_sw_arr = cp.asarray(_sw_arr)" in fit_source
+    assert "with cp.cuda.Device(cupy_device_id)" in fit_source
+    assert "def _run_gaussian_inference_on_fit_device" in base_source
+    assert "with cp.cuda.Device(cupy_device_id)" in base_source
+

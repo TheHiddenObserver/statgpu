@@ -400,7 +400,10 @@ class LinearRegression(BaseEstimator):
         if backend_name == "torch":
             self._fit_torch(X_arr, y_arr, sample_weight)
         elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, sample_weight)
+            import cupy as cp
+
+            with cp.cuda.Device(int(X_arr.device.id)):
+                self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
