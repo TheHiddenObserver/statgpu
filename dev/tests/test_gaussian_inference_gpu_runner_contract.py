@@ -139,3 +139,21 @@ def test_linear_regression_gpu_device_authority_and_cupy_fail_closed_are_static(
     assert "_linalg_exception_is_rank_failure(exc)" in cupy_source
     assert "with cp.cuda.Device(device_id)" in cupy_source
     assert workflow_source.count("statgpu/backends/_gpu_inference_cupy.py") >= 3
+
+
+def test_shared_gaussian_cupy_allocations_follow_reference_device():
+    shared_source = (
+        Path(__file__).parents[2]
+        / "statgpu"
+        / "linear_model"
+        / "_gaussian_inference.py"
+    ).read_text()
+
+    assert 'return f"cuda:{int(value.device.id)}"' in shared_source
+    assert 'return "cuda"' not in shared_source
+    assert 'elif device_label.startswith("cuda:")' in shared_source
+    assert 'target_device = int(cp.cuda.runtime.getDevice())' in shared_source
+    assert 'with cp.cuda.Device(target_device):' in shared_source
+    assert 'device_id = int(X_arr.device.id)' in shared_source
+    assert 'with cp.cuda.Device(device_id):' in shared_source
+    assert 'with xp.cuda.Device(int(X.device.id)):' in shared_source

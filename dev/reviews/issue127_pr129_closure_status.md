@@ -18,7 +18,8 @@ This checkpoint is part of the `.claude/skills/code-review.md` review-fix closur
 - CuPy response, weight, intercept, critical-value, AIC/BIC, and F-statistic helper placement is bound to the executed `X` device;
 - CuPy Cholesky recovery now falls back to pseudoinverse only for recognized rank/definiteness failures; unrelated runtime failures propagate;
 - physical validator schema 5 covers `LinearRegression` nonrobust/HC3/HAC on CuPy and Torch, concrete-device provenance, and a CuPy non-rank failure negative control;
-- focused Gaussian CI tracks and statically checks `statgpu/backends/_gpu_inference_cupy.py`.
+- focused Gaussian CI tracks and statically checks `statgpu/backends/_gpu_inference_cupy.py`;
+- shared Gaussian/PGLM CuPy host-to-device conversion, intercept construction, and Ridge penalty allocations now use the reference `X.device`; concrete-device provenance fails closed instead of degrading to an ambiguous `cuda` label.
 
 ## Acceptance state at checkpoint creation
 

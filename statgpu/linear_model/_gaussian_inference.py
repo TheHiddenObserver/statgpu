@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from statgpu.backends import _resolve_backend, _to_numpy, get_backend
+from statgpu.backends import _resolve_backend, _to_numpy
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.inference._reference_distribution import two_sided_reference_inference
 from statgpu.inference._results import GaussianInferenceResult
@@ -75,10 +75,7 @@ def _device_label(value, backend: str) -> str:
     if backend == "torch":
         return str(value.device)
     if backend == "cupy":
-        try:
-            return f"cuda:{int(value.device.id)}"
-        except Exception:
-            return "cuda"
+        return f"cuda:{int(value.device.id)}"
     return "cpu"
 
 
@@ -122,10 +119,25 @@ def _as_backend_array(value, backend: str, *, like=None, device: Optional[str] =
         elif isinstance(value, cp.ndarray):
             target_dtype = value.dtype if _is_floating_dtype(value, "cupy") else cp.float64
             target_device = int(value.device.id)
-        if target_device is not None:
-            with cp.cuda.Device(target_device):
-                return cp.asarray(value, dtype=target_dtype)
-        return get_backend("cupy").asarray(value, dtype=target_dtype or cp.float64)
+        elif device is not None:
+            device_label = str(device)
+            if device_label == "cuda":
+                target_device = int(cp.cuda.runtime.getDevice())
+            elif device_label.startswith("cuda:"):
+                try:
+                    target_device = int(device_label.split(":", 1)[1])
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Invalid CuPy CUDA device label: {device!r}"
+                    ) from exc
+            else:
+                raise ValueError(
+                    f"CuPy inference requires a CUDA device label, got {device!r}"
+                )
+        if target_device is None:
+            target_device = int(cp.cuda.runtime.getDevice())
+        with cp.cuda.Device(target_device):
+            return cp.asarray(value, dtype=target_dtype or cp.float64)
 
     return np.asarray(value, dtype=np.float64)
 
@@ -238,14 +250,32 @@ def build_gaussian_fit_state(
                 params = torch.cat([intercept_arr.reshape(1), coef_arr])
             else:
                 params = torch.cat([intercept_arr.reshape(1, -1), coef_arr], dim=0)
+        elif backend_name == "cupy":
+            import cupy as cp
+
+            device_id = int(X_arr.device.id)
+            with cp.cuda.Device(device_id):
+                intercept_col = cp.ones(
+                    (int(X_arr.shape[0]), 1), dtype=X_arr.dtype
+                )
+                X_design_raw = cp.concatenate([intercept_col, X_arr], axis=1)
+                if coef_arr.ndim == 1:
+                    params = cp.concatenate(
+                        [intercept_arr.reshape(1), coef_arr], axis=0
+                    )
+                else:
+                    params = cp.concatenate(
+                        [intercept_arr.reshape(1, -1), coef_arr], axis=0
+                    )
         else:
-            xp = _namespace(backend_name)
-            intercept_col = xp.ones((int(X_arr.shape[0]), 1), dtype=X_arr.dtype)
-            X_design_raw = xp.concatenate([intercept_col, X_arr], axis=1)
+            intercept_col = np.ones((int(X_arr.shape[0]), 1), dtype=X_arr.dtype)
+            X_design_raw = np.concatenate([intercept_col, X_arr], axis=1)
             if coef_arr.ndim == 1:
-                params = xp.concatenate([intercept_arr.reshape(1), coef_arr], axis=0)
+                params = np.concatenate([intercept_arr.reshape(1), coef_arr], axis=0)
             else:
-                params = xp.concatenate([intercept_arr.reshape(1, -1), coef_arr], axis=0)
+                params = np.concatenate(
+                    [intercept_arr.reshape(1, -1), coef_arr], axis=0
+                )
     else:
         X_design_raw = X_arr
         params = coef_arr.clone() if backend_name == "torch" else coef_arr.copy()
@@ -575,6 +605,9 @@ def compute_gaussian_inference(
 
     if backend_name == "torch":
         penalty_diag = xp.zeros(k, dtype=X.dtype, device=X.device)
+    elif backend_name == "cupy":
+        with xp.cuda.Device(int(X.device.id)):
+            penalty_diag = xp.zeros(k, dtype=X.dtype)
     else:
         penalty_diag = xp.zeros(k, dtype=X.dtype)
 
