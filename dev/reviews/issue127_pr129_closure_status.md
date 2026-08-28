@@ -1,62 +1,74 @@
 # Issue #127 / PR #129 closure status
 
-Recorded: 2026-08-28
+Recorded: 2026-08-29
 
-This checkpoint records the second `.claude/skills/code-review.md` hard exit after exact-head physical CUDA validation invalidated the first frozen candidate.
+This checkpoint records the third `.claude/skills/code-review.md` closure cycle for PR #129 after exact-head physical CUDA validation invalidated two earlier candidates.
 
-## Superseded physical candidate
+## Superseded physical candidates
 
-Frozen candidate `3180add336b41017f4cd5a5e6721a6470a797360` is permanently superseded as acceptance evidence. Exact-head `remote-full` execution on Tesla P100 produced canonical failure artifacts and exposed two candidate-intrinsic HIGH findings:
+The following candidates are permanently superseded as acceptance evidence:
 
-1. `LinearRegression` CuPy fitting called nonexistent `cp.linalg.solve_triangular`;
-2. physical `_host_transfer_case` supplied backend provenance but omitted `_selected_backend_device` before directly invoking the fail-closed post-fit Gaussian inference router.
+1. `3180add336b41017f4cd5a5e6721a6470a797360` — exact-head Tesla P100 `remote-full` execution exposed two candidate-intrinsic HIGH findings: unsupported `cp.linalg.solve_triangular` usage in CuPy `LinearRegression`, and missing concrete `_selected_backend_device` provenance in the physical host-transfer fixture.
+2. `11343d87e810cb147bd0b9f821ac5f5e52976ea2` — exact-head Tesla P100 `remote-full` execution verified the first two repairs, then exposed a third candidate-intrinsic HIGH finding: singular CuPy normal equations could return non-finite Cholesky/solve results instead of raising, so exception-only rank recovery did not reach the intended pseudoinverse path.
 
-Those failure artifacts remain useful diagnostic evidence, but they do not satisfy acceptance and must not be promoted as canonical success evidence.
+Artifacts from those candidates remain diagnostic evidence only. They must not be reused or promoted as canonical success evidence.
 
-## Review/fix closure
+## Third review/fix closure
 
-Both HIGH findings are now closed:
+All three physical findings are closed in the current implementation:
 
-- `statgpu/linear_model/wrappers/_linear.py` imports and uses `cupyx.scipy.linalg.solve_triangular` for the CuPy Cholesky solves; the invalid `cp.linalg.solve_triangular` calls are gone;
-- `_host_transfer_case` now sets `model._selected_backend_device = concrete_device` together with `_selected_backend_name`, matching the provenance that a real fit records before the same post-fit inference router is invoked;
-- hosted/static contract checks require the maintained CuPy path to use the supported triangular-solve API and require the physical host-transfer fixture to provide concrete device provenance.
+- `LinearRegression` uses supported `cupyx.scipy.linalg.solve_triangular` on the CuPy path;
+- the physical host-transfer case supplies both executed backend and concrete executed-device provenance before invoking post-fit Gaussian inference;
+- maintained CuPy solver boundaries now enable scoped solver-status errors with `cupyx.errstate(linalg="raise")` so rank/definiteness failures become visible to the existing classified recovery paths rather than silently propagating invalid values;
+- the repair covers shared Gaussian inference, `LinearRegression` fit/rank fallback/robust covariance, exact-L2 penalized fit/inference, and the shared `xp_cholesky_solve` CuPy boundary;
+- unrelated CUDA/programming failures remain fail-closed and are not converted into pseudoinverse recovery;
+- the penalized class-level wrapper preserves the real CuPy>=13 solver-status policy while allowing the existing lightweight unit-test double, which intentionally omits `cupyx.errstate`, to reach and verify synthetic CUDA-OOM exception routing.
 
-Reviewed repaired implementation/validator head: `a1d94af4f7de02048645347cb95a902caa46cc2b`.
+Reviewed implementation/validator head: `1ef402c33e0a9e1b4e81ef454fd94433ba437d23`.
 
-On that repaired head all six hosted PR workflows passed:
+On that head all seven triggered hosted PR workflows passed:
 
-1. `Tests`;
-2. `Gaussian inference backend-native` — Python 3.9 CPU, Python 3.12 CPU, Torch 2.0.1 CPU, and static-contract jobs all passed;
+1. `Tests` — including the complete CPU test tree, regression matrix, static contracts, docs contracts, Torch CPU regression, and panel external alignment;
+2. `Gaussian inference backend-native` — Python 3.9 CPU, Python 3.12 CPU, Torch 2.0.1 CPU, and static-contract jobs;
 3. `Release package validation`;
 4. `Release notes validation`;
 5. `Maintenance compatibility`;
-6. `Benchmark Frontend CI`.
+6. `Benchmark Frontend CI`;
+7. `Panel Stage C Torch CPU`.
 
-Fresh complete-diff review after the physical fixes found:
+The fresh complete-diff review after those fixes found no new numerical/backend/inference correctness issue. The only remaining actionable finding was that this closure ledger still described the superseded second-cycle freeze; this checkpoint corrects that evidence-chain inconsistency. No submitted PR review or unresolved inline review thread remains.
+
+Review result before finalization:
 
 - CRITICAL: **0 open**;
 - HIGH: **0 open**;
 - relevant actionable MEDIUM: **0 open**.
 
-No submitted PR review or unresolved review thread remains. The failed one-shot repair workflow scaffold was removed from the branch and is not part of the final PR diff. The full implementation plan was restored; its live status is `implemented; final acceptance pending`.
+## Finalization and hard-exit state
 
-## Re-frozen hard-exit state
+Production numerical code, validator cases, thresholds, provenance logic, and pass/fail semantics are frozen at the reviewed implementation above. The finalization commit containing this checkpoint may only make documentation/evidence updates and a non-semantic validator freeze annotation so the final exact source SHA receives a fresh hosted run. Any subsequent numerical or validator-semantic change invalidates this closure and requires another review/fix cycle plus new physical evidence.
 
-Production numerical code, validator cases, thresholds, provenance logic, and pass/fail semantics are frozen again. This checkpoint is documentation-only relative to the reviewed repaired implementation/validator head above. Any subsequent production or validator semantic change requires another review/fix cycle and invalidates physical evidence collected before that change.
+After the finalization commit's hosted workflows pass, the only unresolved acceptance gate is exact clean-head physical CUDA execution on the final `HEAD`. Therefore the correct hard-exit status is **`PARTIAL_REMOTE_PENDING`**, not `COMPLETE`.
 
-After hosted workflows pass on the commit containing this checkpoint, the only unresolved acceptance gate is exact clean-head CuPy + Torch CUDA execution of the re-frozen physical validator and persistence of a new canonical success artifact.
+## Canonical physical acceptance
 
-Therefore the correct status is **`PARTIAL_REMOTE_PENDING`**, not `COMPLETE`.
-
-Canonical physical invocation on the final clean candidate head is:
+Run both validators from the same exact clean candidate checkout. `results/` is git-ignored, so the first artifact does not invalidate the second validator's clean-tree precondition.
 
 ```bash
 SHA="$(git rev-parse HEAD)"
+
 python dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
   --out "results/pr129_gaussian_inference_${SHA:0:8}.json" \
   --expected-sha "$SHA" \
   --validation-tier remote-full \
   --backends cupy,torch
+
+python dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py \
+  --out "results/pr129_gaussian_inference_cupy_rank_${SHA:0:8}.json" \
+  --expected-sha "$SHA" \
+  --validation-tier remote-full
 ```
 
-The new artifact must report `status: success`, the exact final candidate SHA, `validation_tier: remote-full`, both required CUDA backends, and clean-tree acceptance. PR #129 must remain Draft and Issue #127 must remain incomplete until that new physical run passes.
+Acceptance requires both commands to succeed on the same exact final candidate SHA. The full artifact must report `status: success`, `validation_tier: remote-full`, both required CUDA backends, concrete CUDA-device provenance, and clean-tree acceptance. The focused artifact must report `status: success`, the same exact SHA, `validation_tier: remote-full`, concrete CuPy/CUDA provenance, and success for all maintained rank-recovery cases, including the shared singular-solve visibility case.
+
+PR #129 must remain Draft and Issue #127 must remain incomplete until both exact-head physical validators pass and the resulting evidence is reviewed against this frozen contract.
