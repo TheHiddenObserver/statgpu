@@ -8,11 +8,6 @@ import numpy as np
 from scipy import stats
 
 from statgpu._config import Device
-from statgpu.backends import _to_numpy
-from statgpu.linear_model._gaussian_inference import (
-    build_gaussian_fit_state,
-    compute_gaussian_inference,
-)
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
 if TYPE_CHECKING:
@@ -63,124 +58,20 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             tol=tol,
             device=device,
             n_jobs=n_jobs,
-            cpu_solver=cpu_solver,
-            solver=solver,
-            lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
             compute_inference=compute_inference,
-            inference_method=inference_method,
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
+            solver=solver,
+            cpu_solver=cpu_solver,
+            lipschitz_L=lipschitz_L,
             stopping=stopping,
             lla=lla,
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
             loss_kwargs=loss_kwargs,
+            inference_method=inference_method,
         )
-
-    @staticmethod
-    def _reporting_array(value):
-        """Take the single allowed post-inference NumPy reporting snapshot."""
-        return np.asarray(_to_numpy(value), dtype=float)
-
-    def _apply_gaussian_reporting_state(self, state):
-        """Populate legacy reporting fields only after numerical inference ends."""
-        self._X_design = self._reporting_array(state.X_design)
-        self._y = self._reporting_array(state.y)
-        self._resid = self._reporting_array(state.resid)
-        self._params = self._reporting_array(state.params)
-        scale = self._reporting_array(state.scale)
-        self._scale = float(scale) if scale.ndim == 0 else scale
-        self._nobs = int(state.nobs)
-        self._df_resid = int(state.df_resid)
-
-    def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
-        """Run squared-error L2 inference on the fitted numerical backend.
-
-        Other penalty/loss branches, plus the existing exact-GPU precomputed L2
-        path, stay owned by the shared inference mixin.  This keeps #127 from
-        changing L1/ElasticNet/SCAD/MCP statistical definitions while removing
-        the legacy NumPy/SciPy round trip from the non-precomputed L2 path.
-        """
-        if not self._compute_inference_enabled:
-            return
-
-        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-        precomputed = bool(getattr(self, "_inference_precomputed", False))
-        if self.loss != "squared_error" or penalty_name != "l2" or precomputed:
-            super()._compute_post_fit_gaussian_inference(
-                X, y, sample_weight=sample_weight
-            )
-            if precomputed and self._inference_result is not None:
-                metadata = self._inference_result.metadata
-                metadata.setdefault(
-                    "numerical_backend",
-                    str(getattr(self, "_selected_backend_name", None) or "numpy"),
-                )
-                metadata.setdefault("reporting_backend", "numpy")
-                metadata.setdefault(
-                    "reporting_boundary", "post_numerical_inference"
-                )
-            return
-
-        backend_name = str(
-            getattr(self, "_selected_backend_name", None) or "numpy"
-        ).lower()
-        if backend_name not in ("numpy", "cupy", "torch"):
-            backend_name = "numpy"
-
-        # The generic fit path may pass the original NumPy input here even
-        # after a CuPy/Torch fit.  Reconstruct numerical state from the selected
-        # fit backend rather than inferring execution from input array type.
-        X_native = self._to_array(X, backend=backend_name)
-        y_native = self._to_array(y, backend=backend_name)
-        sw_native = (
-            None
-            if sample_weight is None
-            else self._to_array(sample_weight, backend=backend_name)
-        )
-
-        state = build_gaussian_fit_state(
-            X_native,
-            y_native,
-            self.coef_,
-            self.intercept_,
-            self._effective_intercept,
-            sample_weight=sw_native,
-            backend=backend_name,
-        )
-        ridge_alpha = state.normalization * self._ridge_alpha_for_exact()
-        result = compute_gaussian_inference(
-            state.X_design,
-            state.params,
-            state.resid,
-            state.scale,
-            state.df_resid,
-            self._cov_type,
-            hac_maxlags=self._hac_maxlags,
-            ridge_alpha=ridge_alpha,
-            ridge_penalize_intercept=(
-                False if self._effective_intercept else True
-            ),
-            backend=backend_name,
-            device=state.device,
-        )
-
-        # Reporting conversion is deliberately after all covariance,
-        # distribution, p-value, and CI calculations have completed.
-        self._apply_gaussian_reporting_state(state)
-
-        if result is None:
-            self._inference_result = None
-            self._bse = None
-            self._tvalues = None
-            self._zvalues = None
-            self._pvalues = None
-            self._conf_int = None
-            return
-
-        result.feature_names = self._inference_feature_names()
-        result.apply_to(self)
 
     @property
     def rsquared(self):
