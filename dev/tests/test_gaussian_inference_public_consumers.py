@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.linear_model import PenalizedGeneralizedLinearModel
+from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearModel, Ridge
 from statgpu.linear_model.penalized._inference_mixin import _PenalizedInferenceMixin
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
 
@@ -35,6 +35,87 @@ def _prepare_l2_model(model, backend_name="torch"):
     model.coef_ = coef.copy()
     model.intercept_ = float(intercept)
     return X, y
+
+
+def test_linear_regression_nonrobust_matches_statsmodels_public_surface():
+    sm = pytest.importorskip("statsmodels.api")
+    rng = np.random.default_rng(12701)
+    X = rng.normal(size=(180, 4))
+    y = 0.7 + X @ np.asarray([0.8, -0.3, 0.4, 0.2]) + rng.normal(scale=0.35, size=180)
+
+    ours = LinearRegression(
+        device="cpu", compute_inference=True, cov_type="nonrobust"
+    ).fit(X, y)
+    ref = sm.OLS(y, sm.add_constant(X)).fit()
+
+    np.testing.assert_allclose(
+        np.r_[ours.intercept_, ours.coef_], ref.params, rtol=1e-10, atol=1e-10
+    )
+    np.testing.assert_allclose(ours._bse, ref.bse, rtol=1e-9, atol=1e-10)
+    np.testing.assert_allclose(ours._tvalues, ref.tvalues, rtol=1e-9, atol=1e-10)
+    np.testing.assert_allclose(ours._pvalues, ref.pvalues, rtol=1e-8, atol=1e-11)
+    np.testing.assert_allclose(
+        ours._conf_int, ref.conf_int(alpha=0.05), rtol=1e-8, atol=1e-10
+    )
+    assert ours._inference_result.metadata["numerical_backend"] == "numpy"
+    assert ours._inference_result.metadata["reporting_boundary"] == "post_numerical_inference"
+
+
+def test_linear_regression_hc3_matches_statsmodels_normal_reference():
+    sm = pytest.importorskip("statsmodels.api")
+    rng = np.random.default_rng(12702)
+    X = rng.normal(size=(220, 3))
+    noise_scale = 0.15 + 0.55 * np.abs(X[:, 0])
+    y = -0.2 + X @ np.asarray([0.6, -0.4, 0.25]) + rng.normal(
+        scale=noise_scale, size=220
+    )
+
+    ours = LinearRegression(
+        device="cpu", compute_inference=True, cov_type="hc3"
+    ).fit(X, y)
+    ref = sm.OLS(y, sm.add_constant(X)).fit().get_robustcov_results(
+        cov_type="HC3", use_t=False
+    )
+
+    np.testing.assert_allclose(ours._bse, ref.bse, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(ours._tvalues, ref.tvalues, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(ours._pvalues, ref.pvalues, rtol=1e-7, atol=1e-10)
+    np.testing.assert_allclose(
+        ours._conf_int, ref.conf_int(alpha=0.05), rtol=1e-7, atol=1e-9
+    )
+
+
+def test_ridge_formula_inference_matches_filtered_direct_fit():
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(12703)
+    n = 140
+    X = rng.normal(size=(n, 3))
+    y = 0.5 + X @ np.asarray([0.7, -0.5, 0.25]) + rng.normal(scale=0.25, size=n)
+    w = rng.uniform(0.2, 2.5, size=n)
+    frame = pd.DataFrame(X, columns=["x1", "x2", "x3"])
+    frame["y"] = y
+    frame.loc[[5, 44], "x2"] = np.nan
+    frame.loc[[23], "y"] = np.nan
+    keep = frame[["y", "x1", "x2", "x3"]].notna().all(axis=1).to_numpy()
+
+    formula = Ridge(
+        alpha=0.08, device="cpu", compute_inference=True, cov_type="hc3"
+    ).fit(formula="y ~ x1 + x2 + x3", data=frame, sample_weight=w)
+    direct = Ridge(
+        alpha=0.08, device="cpu", compute_inference=True, cov_type="hc3"
+    ).fit(X[keep], y[keep], sample_weight=w[keep])
+
+    np.testing.assert_allclose(formula.coef_, direct.coef_, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(
+        formula.intercept_, direct.intercept_, rtol=1e-10, atol=1e-10
+    )
+    np.testing.assert_allclose(formula._bse, direct._bse, rtol=1e-9, atol=1e-10)
+    np.testing.assert_allclose(
+        formula._pvalues, direct._pvalues, rtol=1e-8, atol=1e-10
+    )
+    np.testing.assert_allclose(
+        formula._conf_int, direct._conf_int, rtol=1e-8, atol=1e-10
+    )
 
 
 def test_public_generic_pglm_l2_uses_selected_torch_backend():
