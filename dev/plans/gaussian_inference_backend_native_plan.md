@@ -3,7 +3,7 @@
 Issue: #127  
 Baseline release: `0.2.5`  
 Baseline `master`: `84f8bc7e17f66466b3a325cbb007b6cb41843821`  
-Status: reviewed implementation plan; production work not started
+Status: planning review/fix in progress; production work not started
 
 ## 1. Goal
 
@@ -39,6 +39,29 @@ Inactive axes:
 
 Eliminating unintended full-array GPU-to-CPU inference transfers is a correctness/backend-contract gate. GPU speedup is not a completion claim for this issue and requires separate synchronized benchmark evidence if advertised.
 
+### 2.1 Capability decisions
+
+The table below is the minimum known public surface before the mandatory consumer inventory. Phase 1 must add any newly discovered public consumer before production edits continue.
+
+| Public capability | backend | CV | inference | formula | benchmark |
+| --- | --- | --- | --- | --- | --- |
+| `LinearRegression` | `three-backend` | `non-tunable` | `supported` | `supported` | `not-performance-sensitive` |
+| `Ridge` / Gaussian squared-error L2 direct fit | `three-backend` | `supported` through the maintained Ridge/unified CV surface; no CV expansion in #127 | `supported` | `supported` | `not-performance-sensitive` |
+| `RidgeCV` final refit | `three-backend` | `supported` | `supported` on the final `Ridge` refit when `compute_inference=True` | `not-formula-facing` | `not-performance-sensitive` |
+| Other public Gaussian/L2 consumers discovered in Phase 1 | must resolve to `three-backend` or require explicit approved deferral | preserve current supported/non-tunable decision; no new CV capability | preserve current supported/estimation-only contract | preserve current supported/not-formula-facing contract | default `not-performance-sensitive` unless a claim activates benchmark gate |
+
+`planned` is not an acceptable completion state for an already supported inference/backend capability. If inventory reveals a public consumer whose current documented contract conflicts with this table, stop and amend the plan/decision explicitly rather than silently narrowing support.
+
+### 2.2 Objective, penalty, and CV non-change contract
+
+#127 does not change the fitting objective, regularization path, selected hyperparameter, or CV scoring definition.
+
+For Ridge/L2 paths, preserve the repository's current average-loss convention and exact-solve scaling. In particular, current direct/CV implementations solve unnormalized normal equations with the equivalent `n_eff * alpha` L2 contribution, where `n_eff` is the sample count or the declared weight normalization for weighted fits. Inference bread/penalty construction must preserve the same mapping rather than introducing a new `alpha`, `lambda`, or `C` convention.
+
+External Ridge comparisons must state the equivalent penalty mapping explicitly. A mismatch is fixed in the comparison/mapping layer; the statgpu fit objective is not changed merely to match an external package.
+
+`RidgeCV` already selects alpha and performs a final `Ridge(..., compute_inference=...)` refit. #127 may change only the numerical locality/provenance of that final inference, not folds, alpha grid, scoring, selection, tie behavior, or final-refit coefficient semantics.
+
 ## 3. Mandatory consumer and data-lifecycle inventory
 
 Before production edits, resolve and record the exact consumer graph.
@@ -49,7 +72,7 @@ Known direct/shared locations include:
 2. `statgpu/linear_model/wrappers/_linear.py`;
 3. `statgpu/linear_model/penalized/_inference_mixin.py`.
 
-Inventory every public wrapper and maintained CV final-refit path that reaches these helpers or implements equivalent Gaussian inference behavior.
+Known public consumers include at least `LinearRegression`, `Ridge`, the Gaussian/L2 penalized path used by `Ridge`, and `RidgeCV` final refit. Inventory every additional public wrapper and maintained CV final-refit path that reaches these helpers or implements equivalent Gaussian inference behavior.
 
 For every consumer record:
 
@@ -67,7 +90,7 @@ For every consumer record:
 
 The implementation scope is the resolved Gaussian consumer graph. It is not every `scipy.stats` import under `statgpu/linear_model`.
 
-If the inventory discovers another public Gaussian consumer, amend this matrix before implementation rather than leaving it silently CPU-oriented.
+If the inventory discovers another public Gaussian consumer, amend the capability table and consumer matrix before implementation rather than leaving it silently CPU-oriented.
 
 ## 4. Backward-compatibility contract
 
@@ -83,7 +106,8 @@ Freeze established ordinary-regime NumPy behavior for:
 - scalar and multi-target output shape/order;
 - formula feature names/order;
 - `summary()` and inference-result fields;
-- sklearn clone, fitted-state, and transactional-refit behavior.
+- sklearn clone, fitted-state, and transactional-refit behavior;
+- RidgeCV folds, alpha candidates, selected alpha, scoring, final-refit coefficients, and failure transactionality.
 
 Public result types and established reporting types remain unchanged unless an independent API change is explicitly approved.
 
@@ -127,7 +151,7 @@ Requirements:
 - construct weighted design/residual arrays with backend-native operations;
 - preserve dtype and concrete CUDA device;
 - do not infer intercept-penalty policy by copying/scanning a GPU design on CPU when fit metadata already identifies the intercept;
-- preserve existing weighted Ridge normalization;
+- preserve existing weighted Ridge normalization and the direct/CV alpha scale described in Section 2.2;
 - formula/Patsy parsing may remain CPU-side, but after model-matrix transfer numerical fitting/inference must not silently return to NumPy.
 
 ## 7. Backend-native linear algebra
@@ -260,11 +284,11 @@ Use:
 - statsmodels OLS/WLS for nonrobust and HC/HAC inference where definitions align;
 - analytic Ridge covariance identities plus coefficient alignment for Ridge/L2 cases.
 
-Record intercept convention, weighting, covariance type, HAC lag definition, df convention, Ridge scaling/penalty mapping, and tolerance.
+Record intercept convention, weighting, covariance type, HAC lag definition, df convention, Ridge objective/penalty scaling, and tolerance.
 
 ### 12.5 Formula regression
 
-Verify:
+For formula-facing consumers verify:
 
 - array/formula numerical agreement;
 - Patsy missing-row alignment;
@@ -272,15 +296,21 @@ Verify:
 - feature names and summary ordering;
 - CPU-side formula parsing does not imply CPU numerical inference after backend transfer.
 
+Do not add formula support to a currently non-formula-facing consumer such as `RidgeCV` as part of #127.
+
 ### 12.6 CV final-refit regression
 
-If inventory confirms a maintained Gaussian L2 CV estimator reaches the migrated inference path, add representative coverage proving:
+`RidgeCV` is a confirmed final-refit consumer because it selects alpha and constructs a final `Ridge(..., compute_inference=...)` estimator. Add representative coverage proving:
 
-- fold selection semantics remain unchanged;
+- folds and candidate alpha semantics remain unchanged;
+- scoring/selection and selected alpha remain unchanged;
 - final refit selects the intended backend;
 - final-refit inference uses that backend;
-- selected hyperparameters and final coefficients remain unchanged within tolerance;
+- final coefficients/intercept remain unchanged within tolerance;
+- failed final refit remains transactional;
 - no new CV capability or tuning behavior is introduced.
+
+If Phase 1 discovers another maintained Gaussian/L2 CV final-refit consumer, add it to the capability table and choose representative matrix coverage rather than assuming RidgeCV is exhaustive.
 
 ## 13. No-host-transfer and failure tests
 
@@ -324,7 +354,7 @@ Required artifact fields:
 - host-transfer/provenance evidence;
 - overall status.
 
-Physical cases must cover both CuPy CUDA and Torch CUDA and include nonrobust, representative HC, HAC, Ridge/L2, weighted, rank-deficient, multi-target, and small-df/tail inference.
+Physical cases must cover both CuPy CUDA and Torch CUDA and include nonrobust, representative HC, HAC, Ridge/L2, weighted, rank-deficient, multi-target, small-df/tail inference, and at least one `RidgeCV` final-refit inference case.
 
 ### Validator freeze rule
 
@@ -366,11 +396,12 @@ Do not claim that every inference implementation in the repository is backend-na
 
 ### Phase 1 — inventory and golden freeze
 
-- resolve exact consumer matrix;
+- resolve exact consumer matrix and finalize the capability table;
 - resolve direct and indirect CV consumers;
 - freeze NumPy/statistical behavior;
 - freeze reporting/API shapes;
-- record active/dead duplicate helpers.
+- record active/dead duplicate helpers;
+- record exact Ridge/L2 objective and penalty mapping used by each touched direct/CV consumer.
 
 ### Phase 2 — numerical state
 
@@ -382,7 +413,7 @@ Do not claim that every inference implementation in the repository is backend-na
 
 - backend-native bread/inverse/pinv;
 - backend-native HC/HAC execution;
-- preserve Ridge/intercept/rank semantics.
+- preserve Ridge/intercept/rank semantics and objective scaling.
 
 ### Phase 4 — distribution inference
 
@@ -394,13 +425,14 @@ Do not claim that every inference implementation in the repository is backend-na
 
 - migrate `LinearRegression`;
 - migrate bounded penalized Gaussian/L2 consumer graph;
-- cover representative CV final refit where applicable;
-- preserve formula behavior.
+- cover `RidgeCV` final refit and any additional confirmed CV consumers;
+- preserve formula behavior without expanding formula surface.
 
 ### Phase 6 — hosted validation
 
 - run three-backend matrix;
 - run analytic/statsmodels alignment;
+- run direct/CV objective-scale regression;
 - run no-host-transfer/failure tests;
 - run maintained hosted CI.
 
@@ -434,16 +466,16 @@ Synchronize documentation/changelogs and rerun the complete hosted gate set.
 
 #127 is `COMPLETE` only when:
 
-- exact consumer graph is documented;
+- exact consumer graph and final capability table are documented;
 - numerical Gaussian inference stays on the selected NumPy/CuPy/Torch backend;
 - explicit GPU execution has no silent NumPy/SciPy fallback;
 - final reporting conversion is the only allowed full-array NumPy snapshot;
 - nonrobust/HC0-HC3/HAC semantics pass;
-- Ridge/intercept and weighted semantics pass;
+- Ridge/intercept, weighted, and objective/penalty scaling semantics pass;
 - scalar/multi-target and rank-deficient paths pass;
 - small-df/extreme-tail precision passes;
-- formula behavior remains compatible;
-- relevant CV final-refit inference remains correct;
+- formula behavior remains compatible without accidental surface expansion;
+- `RidgeCV` and any additional confirmed CV final-refit inference consumers remain statistically/transactionally unchanged except for backend-local inference execution;
 - actual fit/inference backend is machine-auditable;
 - hosted tests and external alignment pass;
 - exact clean-head CuPy and Torch CUDA acceptance passes;
@@ -451,7 +483,7 @@ Synchronize documentation/changelogs and rerun the complete hosted gate set.
 - EN/CN documentation is synchronized;
 - final review has no unresolved CRITICAL/HIGH/relevant actionable MEDIUM findings.
 
-If local work is complete and only physical GPU or remote external evidence remains, use `PARTIAL_REMOTE_PENDING`. Missing local correctness, backend, formula, precision, or provenance evidence is not eligible for that status.
+If local work is complete and only physical GPU or remote external evidence remains, use `PARTIAL_REMOTE_PENDING`. Missing local correctness, backend, formula, precision, CV, or provenance evidence is not eligible for that status.
 
 ## 19. Explicit non-goals
 
@@ -463,6 +495,8 @@ If local work is complete and only physical GPU or remote external evidence rema
 - no sparse-input work;
 - no penalized-multinomial work;
 - no public result-container redesign;
+- no new CV selection/path behavior;
+- no new formula support for non-formula-facing consumers;
 - no mandatory multi-target vectorization;
 - no GPU speedup claim without separate synchronized evidence.
 
@@ -471,7 +505,7 @@ If local work is complete and only physical GPU or remote external evidence rema
 After #127:
 
 1. #105 — systematic linear/GLM inference benchmark and canonical dashboard evidence;
-2. #108 — complete canonical Panel estimator/covariance evidence against the released 0.2.5 contract;
+2. #108 — complete canonical Panel estimator/covariance evidence using fresh or source/validator-contract-matched provenance rather than automatic reuse of the disputed 0.2.5 final-release artifact chain;
 3. feature lanes may proceed independently when they do not compete for the same backend/inference surface:
    - #94 -> #95 for survival;
    - #96 -> #98 for multinomial;
