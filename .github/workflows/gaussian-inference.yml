@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/linear_model/_gaussian_inference.py'
+      - 'statgpu/backends/_gpu_inference_cupy.py'
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
       - 'statgpu/linear_model/wrappers/_linear.py'
@@ -92,6 +93,7 @@ jobs:
         run: |
           python -m compileall -q \
             statgpu/linear_model/_gaussian_inference.py \
+            statgpu/backends/_gpu_inference_cupy.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
@@ -106,6 +108,7 @@ jobs:
         run: |
           ruff check \
             statgpu/linear_model/_gaussian_inference.py \
+            statgpu/backends/_gpu_inference_cupy.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
