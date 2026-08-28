@@ -32,6 +32,8 @@ def _prepare_l2_model(model, backend_name="torch"):
     X, y, coef, intercept = _data()
     model._penalty = model._resolve_penalty()
     model._selected_backend_name = backend_name
+    if backend_name == "torch":
+        model._selected_backend_device = "cpu"
     model.coef_ = coef.copy()
     model.intercept_ = float(intercept)
     return X, y
