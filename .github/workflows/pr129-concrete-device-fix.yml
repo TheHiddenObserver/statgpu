@@ -1,0 +1,31 @@
+name: PR129 concrete-device provenance fix
+
+on:
+  push:
+    branches:
+      - agent/post-v0.2.5-next-phase-plan
+    paths:
+      - '.github/workflows/pr129-concrete-device-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/post-v0.2.5-next-phase-plan
+          fetch-depth: 0
+      - name: Apply reviewed concrete-device fix
+        run: |
+          printf '%s' 'H4sIAD4+kWoC/81WS28aMRC+769w98KuREwTqaqCxK299VDlVKmqLMc7C1Z2bWvsDUEo/71jGxIIKAlpq2YPwM7jm/cMRYu2Z06GRaevme6dxcC+02tRNNAyBNdJBQLupApVFBsz2zVjZmA5ZsoOJszO62nB6HFsljSTWJ1IAe4CUR1HkI2Ib1VmENogO2JFGk84FeFmpm63/A+zbCMbiA9K7YFdEU338BXRYtWW62jxfsrgzoEK0LB10rpnVqkBEYwCP2Yt0YiVoUl6TQY/4H2ZjTq+RB0gO5m82sRebeOt66LYz0dSLH2QYe6GSacNSBS9baCbLFE6B+gnIpO5W5XjJD8ajbbB/BASkZLgoWu5CDa+ylWVyGN2LdUNmGa2+RZG9lA/JGJ1XHf1Gl1KcJLjptE9m83YBZOUmkzzC+ng5/mvSD+fFuTue/J7lxE9LINFtSgfGyQ+GZs+UzeIrU4Dt1pBtB0wO8sz6dECdMdsqIGqd5qJlpQaOV1rauxdU1w39X25Y8/DacClckP59kr+9R7eT1ZK7RwIjb5jKGNWHgYTZUvimKEnyLrmnV0CVqcXmgAAtZLdY34EWRdJdkMT0aU3VHizCyOHSc+UK14yvVtz5Xh84Zg3FSevviS5qn6+/kdwc8mPDeI/Sf4RD14FnKUjNKE+W8ps+pVx7xXO2HAgyal5MfilptOTK1DW+9hHjsYeP43At9TjVzBH8F5bw7RpId0Opj3rNRHNnM6RUQgB6NaAGij8s4275QFiWzq0t2BkhGgtPiy39W5C6ALRKXoaU7xLe4D1s+NLSpMAPvj0KeZyIG+lEQ8hCBpuQb1oAAWFEJB0D8ZZeg/U8SNjsefOtdVHfvn50+NSzlNSjygzbLMovB1QQfEq7TzAY5YjnO3O6EuYgYelFV431G6KznTK1K3sBqhk5xaSQNtZ0woqnW6OOxx/bqGfjtL7DfzkS/aHeM+frRfAT9oQ/6HiNDzp/2nJ57QrhuvJ0uJNS+vPTxyeX1yebYd7M9Nnrb7jq74raz4YcvWGluRv1hyYpzALAAA=' | base64 -d | gzip -d > /tmp/pr129_concrete_device_fix.py
+          python /tmp/pr129_concrete_device_fix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --check
+          git diff --cached --quiet && { echo 'no changes produced'; exit 1; }
+          git commit -m "fix(inference): record concrete LinearRegression device"
+          git push origin HEAD:agent/post-v0.2.5-next-phase-plan
