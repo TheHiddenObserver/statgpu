@@ -355,9 +355,16 @@ class PenalizedGeneralizedLinearModel(
         # The executed fit backend *and concrete device*, not the input container
         # type or ambient CUDA state, are authoritative.
         selected_device = getattr(self, "_selected_backend_device", None)
+        device_label = str(selected_device or "")
         if backend_name == "numpy":
             selected_device = "cpu"
-        elif not str(selected_device or "").startswith("cuda:"):
+        elif backend_name == "cupy":
+            if not device_label.startswith("cuda:"):
+                raise RuntimeError(
+                    "Gaussian inference is missing concrete executed-device provenance "
+                    f"for backend={backend_name!r}: {selected_device!r}"
+                )
+        elif device_label != "cpu" and not device_label.startswith("cuda:"):
             raise RuntimeError(
                 "Gaussian inference is missing concrete executed-device provenance "
                 f"for backend={backend_name!r}: {selected_device!r}"
