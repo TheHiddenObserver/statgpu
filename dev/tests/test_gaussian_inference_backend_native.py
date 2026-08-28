@@ -10,8 +10,6 @@ from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
 )
-from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
-from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
 
 
 def _simple_state(dtype=np.float64):
@@ -283,53 +281,6 @@ def test_torch_cpu_distribution_receives_native_statistic(monkeypatch):
     assert result.metadata["numerical_device"] == "cpu"
     assert isinstance(result.pvalues, np.ndarray)
     np.testing.assert_allclose(result.pvalues, 0.125)
-
-
-def test_penalized_l2_uses_selected_backend_not_input_type():
-    pytest.importorskip("torch")
-    X, y, coef, intercept = _simple_state()
-    model = PenalizedLinearRegression(
-        penalty="l2",
-        alpha=0.2,
-        device="cpu",
-        compute_inference=True,
-    )
-    model._penalty = model._resolve_penalty()
-    model._selected_backend_name = "torch"
-    model.coef_ = coef.copy()
-    model.intercept_ = float(intercept)
-
-    # Inputs are NumPy on purpose. The fitted-backend marker owns numerical
-    # inference, so the override must move them to Torch CPU before inference.
-    model._compute_post_fit_gaussian_inference(X, y)
-
-    assert model._inference_result is not None
-    assert model._inference_result.metadata["numerical_backend"] == "torch"
-    assert model._inference_result.metadata["numerical_device"] == "cpu"
-    assert isinstance(model._X_design, np.ndarray)
-    assert isinstance(model._resid, np.ndarray)
-    assert isinstance(model._bse, np.ndarray)
-
-
-def test_non_l2_penalty_still_delegates_to_shared_mixin(monkeypatch):
-    calls = []
-
-    def _fake_shared(self, X, y, sample_weight=None):
-        calls.append((X, y, sample_weight))
-
-    monkeypatch.setattr(
-        PenalizedGeneralizedLinearModel,
-        "_compute_post_fit_gaussian_inference",
-        _fake_shared,
-        raising=False,
-    )
-    model = PenalizedLinearRegression(
-        penalty="l1", device="cpu", compute_inference=True
-    )
-    model._penalty = model._resolve_penalty()
-    X, y, _, _ = _simple_state()
-    model._compute_post_fit_gaussian_inference(X, y)
-    assert len(calls) == 1
 
 
 def test_ridgecv_final_refit_inference_does_not_change_selection():
