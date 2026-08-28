@@ -508,6 +508,7 @@ class LinearRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with FULL GPU computation (including inference)."""
         import cupy as cp
+        from cupyx.scipy.linalg import solve_triangular
         from statgpu.backends._gpu_inference_cupy import (
             compute_inference_gpu,
             compute_r2_gpu,
@@ -570,8 +571,8 @@ class LinearRegression(BaseEstimator):
         n_design_cols = int(X_design.shape[1])
         try:
             L = cp.linalg.cholesky(XtX)
-            tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
-            coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
+            tmp = solve_triangular(L, Xty, lower=True)
+            coef = solve_triangular(L.T, tmp, lower=False)
             self.rank_ = n_design_cols
         except Exception as exc:
             if not _linalg_exception_is_rank_failure(exc):
