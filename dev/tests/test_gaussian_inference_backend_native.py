@@ -239,7 +239,7 @@ def test_student_t_df1_extreme_tail_does_not_cancel_to_zero():
 
 
 def test_student_t_df2_extreme_tail_does_not_cancel_to_zero():
-    # df=2 has a representable two-sided tail near 1e-308 at t=1e154.
+    # SciPy also underflows at this boundary, so use the exact t(2) identity.
     design = np.ones((3, 1), dtype=np.float64)
     params = np.asarray([1.0e154])
     resid = np.asarray([1.0, -1.0, 0.0])
@@ -252,13 +252,13 @@ def test_student_t_df2_extreme_tail_does_not_cancel_to_zero():
         "nonrobust",
         backend="numpy",
     )
+    statistic = abs(float(result.tvalues[0]))
+    root = np.hypot(statistic, np.sqrt(2.0))
+    expected = (2.0 / root) / (root + statistic)
     assert np.isfinite(result.pvalues[0])
     assert result.pvalues[0] > 0.0
     np.testing.assert_allclose(
-        result.pvalues[0],
-        2.0 * stats.t.sf(abs(result.tvalues[0]), 2),
-        rtol=2e-15,
-        atol=0.0,
+        result.pvalues[0], expected, rtol=2e-15, atol=0.0
     )
 
 
