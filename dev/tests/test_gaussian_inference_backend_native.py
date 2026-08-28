@@ -13,14 +13,16 @@ from statgpu.linear_model._gaussian_inference import (
 
 
 def _simple_state(dtype=np.float64):
+    # Keep the ordinary closed-form fixture full rank after adding the
+    # intercept.  Rank-deficient pseudoinverse behavior is covered separately.
     X = np.asarray(
         [
             [-2.0, 0.5],
-            [-1.0, 1.0],
-            [0.0, 1.5],
-            [1.0, 2.0],
-            [2.0, 2.5],
-            [3.0, 3.0],
+            [-1.0, 1.1],
+            [0.0, 1.4],
+            [1.0, 2.2],
+            [2.0, 2.4],
+            [3.0, 3.1],
         ],
         dtype=dtype,
     )
