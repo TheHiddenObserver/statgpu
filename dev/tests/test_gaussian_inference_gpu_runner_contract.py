@@ -51,9 +51,7 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"reporting_boundary"',
         '"no_silent_fallback"',
         '"host_transfer_provenance"',
-        '"linear_regression_nonrobust"',
-        '"linear_regression_hc3"',
-        '"linear_regression_hac"',
+        'for cov_type in ("nonrobust", "hc3", "hac"):',
         '"cupy_nonrank_failure_fail_closed"',
         "_cupy_nonrank_failure_case(concrete_device)",
         '"distribution_backends"',
@@ -108,7 +106,6 @@ def test_linear_regression_gpu_scalar_critical_values_are_backend_explicit():
     assert 't.two_sided_critical_value(alpha, df=df_resid, backend="cupy")' in cupy_source
 
 
-
 def test_linear_regression_gpu_device_authority_and_cupy_fail_closed_are_static():
     linear_source = (
         Path(__file__).parents[2]
@@ -158,6 +155,7 @@ def test_shared_gaussian_cupy_allocations_follow_reference_device():
     assert 'with cp.cuda.Device(device_id):' in shared_source
     assert 'with xp.cuda.Device(int(X.device.id)):' in shared_source
 
+
 def test_exact_l2_precomputed_gpu_inference_has_concrete_device_contract():
     source = (
         Path(__file__).parents[2]
@@ -175,6 +173,7 @@ def test_exact_l2_precomputed_gpu_inference_has_concrete_device_contract():
     assert '"numerical_backend": "torch"' in source
     assert '"numerical_device": str(X.device)' in source
     assert source.count('"reporting_boundary": "post_numerical_inference"') >= 2
+
 
 def test_penalized_gaussian_router_uses_fit_time_concrete_device_authority():
     base_source = (
@@ -197,8 +196,10 @@ def test_penalized_gaussian_router_uses_fit_time_concrete_device_authority():
     assert "device=selected_device" in base_source
     assert "missing concrete executed-device provenance" in base_source
     assert 'self._selected_backend_device = str(X_arr.device)' in fit_source
-    assert 'self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"' in fit_source
+    assert "cupy_device_id = int(X_arr.device.id)" in fit_source
+    assert 'self._selected_backend_device = f"cuda:{cupy_device_id}"' in fit_source
     assert "with cp.cuda.Device(int(X.device.id))" in fit_source
+
 
 def test_cupy_public_consumers_hold_concrete_device_context_across_numerics():
     linear_source = (
@@ -230,4 +231,3 @@ def test_cupy_public_consumers_hold_concrete_device_context_across_numerics():
     assert "with cp.cuda.Device(cupy_device_id)" in fit_source
     assert "def _run_gaussian_inference_on_fit_device" in base_source
     assert "with cp.cuda.Device(cupy_device_id)" in base_source
-
