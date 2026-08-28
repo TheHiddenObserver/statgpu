@@ -35,27 +35,34 @@ def test_pglm_torch_numerics_finish_before_any_reporting_snapshot(monkeypatch):
         phase["pglm_snapshots"] += 1
         return real_pglm_to_numpy(value)
 
-    class FakeT:
-        def two_sided_pvalue(self, statistic, df):
-            assert isinstance(statistic, torch.Tensor)
-            assert statistic.device.type == "cpu"
-            return torch.full_like(statistic, 0.25)
-
-        def two_sided_critical_value(self, alpha, df):
-            assert alpha == pytest.approx(0.05)
-            assert int(df) > 0
-            phase["reporting_allowed"] = True
-            return torch.tensor(2.0, dtype=torch.float64)
-
-    def fake_distribution(name, backend="numpy", device=None):
-        assert name == "t"
+    def fake_reference_inference(
+        statistic_abs,
+        *,
+        distribution,
+        alpha,
+        backend,
+        xp,
+        df=None,
+        device=None,
+    ):
+        assert distribution == "t"
         assert backend == "torch"
         assert str(device) == "cpu"
-        return FakeT()
+        assert isinstance(statistic_abs, torch.Tensor)
+        assert statistic_abs.device.type == "cpu"
+        assert alpha == pytest.approx(0.05)
+        assert df is not None and int(df) > 0
+        phase["reporting_allowed"] = True
+        return (
+            torch.full_like(statistic_abs, 0.25),
+            torch.tensor(2.0, dtype=torch.float64),
+        )
 
     monkeypatch.setattr(gi, "_to_numpy", guarded_gi_to_numpy)
     monkeypatch.setattr(pglm_base, "_to_numpy", guarded_pglm_to_numpy)
-    monkeypatch.setattr(gi, "get_distribution", fake_distribution)
+    monkeypatch.setattr(
+        gi, "two_sided_reference_inference", fake_reference_inference
+    )
 
     X = np.asarray(
         [[-2.0, 0.5], [-1.0, 1.0], [0.0, 1.5], [1.0, 2.0], [2.0, 2.5], [3.0, 3.0]],
