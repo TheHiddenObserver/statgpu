@@ -306,6 +306,27 @@ class PenalizedGeneralizedLinearModel(
         self._nobs = int(state.nobs)
         self._df_resid = int(state.df_resid)
 
+    def _solve_exact_cupy(self, XtX, Xty, normalization):
+        """Run the existing exact-L2 CuPy solve with cuSOLVER errors enabled."""
+        import cupyx
+
+        # CuPy documents that cuSOLVER-backed routines can otherwise return
+        # invalid values for singular/indefinite inputs.  Keep this scoped so
+        # statgpu never mutates the caller's global CuPy linalg error policy.
+        with cupyx.errstate(linalg="raise"):
+            return _PenalizedFitMixin._solve_exact_cupy(
+                self, XtX, Xty, normalization
+            )
+
+    def _precompute_exact_l2_inference_cupy(self, *args, **kwargs):
+        """Run existing exact-L2 inference with cuSOLVER errors enabled."""
+        import cupyx
+
+        with cupyx.errstate(linalg="raise"):
+            return _PenalizedInferenceMixin._precompute_exact_l2_inference_cupy(
+                self, *args, **kwargs
+            )
+
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
         """Run squared-error L2 inference on the selected fit backend.
 

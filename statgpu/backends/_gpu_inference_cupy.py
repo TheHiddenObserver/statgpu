@@ -67,17 +67,21 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
         Confidence intervals on GPU.
     """
     import cupy as cp
+    import cupyx
 
     device_id = int(X_design.device.id)
     # Compute (X'X)^-1 on GPU
     XtX = cp.matmul(X_design.T, X_design)
 
     try:
-        # Use Cholesky for inversion
-        L = cp.linalg.cholesky(XtX)
-        with cp.cuda.Device(device_id):
-            identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
-        XtX_inv = cp.linalg.solve(L.T, cp.linalg.solve(L, identity))
+        # CuPy's cuSOLVER-backed Cholesky/solve can otherwise return NaNs
+        # for singular inputs instead of raising; request solver-status errors
+        # so the existing rank/definiteness recovery remains effective.
+        with cupyx.errstate(linalg="raise"):
+            L = cp.linalg.cholesky(XtX)
+            with cp.cuda.Device(device_id):
+                identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
+            XtX_inv = cp.linalg.solve(L.T, cp.linalg.solve(L, identity))
     except Exception as exc:
         if not _linalg_exception_is_rank_failure(exc):
             raise

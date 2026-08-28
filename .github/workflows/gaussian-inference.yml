@@ -14,6 +14,7 @@ on:
       - 'statgpu/linear_model/wrappers/_ridge.py'
       - 'dev/tests/test_gaussian_inference_*.py'
       - 'dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py'
+      - 'dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py'
       - '.github/workflows/gaussian-inference.yml'
   workflow_dispatch:
 
@@ -43,6 +44,7 @@ jobs:
             dev/tests/test_gaussian_inference_covariance_matrix.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
+            dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
             dev/tests/test_ridge_inference.py \
             dev/tests/test_ridge_weighted_consistency.py \
@@ -106,8 +108,10 @@ jobs:
             dev/tests/test_gaussian_inference_covariance_matrix.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
+            dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
-            dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py
+            dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
+            dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py
       - name: High-signal static checks
         run: |
           ruff check \
@@ -123,6 +127,8 @@ jobs:
             dev/tests/test_gaussian_inference_covariance_matrix.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
+            dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
             dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
+            dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py \
             --select F821,E9,F63,F7,F82
