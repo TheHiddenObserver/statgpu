@@ -130,8 +130,9 @@ Do not use “mostly complete” or `planned` as a completion status.
 ### P0 — post-0.2.5 planning and issue hygiene
 
 - [ ] Keep planning files synchronized to release 0.2.5 / `84f8bc7e17f66466b3a325cbb007b6cb41843821`.
-- [ ] Audit #93 against Stage A/B/C, #126, and v0.2.5 evidence; do not reopen delivered Panel numerical scope solely because the issue remains open.
-- [ ] If #93 has no demonstrated missing acceptance criterion, close/reclassify it through issue/evidence reconciliation rather than another Panel implementation PR.
+- [ ] Audit #93 against Stage A/B/C and #126 implementation evidence; do not reopen delivered Panel numerical scope solely because the issue remains open.
+- [ ] During #93/#108 evidence work, keep the PR #128 release-validator provenance caveat explicit: `results/pr126_release_697de113/` predates the final maintained runner contract and is historical numerical-source evidence, not proof of that later validator contract.
+- [ ] If #93 has no demonstrated missing production acceptance criterion, close/reclassify it through issue/evidence reconciliation rather than another Panel implementation PR.
 
 ### P1 — current correctness/inference implementation
 
@@ -145,7 +146,7 @@ Do not use “mostly complete” or `planned` as a completion status.
 ### P1 — evidence after #127
 
 - [ ] #105 — systematic linear/GLM inference benchmark and validation coverage after #127 stabilizes backend-native inference.
-- [ ] #108 — extend canonical Panel estimator/covariance evidence for the released 0.2.5 capability.
+- [ ] #108 — extend canonical Panel estimator/covariance evidence for the released 0.2.5 capability using fresh or contract-matched provenance rather than automatic reuse of the disputed final-release validator artifacts.
 
 ### P2 — survival foundations
 
