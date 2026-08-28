@@ -12,10 +12,10 @@ Completed benchmark/dashboard setup issues #90, #91, #92, and #100 are intention
 
 | Priority | Issue | Work package | Dependencies / sequencing |
 |---|---:|---|---|
-| P0 | #93 | Panel Tier-1 issue/evidence closure audit | Stage A/B/C implementation delivered through the 0.2.5 line; do not reopen numerical scope without a demonstrated missing acceptance criterion |
+| P0 | #93 | Panel Tier-1 issue/evidence closure audit | Stage A/B/C implementation delivered through the 0.2.5 line; distinguish original implementation evidence from the separate PR #128 final-validator provenance caveat |
 | P1 | #127 | Migrate legacy Gaussian linear-model inference to backend-native execution | Follow-up from #126; use `gaussian_inference_backend_native_plan.md` |
 | P1 | #105 | Systematic linear/GLM inference benchmark and validation coverage | Sequence after #127 so canonical evidence measures the repaired inference contract |
-| P1 | #108 | Extend canonical Panel estimator/covariance coverage | Evidence successor to released Panel Tier-1 capability; independent of new Panel implementation |
+| P1 | #108 | Extend canonical Panel estimator/covariance coverage | Evidence successor to released Panel Tier-1 capability; use fresh or contract-matched provenance rather than automatic reuse of disputed final-release validator artifacts |
 | P2 | #94 | Implement Kaplan-Meier and Nelson-Aalen estimators | Independent feature lane |
 | P2 | #95 | Implement initial Weibull/log-normal/log-logistic AFT family | Prefer after #94 unless isolated resources justify parallel work |
 | P2 | #96 | Implement unpenalized multinomial logistic regression Phase 1 | Non-tunable base contract; prerequisite for #98 |
@@ -48,13 +48,20 @@ post-0.2.5 rebaseline
 
 #93 is not a prerequisite for #127 implementation unless its audit demonstrates a concrete missing production acceptance criterion. Stale unchecked boxes alone are not such evidence.
 
+The #93 audit must keep two evidence questions separate:
+
+1. whether Stage A/B/C production implementation satisfied its original acceptance contract; and
+2. whether the later PR #128 release artifacts prove the final maintained physical-validator contract.
+
+The known answer to the second question is currently no: `results/pr126_release_697de113/` predates the final PR #128 runner-contract changes. That provenance limitation must not be silently converted into either a claim that the Panel numerical implementation is defective or a claim that the final validator contract was physically rerun.
+
 ### Panel evidence lane
 
 ```text
 released Panel Tier-1 / v0.2.5 --> #108
 ```
 
-#108 expands canonical evidence for already maintained Panel estimators/covariances. It must not duplicate #93 implementation work.
+#108 expands canonical evidence for already maintained Panel estimators/covariances. It must not duplicate #93 implementation work and must use fresh or source/validator-contract-matched evidence when promoting canonical acceptance claims.
 
 ### Survival lane
 
@@ -88,4 +95,5 @@ released Panel Tier-1 / v0.2.5 --> #108
 - Roadmap/issue scope may narrow work but may not weaken `.claude` or `dev/AGENTS.md` hard gates.
 - Close issues only with merged implementation evidence, required CI, external alignment where applicable, physical-GPU evidence where active, and synchronized documentation.
 - Do not keep a released capability in the active implementation queue solely because historical checkboxes or plan text were not updated after merge/release.
+- Do not promote historical evidence generated under an older validator contract as proof of a newer acceptance contract.
 - Do not close an issue solely because a class/function/parser/frontend control exists.
