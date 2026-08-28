@@ -1,0 +1,31 @@
+name: PR129 device and fail-closed fix
+
+on:
+  push:
+    branches:
+      - agent/post-v0.2.5-next-phase-plan
+    paths:
+      - '.github/workflows/pr129-device-failclosed-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/post-v0.2.5-next-phase-plan
+          fetch-depth: 0
+      - name: Apply reviewed device and fail-closed fixes
+        run: |
+          printf '%s' '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' | base64 -d | gzip -d > /tmp/pr129_device_failclosed_fix.py
+          python /tmp/pr129_device_failclosed_fix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --check
+          git diff --cached --quiet && { echo 'no changes produced'; exit 1; }
+          git commit -m "fix(inference): harden GPU device and rank recovery"
+          git push origin HEAD:agent/post-v0.2.5-next-phase-plan
