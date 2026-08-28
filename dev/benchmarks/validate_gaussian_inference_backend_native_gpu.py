@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Physical CuPy/Torch acceptance for issue #127 Gaussian inference.
 
-The runner is intentionally strict: canonical evidence requires both GPU
-backends, exact source identity, a tracked-clean tree, explicit validation tier,
-and machine-auditable numerical-inference provenance.
+Canonical evidence requires both GPU backends, exact source identity, a clean
+candidate tree, explicit validation tier, backend/device provenance, numerical
+parity, and the maintained small-df tail boundary.
 """
 
 from __future__ import annotations
@@ -18,10 +18,13 @@ from pathlib import Path
 
 import numpy as np
 
+from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGeneralizedLinearModel, RidgeCV
 from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
+    robust_covariance_gpu,
+    robust_covariance_numpy,
 )
 
 SCHEMA_VERSION = 2
@@ -33,8 +36,8 @@ def _git(*args: str) -> str:
     return subprocess.check_output(["git", *args], text=True).strip()
 
 
-def _tracked_clean() -> bool:
-    return _git("status", "--porcelain", "--untracked-files=no") == ""
+def _clean_worktree() -> bool:
+    return _git("status", "--porcelain") == ""
 
 
 def _validate_backend_list(raw: str) -> tuple[str, ...]:
@@ -140,6 +143,52 @@ def _fit_pglm(X, y, *, device: str, cov_type: str, sample_weight=None):
     return model
 
 
+def _ridge_covariance_from_state(state, cov_type: str, backend: str, alpha: float):
+    ridge_alpha = float(state.normalization) * float(alpha)
+    X = state.X_design
+    k = int(X.shape[1])
+    if backend == "numpy":
+        penalty = np.eye(k, dtype=np.float64) * ridge_alpha
+        penalty[0, 0] = 0.0
+        XtX = X.T @ X
+        bread_inv = np.linalg.pinv(XtX + penalty)
+        if cov_type == "nonrobust":
+            return float(np.asarray(state.scale)) * (bread_inv @ XtX @ bread_inv)
+        return robust_covariance_numpy(
+            X,
+            state.resid,
+            bread_inv,
+            cov_type,
+            hac_maxlags=2,
+            df_resid=state.df_resid,
+        )
+
+    if backend == "cupy":
+        import cupy as xp
+    else:
+        import torch as xp
+    XtX = X.T @ X
+    if backend == "torch":
+        penalty_diag = xp.full((k,), ridge_alpha, dtype=X.dtype, device=X.device)
+        penalty_diag[0] = 0.0
+        bread_inv = xp.linalg.pinv(XtX + xp.diag(penalty_diag))
+    else:
+        penalty_diag = xp.full((k,), ridge_alpha, dtype=X.dtype)
+        penalty_diag[0] = 0.0
+        bread_inv = xp.linalg.pinv(XtX + xp.diag(penalty_diag))
+    if cov_type == "nonrobust":
+        return state.scale * (bread_inv @ XtX @ bread_inv)
+    return robust_covariance_gpu(
+        X,
+        state.resid,
+        bread_inv,
+        cov_type,
+        xp,
+        hac_maxlags=2,
+        df_resid=state.df_resid,
+    )
+
+
 def _consumer_case(backend: str, cov_type: str, weighted: bool):
     X, y, weights = _problem()
     sw = weights if weighted else None
@@ -157,27 +206,58 @@ def _consumer_case(backend: str, cov_type: str, weighted: bool):
         sample_weight=sw_gpu,
     )
 
-    expected_backend = backend
     actual_backend = str(getattr(gpu, "_selected_backend_name", "")).lower()
-    if actual_backend != expected_backend:
+    if actual_backend != backend:
         raise AssertionError(
             f"fit backend mismatch: requested={backend}, executed={actual_backend}"
         )
     meta = dict(gpu._inference_result.metadata)
     if meta.get("numerical_backend") != backend:
         raise AssertionError(f"inference backend mismatch: {meta}")
-    if not str(meta.get("numerical_device", "")).startswith("cuda:"):
+    inference_device = str(meta.get("numerical_device", ""))
+    if not inference_device.startswith("cuda:"):
         raise AssertionError(f"inference device is not concrete CUDA: {meta}")
     if meta.get("reporting_boundary") != "post_numerical_inference":
         raise AssertionError(f"reporting boundary metadata missing: {meta}")
 
+    cpu_state = build_gaussian_fit_state(
+        X,
+        y,
+        cpu.coef_,
+        cpu.intercept_,
+        True,
+        sample_weight=sw,
+        backend="numpy",
+    )
+    gpu_state = build_gaussian_fit_state(
+        X_gpu,
+        y_gpu,
+        gpu.coef_,
+        gpu.intercept_,
+        True,
+        sample_weight=sw_gpu,
+        backend=backend,
+        device=inference_device,
+    )
+    gpu_cov = _ridge_covariance_from_state(gpu_state, cov_type, backend, 0.05)
+    cpu_cov = _ridge_covariance_from_state(cpu_state, cov_type, "numpy", 0.05)
+
     errors = {
         "coef": _max_error(gpu.coef_, cpu.coef_),
+        "covariance": _max_error(_to_numpy(gpu_cov), cpu_cov),
         "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
         "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
         "ci": _max_error(gpu._conf_int, cpu._conf_int),
     }
-    limits = {"coef": 2e-6, "bse": 2e-5, "pvalue": 2e-4, "ci": 5e-5}
+    limits = {
+        "coef": 2e-6,
+        "covariance": 5e-6,
+        "bse": 2e-5,
+        "statistic": 2e-4,
+        "pvalue": 2e-4,
+        "ci": 5e-5,
+    }
     for key, limit in limits.items():
         if not np.isfinite(errors[key]) or errors[key] > limit:
             raise AssertionError(
@@ -189,8 +269,10 @@ def _consumer_case(backend: str, cov_type: str, weighted: bool):
         "requested_backend": backend,
         "executed_backend": actual_backend,
         "executed_inference_backend": meta.get("numerical_backend"),
-        "executed_inference_device": meta.get("numerical_device"),
+        "executed_inference_device": inference_device,
         "reporting_backend": meta.get("reporting_backend"),
+        "reporting_boundary": meta.get("reporting_boundary"),
+        "no_silent_fallback": True,
         "errors": errors,
         "limits": limits,
         "status": "success",
@@ -198,11 +280,12 @@ def _consumer_case(backend: str, cov_type: str, weighted: bool):
 
 
 def _functional_edge_cases(backend: str, concrete_device: str):
-    # Rank-deficient native inference.
+    # Rank-deficient native inference and NumPy parity.
     x = np.arange(1.0, 9.0)
     design_np = np.column_stack([np.ones_like(x), x, x])
     params_np = np.asarray([0.5, 0.25, 0.25])
     resid_np = np.asarray([0.2, -0.1, 0.05, -0.15, 0.1, -0.1, 0.05, -0.05])
+    scale = float(np.sum(resid_np**2) / (len(x) - 3))
     design = _as_backend(design_np, backend)
     params = _as_backend(params_np, backend)
     resid = _as_backend(resid_np, backend)
@@ -211,16 +294,31 @@ def _functional_edge_cases(backend: str, concrete_device: str):
         design,
         params,
         resid,
-        float(np.sum(resid_np**2) / (len(x) - 3)),
+        scale,
         len(x) - 3,
         "nonrobust",
         backend=backend,
         device=concrete_device,
     )
+    rank_ref = compute_gaussian_inference(
+        design_np,
+        params_np,
+        resid_np,
+        scale,
+        len(x) - 3,
+        "nonrobust",
+        backend="numpy",
+    )
     if result.metadata.get("numerical_device") != concrete_device:
         raise AssertionError("rank-deficient case lost concrete inference device")
+    rank_errors = {
+        "bse": _max_error(result.bse, rank_ref.bse),
+        "statistic": _max_error(result.tvalues, rank_ref.tvalues),
+        "pvalue": _max_error(result.pvalues, rank_ref.pvalues),
+        "ci": _max_error(result.conf_int, rank_ref.conf_int),
+    }
 
-    # Multi-target numerical state must stay native until the one final snapshot.
+    # Multi-target numerical state stays native until the one reporting snapshot.
     X, y, _ = _problem(seed=128)
     coef = np.column_stack([
         np.asarray([0.8, -0.35, 0.2, 0.55, -0.1]),
@@ -248,18 +346,94 @@ def _functional_edge_cases(backend: str, concrete_device: str):
         backend=backend,
         device=concrete_device,
     )
+    state_ref = build_gaussian_fit_state(
+        X, y2, coef, intercept, True, backend="numpy"
+    )
+    multi_ref = compute_gaussian_inference(
+        state_ref.X_design,
+        state_ref.params,
+        state_ref.resid,
+        state_ref.scale,
+        state_ref.df_resid,
+        "hc3",
+        backend="numpy",
+    )
     if multi.metadata.get("numerical_device") != concrete_device:
         raise AssertionError("multi-target case lost concrete inference device")
     if tuple(multi.bse.shape) != tuple(state.params.shape):
         raise AssertionError("multi-target inference shape mismatch")
+    multi_errors = {
+        "bse": _max_error(multi.bse, multi_ref.bse),
+        "statistic": _max_error(multi.tvalues, multi_ref.tvalues),
+        "pvalue": _max_error(multi.pvalues, multi_ref.pvalues),
+        "ci": _max_error(multi.conf_int, multi_ref.conf_int),
+    }
+    for family, values in (("rank", rank_errors), ("multi_target", multi_errors)):
+        for key, value in values.items():
+            if not np.isfinite(value) or value > 5e-6:
+                raise AssertionError(
+                    f"{backend} {family} {key} error {value:.3e} exceeds 5e-6"
+                )
 
     return {
         "case": "functional_rank_and_multitarget",
         "requested_backend": backend,
         "executed_inference_backend": multi.metadata.get("numerical_backend"),
         "executed_inference_device": multi.metadata.get("numerical_device"),
-        "rank_status": "success",
-        "multi_target_status": "success",
+        "reporting_boundary": multi.metadata.get("reporting_boundary"),
+        "rank_errors": rank_errors,
+        "multi_target_errors": multi_errors,
+        "limit": 5e-6,
+        "no_silent_fallback": True,
+        "status": "success",
+    }
+
+
+def _expected_t2_two_sided(statistic: float) -> float:
+    value = abs(float(statistic))
+    root = np.hypot(value, np.sqrt(2.0))
+    return (2.0 / root) / (root + value)
+
+
+def _small_df_tail_case(backend: str, concrete_device: str):
+    design = _as_backend(np.ones((3, 1), dtype=np.float64), backend)
+    params = _as_backend(np.asarray([1.0e154]), backend)
+    resid = _as_backend(np.asarray([1.0, -1.0, 0.0]), backend)
+    _assert_same_native_device(design, backend, concrete_device)
+    result = compute_gaussian_inference(
+        design,
+        params,
+        resid,
+        1.0,
+        2,
+        "nonrobust",
+        backend=backend,
+        device=concrete_device,
+    )
+    statistic = float(result.tvalues[0])
+    pvalue = float(result.pvalues[0])
+    expected = _expected_t2_two_sided(statistic)
+    if not np.isfinite(pvalue) or pvalue <= 0.0:
+        raise AssertionError(
+            f"{backend}: representable Student-t(2) tail collapsed to {pvalue!r}"
+        )
+    rel_error = abs(pvalue - expected) / expected
+    if not np.isfinite(rel_error) or rel_error > 5e-12:
+        raise AssertionError(
+            f"{backend}: Student-t(2) tail relative error {rel_error:.3e} exceeds 5e-12"
+        )
+    return {
+        "case": "student_t_df2_extreme_tail",
+        "requested_backend": backend,
+        "executed_inference_backend": result.metadata.get("numerical_backend"),
+        "executed_inference_device": result.metadata.get("numerical_device"),
+        "df": 2,
+        "statistic": statistic,
+        "pvalue": pvalue,
+        "expected_pvalue": expected,
+        "relative_error": rel_error,
+        "limit": 5e-12,
+        "pvalue_nonzero": True,
         "status": "success",
     }
 
@@ -301,16 +475,37 @@ def _ridgecv_case(backend: str):
         raise AssertionError(
             f"RidgeCV inference backend mismatch: {result.metadata}"
         )
-    coef_error = _max_error(gpu.coef_, cpu.coef_)
-    if coef_error > 2e-6:
-        raise AssertionError(f"RidgeCV coefficient error {coef_error:.3e} exceeds 2e-6")
+    inference_device = str(result.metadata.get("numerical_device", ""))
+    if not inference_device.startswith("cuda:"):
+        raise AssertionError(
+            f"RidgeCV inference device is not concrete CUDA: {result.metadata}"
+        )
+    if result.metadata.get("reporting_boundary") != "post_numerical_inference":
+        raise AssertionError("RidgeCV inference reporting boundary is missing")
+    errors = {
+        "coef": _max_error(gpu.coef_, cpu.coef_),
+        "bse": _max_error(gpu.estimator_._bse, cpu.estimator_._bse),
+        "statistic": _max_error(gpu.estimator_._tvalues, cpu.estimator_._tvalues),
+        "pvalue": _max_error(gpu.estimator_._pvalues, cpu.estimator_._pvalues),
+        "ci": _max_error(gpu.estimator_._conf_int, cpu.estimator_._conf_int),
+    }
+    limits = {"coef": 2e-6, "bse": 2e-5, "statistic": 2e-4, "pvalue": 2e-4, "ci": 5e-5}
+    for key, limit in limits.items():
+        if not np.isfinite(errors[key]) or errors[key] > limit:
+            raise AssertionError(
+                f"RidgeCV {backend} {key} error {errors[key]:.3e} exceeds {limit:.3e}"
+            )
     return {
         "case": "ridgecv_final_refit_inference",
         "requested_backend": backend,
         "executed_backend": estimator_backend,
         "executed_inference_backend": result.metadata.get("numerical_backend"),
+        "executed_inference_device": inference_device,
+        "reporting_boundary": result.metadata.get("reporting_boundary"),
         "selected_alpha": float(gpu.alpha_),
-        "coef_error": coef_error,
+        "errors": errors,
+        "limits": limits,
+        "no_silent_fallback": True,
         "status": "success",
     }
 
@@ -322,6 +517,7 @@ def run_backend(backend: str):
         cases.append(_consumer_case(backend, cov_type, weighted=False))
     cases.append(_consumer_case(backend, "nonrobust", weighted=True))
     cases.append(_functional_edge_cases(backend, concrete_device))
+    cases.append(_small_df_tail_case(backend, concrete_device))
     cases.append(_ridgecv_case(backend))
     return {
         "backend": backend,
@@ -348,15 +544,17 @@ def main(argv=None) -> int:
         raise RuntimeError(
             f"exact-source gate failed: HEAD={git_sha}, expected={args.expected_sha}"
         )
-    if not _tracked_clean():
-        raise RuntimeError("tracked worktree must be clean before physical validation")
+    clean_before = _clean_worktree()
+    if not clean_before:
+        raise RuntimeError("physical acceptance requires a clean working tree")
 
     artifact = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_sha": git_sha,
         "validation_tier": args.validation_tier,
-        "working_tree_clean": True,
+        "working_tree_clean_before": clean_before,
+        "working_tree_clean_after_checks": False,
         "python_version": platform.python_version(),
         "gpu_model": _gpu_model(),
         "required_backends": list(_REQUIRED_BACKENDS),
@@ -369,6 +567,12 @@ def main(argv=None) -> int:
     try:
         for backend in backends:
             artifact["results"].append(run_backend(backend))
+        clean_after = _clean_worktree()
+        if not clean_after:
+            raise RuntimeError(
+                "working tree changed during physical validation before artifact write"
+            )
+        artifact["working_tree_clean_after_checks"] = True
         artifact["status"] = "success"
     except Exception as exc:
         artifact["status"] = "failure"
