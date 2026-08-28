@@ -44,11 +44,24 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"--expected-sha", required=True',
         '"--validation-tier", required=True',
         '"--backends", required=True',
-        '"working_tree_clean": True',
+        '"working_tree_clean_before"',
+        '"working_tree_clean_after_checks"',
         '"executed_inference_backend"',
         '"executed_inference_device"',
         '"reporting_boundary"',
+        '"no_silent_fallback"',
         '"ridgecv_final_refit_inference"',
         '"functional_rank_and_multitarget"',
+        '"student_t_df2_extreme_tail"',
+        '"covariance"',
+        '"statistic"',
     ):
         assert required in source
+
+
+def test_runner_small_df_reference_is_nonzero_at_extreme_float64_tail():
+    runner = _load_runner()
+    statistic = 1.0e154
+    expected = runner._expected_t2_two_sided(statistic)
+    assert expected > 0.0
+    assert expected < 1e-300
