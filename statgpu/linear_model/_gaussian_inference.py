@@ -15,7 +15,7 @@ import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy, get_backend
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
-from statgpu.inference._distributions_backend import get_distribution
+from statgpu.inference._reference_distribution import two_sided_reference_inference
 from statgpu.inference._results import GaussianInferenceResult
 
 
@@ -35,12 +35,12 @@ class GaussianFitState:
 
 def validate_cov_type(cov_type: str) -> str:
     """Validate and normalize cov_type. Preserve string identity for clone()."""
-    _ct = str(cov_type).lower()
-    if _ct not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
+    normalized = str(cov_type).lower()
+    if normalized not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
         raise ValueError(
             "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
         )
-    return cov_type if str(cov_type) == _ct else _ct
+    return cov_type if str(cov_type) == normalized else normalized
 
 
 def validate_hac_maxlags(hac_maxlags: Optional[int]) -> Optional[int]:
@@ -57,6 +57,18 @@ def resolve_hac_maxlags(n_obs: int, hac_maxlags: Optional[int]) -> int:
     else:
         maxlags = int(hac_maxlags)
     return max(0, min(maxlags, n_obs - 1))
+
+
+def _namespace(backend: str):
+    if backend == "torch":
+        import torch
+
+        return torch
+    if backend == "cupy":
+        import cupy as cp
+
+        return cp
+    return np
 
 
 def _device_label(value, backend: str) -> str:
@@ -127,11 +139,7 @@ def _sum(value, backend: str, axis=None):
 
 
 def _sqrt(value, backend: str):
-    if backend == "torch":
-        import torch
-
-        return torch.sqrt(value)
-    return np.sqrt(value) if backend == "numpy" else __import__("cupy").sqrt(value)
+    return _namespace(backend).sqrt(value)
 
 
 def _abs(value, backend: str):
@@ -139,15 +147,11 @@ def _abs(value, backend: str):
         import torch
 
         return torch.abs(value)
-    return np.abs(value) if backend == "numpy" else __import__("cupy").abs(value)
+    return _namespace(backend).abs(value)
 
 
 def _diag(value, backend: str):
-    if backend == "torch":
-        import torch
-
-        return torch.diag(value)
-    return np.diag(value) if backend == "numpy" else __import__("cupy").diag(value)
+    return _namespace(backend).diag(value)
 
 
 def _stack(values, backend: str, axis=0):
@@ -155,8 +159,7 @@ def _stack(values, backend: str, axis=0):
         import torch
 
         return torch.stack(list(values), dim=axis)
-    xp = np if backend == "numpy" else __import__("cupy")
-    return xp.stack(list(values), axis=axis)
+    return _namespace(backend).stack(list(values), axis=axis)
 
 
 def _maximum(value, floor: float, backend: str):
@@ -164,17 +167,7 @@ def _maximum(value, floor: float, backend: str):
         import torch
 
         return torch.clamp(value, min=floor)
-    xp = np if backend == "numpy" else __import__("cupy")
-    return xp.maximum(value, floor)
-
-
-def _clip(value, lo: float, hi: float, backend: str):
-    if backend == "torch":
-        import torch
-
-        return torch.clamp(value, min=lo, max=hi)
-    xp = np if backend == "numpy" else __import__("cupy")
-    return xp.clip(value, lo, hi)
+    return _namespace(backend).maximum(value, floor)
 
 
 def _scalar(value, backend: str) -> float:
@@ -186,14 +179,11 @@ def _scalar(value, backend: str) -> float:
 
 
 def _contains_nan(value, backend: str) -> bool:
+    xp = _namespace(backend)
     if backend == "torch":
-        import torch
-
-        return bool(torch.any(torch.isnan(value)).item())
+        return bool(xp.any(xp.isnan(value)).item())
     if backend == "cupy":
-        import cupy as cp
-
-        return bool(cp.any(cp.isnan(value)).item())
+        return bool(xp.any(xp.isnan(value)).item())
     return bool(np.any(np.isnan(np.asarray(value))))
 
 
@@ -249,7 +239,7 @@ def build_gaussian_fit_state(
             else:
                 params = torch.cat([intercept_arr.reshape(1, -1), coef_arr], dim=0)
         else:
-            xp = np if backend_name == "numpy" else __import__("cupy")
+            xp = _namespace(backend_name)
             intercept_col = xp.ones((int(X_arr.shape[0]), 1), dtype=X_arr.dtype)
             X_design_raw = xp.concatenate([intercept_col, X_arr], axis=1)
             if coef_arr.ndim == 1:
@@ -297,14 +287,13 @@ def build_gaussian_fit_state(
     rss = _sum(resid**2, backend_name, axis=0)
     if df_resid > 0:
         scale = rss / float(df_resid)
-    else:
-        if backend_name == "torch":
-            import torch
+    elif backend_name == "torch":
+        import torch
 
-            scale = torch.full_like(rss, float("nan"))
-        else:
-            xp = np if backend_name == "numpy" else __import__("cupy")
-            scale = xp.full_like(rss, xp.nan, dtype=X_arr.dtype)
+        scale = torch.full_like(rss, float("nan"))
+    else:
+        xp = _namespace(backend_name)
+        scale = xp.full_like(rss, xp.nan, dtype=X_arr.dtype)
 
     return GaussianFitState(
         X_design=X_design,
@@ -367,7 +356,7 @@ def robust_covariance_numpy(
     return bread_inv @ meat @ bread_inv
 
 
-def _hac_meat_gpu(scores, maxlags, backend: str):
+def _hac_meat_gpu(scores, maxlags):
     meat = scores.T @ scores
     for lag in range(1, maxlags + 1):
         weight = 1.0 - lag / (maxlags + 1.0)
@@ -397,21 +386,17 @@ def robust_covariance_gpu(
     if cov_type == "hac":
         scores = X * resid.reshape(-1, 1)
         maxlags = resolve_hac_maxlags(int(n), hac_maxlags)
-        meat = _hac_meat_gpu(scores, maxlags, backend)
+        meat = _hac_meat_gpu(scores, maxlags)
         return bread_inv @ meat @ bread_inv
 
     leverage = None
     if cov_type in ("hc2", "hc3"):
         if backend == "torch":
-            import torch
-
-            leverage = torch.sum(X * (X @ bread_inv), dim=1)
-            leverage = torch.clamp(leverage, min=0.0, max=1.0 - 1e-12)
+            leverage = xp.sum(X * (X @ bread_inv), dim=1)
+            leverage = xp.clamp(leverage, min=0.0, max=1.0 - 1e-12)
         else:
-            import cupy as cp
-
-            leverage = cp.sum(X * (X @ bread_inv), axis=1)
-            leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
+            leverage = xp.sum(X * (X @ bread_inv), axis=1)
+            leverage = xp.clip(leverage, 0.0, 1.0 - 1e-12)
 
     if cov_type == "hc2":
         omega = resid.reshape(-1) ** 2 / _maximum(
@@ -470,6 +455,19 @@ def _distribution_metadata(
     }
 
 
+def _reference_inference(statistic, *, distribution, alpha, backend, device, df=None):
+    xp = _namespace(backend)
+    return two_sided_reference_inference(
+        _abs(statistic, backend),
+        distribution=distribution,
+        alpha=alpha,
+        backend=backend,
+        xp=xp,
+        df=df,
+        device=device if backend == "torch" else None,
+    )
+
+
 def _compute_single_native(
     X,
     params,
@@ -494,11 +492,14 @@ def _compute_single_native(
             cov_params = scale * bread_inv
         bse = _sqrt(_diag(cov_params, backend), backend)
         statistic = params / (bse + 1e-30)
-        dist = get_distribution(
-            "t", backend=backend, device=device if backend == "torch" else None
+        pvalues, critical = _reference_inference(
+            statistic,
+            distribution="t",
+            alpha=alpha,
+            backend=backend,
+            device=device,
+            df=df_resid,
         )
-        pvalues = dist.two_sided_pvalue(statistic, df=df_resid)
-        critical = dist.two_sided_critical_value(alpha, df=df_resid)
         method = "classical"
         distribution = "t"
     else:
@@ -512,7 +513,7 @@ def _compute_single_native(
                 df_resid=df_resid,
             )
         else:
-            xp = __import__("torch") if backend == "torch" else __import__("cupy")
+            xp = _namespace(backend)
             cov_params = robust_covariance_gpu(
                 X,
                 resid,
@@ -524,13 +525,13 @@ def _compute_single_native(
             )
         bse = _sqrt(_maximum(_diag(cov_params, backend), 0.0, backend), backend)
         statistic = params / (bse + 1e-30)
-        dist = get_distribution(
-            "norm", backend=backend, device=device if backend == "torch" else None
+        pvalues, critical = _reference_inference(
+            statistic,
+            distribution="normal",
+            alpha=alpha,
+            backend=backend,
+            device=device,
         )
-        pvalues = _clip(
-            2.0 * dist.sf(_abs(statistic, backend)), 0.0, 1.0, backend
-        )
-        critical = dist.ppf(1.0 - alpha / 2.0)
         method = "sandwich"
         distribution = "normal"
 
@@ -570,13 +571,11 @@ def compute_gaussian_inference(
     numerical_device = _device_label(X, backend_name)
     k = int(X.shape[1])
     XtX = X.T @ X
+    xp = _namespace(backend_name)
 
     if backend_name == "torch":
-        import torch
-
-        penalty_diag = torch.zeros(k, dtype=X.dtype, device=X.device)
+        penalty_diag = xp.zeros(k, dtype=X.dtype, device=X.device)
     else:
-        xp = np if backend_name == "numpy" else __import__("cupy")
         penalty_diag = xp.zeros(k, dtype=X.dtype)
 
     if ridge_alpha:
@@ -596,25 +595,24 @@ def compute_gaussian_inference(
 
     if params_arr.ndim == 2:
         n_targets = int(params_arr.shape[1])
-        native = []
-        for target in range(n_targets):
-            native.append(
-                _compute_single_native(
-                    X,
-                    params_arr[:, target],
-                    resid_arr[:, target],
-                    scale_arr.reshape(-1)[target],
-                    XtX=XtX,
-                    bread_inv=bread_inv,
-                    backend=backend_name,
-                    device=numerical_device,
-                    df_resid=df_resid,
-                    cov_type=cov_type_norm,
-                    hac_maxlags=hac_maxlags,
-                    ridge_alpha=ridge_alpha,
-                    alpha=alpha,
-                )
+        native = [
+            _compute_single_native(
+                X,
+                params_arr[:, target],
+                resid_arr[:, target],
+                scale_arr.reshape(-1)[target],
+                XtX=XtX,
+                bread_inv=bread_inv,
+                backend=backend_name,
+                device=numerical_device,
+                df_resid=df_resid,
+                cov_type=cov_type_norm,
+                hac_maxlags=hac_maxlags,
+                ridge_alpha=ridge_alpha,
+                alpha=alpha,
             )
+            for target in range(n_targets)
+        ]
         bse = _stack([value[0] for value in native], backend_name, axis=1)
         statistic = _stack([value[1] for value in native], backend_name, axis=1)
         pvalues = _stack([value[2] for value in native], backend_name, axis=1)
