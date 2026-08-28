@@ -134,6 +134,8 @@ def test_linear_regression_gpu_device_authority_and_cupy_fail_closed_are_static(
     assert "torch_device = str(X.device)" in linear_source
     assert "elif str(y.device) != torch_device" in linear_source
     assert "with cp.cuda.Device(cupy_device_id)" in linear_source
+    assert "compute_aic_bic_gpu(" in linear_source
+    assert "compute_f_stat_gpu(" in linear_source
     assert "_linalg_exception_is_rank_failure(exc)" in cupy_source
     assert "with cp.cuda.Device(device_id)" in cupy_source
     assert workflow_source.count("statgpu/backends/_gpu_inference_cupy.py") >= 3

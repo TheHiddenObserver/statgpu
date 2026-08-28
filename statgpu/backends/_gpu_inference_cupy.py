@@ -84,7 +84,7 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
         # Pseudoinverse recovery is reserved for rank/definiteness failures.
         XtX_inv = cp.linalg.pinv(XtX)
 
-# Standard errors: sqrt(scale * diag((X'X)^-1))
+    # Standard errors: sqrt(scale * diag((X'X)^-1))
     bse_gpu = cp.sqrt(cp.maximum(scale * cp.diag(XtX_inv), 0.0))
 
     # t-statistics (add epsilon to avoid division by zero for collinear features)

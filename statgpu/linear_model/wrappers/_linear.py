@@ -631,13 +631,17 @@ class LinearRegression(BaseEstimator):
             # R-squared on GPU
             self._rsquared_gpu = compute_r2_gpu(y, resid)
 
-            # AIC/BIC on GPU
+            # AIC/BIC and F-statistic helpers create scalar CuPy arrays;
+            # bind them to the executed X device rather than ambient current device.
             k = n_features + (1 if self._effective_fit_intercept else 0)
             scale_mle = cp.sum(resid ** 2) / n_samples
-            self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
-
-            # F-statistic on GPU
-            self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+            with cp.cuda.Device(cupy_device_id):
+                self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(
+                    n_samples, k, scale_mle
+                )
+                self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(
+                    y, resid, X_design, df_resid
+                )
 
         # Single transfer to CPU at the end
         coef_np = coef.get()
