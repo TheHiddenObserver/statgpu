@@ -118,6 +118,27 @@ def test_ridge_formula_inference_matches_filtered_direct_fit():
     )
 
 
+def test_optimized_ridge_cpu_records_executed_backend_provenance():
+    rng = np.random.default_rng(12704)
+    X = rng.normal(size=(96, 4))
+    y = 0.3 + X @ np.asarray([0.6, -0.2, 0.5, 0.1]) + rng.normal(
+        scale=0.25, size=X.shape[0]
+    )
+
+    model = Ridge(
+        alpha=0.12,
+        solver="exact",
+        device="cpu",
+        compute_inference=True,
+        cov_type="nonrobust",
+    ).fit(X, y)
+
+    assert model._selected_backend_name == "numpy"
+    assert model._inference_result is not None
+    assert model._inference_result.metadata["numerical_backend"] == "numpy"
+    assert model._inference_result.metadata["numerical_device"] == "cpu"
+
+
 def test_public_generic_pglm_l2_uses_selected_torch_backend():
     pytest.importorskip("torch")
     model = PenalizedGeneralizedLinearModel(
