@@ -1,0 +1,31 @@
+name: PR129 PGLM device authority fix
+
+on:
+  push:
+    branches:
+      - agent/post-v0.2.5-next-phase-plan
+    paths:
+      - '.github/workflows/pr129-pglm-device-authority-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/post-v0.2.5-next-phase-plan
+          fetch-depth: 0
+      - name: Apply reviewed PGLM device authority fix
+        run: |
+          printf '%s' 'H4sIAC9JkWoC/8VYS2/jNhC+61dw2YOlXUXG5lYDPhTdIpd2ERRdIEBbELQ0coiVKIGk4rhB/nuH1NuSHXs3yOqQwORw3t/MkKkqclJyc5+JDRF5WShDbvGn5yWQEgVlxmNg8Mhj41uykBRZEhIJu5DERSXN+mOw8gh+JVm7k44scEsGHg2ulpECnjD7y683kFvFM9yya5Hj4yPfelOk7f67dS2jFmA/xYUG8ieuiRx+U6pQfkqfrMTnFYHHEmIDCXlyp55JEceVUiBj0CFJcQ23atZI/YQC36lnWgsto50SBmolnVaN7f6BvUHgeRuugVmhaAHVhpttWS0zIYErlhcJZMsSJM/Ef5AsmSWOyj31UmHOPmRpc/EopDvpjePgFO50CN3PxWLR+khDlkYM/zpnMF1kD6BQ6OdCgneEaMPjryATJnkO86RCokpxgUnRbKPENxI9IU3gQcQX6OkFF7rwJ3IDEpSICQaC5HyPENGaFEpsBcaIfK7y2z0RsqyMJveggMADSMJTg+ZycnP7xR6MvJ7fX/dI8whxZfPTMm1swdQqDDG467hhjknDMSkUMfsSQiI04ZW5R8mYMeIBep536DG7gnbWlpuCcaX43r8LW+7roXOD7uj+6NH9S0f1rj/rd6v2G8WiwbHmeZkB24HY3htry4QIMsTzgRKjUy8pNFANPWTV2lQiS9iWV1oLLh2U3NZY3dZ94Wh1P7vq9LM5xWbWhcSgx1CauU0GaYq5ixxZR3dANjR23bl3TDTngnDggjksvl0Ok/cc/2DmxgowAjU63x/N7AFHm+OoEeH5RoA05Ncvn36p4xgSjhodSf2uIHSFYAtIY5RvnR4Seqxk0NBlYJ8zmKPj+oO1WVY5Ft3VYTAPJNK4rKjXpzFysvbqWokRMRpIaRChXcroncAWSeMq4SsajIXMNLfRvv3oTZPX6NUUXG+zuMoFLsptH4Q2TleNDqUqMLrcktMJ05SmqGObZE9Dj2CHxFZ5YJFtmyMm3wzCA/T9MNiNKs4F0LNf7ZP1gY8O4HmkBbUzwQS9d7YWflNpnz13tK6fRIIpVHyPSJgrL2+l4Dn6TeN/fGSwAHW6R/VSMMbwREZczRWDkyLSGt5PmHojUZFIgudhzdBwGeO65lwWsmZIvzT/2gbuNIqLHCu4xVJTchiWkk0GyWpSShwJS+WkJqcLVipoOTkVWHY9YPnU6G7FCs3cj3o8qGPwvAiOSpvWybq6YEUhdwb/37EcuLQjPFaTtMoyhtM3dihWI1+HswwOe7NtaSq3Mzo2pEKupa0z06Pz/fgVPTqvrHXz7M4ruH7OyImi56GnI68vm5aCcE3i0psls/0SNyMLqeiTQ4LvgDUAVTAv4eUMebVM+c6MOe7UaZE437JXseo7LOoanwHdX30xbEu7oN3ffkTo0xFVY6qSOCoyOzQqzFd3De5eGDp+gWdmXhh4kgirG24oq4F7yqjPtDfsXqwqEBSKVRq0m1Ls7MXaMaopvaydQ/d+k2ru6qiLSsXji5BTjyEjdBkLohKHWGn039f/dhTL7vJPh2vDh4DRRqfyaLV/VXCOnjywuHnrB6o3fr+Y6li/AmkNWAHoObd8rE1y6PUhg8WF0//iBC86P82dEk8vGL5PmnHx6OIM6UN9EbPTQ8oJzvSsikwPGFgcYoOgrwdFJwHhXwNy5u5Eb29+/6MLShuLtqI4LQjPbFbuMWICKxINvPE7oH0GRK+L0g/IB9LVlQ+E/iOR2HN4otEWPVJtlrtCfU2zYqeXpfp4/fNVuc3yRuxVp/ZVKh6jfZ7hhbCSCKuvFg32+uXqI5rk989S/XhG+pK3asa6vEQU+/2L6xBfIalPUZuJqOj/NO34GOYVAAA=' | base64 -d | gzip -d > /tmp/pr129_pglm_device.py
+          python /tmp/pr129_pglm_device.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --check
+          git diff --cached --quiet && { echo 'no changes produced'; exit 1; }
+          git commit -m "fix(inference): preserve fit-time concrete device authority"
+          git push origin HEAD:agent/post-v0.2.5-next-phase-plan
