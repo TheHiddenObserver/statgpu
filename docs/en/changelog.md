@@ -1,9 +1,23 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-26<br>
+> Last updated: 2026-08-28<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## Unreleased — Gaussian backend-native inference (PR #129 / Issue #127)
+
+### Changed
+
+- Maintained Gaussian linear-model numerical covariance, standard errors, statistics, p-values, and confidence intervals now execute on the actual NumPy/CuPy/Torch fit backend; established reporting attributes/results may still take a final NumPy snapshot after numerical inference completes.
+- Normal and Student-t inference routes through the maintained reference-distribution layer, including stable df=1/df=2 extreme-tail handling. Missing or invalid executed-backend provenance fails closed instead of silently choosing NumPy.
+- Ridge/L2 inference preserves the existing average-loss convention and `n_eff * alpha` normal-equation mapping, including weighted fits and `RidgeCV` final-refit inference.
+
+### Validation
+
+- Added public `LinearRegression`, formula, weighted/robust, rank-deficient, multi-target, float32, statsmodels-alignment, no-host-transfer, non-L2 delegation, and Ridge/RidgeCV regression coverage plus a focused hosted CI workflow.
+- Added a maintained exact-SHA physical CUDA validator for CuPy and Torch with clean-tree proof, requested/executed backend and concrete-device provenance, covariance/BSE/statistic/p-value/CI error reporting, weighted/rank/multi-target/small-df cases, and `RidgeCV` final-refit inference.
+- PR #129 remains draft until hosted gates and exact clean-head CuPy/Torch CUDA acceptance pass. No GPU speedup claim is made, and #127 is not yet `COMPLETE`.
 
 ## 0.2.5 — 2026-08-26 (released)
 
