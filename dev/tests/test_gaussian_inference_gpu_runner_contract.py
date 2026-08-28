@@ -29,7 +29,7 @@ def test_runner_requires_exact_two_backend_matrix():
 
 def test_runner_schema_and_validation_tiers_are_frozen():
     runner = _load_runner()
-    assert runner.SCHEMA_VERSION == 2
+    assert runner.SCHEMA_VERSION == 3
     assert runner._REQUIRED_BACKENDS == ("cupy", "torch")
     assert runner._VALIDATION_TIERS == (
         "local-minimal",
@@ -50,6 +50,10 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"executed_inference_device"',
         '"reporting_boundary"',
         '"no_silent_fallback"',
+        '"host_transfer_provenance"',
+        '"pre_reporting_host_transfers"',
+        '"reference_distribution_completed_on_backend"',
+        "_host_transfer_case(backend, concrete_device)",
         '"ridgecv_final_refit_inference"',
         '"functional_rank_and_multitarget"',
         '"student_t_df2_extreme_tail"',
@@ -57,6 +61,14 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"statistic"',
     ):
         assert required in source
+
+
+def test_runner_host_transfer_guard_restores_instrumented_functions():
+    source = RUNNER.read_text()
+    assert "finally:" in source
+    assert "_gi_module._to_numpy = real_gi_to_numpy" in source
+    assert "_pglm_base_module._to_numpy = real_pglm_to_numpy" in source
+    assert "_gi_module.two_sided_reference_inference = real_reference" in source
 
 
 def test_runner_small_df_reference_is_nonzero_at_extreme_float64_tail():
