@@ -4,7 +4,7 @@ Issue: #127
 Baseline release: `0.2.5`  
 Baseline `master`: `84f8bc7e17f66466b3a325cbb007b6cb41843821`  
 Planning review status: **REVIEW_CLEAN**  
-Production implementation status: **implemented; hosted/review clean; physical CUDA pending (`PARTIAL_REMOTE_PENDING`)**
+Production implementation status: **implemented; final acceptance pending**
 
 ## 1. Goal
 
@@ -539,10 +539,11 @@ Implemented and review-fixed before final acceptance:
 
 Review-fix findings already closed include the df=2 extreme-tail overflow in the generic t path, invalid backend-provenance fallback, a false SciPy extreme-tail test oracle, insufficient physical-validator matrix/provenance fields, and pseudo-coverage that monkeypatched the public router rather than its shared delegate.
 
-Hosted/review acceptance is closed on reviewed implementation head `63af2473f1e84ca5a1d5c4e655d50c0ec7857e8a`:
+Remaining acceptance gates are deliberately not claimed as passed:
 
-- all six hosted PR workflows passed, including the focused Gaussian workflow's Python 3.9, Python 3.12, Torch 2.0 CPU, and static-contract jobs;
-- the final complete-diff review found no unresolved CRITICAL/HIGH/relevant actionable MEDIUM findings;
-- the physical validator contract is frozen after that review; subsequent closure edits are documentation/status-only and do not alter production numerics, validator cases, thresholds, provenance logic, or pass/fail semantics.
+- draft PR #129 hosted workflows must complete successfully on the final source head;
+- the final complete diff must receive a fresh review with no unresolved CRITICAL/HIGH/relevant actionable MEDIUM findings;
+- the physical validator contract must remain frozen after review;
+- exact clean-head CuPy and Torch CUDA acceptance must run and produce canonical evidence matching that validator contract.
 
-The only remaining acceptance gate is exact clean-head CuPy and Torch CUDA execution of the frozen physical validator with canonical evidence matching the final candidate SHA. Therefore the correct hard-exit state is **`PARTIAL_REMOTE_PENDING`**, not `COMPLETE`. PR #129 must remain draft until that physical evidence passes.
+Until the hosted gates are green and the final fresh review is clean, this branch is **not** eligible for `PARTIAL_REMOTE_PENDING`. Once those local/hosted gates are closed, if only exact physical CUDA evidence remains, the correct hard-exit status is `PARTIAL_REMOTE_PENDING`, not `COMPLETE`.
