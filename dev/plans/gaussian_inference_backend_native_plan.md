@@ -4,7 +4,7 @@ Issue: #127
 Baseline release: `0.2.5`  
 Baseline `master`: `84f8bc7e17f66466b3a325cbb007b6cb41843821`  
 Planning review status: **REVIEW_CLEAN**  
-Production implementation status: **not started**
+Production implementation status: **implemented; final acceptance pending**
 
 ## 1. Goal
 
@@ -516,6 +516,34 @@ Final planning review result:
 - CRITICAL: **0 open**;
 - HIGH: **0 open**;
 - relevant actionable MEDIUM: **0 open**;
-- changed scope: planning/docs only; no production numerical source changed;
-- branch CI: no push-triggered workflow runs were present during this planning review, so no CI result is claimed;
-- next executable step: #127 Phase 1 consumer inventory and golden freeze.
+- changed scope: planning/docs only; no production numerical source changed at planning closure;
+- branch CI: no push-triggered workflow runs were present during the planning review, so no CI result was claimed;
+- next executable step at planning closure was #127 Phase 1 consumer inventory and golden freeze.
+
+## 19. Production implementation status — 2026-08-28
+
+The production implementation is now present on `agent/post-v0.2.5-next-phase-plan` and is being validated through draft PR #129.
+
+Implemented and review-fixed before final acceptance:
+
+- backend-native Gaussian working state and covariance/inference routing for NumPy/CuPy/Torch;
+- final reporting conversion only after numerical inference;
+- Gaussian/L2 public consumer routing, including `LinearRegression`, `Ridge`, bounded penalized squared-error L2 paths, and `RidgeCV` final refit;
+- fail-closed executed-backend provenance instead of an implicit NumPy fallback;
+- maintained shared normal/Student-t reference-distribution routing, including stable df=1/df=2 extreme-tail formulas;
+- Ridge/L2 `n_eff * alpha` inference mapping for ordinary and weighted fits;
+- representative hosted coverage for all covariance families, weighted/robust, rank-deficient, multi-target, formula, statsmodels alignment, Torch float32, non-L2 delegation, and no-host-transfer behavior;
+- a focused PR CI workflow;
+- an exact-SHA physical validator covering CuPy/Torch backend/device provenance, clean-tree state, representative covariance/Ridge/weighted/rank/multi-target/small-df cases, numerical error fields, and a `RidgeCV` final-refit case;
+- synchronized root/English/Chinese unreleased changelog entries and user-facing inference/device documentation.
+
+Review-fix findings already closed include the df=2 extreme-tail overflow in the generic t path, invalid backend-provenance fallback, a false SciPy extreme-tail test oracle, insufficient physical-validator matrix/provenance fields, and pseudo-coverage that monkeypatched the public router rather than its shared delegate.
+
+Remaining acceptance gates are deliberately not claimed as passed:
+
+- draft PR #129 hosted workflows must complete successfully on the final source head;
+- the final complete diff must receive a fresh review with no unresolved CRITICAL/HIGH/relevant actionable MEDIUM findings;
+- the physical validator contract must remain frozen after review;
+- exact clean-head CuPy and Torch CUDA acceptance must run and produce canonical evidence matching that validator contract.
+
+Until the hosted gates are green and the final fresh review is clean, this branch is **not** eligible for `PARTIAL_REMOTE_PENDING`. Once those local/hosted gates are closed, if only exact physical CUDA evidence remains, the correct hard-exit status is `PARTIAL_REMOTE_PENDING`, not `COMPLETE`.
