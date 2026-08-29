@@ -9,6 +9,7 @@ from statgpu._config import Device
 from statgpu.backends import get_backend, _to_numpy
 from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+from statgpu.backends._utils import _cupy_asarray_on_device
 
 # ---------------------------------------------------------------------------
 # Solver dispatch table for solver='auto'
@@ -358,6 +359,8 @@ class _PenalizedFitMixin:
             self._loss.precompute_scale(X, y)
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
+        self._native_fit_coef = None
+        self._native_fit_intercept = None
         self._clear_inference_state()
 
         # Resolve the actual backend before auto-selecting the solver. This
@@ -471,10 +474,9 @@ class _PenalizedFitMixin:
 
             cupy_device_id = int(X_arr.device.id)
             self._selected_backend_device = f"cuda:{cupy_device_id}"
-            with cp.cuda.Device(cupy_device_id):
-                y_arr = cp.asarray(y_arr)
-                if _sw_arr is not None:
-                    _sw_arr = cp.asarray(_sw_arr)
+            y_arr = _cupy_asarray_on_device(y_arr, cupy_device_id)
+            if _sw_arr is not None:
+                _sw_arr = _cupy_asarray_on_device(_sw_arr, cupy_device_id)
         else:
             self._selected_backend_device = "cpu"
 
@@ -487,6 +489,12 @@ class _PenalizedFitMixin:
             self._fit_cpu(X_arr, y_arr, _sw_arr)
 
         self._compute_post_fit_gaussian_inference(X, y, sample_weight=_sw_arr)
+        # Numerical inference may allocate after the solver's own cleanup.
+        # Honor gpu_memory_cleanup at the true end of the fit transaction.
+        if backend_name == "cupy":
+            self._cleanup_cuda_memory()
+        elif backend_name == "torch":
+            self._cleanup_torch_memory()
         self._fitted = True
         # Clean up CV cache unless a caller is intentionally reusing one
         # across repeated fits, as PenalizedGLM_CV does within a fold.
@@ -2151,16 +2159,33 @@ class _PenalizedFitMixin:
         else:
             raise ValueError(f"Unsupported solver: {solver_name}")
 
-        params_np = _to_numpy(params)
+        defer_gaussian_reporting = (
+            backend_name in ("cupy", "torch")
+            and self._compute_inference_enabled
+            and self.loss == "squared_error"
+            and str(getattr(self._penalty, "name", self.penalty)).lower() == "l2"
+        )
         self.n_iter_ = n_iter
-        if self._effective_intercept:
-            self.coef_ = params_np[:p]
-            self.intercept_ = float(params_np[p])
-            self._params = np.concatenate([[self.intercept_], self.coef_])
+        if defer_gaussian_reporting:
+            if self._effective_intercept:
+                self._native_fit_coef = params[:p]
+                self._native_fit_intercept = params[p]
+            else:
+                self._native_fit_coef = params
+                self._native_fit_intercept = None
+            self.coef_ = None
+            self.intercept_ = None
+            self._params = None
         else:
-            self.coef_ = params_np.copy()
-            self.intercept_ = 0.0
-            self._params = self.coef_.copy()
+            params_np = _to_numpy(params)
+            if self._effective_intercept:
+                self.coef_ = params_np[:p]
+                self.intercept_ = float(params_np[p])
+                self._params = np.concatenate([[self.intercept_], self.coef_])
+            else:
+                self.coef_ = params_np.copy()
+                self.intercept_ = 0.0
+                self._params = self.coef_.copy()
         self._df_resid = self._nobs - (
             X_arr.shape[1] + (1 if self._effective_intercept else 0)
         )
@@ -2258,16 +2283,33 @@ class _PenalizedFitMixin:
             init_coef=init_coef,
         )
 
-        params_np = _to_numpy(params)
+        defer_gaussian_reporting = (
+            backend_name in ("cupy", "torch")
+            and self._compute_inference_enabled
+            and self.loss == "squared_error"
+            and str(getattr(self._penalty, "name", self.penalty)).lower() == "l2"
+        )
         self.n_iter_ = n_iter
-        if self._effective_intercept:
-            self.intercept_ = float(params_np[0])
-            self.coef_ = params_np[1:]
-            self._params = np.concatenate([[self.intercept_], self.coef_])
+        if defer_gaussian_reporting:
+            if self._effective_intercept:
+                self._native_fit_intercept = params[0]
+                self._native_fit_coef = params[1:]
+            else:
+                self._native_fit_intercept = None
+                self._native_fit_coef = params
+            self.coef_ = None
+            self.intercept_ = None
+            self._params = None
         else:
-            self.intercept_ = 0.0
-            self.coef_ = params_np.copy()
-            self._params = self.coef_.copy()
+            params_np = _to_numpy(params)
+            if self._effective_intercept:
+                self.intercept_ = float(params_np[0])
+                self.coef_ = params_np[1:]
+                self._params = np.concatenate([[self.intercept_], self.coef_])
+            else:
+                self.intercept_ = 0.0
+                self.coef_ = params_np.copy()
+                self._params = self.coef_.copy()
         self._df_resid = self._nobs - (
             X_arr.shape[1] + (1 if self._effective_intercept else 0)
         )
