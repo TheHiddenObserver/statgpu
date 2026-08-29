@@ -25,7 +25,7 @@ from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearMod
 from statgpu.linear_model._gaussian_inference import compute_gaussian_inference
 
 SCHEMA_VERSION = 1
-# Frozen physical acceptance semantics after third review/fix closure. Any
+# Frozen physical acceptance semantics after fourth review/fix closure. Any
 # numerical, case, threshold, provenance, or pass/fail change requires re-review.
 _VALIDATION_TIERS = ("local-minimal", "local-full", "remote-full")
 _LIMITS = {
