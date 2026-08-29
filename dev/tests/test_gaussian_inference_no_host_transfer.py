@@ -317,3 +317,6 @@ def test_gpu_cleanup_runs_when_post_fit_inference_raises(monkeypatch):
         model.fit(X, y)
 
     assert events[-2:] == ["inference", "cleanup"]
+    assert model._native_fit_coef is None
+    assert model._native_fit_intercept is None
+    assert model._fitted is False
