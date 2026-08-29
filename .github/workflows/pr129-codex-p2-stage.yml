@@ -1,0 +1,48 @@
+name: PR129 Codex P2 staging
+
+on:
+  push:
+    branches:
+      - agent/pr129-codex-p2-fix-stage
+    paths:
+      - dev/pr129_codex_p2_fix.py
+      - .github/workflows/pr129-codex-p2-stage.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr129-codex-p2-fix-stage
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply repair
+        run: python dev/pr129_codex_p2_fix.py
+      - name: Static syntax check
+        run: |
+          python -m compileall -q \
+            statgpu/backends/_utils.py \
+            statgpu/linear_model/_gaussian_inference.py \
+            statgpu/linear_model/penalized/_base.py \
+            statgpu/linear_model/penalized/_fit_mixin.py \
+            dev/tests/test_gaussian_inference_no_host_transfer.py \
+            dev/tests/test_gaussian_inference_public_consumers.py
+          git diff --check
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            statgpu/backends/_utils.py \
+            statgpu/linear_model/_gaussian_inference.py \
+            statgpu/linear_model/penalized/_base.py \
+            statgpu/linear_model/penalized/_fit_mixin.py \
+            dev/tests/test_gaussian_inference_no_host_transfer.py \
+            dev/tests/test_gaussian_inference_public_consumers.py
+          git commit -m "fix(inference): address PR129 backend review findings"
+          git push origin HEAD:agent/pr129-codex-p2-fix-stage
