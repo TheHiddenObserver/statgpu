@@ -1,0 +1,54 @@
+name: PR129 evidence finalization staging
+
+on:
+  push:
+    branches:
+      - agent/pr129-final-review-fix-stage
+    paths:
+      - dev/pr129_finalize_evidence_docs.py
+      - .github/workflows/pr129-final-review-fix-stage.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr129-final-review-fix-stage
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply evidence-only docs finalization
+        run: python dev/pr129_finalize_evidence_docs.py
+      - name: Verify docs-only diff
+        run: |
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              'CHANGELOG.md',
+              'docs/en/changelog.md',
+              'docs/cn/changelog.md',
+              'dev/plans/gaussian_inference_backend_native_plan.md',
+              'dev/reviews/issue127_pr129_closure_status.md',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only'], text=True
+          ).splitlines())
+          assert changed == allowed, (changed, allowed)
+          PY
+          git diff --check
+      - name: Commit evidence-only docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            CHANGELOG.md \
+            docs/en/changelog.md \
+            docs/cn/changelog.md \
+            dev/plans/gaussian_inference_backend_native_plan.md \
+            dev/reviews/issue127_pr129_closure_status.md
+          git commit -m "docs(inference): record PR129 final review closure"
+          git push origin HEAD:agent/pr129-final-review-fix-stage
