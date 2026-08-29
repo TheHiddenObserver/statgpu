@@ -148,12 +148,18 @@ def test_shared_gaussian_cupy_allocations_follow_reference_device():
         / "linear_model"
         / "_gaussian_inference.py"
     ).read_text()
+    utils_source = (
+        Path(__file__).parents[2] / "statgpu" / "backends" / "_utils.py"
+    ).read_text()
 
     assert 'return f"cuda:{int(value.device.id)}"' in shared_source
     assert 'return "cuda"' not in shared_source
     assert 'elif device_label.startswith("cuda:")' in shared_source
     assert 'target_device = int(cp.cuda.runtime.getDevice())' in shared_source
-    assert 'with cp.cuda.Device(target_device):' in shared_source
+    assert 'return _cupy_asarray_on_device(' in shared_source
+    assert 'def _cupy_asarray_on_device' in utils_source
+    assert 'with cp.cuda.Device(target_device):' in utils_source
+    assert 'value = cp.copy(value)' in utils_source
     assert 'device_id = int(X_arr.device.id)' in shared_source
     assert 'with cp.cuda.Device(device_id):' in shared_source
     assert 'with xp.cuda.Device(int(X.device.id)):' in shared_source
@@ -232,8 +238,8 @@ def test_cupy_public_consumers_hold_concrete_device_context_across_numerics():
 
     assert "with cp.cuda.Device(int(X_arr.device.id))" in linear_source
     assert "cupy_device_id = int(X_arr.device.id)" in fit_source
-    assert "y_arr = cp.asarray(y_arr)" in fit_source
-    assert "_sw_arr = cp.asarray(_sw_arr)" in fit_source
+    assert "_cupy_asarray_on_device(y_arr, cupy_device_id)" in fit_source
+    assert "_cupy_asarray_on_device(_sw_arr, cupy_device_id)" in fit_source
     assert "with cp.cuda.Device(cupy_device_id)" in fit_source
     assert "def _run_gaussian_inference_on_fit_device" in base_source
     assert "with cp.cuda.Device(cupy_device_id)" in base_source

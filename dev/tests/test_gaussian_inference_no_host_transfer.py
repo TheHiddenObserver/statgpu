@@ -219,6 +219,7 @@ def test_torch_l2_fit_defers_parameter_reporting_until_gaussian_inference(monkey
 def test_gpu_cleanup_is_called_after_post_fit_inference(monkeypatch):
     import types
 
+    pytest.importorskip("torch")
     from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
     events = []
