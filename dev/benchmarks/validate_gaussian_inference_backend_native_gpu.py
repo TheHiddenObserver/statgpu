@@ -24,7 +24,6 @@ from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearMod
 import statgpu.inference._distributions_backend as _dist_module
 import statgpu.linear_model._gaussian_inference as _gi_module
 import statgpu.linear_model.penalized._base as _pglm_base_module
-import statgpu.linear_model.penalized._fit_mixin as _pglm_fit_module
 from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
@@ -456,12 +455,12 @@ def _host_transfer_case(backend: str, concrete_device: str):
         "reporting_allowed": False,
         "gi_snapshots": 0,
         "pglm_snapshots": 0,
-        "fit_parameter_host_transfers": 0,
+        "native_fit_state_observed": False,
         "reference_distribution_completed": False,
     }
     real_gi_to_numpy = _gi_module._to_numpy
     real_pglm_to_numpy = _pglm_base_module._to_numpy
-    real_fit_to_numpy = _pglm_fit_module._to_numpy
+    real_post_fit = PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference
     real_reference = _gi_module.two_sided_reference_inference
 
     def guarded_gi_to_numpy(value):
@@ -482,17 +481,30 @@ def _host_transfer_case(backend: str, concrete_device: str):
         phase["pglm_snapshots"] += 1
         return real_pglm_to_numpy(value)
 
-    def guarded_fit_to_numpy(value):
-        shape = getattr(value, "shape", ())
-        size = 1
-        for dim in shape:
-            size *= int(dim)
-        if not phase["reporting_allowed"] and size > 1:
-            phase["fit_parameter_host_transfers"] += 1
+    def guarded_post_fit(self, X_value, y_value, sample_weight=None):
+        coef_native = getattr(self, "_native_fit_coef", None)
+        intercept_native = getattr(self, "_native_fit_intercept", None)
+        if coef_native is None:
             raise AssertionError(
-                "PGLM fitted parameters crossed to host before Gaussian inference"
+                "PGLM native fitted coefficients were lost before Gaussian inference"
             )
-        return real_fit_to_numpy(value)
+        _assert_same_native_device(coef_native, requested_backend, concrete_device)
+        if self._effective_intercept:
+            if intercept_native is None:
+                raise AssertionError(
+                    "PGLM native fitted intercept was lost before Gaussian inference"
+                )
+            _assert_same_native_device(
+                intercept_native, requested_backend, concrete_device
+            )
+        if self.coef_ is not None or self.intercept_ is not None or self._params is not None:
+            raise AssertionError(
+                "PGLM reporting parameters were materialized before Gaussian inference"
+            )
+        phase["native_fit_state_observed"] = True
+        return real_post_fit(
+            self, X_value, y_value, sample_weight=sample_weight
+        )
 
     def guarded_reference(
         statistic_abs,
@@ -525,7 +537,7 @@ def _host_transfer_case(backend: str, concrete_device: str):
     requested_backend = backend
     _gi_module._to_numpy = guarded_gi_to_numpy
     _pglm_base_module._to_numpy = guarded_pglm_to_numpy
-    _pglm_fit_module._to_numpy = guarded_fit_to_numpy
+    PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference = guarded_post_fit
     _gi_module.two_sided_reference_inference = guarded_reference
     try:
         device_arg = "cuda" if backend == "cupy" else "torch"
@@ -545,9 +557,13 @@ def _host_transfer_case(backend: str, concrete_device: str):
     finally:
         _gi_module._to_numpy = real_gi_to_numpy
         _pglm_base_module._to_numpy = real_pglm_to_numpy
-        _pglm_fit_module._to_numpy = real_fit_to_numpy
+        PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference = real_post_fit
         _gi_module.two_sided_reference_inference = real_reference
 
+    if not phase["native_fit_state_observed"]:
+        raise AssertionError(
+            "physical fit did not expose backend-native fitted state at inference entry"
+        )
     if not phase["reference_distribution_completed"]:
         raise AssertionError("reference distribution did not complete on the requested backend")
     if phase["gi_snapshots"] <= 0 or phase["pglm_snapshots"] <= 0:
@@ -570,8 +586,8 @@ def _host_transfer_case(backend: str, concrete_device: str):
         "executed_inference_device": meta.get("numerical_device"),
         "reporting_boundary": meta.get("reporting_boundary"),
         "pre_reporting_host_transfers": 0,
-        "pre_reporting_fit_parameter_host_transfers": int(
-            phase["fit_parameter_host_transfers"]
+        "native_fit_state_observed_before_inference": bool(
+            phase["native_fit_state_observed"]
         ),
         "gaussian_reporting_snapshots": int(phase["gi_snapshots"]),
         "pglm_reporting_snapshots": int(phase["pglm_snapshots"]),
@@ -579,7 +595,6 @@ def _host_transfer_case(backend: str, concrete_device: str):
         "instrumented_modules": [
             "statgpu.linear_model._gaussian_inference",
             "statgpu.linear_model.penalized._base",
-            "statgpu.linear_model.penalized._fit_mixin",
         ],
         "no_silent_fallback": True,
         "status": "success",

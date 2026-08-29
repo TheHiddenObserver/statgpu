@@ -59,9 +59,9 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"pre_reporting_host_transfers"',
         '"reference_distribution_completed_on_backend"',
         "_host_transfer_case(backend, concrete_device)",
-        "_pglm_fit_module._to_numpy = guarded_fit_to_numpy",
+        "PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference = guarded_post_fit",
         "model.fit(X_native, y_native)",
-        '"pre_reporting_fit_parameter_host_transfers"',
+        '"native_fit_state_observed_before_inference"',
         '"ridgecv_final_refit_inference"',
         '"functional_rank_and_multitarget"',
         '"student_t_df2_extreme_tail"',
@@ -76,7 +76,7 @@ def test_runner_host_transfer_guard_restores_instrumented_functions():
     assert "finally:" in source
     assert "_gi_module._to_numpy = real_gi_to_numpy" in source
     assert "_pglm_base_module._to_numpy = real_pglm_to_numpy" in source
-    assert "_pglm_fit_module._to_numpy = real_fit_to_numpy" in source
+    assert "PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference = real_post_fit" in source
     assert "_gi_module.two_sided_reference_inference = real_reference" in source
 
 
@@ -105,7 +105,7 @@ def test_linear_regression_gpu_scalar_critical_values_are_backend_explicit():
     assert 'norm.ppf(0.975, backend="cupy")' in linear_source
     assert 'norm.ppf(0.975, backend="torch", device=torch_device)' in linear_source
     assert 'self._selected_backend_device = str(X_arr.device)' in linear_source
-    assert 'self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"' in linear_source
+    assert 'self._selected_backend_device = f"cuda:{cupy_device_id}"' in linear_source
     assert 'getattr(self, "_selected_backend_device", "")' in linear_source
     assert 't.two_sided_critical_value(alpha, df=df_resid, backend="cupy")' in cupy_source
 
@@ -135,6 +135,10 @@ def test_linear_regression_gpu_device_authority_and_cupy_fail_closed_are_static(
     assert "torch_device = str(X.device)" in linear_source
     assert "elif str(y.device) != torch_device" in linear_source
     assert "with cp.cuda.Device(cupy_device_id)" in linear_source
+    assert "_cupy_asarray_on_device(y_arr, cupy_device_id)" in linear_source
+    assert "sample_weight = _cupy_asarray_on_device(" in linear_source
+    assert "sample_weight, cupy_device_id" in linear_source
+    assert "_cupy_asarray_on_device(y, cupy_device_id)" in linear_source
     assert "from cupyx.scipy.linalg import solve_triangular" in linear_source
     assert "cp.linalg.solve_triangular" not in linear_source
     assert "compute_aic_bic_gpu(" in linear_source

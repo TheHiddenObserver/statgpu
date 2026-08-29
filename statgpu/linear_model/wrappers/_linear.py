@@ -13,6 +13,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.backends import _get_torch_device_str
+from statgpu.backends._utils import _cupy_asarray_on_device
 from statgpu.inference._results import GaussianInferenceResult
 from statgpu.linear_model._gaussian_inference import (
     compute_gaussian_inference,
@@ -386,7 +387,13 @@ class LinearRegression(BaseEstimator):
         if backend_name == "torch":
             self._selected_backend_device = str(X_arr.device)
         elif backend_name == "cupy":
-            self._selected_backend_device = f"cuda:{int(X_arr.device.id)}"
+            cupy_device_id = int(X_arr.device.id)
+            self._selected_backend_device = f"cuda:{cupy_device_id}"
+            y_arr = _cupy_asarray_on_device(y_arr, cupy_device_id)
+            if sample_weight is not None:
+                sample_weight = _cupy_asarray_on_device(
+                    sample_weight, cupy_device_id
+                )
         else:
             self._selected_backend_device = "cpu"
         if y_arr.ndim == 2 and y_arr.shape[1] == 1:
@@ -524,24 +531,24 @@ class LinearRegression(BaseEstimator):
         # Ensure CuPy arrays and retain raw arrays for weighted diagnostics.
         X_raw = cp.asarray(X)
         cupy_device_id = int(X_raw.device.id)
-        with cp.cuda.Device(cupy_device_id):
-            y_raw = cp.asarray(y)
+        y_raw = _cupy_asarray_on_device(y, cupy_device_id)
         if int(y_raw.device.id) != cupy_device_id:
             raise RuntimeError(
-                "LinearRegression CuPy response is on a different CUDA device "
-                f"from X: X=cuda:{cupy_device_id}, y=cuda:{int(y_raw.device.id)}"
+                "LinearRegression CuPy response alignment failed: "
+                f"X=cuda:{cupy_device_id}, y=cuda:{int(y_raw.device.id)}"
             )
         self._selected_backend_device = f"cuda:{cupy_device_id}"
         y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
 
         sw = None
         if sample_weight is not None:
-            with cp.cuda.Device(cupy_device_id):
-                sw = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+            sw = _cupy_asarray_on_device(
+                sample_weight, cupy_device_id, dtype=cp.float64
+            ).reshape(-1)
             if int(sw.device.id) != cupy_device_id:
                 raise RuntimeError(
-                    "LinearRegression CuPy sample_weight is on a different CUDA "
-                    f"device from X: X=cuda:{cupy_device_id}, "
+                    "LinearRegression CuPy sample_weight alignment failed: "
+                    f"X=cuda:{cupy_device_id}, "
                     f"sample_weight=cuda:{int(sw.device.id)}"
                 )
             if sw.shape[0] != n_samples:

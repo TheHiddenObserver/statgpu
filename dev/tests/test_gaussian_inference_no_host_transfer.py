@@ -313,6 +313,8 @@ def test_gpu_cleanup_runs_when_post_fit_inference_raises(monkeypatch):
 
     X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
     y = np.linspace(0.0, 1.0, 6)
+    # Simulate a failed refit of an estimator that was previously successful.
+    model._fitted = True
     with pytest.raises(RuntimeError, match="synthetic post-fit inference failure"):
         model.fit(X, y)
 
@@ -320,3 +322,141 @@ def test_gpu_cleanup_runs_when_post_fit_inference_raises(monkeypatch):
     assert model._native_fit_coef is None
     assert model._native_fit_intercept is None
     assert model._fitted is False
+
+
+def test_gpu_cleanup_runs_when_backend_fit_itself_raises(monkeypatch):
+    import types
+
+    torch = pytest.importorskip("torch")
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    events = []
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    )
+    model._fitted = True
+
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="torch")
+    )
+    monkeypatch.setattr(
+        model, "_auto_backend_override", lambda backend_name, X: backend_name
+    )
+    monkeypatch.setattr(
+        model,
+        "_select_solver",
+        lambda loss, backend_name=None, X=None: "exact",
+    )
+
+    def failing_fit_torch(X, y, sample_weight=None):
+        events.append("fit")
+        model._native_fit_coef = torch.zeros(
+            X.shape[1], dtype=X.dtype, device=X.device
+        )
+        raise RuntimeError("synthetic backend fit/inference failure")
+
+    monkeypatch.setattr(model, "_fit_torch", failing_fit_torch)
+    monkeypatch.setattr(
+        model,
+        "_compute_post_fit_gaussian_inference",
+        lambda X, y, sample_weight=None: events.append("post-fit-inference"),
+    )
+    monkeypatch.setattr(
+        model, "_cleanup_torch_memory", lambda: events.append("cleanup")
+    )
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6)
+    with pytest.raises(RuntimeError, match="synthetic backend fit/inference failure"):
+        model.fit(X, y)
+
+    assert events == ["fit", "cleanup"]
+    assert model._native_fit_coef is None
+    assert model._native_fit_intercept is None
+    assert model._fitted is False
+
+
+def test_linear_regression_cupy_fit_aligns_y_and_weights_to_x_device(monkeypatch):
+    import sys
+    import types
+
+    import statgpu.linear_model.wrappers._linear as linear_module
+    from statgpu._config import Device
+    from statgpu.linear_model import LinearRegression
+
+    state = {"current": 0, "helper_targets": [], "fit_called": False}
+
+    class FakeArray:
+        def __init__(self, shape, device):
+            self.shape = tuple(shape)
+            self.ndim = len(self.shape)
+            self.device = types.SimpleNamespace(id=int(device))
+
+        def get(self):
+            return np.zeros(self.shape, dtype=np.float64)
+
+    class FakeDevice:
+        def __init__(self, device):
+            self.device = int(device)
+            self.previous = None
+
+        def __enter__(self):
+            self.previous = state["current"]
+            state["current"] = self.device
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            state["current"] = self.previous
+
+    fake_cupy = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(Device=FakeDevice)
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    X_token = object()
+    y_token = object()
+    X_native = FakeArray((6, 2), 1)
+    y_other_device = FakeArray((6,), 0)
+    weights = np.ones(6, dtype=np.float64)
+
+    model = LinearRegression(device="cpu", compute_inference=False)
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="cupy")
+    )
+    monkeypatch.setattr(
+        model,
+        "_to_array",
+        lambda value, backend=None: (
+            X_native if value is X_token else y_other_device if value is y_token else value
+        ),
+    )
+    monkeypatch.setattr(model, "_get_compute_device", lambda: Device.CUDA)
+
+    def fake_transfer(value, target_device, dtype=None):
+        state["helper_targets"].append(int(target_device))
+        shape = getattr(value, "shape", (6,))
+        return FakeArray(shape, target_device)
+
+    monkeypatch.setattr(
+        linear_module, "_cupy_asarray_on_device", fake_transfer
+    )
+
+    def fake_fit_gpu(X, y, sample_weight=None):
+        assert X.device.id == 1
+        assert y.device.id == 1
+        assert sample_weight.device.id == 1
+        state["fit_called"] = True
+
+    monkeypatch.setattr(model, "_fit_gpu", fake_fit_gpu)
+    model.fit(X_token, y_token, sample_weight=weights)
+
+    assert state["fit_called"] is True
+    assert state["helper_targets"] == [1, 1]
+    assert state["current"] == 0
+    assert model._selected_backend_device == "cuda:1"

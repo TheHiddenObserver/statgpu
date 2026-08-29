@@ -480,27 +480,29 @@ class _PenalizedFitMixin:
         else:
             self._selected_backend_device = "cpu"
 
-        if backend_name == "torch":
-            self._fit_torch(X_arr, y_arr, _sw_arr)
-        elif backend_name == "cupy":
-            with cp.cuda.Device(cupy_device_id):
-                self._fit_gpu(X_arr, y_arr, _sw_arr)
-        else:
-            self._fit_cpu(X_arr, y_arr, _sw_arr)
-
-        # Numerical inference may allocate after the solver's own cleanup.
-        # Honor gpu_memory_cleanup at the true end of the fit transaction,
-        # including failed inference attempts.
+        # Backend fitting can itself perform exact/precomputed Gaussian
+        # inference. Keep the fit dispatch and the later post-fit inference in
+        # one failure/cleanup transaction so exact-path inference failures do
+        # not bypass gpu_memory_cleanup.
         try:
+            if backend_name == "torch":
+                self._fit_torch(X_arr, y_arr, _sw_arr)
+            elif backend_name == "cupy":
+                with cp.cuda.Device(cupy_device_id):
+                    self._fit_gpu(X_arr, y_arr, _sw_arr)
+            else:
+                self._fit_cpu(X_arr, y_arr, _sw_arr)
+
             self._compute_post_fit_gaussian_inference(
                 X, y, sample_weight=_sw_arr
             )
         except Exception:
-            # A failed GPU inference must not leave live fitted-parameter
-            # tensors attached to a half-fitted estimator.  Allocator cleanup
-            # cannot release memory that is still referenced here.
+            # The fit has already mutated estimator state, so a failed refit
+            # must not continue advertising a previous successful fit. Release
+            # native parameter references before allocator cleanup and fail closed.
             self._native_fit_coef = None
             self._native_fit_intercept = None
+            self._fitted = False
             raise
         finally:
             if backend_name == "cupy":
