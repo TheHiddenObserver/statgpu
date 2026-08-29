@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-28<br>
+> Last updated: 2026-08-30<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -17,7 +17,7 @@
 
 - Added public `LinearRegression`, formula, weighted/robust, rank-deficient, multi-target, float32, statsmodels-alignment, no-host-transfer, non-L2 delegation, and Ridge/RidgeCV regression coverage plus a focused hosted CI workflow.
 - Added a maintained exact-SHA physical CUDA validator for CuPy and Torch with clean-tree proof, requested/executed backend and concrete-device provenance, covariance/BSE/statistic/p-value/CI error reporting, weighted/rank/multi-target/small-df cases, and `RidgeCV` final-refit inference.
-- PR #129 remains draft until hosted gates and exact clean-head CuPy/Torch CUDA acceptance pass. No GPU speedup claim is made, and #127 is not yet `COMPLETE`.
+- All hosted gates and the fresh complete-diff review are green on the reviewed implementation head. Final acceptance still requires exact clean-head CuPy/Torch CUDA validation on the final source SHA; PR #129 remains open/unmerged and #127 is not yet `COMPLETE`. No GPU speedup claim is made.
 
 ## 0.2.5 — 2026-08-26 (released)
 

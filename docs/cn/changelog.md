@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-28<br>
+> 最后更新：2026-08-30<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -17,7 +17,7 @@
 
 - 增加 public `LinearRegression`、formula、weighted/robust、rank-deficient、multi-target、float32、statsmodels 对齐、no-host-transfer、non-L2 delegation 以及 Ridge/RidgeCV regression coverage，并增加 focused hosted CI workflow。
 - 增加 maintained exact-SHA physical CUDA validator，覆盖 CuPy/Torch 的 clean-tree 证明、requested/executed backend 与具体 device provenance、covariance/BSE/statistic/p-value/CI 误差、weighted/rank/multi-target/small-df，以及 `RidgeCV` final-refit inference。
-- PR #129 仍保持 draft；只有 hosted gates 与 exact clean-head CuPy/Torch CUDA acceptance 都通过后，#127 才能标记为 `COMPLETE`。本变更不做 GPU speedup 声明。
+- reviewed implementation head 的 hosted gates 与 fresh complete-diff review 已全部通过；最终 acceptance 仍要求在 final source SHA 上执行 exact clean-head CuPy/Torch CUDA validation。PR #129 当前保持 open/unmerged，#127 尚不能标记为 `COMPLETE`。本变更不做 GPU speedup 声明。
 
 ## 0.2.5 — 2026-08-26（已发布）
 
