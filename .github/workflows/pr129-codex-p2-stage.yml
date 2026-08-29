@@ -5,7 +5,7 @@ on:
     branches:
       - agent/pr129-codex-p2-fix-stage
     paths:
-      - dev/pr129_codex_p2_fix.py
+      - dev/pr129_codex_p2_test_followup.py
       - .github/workflows/pr129-codex-p2-stage.yml
 
 permissions:
@@ -21,35 +21,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Apply repair
-        run: python dev/pr129_codex_p2_fix.py
-      - name: Normalize generated test EOF
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('dev/tests/test_gaussian_inference_no_host_transfer.py')
-          path.write_text(path.read_text().rstrip() + '\n')
-          PY
+      - name: Apply hosted test follow-up
+        run: python dev/pr129_codex_p2_test_followup.py
       - name: Static syntax check
         run: |
           python -m compileall -q \
-            statgpu/backends/_utils.py \
-            statgpu/linear_model/_gaussian_inference.py \
-            statgpu/linear_model/penalized/_base.py \
-            statgpu/linear_model/penalized/_fit_mixin.py \
-            dev/tests/test_gaussian_inference_no_host_transfer.py \
-            dev/tests/test_gaussian_inference_public_consumers.py
+            dev/tests/test_gaussian_inference_gpu_runner_contract.py \
+            dev/tests/test_gaussian_inference_no_host_transfer.py
           git diff --check
-      - name: Commit repaired source
+      - name: Commit hosted test follow-up
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            statgpu/backends/_utils.py \
-            statgpu/linear_model/_gaussian_inference.py \
-            statgpu/linear_model/penalized/_base.py \
-            statgpu/linear_model/penalized/_fit_mixin.py \
-            dev/tests/test_gaussian_inference_no_host_transfer.py \
-            dev/tests/test_gaussian_inference_public_consumers.py
-          git commit -m "fix(inference): address PR129 backend review findings"
+            dev/tests/test_gaussian_inference_gpu_runner_contract.py \
+            dev/tests/test_gaussian_inference_no_host_transfer.py
+          git commit -m "test(inference): align PR129 review-fix contracts"
           git push origin HEAD:agent/pr129-codex-p2-fix-stage
