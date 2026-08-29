@@ -24,6 +24,7 @@ from statgpu.linear_model import LinearRegression, PenalizedGeneralizedLinearMod
 import statgpu.inference._distributions_backend as _dist_module
 import statgpu.linear_model._gaussian_inference as _gi_module
 import statgpu.linear_model.penalized._base as _pglm_base_module
+import statgpu.linear_model.penalized._fit_mixin as _pglm_fit_module
 from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
@@ -455,10 +456,12 @@ def _host_transfer_case(backend: str, concrete_device: str):
         "reporting_allowed": False,
         "gi_snapshots": 0,
         "pglm_snapshots": 0,
+        "fit_parameter_host_transfers": 0,
         "reference_distribution_completed": False,
     }
     real_gi_to_numpy = _gi_module._to_numpy
     real_pglm_to_numpy = _pglm_base_module._to_numpy
+    real_fit_to_numpy = _pglm_fit_module._to_numpy
     real_reference = _gi_module.two_sided_reference_inference
 
     def guarded_gi_to_numpy(value):
@@ -478,6 +481,18 @@ def _host_transfer_case(backend: str, concrete_device: str):
             )
         phase["pglm_snapshots"] += 1
         return real_pglm_to_numpy(value)
+
+    def guarded_fit_to_numpy(value):
+        shape = getattr(value, "shape", ())
+        size = 1
+        for dim in shape:
+            size *= int(dim)
+        if not phase["reporting_allowed"] and size > 1:
+            phase["fit_parameter_host_transfers"] += 1
+            raise AssertionError(
+                "PGLM fitted parameters crossed to host before Gaussian inference"
+            )
+        return real_fit_to_numpy(value)
 
     def guarded_reference(
         statistic_abs,
@@ -510,6 +525,7 @@ def _host_transfer_case(backend: str, concrete_device: str):
     requested_backend = backend
     _gi_module._to_numpy = guarded_gi_to_numpy
     _pglm_base_module._to_numpy = guarded_pglm_to_numpy
+    _pglm_fit_module._to_numpy = guarded_fit_to_numpy
     _gi_module.two_sided_reference_inference = guarded_reference
     try:
         device_arg = "cuda" if backend == "cupy" else "torch"
@@ -519,18 +535,17 @@ def _host_transfer_case(backend: str, concrete_device: str):
             alpha=0.05,
             fit_intercept=True,
             device=device_arg,
+            solver="fista",
+            max_iter=5000,
+            tol=1e-10,
             compute_inference=True,
             cov_type="nonrobust",
         )
-        model._penalty = model._resolve_penalty()
-        model._selected_backend_name = backend
-        model._selected_backend_device = concrete_device
-        model.coef_ = np.asarray([0.8, -0.35, 0.2, 0.55, -0.1])
-        model.intercept_ = -0.4
-        model._compute_post_fit_gaussian_inference(X_native, y_native)
+        model.fit(X_native, y_native)
     finally:
         _gi_module._to_numpy = real_gi_to_numpy
         _pglm_base_module._to_numpy = real_pglm_to_numpy
+        _pglm_fit_module._to_numpy = real_fit_to_numpy
         _gi_module.two_sided_reference_inference = real_reference
 
     if not phase["reference_distribution_completed"]:
@@ -555,12 +570,16 @@ def _host_transfer_case(backend: str, concrete_device: str):
         "executed_inference_device": meta.get("numerical_device"),
         "reporting_boundary": meta.get("reporting_boundary"),
         "pre_reporting_host_transfers": 0,
+        "pre_reporting_fit_parameter_host_transfers": int(
+            phase["fit_parameter_host_transfers"]
+        ),
         "gaussian_reporting_snapshots": int(phase["gi_snapshots"]),
         "pglm_reporting_snapshots": int(phase["pglm_snapshots"]),
         "reference_distribution_completed_on_backend": True,
         "instrumented_modules": [
             "statgpu.linear_model._gaussian_inference",
             "statgpu.linear_model.penalized._base",
+            "statgpu.linear_model.penalized._fit_mixin",
         ],
         "no_silent_fallback": True,
         "status": "success",

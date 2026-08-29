@@ -488,13 +488,18 @@ class _PenalizedFitMixin:
         else:
             self._fit_cpu(X_arr, y_arr, _sw_arr)
 
-        self._compute_post_fit_gaussian_inference(X, y, sample_weight=_sw_arr)
         # Numerical inference may allocate after the solver's own cleanup.
-        # Honor gpu_memory_cleanup at the true end of the fit transaction.
-        if backend_name == "cupy":
-            self._cleanup_cuda_memory()
-        elif backend_name == "torch":
-            self._cleanup_torch_memory()
+        # Honor gpu_memory_cleanup at the true end of the fit transaction,
+        # including failed inference attempts.
+        try:
+            self._compute_post_fit_gaussian_inference(
+                X, y, sample_weight=_sw_arr
+            )
+        finally:
+            if backend_name == "cupy":
+                self._cleanup_cuda_memory()
+            elif backend_name == "torch":
+                self._cleanup_torch_memory()
         self._fitted = True
         # Clean up CV cache unless a caller is intentionally reusing one
         # across repeated fits, as PenalizedGLM_CV does within a fold.

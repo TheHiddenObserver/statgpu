@@ -59,7 +59,9 @@ def test_runner_source_contains_exact_sha_clean_tree_and_provenance_gates():
         '"pre_reporting_host_transfers"',
         '"reference_distribution_completed_on_backend"',
         "_host_transfer_case(backend, concrete_device)",
-        "model._selected_backend_device = concrete_device",
+        "_pglm_fit_module._to_numpy = guarded_fit_to_numpy",
+        "model.fit(X_native, y_native)",
+        '"pre_reporting_fit_parameter_host_transfers"',
         '"ridgecv_final_refit_inference"',
         '"functional_rank_and_multitarget"',
         '"student_t_df2_extreme_tail"',
@@ -74,6 +76,7 @@ def test_runner_host_transfer_guard_restores_instrumented_functions():
     assert "finally:" in source
     assert "_gi_module._to_numpy = real_gi_to_numpy" in source
     assert "_pglm_base_module._to_numpy = real_pglm_to_numpy" in source
+    assert "_pglm_fit_module._to_numpy = real_fit_to_numpy" in source
     assert "_gi_module.two_sided_reference_inference = real_reference" in source
 
 

@@ -259,3 +259,61 @@ def test_gpu_cleanup_is_called_after_post_fit_inference(monkeypatch):
     model.fit(X, y)
 
     assert events[-2:] == ["inference", "cleanup"]
+
+
+def test_gpu_cleanup_runs_when_post_fit_inference_raises(monkeypatch):
+    import types
+
+    torch = pytest.importorskip("torch")
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    events = []
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    )
+
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="torch")
+    )
+    monkeypatch.setattr(
+        model, "_auto_backend_override", lambda backend_name, X: backend_name
+    )
+    monkeypatch.setattr(
+        model,
+        "_select_solver",
+        lambda loss, backend_name=None, X=None: "newton",
+    )
+
+    def fake_fit_torch(X, y, sample_weight=None):
+        events.append("fit")
+        model._native_fit_coef = torch.zeros(X.shape[1], dtype=X.dtype, device=X.device)
+        model._native_fit_intercept = None
+        model.coef_ = None
+        model.intercept_ = None
+        model._params = None
+        model._df_resid = int(X.shape[0] - X.shape[1])
+
+    def failing_inference(X, y, sample_weight=None):
+        events.append("inference")
+        raise RuntimeError("synthetic post-fit inference failure")
+
+    monkeypatch.setattr(model, "_fit_torch", fake_fit_torch)
+    monkeypatch.setattr(
+        model, "_compute_post_fit_gaussian_inference", failing_inference
+    )
+    monkeypatch.setattr(
+        model, "_cleanup_torch_memory", lambda: events.append("cleanup")
+    )
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6)
+    with pytest.raises(RuntimeError, match="synthetic post-fit inference failure"):
+        model.fit(X, y)
+
+    assert events[-2:] == ["inference", "cleanup"]
