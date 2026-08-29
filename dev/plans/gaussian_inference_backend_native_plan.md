@@ -520,30 +520,30 @@ Final planning review result:
 - branch CI: no push-triggered workflow runs were present during the planning review, so no CI result was claimed;
 - next executable step at planning closure was #127 Phase 1 consumer inventory and golden freeze.
 
-## 19. Production implementation status — 2026-08-28
+## 19. Production implementation status — 2026-08-30
 
-The production implementation is now present on `agent/post-v0.2.5-next-phase-plan` and is being validated through draft PR #129.
+The production implementation is present on `agent/post-v0.2.5-next-phase-plan` and is being validated through open PR #129.
 
 Implemented and review-fixed before final acceptance:
 
 - backend-native Gaussian working state and covariance/inference routing for NumPy/CuPy/Torch;
 - final reporting conversion only after numerical inference;
 - Gaussian/L2 public consumer routing, including `LinearRegression`, `Ridge`, bounded penalized squared-error L2 paths, and `RidgeCV` final refit;
-- fail-closed executed-backend provenance instead of an implicit NumPy fallback;
+- fail-closed executed-backend and concrete-device provenance instead of an implicit NumPy/default-device fallback;
 - maintained shared normal/Student-t reference-distribution routing, including stable df=1/df=2 extreme-tail formulas;
 - Ridge/L2 `n_eff * alpha` inference mapping for ordinary and weighted fits;
-- representative hosted coverage for all covariance families, weighted/robust, rank-deficient, multi-target, formula, statsmodels alignment, Torch float32, non-L2 delegation, and no-host-transfer behavior;
+- concrete-device CuPy alignment for response/weight arrays and scoped solver-status rank recovery;
+- native fitted-parameter lifetime through GPU Gaussian inference, followed only then by the established NumPy reporting snapshot;
+- success/failure cleanup covering both post-fit and exact/precomputed GPU inference, with failed refits invalidated rather than advertising stale fitted state;
+- representative hosted coverage for covariance families, weighted/robust, rank-deficient, multi-target, formula, statsmodels alignment, Torch float32, non-L2 delegation, no-host-transfer behavior, cleanup/rollback, and cross-device placement;
 - a focused PR CI workflow;
-- an exact-SHA physical validator covering CuPy/Torch backend/device provenance, clean-tree state, representative covariance/Ridge/weighted/rank/multi-target/small-df cases, numerical error fields, and a `RidgeCV` final-refit case;
+- exact-SHA physical validators covering CuPy/Torch backend/device provenance, clean-tree state, representative covariance/Ridge/weighted/rank/multi-target/small-df cases, numerical error fields, native-fit/reporting-boundary checks, and `RidgeCV` final-refit inference;
 - synchronized root/English/Chinese unreleased changelog entries and user-facing inference/device documentation.
 
-Review-fix findings already closed include the df=2 extreme-tail overflow in the generic t path, invalid backend-provenance fallback, a false SciPy extreme-tail test oracle, insufficient physical-validator matrix/provenance fields, and pseudo-coverage that monkeypatched the public router rather than its shared delegate.
+The reviewed implementation head is `0adcd63afef6e38ee757a6635b30839d2edfbab2`. On that exact head all seven triggered hosted workflows passed: `Tests`, `Gaussian inference backend-native`, `Release package validation`, `Release notes validation`, `Maintenance compatibility`, `Benchmark Frontend CI`, and `Panel Stage C Torch CPU`. A fresh Codex complete-diff review of that same head reported no major issues, and all inline review threads were resolved.
 
-Remaining acceptance gates are deliberately not claimed as passed:
+Historical physical artifacts remain superseded once later source or validator-acceptance semantics changed. In particular, the earlier successful `0c05d17cb7f7520fb703566b1e662d18bf2d4ee0` physical run is diagnostic/historical evidence only because subsequent review findings required source and host-transfer-validator changes.
 
-- draft PR #129 hosted workflows must complete successfully on the final source head;
-- the final complete diff must receive a fresh review with no unresolved CRITICAL/HIGH/relevant actionable MEDIUM findings;
-- the physical validator contract must remain frozen after review;
-- exact clean-head CuPy and Torch CUDA acceptance must run and produce canonical evidence matching that validator contract.
+This finalization step is documentation/evidence-only: it must not alter production numerical code, validator cases, thresholds, provenance checks, or pass/fail semantics. The resulting final source SHA must receive a fresh hosted run, and exact clean-head CuPy plus Torch CUDA acceptance must then be executed against that same SHA.
 
-Until the hosted gates are green and the final fresh review is clean, this branch is **not** eligible for `PARTIAL_REMOTE_PENDING`. Once those local/hosted gates are closed, if only exact physical CUDA evidence remains, the correct hard-exit status is `PARTIAL_REMOTE_PENDING`, not `COMPLETE`.
+Until the final exact-head physical CUDA evidence passes, #127 is not `COMPLETE`. Once the docs-only finalization head is hosted-green and no new review finding exists, with physical CUDA as the sole missing gate, the correct hard-exit status is `PARTIAL_REMOTE_PENDING`.
