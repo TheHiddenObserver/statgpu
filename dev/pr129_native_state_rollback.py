@@ -18,8 +18,8 @@ replace_once(
 
 replace_once(
     "dev/tests/test_gaussian_inference_no_host_transfer.py",
-    '''    assert events[-2:] == ["inference", "cleanup"]\n''',
-    '''    assert events[-2:] == ["inference", "cleanup"]\n    assert model._native_fit_coef is None\n    assert model._native_fit_intercept is None\n    assert model._fitted is False\n''',
+    '''    with pytest.raises(RuntimeError, match="synthetic post-fit inference failure"):\n        model.fit(X, y)\n\n    assert events[-2:] == ["inference", "cleanup"]\n''',
+    '''    with pytest.raises(RuntimeError, match="synthetic post-fit inference failure"):\n        model.fit(X, y)\n\n    assert events[-2:] == ["inference", "cleanup"]\n    assert model._native_fit_coef is None\n    assert model._native_fit_intercept is None\n    assert model._fitted is False\n''',
 )
 
 print("PR129 native-state rollback fix applied")
