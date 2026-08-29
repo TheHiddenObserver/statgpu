@@ -23,6 +23,13 @@ jobs:
           python-version: '3.11'
       - name: Apply repair
         run: python dev/pr129_codex_p2_fix.py
+      - name: Normalize generated test EOF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('dev/tests/test_gaussian_inference_no_host_transfer.py')
+          path.write_text(path.read_text().rstrip() + '\n')
+          PY
       - name: Static syntax check
         run: |
           python -m compileall -q \
