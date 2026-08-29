@@ -455,8 +455,10 @@ def _inverse_or_pinv(matrix, backend: str):
             return torch.linalg.inv(matrix)
         if backend == "cupy":
             import cupy as cp
+            import cupyx
 
-            return cp.linalg.inv(matrix)
+            with cupyx.errstate(linalg="raise"):
+                return cp.linalg.inv(matrix)
         return np.linalg.inv(matrix)
     except Exception as exc:
         if not _linalg_exception_is_rank_failure(exc):

@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import types
 
+from statgpu.linear_model._gaussian_inference import _inverse_or_pinv
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._fit_mixin import _PenalizedFitMixin
 from statgpu.linear_model.penalized._inference_mixin import _PenalizedInferenceMixin
@@ -16,6 +17,9 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_cupy_solver_status_errors_are_scoped_at_maintained_rank_recovery_sites():
+    gaussian_source = (
+        ROOT / "statgpu" / "linear_model" / "_gaussian_inference.py"
+    ).read_text()
     inference_source = (
         ROOT / "statgpu" / "backends" / "_gpu_inference_cupy.py"
     ).read_text()
@@ -26,6 +30,11 @@ def test_cupy_solver_status_errors_are_scoped_at_maintained_rank_recovery_sites(
     base_source = (
         ROOT / "statgpu" / "linear_model" / "penalized" / "_base.py"
     ).read_text()
+
+    assert "def _inverse_or_pinv" in gaussian_source
+    assert "import cupyx" in gaussian_source
+    assert 'with cupyx.errstate(linalg="raise"):' in gaussian_source
+    assert "return cp.linalg.inv(matrix)" in gaussian_source
 
     assert "import cupyx" in inference_source
     assert 'with cupyx.errstate(linalg="raise"):' in inference_source
@@ -48,6 +57,42 @@ def test_cupy_solver_status_errors_are_scoped_at_maintained_rank_recovery_sites(
     assert "def _precompute_exact_l2_inference_cupy" in base_source
     assert "_PenalizedFitMixin._solve_exact_cupy" in base_source
     assert "_PenalizedInferenceMixin._precompute_exact_l2_inference_cupy" in base_source
+
+
+def test_shared_inverse_or_pinv_enables_cupy_errstate_before_rank_recovery(monkeypatch):
+    state = {"depth": 0, "entries": 0, "pinv_calls": 0}
+
+    @contextmanager
+    def fake_errstate(**kwargs):
+        assert kwargs == {"linalg": "raise"}
+        state["depth"] += 1
+        state["entries"] += 1
+        try:
+            yield
+        finally:
+            state["depth"] -= 1
+
+    LinAlgError = type("LinAlgError", (Exception,), {"__module__": "cupy.linalg"})
+
+    def fake_inv(matrix):
+        assert matrix == "singular"
+        assert state["depth"] == 1
+        raise LinAlgError("singular matrix")
+
+    def fake_pinv(matrix):
+        assert matrix == "singular"
+        assert state["depth"] == 0
+        state["pinv_calls"] += 1
+        return "pinv-result"
+
+    fake_cupy = types.SimpleNamespace(
+        linalg=types.SimpleNamespace(inv=fake_inv, pinv=fake_pinv)
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setitem(sys.modules, "cupyx", types.SimpleNamespace(errstate=fake_errstate))
+
+    assert _inverse_or_pinv("singular", "cupy") == "pinv-result"
+    assert state == {"depth": 0, "entries": 1, "pinv_calls": 1}
 
 
 def test_penalized_exact_l2_overrides_enable_and_restore_cupy_errstate(monkeypatch):
