@@ -495,6 +495,13 @@ class _PenalizedFitMixin:
             self._compute_post_fit_gaussian_inference(
                 X, y, sample_weight=_sw_arr
             )
+        except Exception:
+            # A failed GPU inference must not leave live fitted-parameter
+            # tensors attached to a half-fitted estimator.  Allocator cleanup
+            # cannot release memory that is still referenced here.
+            self._native_fit_coef = None
+            self._native_fit_intercept = None
+            raise
         finally:
             if backend_name == "cupy":
                 self._cleanup_cuda_memory()
