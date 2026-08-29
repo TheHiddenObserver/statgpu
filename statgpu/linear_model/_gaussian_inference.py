@@ -15,6 +15,7 @@ import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
+from statgpu.backends._utils import _cupy_asarray_on_device
 from statgpu.inference._reference_distribution import two_sided_reference_inference
 from statgpu.inference._results import GaussianInferenceResult
 
@@ -136,8 +137,9 @@ def _as_backend_array(value, backend: str, *, like=None, device: Optional[str] =
                 )
         if target_device is None:
             target_device = int(cp.cuda.runtime.getDevice())
-        with cp.cuda.Device(target_device):
-            return cp.asarray(value, dtype=target_dtype or cp.float64)
+        return _cupy_asarray_on_device(
+            value, target_device, dtype=target_dtype or cp.float64
+        )
 
     return np.asarray(value, dtype=np.float64)
 

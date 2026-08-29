@@ -278,6 +278,8 @@ class PenalizedGeneralizedLinearModel(
         self._init_coef = None
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
+        self._native_fit_coef = None
+        self._native_fit_intercept = None
         # Simultaneous inference state
         self._conf_int_simultaneous = None
         self._simultaneous_enabled = False
@@ -394,12 +396,28 @@ class PenalizedGeneralizedLinearModel(
                 "Gaussian inference is missing concrete executed-device provenance "
                 f"for backend={backend_name!r}: {selected_device!r}"
             )
+        if backend_name in ("cupy", "torch"):
+            coef_for_inference = getattr(self, "_native_fit_coef", None)
+            intercept_for_inference = getattr(self, "_native_fit_intercept", None)
+            if coef_for_inference is None:
+                raise RuntimeError(
+                    "Gaussian GPU inference requires native fitted parameters; "
+                    "refusing a reporting-array host round trip."
+                )
+            if self._effective_intercept and intercept_for_inference is None:
+                raise RuntimeError(
+                    "Gaussian GPU inference is missing the native fitted intercept."
+                )
+        else:
+            coef_for_inference = self.coef_
+            intercept_for_inference = self.intercept_
+
         def _run_gaussian_inference_on_fit_device():
             state = build_gaussian_fit_state(
                 X,
                 y,
-                self.coef_,
-                self.intercept_,
+                coef_for_inference,
+                intercept_for_inference if self._effective_intercept else 0.0,
                 self._effective_intercept,
                 sample_weight=sample_weight,
                 backend=backend_name,
@@ -434,6 +452,14 @@ class PenalizedGeneralizedLinearModel(
 
         # Convert only after covariance, distribution, p-value, and CI work.
         self._apply_gaussian_reporting_state(state)
+        if self._effective_intercept:
+            self.intercept_ = float(self._params[0])
+            self.coef_ = self._params[1:].copy()
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = self._params.copy()
+        self._native_fit_coef = None
+        self._native_fit_intercept = None
         if result is None:
             self._inference_result = None
             self._bse = None

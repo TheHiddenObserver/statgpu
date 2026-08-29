@@ -82,8 +82,12 @@ def test_pglm_torch_numerics_finish_before_any_reporting_snapshot(monkeypatch):
     model._penalty = model._resolve_penalty()
     model._selected_backend_name = "torch"
     model._selected_backend_device = "cpu"
-    model.coef_ = coef.copy()
-    model.intercept_ = float(intercept)
+    model._native_fit_coef = torch.as_tensor(coef, dtype=torch.float64)
+    model._native_fit_intercept = torch.tensor(intercept, dtype=torch.float64)
+    # Reporting fields are intentionally absent: the GPU router must consume
+    # the native fit state and only populate them after numerical inference.
+    model.coef_ = None
+    model.intercept_ = None
 
     model._compute_post_fit_gaussian_inference(X, y)
 
@@ -92,3 +96,165 @@ def test_pglm_torch_numerics_finish_before_any_reporting_snapshot(monkeypatch):
     assert phase["pglm_snapshots"] == 5  # design, y, residual, params, scale
     assert model._inference_result.metadata["numerical_backend"] == "torch"
     assert model._inference_result.metadata["reporting_boundary"] == "post_numerical_inference"
+
+
+def test_cupy_device_helper_explicitly_copies_cross_device_native_arrays(monkeypatch):
+    import sys
+    import types
+
+    from statgpu.backends._utils import _cupy_asarray_on_device
+
+    state = {"current": 0, "copies": 0}
+
+    class FakeArray:
+        def __init__(self, device, dtype=np.float64):
+            self.device = types.SimpleNamespace(id=int(device))
+            self.dtype = np.dtype(dtype)
+
+    class FakeDevice:
+        def __init__(self, device):
+            self.device = int(device)
+            self.previous = None
+
+        def __enter__(self):
+            self.previous = state["current"]
+            state["current"] = self.device
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            state["current"] = self.previous
+
+    def fake_copy(value):
+        state["copies"] += 1
+        return FakeArray(state["current"], value.dtype)
+
+    def fake_asarray(value, dtype=None):
+        # Deliberately emulate a no-copy asarray for an existing same-dtype
+        # native array. The helper must explicitly copy before reaching here.
+        if isinstance(value, FakeArray) and (dtype is None or np.dtype(dtype) == value.dtype):
+            return value
+        return FakeArray(state["current"], dtype or np.float64)
+
+    fake_cupy = types.SimpleNamespace(
+        ndarray=FakeArray,
+        cuda=types.SimpleNamespace(Device=FakeDevice),
+        copy=fake_copy,
+        asarray=fake_asarray,
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    source = FakeArray(0)
+    moved = _cupy_asarray_on_device(source, 1, dtype=np.float64)
+    assert moved.device.id == 1
+    assert source.device.id == 0
+    assert state == {"current": 0, "copies": 1}
+
+    same = _cupy_asarray_on_device(moved, 1, dtype=np.float64)
+    assert same is moved
+    assert state == {"current": 0, "copies": 1}
+
+
+def test_torch_l2_fit_defers_parameter_reporting_until_gaussian_inference(monkeypatch):
+    torch = pytest.importorskip("torch")
+
+    import statgpu.linear_model._gaussian_inference as gi
+    import statgpu.linear_model.penalized._base as pglm_base
+    import statgpu.linear_model.penalized._fit_mixin as fit_mixin
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    phase = {"reporting_allowed": False}
+    real_fit_to_numpy = fit_mixin._to_numpy
+
+    def guarded_fit_to_numpy(value):
+        if not phase["reporting_allowed"]:
+            raise AssertionError("fit parameters crossed to host before Gaussian inference")
+        return real_fit_to_numpy(value)
+
+    def fake_reference_inference(
+        statistic_abs, *, distribution, alpha, backend, xp, df=None, device=None
+    ):
+        assert backend == "torch"
+        phase["reporting_allowed"] = True
+        return torch.full_like(statistic_abs, 0.25), torch.tensor(2.0, dtype=torch.float64)
+
+    monkeypatch.setattr(fit_mixin, "_to_numpy", guarded_fit_to_numpy)
+    monkeypatch.setattr(gi, "two_sided_reference_inference", fake_reference_inference)
+
+    X = torch.tensor(
+        [[-2.0, 0.5], [-1.0, 1.1], [0.0, 1.4], [1.0, 2.2], [2.0, 2.4], [3.0, 3.1]],
+        dtype=torch.float64,
+    )
+    y = 0.7 * X[:, 0] - 0.2 * X[:, 1] + torch.tensor(
+        [0.2, -0.1, 0.15, -0.25, 0.05, -0.05], dtype=torch.float64
+    )
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        solver="newton",
+    )
+    model._penalty = model._resolve_penalty()
+    model._loss = model._resolve_loss()
+    model._nobs = int(X.shape[0])
+    model._selected_backend_name = "torch"
+    model._selected_backend_device = "cpu"
+
+    model._fit_loss_backend(X, y, None, "newton", "torch")
+    assert model.coef_ is None
+    assert model._params is None
+    assert isinstance(model._native_fit_coef, torch.Tensor)
+    assert model._native_fit_coef.device.type == "cpu"
+
+    model._compute_post_fit_gaussian_inference(X, y)
+    assert phase["reporting_allowed"] is True
+    assert isinstance(model.coef_, np.ndarray)
+    assert model._native_fit_coef is None
+    assert model._native_fit_intercept is None
+
+
+def test_gpu_cleanup_is_called_after_post_fit_inference(monkeypatch):
+    import types
+
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    events = []
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    )
+
+    monkeypatch.setattr(model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="torch"))
+    monkeypatch.setattr(model, "_auto_backend_override", lambda backend_name, X: backend_name)
+    monkeypatch.setattr(model, "_select_solver", lambda loss, backend_name=None, X=None: "newton")
+
+    def fake_fit_torch(X, y, sample_weight=None):
+        events.append("fit")
+        model._native_fit_coef = X.new_zeros(X.shape[1])
+        model._native_fit_intercept = None
+        model.coef_ = None
+        model.intercept_ = None
+        model._params = None
+        model._df_resid = int(X.shape[0] - X.shape[1])
+
+    monkeypatch.setattr(model, "_fit_torch", fake_fit_torch)
+    monkeypatch.setattr(
+        model,
+        "_compute_post_fit_gaussian_inference",
+        lambda X, y, sample_weight=None: events.append("inference"),
+    )
+    monkeypatch.setattr(model, "_cleanup_torch_memory", lambda: events.append("cleanup"))
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6)
+    model.fit(X, y)
+
+    assert events[-2:] == ["inference", "cleanup"]

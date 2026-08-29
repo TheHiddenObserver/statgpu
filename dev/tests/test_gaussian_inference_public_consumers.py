@@ -33,7 +33,10 @@ def _prepare_l2_model(model, backend_name="torch"):
     model._penalty = model._resolve_penalty()
     model._selected_backend_name = backend_name
     if backend_name == "torch":
+        torch = pytest.importorskip("torch")
         model._selected_backend_device = "cpu"
+        model._native_fit_coef = torch.as_tensor(coef, dtype=torch.float64)
+        model._native_fit_intercept = torch.tensor(intercept, dtype=torch.float64)
     model.coef_ = coef.copy()
     model.intercept_ = float(intercept)
     return X, y
