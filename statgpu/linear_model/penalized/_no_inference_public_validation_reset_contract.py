@@ -33,7 +33,11 @@ def _cleanup_failed_public_finite_validation(estimator) -> None:
         if device_id is None:
             estimator._cleanup_cuda_memory()
             return
-        import cupy as cp
+        try:
+            import cupy as cp
+        except ImportError:
+            estimator._cleanup_cuda_memory()
+            return
 
         with cp.cuda.Device(device_id):
             estimator._cleanup_cuda_memory()
