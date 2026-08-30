@@ -341,6 +341,84 @@ def test_pglm_cupy_context_entry_failure_cleans_up_once(monkeypatch):
     assert model._fitted is False
 
 
+def test_pglm_exact_precomputed_gpu_cleanup_is_not_repeated(monkeypatch):
+    import statgpu.linear_model.penalized._fit_mixin as fit_mixin_module
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    events = []
+
+    class FakeArray:
+        def __init__(self, shape, device=1):
+            self.shape = tuple(shape)
+            self.ndim = len(self.shape)
+            self.device = types.SimpleNamespace(id=int(device))
+
+    class FakeDevice:
+        def __init__(self, device):
+            self.device = int(device)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_cupy = types.SimpleNamespace(cuda=types.SimpleNamespace(Device=FakeDevice))
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setattr(
+        fit_mixin_module,
+        "_cupy_asarray_on_device",
+        lambda value, target_device, dtype=None: value,
+    )
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        solver="exact",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    )
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="cupy")
+    )
+    monkeypatch.setattr(
+        model, "_auto_backend_override", lambda backend_name, X: backend_name
+    )
+    monkeypatch.setattr(
+        model,
+        "_select_solver",
+        lambda loss, backend_name=None, X=None: "exact",
+    )
+    monkeypatch.setattr(
+        model,
+        "_to_array",
+        lambda value, device=None, backend=None: FakeArray(np.asarray(value).shape),
+    )
+    monkeypatch.setattr(
+        model, "_cleanup_cuda_memory", lambda: events.append("cleanup")
+    )
+    monkeypatch.setattr(
+        model, "_compute_post_fit_gaussian_inference", lambda *args, **kwargs: None
+    )
+
+    def fake_fit_gpu(X, y, sample_weight=None):
+        events.append("fit")
+        model._inference_precomputed = True
+        model._cleanup_cuda_memory()
+
+    monkeypatch.setattr(model, "_fit_gpu", fake_fit_gpu)
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6)
+    model.fit(X, y)
+
+    assert events == ["fit", "cleanup"]
+    assert model._fitted is True
+
+
 @pytest.mark.parametrize(
     "penalty_name", ["l2", "l2_squared", "ridge", "none", "null", "", None]
 )
