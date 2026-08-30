@@ -80,6 +80,25 @@ def _device_label(value, backend: str) -> str:
     return "cpu"
 
 
+def _first_native_device(backend: str, *values) -> Optional[str]:
+    """Return the concrete device of the first operand native to ``backend``."""
+    if backend == "torch":
+        import torch
+
+        for value in values:
+            if isinstance(value, torch.Tensor):
+                return str(value.device)
+        return None
+    if backend == "cupy":
+        import cupy as cp
+
+        for value in values:
+            if isinstance(value, cp.ndarray):
+                return f"cuda:{int(value.device.id)}"
+        return None
+    return "cpu"
+
+
 def _is_floating_dtype(value, backend: str) -> bool:
     if backend == "torch":
         return bool(value.dtype.is_floating_point)
@@ -231,14 +250,23 @@ def build_gaussian_fit_state(
     ``sample_weight`` follows the existing analytic-weight convention by
     applying ``sqrt(weight)`` to design, response, and residual state.
     """
-    backend_name = _resolve_backend(backend, X, y)
-    X_arr = _as_backend_array(X, backend_name, device=device)
-    y_arr = _as_backend_array(y, backend_name, like=X_arr, device=device)
+    backend_name = _resolve_backend(backend, X, y, coef, intercept, sample_weight)
+    conversion_device = device or _first_native_device(
+        backend_name, X, y, coef, intercept, sample_weight
+    )
+    X_arr = _as_backend_array(X, backend_name, device=conversion_device)
+    y_arr = _as_backend_array(
+        y, backend_name, like=X_arr, device=conversion_device
+    )
     if y_arr.ndim == 2 and int(y_arr.shape[1]) == 1:
         y_arr = y_arr.reshape(-1)
 
-    coef_arr = _as_backend_array(coef, backend_name, like=X_arr, device=device)
-    intercept_arr = _as_backend_array(intercept, backend_name, like=X_arr, device=device)
+    coef_arr = _as_backend_array(
+        coef, backend_name, like=X_arr, device=conversion_device
+    )
+    intercept_arr = _as_backend_array(
+        intercept, backend_name, like=X_arr, device=conversion_device
+    )
 
     if fit_intercept:
         if backend_name == "torch":
@@ -294,7 +322,10 @@ def build_gaussian_fit_state(
         resid = resid_raw
     else:
         sw = _as_backend_array(
-            sample_weight, backend_name, like=X_arr, device=device
+            sample_weight,
+            backend_name,
+            like=X_arr,
+            device=conversion_device,
         ).reshape(-1)
         if int(sw.shape[0]) != int(X_arr.shape[0]):
             raise ValueError(
@@ -606,11 +637,20 @@ def compute_gaussian_inference(
     if X_design is None or scale is None:
         return None
 
-    backend_name = _resolve_backend(backend, X_design, params, resid)
-    X = _as_backend_array(X_design, backend_name, device=device)
-    params_arr = _as_backend_array(params, backend_name, like=X, device=device)
-    resid_arr = _as_backend_array(resid, backend_name, like=X, device=device)
-    scale_arr = _as_backend_array(scale, backend_name, like=X, device=device)
+    backend_name = _resolve_backend(backend, X_design, params, resid, scale)
+    conversion_device = device or _first_native_device(
+        backend_name, X_design, params, resid, scale
+    )
+    X = _as_backend_array(X_design, backend_name, device=conversion_device)
+    params_arr = _as_backend_array(
+        params, backend_name, like=X, device=conversion_device
+    )
+    resid_arr = _as_backend_array(
+        resid, backend_name, like=X, device=conversion_device
+    )
+    scale_arr = _as_backend_array(
+        scale, backend_name, like=X, device=conversion_device
+    )
     if _contains_nan(scale_arr, backend_name):
         return None
 
