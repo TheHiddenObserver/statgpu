@@ -4,13 +4,16 @@ on:
   pull_request:
     branches: [master]
     paths:
+      - 'statgpu/linear_model/__init__.py'
       - 'statgpu/linear_model/_gaussian_inference.py'
+      - 'statgpu/linear_model/_gaussian_inference_device_contract.py'
       - 'statgpu/backends/_gpu_inference_cupy.py'
       - 'statgpu/backends/_utils.py'
       - 'statgpu/linear_model/penalized/__init__.py'
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_fit_mixin.py'
       - 'statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py'
+      - 'statgpu/linear_model/penalized/_no_inference_cleanup_contract.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
       - 'statgpu/linear_model/wrappers/_linear.py'
@@ -48,6 +51,7 @@ jobs:
             dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
+            dev/tests/test_gaussian_inference_latest_review_regressions.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
@@ -86,6 +90,7 @@ jobs:
             dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
+            dev/tests/test_gaussian_inference_latest_review_regressions.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
             -q --tb=short
 
@@ -103,13 +108,16 @@ jobs:
       - name: Compile changed implementation and validator
         run: |
           python -m compileall -q \
+            statgpu/linear_model/__init__.py \
             statgpu/linear_model/_gaussian_inference.py \
+            statgpu/linear_model/_gaussian_inference_device_contract.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
             statgpu/linear_model/penalized/__init__.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
+            statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
@@ -119,6 +127,7 @@ jobs:
             dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
+            dev/tests/test_gaussian_inference_latest_review_regressions.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
@@ -127,13 +136,16 @@ jobs:
       - name: High-signal static checks
         run: |
           ruff check \
+            statgpu/linear_model/__init__.py \
             statgpu/linear_model/_gaussian_inference.py \
+            statgpu/linear_model/_gaussian_inference_device_contract.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
             statgpu/linear_model/penalized/__init__.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
+            statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
@@ -143,6 +155,7 @@ jobs:
             dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
+            dev/tests/test_gaussian_inference_latest_review_regressions.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
