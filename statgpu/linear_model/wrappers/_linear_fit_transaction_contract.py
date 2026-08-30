@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+
 from ._linear import LinearRegression
 
 
@@ -42,6 +44,7 @@ def _install_linear_fit_transaction_contract() -> None:
     if getattr(current, "_statgpu_linear_fit_transaction", False):
         return
 
+    @functools.wraps(current)
     def _fit_with_fail_closed_transaction(
         self,
         X=None,
@@ -50,6 +53,10 @@ def _install_linear_fit_transaction_contract() -> None:
         formula=None,
         data=None,
     ):
+        # Preserve the PR79 backend-boundary source contract: the wrapped
+        # implementation still owns the literal `X_arr = X` and `y_arr = y`
+        # staging until backend resolution. This wrapper does not convert either
+        # public input before delegating; it only supplies failure transactionality.
         dispatch_started = False
         original_fit_cpu = self._fit_cpu
         original_fit_gpu = self._fit_gpu
