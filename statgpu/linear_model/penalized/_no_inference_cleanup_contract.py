@@ -10,6 +10,40 @@ from ._base import PenalizedGeneralizedLinearModel
 _MISSING = object()
 
 
+def _cupy_device_id(device_label: str) -> int | None:
+    text = str(device_label or "").lower()
+    if not text.startswith("cuda:"):
+        return None
+    try:
+        return int(text.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_cupy_cleanup_on_device(cleanup, device_label: str):
+    """Run estimation-only cleanup on the executed CuPy device when available."""
+    device_id = _cupy_device_id(device_label)
+    if device_id is None:
+        return cleanup()
+    try:
+        import cupy as cp
+    except ImportError:
+        # Hosted synthetic-CuPy regressions intentionally run without CuPy.
+        return cleanup()
+
+    context = cp.cuda.Device(device_id)
+    try:
+        context.__enter__()
+    except Exception:
+        # Preserve the established best-effort behavior if the device context
+        # itself cannot be entered; never mask the original fit failure.
+        return cleanup()
+    try:
+        return cleanup()
+    finally:
+        context.__exit__(None, None, None)
+
+
 def _invalidate_failed_no_inference_fit(estimator) -> None:
     """Fail closed so a rejected refit cannot expose stale predictions."""
     estimator._native_fit_coef = None
@@ -95,7 +129,15 @@ def _install_no_inference_cleanup_contract() -> None:
             return cleanup()
 
         def _cleanup_cuda_tracked():
-            return _tracked_cleanup("cupy", original_cleanup_cuda)
+            device_label = str(
+                getattr(self, "_selected_backend_device", "") or ""
+            ).lower()
+            return _tracked_cleanup(
+                "cupy",
+                lambda: _run_cupy_cleanup_on_device(
+                    original_cleanup_cuda, device_label
+                ),
+            )
 
         def _cleanup_torch_tracked():
             return _tracked_cleanup("torch", original_cleanup_torch)
@@ -113,10 +155,11 @@ def _install_no_inference_cleanup_contract() -> None:
             )
         except Exception:
             # Conversion/device-alignment can fail before the inner fit
-            # transaction reaches its own backend cleanup.  If the executed
+            # transaction reaches its own backend cleanup. If the executed
             # backend is already known and no cleanup has run yet, invoke the
-            # configured cleanup method once. With gpu_memory_cleanup=False the
-            # method remains a no-op, while state invalidation still applies.
+            # configured cleanup method once on that backend's concrete device.
+            # With gpu_memory_cleanup=False the method remains a no-op, while
+            # state invalidation still applies.
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
