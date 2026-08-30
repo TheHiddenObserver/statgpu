@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 import functools
+import sys
 
 from ._base import PenalizedGeneralizedLinearModel
 from ._no_inference_cleanup_contract import _invalidate_failed_no_inference_fit
+
+
+def _cleanup_failed_public_finite_validation(estimator) -> None:
+    """Release accelerator temporaries created by the outer finite-input guard."""
+    exc = sys.exc_info()[1]
+    backend = str(
+        getattr(exc, "_statgpu_finite_backend", "") or ""
+    ).lower()
+    if backend == "cupy":
+        estimator._cleanup_cuda_memory()
+    elif backend == "torch":
+        estimator._cleanup_torch_memory()
 
 
 def _install_no_inference_public_validation_reset_contract() -> None:
@@ -15,6 +28,13 @@ def _install_no_inference_public_validation_reset_contract() -> None:
         return
 
     def _reset_fit_state(self):
+        # BaseEstimator calls this hook from inside the finite-validation
+        # exception handler, before the public fit transaction is entered on
+        # typed subclasses.  Use the private exception provenance set by
+        # check_finite() so only the allocator that created validation
+        # temporaries is considered for cleanup.  The configured cleanup method
+        # remains a no-op when gpu_memory_cleanup=False.
+        _cleanup_failed_public_finite_validation(self)
         if not bool(getattr(self, "compute_inference", False)):
             _invalidate_failed_no_inference_fit(self)
             return None
