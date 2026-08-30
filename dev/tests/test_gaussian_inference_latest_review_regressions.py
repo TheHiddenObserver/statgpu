@@ -183,6 +183,8 @@ def test_no_inference_gpu_conversion_failure_runs_cleanup_once(monkeypatch):
             self.ndim = len(self.shape)
             self.device = types.SimpleNamespace(id=int(device))
 
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(-1.0, 1.0, 6)
     model = PenalizedGeneralizedLinearModel(
         loss="squared_error",
         penalty="l2",
@@ -193,6 +195,10 @@ def test_no_inference_gpu_conversion_failure_runs_cleanup_once(monkeypatch):
         compute_inference=False,
         gpu_memory_cleanup=True,
     )
+    model.fit(X, y)
+    assert model._fitted is True
+    assert model.coef_ is not None
+
     monkeypatch.setattr(
         model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="cupy")
     )
@@ -223,12 +229,16 @@ def test_no_inference_gpu_conversion_failure_runs_cleanup_once(monkeypatch):
         lambda *args, **kwargs: pytest.fail("backend dispatch must not start"),
     )
 
-    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
-    y = np.linspace(-1.0, 1.0, 6)
     with pytest.raises(RuntimeError, match="synthetic pre-dispatch conversion failure"):
         model.fit(X, y)
 
     assert events == ["cleanup"]
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    with pytest.raises(RuntimeError, match="Model has not been fitted yet"):
+        model.predict(X)
 
 
 def test_linear_cupy_alignment_failure_invalidates_previous_fit(monkeypatch):
