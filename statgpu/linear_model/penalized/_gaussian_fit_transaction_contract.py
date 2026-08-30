@@ -1,18 +1,18 @@
 """Transactional conversion contract for ordinary Gaussian L2 inference fits.
 
 The public penalized estimator currently starts its inner fit/inference failure
-transaction after backend conversion and cross-device alignment.  For
+transaction after backend conversion and cross-device alignment. For
 squared-error L2 fits with inference enabled, this module installs a narrow
 wrapper that closes that gap without changing unrelated estimators.
 
 The wrapper records the *final arrays handed to the backend dispatcher* rather
-than the earlier ``_to_array`` results.  Post-fit Gaussian inference therefore
-reuses the solver-facing, post-alignment arrays.  For GPU fits those arrays are
+than the earlier ``_to_array`` results. Post-fit Gaussian inference therefore
+reuses the solver-facing, post-alignment arrays. For GPU fits those arrays are
 normalized to the dtype/device of the retained native fitted coefficients before
 inference, preserving the float64 numerical contract used by ordinary GPU L2
 solvers even when the public inputs were float32.
 
-Failures before the inner transaction still fail closed.  Cleanup methods are
+Failures before the inner transaction still fail closed. Cleanup methods are
 tracked while the wrapped fit executes, so the outer guard only supplies cleanup
 when the inner transaction has not already done so; this also covers CuPy device
 context-entry failures without double cleanup. Successful exact/precomputed GPU
@@ -24,16 +24,21 @@ post-inference cleanup as two separate phases.
 
 After numerical inference has completed, the wrapper also retains the raw
 response, raw residual, and validated analytic weights used by public weighted
-fit diagnostics.  The numerical ``_resid`` state remains sqrt(weight)-scaled for
-covariance, scale, and likelihood calculations.
+fit diagnostics. The numerical ``_resid`` state remains sqrt(weight)-scaled for
+covariance, scale, and likelihood calculations. Weighted fits replace only the
+reporting state's response with the raw dispatch response, so reporting performs
+one response device-to-host snapshot instead of first copying the weighted
+response and then downloading the raw response again.
 
 BaseEstimator's public finite-input guard can sit outside the fit transaction on
-typed subclasses.  A narrow ``_reset_fit_state`` hook therefore invalidates the
+typed subclasses. A narrow ``_reset_fit_state`` hook therefore invalidates the
 same Gaussian-L2 state if finite validation rejects a refit before this wrapper
 is entered; unrelated PGLM configurations retain their existing reset behavior.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import numpy as np
 
@@ -86,13 +91,58 @@ def _normalize_inference_arrays(estimator, X_value, y_value):
     )
 
 
+def _cupy_device_id(device_label: str) -> int | None:
+    text = str(device_label or "").lower()
+    if not text.startswith("cuda:"):
+        return None
+    try:
+        return int(text.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_cupy_cleanup_on_device(cleanup, device_label: str):
+    """Run cleanup on the fit device, falling back only if context entry fails."""
+    device_id = _cupy_device_id(device_label)
+    if device_id is None:
+        return cleanup()
+
+    import cupy as cp
+
+    context = cp.cuda.Device(device_id)
+    try:
+        context.__enter__()
+    except Exception:
+        # If entering the target context itself is the failure (covered by the
+        # existing transaction regression), best-effort cleanup must not mask
+        # the original fit exception or cause a second cleanup attempt.
+        return cleanup()
+    try:
+        return cleanup()
+    finally:
+        context.__exit__(None, None, None)
+
+
+def _reporting_state_for_dispatch(state, dispatch_arrays):
+    """Use the raw response as the sole weighted-fit reporting snapshot."""
+    if dispatch_arrays["sample_weight"] is None:
+        return state
+    y_value = dispatch_arrays["y"]
+    if y_value is None:
+        return state
+    return replace(state, y=y_value)
+
+
 def _store_weighted_diagnostic_state(estimator, dispatch_arrays) -> None:
     """Retain raw outcome/residual state after backend-native inference finishes."""
-    y_value = dispatch_arrays["y"]
-    if y_value is None or getattr(estimator, "_resid", None) is None:
+    if getattr(estimator, "_y", None) is None or getattr(estimator, "_resid", None) is None:
         return
 
-    y_raw = np.asarray(_to_numpy(y_value), dtype=float)
+    # _apply_gaussian_reporting_state already installed the one retained
+    # response snapshot. Unweighted fits keep state.y; weighted fits receive the
+    # raw dispatch response through _reporting_state_for_dispatch. Do not
+    # transfer the response from the device a second time here.
+    y_raw = np.asarray(estimator._y, dtype=float)
     if y_raw.ndim == 2 and int(y_raw.shape[1]) == 1:
         y_raw = y_raw.reshape(-1)
     estimator._y = y_raw
@@ -222,6 +272,7 @@ def _install_gaussian_fit_transaction_contract() -> None:
         precomputed_cleanup_owned = {"cupy": False, "torch": False}
 
         original_post_fit_inference = self._compute_post_fit_gaussian_inference
+        original_apply_reporting_state = self._apply_gaussian_reporting_state
         original_fit_cpu = self._fit_cpu
         original_fit_gpu = self._fit_gpu
         original_fit_torch = self._fit_torch
@@ -232,6 +283,7 @@ def _install_gaussian_fit_transaction_contract() -> None:
             name: self.__dict__.get(name, _MISSING)
             for name in (
                 "_compute_post_fit_gaussian_inference",
+                "_apply_gaussian_reporting_state",
                 "_fit_cpu",
                 "_fit_gpu",
                 "_fit_torch",
@@ -244,6 +296,11 @@ def _install_gaussian_fit_transaction_contract() -> None:
             dispatch_arrays["X"] = X_value
             dispatch_arrays["y"] = y_value
             dispatch_arrays["sample_weight"] = sample_weight_value
+
+        def _apply_reporting_state_once(state):
+            return original_apply_reporting_state(
+                _reporting_state_for_dispatch(state, dispatch_arrays)
+            )
 
         def _post_fit_with_dispatch_arrays(X_value, y_value, sample_weight=None):
             X_dispatch = dispatch_arrays["X"]
@@ -292,12 +349,21 @@ def _install_gaussian_fit_transaction_contract() -> None:
             return result
 
         def _cleanup_cuda_tracked():
-            return _cleanup_backend_tracked("cupy", original_cleanup_cuda)
+            device_label = str(
+                getattr(self, "_selected_backend_device", "") or ""
+            ).lower()
+            return _cleanup_backend_tracked(
+                "cupy",
+                lambda: _run_cupy_cleanup_on_device(
+                    original_cleanup_cuda, device_label
+                ),
+            )
 
         def _cleanup_torch_tracked():
             return _cleanup_backend_tracked("torch", original_cleanup_torch)
 
         self._compute_post_fit_gaussian_inference = _post_fit_with_dispatch_arrays
+        self._apply_gaussian_reporting_state = _apply_reporting_state_once
         self._fit_cpu = _fit_cpu_started
         self._fit_gpu = _fit_gpu_started
         self._fit_torch = _fit_torch_started
@@ -316,9 +382,12 @@ def _install_gaussian_fit_transaction_contract() -> None:
             _store_weighted_diagnostic_state(self, dispatch_arrays)
             return result
         except Exception:
-            # Capture the executed backend before invalidation clears provenance.
+            # Capture executed backend/device before invalidation clears provenance.
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
+            ).lower()
+            device_label = str(
+                getattr(self, "_selected_backend_device", "") or ""
             ).lower()
             # Never leave a failed refit advertising or using an older successful
             # fit. This applies even when validation failed before inner fit state
@@ -327,9 +396,14 @@ def _install_gaussian_fit_transaction_contract() -> None:
 
             if backend_name in cleanup_calls and cleanup_calls[backend_name] == 0:
                 if backend_name == "cupy":
-                    self._cleanup_cuda_memory()
+                    _cleanup_backend_tracked(
+                        "cupy",
+                        lambda: _run_cupy_cleanup_on_device(
+                            original_cleanup_cuda, device_label
+                        ),
+                    )
                 elif backend_name == "torch":
-                    self._cleanup_torch_memory()
+                    _cleanup_backend_tracked("torch", original_cleanup_torch)
             raise
         finally:
             for name, previous in saved_instance_attrs.items():
