@@ -8,6 +8,30 @@ from ._base import PenalizedGeneralizedLinearModel
 _MISSING = object()
 
 
+def _invalidate_failed_no_inference_fit(estimator) -> None:
+    """Fail closed so a rejected refit cannot expose stale predictions."""
+    estimator._native_fit_coef = None
+    estimator._native_fit_intercept = None
+    estimator.coef_ = None
+    estimator.intercept_ = None
+    estimator.n_iter_ = 0
+    estimator._params = None
+    estimator._inference_precomputed = False
+    estimator._precomputed_gaussian_state = None
+    estimator._feature_names = None
+    estimator._design_info = None
+    estimator._formula_has_intercept = None
+    estimator._use_intercept = None
+    estimator._selected_solver = None
+    estimator._selected_backend_name = None
+    estimator._selected_backend_device = None
+    clear_inference = getattr(estimator, "_clear_inference_state", None)
+    if callable(clear_inference):
+        clear_inference()
+    estimator.__dict__.pop("n_features_in_", None)
+    estimator._fitted = False
+
+
 def _install_no_inference_cleanup_contract() -> None:
     """Deduplicate successful cleanup and cover pre-dispatch failures."""
     current = PenalizedGeneralizedLinearModel.fit
@@ -74,7 +98,7 @@ def _install_no_inference_cleanup_contract() -> None:
             # Conversion/device-alignment can fail before the inner fit
             # transaction reaches its own backend cleanup.  If the executed
             # backend is already known and no cleanup has run yet, supply the
-            # missing best-effort release exactly once before re-raising.
+            # missing best-effort release exactly once before invalidation.
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
@@ -82,6 +106,7 @@ def _install_no_inference_cleanup_contract() -> None:
                 self._cleanup_cuda_memory()
             elif backend_name == "torch" and cleanup_calls["torch"] == 0:
                 self._cleanup_torch_memory()
+            _invalidate_failed_no_inference_fit(self)
             raise
         finally:
             for name, previous in saved_instance_attrs.items():
