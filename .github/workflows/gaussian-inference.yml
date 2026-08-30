@@ -43,6 +43,7 @@ jobs:
           python -m pytest \
             dev/tests/test_gaussian_inference_backend_native.py \
             dev/tests/test_gaussian_inference_covariance_matrix.py \
+            dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
@@ -79,6 +80,7 @@ jobs:
           python -m pytest \
             dev/tests/test_gaussian_inference_backend_native.py \
             dev/tests/test_gaussian_inference_covariance_matrix.py \
+            dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
             -q --tb=short
@@ -108,6 +110,7 @@ jobs:
             statgpu/linear_model/wrappers/_ridge.py \
             dev/tests/test_gaussian_inference_backend_native.py \
             dev/tests/test_gaussian_inference_covariance_matrix.py \
+            dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
@@ -128,6 +131,7 @@ jobs:
             statgpu/linear_model/wrappers/_ridge.py \
             dev/tests/test_gaussian_inference_backend_native.py \
             dev/tests/test_gaussian_inference_covariance_matrix.py \
+            dev/tests/test_gaussian_inference_device_boundaries.py \
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
