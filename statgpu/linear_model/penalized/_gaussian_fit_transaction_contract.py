@@ -15,7 +15,11 @@ solvers even when the public inputs were float32.
 Failures before the inner transaction still fail closed.  Cleanup methods are
 tracked while the wrapped fit executes, so the outer guard only supplies cleanup
 when the inner transaction has not already done so; this also covers CuPy device
-context-entry failures without double cleanup.
+context-entry failures without double cleanup. Successful exact/precomputed GPU
+fits are likewise deduplicated: the backend-owned cleanup after precomputed
+inference is retained, while the later outer ``finally`` cleanup becomes a no-op.
+Ordinary deferred-inference fits still keep their intentional solver cleanup and
+post-inference cleanup as two separate phases.
 """
 
 from __future__ import annotations
@@ -153,13 +157,24 @@ def _install_gaussian_fit_transaction_contract() -> None:
             _remember_dispatch_arrays(X_value, y_value)
             return original_fit_torch(X_value, y_value, sample_weight)
 
+        def _cleanup_backend_tracked(backend_name, cleanup):
+            cleanup_calls[backend_name] += 1
+            # Exact GPU fits perform precomputed inference inside the backend
+            # dispatch and then release their accelerator cache before returning.
+            # The generic outer fit finally invokes cleanup again, but there is no
+            # deferred GPU numerical inference to clean in this precomputed case.
+            if (
+                cleanup_calls[backend_name] > 1
+                and bool(getattr(self, "_inference_precomputed", False))
+            ):
+                return None
+            return cleanup()
+
         def _cleanup_cuda_tracked():
-            cleanup_calls["cupy"] += 1
-            return original_cleanup_cuda()
+            return _cleanup_backend_tracked("cupy", original_cleanup_cuda)
 
         def _cleanup_torch_tracked():
-            cleanup_calls["torch"] += 1
-            return original_cleanup_torch()
+            return _cleanup_backend_tracked("torch", original_cleanup_torch)
 
         self._compute_post_fit_gaussian_inference = _post_fit_with_dispatch_arrays
         self._fit_cpu = _fit_cpu_started
