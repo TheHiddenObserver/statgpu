@@ -9,10 +9,12 @@ on:
       - 'statgpu/linear_model/_gaussian_inference_device_contract.py'
       - 'statgpu/backends/_gpu_inference_cupy.py'
       - 'statgpu/backends/_utils.py'
+      - 'statgpu/backends/_validation.py'
       - 'statgpu/linear_model/penalized/__init__.py'
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_fit_mixin.py'
       - 'statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py'
+      - 'statgpu/linear_model/penalized/_exact_reference_tail_contract.py'
       - 'statgpu/linear_model/penalized/_no_inference_cleanup_contract.py'
       - 'statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
@@ -122,10 +124,12 @@ jobs:
             statgpu/linear_model/_gaussian_inference_device_contract.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
+            statgpu/backends/_validation.py \
             statgpu/linear_model/penalized/__init__.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
+            statgpu/linear_model/penalized/_exact_reference_tail_contract.py \
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
@@ -156,10 +160,12 @@ jobs:
             statgpu/linear_model/_gaussian_inference_device_contract.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
+            statgpu/backends/_validation.py \
             statgpu/linear_model/penalized/__init__.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
+            statgpu/linear_model/penalized/_exact_reference_tail_contract.py \
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
