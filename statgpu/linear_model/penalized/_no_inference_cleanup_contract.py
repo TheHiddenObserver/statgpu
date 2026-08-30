@@ -1,4 +1,4 @@
-"""Exactly-once accelerator cleanup for successful estimation-only PGLM fits."""
+"""Exactly-once accelerator cleanup for estimation-only PGLM fits."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ _MISSING = object()
 
 
 def _install_no_inference_cleanup_contract() -> None:
-    """Deduplicate backend-owned and outer cleanup when no inference runs."""
+    """Deduplicate successful cleanup and cover pre-dispatch failures."""
     current = PenalizedGeneralizedLinearModel.fit
     if getattr(current, "_statgpu_no_inference_cleanup_contract", False):
         return
@@ -70,6 +70,19 @@ def _install_no_inference_cleanup_contract() -> None:
                 formula=formula,
                 data=data,
             )
+        except Exception:
+            # Conversion/device-alignment can fail before the inner fit
+            # transaction reaches its own backend cleanup.  If the executed
+            # backend is already known and no cleanup has run yet, supply the
+            # missing best-effort release exactly once before re-raising.
+            backend_name = str(
+                getattr(self, "_selected_backend_name", "") or ""
+            ).lower()
+            if backend_name == "cupy" and cleanup_calls["cupy"] == 0:
+                self._cleanup_cuda_memory()
+            elif backend_name == "torch" and cleanup_calls["torch"] == 0:
+                self._cleanup_torch_memory()
+            raise
         finally:
             for name, previous in saved_instance_attrs.items():
                 if previous is _MISSING:
