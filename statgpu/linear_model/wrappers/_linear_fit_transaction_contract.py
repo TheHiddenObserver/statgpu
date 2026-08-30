@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import sys
 
 from ._linear import LinearRegression
 
@@ -103,21 +104,23 @@ def _install_linear_fit_transaction_contract() -> None:
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
+            finite_backend = str(
+                getattr(
+                    sys.exc_info()[1],
+                    "_statgpu_finite_backend",
+                    "",
+                )
+                or ""
+            ).lower()
+            cleanup_backend = backend_name if backend_resolved else finite_backend
             # Conversion/alignment and backend solve/inference can both fail
-            # before the backend reaches its success-only cleanup. Once this
-            # fit has actually resolved a GPU backend, supply cleanup iff no
-            # cleanup has executed yet in this transaction.
-            if (
-                backend_resolved
-                and backend_name == "cupy"
-                and cleanup_calls["cupy"] == 0
-            ):
+            # before the backend reaches its success-only cleanup.  Outer public
+            # finite validation is earlier still, so check_finite() records the
+            # input allocator that created its temporary reduction.  Supply
+            # cleanup exactly once for whichever accelerator actually executed.
+            if cleanup_backend == "cupy" and cleanup_calls["cupy"] == 0:
                 self._cleanup_cuda_memory()
-            elif (
-                backend_resolved
-                and backend_name == "torch"
-                and cleanup_calls["torch"] == 0
-            ):
+            elif cleanup_backend == "torch" and cleanup_calls["torch"] == 0:
                 self._cleanup_torch_memory()
             _invalidate_failed_linear_fit(self)
             raise
