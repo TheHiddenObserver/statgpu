@@ -73,13 +73,39 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             inference_method=inference_method,
         )
 
-    @property
-    def rsquared(self):
+    def _fit_diagnostic_state(self):
+        """Return raw response/residual state and optional analytic weights."""
         if self._y is None or self._resid is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
+        y = np.asarray(self._y, dtype=float)
+        raw_resid = getattr(self, "_raw_resid", None)
+        resid = np.asarray(
+            self._resid if raw_resid is None else raw_resid,
+            dtype=float,
+        )
+        weights = getattr(self, "_sample_weight_fit", None)
+        if weights is not None:
+            weights = np.asarray(weights, dtype=float).reshape(-1)
+            if weights.shape[0] != y.shape[0]:
+                raise RuntimeError(
+                    "Stored sample weights no longer match the fitted response state."
+                )
+        return y, resid, weights
+
+    @property
+    def rsquared(self):
+        state = self._fit_diagnostic_state()
+        if state is None:
+            return None
+        y, resid, weights = state
+        if weights is None:
+            y_mean = np.mean(y)
+            ss_tot = np.sum((y - y_mean) ** 2)
+            ss_res = np.sum(resid ** 2)
+        else:
+            y_mean = np.average(y, weights=weights)
+            ss_tot = np.sum(weights * (y - y_mean) ** 2)
+            ss_res = np.sum(weights * resid ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
     @property
@@ -95,15 +121,20 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
 
     @property
     def fvalue(self):
-        if self._y is None or self._resid is None:
+        state = self._fit_diagnostic_state()
+        if state is None:
             return None
         k = len(self.coef_) if self.coef_ is not None else 0
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
             return np.nan
-        y = np.asarray(self._y, dtype=float)
-        resid = np.asarray(self._resid, dtype=float)
-        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
-        ss_res = float(np.sum(resid ** 2))
+        y, resid, weights = state
+        if weights is None:
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            ss_res = float(np.sum(resid ** 2))
+        else:
+            y_mean = np.average(y, weights=weights)
+            ss_tot = float(np.sum(weights * (y - y_mean) ** 2))
+            ss_res = float(np.sum(weights * resid ** 2))
         if not np.isfinite(ss_tot) or not np.isfinite(ss_res) or ss_tot <= 0:
             return np.nan
         ss_reg = max(0.0, ss_tot - ss_res)
@@ -248,5 +279,4 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
                 print(f"{name:<15} {'':>12} {'':>12} {'':>10} {'':>10} {lo:>12.4f} {hi:>12.4f}")
 
         print("=" * 80)
-
 
