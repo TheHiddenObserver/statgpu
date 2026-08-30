@@ -17,7 +17,8 @@ tracked while the wrapped fit executes, so the outer guard only supplies cleanup
 when the inner transaction has not already done so; this also covers CuPy device
 context-entry failures without double cleanup. Successful exact/precomputed GPU
 fits are likewise deduplicated: the backend-owned cleanup after precomputed
-inference is retained, while the later outer ``finally`` cleanup becomes a no-op.
+inference is retained, while the later outer ``finally`` cleanup becomes a no-op
+even after the post-fit reporting handler consumes the precomputed-state flag.
 Ordinary deferred-inference fits still keep their intentional solver cleanup and
 post-inference cleanup as two separate phases.
 
@@ -193,6 +194,7 @@ def _install_gaussian_fit_transaction_contract() -> None:
 
         dispatch_arrays = {"X": None, "y": None, "sample_weight": None}
         cleanup_calls = {"cupy": 0, "torch": 0}
+        precomputed_cleanup_owned = {"cupy": False, "torch": False}
 
         original_post_fit_inference = self._compute_post_fit_gaussian_inference
         original_fit_cpu = self._fit_cpu
@@ -248,16 +250,21 @@ def _install_gaussian_fit_transaction_contract() -> None:
 
         def _cleanup_backend_tracked(backend_name, cleanup):
             cleanup_calls[backend_name] += 1
-            # Exact GPU fits perform precomputed inference inside the backend
-            # dispatch and then release their accelerator cache before returning.
-            # The generic outer fit finally invokes cleanup again, but there is no
-            # deferred GPU numerical inference to clean in this precomputed case.
-            if (
-                cleanup_calls[backend_name] > 1
-                and bool(getattr(self, "_inference_precomputed", False))
-            ):
+            # If the backend already released exact/precomputed inference
+            # temporaries, later reporting may consume/reset
+            # _inference_precomputed before the generic outer finally runs.
+            # Preserve ownership in this transaction-local flag rather than
+            # re-reading the mutable estimator flag on the second cleanup call.
+            if precomputed_cleanup_owned[backend_name]:
                 return None
-            return cleanup()
+
+            owns_precomputed_cleanup = bool(
+                getattr(self, "_inference_precomputed", False)
+            )
+            result = cleanup()
+            if owns_precomputed_cleanup:
+                precomputed_cleanup_owned[backend_name] = True
+            return result
 
         def _cleanup_cuda_tracked():
             return _cleanup_backend_tracked("cupy", original_cleanup_cuda)
