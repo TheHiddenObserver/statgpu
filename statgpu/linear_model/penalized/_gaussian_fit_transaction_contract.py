@@ -171,6 +171,7 @@ def _invalidate_failed_fit_state(estimator) -> None:
     estimator._selected_solver = None
     estimator._selected_backend_name = None
     estimator._selected_backend_device = None
+    estimator.__dict__.pop("n_features_in_", None)
     estimator._fitted = False
 
 
