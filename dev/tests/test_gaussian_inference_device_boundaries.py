@@ -400,8 +400,13 @@ def test_pglm_exact_precomputed_gpu_cleanup_is_not_repeated(monkeypatch):
     monkeypatch.setattr(
         model, "_cleanup_cuda_memory", lambda: events.append("cleanup")
     )
+
+    def consume_precomputed_state(*args, **kwargs):
+        assert model._inference_precomputed is True
+        model._inference_precomputed = False
+
     monkeypatch.setattr(
-        model, "_compute_post_fit_gaussian_inference", lambda *args, **kwargs: None
+        model, "_compute_post_fit_gaussian_inference", consume_precomputed_state
     )
 
     def fake_fit_gpu(X, y, sample_weight=None):
