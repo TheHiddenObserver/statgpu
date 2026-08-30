@@ -21,6 +21,11 @@ from ._penalized_cox import PenalizedCoxPHModel
 # imports share the same contract.
 from . import _group_penalty_model_contract as _group_penalty_model_contract
 
+# Ordinary squared-error L2 inference must reuse the fit's converted arrays and
+# include pre-dispatch conversion/alignment in the same fail-closed transaction.
+# Install this after the group hook so the two narrow wrappers compose.
+from . import _gaussian_fit_transaction_contract as _gaussian_fit_transaction_contract
+
 # Install strict penalized-Cox grid validation and restore the public class
 # introspection contract after the estimator and survival CV modules exist.
 from . import _penalized_cox_public_contract as _penalized_cox_public_contract
