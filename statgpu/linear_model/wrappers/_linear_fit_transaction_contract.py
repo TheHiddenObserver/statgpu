@@ -39,6 +39,26 @@ def _invalidate_failed_linear_fit(estimator) -> None:
     estimator._fitted = False
 
 
+def _cupy_device_id(device_label: str) -> int | None:
+    text = str(device_label or "").lower()
+    if not text.startswith("cuda:"):
+        return None
+    try:
+        return int(text.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_cupy_cleanup_on_device(cleanup, device_label: str):
+    device_id = _cupy_device_id(device_label)
+    if device_id is None:
+        return cleanup()
+    import cupy as cp
+
+    with cp.cuda.Device(device_id):
+        return cleanup()
+
+
 def _install_linear_fit_transaction_contract() -> None:
     """Fail closed if conversion/alignment/dispatch aborts a refit."""
     current = LinearRegression.fit
@@ -83,7 +103,15 @@ def _install_linear_fit_transaction_contract() -> None:
             return cleanup()
 
         def _cleanup_cuda_tracked():
-            return _tracked_cleanup("cupy", original_cleanup_cuda)
+            device_label = str(
+                getattr(self, "_selected_backend_device", "") or ""
+            ).lower()
+            return _tracked_cleanup(
+                "cupy",
+                lambda: _run_cupy_cleanup_on_device(
+                    original_cleanup_cuda, device_label
+                ),
+            )
 
         def _cleanup_torch_tracked():
             return _tracked_cleanup("torch", original_cleanup_torch)
@@ -101,25 +129,29 @@ def _install_linear_fit_transaction_contract() -> None:
                 data=data,
             )
         except Exception:
+            exc = sys.exc_info()[1]
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
             finite_backend = str(
-                getattr(
-                    sys.exc_info()[1],
-                    "_statgpu_finite_backend",
-                    "",
-                )
-                or ""
+                getattr(exc, "_statgpu_finite_backend", "") or ""
+            ).lower()
+            finite_device = str(
+                getattr(exc, "_statgpu_finite_device", "") or ""
             ).lower()
             cleanup_backend = backend_name if backend_resolved else finite_backend
             # Conversion/alignment and backend solve/inference can both fail
-            # before the backend reaches its success-only cleanup.  Outer public
+            # before the backend reaches its success-only cleanup. Outer public
             # finite validation is earlier still, so check_finite() records the
-            # input allocator that created its temporary reduction.  Supply
-            # cleanup exactly once for whichever accelerator actually executed.
+            # input allocator and concrete device that created its temporary
+            # reduction. Supply cleanup exactly once on that device.
             if cleanup_backend == "cupy" and cleanup_calls["cupy"] == 0:
-                self._cleanup_cuda_memory()
+                if backend_resolved:
+                    self._cleanup_cuda_memory()
+                else:
+                    _run_cupy_cleanup_on_device(
+                        self._cleanup_cuda_memory, finite_device
+                    )
             elif cleanup_backend == "torch" and cleanup_calls["torch"] == 0:
                 self._cleanup_torch_memory()
             _invalidate_failed_linear_fit(self)
