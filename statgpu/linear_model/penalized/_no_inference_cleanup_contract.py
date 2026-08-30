@@ -1,4 +1,4 @@
-"""Exactly-once accelerator cleanup for estimation-only PGLM fits."""
+"""Fail-closed transaction and cleanup ownership for estimation-only PGLM fits."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _invalidate_failed_no_inference_fit(estimator) -> None:
 
 
 def _install_no_inference_cleanup_contract() -> None:
-    """Deduplicate successful cleanup and cover pre-dispatch failures."""
+    """Fail close every estimation-only refit and deduplicate GPU cleanup."""
     current = PenalizedGeneralizedLinearModel.fit
     if getattr(current, "_statgpu_no_inference_cleanup_contract", False):
         return
@@ -46,10 +46,7 @@ def _install_no_inference_cleanup_contract() -> None:
         formula=None,
         data=None,
     ):
-        if (
-            bool(getattr(self, "compute_inference", False))
-            or not bool(getattr(self, "gpu_memory_cleanup", False))
-        ):
+        if bool(getattr(self, "compute_inference", False)):
             return current(
                 self,
                 X=X,
@@ -97,8 +94,9 @@ def _install_no_inference_cleanup_contract() -> None:
         except Exception:
             # Conversion/device-alignment can fail before the inner fit
             # transaction reaches its own backend cleanup.  If the executed
-            # backend is already known and no cleanup has run yet, supply the
-            # missing best-effort release exactly once before invalidation.
+            # backend is already known and no cleanup has run yet, invoke the
+            # configured cleanup method once. With gpu_memory_cleanup=False the
+            # method remains a no-op, while state invalidation still applies.
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
