@@ -149,3 +149,193 @@ def test_cupy_reference_inference_runs_on_statistic_device(monkeypatch):
     assert state["entered"] == [1]
     assert state["reference_calls"] == 1
     assert state["current"] == 0
+
+
+def _torch_gaussian_contract_model(monkeypatch):
+    torch = pytest.importorskip("torch")
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+    )
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="torch")
+    )
+    monkeypatch.setattr(
+        model, "_auto_backend_override", lambda backend_name, X: backend_name
+    )
+    monkeypatch.setattr(
+        model,
+        "_select_solver",
+        lambda loss, backend_name=None, X=None: "newton",
+    )
+    return torch, model
+
+
+def test_pglm_inference_reuses_post_alignment_response(monkeypatch):
+    torch, model = _torch_gaussian_contract_model(monkeypatch)
+
+    class ResponseBeforeAlignment:
+        def __init__(self, value):
+            self.value = value
+            self.shape = value.shape
+            self.ndim = value.ndim
+
+        def to(self, device=None, dtype=None):
+            return self.value.to(device=device, dtype=dtype)
+
+    real_to_array = model._to_array
+
+    def staged_to_array(value, device=None, backend=None):
+        converted = real_to_array(value, device=device, backend=backend)
+        if getattr(converted, "ndim", None) == 1:
+            return ResponseBeforeAlignment(converted)
+        return converted
+
+    monkeypatch.setattr(model, "_to_array", staged_to_array)
+    dispatched = {}
+
+    def fake_fit_torch(X, y, sample_weight=None):
+        assert isinstance(y, torch.Tensor)
+        dispatched["X"] = X
+        dispatched["y"] = y
+        model._native_fit_coef = torch.zeros(
+            X.shape[1], dtype=X.dtype, device=X.device
+        )
+        model._native_fit_intercept = None
+        model.coef_ = None
+        model.intercept_ = None
+        model._params = None
+        model._df_resid = int(X.shape[0] - X.shape[1])
+
+    def assert_final_arrays(X, y, sample_weight=None):
+        assert X is dispatched["X"]
+        assert y is dispatched["y"]
+
+    monkeypatch.setattr(model, "_fit_torch", fake_fit_torch)
+    monkeypatch.setattr(
+        model, "_compute_post_fit_gaussian_inference", assert_final_arrays
+    )
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6)
+    model.fit(X, y)
+
+    assert model._fitted is True
+
+
+def test_pglm_inference_promotes_reused_float32_arrays_to_native_fit_dtype(monkeypatch):
+    torch, model = _torch_gaussian_contract_model(monkeypatch)
+    dispatched = {}
+
+    def fake_fit_torch(X, y, sample_weight=None):
+        assert X.dtype == torch.float32
+        assert y.dtype == torch.float32
+        dispatched["X"] = X
+        dispatched["y"] = y
+        model._native_fit_coef = torch.zeros(
+            X.shape[1], dtype=torch.float64, device=X.device
+        )
+        model._native_fit_intercept = None
+        model.coef_ = None
+        model.intercept_ = None
+        model._params = None
+        model._df_resid = int(X.shape[0] - X.shape[1])
+
+    def assert_solver_precision(X, y, sample_weight=None):
+        assert X.dtype == torch.float64
+        assert y.dtype == torch.float64
+        assert X.device == dispatched["X"].device
+        assert y.device == dispatched["y"].device
+
+    monkeypatch.setattr(model, "_fit_torch", fake_fit_torch)
+    monkeypatch.setattr(
+        model, "_compute_post_fit_gaussian_inference", assert_solver_precision
+    )
+
+    X = np.arange(18.0, dtype=np.float32).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6, dtype=np.float32)
+    model.fit(X, y)
+
+    assert model._fitted is True
+
+
+def test_pglm_cupy_context_entry_failure_cleans_up_once(monkeypatch):
+    import statgpu.linear_model.penalized._fit_mixin as fit_mixin_module
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    events = []
+
+    class FakeArray:
+        def __init__(self, shape, device=1):
+            self.shape = tuple(shape)
+            self.ndim = len(self.shape)
+            self.device = types.SimpleNamespace(id=int(device))
+
+    class FailingDevice:
+        def __init__(self, device):
+            self.device = int(device)
+
+        def __enter__(self):
+            raise RuntimeError("synthetic CuPy context-entry failure")
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_cupy = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(Device=FailingDevice)
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setattr(
+        fit_mixin_module,
+        "_cupy_asarray_on_device",
+        lambda value, target_device, dtype=None: value,
+    )
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    )
+    model._fitted = True
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="cupy")
+    )
+    monkeypatch.setattr(
+        model, "_auto_backend_override", lambda backend_name, X: backend_name
+    )
+    monkeypatch.setattr(
+        model,
+        "_select_solver",
+        lambda loss, backend_name=None, X=None: "newton",
+    )
+    monkeypatch.setattr(
+        model,
+        "_to_array",
+        lambda value, device=None, backend=None: FakeArray(np.asarray(value).shape),
+    )
+    monkeypatch.setattr(
+        model, "_cleanup_cuda_memory", lambda: events.append("cleanup")
+    )
+    monkeypatch.setattr(
+        model, "_fit_gpu", lambda *args, **kwargs: events.append("fit")
+    )
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(0.0, 1.0, 6)
+    with pytest.raises(RuntimeError, match="synthetic CuPy context-entry failure"):
+        model.fit(X, y)
+
+    assert events == ["cleanup"]
+    assert model._native_fit_coef is None
+    assert model._native_fit_intercept is None
+    assert model._fitted is False
