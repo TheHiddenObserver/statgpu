@@ -82,6 +82,7 @@ class Ridge(_PenalizedLinearRegression):
             raise ValueError("X and y must contain the same number of samples")
 
         n_samples, n_features = X_np.shape
+        self.n_features_in_ = int(n_features)
         self._nobs = n_samples
         self._fitted = False
 
@@ -164,7 +165,9 @@ class Ridge(_PenalizedLinearRegression):
         # This optimized branch is itself the executed fit implementation rather
         # than the shared backend dispatcher, so publish its provenance before
         # inference consumes the executed-backend contract.
+        self._selected_solver = "exact"
         self._selected_backend_name = "numpy"
+        self._selected_backend_device = "cpu"
 
         # Build design matrix and compute residuals only when inference is needed
         if self._compute_inference_enabled:
@@ -197,7 +200,7 @@ class Ridge(_PenalizedLinearRegression):
 
 
 def _install_ridge_failed_refit_contract() -> None:
-    """Fail closed when the optimized Ridge override raises during refit."""
+    """Reset optimized direct-fit state and fail closed on Ridge refit errors."""
     current = Ridge.fit
     if getattr(current, "_statgpu_ridge_failed_refit_contract", False):
         return
@@ -207,6 +210,31 @@ def _install_ridge_failed_refit_contract() -> None:
         self, X=None, y=None, sample_weight=None, formula=None, data=None
     ):
         try:
+            optimized_direct = (
+                formula is None
+                and self._get_compute_device() == Device.CPU
+                and self._solver == "exact"
+            )
+            if optimized_direct:
+                # The optimized override bypasses the generic PGLM fit preamble.
+                # Reset formula-derived intercept semantics and all previous
+                # inference/reporting state before a successful direct refit so a
+                # prior formula/no-intercept fit or inference-enabled fit cannot
+                # contaminate this fit.
+                self._feature_names = None
+                self._design_info = None
+                self._formula_has_intercept = None
+                self._use_intercept = None
+                self._native_fit_coef = None
+                self._native_fit_intercept = None
+                self._inference_precomputed = False
+                self._precomputed_gaussian_state = None
+                self._clear_inference_state()
+                self._selected_solver = "exact"
+                self._selected_backend_name = "numpy"
+                self._selected_backend_device = "cpu"
+                self._fitted = False
+
             return current(
                 self,
                 X=X,
