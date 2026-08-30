@@ -26,6 +26,11 @@ After numerical inference has completed, the wrapper also retains the raw
 response, raw residual, and validated analytic weights used by public weighted
 fit diagnostics.  The numerical ``_resid`` state remains sqrt(weight)-scaled for
 covariance, scale, and likelihood calculations.
+
+BaseEstimator's public finite-input guard can sit outside the fit transaction on
+typed subclasses.  A narrow ``_reset_fit_state`` hook therefore invalidates the
+same Gaussian-L2 state if finite validation rejects a refit before this wrapper
+is entered; unrelated PGLM configurations retain their existing reset behavior.
 """
 
 from __future__ import annotations
@@ -167,6 +172,25 @@ def _invalidate_failed_fit_state(estimator) -> None:
     estimator._selected_backend_name = None
     estimator._selected_backend_device = None
     estimator._fitted = False
+
+
+def _install_gaussian_public_validation_reset_contract() -> None:
+    """Fail closed when an outer public finite guard rejects an L2 refit."""
+    current_reset = getattr(PenalizedGeneralizedLinearModel, "_reset_fit_state", None)
+    if getattr(current_reset, "_statgpu_gaussian_fit_reset", False):
+        return
+
+    def _reset_fit_state(self):
+        if _needs_gaussian_conversion_contract(self):
+            _invalidate_failed_fit_state(self)
+            return None
+        if callable(current_reset):
+            return current_reset(self)
+        return None
+
+    _reset_fit_state._statgpu_gaussian_fit_reset = True
+    _reset_fit_state._statgpu_original = current_reset
+    PenalizedGeneralizedLinearModel._reset_fit_state = _reset_fit_state
 
 
 def _install_gaussian_fit_transaction_contract() -> None:
@@ -318,4 +342,5 @@ def _install_gaussian_fit_transaction_contract() -> None:
     PenalizedGeneralizedLinearModel.fit = _fit_with_gaussian_conversion_transaction
 
 
+_install_gaussian_public_validation_reset_contract()
 _install_gaussian_fit_transaction_contract()
