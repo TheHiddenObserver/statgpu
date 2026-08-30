@@ -56,9 +56,7 @@ def test_cuda_torch_finite_reduction_failure_records_backend_provenance(monkeypa
     assert getattr(exc_info.value, "_statgpu_finite_device", None) == "cuda:2"
 
 
-def test_cupy_cleanup_helper_enters_executed_device(monkeypatch):
-    from statgpu.linear_model.penalized import _gaussian_fit_transaction_contract as contract
-
+def _exercise_cleanup_device_helper(monkeypatch, helper):
     state = {"current": 0, "entered": [], "cleaned": []}
 
     class FakeDevice:
@@ -82,7 +80,7 @@ def test_cupy_cleanup_helper_enters_executed_device(monkeypatch):
         types.SimpleNamespace(cuda=types.SimpleNamespace(Device=FakeDevice)),
     )
 
-    contract._run_cupy_cleanup_on_device(
+    helper(
         lambda: state["cleaned"].append(state["current"]),
         "cuda:1",
     )
@@ -90,6 +88,18 @@ def test_cupy_cleanup_helper_enters_executed_device(monkeypatch):
     assert state["entered"] == [1]
     assert state["cleaned"] == [1]
     assert state["current"] == 0
+
+
+def test_cupy_cleanup_helper_enters_executed_device(monkeypatch):
+    from statgpu.linear_model.penalized import _gaussian_fit_transaction_contract as contract
+
+    _exercise_cleanup_device_helper(monkeypatch, contract._run_cupy_cleanup_on_device)
+
+
+def test_no_inference_cupy_cleanup_helper_enters_executed_device(monkeypatch):
+    from statgpu.linear_model.penalized import _no_inference_cleanup_contract as contract
+
+    _exercise_cleanup_device_helper(monkeypatch, contract._run_cupy_cleanup_on_device)
 
 
 def test_weighted_reporting_state_substitutes_raw_response_only():
