@@ -436,3 +436,77 @@ def test_gaussian_fit_transaction_contract_covers_resolved_l2_spellings(penalty_
     )
 
     assert contract._needs_gaussian_conversion_contract(model) is True
+
+
+def test_penalized_linear_weighted_diagnostics_use_raw_outcomes():
+    from statgpu.linear_model import PenalizedLinearRegression
+
+    X = np.asarray(
+        [
+            [-2.0, 0.5],
+            [-1.0, 1.5],
+            [0.0, -0.5],
+            [1.0, 2.0],
+            [2.0, 0.25],
+            [3.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    y = np.asarray([-1.2, 0.1, 0.4, 2.2, 1.6, 3.8], dtype=np.float64)
+    weights = np.asarray([1.0, 4.0, 2.0, 9.0, 3.0, 5.0], dtype=np.float64)
+
+    model = PenalizedLinearRegression(
+        penalty="l2",
+        alpha=0.15,
+        fit_intercept=True,
+        device="cpu",
+        solver="newton",
+        compute_inference=True,
+    )
+    model.fit(X, y, sample_weight=weights)
+
+    pred = np.asarray(model.predict(X), dtype=float)
+    raw_resid = y - pred
+    y_mean = np.average(y, weights=weights)
+    ss_tot = float(np.sum(weights * (y - y_mean) ** 2))
+    ss_res = float(np.sum(weights * raw_resid ** 2))
+    expected_r2 = 1.0 - ss_res / ss_tot
+    k = X.shape[1]
+    expected_f = ((ss_tot - ss_res) / k) / (ss_res / model._df_resid)
+
+    np.testing.assert_allclose(model._y, y, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(model._raw_resid, raw_resid, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(model._sample_weight_fit, weights, rtol=0.0, atol=0.0)
+    assert model.rsquared == pytest.approx(expected_r2, rel=1e-10, abs=1e-10)
+    assert model.fvalue == pytest.approx(expected_f, rel=1e-10, abs=1e-10)
+
+
+def test_pglm_failed_refit_clears_stale_prediction_state():
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(-1.0, 1.0, 6)
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+    )
+    model.fit(X, y)
+    assert model._fitted is True
+    assert model.coef_ is not None
+    assert model._inference_result is not None
+
+    with pytest.raises(ValueError, match="Either formula\+data or X\+y"):
+        model.fit()
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._inference_result is None
+    assert model._selected_backend_name is None
+    with pytest.raises(RuntimeError, match="Model has not been fitted yet"):
+        model.predict(X)
