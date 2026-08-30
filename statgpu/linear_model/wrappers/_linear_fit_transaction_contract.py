@@ -57,33 +57,39 @@ def _install_linear_fit_transaction_contract() -> None:
         # implementation still owns the literal `X_arr = X` and `y_arr = y`
         # staging until backend resolution. This wrapper does not convert either
         # public input before delegating; it only supplies failure transactionality.
-        dispatch_started = False
-        original_fit_cpu = self._fit_cpu
-        original_fit_gpu = self._fit_gpu
-        original_fit_torch = self._fit_torch
+        backend_resolved = False
+        cleanup_calls = {"cupy": 0, "torch": 0}
+        original_get_backend = self._get_backend
+        original_cleanup_cuda = self._cleanup_cuda_memory
+        original_cleanup_torch = self._cleanup_torch_memory
         saved_instance_attrs = {
             name: self.__dict__.get(name, _MISSING)
-            for name in ("_fit_cpu", "_fit_gpu", "_fit_torch")
+            for name in (
+                "_get_backend",
+                "_cleanup_cuda_memory",
+                "_cleanup_torch_memory",
+            )
         }
 
-        def _fit_cpu_started(*args, **kwargs):
-            nonlocal dispatch_started
-            dispatch_started = True
-            return original_fit_cpu(*args, **kwargs)
+        def _get_backend_tracked(*args, **kwargs):
+            nonlocal backend_resolved
+            result = original_get_backend(*args, **kwargs)
+            backend_resolved = True
+            return result
 
-        def _fit_gpu_started(*args, **kwargs):
-            nonlocal dispatch_started
-            dispatch_started = True
-            return original_fit_gpu(*args, **kwargs)
+        def _tracked_cleanup(backend_name, cleanup):
+            cleanup_calls[backend_name] += 1
+            return cleanup()
 
-        def _fit_torch_started(*args, **kwargs):
-            nonlocal dispatch_started
-            dispatch_started = True
-            return original_fit_torch(*args, **kwargs)
+        def _cleanup_cuda_tracked():
+            return _tracked_cleanup("cupy", original_cleanup_cuda)
 
-        self._fit_cpu = _fit_cpu_started
-        self._fit_gpu = _fit_gpu_started
-        self._fit_torch = _fit_torch_started
+        def _cleanup_torch_tracked():
+            return _tracked_cleanup("torch", original_cleanup_torch)
+
+        self._get_backend = _get_backend_tracked
+        self._cleanup_cuda_memory = _cleanup_cuda_tracked
+        self._cleanup_torch_memory = _cleanup_torch_tracked
         try:
             return current(
                 self,
@@ -97,23 +103,22 @@ def _install_linear_fit_transaction_contract() -> None:
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
-            # A CuPy conversion/alignment failure can happen before _fit_gpu
-            # takes ownership. Honor gpu_memory_cleanup for those partial
-            # allocations; once dispatch starts, the backend remains owner.
-            if backend_name == "cupy" and not dispatch_started:
+            # Conversion/alignment and backend solve/inference can both fail
+            # before the backend reaches its success-only cleanup. Once this
+            # fit has actually resolved a GPU backend, supply cleanup iff no
+            # cleanup has executed yet in this transaction.
+            if (
+                backend_resolved
+                and backend_name == "cupy"
+                and cleanup_calls["cupy"] == 0
+            ):
                 self._cleanup_cuda_memory()
             elif (
-                backend_name == "torch"
-                and not dispatch_started
-                and bool(getattr(self, "gpu_memory_cleanup", False))
+                backend_resolved
+                and backend_name == "torch"
+                and cleanup_calls["torch"] == 0
             ):
-                try:
-                    import torch
-
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except Exception:
-                    pass
+                self._cleanup_torch_memory()
             _invalidate_failed_linear_fit(self)
             raise
         finally:
