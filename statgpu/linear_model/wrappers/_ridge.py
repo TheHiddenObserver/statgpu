@@ -172,7 +172,8 @@ class Ridge(_PenalizedLinearRegression):
             else:
                 self._X_design = X_np.copy()
             y_pred = self._X_design @ self._params
-            self._resid = y_np - y_pred
+            raw_resid = y_np - y_pred
+            self._resid = raw_resid.copy()
             if self._df_resid > 0:
                 resid_sq = self._resid ** 2
                 self._scale = float(np.sum(resid_sq)) / self._df_resid
@@ -181,6 +182,14 @@ class Ridge(_PenalizedLinearRegression):
             # sqrt(w)*X internally, producing correct weighted scale and
             # consistent inference attributes.
             self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
+
+            # The shared inference snapshot intentionally stores sqrt(w)-scaled
+            # numerical state for covariance/scale/likelihood calculations. Public
+            # Ridge diagnostics need the original response/residual plus analytic
+            # weights, matching the ordinary PGLM L2 transaction contract.
+            self._y = y_np.copy()
+            self._raw_resid = raw_resid.copy()
+            self._sample_weight_fit = None if sw is None else sw.copy()
 
         self._fitted = True
         return self
