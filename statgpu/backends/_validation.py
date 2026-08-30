@@ -8,27 +8,63 @@ from typing import Any
 import numpy as np
 
 
-def _tag_finite_backend(exc: BaseException, backend: str | None) -> None:
+def _tag_finite_backend(
+    exc: BaseException,
+    backend: str | None,
+    *,
+    device: str | None = None,
+) -> None:
     """Attach private accelerator provenance without changing public exceptions."""
     if backend is None:
         return
     try:
         exc._statgpu_finite_backend = str(backend).lower()
+        if device is not None:
+            exc._statgpu_finite_device = str(device).lower()
     except Exception:
         # Exception subclasses are normally mutable, but provenance is best-effort
         # and must never mask the original validation failure.
         pass
 
 
-def _raise_nonfinite(name: str, *, backend: str | None = None) -> None:
+def _raise_nonfinite(
+    name: str,
+    *,
+    backend: str | None = None,
+    device: str | None = None,
+) -> None:
     exc = ValueError(
         f"{name} must contain only finite values; found NaN or infinite values"
     )
-    # Private provenance for fit reset/cleanup contracts.  Keep the public
+    # Private provenance for fit reset/cleanup contracts. Keep the public
     # exception type and message unchanged while recording which accelerator
     # allocator produced finite-check temporaries before the fit transaction.
-    _tag_finite_backend(exc, backend)
+    _tag_finite_backend(exc, backend, device=device)
     raise exc
+
+
+def _torch_cuda_device_label(device: Any) -> str | None:
+    """Return a concrete cuda:N label when a Torch device identifies one."""
+    if str(getattr(device, "type", "")) != "cuda":
+        return None
+    text = str(device)
+    if text.startswith("cuda:"):
+        return text
+    index = getattr(device, "index", None)
+    if index is not None:
+        return f"cuda:{int(index)}"
+    return None
+
+
+def _cupy_cuda_device_label(value: Any) -> str | None:
+    """Return a concrete cuda:N label for a CuPy value when available."""
+    device_id = getattr(getattr(value, "device", None), "id", None)
+    if device_id is None:
+        return None
+    try:
+        return f"cuda:{int(device_id)}"
+    except (TypeError, ValueError):
+        return None
 
 
 def check_finite(value: Any, *, name: str = "array") -> Any:
@@ -61,29 +97,32 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
         import torch
 
         tensor = value
-        device_type = str(getattr(getattr(tensor, "device", None), "type", ""))
+        tensor_device = getattr(tensor, "device", None)
+        device_type = str(getattr(tensor_device, "type", ""))
         backend = "torch" if device_type == "cuda" else None
+        device = _torch_cuda_device_label(tensor_device) if backend else None
         try:
             if getattr(tensor, "layout", torch.strided) != torch.strided:
                 tensor = tensor.values()
             finite = bool(torch.isfinite(tensor).all().item())
         except Exception as exc:
-            _tag_finite_backend(exc, backend)
+            _tag_finite_backend(exc, backend, device=device)
             raise
         if not finite:
-            _raise_nonfinite(name, backend=backend)
+            _raise_nonfinite(name, backend=backend, device=device)
         return value
 
     if module.startswith("cupy"):
         import cupy as cp
 
+        device = _cupy_cuda_device_label(value)
         try:
             finite = bool(cp.isfinite(value).all().item())
         except Exception as exc:
-            _tag_finite_backend(exc, "cupy")
+            _tag_finite_backend(exc, "cupy", device=device)
             raise
         if not finite:
-            _raise_nonfinite(name, backend="cupy")
+            _raise_nonfinite(name, backend="cupy", device=device)
         return value
 
     if module.startswith("pandas"):
