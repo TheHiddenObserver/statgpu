@@ -6,6 +6,7 @@ import sys
 import types
 
 import numpy as np
+import pytest
 
 import statgpu.linear_model._gaussian_inference as gi
 
@@ -30,6 +31,58 @@ def test_numpy_boundary_uses_explicit_backend_to_host_conversion():
 
     np.testing.assert_array_equal(converted, np.asarray([1.0, 2.0, 3.0]))
     assert converted.dtype == np.float64
+
+
+def test_build_fit_state_uses_first_native_torch_device_for_host_design():
+    torch = pytest.importorskip("torch")
+
+    X = np.asarray(
+        [[-1.0, 0.5], [0.0, 1.0], [1.0, 1.5], [2.0, 2.0]],
+        dtype=np.float64,
+    )
+    coef = torch.tensor([0.6, -0.25], dtype=torch.float64)
+    y = np.asarray(X @ coef.numpy() + [0.1, -0.1, 0.05, -0.05])
+
+    state = gi.build_gaussian_fit_state(
+        X,
+        y,
+        coef,
+        0.0,
+        False,
+        backend="auto",
+    )
+
+    assert state.backend == "torch"
+    assert state.device == "cpu"
+    assert isinstance(state.X_design, torch.Tensor)
+    assert state.X_design.device.type == "cpu"
+    assert state.params.device.type == "cpu"
+
+
+def test_direct_inference_uses_first_native_torch_device_for_host_design():
+    torch = pytest.importorskip("torch")
+
+    X_design = np.asarray(
+        [[1.0, -1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 2.0]],
+        dtype=np.float64,
+    )
+    params = torch.tensor([0.5, 0.2], dtype=torch.float64)
+    resid = torch.tensor([0.1, -0.1, 0.05, -0.05], dtype=torch.float64)
+    scale = torch.tensor(0.02, dtype=torch.float64)
+
+    result = gi.compute_gaussian_inference(
+        X_design,
+        params,
+        resid,
+        scale,
+        df_resid=2,
+        cov_type="nonrobust",
+        backend="auto",
+    )
+
+    assert result is not None
+    assert result.metadata["numerical_backend"] == "torch"
+    assert result.metadata["numerical_device"] == "cpu"
 
 
 def test_cupy_reference_inference_runs_on_statistic_device(monkeypatch):
