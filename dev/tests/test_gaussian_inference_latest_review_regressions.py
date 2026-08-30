@@ -300,3 +300,161 @@ def test_linear_cupy_alignment_failure_invalidates_previous_fit(monkeypatch):
     assert model._selected_backend_name is None
     with pytest.raises(RuntimeError):
         model.predict(X)
+
+
+def _fake_nonfinite_cupy(monkeypatch):
+    class FakeCuPyArray:
+        __module__ = "cupy"
+
+    class FakeFiniteReduction:
+        def all(self):
+            return self
+
+        def item(self):
+            return False
+
+    fake_cupy = types.SimpleNamespace(
+        isfinite=lambda value: FakeFiniteReduction(),
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    return FakeCuPyArray()
+
+
+def test_pglm_outer_finite_guard_cleans_cupy_validation_temporaries(monkeypatch):
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    X = np.arange(12.0, dtype=np.float64).reshape(6, 2)
+    y = np.linspace(-1.0, 1.0, 6)
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l1",
+        alpha=0.05,
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=False,
+        gpu_memory_cleanup=True,
+    ).fit(X, y)
+    events = []
+    monkeypatch.setattr(
+        model,
+        "_cleanup_cuda_memory",
+        lambda: events.append("cleanup"),
+    )
+
+    with pytest.raises(ValueError, match="X must contain only finite values"):
+        model.fit(_fake_nonfinite_cupy(monkeypatch), y)
+
+    assert events == ["cleanup"]
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert "n_features_in_" not in model.__dict__
+
+
+def test_linear_outer_finite_guard_cleans_cupy_validation_temporaries(monkeypatch):
+    from statgpu.linear_model import LinearRegression
+
+    X = np.arange(12.0, dtype=np.float64).reshape(6, 2)
+    y = np.linspace(-1.0, 1.0, 6)
+    model = LinearRegression(
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    ).fit(X, y)
+    events = []
+    monkeypatch.setattr(
+        model,
+        "_cleanup_cuda_memory",
+        lambda: events.append("cleanup"),
+    )
+
+    with pytest.raises(ValueError, match="X must contain only finite values"):
+        model.fit(_fake_nonfinite_cupy(monkeypatch), y)
+
+    assert events == ["cleanup"]
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert "n_features_in_" not in model.__dict__
+
+
+def test_gaussian_failed_refit_removes_rejected_feature_width():
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    X = np.arange(12.0, dtype=np.float64).reshape(6, 2)
+    y = np.linspace(-1.0, 1.0, 6)
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.1,
+        fit_intercept=False,
+        device="cpu",
+        solver="exact",
+        compute_inference=True,
+    ).fit(X, y)
+    assert model.n_features_in_ == 2
+
+    X_bad = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    with pytest.raises(ValueError, match="Response length must match"):
+        model.fit(X_bad, y[:-1])
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert "n_features_in_" not in model.__dict__
+
+
+def _expected_low_df_tail(statistic, df):
+    value = abs(float(statistic))
+    if int(df) == 1:
+        return 2.0 * np.arctan(1.0 / value) / np.pi
+    root = np.hypot(value, np.sqrt(2.0))
+    return (2.0 / root) / (root + value)
+
+
+@pytest.mark.parametrize("df_resid", [1, 2])
+def test_torch_exact_precomputed_extreme_low_df_tail_stays_representable(
+    monkeypatch,
+    df_resid,
+):
+    torch = pytest.importorskip("torch")
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    n_samples = df_resid + 1
+    X = torch.zeros((n_samples, 1), dtype=torch.float64)
+    y_values = [1.0, -1.0] + ([0.0] if df_resid == 2 else [])
+    y = torch.tensor(y_values, dtype=torch.float64)
+    # Keep the covariance scale O(1) while making the statistic large enough
+    # that the generic Student-t implementation would overflow statistic**2.
+    XtX_centered = torch.ones((1, 1), dtype=torch.float64)
+    coef_full = torch.tensor([1.0e155], dtype=torch.float64)
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.0,
+        fit_intercept=False,
+        device="cpu",
+        solver="exact",
+        compute_inference=True,
+        cov_type="nonrobust",
+    )
+    model._cov_type = "nonrobust"
+    model._hac_maxlags = None
+    monkeypatch.setattr(model, "_ridge_alpha_for_exact", lambda: 0.0, raising=False)
+
+    model._precompute_exact_l2_inference_torch(
+        X,
+        y,
+        XtX_centered,
+        None,
+        coef_full,
+        n_samples,
+        normalization=float(n_samples),
+    )
+
+    statistic = float(np.asarray(model._tvalues, dtype=float)[0])
+    pvalue = float(np.asarray(model._pvalues, dtype=float)[0])
+    expected = _expected_low_df_tail(statistic, df_resid)
+    assert abs(statistic) > np.sqrt(np.finfo(np.float64).max)
+    assert np.isfinite(pvalue)
+    assert pvalue > 0.0
+    assert pvalue == pytest.approx(expected, rel=5e-12, abs=0.0)
