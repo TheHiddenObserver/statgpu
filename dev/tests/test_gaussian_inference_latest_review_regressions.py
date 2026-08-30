@@ -170,3 +170,123 @@ def test_no_inference_gpu_fit_does_not_repeat_backend_cleanup(monkeypatch):
 
     assert events == ["fit", "cleanup"]
     assert model._fitted is True
+
+
+def test_no_inference_gpu_conversion_failure_runs_cleanup_once(monkeypatch):
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+    events = []
+
+    class FakeArray:
+        def __init__(self, shape, device=1):
+            self.shape = tuple(shape)
+            self.ndim = len(self.shape)
+            self.device = types.SimpleNamespace(id=int(device))
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        alpha=0.2,
+        fit_intercept=False,
+        device="cpu",
+        solver="exact",
+        compute_inference=False,
+        gpu_memory_cleanup=True,
+    )
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="cupy")
+    )
+    monkeypatch.setattr(
+        model, "_auto_backend_override", lambda backend_name, X: backend_name
+    )
+    monkeypatch.setattr(
+        model,
+        "_select_solver",
+        lambda loss, backend_name=None, X=None: "exact",
+    )
+
+    calls = {"count": 0}
+
+    def staged_to_array(value, device=None, backend=None):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return FakeArray(np.asarray(value).shape)
+        raise RuntimeError("synthetic pre-dispatch conversion failure")
+
+    monkeypatch.setattr(model, "_to_array", staged_to_array)
+    monkeypatch.setattr(
+        model, "_cleanup_cuda_memory", lambda: events.append("cleanup")
+    )
+    monkeypatch.setattr(
+        model,
+        "_fit_gpu",
+        lambda *args, **kwargs: pytest.fail("backend dispatch must not start"),
+    )
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(-1.0, 1.0, 6)
+    with pytest.raises(RuntimeError, match="synthetic pre-dispatch conversion failure"):
+        model.fit(X, y)
+
+    assert events == ["cleanup"]
+
+
+def test_linear_cupy_alignment_failure_invalidates_previous_fit(monkeypatch):
+    import statgpu.linear_model.wrappers._linear as linear_module
+    from statgpu.linear_model import LinearRegression
+
+    X = np.arange(18.0, dtype=np.float64).reshape(6, 3)
+    y = np.linspace(-1.0, 1.0, 6)
+    model = LinearRegression(
+        fit_intercept=False,
+        device="cpu",
+        compute_inference=True,
+        gpu_memory_cleanup=True,
+    ).fit(X, y)
+    assert model._fitted is True
+    assert model.coef_ is not None
+
+    events = []
+
+    class FakeArray:
+        def __init__(self, shape, device=1):
+            self.shape = tuple(shape)
+            self.ndim = len(self.shape)
+            self.device = types.SimpleNamespace(id=int(device))
+
+    monkeypatch.setattr(
+        model, "_get_backend", lambda backend="auto": types.SimpleNamespace(name="cupy")
+    )
+    monkeypatch.setattr(
+        model,
+        "_to_array",
+        lambda value, backend=None: FakeArray(np.asarray(value).shape),
+    )
+    monkeypatch.setattr(
+        linear_module,
+        "_cupy_asarray_on_device",
+        lambda value, target_device, dtype=None: (_ for _ in ()).throw(
+            RuntimeError("synthetic response alignment failure")
+        ),
+    )
+    monkeypatch.setattr(
+        model, "_cleanup_cuda_memory", lambda: events.append("cleanup")
+    )
+    monkeypatch.setattr(
+        model,
+        "_fit_gpu",
+        lambda *args, **kwargs: pytest.fail("backend dispatch must not start"),
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic response alignment failure"):
+        model.fit(X, y)
+
+    assert events == ["cleanup"]
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._inference_result is None
+    assert model._selected_backend_name is None
+    with pytest.raises(RuntimeError):
+        model.predict(X)
