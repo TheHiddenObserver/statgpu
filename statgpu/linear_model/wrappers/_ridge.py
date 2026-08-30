@@ -11,6 +11,7 @@ from __future__ import annotations
 
 __all__ = ["Ridge"]
 
+import functools
 from typing import Optional, Union
 
 import numpy as np
@@ -193,3 +194,41 @@ class Ridge(_PenalizedLinearRegression):
 
         self._fitted = True
         return self
+
+
+def _install_ridge_failed_refit_contract() -> None:
+    """Fail closed when the optimized Ridge override raises during refit."""
+    current = Ridge.fit
+    if getattr(current, "_statgpu_ridge_failed_refit_contract", False):
+        return
+
+    @functools.wraps(current)
+    def _fit_with_failed_refit_contract(
+        self, X=None, y=None, sample_weight=None, formula=None, data=None
+    ):
+        try:
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+        except Exception:
+            # The optimized CPU-exact override bypasses the generic Gaussian fit
+            # transaction, so shape/weight validation errors can otherwise leave
+            # coefficients from an earlier successful fit reachable by predict().
+            from statgpu.linear_model.penalized._gaussian_fit_transaction_contract import (
+                _invalidate_failed_fit_state,
+            )
+
+            _invalidate_failed_fit_state(self)
+            raise
+
+    _fit_with_failed_refit_contract._statgpu_ridge_failed_refit_contract = True
+    _fit_with_failed_refit_contract._statgpu_original = current
+    Ridge.fit = _fit_with_failed_refit_contract
+
+
+_install_ridge_failed_refit_contract()
