@@ -74,16 +74,28 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         )
 
     def _fit_diagnostic_state(self):
-        """Return raw response/residual state and optional analytic weights."""
+        """Return response/residual state and optional L2 analytic weights."""
         if self._y is None or self._resid is None:
             return None
         y = np.asarray(self._y, dtype=float)
-        raw_resid = getattr(self, "_raw_resid", None)
+
+        # Raw residual/weight snapshots are installed by the Gaussian-L2
+        # transaction. Do not reuse them after the same estimator is reconfigured
+        # and successfully fitted with another penalty.
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        use_l2_diagnostics = penalty_name == "l2"
+        raw_resid = (
+            getattr(self, "_raw_resid", None) if use_l2_diagnostics else None
+        )
         resid = np.asarray(
             self._resid if raw_resid is None else raw_resid,
             dtype=float,
         )
-        weights = getattr(self, "_sample_weight_fit", None)
+        weights = (
+            getattr(self, "_sample_weight_fit", None)
+            if use_l2_diagnostics
+            else None
+        )
         if weights is not None:
             weights = np.asarray(weights, dtype=float).reshape(-1)
             if weights.shape[0] != y.shape[0]:
