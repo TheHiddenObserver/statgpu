@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+
 from ._base import PenalizedGeneralizedLinearModel
 
 
@@ -32,12 +34,30 @@ def _invalidate_failed_no_inference_fit(estimator) -> None:
     estimator._fitted = False
 
 
+def _public_fit_introspection_source(function):
+    """Return the original public fit implementation beneath contract wrappers."""
+    current = function
+    seen = set()
+    while callable(current) and id(current) not in seen:
+        seen.add(id(current))
+        wrapped = getattr(current, "_statgpu_original", None)
+        if not callable(wrapped):
+            wrapped = getattr(current, "__wrapped__", None)
+        if not callable(wrapped):
+            break
+        current = wrapped
+    return current
+
+
 def _install_no_inference_cleanup_contract() -> None:
     """Fail close every estimation-only refit and deduplicate GPU cleanup."""
     current = PenalizedGeneralizedLinearModel.fit
     if getattr(current, "_statgpu_no_inference_cleanup_contract", False):
         return
 
+    metadata_source = _public_fit_introspection_source(current)
+
+    @functools.wraps(metadata_source)
     def _fit_with_no_inference_cleanup_contract(
         self,
         X=None,
