@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [master]
     paths:
+      - 'statgpu/inference/__init__.py'
+      - 'statgpu/inference/_low_df_reference_contract.py'
       - 'statgpu/linear_model/__init__.py'
       - 'statgpu/linear_model/_gaussian_inference.py'
       - 'statgpu/linear_model/_gaussian_inference_device_contract.py'
@@ -14,7 +16,6 @@ on:
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_fit_mixin.py'
       - 'statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py'
-      - 'statgpu/linear_model/penalized/_exact_reference_tail_contract.py'
       - 'statgpu/linear_model/penalized/_no_inference_cleanup_contract.py'
       - 'statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
@@ -119,6 +120,8 @@ jobs:
       - name: Compile changed implementation and validator
         run: |
           python -m compileall -q \
+            statgpu/inference/__init__.py \
+            statgpu/inference/_low_df_reference_contract.py \
             statgpu/linear_model/__init__.py \
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/linear_model/_gaussian_inference_device_contract.py \
@@ -129,7 +132,6 @@ jobs:
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
-            statgpu/linear_model/penalized/_exact_reference_tail_contract.py \
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
@@ -155,6 +157,8 @@ jobs:
       - name: High-signal static checks
         run: |
           ruff check \
+            statgpu/inference/__init__.py \
+            statgpu/inference/_low_df_reference_contract.py \
             statgpu/linear_model/__init__.py \
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/linear_model/_gaussian_inference_device_contract.py \
@@ -165,7 +169,6 @@ jobs:
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
-            statgpu/linear_model/penalized/_exact_reference_tail_contract.py \
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
