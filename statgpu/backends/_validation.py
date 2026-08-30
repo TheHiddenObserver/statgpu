@@ -8,10 +8,16 @@ from typing import Any
 import numpy as np
 
 
-def _raise_nonfinite(name: str) -> None:
-    raise ValueError(
+def _raise_nonfinite(name: str, *, backend: str | None = None) -> None:
+    exc = ValueError(
         f"{name} must contain only finite values; found NaN or infinite values"
     )
+    if backend is not None:
+        # Private provenance for fit reset/cleanup contracts.  Keep the public
+        # exception type and message unchanged while recording which accelerator
+        # allocator produced finite-check temporaries before the fit transaction.
+        exc._statgpu_finite_backend = str(backend).lower()
+    raise exc
 
 
 def check_finite(value: Any, *, name: str = "array") -> Any:
@@ -47,14 +53,18 @@ def check_finite(value: Any, *, name: str = "array") -> Any:
         if getattr(tensor, "layout", torch.strided) != torch.strided:
             tensor = tensor.values()
         if not bool(torch.isfinite(tensor).all().item()):
-            _raise_nonfinite(name)
+            device_type = str(getattr(getattr(tensor, "device", None), "type", ""))
+            _raise_nonfinite(
+                name,
+                backend="torch" if device_type == "cuda" else None,
+            )
         return value
 
     if module.startswith("cupy"):
         import cupy as cp
 
         if not bool(cp.isfinite(value).all().item()):
-            _raise_nonfinite(name)
+            _raise_nonfinite(name, backend="cupy")
         return value
 
     if module.startswith("pandas"):
