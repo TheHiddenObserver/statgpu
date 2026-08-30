@@ -46,6 +46,10 @@ from .penalized._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 from ._ordered_logit import OrderedLogitRegression
 from ._ordered_probit import OrderedProbitRegression
 
+# Shared Gaussian helpers support explicit Torch CPU execution when no native
+# tensor or concrete device is available to select a CUDA device.
+from . import _gaussian_inference_device_contract as _gaussian_inference_device_contract
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
