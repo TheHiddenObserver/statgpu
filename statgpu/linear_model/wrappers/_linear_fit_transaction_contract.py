@@ -53,7 +53,13 @@ def _run_cupy_cleanup_on_device(cleanup, device_label: str):
     device_id = _cupy_device_id(device_label)
     if device_id is None:
         return cleanup()
-    import cupy as cp
+    try:
+        import cupy as cp
+    except ImportError:
+        # Lightweight hosted regressions can exercise a synthetic CuPy backend
+        # without installing CuPy. Preserve the established best-effort cleanup
+        # behavior in that test-only/no-runtime-backend situation.
+        return cleanup()
 
     with cp.cuda.Device(device_id):
         return cleanup()
