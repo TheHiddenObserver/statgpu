@@ -460,7 +460,7 @@ def test_penalized_linear_weighted_diagnostics_use_raw_outcomes():
         alpha=0.15,
         fit_intercept=True,
         device="cpu",
-        solver="newton",
+        solver="irls",
         compute_inference=True,
     )
     model.fit(X, y, sample_weight=weights)
@@ -499,7 +499,7 @@ def test_pglm_failed_refit_clears_stale_prediction_state():
     assert model.coef_ is not None
     assert model._inference_result is not None
 
-    with pytest.raises(ValueError, match="Either formula\+data or X\+y"):
+    with pytest.raises(ValueError, match=r"Either formula\+data or X\+y"):
         model.fit()
 
     assert model._fitted is False
