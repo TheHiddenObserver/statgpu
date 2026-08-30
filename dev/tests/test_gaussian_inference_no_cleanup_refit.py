@@ -1,11 +1,26 @@
-"""Regression for estimation-only failed refits when cleanup is disabled."""
+"""Regressions for estimation-only failed refits and public fit introspection."""
 
 from __future__ import annotations
 
+import inspect
 import types
 
 import numpy as np
 import pytest
+
+
+def test_pglm_fit_preserves_public_introspection():
+    from statgpu.linear_model import PenalizedGeneralizedLinearModel
+    from statgpu.linear_model.penalized._fit_mixin import _PenalizedFitMixin
+
+    public_fit = PenalizedGeneralizedLinearModel.fit
+    original_fit = _PenalizedFitMixin.fit
+
+    assert public_fit.__name__ == original_fit.__name__ == "fit"
+    assert public_fit.__qualname__ == original_fit.__qualname__
+    assert public_fit.__doc__ == original_fit.__doc__
+    assert inspect.signature(public_fit) == inspect.signature(original_fit)
+    assert inspect.unwrap(public_fit) is original_fit
 
 
 def test_no_inference_failed_refit_invalidates_state_without_cleanup(monkeypatch):
