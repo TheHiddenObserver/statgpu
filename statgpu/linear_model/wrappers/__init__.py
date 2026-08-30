@@ -15,6 +15,11 @@ from ._negative_binomial import NegativeBinomialRegression
 from ._tweedie import TweedieRegression
 from ._quantile import QuantileRegression
 
+# LinearRegression has direct backend conversion/alignment outside the backend
+# solver methods. Install a narrow fail-closed refit transaction after the class
+# is defined so conversion/device failures cannot leave stale fitted state.
+from . import _linear_fit_transaction_contract as _linear_fit_transaction_contract
+
 __all__ = [
     "LinearRegression",
     "Ridge",
