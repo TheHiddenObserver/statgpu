@@ -27,9 +27,17 @@ from . import _group_penalty_model_contract as _group_penalty_model_contract
 from . import _gaussian_fit_transaction_contract as _gaussian_fit_transaction_contract
 
 # Estimation-only GPU fits already release backend caches inside the executed
-# backend path.  Suppress only the redundant later cleanup while preserving
+# backend path. Suppress only the redundant later cleanup while preserving
 # failure cleanup and the inference-enabled cleanup contract above.
 from . import _no_inference_cleanup_contract as _no_inference_cleanup_contract
+
+# BaseEstimator's public finite-input guard can reject a refit before the
+# estimation-only transaction wrapper is entered. Extend the reset hook after
+# the cleanup contract is available so such failures also clear stale results.
+from . import (
+    _no_inference_public_validation_reset_contract
+    as _no_inference_public_validation_reset_contract,
+)
 
 # Install strict penalized-Cox grid validation and restore the public class
 # introspection contract after the estimator and survival CV modules exist.
