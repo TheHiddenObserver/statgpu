@@ -7,8 +7,10 @@ on:
       - 'statgpu/linear_model/_gaussian_inference.py'
       - 'statgpu/backends/_gpu_inference_cupy.py'
       - 'statgpu/backends/_utils.py'
+      - 'statgpu/linear_model/penalized/__init__.py'
       - 'statgpu/linear_model/penalized/_base.py'
       - 'statgpu/linear_model/penalized/_fit_mixin.py'
+      - 'statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
       - 'statgpu/linear_model/wrappers/_linear.py'
@@ -102,8 +104,10 @@ jobs:
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
+            statgpu/linear_model/penalized/__init__.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
+            statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
@@ -123,8 +127,10 @@ jobs:
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
+            statgpu/linear_model/penalized/__init__.py \
             statgpu/linear_model/penalized/_base.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
+            statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
