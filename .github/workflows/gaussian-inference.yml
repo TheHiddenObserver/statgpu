@@ -58,6 +58,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
             dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
@@ -100,6 +101,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
             dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
@@ -146,6 +148,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
             dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
@@ -183,6 +186,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
             dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
