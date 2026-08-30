@@ -52,6 +52,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
@@ -91,6 +92,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
             -q --tb=short
 
@@ -128,6 +130,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
@@ -156,6 +159,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
