@@ -26,6 +26,7 @@ from ._base import PenalizedGeneralizedLinearModel
 
 
 _MISSING = object()
+_L2_PENALTY_NAMES = frozenset({"l2", "l2_squared", "ridge"})
 
 
 def _penalty_name(estimator) -> str:
@@ -36,7 +37,7 @@ def _needs_gaussian_conversion_contract(estimator) -> bool:
     return (
         bool(getattr(estimator, "compute_inference", False))
         and str(getattr(estimator, "loss", "")).lower().strip() == "squared_error"
-        and _penalty_name(estimator) == "l2"
+        and _penalty_name(estimator) in _L2_PENALTY_NAMES
     )
 
 
