@@ -25,7 +25,6 @@ def _install_no_inference_cleanup_contract() -> None:
         if (
             bool(getattr(self, "compute_inference", False))
             or not bool(getattr(self, "gpu_memory_cleanup", False))
-            or formula is not None
         ):
             return current(
                 self,
