@@ -341,8 +341,10 @@ def test_pglm_cupy_context_entry_failure_cleans_up_once(monkeypatch):
     assert model._fitted is False
 
 
-@pytest.mark.parametrize("penalty_name", ["l2", "l2_squared", "ridge"])
-def test_gaussian_fit_transaction_contract_covers_l2_aliases(penalty_name):
+@pytest.mark.parametrize(
+    "penalty_name", ["l2", "l2_squared", "ridge", "none", "null", "", None]
+)
+def test_gaussian_fit_transaction_contract_covers_resolved_l2_spellings(penalty_name):
     from statgpu.linear_model import PenalizedGeneralizedLinearModel
     from statgpu.linear_model.penalized import _gaussian_fit_transaction_contract as contract
 
