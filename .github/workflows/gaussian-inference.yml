@@ -14,6 +14,7 @@ on:
       - 'statgpu/linear_model/penalized/_fit_mixin.py'
       - 'statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py'
       - 'statgpu/linear_model/penalized/_no_inference_cleanup_contract.py'
+      - 'statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
       - 'statgpu/linear_model/wrappers/__init__.py'
@@ -126,6 +127,7 @@ jobs:
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
+            statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/__init__.py \
@@ -159,6 +161,7 @@ jobs:
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_gaussian_fit_transaction_contract.py \
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
+            statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/__init__.py \
