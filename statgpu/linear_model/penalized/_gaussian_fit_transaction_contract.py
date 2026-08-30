@@ -20,10 +20,18 @@ fits are likewise deduplicated: the backend-owned cleanup after precomputed
 inference is retained, while the later outer ``finally`` cleanup becomes a no-op.
 Ordinary deferred-inference fits still keep their intentional solver cleanup and
 post-inference cleanup as two separate phases.
+
+After numerical inference has completed, the wrapper also retains the raw
+response, raw residual, and validated analytic weights used by public weighted
+fit diagnostics.  The numerical ``_resid`` state remains sqrt(weight)-scaled for
+covariance, scale, and likelihood calculations.
 """
 
 from __future__ import annotations
 
+import numpy as np
+
+from statgpu.backends import _to_numpy
 from statgpu.backends._utils import _cupy_asarray_on_device
 
 from ._base import PenalizedGeneralizedLinearModel
@@ -49,14 +57,6 @@ def _needs_gaussian_conversion_contract(estimator) -> bool:
     )
 
 
-def _cleanup_selected_backend(estimator) -> None:
-    backend_name = str(getattr(estimator, "_selected_backend_name", "") or "").lower()
-    if backend_name == "cupy":
-        estimator._cleanup_cuda_memory()
-    elif backend_name == "torch":
-        estimator._cleanup_torch_memory()
-
-
 def _normalize_inference_arrays(estimator, X_value, y_value):
     """Match reused GPU fit arrays to retained native parameter precision/device."""
     coef = getattr(estimator, "_native_fit_coef", None)
@@ -78,6 +78,94 @@ def _normalize_inference_arrays(estimator, X_value, y_value):
         _cupy_asarray_on_device(X_value, target_device, dtype=target_dtype),
         _cupy_asarray_on_device(y_value, target_device, dtype=target_dtype),
     )
+
+
+def _store_weighted_diagnostic_state(estimator, dispatch_arrays) -> None:
+    """Retain raw outcome/residual state after backend-native inference finishes."""
+    y_value = dispatch_arrays["y"]
+    if y_value is None or getattr(estimator, "_resid", None) is None:
+        return
+
+    y_raw = np.asarray(_to_numpy(y_value), dtype=float)
+    if y_raw.ndim == 2 and int(y_raw.shape[1]) == 1:
+        y_raw = y_raw.reshape(-1)
+    estimator._y = y_raw
+
+    weighted_resid = np.asarray(estimator._resid, dtype=float)
+    sw_value = dispatch_arrays["sample_weight"]
+    if sw_value is None:
+        estimator._sample_weight_fit = None
+        estimator._raw_resid = weighted_resid.copy()
+        return
+
+    weights = np.asarray(_to_numpy(sw_value), dtype=float).reshape(-1)
+    if int(weights.shape[0]) != int(weighted_resid.shape[0]):
+        raise RuntimeError(
+            "Gaussian diagnostic weights no longer match the fitted residual state."
+        )
+    estimator._sample_weight_fit = weights
+
+    sqrt_w = np.sqrt(weights)
+    raw_resid = np.zeros_like(weighted_resid, dtype=float)
+    if weighted_resid.ndim == 1:
+        np.divide(
+            weighted_resid,
+            sqrt_w,
+            out=raw_resid,
+            where=sqrt_w > 0,
+        )
+    else:
+        denom = sqrt_w.reshape((sqrt_w.shape[0],) + (1,) * (weighted_resid.ndim - 1))
+        np.divide(
+            weighted_resid,
+            denom,
+            out=raw_resid,
+            where=denom > 0,
+        )
+    estimator._raw_resid = raw_resid
+
+
+def _invalidate_failed_fit_state(estimator) -> None:
+    """Fail closed after any Gaussian-L2 refit failure, including early validation."""
+    estimator._native_fit_coef = None
+    estimator._native_fit_intercept = None
+    estimator.coef_ = None
+    estimator.intercept_ = None
+    estimator.n_iter_ = 0
+
+    clear_inference = getattr(estimator, "_clear_inference_state", None)
+    if callable(clear_inference):
+        clear_inference()
+    else:
+        for name in (
+            "_X_design",
+            "_y",
+            "_resid",
+            "_scale",
+            "_nobs",
+            "_df_resid",
+            "_params",
+            "_bse",
+            "_tvalues",
+            "_zvalues",
+            "_pvalues",
+            "_conf_int",
+            "_inference_result",
+        ):
+            setattr(estimator, name, None)
+
+    estimator._raw_resid = None
+    estimator._sample_weight_fit = None
+    estimator._inference_precomputed = False
+    estimator._precomputed_gaussian_state = None
+    estimator._feature_names = None
+    estimator._design_info = None
+    estimator._formula_has_intercept = None
+    estimator._use_intercept = None
+    estimator._selected_solver = None
+    estimator._selected_backend_name = None
+    estimator._selected_backend_device = None
+    estimator._fitted = False
 
 
 def _install_gaussian_fit_transaction_contract() -> None:
@@ -103,7 +191,7 @@ def _install_gaussian_fit_transaction_contract() -> None:
                 data=data,
             )
 
-        dispatch_arrays = {"X": None, "y": None}
+        dispatch_arrays = {"X": None, "y": None, "sample_weight": None}
         cleanup_calls = {"cupy": 0, "torch": 0}
 
         original_post_fit_inference = self._compute_post_fit_gaussian_inference
@@ -125,9 +213,10 @@ def _install_gaussian_fit_transaction_contract() -> None:
             )
         }
 
-        def _remember_dispatch_arrays(X_value, y_value):
+        def _remember_dispatch_arrays(X_value, y_value, sample_weight_value):
             dispatch_arrays["X"] = X_value
             dispatch_arrays["y"] = y_value
+            dispatch_arrays["sample_weight"] = sample_weight_value
 
         def _post_fit_with_dispatch_arrays(X_value, y_value, sample_weight=None):
             X_dispatch = dispatch_arrays["X"]
@@ -146,15 +235,15 @@ def _install_gaussian_fit_transaction_contract() -> None:
             )
 
         def _fit_cpu_started(X_value, y_value, sample_weight=None):
-            _remember_dispatch_arrays(X_value, y_value)
+            _remember_dispatch_arrays(X_value, y_value, sample_weight)
             return original_fit_cpu(X_value, y_value, sample_weight)
 
         def _fit_gpu_started(X_value, y_value, sample_weight=None):
-            _remember_dispatch_arrays(X_value, y_value)
+            _remember_dispatch_arrays(X_value, y_value, sample_weight)
             return original_fit_gpu(X_value, y_value, sample_weight)
 
         def _fit_torch_started(X_value, y_value, sample_weight=None):
-            _remember_dispatch_arrays(X_value, y_value)
+            _remember_dispatch_arrays(X_value, y_value, sample_weight)
             return original_fit_torch(X_value, y_value, sample_weight)
 
         def _cleanup_backend_tracked(backend_name, cleanup):
@@ -184,7 +273,7 @@ def _install_gaussian_fit_transaction_contract() -> None:
         self._cleanup_torch_memory = _cleanup_torch_tracked
 
         try:
-            return current(
+            result = current(
                 self,
                 X=X,
                 y=y,
@@ -192,18 +281,23 @@ def _install_gaussian_fit_transaction_contract() -> None:
                 formula=formula,
                 data=data,
             )
+            _store_weighted_diagnostic_state(self, dispatch_arrays)
+            return result
         except Exception:
-            # The fit clears/replaces result-bearing state before conversion.
-            # Never leave a failed refit advertising an older successful fit.
-            self._native_fit_coef = None
-            self._native_fit_intercept = None
-            self._fitted = False
-
+            # Capture the executed backend before invalidation clears provenance.
             backend_name = str(
                 getattr(self, "_selected_backend_name", "") or ""
             ).lower()
+            # Never leave a failed refit advertising or using an older successful
+            # fit. This applies even when validation failed before inner fit state
+            # was mutated.
+            _invalidate_failed_fit_state(self)
+
             if backend_name in cleanup_calls and cleanup_calls[backend_name] == 0:
-                _cleanup_selected_backend(self)
+                if backend_name == "cupy":
+                    self._cleanup_cuda_memory()
+                elif backend_name == "torch":
+                    self._cleanup_torch_memory()
             raise
         finally:
             for name, previous in saved_instance_attrs.items():
