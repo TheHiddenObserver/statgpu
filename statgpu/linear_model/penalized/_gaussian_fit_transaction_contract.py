@@ -26,7 +26,11 @@ from ._base import PenalizedGeneralizedLinearModel
 
 
 _MISSING = object()
-_L2_PENALTY_NAMES = frozenset({"l2", "l2_squared", "ridge"})
+# These public spellings all resolve to the same ordinary L2 Gaussian path.
+# ``None`` stringifies to ``"none"`` in _penalty_name and is covered too.
+_GAUSSIAN_L2_PUBLIC_PENALTY_NAMES = frozenset(
+    {"l2", "l2_squared", "ridge", "none", "null", ""}
+)
 
 
 def _penalty_name(estimator) -> str:
@@ -37,7 +41,7 @@ def _needs_gaussian_conversion_contract(estimator) -> bool:
     return (
         bool(getattr(estimator, "compute_inference", False))
         and str(getattr(estimator, "loss", "")).lower().strip() == "squared_error"
-        and _penalty_name(estimator) in _L2_PENALTY_NAMES
+        and _penalty_name(estimator) in _GAUSSIAN_L2_PUBLIC_PENALTY_NAMES
     )
 
 
