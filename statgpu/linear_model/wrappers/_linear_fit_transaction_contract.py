@@ -50,6 +50,7 @@ def _cupy_device_id(device_label: str) -> int | None:
 
 
 def _run_cupy_cleanup_on_device(cleanup, device_label: str):
+    """Run best-effort cleanup on a concrete CuPy device without masking failures."""
     device_id = _cupy_device_id(device_label)
     if device_id is None:
         return cleanup()
@@ -61,8 +62,19 @@ def _run_cupy_cleanup_on_device(cleanup, device_label: str):
         # behavior in that test-only/no-runtime-backend situation.
         return cleanup()
 
-    with cp.cuda.Device(device_id):
+    context = cp.cuda.Device(device_id)
+    try:
+        context.__enter__()
+    except Exception:
+        # A fit can fail because the concrete device is no longer enterable
+        # (for example after a reset). Cleanup must remain best effort: preserve
+        # the original fit exception and let the outer transaction invalidate
+        # stale fitted state instead of replacing it with this context error.
         return cleanup()
+    try:
+        return cleanup()
+    finally:
+        context.__exit__(None, None, None)
 
 
 def _install_linear_fit_transaction_contract() -> None:
@@ -155,11 +167,20 @@ def _install_linear_fit_transaction_contract() -> None:
                 if backend_resolved:
                     self._cleanup_cuda_memory()
                 else:
-                    _run_cupy_cleanup_on_device(
-                        self._cleanup_cuda_memory, finite_device
+                    # Do not call the tracked delegate here: on a failed refit it
+                    # can still see `_selected_backend_device` from the previous
+                    # successful fit and rebind cleanup to the stale device.
+                    _tracked_cleanup(
+                        "cupy",
+                        lambda: _run_cupy_cleanup_on_device(
+                            original_cleanup_cuda, finite_device
+                        ),
                     )
             elif cleanup_backend == "torch" and cleanup_calls["torch"] == 0:
-                self._cleanup_torch_memory()
+                if backend_resolved:
+                    self._cleanup_torch_memory()
+                else:
+                    _tracked_cleanup("torch", original_cleanup_torch)
             _invalidate_failed_linear_fit(self)
             raise
         finally:
