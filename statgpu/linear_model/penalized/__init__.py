@@ -26,6 +26,11 @@ from . import _group_penalty_model_contract as _group_penalty_model_contract
 # Install this after the group hook so the two narrow wrappers compose.
 from . import _gaussian_fit_transaction_contract as _gaussian_fit_transaction_contract
 
+# Exact/precomputed CuPy and Torch Gaussian inference historically bypassed the
+# stable low-degree Student-t helper. Align df=1/2 tail and critical-value
+# numerics with the ordinary Gaussian inference path.
+from . import _exact_reference_tail_contract as _exact_reference_tail_contract
+
 # Estimation-only GPU fits already release backend caches inside the executed
 # backend path. Suppress only the redundant later cleanup while preserving
 # failure cleanup and the inference-enabled cleanup contract above.
