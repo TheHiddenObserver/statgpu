@@ -141,7 +141,7 @@ def _as_backend_array(value, backend: str, *, like=None, device: Optional[str] =
             value, target_device, dtype=target_dtype or cp.float64
         )
 
-    return np.asarray(value, dtype=np.float64)
+    return np.asarray(_to_numpy(value), dtype=np.float64)
 
 
 def _sum(value, backend: str, axis=None):
@@ -491,8 +491,20 @@ def _distribution_metadata(
 
 def _reference_inference(statistic, *, distribution, alpha, backend, device, df=None):
     xp = _namespace(backend)
+    statistic_abs = _abs(statistic, backend)
+    if backend == "cupy":
+        with xp.cuda.Device(int(statistic_abs.device.id)):
+            return two_sided_reference_inference(
+                statistic_abs,
+                distribution=distribution,
+                alpha=alpha,
+                backend=backend,
+                xp=xp,
+                df=df,
+                device=None,
+            )
     return two_sided_reference_inference(
-        _abs(statistic, backend),
+        statistic_abs,
         distribution=distribution,
         alpha=alpha,
         backend=backend,
