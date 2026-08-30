@@ -465,7 +465,7 @@ def test_penalized_linear_weighted_diagnostics_use_raw_outcomes():
         alpha=0.15,
         fit_intercept=True,
         device="cpu",
-        solver="irls",
+        solver="exact",
         compute_inference=True,
     )
     model.fit(X, y, sample_weight=weights)
