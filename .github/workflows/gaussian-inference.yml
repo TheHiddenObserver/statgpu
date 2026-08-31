@@ -19,6 +19,7 @@ on:
       - 'statgpu/linear_model/penalized/_no_inference_cleanup_contract.py'
       - 'statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py'
       - 'statgpu/linear_model/penalized/_inference_mixin.py'
+      - 'statgpu/linear_model/penalized/_latest_review_fix_contract.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
       - 'statgpu/linear_model/wrappers/__init__.py'
       - 'statgpu/linear_model/wrappers/_linear.py'
@@ -58,6 +59,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_final_review_contract.py \
             dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
@@ -101,6 +103,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_final_review_contract.py \
             dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
@@ -137,6 +140,7 @@ jobs:
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
+            statgpu/linear_model/penalized/_latest_review_fix_contract.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/__init__.py \
             statgpu/linear_model/wrappers/_linear.py \
@@ -148,6 +152,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_final_review_contract.py \
             dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
@@ -175,6 +180,7 @@ jobs:
             statgpu/linear_model/penalized/_no_inference_cleanup_contract.py \
             statgpu/linear_model/penalized/_no_inference_public_validation_reset_contract.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
+            statgpu/linear_model/penalized/_latest_review_fix_contract.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/__init__.py \
             statgpu/linear_model/wrappers/_linear.py \
@@ -186,6 +192,7 @@ jobs:
             dev/tests/test_gaussian_inference_public_consumers.py \
             dev/tests/test_gaussian_inference_public_validation_reset.py \
             dev/tests/test_gaussian_inference_latest_review_regressions.py \
+            dev/tests/test_gaussian_inference_final_review_contract.py \
             dev/tests/test_gaussian_inference_validation_provenance.py \
             dev/tests/test_gaussian_inference_linear_dispatch_cleanup.py \
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
