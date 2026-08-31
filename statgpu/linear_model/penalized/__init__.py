@@ -49,6 +49,15 @@ from . import _penalized_cox_public_contract as _penalized_cox_public_contract
 # retains raw outcomes for diagnostics without changing weighted numerics.
 from . import _latest_review_fix_contract as _latest_review_fix_contract
 
+# The outer finite guard can run while inner Gaussian/no-inference transactions
+# have installed cleanup delegates that still see prior-fit device provenance.
+# Capture direct cleanup callables outside that wrapper stack and use the
+# finite-check exception's concrete device when validation fails.
+from . import (
+    _final_finite_validation_cleanup_contract
+    as _final_finite_validation_cleanup_contract,
+)
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
