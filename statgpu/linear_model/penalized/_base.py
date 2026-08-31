@@ -8,13 +8,20 @@ from __future__ import annotations
 
 __all__ = ["PenalizedGeneralizedLinearModel", "SelectivePenalty"]
 
+from contextlib import nullcontext
 from typing import Optional, Union, Dict, TYPE_CHECKING
 import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends import _to_numpy
 from statgpu.cross_validation._base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
-from statgpu.linear_model._gaussian_inference import validate_cov_type, validate_hac_maxlags
+from statgpu.linear_model._gaussian_inference import (
+    build_gaussian_fit_state,
+    compute_gaussian_inference,
+    validate_cov_type,
+    validate_hac_maxlags,
+)
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_PENALTIES
 
 from ._fit_mixin import _PenalizedFitMixin
@@ -267,9 +274,12 @@ class PenalizedGeneralizedLinearModel(
         self._formula_has_intercept = None
         self._selected_solver = None
         self._selected_backend_name = None
+        self._selected_backend_device = None
         self._init_coef = None
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
+        self._native_fit_coef = None
+        self._native_fit_intercept = None
         # Simultaneous inference state
         self._conf_int_simultaneous = None
         self._simultaneous_enabled = False
@@ -282,6 +292,184 @@ class PenalizedGeneralizedLinearModel(
         if self._use_intercept is not None:
             return self._use_intercept
         return self._fit_intercept
+
+    @staticmethod
+    def _reporting_array(value):
+        """Take the allowed post-inference NumPy reporting snapshot."""
+        return np.asarray(_to_numpy(value), dtype=float)
+
+    @staticmethod
+    def _cupy_linalg_errstate():
+        """Enable CuPy solver-status errors while tolerating lightweight test doubles."""
+        import cupyx
+
+        errstate = getattr(cupyx, "errstate", None)
+        return nullcontext() if errstate is None else errstate(linalg="raise")
+
+    def _apply_gaussian_reporting_state(self, state):
+        """Populate established reporting fields after numerical inference."""
+        self._X_design = self._reporting_array(state.X_design)
+        self._y = self._reporting_array(state.y)
+        self._resid = self._reporting_array(state.resid)
+        self._params = self._reporting_array(state.params)
+        scale = self._reporting_array(state.scale)
+        self._scale = float(scale) if scale.ndim == 0 else scale
+        self._nobs = int(state.nobs)
+        self._df_resid = int(state.df_resid)
+
+    def _solve_exact_cupy(self, XtX, Xty, normalization):
+        """Run the existing exact-L2 CuPy solve with cuSOLVER errors enabled."""
+        # CuPy>=13 exposes cupyx.errstate. The null context is only for the
+        # lightweight maintenance test double that exercises exception routing.
+        with self._cupy_linalg_errstate():
+            return _PenalizedFitMixin._solve_exact_cupy(
+                self, XtX, Xty, normalization
+            )
+
+    def _precompute_exact_l2_inference_cupy(self, *args, **kwargs):
+        """Run existing exact-L2 inference with cuSOLVER errors enabled."""
+        with self._cupy_linalg_errstate():
+            return _PenalizedInferenceMixin._precompute_exact_l2_inference_cupy(
+                self, *args, **kwargs
+            )
+
+    def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
+        """Run squared-error L2 inference on the selected fit backend.
+
+        This class-level router covers both the public generic
+        ``PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l2')``
+        entry point and typed linear/Ridge wrappers. Other penalty/loss branches
+        remain owned by ``_PenalizedInferenceMixin``.
+        """
+        if not self._compute_inference_enabled:
+            return
+
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        precomputed = bool(getattr(self, "_inference_precomputed", False))
+        if self.loss != "squared_error" or penalty_name != "l2" or precomputed:
+            _PenalizedInferenceMixin._compute_post_fit_gaussian_inference(
+                self, X, y, sample_weight=sample_weight
+            )
+            if precomputed and self._inference_result is not None:
+                metadata = self._inference_result.metadata
+                selected_backend = getattr(self, "_selected_backend_name", None)
+                if selected_backend not in ("numpy", "cupy", "torch"):
+                    raise RuntimeError(
+                        "Gaussian inference is missing valid executed-backend provenance; "
+                        "refusing to report a silent NumPy fallback."
+                    )
+                metadata.setdefault("numerical_backend", selected_backend)
+                metadata.setdefault("reporting_backend", "numpy")
+                metadata.setdefault(
+                    "reporting_boundary", "post_numerical_inference"
+                )
+            return
+
+        selected_backend = getattr(self, "_selected_backend_name", None)
+        if selected_backend is None:
+            raise RuntimeError(
+                "Gaussian inference requires executed-backend provenance from fit; "
+                "_selected_backend_name is missing."
+            )
+        backend_name = str(selected_backend).lower()
+        if backend_name not in ("numpy", "cupy", "torch"):
+            raise RuntimeError(
+                f"Unsupported executed backend provenance {selected_backend!r}; "
+                "refusing to fall back to NumPy inference."
+            )
+
+        # Generic fit may pass original NumPy inputs here even after a GPU fit.
+        # The executed fit backend *and concrete device*, not the input container
+        # type or ambient CUDA state, are authoritative.
+        selected_device = getattr(self, "_selected_backend_device", None)
+        device_label = str(selected_device or "")
+        if backend_name == "numpy":
+            selected_device = "cpu"
+        elif backend_name == "cupy":
+            if not device_label.startswith("cuda:"):
+                raise RuntimeError(
+                    "Gaussian inference is missing concrete executed-device provenance "
+                    f"for backend={backend_name!r}: {selected_device!r}"
+                )
+        elif device_label != "cpu" and not device_label.startswith("cuda:"):
+            raise RuntimeError(
+                "Gaussian inference is missing concrete executed-device provenance "
+                f"for backend={backend_name!r}: {selected_device!r}"
+            )
+        if backend_name in ("cupy", "torch"):
+            coef_for_inference = getattr(self, "_native_fit_coef", None)
+            intercept_for_inference = getattr(self, "_native_fit_intercept", None)
+            if coef_for_inference is None:
+                raise RuntimeError(
+                    "Gaussian GPU inference requires native fitted parameters; "
+                    "refusing a reporting-array host round trip."
+                )
+            if self._effective_intercept and intercept_for_inference is None:
+                raise RuntimeError(
+                    "Gaussian GPU inference is missing the native fitted intercept."
+                )
+        else:
+            coef_for_inference = self.coef_
+            intercept_for_inference = self.intercept_
+
+        def _run_gaussian_inference_on_fit_device():
+            state = build_gaussian_fit_state(
+                X,
+                y,
+                coef_for_inference,
+                intercept_for_inference if self._effective_intercept else 0.0,
+                self._effective_intercept,
+                sample_weight=sample_weight,
+                backend=backend_name,
+                device=selected_device,
+            )
+            ridge_alpha = state.normalization * self._ridge_alpha_for_exact()
+            result = compute_gaussian_inference(
+                state.X_design,
+                state.params,
+                state.resid,
+                state.scale,
+                state.df_resid,
+                self._cov_type,
+                hac_maxlags=self._hac_maxlags,
+                ridge_alpha=ridge_alpha,
+                ridge_penalize_intercept=(
+                    False if self._effective_intercept else True
+                ),
+                backend=backend_name,
+                device=state.device,
+            )
+            return state, result
+
+        if backend_name == "cupy":
+            import cupy as cp
+
+            cupy_device_id = int(str(selected_device).split(":", 1)[1])
+            with cp.cuda.Device(cupy_device_id):
+                state, result = _run_gaussian_inference_on_fit_device()
+        else:
+            state, result = _run_gaussian_inference_on_fit_device()
+
+        # Convert only after covariance, distribution, p-value, and CI work.
+        self._apply_gaussian_reporting_state(state)
+        if self._effective_intercept:
+            self.intercept_ = float(self._params[0])
+            self.coef_ = self._params[1:].copy()
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = self._params.copy()
+        self._native_fit_coef = None
+        self._native_fit_intercept = None
+        if result is None:
+            self._inference_result = None
+            self._bse = None
+            self._tvalues = None
+            self._zvalues = None
+            self._pvalues = None
+            self._conf_int = None
+            return
+        result.feature_names = self._inference_feature_names()
+        result.apply_to(self)
 
     def _resolve_penalty(self) -> "Penalty":
         """Resolve penalty string or instance to a Penalty object."""

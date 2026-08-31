@@ -2,6 +2,15 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-08-28
+
+### PR #129 / Issue #127 — Gaussian linear-model backend-native inference
+- Migrated maintained Gaussian linear-model covariance, standard-error, test-statistic, p-value, and confidence-interval numerical work to the executed NumPy/CuPy/Torch backend while preserving the established final NumPy reporting snapshot.
+- Routed normal/Student-t inference through the maintained shared reference-distribution layer, including stable df=1/df=2 extreme-tail handling, and made missing/invalid executed-backend provenance fail closed instead of silently falling back to NumPy.
+- Preserved Ridge/L2 average-loss semantics and the `n_eff * alpha` inference mapping, including weighted fits and `RidgeCV` final-refit inference; added public `LinearRegression`, formula, robust/weighted, rank-deficient, multi-target, float32, external statsmodels, and no-host-transfer regression coverage.
+- Added focused hosted CI and a maintained exact-SHA physical CUDA validator covering CuPy/Torch backend/device provenance, clean-tree checks, covariance/BSE/statistic/p-value/CI errors, weighted/rank/multi-target/small-df cases, and a `RidgeCV` final-refit case.
+- Validation remains intentionally incomplete: all hosted gates and the fresh complete-diff review are green on the reviewed implementation head, but final acceptance still requires exact clean-head CuPy/Torch CUDA validation on the final source SHA. PR #129 remains open/unmerged and #127 is not yet `COMPLETE`. No GPU speedup claim is made.
+
 ## 0.2.5 — 2026-08-26
 
 ### PR #126, #128 — Panel Tier-1 Stage C covariance

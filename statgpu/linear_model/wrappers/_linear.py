@@ -13,6 +13,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.backends import _get_torch_device_str
+from statgpu.backends._utils import _cupy_asarray_on_device
 from statgpu.inference._results import GaussianInferenceResult
 from statgpu.linear_model._gaussian_inference import (
     compute_gaussian_inference,
@@ -379,9 +380,22 @@ class LinearRegression(BaseEstimator):
         # never make a GPU -> CPU -> GPU round trip.
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
+        self._selected_backend_name = backend_name
 
         X_arr = self._to_array(X_arr, backend=backend_name)
         y_arr = self._to_array(y_arr, backend=backend_name)
+        if backend_name == "torch":
+            self._selected_backend_device = str(X_arr.device)
+        elif backend_name == "cupy":
+            cupy_device_id = int(X_arr.device.id)
+            self._selected_backend_device = f"cuda:{cupy_device_id}"
+            y_arr = _cupy_asarray_on_device(y_arr, cupy_device_id)
+            if sample_weight is not None:
+                sample_weight = _cupy_asarray_on_device(
+                    sample_weight, cupy_device_id
+                )
+        else:
+            self._selected_backend_device = "cpu"
         if y_arr.ndim == 2 and y_arr.shape[1] == 1:
             y_arr = y_arr.reshape(-1)
         self._y = y_arr
@@ -393,7 +407,10 @@ class LinearRegression(BaseEstimator):
         if backend_name == "torch":
             self._fit_torch(X_arr, y_arr, sample_weight)
         elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, sample_weight)
+            import cupy as cp
+
+            with cp.cuda.Device(int(X_arr.device.id)):
+                self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
@@ -498,6 +515,8 @@ class LinearRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with FULL GPU computation (including inference)."""
         import cupy as cp
+        import cupyx
+        from cupyx.scipy.linalg import solve_triangular
         from statgpu.backends._gpu_inference_cupy import (
             compute_inference_gpu,
             compute_r2_gpu,
@@ -511,12 +530,27 @@ class LinearRegression(BaseEstimator):
         
         # Ensure CuPy arrays and retain raw arrays for weighted diagnostics.
         X_raw = cp.asarray(X)
-        y_raw = cp.asarray(y)
+        cupy_device_id = int(X_raw.device.id)
+        y_raw = _cupy_asarray_on_device(y, cupy_device_id)
+        if int(y_raw.device.id) != cupy_device_id:
+            raise RuntimeError(
+                "LinearRegression CuPy response alignment failed: "
+                f"X=cuda:{cupy_device_id}, y=cuda:{int(y_raw.device.id)}"
+            )
+        self._selected_backend_device = f"cuda:{cupy_device_id}"
         y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
 
         sw = None
         if sample_weight is not None:
-            sw = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+            sw = _cupy_asarray_on_device(
+                sample_weight, cupy_device_id, dtype=cp.float64
+            ).reshape(-1)
+            if int(sw.device.id) != cupy_device_id:
+                raise RuntimeError(
+                    "LinearRegression CuPy sample_weight alignment failed: "
+                    f"X=cuda:{cupy_device_id}, "
+                    f"sample_weight=cuda:{int(sw.device.id)}"
+                )
             if sw.shape[0] != n_samples:
                 raise ValueError("sample_weight must have length n_samples")
             valid = cp.all(cp.isfinite(sw)) & cp.all(sw >= 0) & (cp.sum(sw) > 0)
@@ -529,7 +563,8 @@ class LinearRegression(BaseEstimator):
         else:
             X_fit = X_raw
             y_fit = y_2d
-            intercept_column = cp.ones((n_samples, 1), dtype=X_raw.dtype)
+            with cp.cuda.Device(cupy_device_id):
+                intercept_column = cp.ones((n_samples, 1), dtype=X_raw.dtype)
 
         if self._effective_fit_intercept:
             X_design = cp.column_stack([intercept_column, X_fit])
@@ -543,14 +578,16 @@ class LinearRegression(BaseEstimator):
         
         n_design_cols = int(X_design.shape[1])
         try:
-            L = cp.linalg.cholesky(XtX)
-            tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
-            coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
+            with cupyx.errstate(linalg="raise"):
+                L = cp.linalg.cholesky(XtX)
+                tmp = solve_triangular(L, Xty, lower=True)
+                coef = solve_triangular(L.T, tmp, lower=False)
             self.rank_ = n_design_cols
         except Exception as exc:
             if not _linalg_exception_is_rank_failure(exc):
                 raise
-            lstsq_result = cp.linalg.lstsq(X_design, y, rcond=None)
+            with cupyx.errstate(linalg="raise"):
+                lstsq_result = cp.linalg.lstsq(X_design, y, rcond=None)
             coef = lstsq_result[0]
             self.rank_ = int(lstsq_result[2]) if len(lstsq_result) > 2 else n_design_cols
         self._effective_rank = self.rank_
@@ -589,7 +626,8 @@ class LinearRegression(BaseEstimator):
             else:
                 XtX_cov = X_design.T @ X_design
                 try:
-                    XtX_inv = cp.linalg.inv(XtX_cov)
+                    with cupyx.errstate(linalg="raise"):
+                        XtX_inv = cp.linalg.inv(XtX_cov)
                 except Exception as exc:
                     if not _linalg_exception_is_rank_failure(exc):
                         raise
@@ -598,7 +636,8 @@ class LinearRegression(BaseEstimator):
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
-                z_crit = norm.ppf(0.975)
+                with cp.cuda.Device(cupy_device_id):
+                    z_crit = norm.ppf(0.975, backend="cupy")
                 self._conf_int_gpu = cp.stack([
                     coef_flat - z_crit * self._bse_gpu,
                     coef_flat + z_crit * self._bse_gpu,
@@ -607,13 +646,17 @@ class LinearRegression(BaseEstimator):
             # R-squared on GPU
             self._rsquared_gpu = compute_r2_gpu(y, resid)
 
-            # AIC/BIC on GPU
+            # AIC/BIC and F-statistic helpers create scalar CuPy arrays;
+            # bind them to the executed X device rather than ambient current device.
             k = n_features + (1 if self._effective_fit_intercept else 0)
             scale_mle = cp.sum(resid ** 2) / n_samples
-            self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
-
-            # F-statistic on GPU
-            self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+            with cp.cuda.Device(cupy_device_id):
+                self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(
+                    n_samples, k, scale_mle
+                )
+                self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(
+                    y, resid, X_design, df_resid
+                )
 
         # Single transfer to CPU at the end
         coef_np = coef.get()
@@ -766,11 +809,17 @@ class LinearRegression(BaseEstimator):
 
         # Ensure Torch tensors on correct device
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
-        torch_device = _get_torch_device_str()
+        torch_device = (
+            str(X.device) if isinstance(X, torch.Tensor) else _get_torch_device_str()
+        )
         if not isinstance(X, torch.Tensor):
             X = torch.from_numpy(np.asarray(X)).to(torch_device)
+        torch_device = str(X.device)
         if not isinstance(y, torch.Tensor):
             y = torch.from_numpy(np.asarray(y)).to(torch_device)
+        elif str(y.device) != torch_device:
+            y = y.to(torch_device)
+        self._selected_backend_device = torch_device
 
         if X.dtype != torch.float64:
             X = X.to(torch.float64)
@@ -865,7 +914,7 @@ class LinearRegression(BaseEstimator):
                 self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = torch.clamp(2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device), 0.0, 1.0)
-                z_crit = norm.ppf(0.975, device=torch_device)
+                z_crit = norm.ppf(0.975, backend="torch", device=torch_device)
                 self._conf_int_gpu = torch.stack([
                     coef_flat - z_crit * self._bse_gpu,
                     coef_flat + z_crit * self._bse_gpu,
@@ -992,6 +1041,15 @@ class LinearRegression(BaseEstimator):
     def _wrap_gaussian_inference_result(self):
         method = "classical" if self._cov_type == "nonrobust" else "sandwich"
         distribution = "t" if self._cov_type == "nonrobust" else "normal"
+        backend_name = str(getattr(self, "_selected_backend_name", "numpy")).lower()
+        numerical_device = str(getattr(self, "_selected_backend_device", ""))
+        if backend_name == "numpy":
+            numerical_device = "cpu"
+        elif not numerical_device.startswith("cuda:"):
+            raise RuntimeError(
+                "LinearRegression inference is missing concrete executed-device "
+                f"provenance for backend={backend_name!r}: {numerical_device!r}"
+            )
         result = GaussianInferenceResult(
             params=self._params,
             bse=self._bse,
@@ -1003,7 +1061,13 @@ class LinearRegression(BaseEstimator):
             df=self._df_resid,
             method=method,
             feature_names=self._inference_feature_names(),
-            metadata={"alpha": 0.05},
+            metadata={
+                "alpha": 0.05,
+                "numerical_backend": backend_name,
+                "numerical_device": numerical_device,
+                "reporting_backend": "numpy",
+                "reporting_boundary": "post_numerical_inference",
+            },
         )
         result.apply_to(self)
 

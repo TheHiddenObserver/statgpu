@@ -105,6 +105,25 @@ def _get_xp(backend_name: str):
     raise ValueError(f"Unsupported backend: {backend_name}")
 
 
+def _cupy_asarray_on_device(value, target_device: int, dtype=None):
+    """Return a CuPy array on one concrete CUDA device.
+
+    CuPy may preserve an existing native array when ``asarray`` can avoid a
+    copy.  When the source lives on another GPU, explicitly copy it while the
+    target device is current so downstream arithmetic cannot mix devices.
+    """
+    import cupy as cp
+
+    target_device = int(target_device)
+    with cp.cuda.Device(target_device):
+        if (
+            isinstance(value, cp.ndarray)
+            and int(value.device.id) != target_device
+        ):
+            value = cp.copy(value)
+        return cp.asarray(value, dtype=dtype)
+
+
 def _to_numpy(x):
     """Convert *x* to a ``numpy.ndarray``.
 
@@ -637,7 +656,10 @@ def xp_cholesky_solve(A, b, xp):
     For numpy, uses scipy.linalg.solve_triangular.
     """
     if hasattr(A, 'get'):  # CuPy: no solve_triangular, use general solve directly
-        return xp.linalg.solve(A, b)
+        import cupyx
+
+        with cupyx.errstate(linalg="raise"):
+            return xp.linalg.solve(A, b)
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
         vector_rhs = getattr(b, "ndim", 0) == 1

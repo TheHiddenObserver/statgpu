@@ -53,6 +53,12 @@ from ._distributions_backend import (
     uniform,
     weibull_min,
 )
+
+# Keep low-degree Student-t numerical stability at the inference layer so all
+# distribution consumers, including exact/precomputed Gaussian paths, share the
+# same two-sided p-value and critical-value contract.
+from . import _low_df_reference_contract as _low_df_reference_contract
+
 from statgpu.linear_model.legacy._distributions_legacy_gpu import (
     dbeta_gpu,
     dbinom_gpu,

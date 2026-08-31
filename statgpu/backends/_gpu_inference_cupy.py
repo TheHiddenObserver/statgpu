@@ -5,6 +5,7 @@ All statistical computations on GPU.
 
 import numpy as np
 
+from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
 from statgpu.inference._distributions_backend import (
     norm,
     t,
@@ -14,7 +15,7 @@ from statgpu.inference._distributions_backend import (
 
 def t_two_tail_pvalues_gpu(t_abs, df_resid):
     """Backward-compatible alias for two-sided t p-values on GPU."""
-    return t.two_sided_pvalue(t_abs, df=df_resid)
+    return t.two_sided_pvalue(t_abs, df=df_resid, backend="cupy")
 
 
 def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
@@ -23,17 +24,18 @@ def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
         alpha,
         df=df_resid,
         max_bisect_steps=max_bisect_steps,
+        backend="cupy",
     )
 
 
 def norm_two_tail_pvalues_gpu(z_abs):
     """Backward-compatible alias for two-sided normal p-values on GPU."""
-    return norm.two_sided_pvalue(z_abs)
+    return norm.two_sided_pvalue(z_abs, backend="cupy")
 
 
 def norm_crit_gpu_two_tail(alpha):
     """Backward-compatible alias for two-sided normal critical value on GPU."""
-    return norm.two_sided_critical_value(alpha)
+    return norm.two_sided_critical_value(alpha, backend="cupy")
 
 
 def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
@@ -65,19 +67,27 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
         Confidence intervals on GPU.
     """
     import cupy as cp
-    
+    import cupyx
+
+    device_id = int(X_design.device.id)
     # Compute (X'X)^-1 on GPU
     XtX = cp.matmul(X_design.T, X_design)
-    
+
     try:
-        # Use Cholesky for inversion
-        L = cp.linalg.cholesky(XtX)
-        identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
-        XtX_inv = cp.linalg.solve(L.T, cp.linalg.solve(L, identity))
-    except Exception:
-        # Fallback to pseudo-inverse
+        # CuPy's cuSOLVER-backed Cholesky/solve can otherwise return NaNs
+        # for singular inputs instead of raising; request solver-status errors
+        # so the existing rank/definiteness recovery remains effective.
+        with cupyx.errstate(linalg="raise"):
+            L = cp.linalg.cholesky(XtX)
+            with cp.cuda.Device(device_id):
+                identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
+            XtX_inv = cp.linalg.solve(L.T, cp.linalg.solve(L, identity))
+    except Exception as exc:
+        if not _linalg_exception_is_rank_failure(exc):
+            raise
+        # Pseudoinverse recovery is reserved for rank/definiteness failures.
         XtX_inv = cp.linalg.pinv(XtX)
-    
+
     # Standard errors: sqrt(scale * diag((X'X)^-1))
     bse_gpu = cp.sqrt(cp.maximum(scale * cp.diag(XtX_inv), 0.0))
 
@@ -85,14 +95,15 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
     
     # p-values (two-tailed t-test), entirely on GPU.
-    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid)
+    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid, backend="cupy")
     
     # Confidence intervals (95%)
     alpha = 0.05  # two-tailed significance level for 95% CI
-    t_crit_gpu = cp.asarray(
-        t.two_sided_critical_value(alpha, df=df_resid),
-        dtype=bse_gpu.dtype,
-    )
+    with cp.cuda.Device(device_id):
+        t_crit_gpu = cp.asarray(
+            t.two_sided_critical_value(alpha, df=df_resid, backend="cupy"),
+            dtype=bse_gpu.dtype,
+        )
     
     margin = t_crit_gpu * bse_gpu
     conf_int_lower = params_gpu - margin

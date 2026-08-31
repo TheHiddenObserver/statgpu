@@ -1,189 +1,135 @@
 # statgpu Roadmap
 
 > Canonical development roadmap  
-> Last verified release: **0.2.4**  
-> Last verified commit: `0aeeb95b60e3e274053b8f1b6427ae50c8eec015`  
-> Last verified: **2026-08-06**
+> Planning baseline release: **0.2.5**  
+> Planning baseline commit: `84f8bc7e17f66466b3a325cbb007b6cb41843821`  
+> Reconciled: **2026-08-28**
 
 ## 1. Purpose and authority
 
 This document defines current development priority and sequencing. It is not a public support matrix and does not override repository development gates.
 
 - Hard development and completion gates come first from the applicable `.claude` workflow/skill and then from `dev/AGENTS.md`.
-- For implemented public methods and backend support, use validated implementation/tests together with `docs/en/guides/implemented-methods.md` and the linked model pages.
+- For implemented public methods and backend support, use validated implementation/tests together with `docs/en/guides/implemented-methods.md` and linked maintained model pages.
 - For executable scope, use open GitHub issues and pull requests.
 - Module-specific plans under `dev/plans/` provide design and literature context but may contain historical checklists.
 
-Roadmap priorities and issue scope may narrow work, but they may not weaken or override the hard development gates. When a module plan conflicts with current public documentation or tests, update the stale plan rather than reimplementing an already delivered feature.
+Roadmap priorities and issue scope may narrow work, but they may not weaken hard development gates. When a module plan conflicts with validated implementation or current issue state, update the stale plan rather than reimplementing already delivered behavior.
 
-## 2. Baseline after 0.2.4
+## 2. Baseline after 0.2.5
 
-Version 0.2.4 established a stable correctness baseline for:
+Version 0.2.5 contains the Panel Tier-1 implementation line delivered through the release cycle, including shared panel infrastructure, diagnostics/fit statistics, and expanded covariance/inference support. PR #126 is merged and is the Stage-C implementation source incorporated into the 0.2.5 baseline.
 
-- public estimator validation and sklearn cloning;
-- transactional refits and cross-validation behavior;
-- solver/penalty compatibility and narrow numerical fallbacks;
-- analytic-weight semantics;
-- NumPy/CuPy/Torch finite-input handling;
-- binary LogisticRegression and GLM correctness;
-- CoxPH/CoxPHCV core contracts;
-- release packaging and production installation.
+The benchmark dashboard synchronization, canonical CV source, audited benchmark-source catalog, and production QA work tracked by #90, #91, #92, and #100 are also complete. They are no longer active execution items.
 
-The next cycle should convert that correctness baseline into maintainable product evidence and complete selected statistical workflows. It should not immediately expand into many unrelated zero-percent modules.
+### Known 0.2.5 evidence caveat
+
+The published 0.2.5 release must not be described as having a fully closed final-validator evidence chain. The release audit found that the physical artifacts under `results/pr126_release_697de113/` were generated before the maintained physical-runner contract was subsequently changed in PR #128. Those artifacts remain historical evidence for the numerical source they identify, but under `RELEASING.md` they do not prove the later validator acceptance contract.
+
+This provenance gap does **not** by itself demonstrate a defect in the released numerical implementation. It does mean planning, #93 closure/evidence reconciliation, and future benchmark work must distinguish implementation evidence from final release-validator provenance and must not promote the historical artifacts as proof of a newer acceptance contract.
+
+The next implementation cycle should prioritize correctness and execution-contract debt exposed by the 0.2.5 work before opening another broad model family. In particular, #127 identifies a maintained Gaussian linear-model inference path that still forces numerical state through NumPy/SciPy even when fitting occurs on CuPy/Torch.
 
 ## 3. Prioritization principles
 
-Work is ranked by the following criteria:
+Work is ranked by:
 
-1. **Correctness and contract risk:** fix ambiguous or incomplete public behavior before adding breadth.
-2. **Workflow completeness:** finish a partially implemented statistical workflow before starting a new module family.
-3. **Shared infrastructure leverage:** prefer work that reduces duplication or enables several later features.
-4. **Evidence quality:** implementation, external alignment, physical-GPU validation, benchmark provenance, and documentation must move together.
-5. **Controlled scope:** avoid PRs that combine framework refactors, multiple new model families, and broad performance work.
-6. **Tunable capability closure:** do not expose a direct-fit penalty while leaving its CV path merely planned.
+1. **Correctness and contract risk:** fix ambiguous, fallback-prone, or incomplete public behavior before adding breadth.
+2. **Workflow completeness:** close released or nearly completed work with evidence and issue hygiene before treating stale roadmap text as new implementation scope.
+3. **Shared infrastructure leverage:** prefer work that stabilizes reusable backend/inference contracts for several later estimators and benchmark packages.
+4. **Evidence quality:** implementation, external alignment, physical-GPU validation, validator provenance, and documentation move together.
+5. **Controlled scope:** avoid PRs that combine repository-wide refactors, multiple new model families, and broad performance work.
+6. **Tunable capability closure:** do not expose a direct-fit penalty while leaving its CV selection/final-refit path merely planned.
 
 ## 4. Current priority queue
 
-### P0 — Roadmap and integration control
+### P0 — post-0.2.5 planning and issue reconciliation
 
-#### P0.1 Reconcile planning documents with 0.2.4
+#### P0.1 Reconcile planning state with 0.2.5
 
-Deliverables:
+Keep `ROADMAP.md`, `TO_DO.md`, `ISSUES.md`, and `dev/plans/README.md` synchronized to the 0.2.5 baseline.
 
-- establish this file as the canonical priority source;
-- keep `TO_DO.md` synchronized as the mandatory compact gate checklist and queue;
-- classify older module plans as active references, historical research plans, or archive material;
-- create GitHub issues for every active work package;
-- require future roadmap changes to cite an implementation, test, release, or issue.
+Required maintenance:
 
-#### P0.2 Synchronize benchmark dashboard PR #76 with current `master`
+- remove completed #90/#91/#92/#100 from active execution queues;
+- audit #93 against merged Stage A/B/C implementation and its original acceptance evidence;
+- keep the separate PR #128 release-validator provenance caveat visible during that audit;
+- do not reopen delivered Panel numerical scope merely because #93 remains open;
+- do not treat historical release artifacts produced under an older runner contract as proof of the final PR #128 validator contract;
+- classify any remaining #93 work as issue/evidence reconciliation unless a concrete missing production acceptance criterion is demonstrated;
+- keep future roadmap changes tied to issues, merged implementation, tests, release evidence, or maintained plans.
 
-PR #76 is the only active product branch at the 0.2.4 baseline, but it was built from an older base and is not currently mergeable.
+### P1 — Gaussian inference backend-native execution
 
-The synchronization change must be isolated from new benchmark families:
+#### P1.1 Issue #127 — migrate legacy Gaussian inference
 
-- merge or rebase current `master` into the dashboard branch;
-- resolve test, workflow, documentation, package-layout, and generated-asset conflicts;
-- regenerate the deterministic three-file data bundle and deployment assets;
-- rerun Python, TypeScript, build, staleness, and Playwright gates;
-- preserve source hashes, canonical identities, and no-fabrication rules.
+This is the highest-priority implementation package after the 0.2.5 rebaseline.
 
-### P1 — Benchmark evidence and dashboard readiness
+The maintained Gaussian inference stack still contains CPU-forcing boundaries in shared and consumer-specific code. The implementation must follow [`gaussian_inference_backend_native_plan.md`](gaussian_inference_backend_native_plan.md).
 
-#### P1.1 Add a canonical cross-validation benchmark source
+Core requirements:
 
-The dashboard implements the CV presentation contract but has no current canonical CV source.
+- inventory the exact Gaussian consumer/data-lifecycle graph before edits;
+- keep covariance, BSE, statistics, p-values, and CI computation on the selected NumPy/CuPy/Torch backend;
+- preserve existing nonrobust, HC0-HC3, HAC, Ridge/L2, weighted, rank-deficient, scalar/multi-target, formula, and sklearn-facing semantics;
+- allow a final NumPy reporting snapshot only after numerical inference completes;
+- reuse the maintained inference-distribution backend instead of estimator-specific SciPy fallback;
+- prove actual fit and inference backend/device provenance in tests and physical evidence;
+- freeze the physical validator contract before canonical GPU evidence is collected;
+- rerun physical evidence if validator acceptance logic changes afterward.
 
-Initial matrix:
+### P1 — inference and Panel evidence follow-up
 
-- `RidgeCV`;
-- `LassoCV`;
-- `ElasticNetCV`;
-- `LogisticRegressionCV`;
-- `PenalizedGLM_CV`;
-- `CoxPHCV`.
+#### P1.2 Issue #105 — systematic linear/GLM inference evidence
 
-Required dimensions include backend, folds, candidate-grid size, path/warm-start configuration, CV time, final-refit time, selected parameter, score, convergence/failure diagnostics, timing scope, synchronization policy, and peak memory where available.
+Sequence #105 after #127 so canonical benchmark/validation evidence measures the repaired inference execution contract rather than preserving the known legacy CPU-forcing path.
 
-#### P1.2 Complete dashboard product QA
+Required coverage includes coefficient, covariance, BSE, statistic, p-value, CI, likelihood/information criteria where applicable, explicit backend identity, strict failure behavior, and external alignment.
 
-Before PR #76 is proposed for integration into `master`:
+#### P1.3 Issue #108 — Panel canonical benchmark coverage
 
-- test the production build from the nested documentation path;
-- complete Chrome/Chromium, Firefox, and WebKit/Safari smoke coverage;
-- verify filter cascades, chart/table consistency, empty states, and source metadata;
-- verify keyboard navigation, visible focus, control labels, and an accessible table path;
-- integrate the user guide into documentation navigation;
-- keep generated data and deployment assets deterministic and current.
+The Panel Tier-1 implementation is released; the remaining benchmark work should therefore be treated as evidence breadth, not as a reason to repeat #93 implementation.
 
-URL-persisted state, mobile redesign, virtualization, and bundle partitioning remain deferred until supported by measured product need.
+Extend canonical Panel coverage across maintained estimators and covariance variants with synchronized backend timing, exact method/covariance identities, external alignment, and machine-readable provenance. Do not reuse the disputed final-release validator artifacts as current canonical acceptance evidence unless a source/validator identity audit proves the required contract.
 
-### P1 — Panel workflow completion
+### P2 — survival foundations
 
-Panel data has substantial estimator coverage but lacks several standard econometric diagnostics and shared infrastructure.
+#### P2.1 Issue #94 — Kaplan-Meier and Nelson-Aalen
 
-Implement in three bounded changes:
-
-1. **Shared panel base and covariance registry**
-   - consolidate validation, fitted-state handling, summary construction, and covariance dispatch;
-   - preserve all current numerical behavior with golden regression tests.
-2. **Specification tests and fit statistics**
-   - Hausman FE-vs-RE test;
-   - pooling F-test;
-   - Breusch-Pagan LM test;
-   - within, between, overall, and adjusted R-squared;
-   - model F-statistic;
-   - shared structured test-result object.
-3. **Extended covariance support**
-   - robust covariance for RandomEffects;
-   - HC0/HC2/HC3 where statistically defined;
-   - Driscoll-Kraay covariance;
-   - explicit one-way/two-way cluster and bandwidth/kernel contracts.
-
-External alignment should use `linearmodels`, R `plm`, and R/Python sandwich implementations with explicitly matched formulas, effects, covariance definitions, and degrees-of-freedom corrections.
-
-Panel IV, high-dimensional fixed-effect absorption, DID/event-study, and dynamic-panel GMM are blocked on this shared foundation.
-
-### P2 — Survival Phase 2
-
-Cox Phase 1 is implemented. The next survival work should complete foundational analysis and prediction before advanced latent-event structures.
-
-#### P2.1 Nonparametric survival estimators
-
-Implement Kaplan-Meier and Nelson-Aalen with:
+Implement foundational nonparametric survival estimators with:
 
 - right censoring;
-- backend-consistent input validation;
-- Greenwood or corresponding variance;
-- confidence intervals and median survival where defined;
-- stratified/grouped output;
-- explicit left-truncation follow-up scope;
-- alignment with R `survival` and `lifelines`.
+- explicit grouped/stratified risk sets;
+- Greenwood/corresponding variance and confidence intervals;
+- median/quantile behavior where defined;
+- NumPy/CuPy/Torch backend consistency;
+- external alignment with R `survival`, lifelines, and statsmodels where definitions align.
 
-#### P2.2 Parametric AFT models
+#### P2.2 Issue #95 — initial AFT family
 
-Initial distributions:
+Sequence after #94 unless an explicitly isolated parallel implementation lane is available.
+
+Initial maintained distributions:
 
 - Weibull;
 - log-normal;
 - log-logistic.
 
-Required contracts:
+The package must define parameterization, inference, formula semantics, prediction functions, backend behavior, and mappings to R `survreg` and lifelines.
 
-- censored likelihood and parameterization documented explicitly;
-- NumPy, CuPy, and Torch paths;
-- model-based covariance and summary output;
-- survival, hazard, cumulative-hazard, and quantile prediction;
-- formula support;
-- alignment with R `survreg` and `lifelines`, including scale/sign mappings.
+### P2 — multinomial and sparse foundations
 
-Frailty, Fine-Gray competing risks, multi-state models, joint models, and survival forests remain deferred until these foundations are complete.
+#### P2.3 Issue #96 — unpenalized multinomial logistic regression
 
-### P2 — Linear-model API parity and sparse infrastructure
+Stabilize the unpenalized multinomial/softmax public contract first: identifiability, shapes, class/weight semantics, likelihood, model-based inference, formula behavior, sklearn compatibility, and three-backend execution.
 
-#### P2.3 Unpenalized multinomial logistic regression
+No regularization parameter or penalized solver belongs in #96; it is non-tunable and introduces no multinomial CV surface.
 
-Issue #96 defines the base multinomial/softmax contract and implements only the unpenalized estimator.
+#### P2.4 Issue #98 — complete penalized multinomial suite
 
-The work must fix:
+Begin only after #96 is merged and stable.
 
-- identifiability convention;
-- coefficient, covariance, and probability shapes;
-- class and sample weighting;
-- unpenalized likelihood and information criteria;
-- unpenalized solver support and convergence diagnostics;
-- model-based inference;
-- formula semantics;
-- sklearn compatibility;
-- NumPy, CuPy, and Torch backend behavior.
-
-The Phase-1 implementation includes fit, decision function, probability prediction, hard prediction, likelihood diagnostics, and model-based inference. It must not expose L2 or any other penalty, regularization parameter, or penalized solver. Because the capability is non-tunable, no multinomial CV surface is introduced in #96.
-
-#### P2.4 Complete penalized multinomial suite
-
-Issue #98 begins only after #96 is merged and its public contract is stable.
-
-Penalized multinomial support should be implemented as one coherent capability package rather than exposing L2 first and leaving the remainder fragmented. The declared minimum matrix is:
+Minimum declared matrix:
 
 - L2;
 - L1;
@@ -191,52 +137,51 @@ Penalized multinomial support should be implemented as one coherent capability p
 - SCAD;
 - MCP.
 
-Adaptive and group penalties may be included when their initialization and multiclass grouping conventions are mathematically fixed. If excluded, the design review must record the reason, stable unsupported behavior, tests, documentation, explicit approval, and follow-up.
+For every supported tunable penalty, direct fit, path/grid generation, deterministic CV, selection, final refit, supported inference, three-backend behavior, external alignment, physical-GPU validation, and EN/CN documentation must close in the same declared capability package.
 
-For every supported penalty, the same work package must close:
+#### P2.5 Issue #97 — shared sparse backend contract
 
-- direct-fit objective, scaling, intercept policy, solver dispatch, warm starts, convergence, and KKT/proximal/LLA checks;
-- alpha/lambda/C and mixing-parameter path/grid behavior;
-- deterministic folds, scoring, selection, tie breaking, and no-leakage tests;
-- backend-preserving final refit and supported final-refit inference;
-- NumPy/CuPy/Torch parity and physical-GPU validation;
-- external alignment and machine-readable benchmark evidence where performance is claimed;
-- EN/CN documentation and changelog synchronization.
-
-The issue may use a bounded internal PR sequence, but no partial public capability should be advertised as complete, and #98 must not close after only L2 or only direct-fit support.
-
-#### P2.5 Sparse backend contract
-
-Define a shared sparse-input policy before adding estimator-specific support:
+Define the shared sparse representation/operation policy before estimator-specific sparse expansion:
 
 - SciPy CSR/CSC;
 - CuPy sparse;
 - Torch sparse CSR where viable;
-- supported operations and solver matrix;
 - no silent densification;
-- memory-budget and failure tests;
-- explicit unsupported combinations.
+- explicit operation/solver compatibility matrix;
+- device/memory failure behavior;
+- representative end-to-end estimator coverage.
 
-This work is a prerequisite for high-dimensional fixed effects, mixed models, sparse multinomial follow-up, and several large-scale algorithms.
+This remains the prerequisite for HDFE, mixed models, sparse multinomial follow-up, and broader sparse estimator support.
 
-### P3 — Feature-driven technical debt
+### P3 — benchmark breadth and bounded hardening
 
-Refactor only when a bounded feature or correctness task provides regression coverage.
+The remaining benchmark coverage issues #101-#104, #106, #107, and #109 are valid evidence packages but should not displace active correctness work unless a new benchmark exposes a correctness defect.
+
+Bounded hardening issues #114, #117, and #118 remain non-blocking unless new measurements raise their severity:
+
+- #114 — dashboard bundle/DOM optimization;
+- #117 — mixed-precision benchmark dtype provenance;
+- #118 — CV GPU path-buffer memory measurement/bounds.
+
+### P3 — feature-driven technical debt
+
+Refactor only when a bounded correctness or feature task provides regression coverage.
 
 Current candidates:
 
-- split candidate generation, fold execution, selection, and final refit in `_penalized_cv.py`;
-- split long FISTA/FISTA-BB solver functions by state update, line search, stopping, and diagnostics;
-- unify repeated backend array-copy and scalar-extraction helpers;
-- reduce duplicated CPU/CuPy/Torch fit paths where one backend-generic implementation preserves device semantics;
-- unify duplicated IRLS coordinate-descent implementations only after objective and stopping contracts are frozen.
+- split `_penalized_cv.py` by candidate generation, fold execution, selection, and final refit when existing benchmark/regression evidence makes the behavior boundary explicit;
+- split long FISTA-family solver functions into bounded numerical components without changing objective/stopping contracts;
+- unify repeated backend array-copy/scalar-extraction helpers when device semantics are frozen;
+- reduce duplicated CPU/CuPy/Torch paths only where execution provenance and failure behavior remain explicit.
 
-Do not open a single repository-wide “unify all backends and solvers” PR.
+Do not open a repository-wide “unify all backends/solvers/inference” PR.
 
-### P4 — Deferred module expansion
+### P4 — deferred module expansion
 
-The following remain valid long-term directions but are not in the immediate queue:
+The following remain long-term directions rather than immediate priorities:
 
+- Panel IV/high-dimensional fixed effects/DID/event study/dynamic-panel GMM;
+- frailty/Fine-Gray/multi-state survival;
 - mixed-effects models and GEE;
 - meta-analysis;
 - changepoint detection;
@@ -245,47 +190,46 @@ The following remain valid long-term directions but are not in the immediate que
 - multiple imputation;
 - nonlinear least squares;
 - advanced ANOVA/repeated-measures workflows;
-- advanced robust covariance;
 - tensor/adaptive/shape-constrained GAM;
 - kernel SVM and broad unsupervised expansion.
 
-A deferred module can be promoted only with a concrete user need, a scoped design, three-backend feasibility, external baselines, and a clear maintenance owner.
+A deferred item may be promoted only through a scoped issue with a public contract, three-backend feasibility, external baselines, validation plan, and clear maintenance ownership.
 
 ## 5. Definition of done
 
 A statistical feature is complete only when all applicable items pass:
 
-- applicable `.claude` and `dev/AGENTS.md` hard gates are satisfied;
-- public API and failure behavior are documented;
-- NumPy, CuPy, and Torch execution paths exist, or an explicitly approved exception is recorded;
-- explicit device requests do not silently fall back;
-- every tunable direct-fit capability has its CV path, selection, and final refit completed in the same declared work package;
-- strict inference is implemented or the estimator is explicitly estimation-only;
-- formula semantics are tested where the API supports formulas;
-- external comparisons use aligned objective normalization, penalties, solvers, ties, tolerances, and feature sets;
-- CPU unit/regression/compatibility tests pass;
-- physical-GPU validation covers maintained CuPy and Torch paths;
-- performance claims use synchronized, provenance-bearing artifacts;
-- English and Chinese user documentation and changelog claims remain consistent;
-- no stale fitted state, hidden fallback, or untracked diagnostic script is introduced.
+- applicable `.claude` and `dev/AGENTS.md` hard gates;
+- documented public API and failure behavior;
+- NumPy, CuPy, and Torch execution paths, or an explicitly approved exception;
+- no silent fallback for explicit device requests;
+- direct-fit/CV closure for tunable public capabilities;
+- strict inference or explicit tested estimation-only behavior;
+- formula semantics where the API is formula-facing;
+- external comparisons with aligned objective/penalty/solver/tie/tolerance conventions;
+- CPU unit/regression/compatibility gates;
+- maintained physical-GPU validation for active CuPy/Torch paths;
+- validator/evidence provenance tied to the accepted implementation contract;
+- synchronized benchmark evidence for performance claims;
+- consistent EN/CN documentation and changelog claims;
+- no stale fitted state, hidden fallback, or untracked diagnostic script.
 
 ## 6. Issue hygiene
 
-Each active roadmap package must have one primary GitHub issue. Split implementation into child or follow-up issues only when this does not create a partially advertised public capability or violate direct-fit/CV closure.
+Each active roadmap package must have one primary GitHub issue. Split implementation only when doing so does not create a partially advertised capability or violate direct-fit/CV closure.
 
-Every issue must include:
+Every active issue should define:
 
 - context and user impact;
-- scope and non-goals;
+- scope and explicit non-goals;
 - public API decisions;
-- statistical definitions and parameterization;
+- statistical definitions/parameterization;
 - backend/device behavior;
 - direct-fit/CV status for tunable capabilities;
 - inference and formula implications;
 - external baseline matrix;
-- test and physical-GPU gates;
-- documentation and benchmark outputs;
-- dependencies;
-- acceptance criteria.
+- hosted and physical-GPU gates;
+- documentation/benchmark outputs;
+- dependencies and acceptance criteria.
 
-Close issues using evidence from merged commits, CI, external comparisons, and physical-GPU runs. Do not close an issue solely because a class or function name exists.
+Close issues using merged implementation, CI, external comparisons where applicable, physical-GPU evidence, and synchronized documentation. An issue must not remain a roadmap implementation blocker solely because its checkbox list or old plan text was not synchronized after release.

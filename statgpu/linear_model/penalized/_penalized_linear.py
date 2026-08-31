@@ -58,28 +58,66 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             tol=tol,
             device=device,
             n_jobs=n_jobs,
-            cpu_solver=cpu_solver,
-            solver=solver,
-            lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
             compute_inference=compute_inference,
-            inference_method=inference_method,
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
+            solver=solver,
+            cpu_solver=cpu_solver,
+            lipschitz_L=lipschitz_L,
             stopping=stopping,
             lla=lla,
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
             loss_kwargs=loss_kwargs,
+            inference_method=inference_method,
         )
+
+    def _fit_diagnostic_state(self):
+        """Return response/residual state and optional L2 analytic weights."""
+        if self._y is None or self._resid is None:
+            return None
+        y = np.asarray(self._y, dtype=float)
+
+        # Raw residual/weight snapshots are installed by the Gaussian-L2
+        # transaction. Do not reuse them after the same estimator is reconfigured
+        # and successfully fitted with another penalty.
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        use_l2_diagnostics = penalty_name == "l2"
+        raw_resid = (
+            getattr(self, "_raw_resid", None) if use_l2_diagnostics else None
+        )
+        resid = np.asarray(
+            self._resid if raw_resid is None else raw_resid,
+            dtype=float,
+        )
+        weights = (
+            getattr(self, "_sample_weight_fit", None)
+            if use_l2_diagnostics
+            else None
+        )
+        if weights is not None:
+            weights = np.asarray(weights, dtype=float).reshape(-1)
+            if weights.shape[0] != y.shape[0]:
+                raise RuntimeError(
+                    "Stored sample weights no longer match the fitted response state."
+                )
+        return y, resid, weights
 
     @property
     def rsquared(self):
-        if self._y is None or self._resid is None:
+        state = self._fit_diagnostic_state()
+        if state is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
+        y, resid, weights = state
+        if weights is None:
+            y_mean = np.mean(y)
+            ss_tot = np.sum((y - y_mean) ** 2)
+            ss_res = np.sum(resid ** 2)
+        else:
+            y_mean = np.average(y, weights=weights)
+            ss_tot = np.sum(weights * (y - y_mean) ** 2)
+            ss_res = np.sum(weights * resid ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
     @property
@@ -95,15 +133,20 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
 
     @property
     def fvalue(self):
-        if self._y is None or self._resid is None:
+        state = self._fit_diagnostic_state()
+        if state is None:
             return None
         k = len(self.coef_) if self.coef_ is not None else 0
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
             return np.nan
-        y = np.asarray(self._y, dtype=float)
-        resid = np.asarray(self._resid, dtype=float)
-        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
-        ss_res = float(np.sum(resid ** 2))
+        y, resid, weights = state
+        if weights is None:
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            ss_res = float(np.sum(resid ** 2))
+        else:
+            y_mean = np.average(y, weights=weights)
+            ss_tot = float(np.sum(weights * (y - y_mean) ** 2))
+            ss_res = float(np.sum(weights * resid ** 2))
         if not np.isfinite(ss_tot) or not np.isfinite(ss_res) or ss_tot <= 0:
             return np.nan
         ss_reg = max(0.0, ss_tot - ss_res)
@@ -248,6 +291,4 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
                 print(f"{name:<15} {'':>12} {'':>12} {'':>10} {'':>10} {lo:>12.4f} {hi:>12.4f}")
 
         print("=" * 80)
-
-
 

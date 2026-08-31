@@ -1298,25 +1298,35 @@ class _PenalizedInferenceMixin:
         p = XtX_centered.shape[0]
         normalization = float(n_samples if normalization is None else normalization)
         ridge_alpha = normalization * self._ridge_alpha_for_exact()
-        sw = None if sample_weight is None else cp.asarray(sample_weight, dtype=X.dtype).reshape(-1)
+        device_id = int(X.device.id)
+        with cp.cuda.Device(device_id):
+            sw = (
+                None
+                if sample_weight is None
+                else cp.asarray(sample_weight, dtype=X.dtype).reshape(-1)
+            )
+            eye_p = cp.eye(p, dtype=XtX_centered.dtype)
         sqrt_sw = None if sw is None else cp.sqrt(sw)
 
         if X_mean is None:
             xtx_full = XtX_centered
-            bread = xtx_full + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
+            bread = xtx_full + ridge_alpha * eye_p
         else:
             sum_x = normalization * X_mean
             xtx_orig = XtX_centered + normalization * cp.outer(X_mean, X_mean)
-            xtx_full = cp.empty((p + 1, p + 1), dtype=XtX_centered.dtype)
+            with cp.cuda.Device(device_id):
+                xtx_full = cp.empty((p + 1, p + 1), dtype=XtX_centered.dtype)
             xtx_full[0, 0] = normalization
             xtx_full[0, 1:] = sum_x
             xtx_full[1:, 0] = sum_x
             xtx_full[1:, 1:] = xtx_orig
             bread = xtx_full.copy()
-            bread[1:, 1:] = xtx_orig + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
+            bread[1:, 1:] = xtx_orig + ridge_alpha * eye_p
         try:
             chol = cp.linalg.cholesky(bread)
-            bread_inv = cp.linalg.solve(chol.T, cp.linalg.solve(chol, cp.eye(bread.shape[0], dtype=bread.dtype)))
+            with cp.cuda.Device(device_id):
+                identity = cp.eye(bread.shape[0], dtype=bread.dtype)
+            bread_inv = cp.linalg.solve(chol.T, cp.linalg.solve(chol, identity))
         except Exception as exc:
             if not _linalg_exception_is_rank_failure(exc):
                 raise
@@ -1326,12 +1336,20 @@ class _PenalizedInferenceMixin:
         resid_raw = y - y_pred
         resid = resid_raw if sqrt_sw is None else resid_raw * sqrt_sw
         df_resid = int(n_samples - coef_full.shape[0])
-        scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
+        if df_resid > 0:
+            scale = cp.sum(resid ** 2) / df_resid
+        else:
+            with cp.cuda.Device(device_id):
+                scale = cp.asarray(cp.nan, dtype=X.dtype)
 
         if X_mean is None:
             X_design_gpu = X if sqrt_sw is None else X * sqrt_sw[:, None]
         else:
-            intercept_col = cp.ones(int(n_samples), dtype=X.dtype) if sqrt_sw is None else sqrt_sw
+            if sqrt_sw is None:
+                with cp.cuda.Device(device_id):
+                    intercept_col = cp.ones(int(n_samples), dtype=X.dtype)
+            else:
+                intercept_col = sqrt_sw
             feature_block = X if sqrt_sw is None else X * sqrt_sw[:, None]
             X_design_gpu = cp.column_stack([intercept_col, feature_block])
         y_state = y if sqrt_sw is None else y * sqrt_sw
@@ -1358,21 +1376,40 @@ class _PenalizedInferenceMixin:
 
         bse = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
         tvalues = coef_full / (bse + 1e-30)
-        if distribution == "t":
-            pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
-            critical = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
-        else:
-            from statgpu.inference._distributions_backend import norm
-            pvalues = 2.0 * norm.sf(cp.abs(tvalues))
-            critical = cp.asarray(norm.ppf(0.975), dtype=bse.dtype)
-        conf_int = cp.stack([coef_full - critical * bse, coef_full + critical * bse], axis=1)
+        with cp.cuda.Device(device_id):
+            if distribution == "t":
+                pvalues = t.two_sided_pvalue(
+                    tvalues, df=df_resid, backend="cupy"
+                )
+                critical = cp.asarray(
+                    t.two_sided_critical_value(
+                        0.05, df=df_resid, backend="cupy"
+                    ),
+                    dtype=bse.dtype,
+                )
+            else:
+                from statgpu.inference._distributions_backend import norm
+                pvalues = 2.0 * norm.sf(cp.abs(tvalues), backend="cupy")
+                critical = cp.asarray(
+                    norm.ppf(0.975, backend="cupy"), dtype=bse.dtype
+                )
+        conf_int = cp.stack(
+            [coef_full - critical * bse, coef_full + critical * bse], axis=1
+        )
 
         from statgpu.inference._results import GaussianInferenceResult
         result = GaussianInferenceResult(
             params=coef_full.get(), bse=bse.get(), statistic=tvalues.get(),
             pvalues=pvalues.get(), conf_int=conf_int.get(), cov_type=self._cov_type,
             distribution=distribution, df=df_resid, method=method,
-            metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
+            metadata={
+                "ridge_alpha": ridge_alpha,
+                "alpha": 0.05,
+                "numerical_backend": "cupy",
+                "numerical_device": f"cuda:{device_id}",
+                "reporting_backend": "numpy",
+                "reporting_boundary": "post_numerical_inference",
+            },
         )
         result.apply_to(self)
         self._inference_precomputed = True
@@ -1474,7 +1511,14 @@ class _PenalizedInferenceMixin:
             bse=bse.detach().cpu().numpy(), statistic=tvalues.detach().cpu().numpy(),
             pvalues=pvalues.detach().cpu().numpy(), conf_int=conf_int.detach().cpu().numpy(),
             cov_type=self._cov_type, distribution=distribution, df=df_resid, method=method,
-            metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
+            metadata={
+                "ridge_alpha": ridge_alpha,
+                "alpha": 0.05,
+                "numerical_backend": "torch",
+                "numerical_device": str(X.device),
+                "reporting_backend": "numpy",
+                "reporting_boundary": "post_numerical_inference",
+            },
         )
         result.apply_to(self)
         self._inference_precomputed = True

@@ -1,7 +1,7 @@
 # Ridge
 
 > 语言: 中文  
-> 最后更新: 2026-07-12  
+> 最后更新: 2026-08-28  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/ridge.md)
 
@@ -65,6 +65,12 @@ scikit-learn 使用未归一化的残差平方和。比较系数时应使用：
 - `compute_inference=True` 时返回 `_bse`、`_tvalues`、`_pvalues`、`_conf_int`。
 - 加权推断使用加权设计矩阵 `[sqrt(w), sqrt(w) * X]`，因此截距列、残差、bread 和 meat 与估计阶段采用相同权重约定。
 
+推断中的 ridge normal equations 与拟合阶段使用同一个平均损失 penalty mapping：无权重时数值 ridge 项为 `n * alpha`，加权时为 `sample_weight.sum() * alpha`；截距始终不惩罚。
+
+对于已经迁移的共享 Gaussian 路径，协方差、标准误、检验统计量、参考分布 p 值以及置信区间临界值都在实际执行拟合的 NumPy/CuPy/Torch backend 上完成。全部数值工作结束以后，既有 reporting 数组才 snapshot 到 NumPy。`_inference_result.metadata` 会记录 numerical backend/device 以及 `post_numerical_inference` reporting boundary。显式 CUDA/Torch 拟合若缺失执行 backend provenance，会 fail closed，而不会静默切换到 NumPy inference。
+
+低自由度 Student-t 路径复用维护中的 df=1 与 df=2 稳定恒等式，因此极端但仍可表示的尾概率不会因为 `1-CDF` 消去或 `t**2` 中间量 overflow 被错误压成 0。
+
 ## Parameters
 
 | Parameter | Default | Description |
@@ -101,7 +107,7 @@ m_gpu.fit(X, y, sample_weight=w)
 
 ## strict/approx difference
 
-当前没有单独公开的 approximate 模式。CPU 测试覆盖 exact/FISTA、加权/无权重、formula、推断和 RidgeCV 契约；真实 CuPy/Torch CUDA 数值与性能验证仍属于远程验证门禁。
+当前没有单独公开的 approximate 模式。hosted tests 覆盖 exact/FISTA、加权/无权重、formula、协方差/推断、RidgeCV final-refit inference、backend provenance 和 numerical/reporting transfer boundary。真实 CuPy/Torch CUDA acceptance 仍是独立的 exact-source remote gate；只要维护的 validator contract 后续发生变化，就必须重新执行 physical validation。
 
 ## Outputs
 
@@ -116,12 +122,14 @@ m_gpu.fit(X, y, sample_weight=w)
 - 为什么相同 `alpha` 与 sklearn 不一致？两者残差项的归一化方式不同，应使用上面的显式映射。
 - 将所有样本权重同时缩放会改变模型吗？不会，因为加权损失除以 `sum(sample_weight)`。
 - 什么时候设置 `hac_maxlags`？当 `cov_type="hac"` 且存在时间相关时建议显式设置，否则使用默认规则。
+- GPU inference 会把公开数组保留为 CuPy/Torch 吗？不会。数值推断保持 backend-native，但既有公开 reporting 属性在数值推断完成后仍然是 NumPy snapshot。
 
 ## External Validation
 
 - 内部一致性通过平均损失闭式解以及通用 penalized-linear estimator 进行验证。
 - 与 sklearn 比较时使用无权重或加权情况下的显式 alpha 映射。
 - 加权 exact/FISTA、formula 缺失行权重对齐、推断和 RidgeCV 权重整体缩放不变性由 `dev/tests/test_ridge_weighted_consistency.py` 覆盖。
+- Issue #127 的 backend-native inference regressions 与 physical CUDA acceptance contract 位于 `dev/tests/test_gaussian_inference_*.py` 和 `dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py`。
 
 ## References
 

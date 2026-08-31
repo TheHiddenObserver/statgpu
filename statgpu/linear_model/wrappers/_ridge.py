@@ -11,6 +11,7 @@ from __future__ import annotations
 
 __all__ = ["Ridge"]
 
+import functools
 from typing import Optional, Union
 
 import numpy as np
@@ -81,6 +82,7 @@ class Ridge(_PenalizedLinearRegression):
             raise ValueError("X and y must contain the same number of samples")
 
         n_samples, n_features = X_np.shape
+        self.n_features_in_ = int(n_features)
         self._nobs = n_samples
         self._fitted = False
 
@@ -160,6 +162,12 @@ class Ridge(_PenalizedLinearRegression):
         self._scale = np.nan
         self.n_iter_ = 1
         self._df_resid = n_samples - (n_features + (1 if self._fit_intercept else 0))
+        # This optimized branch is itself the executed fit implementation rather
+        # than the shared backend dispatcher, so publish its provenance before
+        # inference consumes the executed-backend contract.
+        self._selected_solver = "exact"
+        self._selected_backend_name = "numpy"
+        self._selected_backend_device = "cpu"
 
         # Build design matrix and compute residuals only when inference is needed
         if self._compute_inference_enabled:
@@ -168,7 +176,8 @@ class Ridge(_PenalizedLinearRegression):
             else:
                 self._X_design = X_np.copy()
             y_pred = self._X_design @ self._params
-            self._resid = y_np - y_pred
+            raw_resid = y_np - y_pred
+            self._resid = raw_resid.copy()
             if self._df_resid > 0:
                 resid_sq = self._resid ** 2
                 self._scale = float(np.sum(resid_sq)) / self._df_resid
@@ -178,5 +187,76 @@ class Ridge(_PenalizedLinearRegression):
             # consistent inference attributes.
             self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
 
+            # The shared inference snapshot intentionally stores sqrt(w)-scaled
+            # numerical state for covariance/scale/likelihood calculations. Public
+            # Ridge diagnostics need the original response/residual plus analytic
+            # weights, matching the ordinary PGLM L2 transaction contract.
+            self._y = y_np.copy()
+            self._raw_resid = raw_resid.copy()
+            self._sample_weight_fit = None if sw is None else sw.copy()
+
         self._fitted = True
         return self
+
+
+def _install_ridge_failed_refit_contract() -> None:
+    """Reset optimized direct-fit state and fail closed on Ridge refit errors."""
+    current = Ridge.fit
+    if getattr(current, "_statgpu_ridge_failed_refit_contract", False):
+        return
+
+    @functools.wraps(current)
+    def _fit_with_failed_refit_contract(
+        self, X=None, y=None, sample_weight=None, formula=None, data=None
+    ):
+        try:
+            optimized_direct = (
+                formula is None
+                and self._get_compute_device() == Device.CPU
+                and self._solver == "exact"
+            )
+            if optimized_direct:
+                # The optimized override bypasses the generic PGLM fit preamble.
+                # Reset formula-derived intercept semantics and all previous
+                # inference/reporting state before a successful direct refit so a
+                # prior formula/no-intercept fit or inference-enabled fit cannot
+                # contaminate this fit.
+                self._feature_names = None
+                self._design_info = None
+                self._formula_has_intercept = None
+                self._use_intercept = None
+                self._native_fit_coef = None
+                self._native_fit_intercept = None
+                self._inference_precomputed = False
+                self._precomputed_gaussian_state = None
+                self._clear_inference_state()
+                self._selected_solver = "exact"
+                self._selected_backend_name = "numpy"
+                self._selected_backend_device = "cpu"
+                self._fitted = False
+
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+        except Exception:
+            # The optimized CPU-exact override bypasses the generic Gaussian fit
+            # transaction, so shape/weight validation errors can otherwise leave
+            # coefficients from an earlier successful fit reachable by predict().
+            from statgpu.linear_model.penalized._gaussian_fit_transaction_contract import (
+                _invalidate_failed_fit_state,
+            )
+
+            _invalidate_failed_fit_state(self)
+            raise
+
+    _fit_with_failed_refit_contract._statgpu_ridge_failed_refit_contract = True
+    _fit_with_failed_refit_contract._statgpu_original = current
+    Ridge.fit = _fit_with_failed_refit_contract
+
+
+_install_ridge_failed_refit_contract()
