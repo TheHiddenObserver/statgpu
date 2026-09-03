@@ -47,7 +47,7 @@ $$
 \left(y_i-\beta_0-x_i^\top\beta\right)^2.
 $$
 
-Here, `n` is the number of observations, `x_i` is the feature vector, and `\varepsilon_i` is the part not explained by the included predictors.
+Here, $n$ is the number of observations, $x_i$ is the feature vector for observation $i$, and $\varepsilon_i$ is the part not explained by the included predictors.
 
 For coefficient interpretation and conventional inference, check that:
 
@@ -84,9 +84,56 @@ print("R²:", model.rsquared)
 print("standard errors:", model._bse)
 print("p-values:", model._pvalues)
 print("first predictions:", model.predict(X[:3]))
+model.summary()
 ```
 
 The fitted coefficients should be close to `[2.0, -1.0, 0.5]` and the intercept close to `1.5`. Exact values vary because the response includes random noise.
+
+`summary()` prints the fit statistics and coefficient table in one place. For this seeded example it begins like this:
+
+```text
+Linear Regression Results
+Covariance Type:                        hc1
+No. Observations:                       500
+R-squared:                           0.9064
+Adj. R-squared:                      0.9058
+                        coef      std err          t      P>|t|
+(Intercept)           1.4562       0.0327     44.512     0.0000
+x1                    2.0288       0.0314     64.660     0.0000
+x2                   -0.9906       0.0349    -28.382     0.0000
+x3                    0.5440       0.0312     17.422     0.0000
+```
+
+`summary()` requires a fitted single-output model with `compute_inference=True`. The complete table also includes the F statistic, log-likelihood, AIC, BIC, and 95% confidence intervals.
+
+## Formula and DataFrame example
+
+Install the optional parser, then fit with column names:
+
+```bash
+pip install "statgpu[formula]"
+```
+
+```python
+import pandas as pd
+from statgpu.linear_model import LinearRegression
+
+frame = pd.DataFrame(X, columns=["x1", "x2", "x3"])
+frame["y"] = y
+
+formula_model = LinearRegression(
+    device="cpu",
+    cov_type="hc3",
+).fit(
+    formula="y ~ x1 + x2 + x3",
+    data=frame,
+)
+
+formula_model.summary()
+pred = formula_model.predict(frame.iloc[:3])
+```
+
+The stored Patsy design information keeps categorical encodings and interaction columns aligned at prediction time. See the [Formula interface and support matrix](../guides/formula-interface.md) before assuming another estimator accepts `formula=`.
 
 ## How to read the result
 
@@ -131,6 +178,8 @@ gpu_model = LinearRegression(
 
 Supported covariance choices are `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, and `hac`. CPU/GPU results can differ slightly because of floating-point order and backend linear algebra. There is no separate public approximate-inference mode.
 
+For the exact covariance formulas, assumptions, complete parameter list, output shapes, and backend behavior, continue to [Linear regression inference and complete API](linear-regression-inference.md). Source-level acceleration details are separated into the [CPU/GPU implementation guide](../guides/acceleration-internals.md).
+
 ## Common pitfalls
 
 - Standardize or otherwise rescale features when coefficient magnitude comparisons matter.
@@ -143,7 +192,7 @@ Supported covariance choices are `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, and `h
 
 Import path: `statgpu.linear_model.LinearRegression`
 
-Main outputs: `coef_`, `intercept_`, `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `aic`, `bic`, `_bse`, `_tvalues`, `_pvalues`, and `_conf_int`.
+This beginner page intentionally covers the parameters used in the normal workflow. The [complete API page](linear-regression-inference.md#complete-api-reference) inventories every constructor and fit parameter, fitted statistic, inference array, method, failure condition, and multi-output shape.
 
 Multi-output targets are supported, but `summary()` is single-output only. External consistency checks against `statsmodels.OLS` are in `dev/tests/test_external_consistency.py`.
 

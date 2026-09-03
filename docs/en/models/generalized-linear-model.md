@@ -14,15 +14,17 @@ In statgpu, `GeneralizedLinearModel` is the common entry point. Typed estimators
 
 Choose the family from the kind of outcome and its mean-variance behavior:
 
-| Outcome | Family / default link | Good starting estimator |
-|---|---|---|
-| continuous, roughly symmetric | Gaussian / identity | `LinearRegression` or `GeneralizedLinearModel(family="gaussian")` |
-| 0/1 response | Binomial / logit | `LogisticRegression` |
-| non-negative counts with variance near the mean | Poisson / log | `PoissonRegression` |
-| overdispersed counts | Negative binomial / log | `NegativeBinomialRegression` |
-| positive, right-skewed continuous response | Gamma / log | `GammaRegression` |
-| positive response with variance growing roughly as $\mu^3$ | Inverse Gaussian / log | `InverseGaussianRegression` |
-| zeros plus positive continuous values or power variance | Tweedie / log | `TweedieRegression` |
+| Outcome | Family | Link function $g(\mu)$ | Variance function $V(\mu)$ | Model page |
+|---|---|---|---|---|
+| continuous, roughly symmetric | Gaussian | identity: $\mu$ | $1$ | [LinearRegression](linear-regression.md) |
+| 0/1 response | Binomial | logit: $\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Logistic regression](logistic-regression.md) |
+| non-negative counts, variance near mean | Poisson | log: $\log(\mu)$ | $\mu$ | [Poisson regression](poisson-regression.md) |
+| overdispersed counts | Negative binomial | log: $\log(\mu)$ | $\mu+\alpha\mu^2$ | [Negative binomial](glm-family-reference.md#negative-binomial) |
+| positive, right-skewed response | Gamma | log by default | $\mu^2$ | [Gamma](glm-family-reference.md#gamma) |
+| positive, variance near $\mu^3$ | Inverse Gaussian | log: $\log(\mu)$ | $\mu^3$ | [Inverse Gaussian](glm-family-reference.md#inverse-gaussian) |
+| zeros plus positive values or power variance | Tweedie | log: $\log(\mu)$ | $\mu^p$ | [Tweedie](glm-family-reference.md#tweedie) |
+
+The full [GLM family and API reference](glm-family-reference.md) gives response domains, configurable family parameters, constructor signatures, outputs, and interpretation for every row.
 
 Do not select a family from the outcome name alone. Check the observed range, the variance pattern, excess zeros, dependence, and whether the link gives a scientifically meaningful relationship.
 
@@ -101,6 +103,36 @@ print("expected counts:", model.predict(X[:3]))
 
 `solver="newton"` is explicit here because the IRLS path's `C` parameter adds L2 regularization. The fitted coefficients should be near `[0.45, -0.25]`.
 
+## Formula and DataFrame example
+
+Install the optional Formula dependencies, then use the same typed estimator with column names:
+
+```bash
+pip install "statgpu[formula]"
+```
+
+```python
+import pandas as pd
+from statgpu.linear_model import PoissonRegression
+
+frame = pd.DataFrame({"count": y, "x1": X[:, 0], "x2": X[:, 1]})
+
+formula_model = PoissonRegression(
+    solver="newton",
+    device="cpu",
+    compute_inference=True,
+    cov_type="hc1",
+).fit(
+    formula="count ~ x1 + x2",
+    data=frame,
+)
+
+print(formula_model.summary())
+expected_count = formula_model.predict(frame.iloc[:3])
+```
+
+Formula support is estimator-specific. In particular, the standalone `LogisticRegression` array API does not accept `formula=`; use `GeneralizedLinearModel(family="binomial")` or `PenalizedLogisticRegression` when a logistic Formula is required. The [Formula support matrix](../guides/formula-interface.md) records the verified boundary for regression, panel, and survival models.
+
 ## How to read the result
 
 For a log-link model:
@@ -145,6 +177,8 @@ Available penalized typed wrappers cover Gaussian, logistic, Poisson, Gamma, inv
 
 Explicit `device="cuda"` uses CuPy and `device="torch"` uses Torch CUDA on supported paths; an explicit GPU request does not silently fall back to CPU. Formula parsing is CPU-side preprocessing, so explicit arrays are preferable for large GPU workloads.
 
+For the exact data lifecycle, transfer boundaries, linear algebra patterns, synchronization costs, and dtype guidance, see [CPU/GPU acceleration internals](../guides/acceleration-internals.md).
+
 `solver="auto"` is family-, penalty-, and device-aware. Smooth objectives can use IRLS, Newton, or L-BFGS; non-smooth penalties use proximal solvers such as FISTA. Invalid solver/penalty combinations raise an error.
 
 Ordinary typed GLMs expose post-fit inference through `compute_inference=True`. Penalized inference depends on the penalty and model; consult the [solver and penalty matrix](../guides/solver-penalty-matrix.md) instead of assuming ordinary-model p-values remain valid after selection.
@@ -180,7 +214,7 @@ from statgpu.linear_model import (
 )
 ```
 
-Common fitted outputs are `coef_`, `intercept_`, `n_iter_`, `predict`, and family-specific `predict_proba` or `score` methods. Inference outputs use `_bse`, `_zvalues`, `_pvalues`, and `_conf_int`.
+This beginner page keeps the model choice and normal workflow readable. The [GLM family and complete API reference](glm-family-reference.md#complete-api-reference) lists all common constructor and fit inputs, every family-specific parameter, fitted outputs, `summary()` behavior, inference metadata, and unsupported combinations. Private solver state remains source-level implementation detail rather than public API.
 
 External-framework and backend checks cover coefficient agreement, objective gaps, KKT residuals, inference, and CPU/CuPy/Torch behavior. See the validation references linked from the [implemented methods guide](../guides/implemented-methods.md).
 

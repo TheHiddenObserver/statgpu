@@ -136,6 +136,8 @@ DBSCAN 不支持对未见样本调用 `predict`。处理新观测时，应重新
 - 较高维 CPU 数据使用优化近邻搜索，并保持相同标签契约；
 - CuPy 与 Torch 路径在 GPU 上分批计算距离，并用后端特定流程构造连通分量。
 
+[CPU/GPU 加速实现](../guides/acceleration-internals.md)进一步说明 `batch_size`、设备传输、同步和标签不变验证为何会影响该路径。
+
 ```python
 # CuPy CUDA 路径
 gpu_model = DBSCAN(

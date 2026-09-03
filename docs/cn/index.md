@@ -6,7 +6,8 @@ hero:
   text: 让统计计算更快
   tagline: 以 sklearn 风格 API 提供 GPU 加速统计方法、新手友好的方法指南与可复现的基准证据。
   image:
-    src: /images/statgpu-compute-hero.webp
+    light: /images/statgpu-compute-hero-light.jpg
+    dark: /images/statgpu-compute-hero.webp
     alt: 连接统计曲线与数据路径的 GPU 计算网格
   actions:
     - theme: brand

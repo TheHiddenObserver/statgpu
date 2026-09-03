@@ -133,6 +133,8 @@ gpu_model = SCADRegression(
 
 The typed `SCADRegression` constructor exposes `compute_inference` but not an `inference_method` selector. Therefore `SCADRegression(compute_inference=True)` alone is **not** the documented inference route: the inherited default is incompatible with SCAD.
 
+For device-resident LLA/FISTA behavior, synchronization, precision, and the CPU active-set refit boundary, see [CPU/GPU acceleration internals](../guides/acceleration-internals.md).
+
 For reviewed active-set inference, use the general penalized estimator explicitly:
 
 ```python

@@ -14,15 +14,17 @@
 
 应根据响应类型与均值—方差关系选择 family：
 
-| 响应 | Family / 默认链接 | 推荐起点 |
-|---|---|---|
-| 连续且大致对称 | Gaussian / identity | `LinearRegression` 或 `GeneralizedLinearModel(family="gaussian")` |
-| 0/1 响应 | Binomial / logit | `LogisticRegression` |
-| 非负计数，方差接近均值 | Poisson / log | `PoissonRegression` |
-| 过度离散计数 | Negative binomial / log | `NegativeBinomialRegression` |
-| 正值、右偏连续响应 | Gamma / log | `GammaRegression` |
-| 正值且方差大致按 $\mu^3$ 增长 | Inverse Gaussian / log | `InverseGaussianRegression` |
-| 同时包含零和正连续值，或符合幂方差 | Tweedie / log | `TweedieRegression` |
+| 响应 | Family | 链接函数 $g(\mu)$ | 方差函数 $V(\mu)$ | 模型页面 |
+|---|---|---|---|---|
+| 连续且大致对称 | Gaussian | identity：$\mu$ | $1$ | [线性回归](linear-regression.md) |
+| 0/1 响应 | Binomial | logit：$\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Logistic 回归](logistic-regression.md) |
+| 非负计数，方差接近均值 | Poisson | log：$\log(\mu)$ | $\mu$ | [Poisson 回归](poisson-regression.md) |
+| 过度离散计数 | Negative binomial | log：$\log(\mu)$ | $\mu+\alpha\mu^2$ | [Negative binomial](glm-family-reference.md#negative-binomial) |
+| 正值、右偏连续响应 | Gamma | 默认 log | $\mu^2$ | [Gamma](glm-family-reference.md#gamma) |
+| 正值且方差大致按 $\mu^3$ 增长 | Inverse Gaussian | log：$\log(\mu)$ | $\mu^3$ | [Inverse Gaussian](glm-family-reference.md#inverse-gaussian) |
+| 同时包含零和正值或符合幂方差 | Tweedie | log：$\log(\mu)$ | $\mu^p$ | [Tweedie](glm-family-reference.md#tweedie) |
+
+完整的 [GLM 分布族与 API 参考](glm-family-reference.md)说明每一行的响应取值范围、可配置参数、构造器、输出与解释方法。
 
 不要只根据响应变量的名字选择 family。还应检查取值范围、方差模式、过多零值、观测依赖性，以及链接函数是否具有合理的科学解释。
 
@@ -101,6 +103,36 @@ print("期望计数：", model.predict(X[:3]))
 
 这里显式设置 `solver="newton"`，因为 IRLS 路径中的 `C` 参数会加入 L2 正则化。估计系数应接近 `[0.45, -0.25]`。
 
+## Formula 与 DataFrame 示例
+
+安装可选的 Formula 依赖后，同一个类型化估计器即可直接使用列名：
+
+```bash
+pip install "statgpu[formula]"
+```
+
+```python
+import pandas as pd
+from statgpu.linear_model import PoissonRegression
+
+frame = pd.DataFrame({"count": y, "x1": X[:, 0], "x2": X[:, 1]})
+
+formula_model = PoissonRegression(
+    solver="newton",
+    device="cpu",
+    compute_inference=True,
+    cov_type="hc1",
+).fit(
+    formula="count ~ x1 + x2",
+    data=frame,
+)
+
+print(formula_model.summary())
+expected_count = formula_model.predict(frame.iloc[:3])
+```
+
+Formula 支持取决于具体估计器。尤其是独立实现的 `LogisticRegression` 数组接口不接受 `formula=`；需要 Logistic Formula 时，应使用 `GeneralizedLinearModel(family="binomial")` 或 `PenalizedLogisticRegression`。回归、面板和生存模型的已核对边界见 [Formula 支持矩阵](../guides/formula-interface.md)。
+
 ## 如何读取结果？
 
 对 log 链接模型：
@@ -145,6 +177,8 @@ $$
 
 受支持的路径中，显式 `device="cuda"` 使用 CuPy，`device="torch"` 使用 Torch CUDA；显式请求 GPU 时不会静默回退到 CPU。公式解析属于 CPU 预处理，大规模 GPU 任务更适合直接传入数组。
 
+准确的数据生命周期、传输边界、线性代数模式、同步成本与 dtype 建议见 [CPU/GPU 加速实现](../guides/acceleration-internals.md)。
+
 `solver="auto"` 会根据 family、penalty 和设备选择路径。光滑目标可使用 IRLS、Newton 或 L-BFGS；非光滑惩罚使用 FISTA 等近端算法。不合法的求解器与惩罚组合会直接报错。
 
 普通类型化 GLM 可通过 `compute_inference=True` 进行拟合后推断。惩罚模型的推断能力取决于模型和惩罚类型；请查看[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)，不要假定特征选择后仍可直接使用普通模型 p 值。
@@ -180,7 +214,7 @@ from statgpu.linear_model import (
 )
 ```
 
-常见拟合输出包括 `coef_`、`intercept_`、`n_iter_`、`predict`，以及不同 family 提供的 `predict_proba` 或 `score`。推断输出为 `_bse`、`_zvalues`、`_pvalues` 和 `_conf_int`。
+本入门页只保留模型选择与常用流程。[GLM 分布族与完整 API 参考](glm-family-reference.md#完整-api-参考)会列出全部通用构造与拟合输入、每个分布族的专属参数、拟合输出、`summary()` 行为、推断元数据和不支持的组合。私有求解器状态属于源码级实现细节，而不是公开 API。
 
 外部框架与多后端验证覆盖系数一致性、目标函数差异、KKT 残差、推断和 CPU/CuPy/Torch 行为。入口见[已实现方法指南](../guides/implemented-methods.md)中的验证链接。
 

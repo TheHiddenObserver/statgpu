@@ -133,6 +133,8 @@ gpu_model = SCADRegression(
 
 类型化 `SCADRegression` 构造器暴露了 `compute_inference`，但没有暴露 `inference_method` 选择器。因此，只写 `SCADRegression(compute_inference=True)` **不是**文档推荐的推断入口：继承的默认推断方法与 SCAD 不兼容。
 
+设备驻留的 LLA/FISTA、同步、精度以及 CPU active-set 重拟合边界见 [CPU/GPU 加速实现](../guides/acceleration-internals.md)。
+
 如需经过当前实现路径核对的 active-set 推断，应显式使用通用惩罚估计器：
 
 ```python

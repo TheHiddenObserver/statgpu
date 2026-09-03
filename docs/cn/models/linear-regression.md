@@ -47,7 +47,7 @@ $$
 \left(y_i-\beta_0-x_i^\top\beta\right)^2.
 $$
 
-其中，`n` 是观测数，`x_i` 是第 `i` 个特征向量，`\varepsilon_i` 是已纳入特征未解释的部分。
+其中，$n$ 是观测数，$x_i$ 是第 $i$ 个观测的特征向量，$\varepsilon_i$ 是已纳入特征未解释的部分。
 
 若要解释系数并进行常规推断，应检查：
 
@@ -84,9 +84,56 @@ print("R²：", model.rsquared)
 print("标准误：", model._bse)
 print("p 值：", model._pvalues)
 print("前三个预测：", model.predict(X[:3]))
+model.summary()
 ```
 
 拟合系数应接近 `[2.0, -1.0, 0.5]`，截距应接近 `1.5`。响应中包含随机噪声，因此每次具体估计不会与真值完全相同。
+
+`summary()` 会把拟合统计量和系数表集中打印出来。上面这个固定随机种子的示例开头如下：
+
+```text
+Linear Regression Results
+Covariance Type:                        hc1
+No. Observations:                       500
+R-squared:                           0.9064
+Adj. R-squared:                      0.9058
+                        coef      std err          t      P>|t|
+(Intercept)           1.4562       0.0327     44.512     0.0000
+x1                    2.0288       0.0314     64.660     0.0000
+x2                   -0.9906       0.0349    -28.382     0.0000
+x3                    0.5440       0.0312     17.422     0.0000
+```
+
+`summary()` 只适用于已经拟合、`compute_inference=True` 的单目标模型。完整输出还包括 F 统计量、对数似然、AIC、BIC 与 95% 置信区间。
+
+## Formula 与 DataFrame 示例
+
+先安装可选的公式解析依赖，再直接使用列名拟合：
+
+```bash
+pip install "statgpu[formula]"
+```
+
+```python
+import pandas as pd
+from statgpu.linear_model import LinearRegression
+
+frame = pd.DataFrame(X, columns=["x1", "x2", "x3"])
+frame["y"] = y
+
+formula_model = LinearRegression(
+    device="cpu",
+    cov_type="hc3",
+).fit(
+    formula="y ~ x1 + x2 + x3",
+    data=frame,
+)
+
+formula_model.summary()
+pred = formula_model.predict(frame.iloc[:3])
+```
+
+模型会保存 Patsy 设计信息，使预测时的分类变量编码与交互项列保持一致。其他估计器未必接受 `formula=`，请先查看 [Formula 接口与支持矩阵](../guides/formula-interface.md)。
 
 ## 如何读取结果？
 
@@ -131,6 +178,8 @@ gpu_model = LinearRegression(
 
 支持 `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 和 `hac` 协方差。不同后端的浮点累加顺序和线性代数实现不同，结果可能有微小差异。该模型没有独立的公开近似推断模式。
 
+六种协方差的单独公式、适用假设、全部参数、输出形状与后端行为见[线性回归推断与完整 API](linear-regression-inference.md)。源码级加速设计单独放在 [CPU/GPU 加速实现指南](../guides/acceleration-internals.md)。
+
 ## 常见误区
 
 - 比较系数大小前，应确认特征量纲一致，必要时先标准化。
@@ -143,7 +192,7 @@ gpu_model = LinearRegression(
 
 导入路径：`statgpu.linear_model.LinearRegression`
 
-主要输出：`coef_`、`intercept_`、`rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`aic`、`bic`、`_bse`、`_tvalues`、`_pvalues` 和 `_conf_int`。
+本入门页只保留常用工作流需要的参数。[完整 API 页面](linear-regression-inference.md#完整-api-参考)会列出全部构造参数、拟合参数、拟合后统计量、推断数组、方法、失败条件和多目标形状。
 
 模型支持多目标响应，但 `summary()` 只支持单目标。与 `statsmodels.OLS` 的外部一致性测试位于 `dev/tests/test_external_consistency.py`。
 

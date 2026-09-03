@@ -136,6 +136,8 @@ All paths use the same dense Euclidean neighborhood criterion:
 - higher-dimensional CPU data use optimized nearest-neighbor search and the same labeling contract;
 - CuPy and Torch paths batch distance work on GPU and build connected components with backend-specific routines.
 
+The [CPU/GPU acceleration internals](../guides/acceleration-internals.md) explain why `batch_size`, device transfer, synchronization, and label-invariant validation matter for this path.
+
 ```python
 # CuPy CUDA path
 gpu_model = DBSCAN(

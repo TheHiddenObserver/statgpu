@@ -22,7 +22,9 @@ function englishModelReference() {
         collapsed: true,
         items: [
           { text: 'Linear regression', link: '/en/models/linear-regression' },
+          { text: 'Linear inference and API', link: '/en/models/linear-regression-inference' },
           { text: 'Generalized linear models', link: '/en/models/generalized-linear-model' },
+          { text: 'GLM families and API', link: '/en/models/glm-family-reference' },
           { text: 'Logistic regression', link: '/en/models/logistic-regression' },
           { text: 'Poisson regression', link: '/en/models/poisson-regression' },
           { text: 'Ordered models', link: '/en/models/ordered' },
@@ -110,7 +112,9 @@ function chineseModelReference() {
         collapsed: true,
         items: [
           { text: '线性回归', link: '/cn/models/linear-regression' },
+          { text: '线性推断与完整 API', link: '/cn/models/linear-regression-inference' },
           { text: '广义线性模型', link: '/cn/models/generalized-linear-model' },
+          { text: 'GLM 分布族与完整 API', link: '/cn/models/glm-family-reference' },
           { text: 'Logistic 回归', link: '/cn/models/logistic-regression' },
           { text: 'Poisson 回归', link: '/cn/models/poisson-regression' },
           { text: '有序模型', link: '/cn/models/ordered' },
@@ -200,6 +204,8 @@ const englishSidebar = [
     text: 'Guides',
     items: [
       { text: 'Device and memory', link: '/en/guides/device-and-memory' },
+      { text: 'Formula interface', link: '/en/guides/formula-interface' },
+      { text: 'Acceleration internals', link: '/en/guides/acceleration-internals' },
       { text: 'Cross-validation', link: '/en/guides/cross-validation' },
       { text: 'Inference API', link: '/en/guides/inference-api' },
       { text: 'Benchmarks', link: '/en/guides/benchmarks' },
@@ -228,6 +234,8 @@ const chineseSidebar = [
     text: '\u6307\u5357',
     items: [
       { text: '\u8bbe\u5907\u4e0e\u663e\u5b58', link: '/cn/guides/device-and-memory' },
+      { text: 'Formula \u63a5\u53e3', link: '/cn/guides/formula-interface' },
+      { text: 'CPU/GPU \u52a0\u901f\u5b9e\u73b0', link: '/cn/guides/acceleration-internals' },
       { text: '\u4ea4\u53c9\u9a8c\u8bc1', link: '/cn/guides/cross-validation' },
       { text: '\u63a8\u65ad API', link: '/cn/guides/inference-api' },
       { text: '\u6027\u80fd\u57fa\u51c6', link: '/cn/guides/benchmarks' },
@@ -250,19 +258,13 @@ export default defineConfig({
   description: 'GPU-accelerated statistical methods with an sklearn-style API.',
   locales: {
     root: {
-      label: 'Choose language',
-      lang: 'en-US',
-      link: '/',
-      description: 'Choose the English or Chinese statgpu documentation.',
-    },
-    en: {
       label: 'English',
       lang: 'en-US',
-      link: '/en/',
+      link: '/',
       description: 'GPU-accelerated statistical methods with an sklearn-style API.',
       themeConfig: {
         nav: [
-          { text: 'Home', link: '/en/' },
+          { text: 'Home', link: '/' },
           {
             text: 'Documentation',
             items: [
@@ -371,21 +373,24 @@ export default defineConfig({
     // provide direct language links in their page headers.
     i18nRouting: false,
     nav: [
-      { text: 'Choose language', link: '/' },
+      { text: 'Home', link: '/' },
       {
-        text: 'Documentation language',
+        text: 'Documentation',
         items: [
-          { text: 'English', link: '/en/' },
-          { text: '\u7b80\u4f53\u4e2d\u6587', link: '/cn/' },
+          { text: 'Quickstart', link: '/en/getting-started/quickstart' },
+          { text: 'Model catalog', link: '/en/models/' },
+          { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
         ],
       },
+      { text: 'Dashboard', link: '/dashboard/', target: '_self' },
+      { text: 'Changelog', link: '/en/changelog' },
     ],
     search: { provider: 'local' },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/TheHiddenObserver/statgpu' },
     ],
     footer: {
-      message: 'Select English or 简体中文 to continue',
+      message: 'Released under the Apache-2.0 License',
       copyright: 'Copyright (c) statgpu contributors',
     },
   },

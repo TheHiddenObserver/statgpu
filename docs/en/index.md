@@ -6,7 +6,8 @@ hero:
   text: Statistical computing, accelerated
   tagline: GPU-accelerated statistical methods with an sklearn-style API, beginner-oriented guides, and reproducible benchmark evidence.
   image:
-    src: /images/statgpu-compute-hero.webp
+    light: /images/statgpu-compute-hero-light.jpg
+    dark: /images/statgpu-compute-hero.webp
     alt: GPU computing grid connected to statistical curves and data paths
   actions:
     - theme: brand

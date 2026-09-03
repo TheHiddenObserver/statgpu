@@ -8,4 +8,12 @@ test('renders inline and display LaTeX on documentation pages', async ({ page })
   expect(await equations.count()).toBeGreaterThan(5);
   expect(await page.locator('mjx-container[display="true"]').count()).toBeGreaterThan(0);
   await expect(page.locator('main')).not.toContainText('$$');
+
+  await page.goto('/statgpu/cn/models/linear-regression');
+  const explanation = page.locator('main').getByText(
+    /是观测数.*是第.*个观测的特征向量/,
+  );
+  await expect(explanation).toBeVisible();
+  expect(await explanation.locator('mjx-container').count()).toBeGreaterThanOrEqual(4);
+  await expect(explanation).not.toContainText('\\varepsilon_i');
 });

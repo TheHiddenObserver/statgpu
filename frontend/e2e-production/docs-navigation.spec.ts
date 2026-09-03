@@ -3,30 +3,30 @@ import { expect, test } from '@playwright/test';
 const siteRoot = 'http://127.0.0.1:4173/statgpu/';
 
 test.describe('Documentation navigation', () => {
-  test('presents separate English and Chinese home pages', async ({
+  test('uses English by default and keeps Chinese as an optional locale', async ({
     page,
   }) => {
     await page.goto(siteRoot);
 
-    const selectorHero = page.locator('.VPHero');
-    await expect(selectorHero).toContainText('Choose your documentation language');
-    await expect(selectorHero).toContainText('English');
-    await expect(selectorHero).toContainText('简体中文');
-
-    const image = selectorHero.locator('img');
-    await expect(image).toHaveAttribute(
-      'src',
-      '/statgpu/images/statgpu-compute-hero.webp',
-    );
-    expect(await image.evaluate(element => element.naturalWidth)).toBe(768);
-
-    await page.goto(siteRoot + 'en/');
     const englishHero = page.locator('.VPHero');
     await expect(englishHero).toContainText('Statistical computing, accelerated');
     await expect(page.locator('.VPFeatures')).toContainText(
       'Learn the method, not just the API',
     );
     await expect(englishHero).not.toContainText('让统计计算更快');
+
+    const lightImage = englishHero.locator('img.light');
+    const darkImage = englishHero.locator('img.dark');
+    await expect(lightImage).toHaveAttribute(
+      'src',
+      '/statgpu/images/statgpu-compute-hero-light.jpg',
+    );
+    await expect(darkImage).toHaveAttribute(
+      'src',
+      '/statgpu/images/statgpu-compute-hero.webp',
+    );
+    expect(await lightImage.evaluate(element => element.naturalWidth)).toBe(768);
+    expect(await darkImage.evaluate(element => element.naturalWidth)).toBe(768);
 
     await page.getByRole('button', { name: 'Change language' }).click();
     await page
@@ -40,6 +40,13 @@ test.describe('Documentation navigation', () => {
       '不只介绍 API，也讲清方法',
     );
     await expect(chineseHero).not.toContainText('Statistical computing, accelerated');
+
+    await page.getByRole('button', { name: 'Change language' }).click();
+    await page
+      .locator('.VPNavBarTranslations')
+      .getByRole('link', { name: 'English' })
+      .click();
+    await expect(page).toHaveURL(siteRoot);
   });
 
   test('uses the beginner-oriented guide structure in both languages', async ({
@@ -79,7 +86,7 @@ test.describe('Documentation navigation', () => {
   test('opens the assembled dashboard instead of the VitePress 404 page', async ({
     page,
   }) => {
-    await page.goto(siteRoot + 'en/');
+    await page.goto(siteRoot);
 
     const dashboardLinks = page.locator(
       'a[href="/statgpu/dashboard/"]',
