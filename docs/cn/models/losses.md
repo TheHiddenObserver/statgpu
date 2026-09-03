@@ -206,8 +206,8 @@ model.fit(X_t, y_t)
 - **BisquareLoss**: 与 R `MASS::rlm(psi="bisquare")` 对齐。支持 SCAD/MCP 通过 proximal Newton（5-10 次迭代收敛）。
 - **CoxPartialLikelihoodLoss / CoxPH**：Breslow/Efron 与 statsmodels PHReg 对齐；Exact
   由小规模暴力枚举验证。2026-07-12 的
-  [`quick`](../../../results/survival_completion_2026-07-12.json) 与
-  [`full`](../../../results/survival_completion_full_2026-07-12.json) 产物覆盖 NumPy、CuPy、
+  [`quick`](https://github.com/TheHiddenObserver/statgpu/blob/master/results/survival_completion_2026-07-12.json) 与
+  [`full`](https://github.com/TheHiddenObserver/statgpu/blob/master/results/survival_completion_full_2026-07-12.json) 产物覆盖 NumPy、CuPy、
   Torch 的 delayed-entry、Exact、重 ties、stratified start-stop 兼容性与精度矩阵。
 
 ## 注意事项

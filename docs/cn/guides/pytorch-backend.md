@@ -190,7 +190,7 @@ GPU 性能依赖样本量、特征维度、dtype、kernel 或 solver、硬件、
 - passed、failed 和 skipped 测试数量。
 
 当前与历史 benchmark 位于 `results/` 和 `dev/benchmarks/`。保留的
-[Torch 后端报告](../../../dev/docs/torch_backend_final_report.md)是带日期的证据快照，
+[Torch 后端报告](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/docs/torch_backend_final_report.md)是带日期的证据快照，
 不是当前支持矩阵。
 
 ## 故障排查
@@ -242,4 +242,4 @@ print(torch.cuda.is_available())
 ## 参考资料
 
 - [PyTorch 文档](https://pytorch.org/docs/)
-- [StatGPU Torch 后端证据快照](../../../dev/docs/torch_backend_final_report.md)
+- [StatGPU Torch 后端证据快照](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/docs/torch_backend_final_report.md)

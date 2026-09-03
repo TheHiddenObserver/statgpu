@@ -49,8 +49,8 @@ artifacts. A skipped GPU test is not treated as physical-GPU evidence.
 
 ## Contributor Checklist
 
-Follow [`dev/AGENTS.md`](../../dev/AGENTS.md) and
-[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md):
+Follow [`dev/AGENTS.md`](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md) and
+[`.claude/workflows/new-module-dev.md`](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/workflows/new-module-dev.md):
 preserve explicit device semantics, verify objective normalization before external
 comparisons, add architecture-specific tests, and synchronize README, English/Chinese
 docs, and all three changelogs for user-visible changes.

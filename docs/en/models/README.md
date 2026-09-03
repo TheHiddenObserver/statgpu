@@ -56,7 +56,7 @@ The [Cox model page](coxph.md) is the authoritative user-facing source for
 Breslow/Efron/Exact ties, delayed-entry and `(start, stop]` data, strata,
 robust/cluster inference, subject-grouped CV, prediction boundaries, and the
 NumPy/CuPy/Torch support matrix. Internal module ownership and extension rules
-are documented in [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTURE.md#5-survival--cox-architecture).
+are documented in [`dev/design/ARCHITECTURE.md`](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/design/ARCHITECTURE.md#5-survival--cox-architecture).
 
 ## Specialized Statistical Modules
 

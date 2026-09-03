@@ -1,15 +1,34 @@
-# statgpu Documentation Portal
+---
+layout: home
 
-Choose a maintained documentation entry point:
+hero:
+  name: statgpu
+  text: Statistical computing, accelerated
+  tagline: GPU-accelerated statistical methods with an sklearn-style API and reproducible benchmark evidence.
+  actions:
+    - theme: brand
+      text: English documentation
+      link: /en/
+    - theme: alt
+      text: 中文文档
+      link: /cn/
+    - theme: alt
+      text: Benchmark dashboard
+      link: /dashboard/
 
-- [English documentation](en/usage.md)
-- [中文文档](cn/usage.md)
-- [Implemented methods](en/guides/implemented-methods.md)
-- [Quickstart](en/getting-started/quickstart.md)
-- [Contributor guide](../CONTRIBUTING.md)
-- [Release guide](../RELEASING.md)
-- [Changelog](en/changelog.md)
+features:
+  - title: Three compute backends
+    details: Use NumPy on CPU or CuPy and PyTorch on CUDA with explicit device semantics.
+  - title: Statistical breadth
+    details: Regression, GLM, survival, panel, nonparametric, unsupervised, inference, and multiple testing.
+  - title: Reproducible evidence
+    details: Explore versioned benchmark data, validation results, hardware metadata, and source provenance.
+---
 
-The language-specific portals and method inventory are the source of truth for current
-public capabilities. Historical benchmark results, pull-request validation records, and
-development plans remain under `results/` and `dev/` and are not duplicated here.
+## Project resources
+
+- [Implemented methods](/en/guides/implemented-methods)
+- [Quickstart](/en/getting-started/quickstart)
+- [Contributor guide](https://github.com/TheHiddenObserver/statgpu/blob/master/CONTRIBUTING.md)
+- [Release guide](https://github.com/TheHiddenObserver/statgpu/blob/master/RELEASING.md)
+- [Changelog](/en/changelog)

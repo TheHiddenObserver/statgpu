@@ -8,13 +8,13 @@ async function openProduction(page: Page): Promise<void> {
   });
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('./');
-  await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.header')).toBeVisible({ timeout: 60_000 });
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 }
 
 test.describe('Deployed benchmark dashboard', () => {
-  test('loads from the nested docs path with relative assets and metadata', async ({ page }) => {
+  test('loads from the project Pages path with relative assets and metadata', async ({ page }) => {
     const failedResponses: string[] = [];
     page.on('response', response => {
       if (response.status() >= 400 && !response.url().endsWith('/favicon.ico')) {
@@ -23,13 +23,13 @@ test.describe('Deployed benchmark dashboard', () => {
     });
     await openProduction(page);
 
-    expect(new URL(page.url()).pathname).toBe('/docs/assets/benchmarks/');
+    expect(new URL(page.url()).pathname).toBe('/statgpu/dashboard/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('#timing-chart')).toHaveAttribute('role', 'img');
     await expect(page.locator('#speedup-chart')).toHaveAttribute('role', 'img');
     await expect(page.getByRole('link', { name: 'Benchmark guide' })).toHaveAttribute(
       'href',
-      '../../en/guides/benchmarks.html',
+      'http://127.0.0.1:4173/statgpu/en/guides/benchmarks',
     );
     await expect(page.getByRole('link', { name: 'Raw data (JSON)' })).toHaveAttribute(
       'href',

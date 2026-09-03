@@ -205,4 +205,4 @@ Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；St
 ## 更早的历史记录
 
 截至 2026-08-03 的详细条目保留在
-[归档 changelog](changelog-history-through-2026-08-03.markdown)。
+[归档 changelog](https://github.com/TheHiddenObserver/statgpu/blob/master/docs/cn/changelog-history-through-2026-08-03.markdown)。

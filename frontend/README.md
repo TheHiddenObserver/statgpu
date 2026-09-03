@@ -1,6 +1,6 @@
 # statgpu Benchmark Frontend
 
-Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and ECharts. The dashboard consumes a generated, versioned benchmark bundle and is published from `docs/assets/benchmarks/`.
+Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and ECharts. The dashboard consumes a generated, versioned benchmark bundle and is assembled under `/dashboard/` in the GitHub Pages artifact.
 
 ## Current coverage
 
@@ -61,7 +61,7 @@ The speedup chart uses a dashed gray 1× parity line with a compact in-chart `1�
 
 ## Requirements
 
-- Node.js 20 or later.
+- Node.js 24.13.0 and npm 11.6.2 (pinned by the repository).
 - Python 3.9 or 3.11.
 - Python test packages: `pytest` and `jsonschema`.
 
@@ -110,24 +110,28 @@ npm run test:e2e
 
 The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, both complete GAM comparison variants, both aligned Panel timing scales, the PR #122 34-row validation-only Panel source, all 131 Unsupervised rows and corrected scale labels, all PR #74 inference methods, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
 
-## Production build and staleness
+## Production build and deployment artifact
 
 ```bash
-cd frontend
-npm ci
-npm run build
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
 
-cd ../docs/assets/benchmarks
-python -m http.server 8000
+npm ci
+npm ci --prefix frontend
+npm run site:build
+npm run site:preview
 ```
 
-The Vite build writes to `docs/assets/benchmarks/`. CI regenerates the deterministic bundle, rebuilds the frontend, and fails if either `frontend/public/data/` or `docs/assets/benchmarks/` differs from the committed output.
+The dashboard Vite build writes to ignored `frontend/dist/`. The site assembler copies it to ignored `.site-dist/dashboard/` beside the VitePress output. CI verifies internal links, the project Pages base path, bundle versions, size budgets, build reproducibility, and a clean tracked tree before uploading the Pages artifact. Generated deployment files are not committed.
 
 ## Project structure
 
 ```text
 frontend/
-├── public/data/                 # Generated benchmark bundle
+├── public/data/                 # CI-generated, ignored benchmark bundle
 ├── e2e/
 │   ├── dashboard.spec.ts
 │   ├── domain-coverage.spec.ts
@@ -165,15 +169,23 @@ results/benchmark_frontend_sources/*.json
         → dev/benchmarks/generate_benchmark_data.py
         → frontend/public/data/{benchmark_data,parse_report,source_inventory}.json
         → Vite build
-        → docs/assets/benchmarks/
+        → frontend/dist/
+        → .site-dist/dashboard/
 ```
 
 All three generated JSON files share one `generation_id`, computed from the complete bundle after removing the `generation_id` fields themselves.
+
+The loading boundary is `BenchmarkDataProvider` in
+`src/providers/benchmark.ts`. Phase 1 uses the static JSON implementation.
+Future API transport, pagination, authentication, and retries stay inside an
+alternative provider rather than changing chart and filter code.
 
 ## Documentation
 
 - Dashboard guide: `docs/en/guides/statgpu_benchmark_dashboard.md`
 - Schema v1.1: `docs/benchmark-dashboard/schema-v1.1.md`
+- Provider contract: `docs/benchmark-dashboard/provider-contract.md`
+- Website deployment: `docs/website-deployment.md`
 - Parser contract: `docs/benchmark-dashboard/parser-contracts.md`
 - Aggregation contract: `docs/benchmark-dashboard/aggregation-contract.md`
 - Domain coverage audit and benchmark plan: `docs/benchmark-dashboard/domain-coverage-audit-plan.md`

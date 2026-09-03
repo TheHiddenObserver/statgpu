@@ -3,7 +3,7 @@ import './metric-scope.css';
 
 import { echarts, type ECharts } from './echarts';
 import type { BenchmarkData, ParseReport, Run, SourceInventory } from './schema';
-import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns } from './data';
+import { filterRuns, loadBenchmarkBundle } from './data';
 import { createDefaultState } from './state';
 import type { AppState } from './state';
 import { h, clear } from './utils/dom';
@@ -127,9 +127,10 @@ function renderChartArea(filtered: Run[]): HTMLElement {
 
 function renderFooter(): HTMLElement {
   const footer = h('div', { class: 'dashboard-footer' });
+  const guideUrl = new URL('../en/guides/benchmarks', window.location.href).toString();
 
   const links: [string, string][] = [
-    ['Benchmark guide', '../../en/guides/benchmarks.html'],
+    ['Benchmark guide', guideUrl],
     ['Raw data (JSON)', 'data/benchmark_data.json'],
     ['Parse report (JSON)', 'data/parse_report.json'],
     ['Source inventory (JSON)', 'data/source_inventory.json'],
@@ -219,25 +220,11 @@ async function init(): Promise<void> {
   root.appendChild(emptyStateMessage('Loading benchmark data...'));
 
   try {
-    // Start all production assets together. Data is required; metadata remains
-    // non-critical, but it should not add a serial network round trip.
-    const [loadedData, loadedReport, loadedInventory] = await Promise.all([
-      fetchBenchmarkData(),
-      fetchParseReport().catch(() => null),
-      fetchSourceInventory().catch(() => null),
-    ]);
-    data = loadedData;
-    parseReport = loadedReport;
-    sourceInventory = loadedInventory;
+    const bundle = await loadBenchmarkBundle();
+    data = bundle.data;
+    parseReport = bundle.parseReport;
+    sourceInventory = bundle.sourceInventory;
     state = createDefaultState(data.environments, data.runs);
-
-    // Cross-validate generation_id: discard metadata that doesn't match data
-    if (parseReport && parseReport.generation_id !== data.meta.generation_id) {
-      parseReport = null;
-    }
-    if (sourceInventory && sourceInventory.generation_id !== data.meta.generation_id) {
-      sourceInventory = null;
-    }
     const appEl = renderApp();
     clear(root);
     (root as HTMLElement).appendChild(appEl);

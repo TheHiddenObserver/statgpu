@@ -135,9 +135,19 @@ dev/tests/test_irls_gpu.py
 dev/tests/run_remote_gpu.py
 
 # Frontend dependencies and test artifacts
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
+.site-dist/
 frontend/node_modules/
+frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
+
+# Deployment-time benchmark bundle. Canonical benchmark sources remain tracked
+# under results/benchmark_frontend_sources/ and are assembled by CI.
+frontend/public/data/
+docs/assets/benchmarks/
 
 # Benchmark dashboard tracked implementation and canonical sources
 !dev/benchmarks/

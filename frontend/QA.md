@@ -2,49 +2,45 @@
 
 ## Scope
 
-- **Pull request**: #76
-- **Branch**: `feature/benchmark-frontend-dashboard`
-- **Last updated**: 2026-07-20
-- **QA type**: automated contract, build, and browser tests
-- **Manual production smoke test**: still required before final merge
+- **Website issue**: #130
+- **Last updated**: 2026-09-03
+- **QA type**: data contract, reproducible build, link, accessibility, and browser tests
 
-This file describes the current dashboard rather than the earlier 1,416-run prototype.
+This file describes the dashboard as deployed inside the assembled public site.
 
 ## Data summary
 
-```text
-8 registered benchmark sources
-8 parsed sources
-0 skipped sources
-1,774 normalized runs
-36 models
-```
-
-The canonical source policy requires `source_date >= 2026-06-01`. April ElasticNet, LassoCV, Cox package-comparison, comprehensive-validation, and knockoff artifacts remain excluded from the deployed bundle.
+The deployment bundle is generated from the canonical manifest during CI and is
+not committed. Treat the generated `parse_report.json` and
+`source_inventory.json` as the source of truth for run, model, and source
+counts.
 
 ## Automated validation
 
 The current CI matrix verifies:
 
-- project tests on Python 3.9, 3.10, 3.11, and 3.12;
 - benchmark parser and schema tests on Python 3.9 and 3.11;
 - strict manifest/source-date/SHA validation;
 - TypeScript type checking;
-- Vite production build;
-- deterministic data and deployment-asset staleness;
-- Playwright Chromium interaction tests.
+- VitePress plus Vite production assembly at `/statgpu/` and `/`;
+- deterministic final-artifact hashes and tracked-tree cleanliness;
+- Playwright interaction and cross-browser production tests.
+
+Run `npm run site:build` from the repository root before
+`npm run test:e2e --prefix frontend`; the browser suite previews the built
+`frontend/dist/` resources.
 
 ## Dashboard checks
 
 ### Page loading and deployment
 
-- [x] The three generated JSON files are committed:
+- [x] The three generated JSON files are created in ignored staging storage:
   - `benchmark_data.json`;
   - `parse_report.json`;
   - `source_inventory.json`.
-- [x] Vite builds to `docs/assets/benchmarks/`.
+- [x] Vite builds to ignored `frontend/dist/` and the site assembler copies it to `.site-dist/dashboard/`.
 - [x] Nested-base asset paths are covered by the production configuration.
-- [ ] Perform a final manual load from `docs/assets/benchmarks/index.html` before merge.
+- [ ] Perform a final manual load from `/statgpu/dashboard/` using `npm run site:preview` before merge.
 - [ ] Confirm no browser-console error in the manually served production build.
 
 ### Navigation and filter state

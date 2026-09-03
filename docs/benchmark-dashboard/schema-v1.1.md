@@ -21,7 +21,7 @@ One generator execution produces three files:
 |---|---|---|
 | `benchmark_data.json` | `schema_version: "1.1.0"` | Registries and normalized benchmark runs |
 | `parse_report.json` | `report_version: "2.0"` | Parse coverage and structured issues |
-| `source_inventory.json` | `inventory_version: "1.0"` | Catalog and registered-source coverage |
+| `source_inventory.json` | `inventory_version: "2.0"` | Audited catalog and registered-source coverage |
 
 All three files contain the same 64-character lowercase SHA256 `generation_id`.
 
@@ -307,6 +307,11 @@ Backward-compatible optional fields may remain within v1.1 only when:
 - The JSON Schema and TypeScript types are updated together.
 - Contract tests and generated fixtures are updated.
 - The frontend remains safe when the optional field is absent.
+
+The public website does not introduce a second benchmark schema. Both the
+static JSON provider and any future API provider must return this normalized
+three-file bundle. Provider behavior is specified in
+[`provider-contract.md`](provider-contract.md).
 
 ## Verification
 

@@ -53,7 +53,7 @@ counting-process、strata、baseline prediction 或统计推断时，应使用 c
 [Cox 模型页](coxph.md)是 Breslow/Efron/Exact ties、delayed-entry 与
 `(start, stop]` 数据、strata、robust/cluster 推断、subject-grouped CV、预测数值边界
 以及 NumPy/CuPy/Torch 支持矩阵的用户侧权威来源。内部模块 ownership、调用图与扩展
-规则见 [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTURE.md#5-survival--cox-architecture)。
+规则见 [`dev/design/ARCHITECTURE.md`](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/design/ARCHITECTURE.md#5-survival--cox-architecture)。
 
 ## 专业统计模块
 

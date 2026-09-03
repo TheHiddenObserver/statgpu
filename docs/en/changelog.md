@@ -207,4 +207,4 @@ Related: Issue #45, Issue #81, Issue #82, Issue #83, and pull request #87.
 ## Earlier history
 
 Detailed entries through 2026-08-03 are retained in
-[the archived changelog](changelog-history-through-2026-08-03.markdown).
+[the archived changelog](https://github.com/TheHiddenObserver/statgpu/blob/master/docs/en/changelog-history-through-2026-08-03.markdown).
