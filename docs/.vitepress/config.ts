@@ -248,6 +248,66 @@ export default defineConfig({
   lang: 'en-US',
   title: 'statgpu',
   description: 'GPU-accelerated statistical methods with an sklearn-style API.',
+  locales: {
+    root: {
+      label: 'Choose language',
+      lang: 'en-US',
+      link: '/',
+      description: 'Choose the English or Chinese statgpu documentation.',
+    },
+    en: {
+      label: 'English',
+      lang: 'en-US',
+      link: '/en/',
+      description: 'GPU-accelerated statistical methods with an sklearn-style API.',
+      themeConfig: {
+        nav: [
+          { text: 'Home', link: '/en/' },
+          {
+            text: 'Documentation',
+            items: [
+              { text: 'Quickstart', link: '/en/getting-started/quickstart' },
+              { text: 'Model catalog', link: '/en/models/' },
+              { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
+            ],
+          },
+          { text: 'Dashboard', link: '/dashboard/', target: '_self' },
+          { text: 'Changelog', link: '/en/changelog' },
+        ],
+        sidebar: { '/en/': englishSidebar },
+        footer: {
+          message: 'Released under the Apache-2.0 License',
+          copyright: 'Copyright (c) statgpu contributors',
+        },
+      },
+    },
+    cn: {
+      label: '简体中文',
+      lang: 'zh-CN',
+      link: '/cn/',
+      description: '以 sklearn 风格 API 提供 GPU 加速统计方法。',
+      themeConfig: {
+        nav: [
+          { text: '首页', link: '/cn/' },
+          {
+            text: '文档',
+            items: [
+              { text: '快速上手', link: '/cn/getting-started/quickstart' },
+              { text: '模型目录', link: '/cn/models/' },
+              { text: '已实现方法', link: '/cn/guides/implemented-methods' },
+            ],
+          },
+          { text: '基准面板', link: '/dashboard/', target: '_self' },
+          { text: '更新日志', link: '/cn/changelog' },
+        ],
+        sidebar: { '/cn/': chineseSidebar },
+        footer: {
+          message: '采用 Apache-2.0 许可证发布',
+          copyright: 'Copyright (c) statgpu 贡献者',
+        },
+      },
+    },
+  },
   lastUpdated: true,
   cleanUrls: true,
   markdown: {
@@ -306,29 +366,27 @@ export default defineConfig({
     ],
   ],
   themeConfig: {
+    // Not every historical document has a translated counterpart. Keep the
+    // global language menu on stable locale home pages; paired model guides
+    // provide direct language links in their page headers.
+    i18nRouting: false,
     nav: [
-      { text: 'Home / 首页', link: '/' },
+      { text: 'Choose language', link: '/' },
       {
-        text: 'Documentation / 文档',
+        text: 'Documentation language',
         items: [
-          { text: 'English / 英文', link: '/en/' },
-          { text: '\u7b80\u4f53\u4e2d\u6587 / Simplified Chinese', link: '/cn/' },
+          { text: 'English', link: '/en/' },
+          { text: '\u7b80\u4f53\u4e2d\u6587', link: '/cn/' },
         ],
       },
-      { text: 'Dashboard / 基准面板', link: '/dashboard/', target: '_self' },
-      { text: 'Changelog / 更新日志', link: '/en/changelog' },
     ],
-    sidebar: {
-      '/en/': englishSidebar,
-      '/cn/': chineseSidebar,
-    },
     search: { provider: 'local' },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/TheHiddenObserver/statgpu' },
     ],
     footer: {
-      message: 'Released under Apache-2.0 · 采用 Apache-2.0 许可证发布',
-      copyright: 'Copyright (c) statgpu contributors · statgpu 贡献者',
+      message: 'Select English or 简体中文 to continue',
+      copyright: 'Copyright (c) statgpu contributors',
     },
   },
 });

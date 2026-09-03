@@ -3,29 +3,83 @@ import { expect, test } from '@playwright/test';
 const siteRoot = 'http://127.0.0.1:4173/statgpu/';
 
 test.describe('Documentation navigation', () => {
-  test('presents a bilingual home page with a loaded technical illustration', async ({
+  test('presents separate English and Chinese home pages', async ({
     page,
   }) => {
     await page.goto(siteRoot);
 
-    const hero = page.locator('.VPHero');
-    await expect(hero).toContainText('Statistical computing, accelerated');
-    await expect(hero).toContainText('GPU 加速统计方法');
-    await expect(hero).toContainText('English Docs / 英文文档');
-    await expect(hero).toContainText('中文文档 / Chinese Docs');
+    const selectorHero = page.locator('.VPHero');
+    await expect(selectorHero).toContainText('Choose your documentation language');
+    await expect(selectorHero).toContainText('English');
+    await expect(selectorHero).toContainText('简体中文');
 
-    const image = hero.locator('img');
+    const image = selectorHero.locator('img');
     await expect(image).toHaveAttribute(
       'src',
       '/statgpu/images/statgpu-compute-hero.webp',
     );
     expect(await image.evaluate(element => element.naturalWidth)).toBe(768);
+
+    await page.goto(siteRoot + 'en/');
+    const englishHero = page.locator('.VPHero');
+    await expect(englishHero).toContainText('Statistical computing, accelerated');
+    await expect(page.locator('.VPFeatures')).toContainText(
+      'Learn the method, not just the API',
+    );
+    await expect(englishHero).not.toContainText('让统计计算更快');
+
+    await page.getByRole('button', { name: 'Change language' }).click();
+    await page
+      .locator('.VPNavBarTranslations')
+      .getByRole('link', { name: '简体中文' })
+      .click();
+    await expect(page).toHaveURL(siteRoot + 'cn/');
+    const chineseHero = page.locator('.VPHero');
+    await expect(chineseHero).toContainText('让统计计算更快');
+    await expect(page.locator('.VPFeatures')).toContainText(
+      '不只介绍 API，也讲清方法',
+    );
+    await expect(chineseHero).not.toContainText('Statistical computing, accelerated');
+  });
+
+  test('uses the beginner-oriented guide structure in both languages', async ({
+    page,
+  }) => {
+    const englishGuides = [
+      ['en/models/linear-regression', 'What problem does it solve?', 'Minimal runnable example'],
+      ['en/models/generalized-linear-model', 'What problem do GLMs solve?', 'How to read the result'],
+      ['en/models/scad', 'When to use it', 'Common pitfalls'],
+      ['en/unsupervised/dbscan', 'Prepare the data first', 'Key parameters and how to choose them'],
+    ];
+
+    for (const [route, firstHeading, secondHeading] of englishGuides) {
+      await page.goto(siteRoot + route);
+      const main = page.getByRole('main');
+      await expect(main.getByRole('heading', { name: firstHeading })).toBeVisible();
+      await expect(main.getByRole('heading', { name: secondHeading })).toBeVisible();
+      await expect(main).not.toContainText('Language switch:');
+    }
+
+    const chineseGuides = [
+      ['cn/models/linear-regression', '它解决什么问题？', '最小可运行示例'],
+      ['cn/models/generalized-linear-model', 'GLM 解决什么问题？', '如何读取结果？'],
+      ['cn/models/scad', '什么时候使用？', '常见误区'],
+      ['cn/unsupervised/dbscan', '先准备数据', '关键参数怎么选？'],
+    ];
+
+    for (const [route, firstHeading, secondHeading] of chineseGuides) {
+      await page.goto(siteRoot + route);
+      const main = page.getByRole('main');
+      await expect(main.getByRole('heading', { name: firstHeading })).toBeVisible();
+      await expect(main.getByRole('heading', { name: secondHeading })).toBeVisible();
+      await expect(main).not.toContainText('语言切换');
+    }
   });
 
   test('opens the assembled dashboard instead of the VitePress 404 page', async ({
     page,
   }) => {
-    await page.goto(siteRoot);
+    await page.goto(siteRoot + 'en/');
 
     const dashboardLinks = page.locator(
       'a[href="/statgpu/dashboard/"]',

@@ -1,150 +1,182 @@
 # DBSCAN
 
 > Language: English
-> Last updated: 2026-06-26
-> Switch: [Chinese](../../cn/unsupervised/dbscan.md)
+> Last updated: 2026-09-03
+> Switch: [简体中文](../../cn/unsupervised/dbscan.md)
 
-## Overview
+## What problem does it solve?
 
-`DBSCAN` finds density-connected components in dense Euclidean data. It supports CPU, CuPy/CUDA, and Torch CUDA paths. The CPU path uses a Cython-accelerated pipeline that is 3-4x faster than sklearn for low-dimensional data and matches sklearn for high-dimensional data. The GPU path (PyTorch CUDA) runs the entire pipeline on-device with zero GPU→CPU transfer, achieving 3-17x speedup over sklearn.
+`DBSCAN` finds dense groups of nearby observations and marks isolated observations as noise. Unlike K-Means, it does not require the number of clusters in advance and can recover non-spherical cluster shapes.
 
-## Path
+statgpu's implementation targets dense Euclidean data and provides CPU, CuPy/CUDA, and Torch CUDA paths.
 
-```python
-from statgpu.unsupervised import DBSCAN
-```
+## When to use it
 
-## Objective Function / Loss Function
+DBSCAN is a good starting point when:
 
-DBSCAN is not a smooth optimization problem. It has no differentiable loss to minimize. Its criterion is density reachability:
+- clusters are defined by local density rather than by distance to a centroid;
+- clusters may have curved or irregular shapes;
+- noise detection is part of the task;
+- you do not know the number of clusters beforehand;
+- one meaningful neighborhood scale can describe most clusters.
 
-- A point is core if its closed `eps` neighborhood contains at least `min_samples` points.
-  $$
-  \left|\left\{x_j : \left\|x_i - x_j\right\|_2 \le \varepsilon\right\}\right|
-  \ge \text{min\_samples}.
-  $$
-- Core points connected by `eps`-neighbor chains form a cluster.
-- Non-core points reachable from a core component are border points.
-- Other points are noise with label `-1`.
+Choose another method when cluster densities differ strongly, distances become uninformative in very high dimensions, every new observation must receive a prediction, or you need soft membership probabilities. Reduce dimension or choose a meaningful metric before DBSCAN when raw features do not define useful Euclidean distances.
 
-## CPU Strategy
+## Intuition
 
-The CPU path selects an algorithm based on dimensionality:
+DBSCAN classifies training points into three roles:
 
-| Dimensionality | Strategy | Details |
-|---|---|---|
-| p ≤ 12 | cKDTree `query_pairs` + Cython | Single tree traversal; `dbscan_labels_from_pairs` runs counting, Union-Find, and label assignment entirely in C. |
-| p > 12 | sklearn `radius_neighbors_graph` + Cython | Uses sklearn's optimized BLAS for distance computation; `dbscan_labels_from_csr` processes the CSR graph in C. |
+- **core point:** at least `min_samples` observations, including itself, lie within radius `eps`;
+- **border point:** not a core point, but lies within `eps` of a core point;
+- **noise point:** not density-reachable from any core component and receives label `-1`.
 
-Both paths have a pure Python fallback when the Cython extension is not compiled.
+Connected core points form a cluster, and reachable border points attach to it. DBSCAN therefore discovers components of sufficiently dense regions instead of drawing a fixed number of Voronoi cells.
 
-### Cython Module: `_dbscan_cy_fast.pyx`
+## Density criterion
 
-Two entry points, both running the full label pipeline in C (no Python object overhead):
+Point $x_i$ is a core point when
 
-- `dbscan_labels_from_pairs(n_samples, min_samples, pairs)` — takes raw `(i, j)` pairs from `query_pairs`.
-- `dbscan_labels_from_csr(n_samples, min_samples, indptr, indices)` — takes CSR sparse graph arrays.
+$$
+\left|
+\left\{
+x_j:\lVert x_i-x_j\rVert_2\leq\varepsilon
+\right\}
+\right|
+\geq \text{min\_samples}.
+$$
 
-Internally both use:
-- C-level neighbor counting
-- C-level Union-Find with path compression and union by rank
-- C-level border point assignment
+Here, $\varepsilon$ is `eps`. The neighborhood is closed and includes $x_i$ itself.
 
-## GPU Strategy (PyTorch CUDA)
+DBSCAN has no differentiable loss function. Its result is determined by the neighborhood graph and density-reachability rules.
 
-The GPU path keeps all data on-device:
+## Prepare the data first
 
-1. **Distance computation**: batched `float32` matmul on GPU
-2. **Neighbor counting**: `mask.sum(dim=1)` on GPU
-3. **Sparse graph**: `torch.nonzero` on GPU, edges stored as GPU tensors
-4. **Connected components**: label propagation via `scatter_reduce_(amin)` on GPU
-5. **Border assignment**: batched distance + scatter on GPU
+`eps` uses the same units as the features. A variable measured in thousands can dominate a variable measured between 0 and 1. Standardize continuous features or apply a scientifically meaningful transformation before fitting.
 
-Only the final labels (`n × int64`) are transferred to CPU. This eliminates per-batch GPU→CPU transfer overhead and avoids OOM from recomputing distances.
+Also inspect duplicates, missing values, and high-dimensional sparsity. This implementation accepts dense arrays and currently supports only `metric="euclidean"`.
 
-### Label Propagation Algorithm
+## Minimal runnable example
 
-```
-labels = arange(n_core)                          # each core point starts independent
-for _ in range(50):                              # typically converges in 2-5 iterations
-    min_labels = minimum(labels[src], labels[dst])  # parallel over all edges
-    labels.scatter_reduce_(amin)                     # parallel scatter
-    if converged: break
-```
-
-This is well-suited for GPU: each iteration is fully parallel over all edges, unlike CPU Union-Find which processes edges sequentially.
-
-## Parameters
-
-- `eps`: neighborhood radius; must be positive.
-- `min_samples`: minimum closed-neighborhood count for a core sample.
-- `metric`: only `"euclidean"` is supported.
-- `batch_size`: optional GPU neighbor-graph chunk size. Default targets ~2GB per batch.
-- `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
-
-## CPU+GPU Examples
+The example creates three compact groups plus uniformly distributed noise.
 
 ```python
 import numpy as np
 from statgpu.unsupervised import DBSCAN
 
-X = np.random.default_rng(0).normal(size=(5000, 8))
+rng = np.random.default_rng(3)
+cluster_a = rng.normal(loc=(-2.0, -1.0), scale=0.22, size=(120, 2))
+cluster_b = rng.normal(loc=(0.2, 1.8), scale=0.25, size=(140, 2))
+cluster_c = rng.normal(loc=(2.2, -0.5), scale=0.20, size=(110, 2))
+noise = rng.uniform(low=-4.0, high=4.0, size=(30, 2))
+X = np.vstack([cluster_a, cluster_b, cluster_c, noise])
 
-# CPU (low-dim: Cython fast path)
-labels_cpu = DBSCAN(eps=1.0, min_samples=5, device="cpu").fit_predict(X)
+model = DBSCAN(
+    eps=0.45,
+    min_samples=6,
+    device="cpu",
+).fit(X)
 
-# GPU (PyTorch CUDA: fully on-device)
-labels_torch = DBSCAN(eps=1.0, min_samples=5, device="torch").fit_predict(X)
+labels = model.labels_
+n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+n_noise = int(np.sum(labels == -1))
 
-# GPU (CuPy: distance on GPU, labels on CPU via Cython)
-labels_cuda = DBSCAN(eps=1.0, min_samples=5, device="cuda", batch_size=1024).fit_predict(X)
+print("clusters:", n_clusters)
+print("noise points:", n_noise)
+print("first labels:", labels[:10])
 ```
 
-## Performance
+This dataset should produce about three clusters. Some uniformly sampled points may attach to a nearby cluster, so the number labeled as noise need not equal the 30 generated noise candidates.
 
-Measured on Tesla P100-SXM2-16GB (GPU) and Intel Xeon (CPU), median of 3 runs:
+## How to read the result
 
-| n | p | sklearn CPU | statgpu CPU | statgpu GPU (torch) | GPU / sklearn |
-|---|---|---|---|---|---|
-| 10000 | 5 | 0.46s | 0.18s | 0.03s | **0.06x** |
-| 30000 | 5 | 3.32s | 1.35s | 0.24s | **0.07x** |
-| 50000 | 5 | 9.49s | 3.88s | 0.71s | **0.07x** |
-| 10000 | 50 | 0.05s | 0.06s | 0.01s | **0.28x** |
-| 30000 | 50 | 0.39s | 0.32s | 0.12s | **0.30x** |
-| 50000 | 50 | 1.08s | 0.89s | 0.32s | **0.30x** |
+- `labels_[i]` is the cluster assigned to training row `i`.
+- Labels `0, 1, ...` are identifiers only; their numeric order has no ranking meaning.
+- Label `-1` denotes noise.
+- `core_sample_indices_` contains indices of core points.
+- `components_` contains the fitted core samples.
+- The number of clusters is the number of distinct nonnegative labels.
 
-All cases produce ARI = 1.0000 vs sklearn reference.
+DBSCAN does not implement `predict` for unseen samples. To handle new observations, refit the clustering or define and validate a separate assignment rule appropriate to the application.
 
-## Strict/Approx Difference
+## Key parameters and how to choose them
 
-There is no strict inference mode. CPU fallback and Cython fast path are exact for supported dense Euclidean input. GPU paths compute the same dense neighbor relation subject to floating-point comparison at the `eps` boundary.
+| Parameter | Default | Guidance |
+|---|---:|---|
+| `eps` | `0.5` | Neighborhood radius in feature units; start from domain knowledge or inspect sorted $k$-nearest-neighbor distances |
+| `min_samples` | `5` | Larger values demand denser evidence and label more points as noise; smaller values admit smaller, noisier groups |
+| `metric` | `"euclidean"` | The only currently supported metric |
+| `algorithm` | `"auto"` | CPU neighbor-search hint; usually leave automatic |
+| `batch_size` | `None` | GPU distance batch size; reduce it if temporary distance blocks exceed memory |
+| `device` | `"auto"` | Choose `cpu`, `cuda`, or `torch` according to data scale and installed backend |
 
-## Outputs
+A practical tuning sequence is:
 
-- `labels_`
-- `core_sample_indices_`
-- `components_`
-- `n_features_in_`
+1. scale or transform features;
+2. choose `min_samples` from the minimum local support you consider credible;
+3. inspect the distance to each point's `min_samples`-th neighbor;
+4. try `eps` values around a visible bend in that distance curve;
+5. compare cluster stability and domain usefulness, not just the number of clusters.
 
-## FAQ
+There is no universal best heuristic, especially when densities vary.
 
-**Does production DBSCAN call sklearn?**
-For the CPU path with p > 12, sklearn's `NearestNeighbors` is used for optimized BLAS distance computation. The graph processing and label assignment are handled by statgpu's Cython code. For p ≤ 12, no sklearn dependency exists.
+## Compare with alternatives
 
-**When is Cython used?**
-When the `_dbscan_cy_fast` extension is compiled (via `python setup.py build_ext --inplace`). Without Cython, a pure Python fallback is used. The Cython module must be compiled on the target machine.
+| Method | Prefer it when |
+|---|---|
+| K-Means | clusters are compact, roughly spherical, and the number of clusters is known |
+| Gaussian mixture | you need soft membership probabilities and elliptical components |
+| Agglomerative clustering | a hierarchy or dendrogram is useful |
+| HDBSCAN (not currently in this API) | cluster densities vary and hierarchical density stability is important |
 
-**Why is the GPU path faster?**
-The GPU path keeps all intermediate data (distances, edges, labels) on-device. Label propagation for connected components is fully parallel on GPU, unlike CPU Union-Find which processes edges sequentially. Only the final labels are transferred to CPU.
+## CPU and GPU behavior
 
-## External Validation
+All paths use the same dense Euclidean neighborhood criterion:
 
-- Tests: `dev/tests/test_unsupervised_dbscan.py`.
-- Benchmarks: `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`.
-- Baseline: sklearn DBSCAN with aligned `eps`, `min_samples`, and Euclidean metric.
-- Labels and noise masks are checked against the aligned reference (ARI = 1.0).
+- low-dimensional CPU data use `cKDTree` and a compiled Cython label pipeline when available;
+- higher-dimensional CPU data use optimized nearest-neighbor search and the same labeling contract;
+- CuPy and Torch paths batch distance work on GPU and build connected components with backend-specific routines.
+
+```python
+# CuPy CUDA path
+gpu_model = DBSCAN(
+    eps=0.45,
+    min_samples=6,
+    batch_size=2048,
+    device="cuda",
+).fit(X)
+
+# Torch CUDA path
+torch_model = DBSCAN(
+    eps=0.45,
+    min_samples=6,
+    device="torch",
+).fit(X)
+```
+
+CPU and GPU labels can use different numeric identifiers while describing the same partition. Compare partitions with a label-invariant metric such as adjusted Rand index, not by requiring label numbers to match. Points exactly near the `eps` boundary may differ because of floating-point comparisons.
+
+Current performance evidence belongs in the versioned [benchmark dashboard](/dashboard/), where hardware and source metadata are visible.
+
+## Common pitfalls
+
+- Fitting unscaled features is the most common source of misleading neighborhoods.
+- Increasing `eps` can merge separate groups; decreasing it can fragment groups and create more noise.
+- Increasing `min_samples` does not simply create “better” clusters—it changes the density definition.
+- In high dimensions, most distances can become similar. Dimension reduction may be necessary.
+- Cluster labels are exploratory structure, not ground-truth classes.
+- DBSCAN on the full dataset has no built-in out-of-sample prediction step.
+
+## API and validation
+
+Import path: `statgpu.unsupervised.DBSCAN`
+
+Methods: `fit` and `fit_predict`. Calling `predict` raises `NotImplementedError` by design.
+
+Outputs: `labels_`, `core_sample_indices_`, `components_`, and `n_features_in_`.
+
+Validation against scikit-learn's aligned Euclidean configuration is in `dev/tests/test_unsupervised_dbscan.py`. The benchmark generator records accuracy and runtime provenance separately from this conceptual guide.
 
 ## References
 
-- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)* (pp. 226-231). AAAI Press. https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/
-- Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19. https://doi.org/10.1145/3068335
+- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *KDD-96* (pp. 226-231).
+- Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19.
