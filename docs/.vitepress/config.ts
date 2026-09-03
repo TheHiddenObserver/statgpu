@@ -206,6 +206,8 @@ const englishSidebar = [
       { text: 'Device and memory', link: '/en/guides/device-and-memory' },
       { text: 'Formula interface', link: '/en/guides/formula-interface' },
       { text: 'Acceleration internals', link: '/en/guides/acceleration-internals' },
+      { text: 'Solver algorithms', link: '/en/guides/solver-algorithms' },
+      { text: 'Solver and penalty matrix', link: '/en/guides/solver-penalty-matrix' },
       { text: 'Cross-validation', link: '/en/guides/cross-validation' },
       { text: 'Inference API', link: '/en/guides/inference-api' },
       { text: 'Benchmarks', link: '/en/guides/benchmarks' },
@@ -236,6 +238,8 @@ const chineseSidebar = [
       { text: '\u8bbe\u5907\u4e0e\u663e\u5b58', link: '/cn/guides/device-and-memory' },
       { text: 'Formula \u63a5\u53e3', link: '/cn/guides/formula-interface' },
       { text: 'CPU/GPU \u52a0\u901f\u5b9e\u73b0', link: '/cn/guides/acceleration-internals' },
+      { text: '\u6c42\u89e3\u5668\u7b97\u6cd5', link: '/cn/guides/solver-algorithms' },
+      { text: '\u6c42\u89e3\u5668\u4e0e\u60e9\u7f5a\u77e9\u9635', link: '/cn/guides/solver-penalty-matrix' },
       { text: '\u4ea4\u53c9\u9a8c\u8bc1', link: '/cn/guides/cross-validation' },
       { text: '\u63a8\u65ad API', link: '/cn/guides/inference-api' },
       { text: '\u6027\u80fd\u57fa\u51c6', link: '/cn/guides/benchmarks' },
@@ -270,6 +274,7 @@ export default defineConfig({
             items: [
               { text: 'Quickstart', link: '/en/getting-started/quickstart' },
               { text: 'Model catalog', link: '/en/models/' },
+              { text: 'Solver guide', link: '/en/guides/solver-algorithms' },
               { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
             ],
           },
@@ -296,6 +301,7 @@ export default defineConfig({
             items: [
               { text: '快速上手', link: '/cn/getting-started/quickstart' },
               { text: '模型目录', link: '/cn/models/' },
+              { text: '求解器指南', link: '/cn/guides/solver-algorithms' },
               { text: '已实现方法', link: '/cn/guides/implemented-methods' },
             ],
           },
@@ -379,6 +385,7 @@ export default defineConfig({
         items: [
           { text: 'Quickstart', link: '/en/getting-started/quickstart' },
           { text: 'Model catalog', link: '/en/models/' },
+          { text: 'Solver guide', link: '/en/guides/solver-algorithms' },
           { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
         ],
       },

@@ -1,7 +1,7 @@
 # GLM families and complete API
 
 > Language: English
-> Last updated: 2026-09-03
+> Last updated: 2026-09-04
 > Switch: [简体中文](../../cn/models/glm-family-reference.md)
 
 This advanced reference complements the [beginner GLM guide](generalized-linear-model.md). In every row below,
@@ -70,6 +70,103 @@ The inverse link requires extra care because the linear predictor must remain po
 
 `TweedieRegression(power=1.5, ...)` requires $1<p<2$ in the implemented loss. This compound Poisson–Gamma range can represent an exact mass at zero plus positive continuous values. `power` controls the variance, not regularization strength.
 
+## Covariance by family, link, and covariance type
+
+The three choices play different roles:
+
+- the **family** supplies the response domain and variance function $V(\mu)$;
+- the **link** maps the linear predictor $\eta$ to $\mu=g^{-1}(\eta)$ and therefore changes the derivatives used by the solver and covariance;
+- `cov_type` chooses model-based or empirical-score uncertainty **after the same coefficients have been fitted**.
+
+Changing `cov_type` does not refit the coefficients. Changing the family or link changes the objective and usually changes the fitted coefficients.
+
+### Estimating equations
+
+Let $\tilde x_i$ include the intercept when one is fitted, $k$ be the number of fitted parameters, and
+
+$$
+\eta_i=\tilde x_i^\top\hat\beta,
+\qquad
+\mu_i=g^{-1}(\eta_i).
+$$
+
+For an unweighted fit, statgpu forms the per-observation loss-gradient contribution
+
+$$
+s_i(\hat\beta)
+=
+\frac{\partial \ell_i}{\partial\eta_i}\tilde x_i,
+\qquad
+\bar J
+=
+\frac{1}{n}\sum_{i=1}^n s_i s_i^\top.
+$$
+
+The family and link enter the information matrix through both $V(\mu_i)$ and $d\mu_i/d\eta_i$. In standard GLM notation, its expected working weight is proportional to
+
+$$
+w_i
+=
+\frac{\left(d\mu_i/d\eta_i\right)^2}{V(\mu_i)},
+\qquad
+\bar H_F
+=
+\frac{1}{n}\tilde X^\top W\tilde X.
+$$
+
+The implementation uses the loss object's expected Fisher information for `nonrobust` when available and otherwise falls back to its Hessian. Robust covariance uses the observed Hessian $\bar H_O$. If an IRLS fit has `C>0`, the diagonal Ridge curvature $D_P$ is added to the bread; set `C=0` or select an unpenalized smooth solver when ordinary unpenalized likelihood inference is intended.
+
+### Implemented covariance formulas
+
+The following formulas show the unweighted convention used by the implementation:
+
+$$
+\widehat{\operatorname{Cov}}_{\text{nonrobust}}(\hat\beta)
+=
+\frac{\hat\phi}{n}
+\left(\bar H_F+D_P\right)^{-1},
+$$
+
+$$
+\widehat{\operatorname{Cov}}_{\text{HC0}}(\hat\beta)
+=
+\frac{1}{n}
+\left(\bar H_O+D_P\right)^{-1}
+\bar J
+\left(\bar H_O+D_P\right)^{-1},
+$$
+
+$$
+\widehat{\operatorname{Cov}}_{\text{HC1}}(\hat\beta)
+=
+\frac{n}{n-k}
+\widehat{\operatorname{Cov}}_{\text{HC0}}(\hat\beta).
+$$
+
+| `cov_type` | Meaning | Use when |
+|---|---|---|
+| `nonrobust` | Model-based expected-information covariance scaled by $\hat\phi$ | The family, link, conditional variance, and independence assumptions are credible |
+| `hc0` | Empirical score-outer-product sandwich | Conditional variance may be misspecified and the sample is not small |
+| `hc1` | HC0 multiplied by $n/(n-k)$ | The same robust target with a degrees-of-freedom correction |
+
+With analytic `sample_weight`, statgpu replaces $n$ in the average-scale normalization by $n_{\mathrm{eff}}=\sum_i w_i$, uses squared analytic weights in $\bar J$, and retains the raw observation count $n$ in the HC1 correction. Globally rescaling all weights therefore leaves fitted diagnostics and the HC1 correction invariant.
+
+`hc0` and `hc1` protect against conditional variance misspecification, but they do not model clusters, repeated measurements, or serial dependence. `hc2`, `hc3`, and `hac` currently raise `NotImplementedError` for this ordinary GLM inference path. For a Gaussian identity-link model requiring those covariance types, use [`LinearRegression` and its inference API](linear-regression-inference.md).
+
+### Supported family/link combinations
+
+| Family | Link accepted here | $V(\mu)$ | `nonrobust` dispersion $\hat\phi$ | Robust covariance |
+|---|---|---|---|---|
+| Gaussian | identity | $1$ | $\mathrm{RSS}/(n-k)$ | `hc0`, `hc1` |
+| Binomial | logit | $\mu(1-\mu)$ | `1.0` | `hc0`, `hc1` |
+| Poisson | log | $\mu$ | `1.0` | `hc0`, `hc1` |
+| Negative binomial | log | $\mu+\alpha\mu^2$ | `1.0` | `hc0`, `hc1` |
+| Gamma | log; `inverse_power` in `GammaRegression` | $\mu^2$ | Pearson $\chi^2/(n-k)$ | `hc0`, `hc1` |
+| Inverse Gaussian | log | $\mu^3$ | Pearson $\chi^2/(n-k)$ | `hc0`, `hc1` |
+| Tweedie | log | $\mu^p$ | Pearson $\chi^2/(n-k)$ | `hc0`, `hc1` |
+
+This table documents the combinations exposed by the current public estimators; it is not an arbitrary family/link registry. In particular, only Gamma exposes an alternative link on its typed ordinary wrapper. `NegativeBinomialRegression.alpha` and `TweedieRegression.power` also enter $V(\mu)$, so changing them changes both the fitted loss and its covariance.
+
 ## Complete API reference
 
 ### Common constructor
@@ -105,6 +202,8 @@ GeneralizedLinearModel(
 
 `solver="auto"` currently selects IRLS for this ordinary GLM surface. If an unpenalized likelihood fit is intended, set `C=0` on IRLS or choose the supported unpenalized smooth solver explicitly.
 
+For algorithm mechanics and stopping behavior, use the independent [solver algorithms guide](../guides/solver-algorithms.md). For the exact loss × penalty dispatch and rejected combinations in penalized GLMs, use the [solver/penalty compatibility matrix](../guides/solver-penalty-matrix.md).
+
 ### Family-specific constructor inputs
 
 | Estimator | Additional input |
@@ -133,7 +232,7 @@ Pass either `X` and `y`, or `formula` and a pandas `data` frame. `sample_weight`
 | `_bse`, `_zvalues`, `_pvalues`, `_conf_int` | Current compatibility inference arrays |
 | `_inference_result` | Structured result with covariance, distribution, solver, and backend metadata |
 | `predict(X_new)` | Conditional mean on the response scale; Formula fits accept aligned DataFrames |
-| `summary()` | Returns a formatted string; call `print(model.summary())` to display it |
+| `summary()` | Returns a formatted string with model metadata, coefficient inference, log-likelihood, AIC, and BIC; call `print(model.summary())` to display it and see the [runnable output example](generalized-linear-model.md#minimal-runnable-example) |
 
 The dedicated `LogisticRegression` has additional classification methods and its own [model page](logistic-regression.md). Penalized GLMs have more controls—`penalty`, `alpha`, `l1_ratio`, `penalty_kwargs`, `cpu_solver`, `lipschitz_L`, inference mode, HAC lag, stopping rule, and LLA controls—documented in the [solver/penalty matrix](../guides/solver-penalty-matrix.md) and [inference API](../guides/inference-api.md).
 

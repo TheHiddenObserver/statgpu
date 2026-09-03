@@ -1,11 +1,35 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-07-01
+> Last updated: 2026-09-04
+> Switch: [简体中文](../../cn/guides/solver-algorithms.md)
 
 ## Overview
 
-statgpu provides 11 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and hyperparameters for each solver.
+statgpu provides 11 solver implementations used across ordinary and penalized estimators. This independent guide documents their algorithms, convergence criteria, backend support, and hyperparameters.
+
+The algorithm inventory is broader than any one estimator's public `solver=` values. Use the model page to see what that estimator accepts, and use the compatibility matrix before explicitly overriding `solver="auto"` on a penalized model.
+
+## Which solver document should I use?
+
+| Question | Open |
+|---|---|
+| How does IRLS, Newton, FISTA, L-BFGS, ADMM, or an exact solve work? | This algorithm guide |
+| Which loss × penalty × solver combinations are accepted? | [Solver × penalty compatibility matrix](solver-penalty-matrix.md) |
+| How do losses, penalties, and dispatch fit together internally? | [Loss × penalty × solver framework](loss-penalty-solver-framework.md) |
+| Which solver and covariance does an ordinary GLM use? | [GLM family, inference, and API reference](../models/glm-family-reference.md#covariance-by-family-link-and-covariance-type) |
+
+### Ordinary GLM quick map
+
+| Public value | Current behavior on `GeneralizedLinearModel` |
+|---|---|
+| `auto` | Selects IRLS |
+| `irls` | Iteratively reweighted least squares; supports `sample_weight`, and `C>0` adds Ridge curvature |
+| `fista` | Proximal-gradient machinery used here for pure loss minimization; supports `sample_weight` |
+| `newton` | Unpenalized smooth Hessian-based solve; `sample_weight` is not yet supported on this path |
+| `lbfgs` | Unpenalized smooth quasi-Newton solve; `sample_weight` is not yet supported on this path |
+
+For an ordinary unpenalized IRLS fit, set `C=0`. Explicit unsupported combinations fail rather than silently changing solver.
 
 ## Solver Summary
 

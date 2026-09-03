@@ -37,6 +37,7 @@ features:
 | 运行第一个模型 | [快速上手](getting-started/quickstart.md) |
 | 选择合适的统计方法 | [模型目录](models/) |
 | 查看当前已实现能力 | [已实现方法](guides/implemented-methods.md) |
+| 选择或理解求解器 | [求解器算法](guides/solver-algorithms.md)与[兼容性矩阵](guides/solver-penalty-matrix.md) |
 | 配置 CPU、CUDA 或 Torch | [设备与显存指南](guides/device-and-memory.md) |
 | 理解标准误与统计检验 | [推断 API](guides/inference-api.md) |
 | 比较实测性能 | [交互式基准面板](/dashboard/) |

@@ -1,7 +1,7 @@
 # GeneralizedLinearModel 与惩罚 GLM
 
 > 语言：简体中文
-> 最后更新：2026-09-03
+> 最后更新：2026-09-04
 > 切换：[English](../../en/models/generalized-linear-model.md)
 
 ## GLM 解决什么问题？
@@ -94,6 +94,7 @@ model = PoissonRegression(
     cov_type="hc1",
 ).fit(X, y)
 
+print(model.summary())
 print("截距：", model.intercept_)
 print("对数率系数：", model.coef_)
 print("率比：", np.exp(model.coef_))
@@ -102,6 +103,31 @@ print("期望计数：", model.predict(X[:3]))
 ```
 
 这里显式设置 `solver="newton"`，因为 IRLS 路径中的 `C` 参数会加入 L2 正则化。估计系数应接近 `[0.45, -0.25]`。
+
+`summary()` 返回字符串，因此在脚本或 notebook 中应使用 `print(model.summary())`。上面的示例会得到：
+
+```text
+============================================================
+  PoissonRegression Results
+============================================================
+  Family: poisson
+  Solver: newton
+  No. Observations: 800
+  Df Residuals: 797
+  Covariance Type: hc1
+
+   term  estimate  std_error         z       pvalue  conf_low  conf_high
+param_0  0.276253   0.031812  8.683944 3.822764e-18  0.213903   0.338604
+param_1  0.445486   0.030514 14.599521 2.828265e-48  0.385680   0.505292
+param_2 -0.196156   0.029631 -6.619933 3.593609e-11 -0.254232  -0.138080
+
+  Log-Likelihood: -556.4021
+  AIC: 1118.8043
+  BIC: 1132.8581
+============================================================
+```
+
+未使用 Formula 元数据时，表格以 `param_0` 表示截距，再以 `param_1`、`param_2` 等表示特征系数；Formula 拟合会在结构化推断结果中保留项名称。
 
 ## Formula 与 DataFrame 示例
 
@@ -154,7 +180,7 @@ $$
 |---|---|
 | `family` | 根据响应取值范围与方差模式选择；支持 `gaussian`、`binomial`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial` 和 `tweedie` |
 | `fit_intercept` | 通常保留 `True`；仅当设计中已有截距或理论要求截距为零时关闭 |
-| `solver` | 先使用 `"auto"`；需要固定调度或明确无惩罚路径时显式指定 |
+| `solver` | 先使用 `"auto"`；需要固定调度或明确无惩罚路径时显式指定；算法原理见[求解器算法](../guides/solver-algorithms.md) |
 | `device` | 根据估计器、数据规模和已安装后端选择 `cpu`、`cuda`、`torch` 或 `auto` |
 | `compute_inference` | 需要普通模型的标准误和检验时开启；许多 GLM 包装器默认关闭 |
 | `cov_type` | 普通 GLM 支持 `nonrobust`、`hc0` 和 `hc1` |
@@ -179,9 +205,9 @@ $$
 
 准确的数据生命周期、传输边界、线性代数模式、同步成本与 dtype 建议见 [CPU/GPU 加速实现](../guides/acceleration-internals.md)。
 
-`solver="auto"` 会根据 family、penalty 和设备选择路径。光滑目标可使用 IRLS、Newton 或 L-BFGS；非光滑惩罚使用 FISTA 等近端算法。不合法的求解器与惩罚组合会直接报错。
+`solver="auto"` 会根据 family、penalty 和设备选择路径。光滑目标可使用 IRLS、Newton 或 L-BFGS；非光滑惩罚使用 FISTA 等近端算法。不合法的求解器与惩罚组合会直接报错。独立的[求解器算法指南](../guides/solver-algorithms.md)解释数值方法，[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)记录公开 API 接受的组合。
 
-普通类型化 GLM 可通过 `compute_inference=True` 进行拟合后推断。惩罚模型的推断能力取决于模型和惩罚类型；请查看[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)，不要假定特征选择后仍可直接使用普通模型 p 值。
+普通类型化 GLM 可通过 `compute_inference=True` 进行拟合后推断。[GLM 协方差与推断参考](glm-family-reference.md#不同-familylink-与协方差类型)给出实际实现的 bread/meat 公式、离散参数约定和每个 family/link 的支持边界。惩罚模型的推断能力取决于模型和惩罚类型；请查看[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)，不要假定特征选择后仍可直接使用普通模型 p 值。
 
 `PenalizedGLM_CV` 默认使用严格交叉验证。`cv_strategy="two_stage"` 是显式的近似筛选模式，未确认接受近似时会发出 `ApproximateCVWarning`。
 

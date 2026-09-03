@@ -37,6 +37,7 @@ features:
 | run my first model | [Quickstart](getting-started/quickstart.md) |
 | choose a statistical method | [Model catalog](models/) |
 | check what is implemented | [Implemented methods](guides/implemented-methods.md) |
+| choose or understand a solver | [Solver algorithms](guides/solver-algorithms.md) and [compatibility matrix](guides/solver-penalty-matrix.md) |
 | configure CPU, CUDA, or Torch | [Device and memory guide](guides/device-and-memory.md) |
 | understand standard errors and tests | [Inference API](guides/inference-api.md) |
 | compare measured performance | [Interactive benchmark dashboard](/dashboard/) |

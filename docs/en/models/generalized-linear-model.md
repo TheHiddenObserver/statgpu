@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and penalized GLMs
 
 > Language: English
-> Last updated: 2026-09-03
+> Last updated: 2026-09-04
 > Switch: [简体中文](../../cn/models/generalized-linear-model.md)
 
 ## What problem do GLMs solve?
@@ -24,7 +24,7 @@ Choose the family from the kind of outcome and its mean-variance behavior:
 | positive, variance near $\mu^3$ | Inverse Gaussian | log: $\log(\mu)$ | $\mu^3$ | [Inverse Gaussian](glm-family-reference.md#inverse-gaussian) |
 | zeros plus positive values or power variance | Tweedie | log: $\log(\mu)$ | $\mu^p$ | [Tweedie](glm-family-reference.md#tweedie) |
 
-The full [GLM family and API reference](glm-family-reference.md) gives response domains, configurable family parameters, constructor signatures, outputs, and interpretation for every row.
+The full [GLM family and API reference](glm-family-reference.md) gives response domains, configurable family parameters, constructor signatures, outputs, interpretation, and the family × link × covariance support matrix for every row.
 
 Do not select a family from the outcome name alone. Check the observed range, the variance pattern, excess zeros, dependence, and whether the link gives a scientifically meaningful relationship.
 
@@ -94,6 +94,7 @@ model = PoissonRegression(
     cov_type="hc1",
 ).fit(X, y)
 
+print(model.summary())
 print("intercept:", model.intercept_)
 print("log-rate coefficients:", model.coef_)
 print("rate ratios:", np.exp(model.coef_))
@@ -102,6 +103,31 @@ print("expected counts:", model.predict(X[:3]))
 ```
 
 `solver="newton"` is explicit here because the IRLS path's `C` parameter adds L2 regularization. The fitted coefficients should be near `[0.45, -0.25]`.
+
+`summary()` returns a string, so use `print(model.summary())` in a script or notebook. The example above produces:
+
+```text
+============================================================
+  PoissonRegression Results
+============================================================
+  Family: poisson
+  Solver: newton
+  No. Observations: 800
+  Df Residuals: 797
+  Covariance Type: hc1
+
+   term  estimate  std_error         z       pvalue  conf_low  conf_high
+param_0  0.276253   0.031812  8.683944 3.822764e-18  0.213903   0.338604
+param_1  0.445486   0.030514 14.599521 2.828265e-48  0.385680   0.505292
+param_2 -0.196156   0.029631 -6.619933 3.593609e-11 -0.254232  -0.138080
+
+  Log-Likelihood: -556.4021
+  AIC: 1118.8043
+  BIC: 1132.8581
+============================================================
+```
+
+Without Formula metadata, the table uses `param_0` for the intercept and then `param_1`, `param_2`, and so on for feature coefficients. A Formula fit preserves term names in its structured inference result.
 
 ## Formula and DataFrame example
 
@@ -154,7 +180,7 @@ For a logit-link model, `exp(coef_[j])` is an odds ratio, not a probability chan
 |---|---|
 | `family` | Choose from the response support and variance pattern; supported values are `gaussian`, `binomial`, `poisson`, `gamma`, `inverse_gaussian`, `negative_binomial`, and `tweedie` |
 | `fit_intercept` | Usually keep `True` unless the design already contains an intercept or theory fixes it at zero |
-| `solver` | Start with `"auto"`; use an explicit solver when you need reproducible dispatch or an unpenalized path |
+| `solver` | Start with `"auto"`; use an explicit solver when you need reproducible dispatch or an unpenalized path; see [solver algorithms](../guides/solver-algorithms.md) |
 | `device` | Use `cpu`, `cuda`, `torch`, or `auto` according to the estimator and installed backend |
 | `compute_inference` | Enable for ordinary-model standard errors and tests; it is off by default for many GLM wrappers |
 | `cov_type` | Ordinary GLMs support `nonrobust`, `hc0`, and `hc1` |
@@ -179,9 +205,9 @@ Explicit `device="cuda"` uses CuPy and `device="torch"` uses Torch CUDA on suppo
 
 For the exact data lifecycle, transfer boundaries, linear algebra patterns, synchronization costs, and dtype guidance, see [CPU/GPU acceleration internals](../guides/acceleration-internals.md).
 
-`solver="auto"` is family-, penalty-, and device-aware. Smooth objectives can use IRLS, Newton, or L-BFGS; non-smooth penalties use proximal solvers such as FISTA. Invalid solver/penalty combinations raise an error.
+`solver="auto"` is family-, penalty-, and device-aware. Smooth objectives can use IRLS, Newton, or L-BFGS; non-smooth penalties use proximal solvers such as FISTA. Invalid solver/penalty combinations raise an error. The independent [solver algorithms guide](../guides/solver-algorithms.md) explains the numerical methods; the [solver and penalty matrix](../guides/solver-penalty-matrix.md) records the accepted public combinations.
 
-Ordinary typed GLMs expose post-fit inference through `compute_inference=True`. Penalized inference depends on the penalty and model; consult the [solver and penalty matrix](../guides/solver-penalty-matrix.md) instead of assuming ordinary-model p-values remain valid after selection.
+Ordinary typed GLMs expose post-fit inference through `compute_inference=True`. The [GLM covariance and inference reference](glm-family-reference.md#covariance-by-family-link-and-covariance-type) gives the implemented bread/meat formulas, dispersion convention, and support boundary for each family and link. Penalized inference depends on the penalty and model; consult the [solver and penalty matrix](../guides/solver-penalty-matrix.md) instead of assuming ordinary-model p-values remain valid after selection.
 
 `PenalizedGLM_CV` uses strict cross-validation by default. `cv_strategy="two_stage"` is an explicit approximate screening option and emits `ApproximateCVWarning` unless acknowledged.
 

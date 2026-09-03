@@ -1,11 +1,35 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-07-01
+> 最后更新：2026-09-04
+> 切换：[English](../../en/guides/solver-algorithms.md)
 
 ## 概述
 
-statgpu 提供 11 种求解器用于惩罚损失最小化。本文档记录每种求解器的算法、收敛条件、后端支持和超参数。
+statgpu 提供 11 种用于普通与惩罚估计器的求解器实现。本独立文档说明各算法、收敛条件、后端支持和超参数。
+
+算法清单比任意单个估计器公开的 `solver=` 取值更广。请先在模型页确认该估计器接受的值；在惩罚模型中显式覆盖 `solver="auto"` 前，还应查看兼容性矩阵。
+
+## 应该打开哪一篇求解器文档？
+
+| 问题 | 文档 |
+|---|---|
+| IRLS、Newton、FISTA、L-BFGS、ADMM 或 exact solve 如何工作？ | 本算法指南 |
+| 哪些 loss × penalty × solver 组合可用？ | [Solver × Penalty 兼容性矩阵](solver-penalty-matrix.md) |
+| loss、penalty 与调度在内部如何衔接？ | [Loss × Penalty × Solver 框架](loss-penalty-solver-framework.md) |
+| 普通 GLM 使用什么求解器与协方差？ | [GLM 分布族、推断与 API 参考](../models/glm-family-reference.md#不同-familylink-与协方差类型) |
+
+### 普通 GLM 快速对照
+
+| 公开取值 | `GeneralizedLinearModel` 当前行为 |
+|---|---|
+| `auto` | 选择 IRLS |
+| `irls` | 迭代重加权最小二乘；支持 `sample_weight`，且 `C>0` 会加入 Ridge 曲率 |
+| `fista` | 在普通 GLM 中使用近端梯度机制做纯 loss 最小化；支持 `sample_weight` |
+| `newton` | 无惩罚的光滑 Hessian 求解；该路径暂不支持 `sample_weight` |
+| `lbfgs` | 无惩罚的光滑拟 Newton 求解；该路径暂不支持 `sample_weight` |
+
+普通无惩罚 IRLS 拟合应设置 `C=0`。显式请求不支持的组合时会报错，不会静默更换求解器。
 
 ## 求解器总览
 

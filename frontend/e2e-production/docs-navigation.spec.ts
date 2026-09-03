@@ -151,4 +151,37 @@ test.describe('Documentation navigation', () => {
     await expect(page).toHaveURL(siteRoot + 'cn/models/ridge');
     await expect(page.locator('main h1')).toContainText('Ridge');
   });
+
+  test('exposes solver documentation and GLM inference references', async ({
+    page,
+  }) => {
+    await page.goto(siteRoot + 'en/models/generalized-linear-model');
+    await expect(
+      page.locator('.VPSidebar a[href="/statgpu/en/guides/solver-algorithms"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('.VPSidebar a[href="/statgpu/en/guides/solver-penalty-matrix"]'),
+    ).toHaveCount(1);
+    await expect(page.getByRole('main')).toContainText(
+      'PoissonRegression Results',
+    );
+    await page
+      .getByRole('main')
+      .getByRole('link', { name: 'GLM covariance and inference reference' })
+      .click();
+    await expect(page).toHaveURL(
+      siteRoot + 'en/models/glm-family-reference#covariance-by-family-link-and-covariance-type',
+    );
+    await expect(
+      page.getByRole('heading', {
+        name: 'Covariance by family, link, and covariance type',
+      }),
+    ).toBeVisible();
+
+    await page.goto(siteRoot + 'cn/guides/solver-algorithms');
+    await expect(page.locator('main h1')).toContainText('求解器算法');
+    await expect(
+      page.locator('.VPSidebar a[href="/statgpu/cn/guides/solver-penalty-matrix"]'),
+    ).toHaveCount(1);
+  });
 });
