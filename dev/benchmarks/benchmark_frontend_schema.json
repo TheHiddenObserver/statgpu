@@ -72,6 +72,10 @@
           },
           "host": {
             "type": "string"
+          },
+          "physical_env_id": {
+            "type": "string",
+            "description": "Stable physical hardware identity shared by benchmark sessions."
           }
         }
       }

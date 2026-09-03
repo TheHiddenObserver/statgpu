@@ -8,7 +8,12 @@ async function openProduction(page: Page): Promise<void> {
   });
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('./');
-  await expect(page.locator('.header')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('link', { name: 'Back to statgpu home' })).toBeVisible({
+    timeout: 5_000,
+  });
+  await expect(page.locator('.header:not(.header-loading)')).toBeVisible({
+    timeout: 60_000,
+  });
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 }
@@ -27,6 +32,14 @@ test.describe('Deployed benchmark dashboard', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('#timing-chart')).toHaveAttribute('role', 'img');
     await expect(page.locator('#speedup-chart')).toHaveAttribute('role', 'img');
+    await expect(page.getByRole('link', { name: 'Back to statgpu home' })).toHaveAttribute(
+      'href',
+      'http://127.0.0.1:4173/statgpu/',
+    );
+    await expect(page.locator('#env-select option')).toHaveCount(1);
+    await expect(page.locator('#env-select option')).toContainText(
+      '8 benchmark sessions',
+    );
     await expect(page.getByRole('link', { name: 'Benchmark guide' })).toHaveAttribute(
       'href',
       'http://127.0.0.1:4173/statgpu/en/guides/benchmarks',
@@ -45,7 +58,6 @@ test.describe('Deployed benchmark dashboard', () => {
 
   test('supports the CV filter cascade and deterministic upstream reset', async ({ page }) => {
     await openProduction(page);
-    await page.locator('#env-select').selectOption('remote-p100-cv-20260807');
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-linear_models').check();
     await page.locator('[data-metric-scope="cross_validation"]').click();
@@ -74,7 +86,8 @@ test.describe('Deployed benchmark dashboard', () => {
     }
     await expect(page.locator('.table-container tbody tr').first()).toBeVisible();
 
-    await page.locator('#env-select').selectOption({ index: 0 });
+    await page.locator('#cat-linear_models').uncheck();
+    await page.locator('#cat-linear_models').check();
     await expect(page.getByLabel('Model', { exact: true })).toHaveValue('');
     await expect(page.locator('.scale-chip[aria-pressed="true"]')).toHaveCount(0);
     await expect(page.locator('input[name="backend"][value="all"]')).toBeChecked();
@@ -125,7 +138,6 @@ test.describe('Deployed benchmark dashboard', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await expect(page.getByText(/No runs match the current filters/i)).toBeVisible();
 
-    await page.locator('#env-select').selectOption('remote-p100-cv-20260807');
     await page.locator('#cat-linear_models').check();
     await page.locator('[data-metric-scope="cross_validation"]').click();
     await page.getByLabel('Model', { exact: true }).selectOption('LogisticRegressionCV');
@@ -134,16 +146,20 @@ test.describe('Deployed benchmark dashboard', () => {
     expect(panelBodyId).toBeTruthy();
     await panelToggle.click();
     await expect(panelToggle).toHaveAttribute('aria-expanded', 'true');
-    const failed = page
+    const torchRows = page
       .locator(`#${panelBodyId} tr`)
       .filter({ hasText: 'LogisticRegressionCV' })
       .filter({ hasText: 'torch' });
+    await expect(torchRows).toHaveCount(2);
+    const failed = torchRows.filter({ hasText: 'failed' });
     await expect(failed).toHaveCount(1);
     await expect(failed).toContainText('failed');
     await expect(failed).toContainText('CPU fallback is disabled');
 
     await page.reload();
-    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.header:not(.header-loading)')).toBeVisible({
+      timeout: 60_000,
+    });
     await expect(page.locator('#timing-chart')).toBeVisible();
   });
 

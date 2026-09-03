@@ -23,8 +23,15 @@ test.describe('Benchmark data provider contract', () => {
     });
 
     await page.goto('/');
-    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.header:not(.header-loading)')).toBeVisible({
+      timeout: 60_000,
+    });
     await expect(page.locator('.header-meta')).toHaveCount(1);
     await expect(page.locator('#timing-chart')).toBeVisible();
+    await expect(page.locator('#env-select option')).toHaveCount(1);
+    await expect(page.locator('#env-select')).toHaveValue('remote-p100');
+    await expect(page.locator('#env-select option')).toContainText(
+      '8 benchmark sessions',
+    );
   });
 });

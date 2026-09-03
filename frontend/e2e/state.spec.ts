@@ -47,6 +47,7 @@ test('default state skips preferred environments with no runs', () => {
   const state = createDefaultState(environments, [makeRun('cpu-only', ['survival'])]);
 
   expect(state.selectedEnvId).toBe('cpu-only');
+  expect(state.selectedEnvIds).toEqual(new Set(['cpu-only']));
   expect([...state.selectedCategoryIds]).toEqual(['survival']);
   expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
@@ -60,11 +61,33 @@ test('default state prefers penalized GLM on the preferred populated environment
   const state = createDefaultState(environments, runs);
 
   expect(state.selectedEnvId).toBe('remote-p100');
+  expect(state.selectedEnvIds).toEqual(new Set(['remote-p100']));
   expect([...state.selectedCategoryIds]).toEqual(['penalized_glm']);
   expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
   expect(state.timingChartGroupLimit).toBe(Number.MAX_SAFE_INTEGER);
   expect(state.speedupChartLimit).toBe(Number.MAX_SAFE_INTEGER);
+});
+
+test('grouped environments expose every benchmark session to the default filters', () => {
+  const grouped: Environment[] = [
+    {
+      env_id: 'remote-p100',
+      label: 'P100 · 2 benchmark sessions',
+      gpu: 'P100',
+      cpu: 'Xeon',
+      member_env_ids: ['remote-p100', 'remote-p100-cv'],
+    },
+  ];
+  const state = createDefaultState(grouped, [
+    makeRun('remote-p100-cv', ['linear_models']),
+  ]);
+
+  expect(state.selectedEnvId).toBe('remote-p100');
+  expect(state.selectedEnvIds).toEqual(
+    new Set(['remote-p100', 'remote-p100-cv']),
+  );
+  expect([...state.selectedCategoryIds]).toEqual(['linear_models']);
 });
 
 test('scale keys are ordered by numeric workload dimensions, not lexicographically', () => {

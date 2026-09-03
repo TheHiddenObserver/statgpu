@@ -141,7 +141,7 @@ export function filterRuns(
     if (!hasCat) return false;
 
     // Environment filter
-    if (state.selectedEnvId && r.env_id !== state.selectedEnvId) return false;
+    if (state.selectedEnvId && !state.selectedEnvIds.has(r.env_id)) return false;
 
     // Metric-scope filter. Inference and CV remain attached to their model
     // categories rather than being treated as separate statistical families.

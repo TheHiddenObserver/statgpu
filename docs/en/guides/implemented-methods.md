@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-07-24  
+> Last updated: 2026-09-03
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
 This page is the maintained inventory of public models, functions, and major solver
@@ -15,6 +15,9 @@ model and guide pages.
 | `Ridge` | L2-penalized linear regression | NumPy, CuPy, Torch |
 | `Lasso` | L1 regression with debiased/bootstrap inference paths | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 penalized regression | NumPy, CuPy, Torch |
+| `AdaptiveLasso` | Data-adaptive weighted L1 regression | NumPy, CuPy, Torch |
+| `SCADRegression` | Non-convex SCAD-penalized regression | NumPy, CuPy, Torch |
+| `MCPRegression` | Non-convex MCP-penalized regression | NumPy, CuPy, Torch |
 | `LogisticRegression` | Binary logistic/probit regression | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
@@ -38,6 +41,10 @@ the source of truth rather than a hard-coded count.
 | `PenalizedLinearRegression` | Penalized Gaussian regression | NumPy, CuPy, Torch |
 | `PenalizedLogisticRegression` | Penalized binary regression | NumPy, CuPy, Torch |
 | `PenalizedPoissonRegression` | Penalized Poisson regression | NumPy, CuPy, Torch |
+| `PenalizedGammaRegression` | Penalized Gamma regression | NumPy, CuPy, Torch |
+| `PenalizedInverseGaussianRegression` | Penalized Inverse-Gaussian regression | NumPy, CuPy, Torch |
+| `PenalizedNegativeBinomialRegression` | Penalized negative-binomial regression | NumPy, CuPy, Torch |
+| `PenalizedTweedieRegression` | Penalized Tweedie regression | NumPy, CuPy, Torch |
 | `PenalizedQuantileRegression` | Quantile loss with proximal/FISTA paths | NumPy, CuPy, Torch |
 | `PenalizedRobustRegression` | Huber, bisquare, and fair losses where supported | NumPy, CuPy, Torch |
 | `PenalizedCoxPHModel` | Penalized Cox partial likelihood | NumPy, CuPy, Torch |

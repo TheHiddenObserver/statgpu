@@ -1,5 +1,6 @@
 import type {
   BenchmarkData,
+  Environment,
   ParseReport,
   SourceInventory,
 } from '../schema';
@@ -38,6 +39,32 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+export function groupPhysicalEnvironments(
+  environments: Environment[],
+): Environment[] {
+  const groups = new Map<string, Environment[]>();
+  for (const env of environments) {
+    const physicalId = env.physical_env_id ?? env.env_id;
+    const members = groups.get(physicalId) ?? [];
+    members.push(env);
+    groups.set(physicalId, members);
+  }
+
+  return [...groups.entries()].map(([physicalId, members]) => {
+    const representative =
+      members.find(env => env.env_id === physicalId) ?? members[0];
+    const sessionSuffix =
+      members.length > 1 ? ' · ' + members.length + ' benchmark sessions' : '';
+    return {
+      ...representative,
+      env_id: physicalId,
+      physical_env_id: physicalId,
+      member_env_ids: members.map(env => env.env_id),
+      label: representative.label + sessionSuffix,
+    };
+  });
+}
+
 function validateBenchmarkData(value: unknown): BenchmarkData {
   const record = asRecord(value);
   if (!record) throw new Error('Benchmark data is not a JSON object');
@@ -53,7 +80,14 @@ function validateBenchmarkData(value: unknown): BenchmarkData {
   if (!Array.isArray(record.runs)) {
     throw new Error('Benchmark data is missing the runs array');
   }
-  return value as BenchmarkData;
+  if (!Array.isArray(record.environments)) {
+    throw new Error('Benchmark data is missing the environments array');
+  }
+  const data = value as BenchmarkData;
+  return {
+    ...data,
+    environments: groupPhysicalEnvironments(data.environments),
+  };
 }
 
 function validateParseReport(value: unknown): ParseReport | null {
