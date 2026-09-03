@@ -25,3 +25,38 @@ test('renders inline and display LaTeX on documentation pages', async ({ page })
   expect(await page.locator('main mjx-container').count()).toBeGreaterThan(10);
   await expect(page.locator('main')).not.toContainText('$$');
 });
+
+test('renders every solver algorithm with MathJax in both languages', async ({
+  page,
+}) => {
+  const pages = [
+    {
+      route: '/statgpu/en/guides/solver-algorithms',
+      missingAlgorithm: '8. Quantile coordinate descent',
+      finalAlgorithm: '12. Exact Ridge solve',
+    },
+    {
+      route: '/statgpu/cn/guides/solver-algorithms',
+      missingAlgorithm: '8. Quantile coordinate descent',
+      finalAlgorithm: '12. Exact Ridge',
+    },
+  ];
+
+  for (const solverPage of pages) {
+    await page.goto(solverPage.route);
+    const main = page.getByRole('main');
+    await expect(
+      main.getByRole('heading', { name: solverPage.missingAlgorithm }),
+    ).toBeVisible();
+    await expect(
+      main.getByRole('heading', { name: solverPage.finalAlgorithm }),
+    ).toBeVisible();
+
+    const numberedSections = main.locator('h2').filter({ hasText: /^\d+\./ });
+    await expect(numberedSections).toHaveCount(12);
+    expect(
+      await main.locator('mjx-container[display="true"]').count(),
+    ).toBeGreaterThanOrEqual(20);
+    await expect(main).not.toContainText('$$');
+  }
+});
