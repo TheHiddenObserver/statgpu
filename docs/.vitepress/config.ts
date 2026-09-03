@@ -74,6 +74,9 @@ export default defineConfig({
   description: 'GPU-accelerated statistical methods with an sklearn-style API.',
   lastUpdated: true,
   cleanUrls: true,
+  markdown: {
+    math: true,
+  },
   // The dashboard is assembled after VitePress completes, then checked by
   // scripts/verify-site.mjs against the final deployment artifact.
   ignoreDeadLinks: [/^\/dashboard(?:\/|$)/],

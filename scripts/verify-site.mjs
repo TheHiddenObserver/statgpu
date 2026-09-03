@@ -82,6 +82,13 @@ const chineseHome = await readFile(path.join(siteDir, 'cn', 'index.html'), 'utf8
 if (!chineseHome.includes('<html lang="zh-CN"')) {
   failures.push('cn/index.html: expected html lang="zh-CN"');
 }
+const mathProbe = await readFile(
+  path.join(siteDir, 'en', 'panel', 'random-effects.html'),
+  'utf8',
+);
+if (!mathProbe.includes('<mjx-container')) {
+  failures.push('en/panel/random-effects.html: expected rendered MathJax markup');
+}
 const attributePattern = /\b(?:href|src)=(['"])(.*?)\1/g;
 for (const htmlFile of htmlFiles) {
   const html = await readFile(htmlFile, 'utf8');
