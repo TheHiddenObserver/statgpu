@@ -30,9 +30,16 @@ const englishSidebar = [
     ],
   },
   {
+    text: 'Model reference',
+    items: [
+      { text: 'Model catalog', link: '/en/models/' },
+      { text: 'Unsupervised learning', link: '/en/unsupervised/' },
+      { text: 'Panel models', link: '/en/panel/' },
+    ],
+  },
+  {
     text: 'Project',
     items: [
-      { text: 'Model inventory', link: '/en/models/' },
       { text: 'Changelog', link: '/en/changelog' },
     ],
   },
@@ -58,9 +65,16 @@ const chineseSidebar = [
     ],
   },
   {
-    text: '\u9879\u76ee',
+    text: '\u6a21\u578b\u53c2\u8003',
     items: [
       { text: '\u6a21\u578b\u76ee\u5f55', link: '/cn/models/' },
+      { text: '\u65e0\u76d1\u7763\u5b66\u4e60', link: '/cn/unsupervised/' },
+      { text: '\u9762\u677f\u6a21\u578b', link: '/cn/panel/' },
+    ],
+  },
+  {
+    text: '\u9879\u76ee',
+    items: [
       { text: '\u66f4\u65b0\u65e5\u5fd7', link: '/cn/changelog' },
     ],
   },
@@ -76,6 +90,25 @@ export default defineConfig({
   cleanUrls: true,
   markdown: {
     math: true,
+    config(md) {
+      const defaultLinkOpen: NonNullable<
+        typeof md.renderer.rules.link_open
+      > =
+        md.renderer.rules.link_open ??
+        ((tokens, index, options, _env, self) =>
+          self.renderToken(tokens, index, options));
+
+      md.renderer.rules.link_open = (tokens, index, options, env, self) => {
+        const href = tokens[index].attrGet('href');
+        if (href === '/dashboard/' || href === '/dashboard') {
+          // The dashboard is a separate Vite app. Bypass VitePress SPA routing
+          // so navigation loads its assembled index.html instead of the docs 404.
+          tokens[index].attrSet('href', base + 'dashboard/');
+          tokens[index].attrSet('target', '_self');
+        }
+        return defaultLinkOpen(tokens, index, options, env, self);
+      };
+    },
   },
   // The dashboard is assembled after VitePress completes, then checked by
   // scripts/verify-site.mjs against the final deployment artifact.
@@ -120,7 +153,7 @@ export default defineConfig({
           { text: '\u7b80\u4f53\u4e2d\u6587', link: '/cn/' },
         ],
       },
-      { text: 'Dashboard', link: '/dashboard/' },
+      { text: 'Dashboard', link: '/dashboard/', target: '_self' },
       { text: 'Changelog', link: '/en/changelog' },
     ],
     sidebar: {

@@ -15,6 +15,7 @@ hero:
     - theme: alt
       text: Benchmark dashboard
       link: /dashboard/
+      target: _self
 
 features:
   - title: Three compute backends
