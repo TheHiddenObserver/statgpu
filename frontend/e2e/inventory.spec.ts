@@ -133,7 +133,10 @@ test.describe('Grouped physical validation evidence', () => {
 
     await expect(panel.getByRole('columnheader', { name: 'Benchmark session' })).toBeVisible();
     await expect(panel.getByRole('columnheader', { name: 'Source' })).toBeVisible();
-    await expect(panel).toContainText('panel_stage_c_gpu_validation_ec511f53.json');
-    await expect(panel).toContainText('remote-p100-pr126-20260811');
+    // The panel shows the first 30 rows by default. Assert provenance on the
+    // canonical PR122 evidence that is intentionally visible without changing
+    // pagination state; later PR126 rows are available through "Show all".
+    await expect(panel).toContainText('panel_stage_b_pr122_p100_20260809_2701aa9f.json');
+    await expect(panel).toContainText('remote-p100-pr122-20260809-panel-stage-b-pr122');
   });
 });
