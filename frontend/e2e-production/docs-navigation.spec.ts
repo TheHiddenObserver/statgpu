@@ -25,8 +25,20 @@ test.describe('Documentation navigation', () => {
       'src',
       '/statgpu/images/statgpu-compute-hero.webp',
     );
-    expect(await lightImage.evaluate(element => element.naturalWidth)).toBe(768);
-    expect(await darkImage.evaluate(element => element.naturalWidth)).toBe(768);
+    const lightWidth = await lightImage.evaluate(element => {
+      if (!(element instanceof HTMLImageElement)) {
+        throw new Error('Expected the light hero asset to be an image');
+      }
+      return element.naturalWidth;
+    });
+    const darkWidth = await darkImage.evaluate(element => {
+      if (!(element instanceof HTMLImageElement)) {
+        throw new Error('Expected the dark hero asset to be an image');
+      }
+      return element.naturalWidth;
+    });
+    expect(lightWidth).toBe(768);
+    expect(darkWidth).toBe(768);
 
     await page.getByRole('button', { name: 'Change language' }).click();
     await page
