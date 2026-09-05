@@ -16,55 +16,51 @@
 
 ## 一个直观例子
 
-假设四个真正有用的特征组成两对高度相关变量，而且每一对里的两个变量都确实携带信号。
-
-纯 Lasso 可能把同一对变量分得很不均匀：
+假设四个真正有用的特征组成两对高度相关变量，而且每一对里的两个变量都确实携带信号。纯 Lasso 可能把一对变量的信号分得很不均匀：
 
 ```text
-               x1     x2     x3     x4
-Lasso         1.62   0.71  -0.68  -1.24
-Elastic Net   1.19   1.14  -0.95  -0.98
+              x1     x2     x3     x4
+Lasso        1.62   0.71  -0.68  -1.24
+Elastic Net  1.19   1.14  -0.95  -0.98
 ```
 
-两种模型都可能有不错的预测，但 Elastic Net 更符合“同一对变量其实是共享潜在信号的近似测量”这种情形。
+两种拟合都可能预测得很好，但 Elastic Net 更能反映“组内变量是近似可互换测量”的结构。
 
 ## 直觉
 
-Elastic Net 要模型同时满足两种正则化偏好：
+Elastic Net 同时施加两种偏好：
 
-1. **L1 部分：** 弱系数可以被直接推到 0；
-2. **L2 部分：** 大而不稳定的系数会平滑收缩，使相关变量更像一个组来分担信号。
+1. **L1 部分**：弱系数可能被直接压成 0；
+2. **L2 部分**：大而不稳定的系数被平滑收缩，有助于相关变量更像一个组。
 
-两个参数分别控制两件事：
+两个参数控制这种权衡：
 
-- `alpha` 控制**总共正则化多少**；
-- `l1_ratio` 控制**正则化更像 Lasso 还是更像 Ridge**。
-
-可以把它想成一条连续轴：
+- `alpha` 控制**总正则化强度**；
+- `l1_ratio` 控制**正则化类型**。
 
 ```text
 l1_ratio = 0.0        0.5             1.0
               Ridge ←──── Elastic Net ────→ Lasso
 ```
 
-在 statgpu 的目标函数尺度下，`l1_ratio=0` 使用与 Ridge 相同的 L2 penalty 尺度，而 `l1_ratio=1` 对应 Lasso penalty。
+在 statgpu 的目标函数尺度下，`l1_ratio=0` 对应 Ridge-style penalty，`l1_ratio=1` 对应 Lasso-style penalty。
 
 ## 什么时候使用？
 
-Elastic Net 是很好的选择，当：
+Elastic Net 很适合：
 
-- 你想做特征选择，但很多特征彼此相关；
-- 特征天然成组，组内变量携带相近信息；
-- 纯 Lasso 会在几个几乎重复的变量之间频繁改变选择；
-- 候选特征很多，希望得到一个稀疏但比纯 Lasso 更稳定的模型；
-- 愿意通过验证同时调节 regularization strength 和 mixture。
+- 希望做特征选择，但很多特征高度相关；
+- 特征天然形成携带类似信息的组；
+- 纯 Lasso 在近重复变量中频繁更换被选择成员；
+- 候选变量很多，希望稀疏同时又更稳定；
+- 愿意同时调 `alpha` 与 `l1_ratio`。
 
-以下情况更适合别的方法：
+优先考虑其他方法，当：
 
-- **不需要精确 0**，主要目标只是稳定预测——Ridge 更简单；
-- 强烈希望从每组中只保留极少数代表变量，而且相关性不严重——Lasso 可能已经够用；
-- 因变量不适合 Gaussian 线性回归——使用相应的 penalized GLM 或其他模型族；
-- 特征选择本身没有科学意义，例如变量只是任意编码或高度混杂。
+- 不需要精确 0，主要关心稳定预测——Ridge 更简单；
+- 最看重最激进的稀疏性，且相关性不强——Lasso 可能足够；
+- 响应不适合 Gaussian 线性回归——使用相应 penalized GLM；
+- 特征选择本身没有科学意义，例如特征只是任意编码或强混杂代理。
 
 ## 模型与目标函数
 
@@ -77,19 +73,9 @@ $$
 +\frac{\alpha}{2}(1-\lambda)\lVert\beta\rVert_2^2,
 $$
 
-其中 $\lambda$ 就是 `l1_ratio`。
-
-这里：
-
-- $\alpha\ge 0$ 控制总体 penalty 强度；
-- $0\le\lambda\le 1$ 混合 L1 与 L2；
-- 截距不参与 penalty。
-
-提高 `alpha` 会让整体收缩更强；提高 `l1_ratio` 会增加产生精确 0 的倾向；降低 `l1_ratio` 会让模型更接近 Ridge。
+其中 $\lambda$ 就是 `l1_ratio`。`alpha` 越大总体收缩越强；`l1_ratio` 越接近 1 越像 Lasso，越接近 0 越像 Ridge。截距不受惩罚。
 
 ## 最小可运行示例
-
-下面构造两对几乎重复、但都真正有用的变量，然后比较纯 Lasso 与 Elastic Net。
 
 ```python
 import numpy as np
@@ -97,7 +83,6 @@ from statgpu.linear_model import ElasticNet, Lasso
 
 rng = np.random.default_rng(2)
 n = 500
-
 z1 = rng.normal(size=n)
 z2 = rng.normal(size=n)
 X = np.column_stack([
@@ -112,12 +97,7 @@ X = np.column_stack([
 true_coef = np.array([1.2, 1.2, -1.0, -1.0, 0.0, 0.0])
 y = 0.5 + X @ true_coef + rng.normal(scale=0.8, size=n)
 
-lasso = Lasso(
-    alpha=0.08,
-    device="cpu",
-    compute_inference=False,
-).fit(X, y)
-
+lasso = Lasso(alpha=0.08, device="cpu", compute_inference=False).fit(X, y)
 elastic = ElasticNet(
     alpha=0.08,
     l1_ratio=0.5,
@@ -129,58 +109,46 @@ print("Lasso:      ", np.round(lasso.coef_, 2))
 print("Elastic Net:", np.round(elastic.coef_, 2))
 ```
 
-固定随机种子后，Lasso 对第一对相关变量的分配大约是 `1.62` 与 `0.71`，第二对大约是 `-0.68` 与 `-1.24`。Elastic Net 则更均匀，约为 `1.19`、`1.14`、`-0.95`、`-0.98`，同时两个噪声变量应保持为 0 或接近 0。
-
-重点并不是“相关变量的系数必须相等”，而是：L2 部分能减少纯 Lasso 在高度相关变量之间常见的 winner-takes-most 行为。
+固定随机种子后，Lasso 往往会把两组相关变量的信号分得更不均匀，而 Elastic Net 会更平均地分配，同时让两个噪声变量保持在 0 或接近 0。
 
 ## 如何理解结果？
 
-- `coef_[j] == 0` 表示在当前 `alpha` 与 `l1_ratio` 下，该特征被组合 penalty 从线性预测器中移除。
-- 非零系数仍然已经收缩，不能直接当成未惩罚 OLS 系数。
-- `intercept_` 独立拟合，不参与 penalty。
-- `predict(X_new)` 返回连续响应预测。
-- `score(X, y)` 返回 $R^2$。
-- active set 同时依赖 `alpha` 和 `l1_ratio`；任意一个改变都可能改变最终保留的变量。
+- `coef_[j] == 0` 表示在当前 `alpha` 与 `l1_ratio` 下，该变量没有进入拟合 predictor。
+- 非零系数仍经过收缩，不能当作未惩罚 OLS 系数。
+- `intercept_` 不受惩罚。
+- `predict(X_new)` 返回连续预测。
+- `score(X, y)` 返回 $R^2$，并支持 `sample_weight=`。
+- active set 同时依赖 `alpha` 与 `l1_ratio`。
 
-两个相关变量同时保持非零，是很典型的 Elastic Net 行为，但这并不证明它们各自存在独立因果效应。
+相关变量一起保持非零，是 Elastic Net 常见行为，但不等于它们分别具有独立因果效应。
 
 ## 关键参数应该怎么选？
 
+这里是正常工作流的**精选参数表**。完整 constructor 见[完整 API 参考](#完整-api-参考)。
+
 | 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
-| `alpha` | `1.0` | 总体正则化强度。越大，收缩越强，也可能删除更多变量。应通过验证选择。 |
-| `l1_ratio` | `0.5` | L1/L2 混合比例。接近 1 更像 Lasso，接近 0 更像 Ridge。最好和 `alpha` 一起调。 |
-| `fit_intercept` | `True` | 一般保持开启，除非理论上截距固定，或设计矩阵已经含截距。 |
-| `device` | `"auto"` | 小问题 CPU 最简单；优化规模足够大时 GPU 才更有优势。 |
-| `solver` | `"fista"` | 这个非光滑目标的稳定默认值。通常因为数值/性能原因才修改。 |
-| `stopping` | `"coef_delta"` | 如果更关心是否满足最优性条件，可用 `"kkt"`。 |
-| `compute_inference` | `False` | 普通预测/选择建议保持关闭；只有确实需要受支持的拟合后推断时再开启。 |
+| `alpha` | `1.0` | 总正则化强度；越大收缩越强，也可能删除更多变量。建议用验证选择。 |
+| `l1_ratio` | `0.5` | L1/L2 混合比例；接近 1 更像 Lasso，接近 0 更像 Ridge。最好与 `alpha` 联合调参。 |
+| `fit_intercept` | `True` | 一般保持开启，除非理论固定截距或设计矩阵已有截距。 |
+| `device` | `"auto"` | 小问题 CPU 最简单；规模足够大时 GPU 更有意义。 |
+| `solver` | `"fista"` | 当前非光滑目标的稳定默认值，改变它主要是数值/性能选择。 |
+| `stopping` | `"coef_delta"` | 更关心最优性诊断时可使用 `"kkt"`。 |
+| `compute_inference` | `False` | 普通预测/选择保持关闭；需要支持的拟合后推断时再开启。 |
 
-预测任务中，通常应优先使用 `ElasticNetCV`，而不是手工猜 `alpha` 与 `l1_ratio`。
+多数正则化 workflow 应先标准化连续特征，因为 L1/L2 都直接作用于系数大小。
 
-### 先标准化特征
-
-L1 与 L2 都直接作用于系数大小，因此不同变量单位会改变实际 penalty 强度。
-
-除非原始尺度就是你有意设计的一部分，否则 regularized regression 通常应先标准化连续特征。
-
-## 与 Ridge / Lasso 比较
+## 与 Ridge 和 Lasso 比较
 
 | 性质 | Ridge | Lasso | **Elastic Net** |
 |---|:---:|:---:|:---:|
-| 平滑收缩系数 | 是 | 是 | 是 |
-| 产生精确 0 | 通常不会 | 会 | 会 |
-| 面对相关变量时的稳定性 | 强 | 可能不稳定 | 比纯 Lasso 更强 |
-| 主要 tuning 参数 | `alpha` | `alpha` | `alpha` + `l1_ratio` |
-| 最简单的记忆方式 | 稳定 | 选择 | 选择 + 稳定 |
+| 平滑收缩 | 是 | 是 | 是 |
+| 精确 0 | 通常否 | 是 | 是 |
+| 相关变量稳定性 | 强 | 可能不稳定 | 比纯 Lasso 强 |
+| 主要调参 | `alpha` | `alpha` | `alpha` + `l1_ratio` |
+| 心智模型 | 稳定 | 选择 | 选择 + 稳定 |
 
-一个实用经验是：
-
-- 关心预测、相关变量很多，但不在乎删变量：先用 **Ridge**；
-- 稀疏性最重要，相关性不严重：先用 **Lasso**；
-- 既想稀疏，又知道相关变量组很重要：先用 **Elastic Net**。
-
-## CPU 与 GPU 示例
+## CPU、GPU、Formula、加权拟合与 warm start
 
 ```python
 from statgpu.linear_model import ElasticNet
@@ -194,69 +162,166 @@ model = ElasticNet(
 ).fit(X, y)
 ```
 
-公开 wrapper 在可用时支持 NumPy CPU、CuPy CUDA 与 Torch CUDA。实际速度取决于样本量、特征维数、dtype、数据驻留位置和传输成本，应针对真实 workload 做 benchmark。
+`fit()` 支持 `sample_weight=`，并通过 `**kwargs` 转发共享的 `formula=` / `data=` 接口。单次拟合还可以通过 `initial_coef=` warm start：
 
-单次拟合还可以通过 `fit(initial_coef=...)` 提供 warm start。
+```python
+warm = ElasticNet(alpha=0.08, l1_ratio=0.5).fit(
+    X,
+    y,
+    initial_coef=previous_coef,
+)
+```
 
-## 进阶：求解器与优化细节
-
-只要 `l1_ratio > 0`，Elastic Net 就包含非光滑 L1 部分，因此近端方法是正常数值路径。
+## 进阶：求解器与优化
 
 | `solver` 值 | CPU | CuPy / Torch | 说明 |
 |---|:---:|:---:|---|
 | `fista`（默认） | 支持 | 支持 | 推荐近端路径 |
-| `auto` | FISTA | FISTA | squared-error + Elastic Net 当前自动分发 |
+| `auto` | FISTA | FISTA | 当前 squared-error + Elastic Net 分发 |
 | `fista_bb` | 支持 | 支持 | 自适应谱步长 |
-| `admm` | 支持 | 支持 | 拆分求解替代路径；仅均匀样本权重 |
+| `admm` | 支持 | 支持 | 替代拆分路径；仅均匀样本权重 |
 | `coordinate_descent` | 支持 | 不支持 | CPU-only 兼容路径 |
 
-非光滑 Elastic Net 估计器接口会拒绝 `newton`、`lbfgs`、`irls` 与 `exact`。单模型拟合时，`cpu_solver` 不会覆盖 `solver`。完整数值机制见[求解器指南](../guides/solver-algorithms.md)。
+`newton`、`lbfgs`、`irls`、`exact` 会被当前非光滑 Elastic Net estimator surface 拒绝。`cpu_solver` 不会覆盖单次拟合的 `solver`。
 
-系数的一阶 KKT 条件为
+KKT 条件为
 
 $$
 \frac{1}{n}X^\top(X\hat\beta-y)
 +\alpha(1-\lambda)\hat\beta
-+\alpha\lambda\,\partial\lVert\hat\beta\rVert_1
-=0.
++\alpha\lambda\,\partial\lVert\hat\beta\rVert_1=0.
 $$
 
-`stopping="kkt"` 检查的就是这类最优性条件；它不会定义另一种统计近似模型。
+`stopping="kkt"` 只是改变收敛诊断，不改变统计模型。
 
 ## 进阶：推断
 
-`ElasticNet` 默认只做估计。设置 `compute_inference=True` 后，statgpu 会在不改变 penalized coefficients 的前提下运行拟合后推断。
+`ElasticNet` 默认仅估计。设置 `compute_inference=True` 后运行拟合后推断，而不会改变已经得到的 penalized coefficients。
 
-| `inference_method` | 主要用途 | 重要限制 |
+| `inference_method` | 用途 | 重要限制 |
 |---|---|---|
-| `debiased`（默认推断方法） | 使用共享 penalized-linear engine 做 bias-corrected coefficient inference | de-biasing 本身的假设必须满足；推断条件于已经选定的正则参数 |
-| `cpu_ols` | 轻量 post-selection OLS 风格路径 | 选择之后只是启发式；不构成一般 selective-inference 保证 |
-| `bootstrap` | 重采样替代方案 | 计算开销更高，并依赖具体 bootstrap 假设 |
+| `debiased`（默认 inference method） | bias-corrected coefficient inference | 依赖去偏假设；推断条件于选定正则化参数 |
+| `cpu_ols` | 轻量 post-selection OLS-style 路径 | 启发式，不是一般 selective-inference 保证 |
+| `bootstrap` | 重采样替代路径 | 计算更贵，并依赖相应 bootstrap 假设 |
 
-推断成功后，根据所选方法可获得 `summary()`、标准误、z-style 统计量、p 值和置信区间等报告。
-
-对于 `ElasticNetCV`，`compute_inference=True` 只作用于 `alpha` 与 `l1_ratio` 选择完成后的全数据最终重拟合；各 fold 模型仍然只负责估计和评分。
+`cov_type` 与 `hac_maxlags` 也是 public constructor controls，在所选 inference path 支持相应 covariance 时使用。
 
 ## 常见误区
 
-- **不要只调 `alpha`，却把 `l1_ratio` 当成无关参数。** mixture 会直接改变你拟合的是哪一类模型。
-- **不要把相关且非零的变量理解为已经识别了各自因果效应。** Elastic Net 改善的是预测/选择稳定性，不会自动识别因果结构。
-- **不要忘记标准化。** L1 和 L2 都依赖系数尺度。
-- **不要用训练 $R^2$ 选择超参数。** 应使用 held-out 或 cross-validation 表现。
-- **弱信号下不要期待 active set 对微小数据扰动完全不变。** Elastic Net 改善相关变量稳定性，但不能消除 sampling uncertainty。
-- **不要在数据驱动选择后直接套普通未惩罚推断而不说明 selection。** 应使用受支持的拟合后方法，并遵守其假设。
+- 不要只调 `alpha` 而把 `l1_ratio` 当作无关参数。
+- 相关变量一起非零不等于分别具有独立因果效应。
+- 不要忘记标准化。
+- 不要根据训练 $R^2$ 选择超参数。
+- 弱信号下 active set 仍可能随数据微扰变化。
+- 数据驱动选择后不要直接套普通未惩罚推断而忽略 selection。
 
-## API 与验证
+## 完整 API 参考
 
-导入：
+前面的参数表是教学用选择指南；这里是当前 `ElasticNet` wrapper 的完整 constructor 与 model-method inventory。
+
+### Constructor
 
 ```python
-from statgpu.linear_model import ElasticNet
+ElasticNet(
+    alpha=1.0,
+    l1_ratio=0.5,
+    fit_intercept=True,
+    max_iter=1000,
+    tol=1e-4,
+    stopping="coef_delta",
+    device="auto",
+    n_jobs=None,
+    solver="fista",
+    cpu_solver="fista",
+    lipschitz_L=None,
+    gpu_memory_cleanup=False,
+    compute_inference=False,
+    inference_method="debiased",
+    cov_type="nonrobust",
+    hac_maxlags=None,
+)
 ```
 
-公开 wrapper 还提供 `max_iter`、`tol`、`cpu_solver`、`lipschitz_L`、`gpu_memory_cleanup`、`cov_type`、`hac_maxlags` 等进阶控制。它没有独立的 `backend`、`warm_start` 或 `random_state` 构造参数；后端由 `device` 控制，单次 warm start 使用 `fit(initial_coef=...)`。
+<!-- API-CONSTRUCTOR-START:ElasticNet -->
+| 参数 | 默认值 | API 含义 |
+|---|---:|---|
+| `alpha` | `1.0` | 总正则化强度。 |
+| `l1_ratio` | `0.5` | L1 混合比例；0 更像 Ridge，1 更像 Lasso。 |
+| `fit_intercept` | `True` | 拟合不受惩罚的截距。 |
+| `max_iter` | `1000` | 最大求解迭代数。 |
+| `tol` | `1e-4` | 数值收敛容差。 |
+| `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
+| `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
+| `solver` | `"fista"` | 单模型求解器。 |
+| `cpu_solver` | `"fista"` | 兼容共享路径使用的 CPU helper/dispatch 控制。 |
+| `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
+| `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存 GPU 内存。 |
+| `compute_inference` | `False` | 执行所选拟合后推断。 |
+| `inference_method` | `"debiased"` | 拟合后推断方法。 |
+| `cov_type` | `"nonrobust"` | 所选推断路径使用 covariance 时的约定。 |
+| `hac_maxlags` | `None` | 所选推断方法支持 HAC 时的滞后阶数。 |
+<!-- API-CONSTRUCTOR-END:ElasticNet -->
 
-维护中的验证会检查声明的 Elastic Net 目标函数、solver/KKT 行为、CPU 与支持的 GPU 路径、拟合后推断，以及 `ElasticNetCV` final-refit inference contract。适用时，真实 CUDA 验证仍属于 exact release acceptance。
+### `fit`
+
+wrapper 的直接签名为：
+
+```python
+model.fit(
+    X=None,
+    y=None,
+    sample_weight=None,
+    initial_coef=None,
+    **kwargs,
+)
+```
+
+`**kwargs` 当前可转发共享 fit 的 `formula` 与 `data`。
+
+| 参数 | 含义 |
+|---|---|
+| `X` | 二维特征矩阵。 |
+| `y` | 一维连续因变量。 |
+| `sample_weight` | 可选非负分析权重；部分 solver 有额外限制。 |
+| `initial_coef` | 可选 warm-start 系数向量，每个特征一个值。 |
+| `formula` | 通过 `**kwargs` 转发的 Patsy 风格 Formula。 |
+| `data` | Formula 接口使用的 DataFrame。 |
+
+`fit()` 返回 `self`。
+
+### 预测、评分与报告方法
+
+| 方法 | 签名 | 行为 |
+|---|---|---|
+| `predict` | `predict(X, return_cpu=True)` | 连续预测；`return_cpu=False` 可让 GPU 预测留在实际 backend。 |
+| `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
+| `summary` | `summary()` | 打印系数/推断摘要；要求已拟合且推断可用。 |
+| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换 constructor 状态。 |
+
+已有 p 值时，共享 estimator base 还提供 p 值校正/合并工具，见[推断 API](../guides/inference-api.md)。
+
+### 拟合后属性与诊断量
+
+| 属性 | 含义 / 可用条件 |
+|---|---|
+| `coef_` | 惩罚系数；精确 0 定义当前 active set。 |
+| `intercept_` | 不受惩罚的截距。 |
+| `n_iter_` | 所选数值路径迭代次数。 |
+| `n_features_in_` | 相应拟合路径发布时的特征数。 |
+| `rsquared`, `rsquared_adj` | 所需状态可用时的 $R^2$ 与调整 $R^2$。 |
+| `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
+| `llf`, `aic`, `bic` | 所需 reporting state 可用时的 Gaussian fit diagnostics。 |
+| `_bse` | 所选 inference method 的标准误。 |
+| `_tvalues` | 使用 t-style 语义的推断路径统计量。 |
+| `_zvalues` | debiased inference 的 z-style 统计量。 |
+| `_pvalues` | 推断成功时的系数 p 值。 |
+| `_conf_int` | 推断成功时的 coefficient interval。 |
+| `_inference_result` | 结构化推断结果与 metadata。 |
+
+## 验证
+
+维护中的验证覆盖 Elastic Net 目标函数、solver/KKT 行为、CPU/GPU 路径、post-fit inference、warm start 和 `ElasticNetCV` final-refit inference contract。
 
 ## 参考文献
 
