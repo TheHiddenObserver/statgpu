@@ -133,10 +133,10 @@ jobs:
           npm run site:build
           npm run --silent site:hash > "${RUNNER_TEMP}/site-hash-second"
           diff -u "${RUNNER_TEMP}/site-hash-first" "${RUNNER_TEMP}/site-hash-second"
-      - name: Verify tracked tree remains clean
+      - name: Verify repository tree remains clean
         run: |
           git diff --exit-code
-          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Install browser engines
         run: npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
       - name: Run dashboard regression suite
