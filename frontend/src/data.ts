@@ -76,6 +76,7 @@ export function isCrossValidationRun(run: Run): boolean {
     parameterText(run, 'timing_scope'),
   ];
   return Boolean(
+    run.metrics.cross_validation ||
     /(?:CV|CrossValidation)$/i.test(run.model_id) ||
     explicitScopes.some(value => value === 'cv' || value === 'cross_validation') ||
     run.parameters?.cv != null ||
