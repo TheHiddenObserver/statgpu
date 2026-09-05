@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
-import { runHasMetricScope } from '../src/data';
+import { runHasMetricScope } from '../src/metric-scope';
 import { getUniqueScaleKeys } from '../src/scales';
 import {
   createDefaultState,
