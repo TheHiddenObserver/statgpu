@@ -58,7 +58,7 @@ export function renderHeader(
       {
         value: env.env_id,
         title: sessionCount > 1
-          ? sessionCount + ' benchmark sessions on the same physical hardware'
+          ? sessionCount + ' benchmark sessions in the same hardware group'
           : 'One benchmark session',
       },
       env.label,
