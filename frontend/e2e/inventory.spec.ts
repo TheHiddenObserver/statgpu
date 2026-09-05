@@ -68,9 +68,9 @@ test.describe('Canonical cross-validation evidence', () => {
     expect(repairedTorch[0].metrics.cross_validation.selected_parameters).toEqual({ C: 0.1 });
     expect(repairedTorch[0].metrics.timing.fit_time_ms).toBeGreaterThan(0);
 
-    // Session-level environments are intentionally grouped into one physical
-    // hardware selector. The CV panel must therefore retain session/source
-    // identity so historical and repaired evidence remain distinguishable.
+    // Session-level environments are intentionally grouped into one hardware
+    // selector. The CV panel must therefore retain session/source identity so
+    // historical and repaired evidence remain distinguishable.
     await expect(page.locator('#env-select')).toHaveValue('remote-p100');
     await expect(page.locator('#env-select option')).toHaveCount(1);
     await expect(page.locator('#env-select option')).toContainText(
@@ -109,5 +109,31 @@ test.describe('Canonical cross-validation evidence', () => {
     await expect(repairedRow).not.toContainText('CPU fallback is disabled');
     await expect(repairedRow).toContainText('remote-p100-pr116-20260807');
     await expect(repairedRow).toContainText('cv_benchmark_pr116_p100.json');
+  });
+});
+
+
+test.describe('Grouped physical validation evidence', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('keeps session and source provenance in the Validation panel', async ({ page }) => {
+    await expect(page.locator('#env-select')).toHaveValue('remote-p100');
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-panel').check();
+
+    const toggle = page.getByRole('button', { name: /Validation Checks/ });
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    const panelBodyId = await toggle.getAttribute('aria-controls');
+    expect(panelBodyId).toBeTruthy();
+    const panel = page.locator(`#${panelBodyId}`);
+
+    await expect(panel.getByRole('columnheader', { name: 'Benchmark session' })).toBeVisible();
+    await expect(panel.getByRole('columnheader', { name: 'Source' })).toBeVisible();
+    await expect(panel).toContainText('panel_stage_c_gpu_validation_ec511f53.json');
+    await expect(panel).toContainText('remote-p100-pr126-20260811');
   });
 });
