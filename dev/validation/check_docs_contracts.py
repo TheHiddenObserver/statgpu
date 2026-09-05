@@ -71,9 +71,13 @@ SKIP_SCHEMES = (
 )
 
 # Learner pages may curate the parameter table used for decision guidance, but
-# their explicitly marked Complete API reference must stay exhaustive.  Parse
+# their explicitly marked Complete API reference must stay exhaustive. Parse
 # source with ast instead of importing statgpu so this check remains lightweight
 # and runs in the Python-3.9 docs-contract job without package dependencies.
+#
+# Extend this mapping as additional learner pages are migrated. A page enters
+# the mapping when its Complete API constructor inventory is intended to be a
+# source-synchronized release contract.
 MODEL_API_CONTRACTS = {
     "docs/en/models/ridge.md": (
         ROOT / "statgpu/linear_model/wrappers/_ridge.py",
