@@ -156,11 +156,11 @@ for (const section of documentationSections) {
 }
 
 const allFiles = await filesBelow(siteDir);
-const fileIndex = new Set(
-  allFiles.map(file => path.resolve(file).toLocaleLowerCase('en-US')),
-);
+// GitHub Pages paths are case-sensitive. Index exact resolved paths so the
+// verifier cannot accept /Foo when the deployed artifact contains only foo.
+const fileIndex = new Set(allFiles.map(file => path.resolve(file)));
 function indexedFileExists(file) {
-  return fileIndex.has(path.resolve(file).toLocaleLowerCase('en-US'));
+  return fileIndex.has(path.resolve(file));
 }
 
 const required = [
@@ -260,13 +260,9 @@ for (const htmlFile of htmlFiles) {
   }
 }
 
-const dashboardAssets = path
-  .join(siteDir, 'dashboard', 'assets')
-  .toLocaleLowerCase('en-US');
+const dashboardAssets = path.resolve(siteDir, 'dashboard', 'assets');
 const dashboardJs = allFiles.filter(
-  file =>
-    file.toLocaleLowerCase('en-US').startsWith(dashboardAssets) &&
-    file.endsWith('.js'),
+  file => path.resolve(file).startsWith(dashboardAssets + path.sep) && file.endsWith('.js'),
 );
 const dashboardJsBytes = (
   await Promise.all(dashboardJs.map(async file => (await stat(file)).size))
