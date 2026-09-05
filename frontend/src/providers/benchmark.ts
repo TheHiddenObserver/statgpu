@@ -179,7 +179,9 @@ export class StaticJsonBenchmarkProvider implements BenchmarkDataProvider {
     try {
       const response = await this.fetcher(`${this.baseUrl}${path}`, { signal });
       if (!response.ok) return null;
-      return response.json();
+      // Await inside the try so malformed optional JSON is treated the same as
+      // an unavailable optional resource instead of rejecting the whole bundle.
+      return await response.json();
     } catch (error) {
       if (signal?.aborted) throw error;
       return null;
