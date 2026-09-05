@@ -131,7 +131,7 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 
 ## 关键参数应该怎么选？
 
-这里故意只列正常工作流最重要的参数。完整 constructor 见[完整 API 参考](#完整-api-参考)。
+这里是**教学用的精选参数表**，并不是完整 API。完整 constructor、方法和拟合后属性见[完整 API 参考](#完整-api-参考)。
 
 | 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
@@ -208,7 +208,7 @@ weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
 
 ## 完整 API 参考
 
-前面的参数表是教学用的“如何选择”；这里才是当前 `Ridge` wrapper 的完整 public API inventory。
+这里是当前 `Ridge` wrapper 的完整 public API inventory。
 
 ### Constructor
 
