@@ -148,7 +148,18 @@ export class StaticJsonBenchmarkProvider implements BenchmarkDataProvider {
   loadBundle(options: BenchmarkLoadOptions = {}): Promise<BenchmarkBundle> {
     // An AbortSignal is request-scoped and must not poison the shared cache.
     if (options.signal) return this.loadUncached(options.signal);
-    if (!this.cachedBundle) this.cachedBundle = this.loadUncached();
+    if (!this.cachedBundle) {
+      let request: Promise<BenchmarkBundle>;
+      request = this.loadUncached().catch(error => {
+        // Cache only successful bundles. A transient required-data failure must
+        // not turn every later load in this page lifecycle into the same
+        // permanently rejected Promise. Avoid clearing a newer request if
+        // clearCache() was called while this one was still in flight.
+        if (this.cachedBundle === request) this.cachedBundle = null;
+        throw error;
+      });
+      this.cachedBundle = request;
+    }
     return this.cachedBundle;
   }
 
