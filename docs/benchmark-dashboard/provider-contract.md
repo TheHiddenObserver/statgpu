@@ -23,6 +23,14 @@ All accepted resources must share `data.meta.generation_id`. Unsupported
 benchmark schema versions fail closed rather than being interpreted on a
 best-effort basis.
 
+The provider may expose a UI-level grouped environment view. Sessions sharing
+`physical_env_id` are represented by one selector entry whose `member_env_ids`
+contains the original session environment IDs. `physical_env_id` is a
+maintainer-assigned hardware-class grouping key; it is not proof that all
+sessions used one physical host. Run/session/source provenance remains attached
+to normalized evidence and must stay visible where grouped evidence can be
+confused, including cross-validation and validation panels.
+
 ## Phase 1: static JSON provider
 
 The static provider loads the bundle relative to the dashboard base URL:
@@ -39,9 +47,15 @@ These deployment files are generated in CI from the canonical source registry
 and benchmark evidence. They are not committed production artifacts.
 
 Phase 1 data is trusted only because it is maintainer-controlled, schema
-validated, semantically validated, and assembled by the protected deployment
-workflow. The browser must still render source strings as text rather than
-injecting untrusted HTML.
+validated, semantically validated, and assembled by the deployment workflow.
+The browser must still render source strings as text rather than injecting
+untrusted HTML.
+
+The provider shares one in-flight/default load and caches the complete
+**successful** bundle. A failed required-data request clears that cached request
+so a later call may recover from a transient network or serving error. A
+request carrying an `AbortSignal` is request-scoped and is never stored in the
+shared cache.
 
 ## Future API provider
 
@@ -67,6 +81,3 @@ Backward-compatible optional fields may be added within schema `1.1.x` only
 under the versioning rules in [Schema v1.1](schema-v1.1.md). Breaking identity,
 field, enum, or metric-semantic changes require a new schema version and an
 explicit provider migration.
-
-The default provider caches the complete successful bundle. Request-scoped
-loads that carry an `AbortSignal` are not shared through that cache.
