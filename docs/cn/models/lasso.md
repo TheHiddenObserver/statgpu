@@ -314,7 +314,7 @@ model.fit(
 | `summary` | `summary()` | 打印系数/推断摘要；要求已拟合且推断可用。 |
 | `get_params` / `set_params` | sklearn 风格工具 | 查看或替换 constructor 状态。 |
 
-已有 p 值时，共享 estimator base 还提供 p 值校正/合并工具，见[推断 API](../guides/inference-api.md)。
+继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、backend 解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。
 
 ### 拟合后属性与诊断量
 
