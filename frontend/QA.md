@@ -3,7 +3,7 @@
 ## Scope
 
 - **Website issue**: #130
-- **Last updated**: 2026-09-03
+- **Last updated**: 2026-09-05
 - **QA type**: data contract, reproducible build, link, accessibility, and browser tests
 
 This file describes the dashboard as deployed inside the assembled public site.
@@ -13,22 +13,24 @@ This file describes the dashboard as deployed inside the assembled public site.
 The deployment bundle is generated from the canonical manifest during CI and is
 not committed. Treat the generated `parse_report.json` and
 `source_inventory.json` as the source of truth for run, model, and source
-counts.
+counts. Do not duplicate mutable counts in this QA checklist.
 
 ## Automated validation
 
-The current CI matrix verifies:
+The `Website and Benchmark Frontend` workflow verifies:
 
 - benchmark parser and schema tests on Python 3.9 and 3.11;
 - strict manifest/source-date/SHA validation;
-- TypeScript type checking;
+- TypeScript source, E2E, and provider-contract type checking;
 - VitePress plus Vite production assembly at `/statgpu/` and `/`;
-- deterministic final-artifact hashes and tracked-tree cleanliness;
-- Playwright interaction and cross-browser production tests.
+- byte-for-byte deterministic final-artifact hashes;
+- a clean repository tree including non-ignored untracked files;
+- dashboard Chromium regression tests;
+- assembled-site production QA in Chromium, Firefox, and WebKit.
 
-Run `npm run site:build` from the repository root before
-`npm run test:e2e --prefix frontend`; the browser suite previews the built
-`frontend/dist/` resources.
+`npm run site:build` from the repository root builds and verifies the complete
+site. The faster dashboard regression suite uses the Vite development server;
+the production suite previews the assembled `.site-dist/` artifact.
 
 ## Dashboard checks
 
@@ -39,13 +41,15 @@ Run `npm run site:build` from the repository root before
   - `parse_report.json`;
   - `source_inventory.json`.
 - [x] Vite builds to ignored `frontend/dist/` and the site assembler copies it to `.site-dist/dashboard/`.
-- [x] Nested-base asset paths are covered by the production configuration.
-- [ ] Perform a final manual load from `/statgpu/dashboard/` using `npm run site:preview` before merge.
-- [ ] Confirm no browser-console error in the manually served production build.
+- [x] Project-path and custom-domain root-base builds are both verified.
+- [x] Internal deployment links are checked case-sensitively against the assembled artifact.
+- [x] Production console/page errors are covered by browser QA.
+- [x] Pull requests run validation without publishing; only a push to `master` may publish the Pages artifact.
 
 ### Navigation and filter state
 
 - [x] Default environment is selected only when it has runs.
+- [x] Session-level environments may be grouped by `physical_env_id` for the hardware selector without discarding member `env_id` values.
 - [x] Default category avoids a valid-but-empty initial view.
 - [x] Category search is wired to English and Chinese metadata.
 - [x] Upstream changes clear incompatible downstream filters.
@@ -56,8 +60,9 @@ Run `npm run site:build` from the repository root before
 ### Metric scope
 
 - [x] Scope control supports All, Fit, CV, Inference, Prediction, and Selection.
-- [x] Existing inference rows are directly selectable.
-- [x] CV remains visible as disabled `CV (0)` until a current structured CV source is registered.
+- [x] Scope buttons are enabled only when matching current rows exist.
+- [x] Current inference rows are directly selectable.
+- [x] Current CV rows are directly selectable, including preserved historical failure evidence and repaired post-fix evidence.
 - [x] Overview rows show an explicit Scope column.
 - [x] Metric panels appear above the potentially long overview table.
 
@@ -83,41 +88,37 @@ Run `npm run site:build` from the repository root before
 
 - [x] Sorting supports null-last ordering and deterministic run-id tie breaks.
 - [x] Show all / Show first 200 uses `Infinity` / `200` state and renders the requested count.
-- [x] Validation, Accuracy, Inference, Prediction, Convergence, and Selection panels render only when relevant rows exist.
-- [x] The Inference panel displays method, penalty, backend, scale, timing scope, BSE, Wald statistic, p-value, status, and source.
+- [x] Validation, Accuracy, Inference, Prediction, Convergence, Selection, and Cross-validation panels render only when relevant rows exist.
+- [x] Inference rows retain their source identity.
+- [x] CV and Validation panels retain benchmark-session and source identity when multiple sessions are grouped into one hardware selector entry.
 
 ## Source-matrix regression coverage
 
-Automated tests guard:
+Automated tests exercise the canonical bundle rather than relying on a frozen
+source count. Current high-signal coverage includes:
 
 - CoxPH Breslow plus Efron variants;
-- both complete GAM comparison variants and all three GAM scales;
-- both aligned Panel scales;
-- all 131 Unsupervised source rows and corrected capped-feature labels;
-- all PR #74 inference configurations;
-- ANOVA functions and SciPy reference rows;
-- June 2026 linear-model sources;
-- removal of pre-June framework controls;
-- Inference scope and CV frontend readiness.
+- GAM comparison variants;
+- Panel timing, diagnostics, covariance, and physical validation evidence;
+- the maintained unsupervised matrix and corrected capped-feature labels;
+- PR #74 inference configurations;
+- current canonical CV evidence, including the preserved pre-fix Torch failure and the PR #116 repaired row;
+- ANOVA functions and external reference rows;
+- current linear/GLM and Gaussian-inference evidence;
+- metric-scope, environment-grouping, source-provenance, and provider-failure contracts.
 
-## Known coverage gaps
-
-These are benchmark-data gaps rather than hidden frontend rows:
-
-- Bisquare/Fair and full robust GPU comparisons;
-- current CV benchmark sources;
-- large-scale Ordered crossover;
-- synchronization-safe ANOVA crossover;
-- complete Covariance, Nonparametric, Feature Selection, Penalized Survival, extended Panel, Distribution, and Multiple Testing sources.
-
-Detailed plans are under `docs/benchmark-dashboard/`.
+For exact live coverage and unresolved evidence gaps, use the generated
+`source_inventory.json` and the maintained method coverage matrix rather than
+this prose file.
 
 ## Merge gate
 
-Before merging PR #76:
+Before merging the current website PR:
 
-1. all required CI checks must pass on the final functional head;
-2. unresolved review threads must be resolved or explicitly dispositioned;
-3. the PR description and benchmark indexes must match the generated bundle;
-4. a final manual production smoke test must pass;
-5. generated data and deployment assets must remain current.
+1. all required hosted checks must pass on the exact final head;
+2. the assembled project-path and root-base site builds must both pass verification;
+3. complete artifact hashes must reproduce exactly;
+4. dashboard regression and Chromium/Firefox/WebKit production QA must pass;
+5. unresolved review findings must be fixed or explicitly dispositioned;
+6. the PR description must reflect the final validation state and user-visible runtime/reporting changes;
+7. generated deployment artifacts must remain ignored and the repository tree must remain clean.
