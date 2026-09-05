@@ -272,6 +272,10 @@ const chineseSidebar = [
 export default defineConfig({
   base,
   outDir: '../.site-dist',
+  // VitePress 1.6.4 builds its MiniSearch index by concurrently adding pages
+  // to a shared index. Serializing page work makes the emitted local-search
+  // modules byte-for-byte reproducible, which the deployment hash gate checks.
+  buildConcurrency: 1,
   lang: 'en-US',
   title: 'statgpu',
   description: 'GPU-accelerated statistical methods with an sklearn-style API.',
