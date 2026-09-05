@@ -10,6 +10,21 @@ function normalizeBase(value: string | undefined): string {
 
 const base = normalizeBase(process.env.STATGPU_SITE_BASE);
 
+// Keep local search focused on public user documentation. These pages remain
+// published and directly reachable, but indexing them adds large maintenance
+// records and duplicate benchmark listings that dilute user-facing results.
+const excludedSearchPages = [
+  /^benchmark-dashboard\//,
+  /^(?:en|cn)\/benchmarks\.md$/,
+  /^(?:en|cn)\/changelog(?:-history-through-[^/]+)?\.md$/,
+  /^en\/guides\/statgpu_benchmark_dashboard_next_phase_plan\.md$/,
+  /^website-deployment\.md$/,
+];
+
+function isPublicSearchPage(relativePath: string): boolean {
+  return !excludedSearchPages.some(pattern => pattern.test(relativePath));
+}
+
 function englishModelReference() {
   return {
     text: 'Model reference',
@@ -392,7 +407,44 @@ export default defineConfig({
       { text: 'Dashboard', link: '/dashboard/', target: '_self' },
       { text: 'Changelog', link: '/en/changelog' },
     ],
-    search: { provider: 'local' },
+    search: {
+      provider: 'local',
+      options: {
+        // The compact result list avoids loading page modules merely to render
+        // excerpts. Full pages still remain searchable by their body text.
+        detailedView: false,
+        locales: {
+          cn: {
+            translations: {
+              button: {
+                buttonText: '\u641c\u7d22',
+                buttonAriaLabel: '\u641c\u7d22\u6587\u6863',
+              },
+              modal: {
+                displayDetails: '\u663e\u793a\u8be6\u7ec6\u5217\u8868',
+                resetButtonTitle: '\u6e05\u7a7a\u641c\u7d22',
+                backButtonTitle: '\u5173\u95ed\u641c\u7d22',
+                noResultsText: '\u672a\u627e\u5230\u7ed3\u679c',
+                footer: {
+                  selectText: '\u9009\u62e9',
+                  selectKeyAriaLabel: '\u56de\u8f66',
+                  navigateText: '\u5bfc\u822a',
+                  navigateUpKeyAriaLabel: '\u4e0a\u7bad\u5934',
+                  navigateDownKeyAriaLabel: '\u4e0b\u7bad\u5934',
+                  closeText: '\u5173\u95ed',
+                  closeKeyAriaLabel: '\u9000\u51fa',
+                },
+              },
+            },
+          },
+        },
+        _render(src, env, md) {
+          if (!isPublicSearchPage(env.relativePath)) return '';
+          const html = md.render(src, env);
+          return env.frontmatter?.search === false ? '' : html;
+        },
+      },
+    },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/TheHiddenObserver/statgpu' },
     ],

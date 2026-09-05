@@ -4,7 +4,7 @@
 > 最后更新：2026-08-18<br>
 > 切换：[English](../../en/panel/covariance.md)
 
-## Overview and Path
+## 概述与路径
 
 不同 panel estimator 实际用于回归的数据并不相同：fixed effects 会先去均值，random effects 会做 quasi-demeaning，first difference 会先做差分。因此 standard error 也必须基于**真正用于 coefficient estimation 的那组 transformed data**计算，而不是统一拿原始 $X$ 和 $y$ 计算。
 
@@ -32,7 +32,7 @@ $$
 
 实现：`statgpu/panel/_covariance.py`。
 
-## Nonrobust and HC Covariance
+## Nonrobust 与 HC 协方差
 
 `nonrobust` 是通常的同方差 OLS covariance。HC0-HC3 是异方差稳健版本；HC2/HC3 会进一步调整 high-leverage observation 的影响。
 
@@ -60,7 +60,7 @@ HC2/HC3 要求 $1-h_i$ 在数值上为正。对于 full-rank estimator fit 或�
 
 nonrobust coefficient inference 使用 Student-t reference；HC、clustered 与 Driscoll-Kraay 使用 panel API 中的 asymptotic-normal reference。正的 covariance diagonal 不再使用绝对 variance floor，因此整体缩放 response 会按同一比例缩放 coefficient 与 standard error，而不会改变有限 t/z statistic。若 diagonal variance 精确为 0，则零 coefficient 的 statistic 为 0，非零 coefficient 的 statistic 为带符号无穷；p-value 与 confidence interval 直接由这一显式结果得到，而不是通过伪造 tiny denominator。
 
-## Clustered Covariance
+## 聚类协方差
 
 clustered covariance 允许同一用户指定 cluster 内的 observations 具有相关误差。对 cluster $g$，令 $s_g=\sum_{i\in g}\psi_i$，则
 
@@ -86,7 +86,7 @@ $$
 \widehat V_{1,2}=\widehat V_1+\widehat V_2-\widehat V_{12}.
 $$
 
-## Driscoll-Kraay
+## Driscoll–Kraay 协方差
 
 Driscoll-Kraay 是按 time index 构造的 panel covariance。statgpu 先把同一 observed period 内各 observation 对 covariance 的贡献聚合起来：
 
@@ -114,13 +114,13 @@ $$
 
 time ordering 会影响 Driscoll-Kraay。numeric 和 datetime labels 使用自然顺序；ordered pandas categorical 使用用户声明的 category 顺序。普通 string labels 按字符串字典序排序；其他非 categorical object labels 按其可比较值的排序顺序处理，若 labels 不能相互比较则直接报错。如果字符串字典序不是实际 chronology（例如 `t1, t2, t10`），应改用 numeric/datetime key 或 ordered categorical。
 
-## Public API and Aliases
+## 公共 API 与别名
 
 `statgpu.panel` 公开导出的 covariance helpers 是 `clustered_covariance`、`two_way_clustered_covariance`、`hac_covariance` 与 `driscoll_kraay_covariance`。`ols_covariance` 是 panel estimator 内部复用的 shared dispatcher，不属于公开的 `statgpu.panel` export surface。
 
 在 estimator 的 `cov_type` 中，`hc1` 是 `robust` 的 alias；`dk` 与 `kernel` 是 `driscoll-kraay` 的 alias。Driscoll-Kraay kernel aliases 包括 Bartlett/Newey-West、Parzen/Gallant 与 QS/Quadratic-Spectral/Andrews。`PooledOLS(cov_type="hac")` 仍是独立的 ordered-sequence Bartlett/Newey-West calculation，不应与 Driscoll-Kraay 混为一谈；若提供 `time_index`，PooledOLS 会先按该 index 排序再计算 HAC。
 
-## Validation Matrix
+## 验证矩阵
 
 下表记录这些 statistical definitions 如何与独立实现进行比较。GPU consistency 另外与 NumPy 比较，这样“和外部统计 package 的定义一致”与“CPU/GPU 计算一致”不会混在同一个 validation 中。
 

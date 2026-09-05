@@ -16,9 +16,9 @@
 
 | 响应 | Family | 链接函数 $g(\mu)$ | 方差函数 $V(\mu)$ | 模型页面 |
 |---|---|---|---|---|
-| 连续且大致对称 | Gaussian | identity：$\mu$ | $1$ | [线性回归](linear-regression.md) |
-| 0/1 响应 | Binomial | logit：$\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Logistic 回归](logistic-regression.md) |
-| 非负计数，方差接近均值 | Poisson | log：$\log(\mu)$ | $\mu$ | [Poisson 回归](poisson-regression.md) |
+| 连续且大致对称 | Gaussian | identity：$\mu$ | $1$ | [Gaussian 设置](glm-family-reference.md#gaussian) · [线性回归](linear-regression.md) |
+| 0/1 响应 | Binomial | logit：$\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Binomial 设置](glm-family-reference.md#binomial) · [Logistic 回归](logistic-regression.md) |
+| 非负计数，方差接近均值 | Poisson | log：$\log(\mu)$ | $\mu$ | [Poisson 设置](glm-family-reference.md#poisson) · [类型化 wrapper](poisson-regression.md) |
 | 过度离散计数 | Negative binomial | log：$\log(\mu)$ | $\mu+\alpha\mu^2$ | [Negative binomial](glm-family-reference.md#negative-binomial) |
 | 正值、右偏连续响应 | Gamma | 默认 log | $\mu^2$ | [Gamma](glm-family-reference.md#gamma) |
 | 正值且方差大致按 $\mu^3$ 增长 | Inverse Gaussian | log：$\log(\mu)$ | $\mu^3$ | [Inverse Gaussian](glm-family-reference.md#inverse-gaussian) |
@@ -199,7 +199,21 @@ $$
 
 惩罚类型化包装器现已覆盖 Gaussian、logistic、Poisson、Gamma、inverse Gaussian、negative binomial 与 Tweedie。
 
-## CPU、GPU、求解器与推断
+## 求解器支持
+
+普通 `GeneralizedLinearModel` 与类型化 wrapper 接受以下估计器级取值：
+
+| `solver` 值 | 普通 GLM 行为 | 重要限制 |
+|---|---|---|
+| `auto`（默认） | IRLS | 推荐起点 |
+| `irls` | Fisher scoring / 加权最小二乘 | `C` 控制其 L2 项；支持解析样本权重 |
+| `newton` | 无惩罚损失上的 Newton-Raphson | 仅适用于光滑目标与均匀样本权重 |
+| `lbfgs` | 有限内存拟 Newton | 仅适用于光滑目标与均匀样本权重 |
+| `fista` | 零惩罚的近端梯度实现 | 适合数值对照；支持解析样本权重 |
+
+对于惩罚类型化 GLM，`auto` 同时感知 family 与 penalty：L2/无惩罚的光滑目标会分发到 Newton 或 family 专属光滑路径，稀疏惩罚会分发到 FISTA/FISTA-BB，SCAD/MCP 则走 FISTA-LLA continuation。强制指定非默认组合前，请核对[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)。`exact`、quantile coordinate descent 与 L-BFGS-B 不是普通 GLM 的估计器取值。
+
+### CPU、GPU 与推断
 
 受支持的路径中，显式 `device="cuda"` 使用 CuPy，`device="torch"` 使用 Torch CUDA；显式请求 GPU 时不会静默回退到 CPU。公式解析属于 CPU 预处理，大规模 GPU 任务更适合直接传入数组。
 

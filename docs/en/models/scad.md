@@ -1,7 +1,7 @@
 # SCAD regression
 
 > Language: English
-> Last updated: 2026-09-03
+> Last updated: 2026-09-04
 > Switch: [简体中文](../../cn/models/scad.md)
 
 ## What problem does it solve?
@@ -108,6 +108,19 @@ The first four features should usually be retained, but the exact selected set d
 | `compute_inference` | `False` | Keep false for the typed beginner path; see the inference section below |
 
 Standardize features before tuning `alpha`. Otherwise, the same penalty strength treats measurement units rather than scientific importance equally.
+
+## Solver support
+
+SCAD has a model-specific path: `solver="auto"` (recommended) resolves to FISTA dispatch, then the estimator runs a continuation path with local linear approximation (FISTA-LLA). `solver="fista"` selects the same public route explicitly.
+
+| Choice | Support | Actual computation |
+|---|:---:|---|
+| `auto` (default) | yes | FISTA-LLA continuation |
+| `fista` | yes | FISTA-LLA continuation |
+| `newton`, `lbfgs`, `irls`, `exact` | no | Rejected as incompatible with a non-convex, non-smooth penalty |
+| `fista_bb`, `admm`, `coordinate_descent` | no distinct SCAD path | Current wrapper still routes SCAD through FISTA-LLA; do not use these names for solver comparisons |
+
+`fista_lla_path` is an internal subpath, not a value to pass as `solver=`. The LLA weights and continuation logic belong on this model page; the inner FISTA update is described in the [general solver guide](../guides/solver-algorithms.md#1-fista).
 
 ## Compare with alternatives
 

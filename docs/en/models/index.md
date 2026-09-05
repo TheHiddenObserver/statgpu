@@ -1,5 +1,7 @@
 # Regression and statistical models
 
+> Switch: [简体中文](../../cn/models/)
+
 Open a model page directly from this catalog. For a package-level overview, see
 the [full model inventory](README.md).
 

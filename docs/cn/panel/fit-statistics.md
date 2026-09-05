@@ -4,7 +4,7 @@
 > 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/fit-statistics.md)
 
-## Overview and Path
+## 概述与路径
 
 panel estimator 通过统一的 `fit_statistics_` 对象提供 goodness-of-fit 统计量。within、between 与 overall $R^2$ 回答的是三个不同问题：
 
@@ -14,7 +14,7 @@ panel estimator 通过统一的 `fit_statistics_` 对象提供 goodness-of-fit �
 
 这些计算由 `statgpu/panel/` 下的 panel diagnostic/statistics helpers 实现。
 
-## Definitions
+## 定义
 
 对拟合系数 $\widehat\beta$，
 
@@ -52,13 +52,13 @@ $$
 
 为保持 backward compatibility，历史 public fields `PanelOLS.df_resid` 与 `PanelOLS.rsquared_within` 保持原有含义。标准化后的统计量单独放在 `fit_statistics_` 中，而不是静默改变旧字段的定义。
 
-## Availability and Outputs
+## 可用范围与输出
 
 提供 entity metadata 后，`fit_statistics_` 可以给出 standardized within、between 与 overall $R^2$。对具有普通 residual-OLS 定义的 estimator，还会提供 adjusted $R^2$ 与 classical model F statistic。
 
 `FamaMacBeth` 提供 parameter-based within/between/overall $R^2$，但不报告 residual-OLS adjusted $R^2$ 或 model F，因为它的 estimator 是多个 period regressions 的 coefficient average，而不是单个 pooled residual regression。
 
-## Validation
+## 验证
 
 这些统计量由完整 CPU regression suite 与 estimator-level external comparison 覆盖。tests 会特别确认：选择 robust covariance 只改变 coefficient inference，不会悄悄改变 classical model F statistic 的定义。
 

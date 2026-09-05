@@ -7,7 +7,7 @@
 
 ## Overview
 
-`QuantileLoss` implements pinball (check) loss for quantile regression. `PenalizedQuantileRegression` wraps it with up to 10 penalty types and 8 solvers, including the specialized Proximal IRLS-CD solver for SCAD/MCP.
+`QuantileLoss` implements pinball (check) loss for quantile regression. `QuantileRegression` uses a fixed FISTA fit, while `PenalizedQuantileRegression` adds penalty-aware routing, including a specialized proximal-IRLS path for SCAD/MCP.
 
 | Component | Path |
 |-----------|------|
@@ -15,6 +15,7 @@
 | Standalone Model | `statgpu.linear_model.QuantileRegression` |
 | Penalized Model | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | Specialized Solver | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
+| Low-level Coordinate Solver | `statgpu.solvers._quantile_cd.quantile_cd_solver` |
 | R Equivalent | `quantreg::rq()` |
 
 ## Objective Function
@@ -41,27 +42,31 @@ Key property: the gradient is a step function — it does not vary with residual
 
 No scale parameter; quantile regression is scale-free.
 
-## Solver Compatibility
+## Solver support
 
-| Solver | Support | Notes |
-|--------|:---:|-------|
-| Proximal IRLS-CD | ✅ | Specialized: IRLS majorization + LLA for SCAD/MCP. ~49x GPU speedup at large scale. |
-| FISTA | ✅ | For non-smooth penalties (L1, SCAD, MCP) and non-convex group penalties. |
-| IRLS | ✅ | For smooth penalties (L2, none). Uses Frisch-Newton algorithm (matches statsmodels QuantReg). |
-| L-BFGS | ✅ | For smooth penalties, moderate dimensions. |
-| ADMM | ✅ | Alternative for all penalties. |
-| Newton | ❌ | Quantile has no Hessian. |
-| Proximal Newton | ❌ | Quantile has no Hessian. |
+The two estimator surfaces intentionally differ:
+
+| Estimator / `solver` value | Support | Actual path |
+|---|:---:|---|
+| `QuantileRegression` | fixed | FISTA; bootstrap inference uses batched pinball FISTA |
+| `PenalizedQuantileRegression(solver="auto")` | yes | Penalty-aware paths in the table below |
+| `solver="fista"` | yes | FISTA, except smooth L2/none is internally stabilized with quantile IRLS |
+| `solver="fista_bb"` | yes | BB-step FISTA for ordinary compatible penalties |
+| `solver="irls"` | L2/none only | Quantile-specific IRLS |
+| `solver="admm"` | compatible penalties | Alternative split path; only uniform sample weights |
+| `newton`, `lbfgs`, `exact` | no | Rejected because pinball loss has no Hessian, and exact is Ridge-only |
+
+`proximal_irls_quantile_solver` and `quantile_cd_solver` are internal or low-level function names, not values to pass as `solver=`.
 
 ## Penalty Compatibility
 
 | Penalty | Solver (auto) | Notes |
 |---------|---------------|-------|
-| l2 / none | IRLS | Converges in 5-15 iterations. |
-| l1 / elasticnet | FISTA | Subgradient-based. |
-| SCAD / MCP | Proximal IRLS-CD | Fastest: ~3x CPU / ~49x GPU over FISTA-LLA. |
-| adaptive_l1 | FISTA-LLA | Weighted L1 proximal. |
-| group_* | FISTA-LLA | Group proximal operators. |
+| l2 / none | FISTA dispatch, internally quantile IRLS | Smooth penalty; the internal IRLS tolerance is tightened. |
+| l1 / elasticnet | FISTA | Proximal/subgradient path. |
+| SCAD / MCP | Proximal IRLS + LLA | Model-specific continuation subpath. |
+| adaptive_l1 | Weighted-L1 FISTA | Data-dependent proximal weights. |
+| group penalties | Group proximal path | Exact route depends on the group penalty. |
 
 ## Examples
 
@@ -148,19 +153,93 @@ model.fit(X, y, sample_weight=sample_weight)
 
 ## Algorithm Details
 
-### Proximal IRLS-CD (SCAD/MCP)
+### Quantile proximal IRLS (SCAD/MCP)
 
-For quantile + nonconvex penalties, the specialized solver uses:
+**Source:** `statgpu/solvers/_proximal_irls_quantile.py`
 
-1. **IRLS quadratic majorization**: At each iteration, compute weights w_i = τ_i / max(|r_i|, ε). This forms a quadratic upper bound of the non-smooth pinball loss: Q(β) = ½ Σ w_i(y_i − X_iβ)².
+This is the model-specific continuation path used for quantile loss with SCAD or MCP. For residual $r_i=y_i-x_i^\top\beta$ and target quantile $\tau$,
 
-2. **LLA (Local Linear Approximation)**: Non-convex SCAD/MCP is converted to weighted L1 via P'(|β_j|) weights.
+$$
+\rho_\tau(r)=r\left(\tau-\mathbf 1\{r<0\}\right).
+$$
 
-3. **Parallel diagonal majorization**: A Jacobi-style update uses matrix operations (O(np) per sweep) — GPU-friendly.
+Inside each continuation and local-linear-approximation (LLA) step, statgpu forms
 
-4. **GPU optimization**: Convergence check compares on-device, only syncs a bool to CPU. Throttled to every 5 iterations.
+$$
+a_i
+=
+\frac{
+\tau\mathbf 1\{r_i\ge0\}
++
+(1-\tau)\mathbf 1\{r_i<0\}
+}{
+\max(|r_i|,\varepsilon)
+},
+\qquad
+\omega_j=P_\lambda'(|\beta_j|).
+$$
+
+With $A=\operatorname{diag}(a_i)$,
+
+$$
+g=\tilde X^\top A(y-\tilde X\beta),
+\qquad
+h=\operatorname{diag}(\tilde X^\top A\tilde X),
+$$
+
+and all coordinates are updated in parallel:
+
+$$
+\beta_j^{\mathrm{new}}
+=
+\frac{
+\mathcal S_{n\omega_j}(g_j+h_j\beta_j)
+}{h_j}.
+$$
+
+This is a GPU-friendly Jacobi-style diagonal-majorization step, not cyclic coordinate descent. Analytic sample weights multiply $a_i$ after normalization to sum to $n$. Convergence checks stay on the selected device and synchronize only the Boolean result at a throttled interval.
+
+**Primary references:**
+
+- Koenker, R., & Bassett, G. (1978). [Regression quantiles](https://doi.org/10.2307/1913643). *Econometrica*, 46(1), 33–50.
+- Wu, Y., & Liu, Y. (2009). [Variable selection in quantile regression](https://www3.stat.sinica.edu.tw/sstest/j19n2/j19n222/j19n222.html). *Statistica Sinica*, 19(2), 801–817.
+- Zou, H., & Li, R. (2008). [One-step sparse estimates in nonconcave penalized likelihood models](https://doi.org/10.1214/07-AOS520). *Annals of Statistics*, 36(4), 1509–1533.
+
+### Quantile coordinate descent
+
+**Source:** `statgpu/solvers/_quantile_cd.py`
+
+This NumPy-only low-level solver alternates LLA weights with cyclic coordinate updates for
+
+$$
+\min_\beta
+\sum_{i=1}^n\rho_\tau(y_i-x_i^\top\beta)
++
+\sum_{j=1}^p\omega_j|\beta_j|.
+$$
+
+Using $\psi_\tau(r)=\tau$ for $r\ge0$ and $\psi_\tau(r)=-(1-\tau)$ otherwise, the implemented coordinate step is
+
+$$
+\beta_j
+\leftarrow
+\frac{
+\mathcal S_{\omega_j}
+\left(
+\sum_i x_{ij}\psi_\tau(r_i^{(-j)})
+\right)
+}{
+\sum_i x_{ij}^2
+}.
+$$
+
+It is exported for direct advanced use but is not selected by automatic estimator dispatch. Its `sample_weight` argument is present in the signature but is not consumed by the current implementation; use the routed FISTA or quantile-proximal-IRLS paths when observation weights matter.
+
+**Primary reference:** Wu, Y., & Liu, Y. (2009). [Variable selection in quantile regression](https://www3.stat.sinica.edu.tw/sstest/j19n2/j19n222/j19n222.html). *Statistica Sinica*, 19(2), 801–817.
 
 ### IRLS (L2/none)
+
+**Primary reference:** Koenker, R. (2005). *Quantile Regression*. Cambridge University Press.
 
 Uses the Frisch-Newton algorithm (matching statsmodels `QuantReg`):
 1. IRLS weights: w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
@@ -191,7 +270,5 @@ Uses the Frisch-Newton algorithm (matching statsmodels `QuantReg`):
 
 ## References
 
-- Koenker, R. & Bassett, G. (1978). Regression Quantiles. *Econometrica*, 46(1), 33-50.
 - Koenker, R. (2005). *Quantile Regression*. Cambridge University Press.
-- Wu, Y. & Liu, Y. (2009). Variable Selection in Quantile Regression. *Statistica Sinica*, 19, 801-817.
 - Hunter, D. R. & Li, R. (2005). Variable Selection using MM Algorithms. *Annals of Statistics*, 33(4), 1617-1642.

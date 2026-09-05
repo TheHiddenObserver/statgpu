@@ -79,6 +79,17 @@ The leading eigenvectors define nonlinear components. Transforming new data
 requires computing the test-to-training kernel, applying the training centering
 quantities, and projecting onto the retained components.
 
+## Solver support
+
+| Estimator | Public control | Supported behavior |
+|---|---|---|
+| `KernelRidge` | none | Fixed dense kernel-system solve |
+| `KernelRidgeCV` | none | Fixed CV/refit path; implementations may reuse a kernel eigendecomposition internally |
+| `KernelPCA` | `eigen_solver="auto"` or `"dense"` | Both currently use dense symmetric `eigh`; `auto` is an alias rather than a size-based sparse selector |
+| `Nystroem` | none | Fixed randomized landmark construction controlled by `n_components` and `random_state` |
+
+`KernelPCA` rejects other `eigen_solver` names. Its dense eigensolver is specific to the centered kernel matrix and is not interchangeable with the linear-model `solver=` values.
+
 ## Nystroem Approximation
 
 Nystroem selects $m$ landmark observations and forms an explicit approximate

@@ -64,7 +64,7 @@ $$
 steps，并根据稳健 Mahalanobis 距离重加权。该方法用于存在多元离群点时的稳健
 协方差估计。
 
-### Graphical Lasso
+### 图 Lasso（Graphical Lasso）
 
 `GraphicalLasso` 通过
 
@@ -218,7 +218,7 @@ Graphical Lasso 坐标更新在实现支持时保留在所选后端。小型整�
 参考比较、稳健支持语义、稀疏精度收敛和 CV refit 行为。硬件相关的准确性和性能
 证据应记录在相应维护测试或 benchmark artifact 中。
 
-## FAQ
+## 常见问题
 
 ### 当 $p$ 接近 $n$ 时应该使用哪个估计器？
 

@@ -1,6 +1,17 @@
 # Unsupervised learning
 
+> Switch: [简体中文](../../cn/unsupervised/)
+
 GPU-aware decomposition, clustering, manifold, and matrix factorization APIs.
+
+## Solver lookup
+
+| Model | Public control | Supported values |
+|---|---|---|
+| [PCA](pca.md#solver-support) | `svd_solver` | `auto`, `full`, `covariance`, `randomized` |
+| [NMF](nmf.md#solver-support) | `solver` | `mu` only |
+
+Other pages describe their fixed estimation algorithm even when no public `solver` parameter is exposed.
 
 ## Decomposition
 

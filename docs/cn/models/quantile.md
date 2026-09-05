@@ -7,7 +7,7 @@
 
 ## 概述
 
-`QuantileLoss` 实现 quantile 回归的 pinball（check）损失。`PenalizedQuantileRegression` 封装了最多 10 种惩罚和 8 种求解器，包括专门针对 SCAD/MCP 的 Proximal IRLS-CD 求解器。
+`QuantileLoss` 实现 quantile 回归的 pinball（check）损失。`QuantileRegression` 使用固定 FISTA 拟合；`PenalizedQuantileRegression` 则增加 penalty-aware 分发，并为 SCAD/MCP 提供专门的 proximal-IRLS 路径。
 
 | 组件 | 路径 |
 |------|------|
@@ -15,6 +15,7 @@
 | 独立模型 | `statgpu.linear_model.QuantileRegression` |
 | 惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | 专用求解器 | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
+| 低层坐标求解器 | `statgpu.solvers._quantile_cd.quantile_cd_solver` |
 | R 等价 | `quantreg::rq()` |
 
 ## 目标函数
@@ -41,27 +42,31 @@ $$
 
 无尺度参数；quantile 回归是尺度无关的。
 
-## 求解器兼容性
+## 求解器支持
 
-| 求解器 | 支持 | 说明 |
-|--------|:---:|------|
-| Proximal IRLS-CD | ✅ | 专用：IRLS 上界 + LLA 处理 SCAD/MCP。大规模 ~49x GPU 加速。 |
-| FISTA | ✅ | 非光滑惩罚（L1、SCAD、MCP）和非凸 group 惩罚。 |
-| IRLS | ✅ | 光滑惩罚（L2、none）。使用 Frisch-Newton 算法（匹配 statsmodels QuantReg）。 |
-| L-BFGS | ✅ | 光滑惩罚，中低维度。 |
-| ADMM | ✅ | 所有惩罚的替代方案。 |
-| Newton | ❌ | Quantile 无 Hessian。 |
-| Proximal Newton | ❌ | Quantile 无 Hessian。 |
+两个估计器接口有意采用不同契约：
+
+| 估计器 / `solver` 值 | 支持情况 | 实际路径 |
+|---|:---:|---|
+| `QuantileRegression` | 固定 | FISTA；bootstrap 推断使用 batched pinball FISTA |
+| `PenalizedQuantileRegression(solver="auto")` | 支持 | 按下表根据惩罚分发 |
+| `solver="fista"` | 支持 | FISTA；但 L2/none 会在内部用 quantile IRLS 稳定求解 |
+| `solver="fista_bb"` | 支持 | 对普通兼容惩罚使用 BB 步长 FISTA |
+| `solver="irls"` | 仅 L2/none | Quantile 专属 IRLS |
+| `solver="admm"` | 兼容惩罚 | 拆分求解替代路径；只支持均匀样本权重 |
+| `newton`、`lbfgs`、`exact` | 不支持 | pinball loss 没有 Hessian，且 exact 仅适用于 Ridge |
+
+`proximal_irls_quantile_solver` 与 `quantile_cd_solver` 是内部或低层函数名，不能作为 `solver=` 的取值。
 
 ## 惩罚兼容性
 
 | 惩罚 | 求解器 (auto) | 说明 |
 |---------|---------------|-------|
-| l2 / none | IRLS | 5-15 次迭代收敛。 |
-| l1 / elasticnet | FISTA | 基于 subgradient。 |
-| SCAD / MCP | Proximal IRLS-CD | 最快：CPU ~3x / GPU ~49x 加速。 |
-| adaptive_l1 | FISTA-LLA | 加权 L1 proximal。 |
-| group_* | FISTA-LLA | Group proximal 算子。 |
+| l2 / none | FISTA 分发，内部使用 quantile IRLS | 光滑惩罚；内部会收紧 IRLS 容差。 |
+| l1 / elasticnet | FISTA | Proximal/subgradient 路径。 |
+| SCAD / MCP | Proximal IRLS + LLA | 模型专属 continuation 子路径。 |
+| adaptive_l1 | 加权 L1 FISTA | 数据驱动 proximal 权重。 |
+| group penalties | Group proximal 路径 | 具体分发取决于 group penalty。 |
 
 ## 示例
 
@@ -125,6 +130,17 @@ model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X_t, y_t)
 ```
 
+### GPU (cupy-CUDA)
+
+```python
+import cupy as cp
+X_cp = cp.asarray(X)
+y_cp = cp.asarray(y)
+
+model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+model.fit(X_cp, y_cp)
+```
+
 ### 加权 Quantile
 
 ```python
@@ -137,19 +153,93 @@ model.fit(X, y, sample_weight=sample_weight)
 
 ## 算法详解
 
-### Proximal IRLS-CD (SCAD/MCP)
+### 分位数近端 IRLS（SCAD/MCP）
 
-对于 quantile + 非凸惩罚，专用求解器使用：
+**源码：**`statgpu/solvers/_proximal_irls_quantile.py`
 
-1. **IRLS 二次上界**：每次迭代计算权重 w_i = τ_i / max(|r_i|, ε)。形成非光滑 pinball 损失的二次上界：Q(β) = ½ Σ w_i(y_i − X_iβ)²。
+这是 quantile loss 配合 SCAD 或 MCP 时使用的模型专属 continuation 路径。令残差 $r_i=y_i-x_i^\top\beta$、目标分位数为 $\tau$，则
 
-2. **LLA（局部线性近似）**：非凸 SCAD/MCP 通过 P'(|β_j|) 权重转为加权 L1。
+$$
+\rho_\tau(r)=r\left(\tau-\mathbf 1\{r<0\}\right).
+$$
 
-3. **并行对角化**：Jacobi 风格更新使用矩阵运算（每次 O(np)）——GPU 友好。
+在每个 continuation 与局部线性近似（LLA）步骤中，statgpu 构造
 
-4. **GPU 优化**：收敛检查在 device 上比较，仅同步 bool 到 CPU。每 5 次迭代检查。
+$$
+a_i
+=
+\frac{
+\tau\mathbf 1\{r_i\ge0\}
++
+(1-\tau)\mathbf 1\{r_i<0\}
+}{
+\max(|r_i|,\varepsilon)
+},
+\qquad
+\omega_j=P_\lambda'(|\beta_j|).
+$$
 
-### IRLS (L2/none)
+令 $A=\operatorname{diag}(a_i)$，则
+
+$$
+g=\tilde X^\top A(y-\tilde X\beta),
+\qquad
+h=\operatorname{diag}(\tilde X^\top A\tilde X),
+$$
+
+所有坐标并行更新为
+
+$$
+\beta_j^{\mathrm{new}}
+=
+\frac{
+\mathcal S_{n\omega_j}(g_j+h_j\beta_j)
+}{h_j}.
+$$
+
+这是适合 GPU 的 Jacobi 风格对角 majorization 步骤，并不是 cyclic coordinate descent。解析样本权重会先归一化到总和为 $n$，再乘入 $a_i$。收敛比较保留在所选设备上，只按节流间隔同步布尔结果。
+
+**主要参考文献：**
+
+- Koenker, R., & Bassett, G. (1978). [Regression quantiles](https://doi.org/10.2307/1913643). *Econometrica*, 46(1), 33–50.
+- Wu, Y., & Liu, Y. (2009). [Variable selection in quantile regression](https://www3.stat.sinica.edu.tw/sstest/j19n2/j19n222/j19n222.html). *Statistica Sinica*, 19(2), 801–817.
+- Zou, H., & Li, R. (2008). [One-step sparse estimates in nonconcave penalized likelihood models](https://doi.org/10.1214/07-AOS520). *Annals of Statistics*, 36(4), 1509–1533.
+
+### 分位数坐标下降
+
+**源码：**`statgpu/solvers/_quantile_cd.py`
+
+这个仅 NumPy 的低层求解器在 LLA 权重与 cyclic coordinate update 之间交替，求解
+
+$$
+\min_\beta
+\sum_{i=1}^n\rho_\tau(y_i-x_i^\top\beta)
++
+\sum_{j=1}^p\omega_j|\beta_j|.
+$$
+
+令 $r\ge0$ 时 $\psi_\tau(r)=\tau$，否则 $\psi_\tau(r)=-(1-\tau)$，实现中的坐标更新为
+
+$$
+\beta_j
+\leftarrow
+\frac{
+\mathcal S_{\omega_j}
+\left(
+\sum_i x_{ij}\psi_\tau(r_i^{(-j)})
+\right)
+}{
+\sum_i x_{ij}^2
+}.
+$$
+
+该函数可供进阶用户直接导入，但不会被估计器自动分发选中。其签名虽然包含 `sample_weight`，当前实现并未使用该参数；观测权重会影响结果时，应使用估计器路由的 FISTA 或 quantile-proximal-IRLS 路径。
+
+**主要参考文献：** Wu, Y., & Liu, Y. (2009). [Variable selection in quantile regression](https://www3.stat.sinica.edu.tw/sstest/j19n2/j19n222/j19n222.html). *Statistica Sinica*, 19(2), 801–817.
+
+### IRLS（L2/无惩罚）
+
+**主要参考文献：** Koenker, R. (2005). *Quantile Regression*. Cambridge University Press.
 
 使用 Frisch-Newton 算法（匹配 statsmodels `QuantReg`）：
 1. IRLS 权重：w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
@@ -180,7 +270,5 @@ model.fit(X, y, sample_weight=sample_weight)
 
 ## 参考文献
 
-- Koenker, R. & Bassett, G. (1978). Regression Quantiles. *Econometrica*, 46(1), 33-50.
 - Koenker, R. (2005). *Quantile Regression*. Cambridge University Press.
-- Wu, Y. & Liu, Y. (2009). Variable Selection in Quantile Regression. *Statistica Sinica*, 19, 801-817.
 - Hunter, D. R. & Li, R. (2005). Variable Selection using MM Algorithms. *Annals of Statistics*, 33(4), 1617-1642.

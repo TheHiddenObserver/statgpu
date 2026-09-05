@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-08-28  
+> Last updated: 2026-09-04
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/ridge.md)
 
@@ -56,6 +56,21 @@ scikit-learn uses an unnormalized residual sum of squares. For coefficient compa
 - weighted: `sklearn_alpha = sample_weight.sum() * statgpu_alpha`.
 
 Comparing the two libraries with the same numerical `alpha` compares different objectives.
+
+## Solver support
+
+`Ridge` is the only linear-model wrapper whose default is the model-specific `solver="exact"` path. Set an explicit value when the numerical path must be reproducible; `solver="auto"` may resolve differently after backend selection.
+
+| `solver` value | CPU | CuPy / Torch | When to use it |
+|---|:---:|:---:|---|
+| `exact` (default) | yes | yes | Dense L2 normal-equation solve; first choice for ordinary Ridge |
+| `auto` | exact | Newton | Let backend-aware dispatch choose the path |
+| `fista` / `fista_bb` | yes | yes | Iterative comparison or very controlled optimization experiments |
+| `newton` / `lbfgs` | yes | yes | Smooth-objective alternatives |
+| `admm` | yes | yes | Experimental split formulation; only uniform sample weights |
+| `irls` | no | no | Rejected because the squared-error loss does not expose the IRLS contract |
+
+`coordinate_descent`, `quantile_cd_solver`, and `lbfgs_b_solver` are not Ridge estimator choices. The derivation of the exact path is the estimating equation above; general algorithm mechanics live in the [solver guide](../guides/solver-algorithms.md).
 
 ## Covariance/Inference
 

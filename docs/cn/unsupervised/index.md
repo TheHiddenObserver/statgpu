@@ -1,6 +1,17 @@
 # 无监督学习
 
+> 切换：[English](../../en/unsupervised/)
+
 支持 GPU 的降维、聚类、流形学习和矩阵分解接口。
+
+## 求解器速查
+
+| 模型 | 公开控制项 | 支持值 |
+|---|---|---|
+| [PCA](pca.md#求解器支持) | `svd_solver` | `auto`、`full`、`covariance`、`randomized` |
+| [NMF](nmf.md#求解器支持) | `solver` | 仅 `mu` |
+
+其他页面即使没有公开 `solver` 参数，也会说明各自固定的估计算法。
 
 ## 降维
 

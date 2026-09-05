@@ -1,4 +1,4 @@
-# MiniBatchNMF
+# 小批量非负矩阵分解（MiniBatchNMF）
 
 > 语言：中文
 > 最后更新：2026-05-07
@@ -62,7 +62,7 @@ MiniBatchNMF 是非凸且依赖 batch order 的近似分解方法，目标是可
 - `n_components_`
 - `n_features_in_`
 
-## FAQ
+## 常见问题
 
 **v1 支持负数或 sparse input 吗？**
 不支持。输入必须是 dense 且非负。
@@ -77,7 +77,7 @@ MiniBatchNMF 是非凸且依赖 batch order 的近似分解方法，目标是可
 - 最新远程 artifact：`results/unsupervised_phase3c_opt7_20260507_185500.json`。
 - Baseline：sklearn `MiniBatchNMF`，对齐 rank、batch size、初始化和迭代次数。
 
-## References
+## 参考文献
 
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.

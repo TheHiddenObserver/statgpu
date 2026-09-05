@@ -17,11 +17,28 @@ $$
 
 where $f$ is an average data-fit loss and $P$ is either zero, a smooth penalty such as Ridge, or a non-smooth/non-convex penalty. The intercept is normally excluded from $P$.
 
-This page inventories **12 core solve paths** found in the current source. Ten are low-level functions exported by `statgpu.solvers`, IRLS is exported as `statgpu.glm_core.IRLSSolver`, and `exact` is an estimator-level closed-form path. Fused GPU kernels and group-aware LLA are implementations of these paths, not extra public solver names.
+This page inventories **10 general-purpose solve paths** found in the current source. Eight are low-level functions exported by `statgpu.solvers`, IRLS is exported as `statgpu.glm_core.IRLSSolver`, and `exact` is an estimator-level closed-form path. Model-specific algorithms are documented only with their model; see [quantile regression](../models/quantile.md#algorithm-details) for its specialized solvers.
 
 ::: warning API boundary
 The inventory is broader than any one estimator's accepted `solver=` values. Use `solver="auto"` unless you have checked the [solver × penalty compatibility matrix](solver-penalty-matrix.md). Direct solver functions expect loss and penalty objects and are mainly advanced interfaces.
 :::
+
+## Start from the model page
+
+Choose a solver from the model you are fitting, not from the complete inventory below. Each linked page lists the public selector, its default, the resolved `auto` path, and combinations that are intentionally unavailable.
+
+| Model surface | Solver control | Model-specific documentation |
+|---|---|---|
+| `GeneralizedLinearModel` and solver-enabled typed GLMs | `solver` | [Generalized linear models](../models/generalized-linear-model.md#solver-support), [Poisson](../models/poisson-regression.md#solver-support) |
+| `LogisticRegression` typed wrapper | fixed IRLS; no selector | [Logistic regression](../models/logistic-regression.md#solver-support) |
+| Ridge | `solver` | [Ridge](../models/ridge.md#solver-support) |
+| Lasso and Elastic Net | `solver`; CV/path helpers also expose `cpu_solver` | [Lasso](../models/lasso.md#solver-support), [Elastic Net](../models/elastic-net.md#solver-support) |
+| Adaptive Lasso, SCAD, MCP | routed model-specific continuation/weighted-L1 paths | [Adaptive Lasso](../models/adaptive-lasso.md#solver-support), [SCAD](../models/scad.md#solver-support), [MCP](../models/mcp.md#solver-support) |
+| Robust regression | estimator-specific `solver` rules | [Robust regression](../models/robust.md#solver-support) |
+| Cox and ordered response models | fixed Newton path or penalized `solver` | [CoxPH](../models/coxph.md#solver-support), [ordered models](../models/ordered.md#solver-support) |
+| PCA, KernelPCA, NMF | `svd_solver`, `eigen_solver`, or `solver` | [PCA](../unsupervised/pca.md#solver-support), [kernel methods](../models/kernel-methods.md#solver-support), [NMF](../unsupervised/nmf.md#solver-support) |
+
+Names such as `fista_lla_path`, `proximal_newton_solver`, and `lbfgs_b_solver` describe internal or low-level APIs. They are not universal values for an estimator's `solver=` parameter.
 
 ## Complete inventory
 
@@ -33,14 +50,12 @@ The inventory is broader than any one estimator's accepted `solver=` values. Use
 | 4 | Newton-Raphson | `newton_solver`; estimator-routed | Smooth losses with no penalty or L2 | NumPy, CuPy, Torch |
 | 5 | Proximal-Newton facade | `proximal_newton_solver`; direct low-level API | Smooth Newton path; delegates non-smooth cases to FISTA | NumPy, CuPy, Torch |
 | 6 | GLM IRLS | `IRLSSolver`; estimator-routed | Ordinary GLMs and supported smooth penalized GLMs | NumPy, CuPy, Torch |
-| 7 | Proximal IRLS for quantiles | `proximal_irls_quantile_solver`; internal routed subpath | Quantile loss with SCAD/MCP continuation | NumPy, CuPy, Torch |
-| 8 | Quantile coordinate descent | `quantile_cd_solver`; direct low-level API | Weighted-L1 LLA subproblems for quantile loss | NumPy |
-| 9 | L-BFGS | `lbfgs_solver`; estimator-routed | Smooth objectives when storing a Hessian is undesirable | NumPy, CuPy, Torch |
-| 10 | L-BFGS-B | `lbfgs_b_solver`; direct low-level API | Smooth objectives with box constraints | NumPy, CuPy, Torch |
-| 11 | ADMM | `admm_solver`; explicit estimator route | Split smooth-loss and proximal-penalty updates | NumPy, CuPy, Torch |
-| 12 | Exact Ridge solve | estimator `solver="exact"` | Squared error with L2 | NumPy, CuPy, Torch |
+| 7 | L-BFGS | `lbfgs_solver`; estimator-routed | Smooth objectives when storing a Hessian is undesirable | NumPy, CuPy, Torch |
+| 8 | L-BFGS-B | `lbfgs_b_solver`; direct low-level API | Smooth objectives with box constraints | NumPy, CuPy, Torch |
+| 9 | ADMM | `admm_solver`; explicit estimator route | Split smooth-loss and proximal-penalty updates | NumPy, CuPy, Torch |
+| 10 | Exact Ridge solve | estimator `solver="exact"` | Squared error with L2 | NumPy, CuPy, Torch |
 
-`quantile_cd_solver` was missing from the previous page. L-BFGS-B, ADMM, and exact were also missing from the Chinese page.
+Each algorithm section below explains the method in prose and uses concise author-year citations near the derivation. Full bibliographic entries are collected at the end of the page. The citations identify the mathematical method family; statgpu's backend kernels, safeguards, stopping rules, and estimator routing remain implementation-specific.
 
 ## Shared notation: proximal operator
 
@@ -68,7 +83,7 @@ $$
 
 **Source:** `statgpu/solvers/_fista.py`
 
-FISTA combines a proximal-gradient step with Nesterov momentum. With a local Lipschitz estimate $L_k$,
+FISTA combines a proximal-gradient step with Nesterov momentum, following Beck and Teboulle (2009). The implementation's restart behavior is related to the adaptive restart strategy of O'Donoghue and Candès (2015). With a local Lipschitz estimate $L_k$,
 
 $$
 \beta_{k+1}
@@ -98,7 +113,7 @@ The implementation uses backtracking when needed, tracks the best objective for 
 
 **Source:** `statgpu/solvers/_fista_bb.py`
 
-FISTA-BB estimates a local step from successive parameters and smooth gradients:
+FISTA-BB retains the accelerated proximal structure of Beck and Teboulle (2009) while using the spectral step-size construction of Barzilai and Borwein (1988). It estimates a local step from successive parameters and smooth gradients:
 
 $$
 s_k=\beta_k-\beta_{k-1},
@@ -124,7 +139,7 @@ The solver alternates these candidates after a burn-in, clips them to safe bound
 
 **Sources:** `statgpu/solvers/_fista_lla.py` and `_fista_lla_group_contract.py`
 
-Local linear approximation replaces a non-convex coordinate penalty near $\beta^{(m)}$ by a weighted L1 surrogate:
+The SCAD/MCP setting follows the non-concave penalization framework of Fan and Li (2001), while the local linear approximation strategy follows Zou and Li (2008). It replaces a non-convex coordinate penalty near $\beta^{(m)}$ by a weighted L1 surrogate:
 
 $$
 P_\lambda(|\beta_j|)
@@ -155,7 +170,7 @@ with FISTA. A decreasing continuation path $\lambda_1>\cdots>\lambda_M$ warm-sta
 
 **Source:** `statgpu/solvers/_newton.py`
 
-For a smooth objective, define
+The Newton direction and line-search treatment follow the standard presentation of Nocedal and Wright (2006). For a smooth objective, define
 
 $$
 g_k=\nabla F(\beta_k),
@@ -177,7 +192,7 @@ where $\delta=10^{-10}$ is a numerical ridge and $a_k$ is selected by Armijo bac
 
 **Source:** `statgpu/solvers/_proximal_newton.py`
 
-A full proximal-Newton method for non-smooth $P$ would solve
+The composite proximal-Newton framework is described by Lee, Sun, and Saunders (2014). A full proximal-Newton method for non-smooth $P$ would solve
 
 $$
 d_k
@@ -198,7 +213,7 @@ That Hessian-metric proximal subproblem is **not implemented**. The current publ
 
 **Source:** `statgpu/glm_core/_irls.py`
 
-At the current mean $\mu_i$ and linear predictor $\eta_i=g(\mu_i)$, IRLS builds
+IRLS is developed by Green (1984) and in the GLM treatment of McCullagh and Nelder (1989). At the current mean $\mu_i$ and linear predictor $\eta_i=g(\mu_i)$, it builds
 
 $$
 z_i
@@ -222,89 +237,11 @@ $$
 
 where $D$ normally leaves the intercept unpenalized. A backtracking line search checks the registered family/link objective. `IRLSSolver` supports analytic sample weights and NumPy, CuPy, and Torch arrays. On the ordinary GLM surface, `solver="auto"` currently resolves to IRLS; set `C=0` for an unpenalized IRLS fit.
 
-## 7. Proximal IRLS for quantile regression
-
-**Source:** `statgpu/solvers/_proximal_irls_quantile.py`
-
-For residual $r_i=y_i-x_i^\top\beta$ and quantile $\tau$, the check loss is
-
-$$
-\rho_\tau(r)
-=
-r\left(\tau-\mathbf 1\{r<0\}\right).
-$$
-
-Inside each continuation and LLA step, the implementation uses
-
-$$
-a_i
-=
-\frac{
-\tau\mathbf 1\{r_i\ge0\}
-+
-(1-\tau)\mathbf 1\{r_i<0\}
-}{
-\max(|r_i|,\varepsilon)
-},
-\qquad
-\omega_j=P_\lambda'(|\beta_j|).
-$$
-
-With $A=\operatorname{diag}(a_i)$,
-
-$$
-g=\tilde X^\top A(y-\tilde X\beta),
-\qquad
-h=\operatorname{diag}(\tilde X^\top A\tilde X),
-$$
-
-and all coordinates are updated in parallel by
-
-$$
-\beta_j^{\mathrm{new}}
-=
-\frac{
-\mathcal S_{n\omega_j}(g_j+h_j\beta_j)
-}{h_j}.
-$$
-
-This is a GPU-friendly Jacobi-style diagonal majorization step, not cyclic coordinate descent. Analytic sample weights multiply $a_i$ after being normalized to sum to $n$.
-
-## 8. Quantile coordinate descent
-
-**Source:** `statgpu/solvers/_quantile_cd.py`
-
-This NumPy-only low-level solver alternates LLA weights with cyclic coordinate updates for
-
-$$
-\min_\beta
-\sum_{i=1}^n\rho_\tau(y_i-x_i^\top\beta)
-+
-\sum_{j=1}^p\omega_j|\beta_j|.
-$$
-
-Using $\psi_\tau(r)=\tau$ for $r\ge0$ and $\psi_\tau(r)=-(1-\tau)$ otherwise, the implemented coordinate step is
-
-$$
-\beta_j
-\leftarrow
-\frac{
-\mathcal S_{\omega_j}
-\left(
-\sum_i x_{ij}\psi_\tau(r_i^{(-j)})
-\right)
-}{
-\sum_i x_{ij}^2
-}.
-$$
-
-It is exported for direct advanced use but is not selected by the current automatic estimator dispatch. Its `sample_weight` argument is present in the signature but is not consumed by the current implementation; use the routed FISTA/proximal-IRLS paths when observation weights matter.
-
-## 9. L-BFGS
+## 7. L-BFGS
 
 **Source:** `statgpu/solvers/_lbfgs.py`
 
-L-BFGS approximates $H_k^{-1}g_k$ from the most recent
+The limited-memory update follows Liu and Nocedal (1989). L-BFGS approximates $H_k^{-1}g_k$ from the most recent
 
 $$
 s_k=\beta_{k+1}-\beta_k,
@@ -316,11 +253,11 @@ $$
 
 pairs. The standard two-loop recursion produces $d_k=-B_k g_k$ without forming a dense Hessian. Armijo backtracking verifies the smooth full objective. The default history size is 10. Only L2/no penalty and uniform `sample_weight` are accepted.
 
-## 10. L-BFGS-B
+## 8. L-BFGS-B
 
 **Source:** `statgpu/solvers/_lbfgs_b.py`
 
-L-BFGS-B adds componentwise constraints
+The bound-constrained limited-memory method follows Byrd et al. (1995). L-BFGS-B adds componentwise constraints
 
 $$
 \ell_j\le\beta_j\le u_j
@@ -337,11 +274,11 @@ $$
 
 Convergence uses the projected gradient: a component pointing outside an active bound is set to zero. Bounds must match the coefficient shape, contain no NaN, and satisfy $\ell_j\le u_j$. Like L-BFGS, this path accepts only smooth penalties and uniform sample weights.
 
-## 11. ADMM
+## 9. ADMM
 
 **Source:** `statgpu/solvers/_admm.py`
 
-ADMM introduces $z$ and solves
+The splitting formulation and residual diagnostics follow Boyd et al. (2011). ADMM introduces $z$ and solves
 
 $$
 \min_{\beta,z}
@@ -385,11 +322,11 @@ $$
 
 When enabled, adaptive $\rho$ doubles or halves it if one residual exceeds ten times the other. Only uniform sample weights are currently accepted.
 
-## 12. Exact Ridge solve
+## 10. Exact Ridge solve
 
 **Source:** estimator methods `_solve_exact_numpy`, `_solve_exact_cupy`, and `_solve_exact_torch` in `statgpu/linear_model/penalized/_fit_mixin.py`
 
-For centered/weighted $X_c$ and $y_c$, the estimator solves
+This closed-form Ridge estimator follows Hoerl and Kennard (1970). For centered/weighted $X_c$ and $y_c$, the estimator solves
 
 $$
 \hat\beta
@@ -411,13 +348,12 @@ The main automatic policy is:
 | ordinary `GeneralizedLinearModel` | IRLS |
 | squared error + L2 on CPU | exact |
 | squared error + L2 on GPU | Newton |
-| scalar or group SCAD/MCP | FISTA-LLA; quantile loss uses proximal IRLS |
-| quantile loss with convex penalty | FISTA |
+| scalar or group SCAD/MCP | FISTA-LLA |
 | squared error + L1/Elastic Net | FISTA |
 | sparse GLMs | FISTA or FISTA-BB according to family, backend, CV mode, and size |
 | smooth GLM/robust/Cox objective | Newton, with CV-specific L-BFGS exceptions |
 
-`proximal_newton_solver`, `quantile_cd_solver`, and `lbfgs_b_solver` are directly importable but are not current `auto` destinations. Estimator-specific ordered-model trust-region Newton, fused GPU kernels, and group LLA wrappers are documented with their parent model/path rather than counted as additional solver keywords.
+`proximal_newton_solver` and `lbfgs_b_solver` are directly importable but are not current `auto` destinations. Estimator-specific algorithms, ordered-model trust-region Newton, fused GPU kernels, and group LLA wrappers are documented with their parent model/path rather than counted as additional solver keywords.
 
 See the [solver × penalty compatibility matrix](solver-penalty-matrix.md) for exact accepted and rejected combinations, and the [loss × penalty × solver framework](loss-penalty-solver-framework.md) for architecture.
 
@@ -436,11 +372,16 @@ Reaching `max_iter` produces a convergence warning on supported paths. A solver 
 
 ## References
 
-- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm. *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
-- Barzilai, J., & Borwein, J. M. (1988). Two-point step size gradient methods. *IMA Journal of Numerical Analysis*, 8(1), 141–148.
-- O'Donoghue, B., & Candès, E. (2015). Adaptive restart for accelerated gradient schemes. *Foundations of Computational Mathematics*, 15(3), 715–732.
-- Nocedal, J. (1980). Updating quasi-Newton matrices with limited storage. *Mathematics of Computation*, 35(151), 773–782.
-- Byrd, R. H., Lu, P., Nocedal, J., & Zhu, C. (1995). A limited memory algorithm for bound constrained optimization. *SIAM Journal on Scientific Computing*, 16(5), 1190–1208.
-- Boyd, S., Parikh, N., Chu, E., Peleato, B., & Eckstein, J. (2011). Distributed optimization and statistical learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1–122.
-- Fan, J., & Li, R. (2001). Variable selection via nonconcave penalized likelihood. *Journal of the American Statistical Association*, 96, 1348–1360.
-- Zou, H., & Li, R. (2008). One-step sparse estimates in nonconcave penalized likelihood models. *Annals of Statistics*, 36(4), 1509–1533.
+- Barzilai, J., & Borwein, J. M. (1988). [Two-point step size gradient methods](https://doi.org/10.1093/imanum/8.1.141). *IMA Journal of Numerical Analysis*, 8(1), 141–148.
+- Beck, A., & Teboulle, M. (2009). [A fast iterative shrinkage-thresholding algorithm for linear inverse problems](https://doi.org/10.1137/080716542). *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
+- Boyd, S., Parikh, N., Chu, E., Peleato, B., & Eckstein, J. (2011). [Distributed optimization and statistical learning via the alternating direction method of multipliers](https://doi.org/10.1561/2200000016). *Foundations and Trends in Machine Learning*, 3(1), 1–122.
+- Byrd, R. H., Lu, P., Nocedal, J., & Zhu, C. (1995). [A limited memory algorithm for bound constrained optimization](https://doi.org/10.1137/0916069). *SIAM Journal on Scientific Computing*, 16(5), 1190–1208.
+- Fan, J., & Li, R. (2001). [Variable selection via nonconcave penalized likelihood and its oracle properties](https://doi.org/10.1198/016214501753382273). *Journal of the American Statistical Association*, 96(456), 1348–1360.
+- Green, P. J. (1984). [Iteratively reweighted least squares for maximum likelihood estimation, and some robust and resistant alternatives](https://doi.org/10.1111/j.2517-6161.1984.tb01288.x). *Journal of the Royal Statistical Society: Series B*, 46(2), 149–192.
+- Hoerl, A. E., & Kennard, R. W. (1970). [Ridge regression: Biased estimation for nonorthogonal problems](https://doi.org/10.1080/00401706.1970.10488634). *Technometrics*, 12(1), 55–67.
+- Lee, J. D., Sun, Y., & Saunders, M. A. (2014). [Proximal Newton-type methods for minimizing composite functions](https://doi.org/10.1137/130921428). *SIAM Journal on Optimization*, 24(3), 1420–1443.
+- Liu, D. C., & Nocedal, J. (1989). [On the limited memory BFGS method for large scale optimization](https://doi.org/10.1007/BF01589116). *Mathematical Programming*, 45, 503–528.
+- McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models* (2nd ed.). Chapman & Hall/CRC.
+- Nocedal, J., & Wright, S. J. (2006). [*Numerical Optimization* (2nd ed.)](https://doi.org/10.1007/978-0-387-40065-5). Springer.
+- O'Donoghue, B., & Candès, E. (2015). [Adaptive restart for accelerated gradient schemes](https://doi.org/10.1007/s10208-013-9150-3). *Foundations of Computational Mathematics*, 15(3), 715–732.
+- Zou, H., & Li, R. (2008). [One-step sparse estimates in nonconcave penalized likelihood models](https://doi.org/10.1214/07-AOS520). *Annals of Statistics*, 36(4), 1509–1533.

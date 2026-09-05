@@ -7,7 +7,7 @@
 
 ## 概述
 
-通过 M-估计实现稳健回归，支持自动尺度估计。`PenalizedRobustRegression` 封装了 Huber、Bisquare 和 Fair 损失，支持最多 10 种惩罚和 8 种求解器，包括专门针对 SCAD/MCP 的 Proximal Newton 求解器。
+通过 M-估计实现稳健回归，支持自动尺度估计。`PenalizedRobustRegression` 将 Huber、Bisquare 和 Fair 损失与 penalty-aware 求解器分发组合起来；SCAD/MCP 使用模型专属 FISTA-LLA continuation 路径。
 
 | 组件 | 路径 |
 |------|------|
@@ -82,18 +82,32 @@ $$
 
 然后 δ = ε · σ̂（Huber）或 c = ε · σ̂（Bisquare）。
 
-## 求解器兼容性
+## 求解器支持
 
-| 求解器 | Huber | Bisquare | Fair | 说明 |
-|--------|:---:|:---:|:---:|------|
-| Proximal Newton | ✅ | ✅ | ✅ | SCAD/MCP 最快：5-10 次迭代 |
-| FISTA | ✅ | ✅ | ✅ | 任意惩罚 |
-| FISTA-BB | ✅ | ✅ | ✅ | 自适应步长 |
-| IRLS | ✅ | ✅ | ✅ | 仅光滑惩罚 |
-| Newton | ✅ | ✅ | ✅ | L2 惩罚 |
-| L-BFGS | ✅ | ✅ | ✅ | 中低维度 |
+| `solver` 值 | Huber | Bisquare | Fair | 限制 |
+|---|:---:|:---:|:---:|---|
+| `auto` | 支持 | 支持 | 支持 | L2/none 用 Newton；稀疏惩罚用 FISTA |
+| `fista` / `fista_bb` | 支持 | 支持 | 支持 | 通用近端路径 |
+| `newton` / `lbfgs` | L2/none | L2/none | L2/none | 仅光滑惩罚 |
+| `admm` | 兼容惩罚 | 兼容惩罚 | 兼容惩罚 | 只支持均匀样本权重 |
+| `irls` | 不支持 | 暂不作为文档化估计器路径 | 暂不作为文档化估计器路径 | Huber 会拒绝 IRLS contract；Bisquare/Fair 待估计器调用签名对齐后再开放 |
+| `exact` | 不支持 | 不支持 | 不支持 | 仅适用于 Ridge |
+
+Proximal Newton 不是 `PenalizedRobustRegression(solver=...)` 的取值；它是求解器库中的低层 facade。当前稳健回归的 SCAD/MCP 估计器路径是 FISTA-LLA。
+
+## 惩罚兼容性
+
+| 惩罚 | `auto` 路径 | 说明 |
+|---|---|---|
+| l2 / none | Newton | 当前自动光滑路径 |
+| l1 / elasticnet | FISTA | 近端稀疏路径 |
+| SCAD / MCP | FISTA-LLA | Continuation 与局部线性近似 |
+| adaptive_l1 | 加权 L1 FISTA | 数据驱动 proximal 权重 |
+| group penalties | Group proximal 路径 | 具体分发取决于 penalty |
 
 ## 示例
+
+### CPU
 
 ```python
 from statgpu.linear_model.penalized import PenalizedRobustRegression
@@ -104,6 +118,10 @@ model.fit(X, y)
 
 # Bisquare + MCP
 model = PenalizedRobustRegression(loss='bisquare', penalty='mcp', alpha=0.1)
+model.fit(X, y)
+
+# Fair + L2
+model = PenalizedRobustRegression(loss='fair', penalty='l2', alpha=0.01)
 model.fit(X, y)
 ```
 
@@ -118,15 +136,27 @@ model = PenalizedRobustRegression(loss='huber', penalty='scad', alpha=0.1)
 model.fit(X_t, y_t)
 ```
 
+### 直接调用求解器 API
+
+```python
+from statgpu.losses import HuberLoss, BisquareLoss
+from statgpu.penalties import SCADPenalty
+from statgpu.solvers import fista_solver
+
+loss = HuberLoss(epsilon=1.345)
+coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
+```
+
 ## 算法详解
 
-### Proximal Newton (SCAD/MCP)
+### FISTA-LLA (SCAD/MCP)
 
-1. 计算 Hessian H = X'WX 和梯度 g
-2. Newton 方向：d = -H⁻¹·g
-3. Armijo 线搜索 + proximal 步
-4. 更新：β_new = proximal(β − step·d, step)
-5. 通常每 LLA 步 5-10 次迭代
+1. 从数据驱动的起始惩罚构造递减 continuation path，直至用户指定的 `alpha`。
+2. 在当前系数处线性化非凸惩罚。
+3. 使用 FISTA 求解得到的加权 L1 子问题。
+4. 为下一次 LLA/continuation 步骤热启动，并根据系数与 LLA 容差停止。
+
+对于 L2/none，`auto` 使用稳健损失梯度与 Hessian 的 Newton 路径。低层 loss class 中的其他实验方法不会自动成为估计器级 `solver=` 取值。
 
 ## 输出
 
@@ -148,7 +178,7 @@ model.fit(X_t, y_t)
 - `BisquareLoss` + SCAD/MCP：在 LAST continuation step（target α）warm-start（v0.2.1 修复）。
 - 尺度估计使用 CPU numpy；GPU 数据自动转换。
 - 所有损失接受 `sample_weight`。
-- 三种损失 `has_hessian=True`，支持 proximal Newton。
+- 三种损失的 `has_hessian=True` 使 Newton/L-BFGS 可用于光滑 L2/无惩罚目标；SCAD/MCP 仍分发到 FISTA-LLA。
 
 ## 参考文献
 

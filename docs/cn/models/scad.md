@@ -1,7 +1,7 @@
 # SCAD 回归
 
 > 语言：简体中文
-> 最后更新：2026-09-03
+> 最后更新：2026-09-04
 > 切换：[English](../../en/models/scad.md)
 
 ## 它解决什么问题？
@@ -108,6 +108,19 @@ print("训练集 R²：", model.score(X, y))
 | `compute_inference` | `False` | 类型化的新手路径保持关闭；高级用法见下方推断说明 |
 
 调整 `alpha` 前应先标准化特征，否则相同惩罚强度会把测量单位差异误当成重要性差异。
+
+## 求解器支持
+
+SCAD 使用模型专属路径：推荐的 `solver="auto"` 先解析为 FISTA 分发，再由估计器执行 continuation 与局部线性近似（FISTA-LLA）；显式设置 `solver="fista"` 会选择同一条公开路径。
+
+| 选择 | 支持情况 | 实际计算 |
+|---|:---:|---|
+| `auto`（默认） | 支持 | FISTA-LLA continuation |
+| `fista` | 支持 | FISTA-LLA continuation |
+| `newton`、`lbfgs`、`irls`、`exact` | 不支持 | 非凸、非光滑惩罚与这些光滑路径不兼容 |
+| `fista_bb`、`admm`、`coordinate_descent` | 没有独立 SCAD 路径 | 当前 wrapper 仍会路由到 FISTA-LLA，不应据此做求解器对比 |
+
+`fista_lla_path` 是内部子路径，不能作为 `solver=` 的取值。LLA 权重与 continuation 逻辑属于本模型页；内层 FISTA 更新见[通用求解器指南](../guides/solver-algorithms.md#1-fista)。
 
 ## 与其他方法比较
 

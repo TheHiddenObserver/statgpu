@@ -1,4 +1,4 @@
-# PCA
+# 主成分分析（PCA）
 
 > 语言：中文
 > 最后更新：2026-05-02
@@ -63,6 +63,17 @@ $$
   $$
 - `explained_variance_ratio_` 是 retained variance 除以 centered total variance。
 
+## 求解器支持
+
+| `svd_solver` 值 | 精确性 | 分发与适用场景 |
+|---|---|---|
+| `auto`（默认） | 精确 | `n_samples >= n_features` 时用 `covariance`，否则用 `full` |
+| `full` | 浮点误差范围内精确 | 直接稠密 SVD；特征数超过样本数时更合适 |
+| `covariance` | 浮点误差范围内精确 | 对特征协方差做 eigendecomposition，避免分解完整矩形矩阵 |
+| `randomized` | 近似 | 随机投影与 power iteration；由 `random_state`、`n_oversamples`、`iterated_power` 控制 |
+
+四种取值都在选定的 NumPy、CuPy 或 Torch 后端实现。它们是 PCA 专属 `svd_solver` 值，不能作为线性模型 `solver=` 的别名。
+
 ## 参数
 
 - `n_components`：保留的 components 数量；`None` 保留所有可行 components。
@@ -104,7 +115,7 @@ PCA 没有统计推断意义上的 strict inference 模式。这里的 exact/app
 - `n_components_`
 - `n_features_in_`
 
-## FAQ
+## 常见问题
 
 **为什么 components 和 sklearn 差一个符号？**
 Eigenvector 和 singular vector 的符号不唯一。验证时应使用 sign-aware comparison 或比较子空间。
@@ -119,7 +130,7 @@ Eigenvector 和 singular vector 的符号不唯一。验证时应使用 sign-awa
 - Baseline：sklearn PCA，以及早期 unsupervised matrix 中可用的 statsmodels/R PCA 对比。
 - 最新 Phase 2 摘要：`results/unsupervised_phase2_verify_summary_20260502_210000.md`。
 
-## References
+## 参考文献
 
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835

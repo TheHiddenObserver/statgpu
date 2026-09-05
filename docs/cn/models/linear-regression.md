@@ -1,4 +1,4 @@
-# LinearRegression
+# 线性回归（LinearRegression）
 
 > 语言：简体中文
 > 最后更新：2026-09-03

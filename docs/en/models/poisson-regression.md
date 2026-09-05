@@ -49,6 +49,18 @@ $$
 
 `PoissonRegression` defaults to `solver="auto"`, which currently dispatches to IRLS. Explicit `solver="newton"` and `solver="lbfgs"` are also available for smooth Poisson GLM objectives and run on the selected backend. As of v23c, `solver="lbfgs"` correctly handles L2 penalties. The model inherits the GLM formula interface, so formula intercept semantics follow patsy/R conventions.
 
+## Solver support
+
+| `solver` value | CPU / CuPy / Torch | Penalty and weight semantics |
+|---|:---:|---|
+| `auto` (default) | supported | Resolves to IRLS |
+| `irls` | supported | `C` controls the inherited L2 term; analytic sample weights supported |
+| `fista` | supported | Zero-penalty proximal-gradient comparison path; analytic sample weights supported |
+| `newton` | supported | Smooth unpenalized path; only uniform sample weights |
+| `lbfgs` | supported | Smooth unpenalized path; only uniform sample weights |
+
+`exact`, `admm`, and low-level L-BFGS-B are not `PoissonRegression` values. For L1, Elastic Net, SCAD, or MCP use `PenalizedPoissonRegression` and consult the [GLM solver table](generalized-linear-model.md#solver-support).
+
 ## Covariance/Inference
 
 Set ``compute_inference=True`` to obtain post-fit inference:

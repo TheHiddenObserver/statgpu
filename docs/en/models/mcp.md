@@ -1,7 +1,7 @@
 # MCP
 
 > Language: English  
-> Last updated: 2026-06-14  
+> Last updated: 2026-09-04
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/mcp.md)
 
@@ -68,6 +68,19 @@ MCP produces **nearly unbiased** estimates, with bias decreasing as $\gamma$ inc
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` |
 | `solver` | `"auto"` | Solver selection |
 | `gpu_memory_cleanup` | `False` | CuPy pool cleanup after fit |
+
+## Solver support
+
+MCP uses the same model-specific continuation contract as SCAD.
+
+| Choice | Support | Actual computation |
+|---|:---:|---|
+| `auto` (default) | yes | FISTA-LLA continuation |
+| `fista` | yes | FISTA-LLA continuation |
+| `newton`, `lbfgs`, `irls`, `exact` | no | Rejected for the non-convex, non-smooth penalty |
+| `fista_bb`, `admm`, `coordinate_descent` | no distinct MCP path | Current wrapper still routes MCP through FISTA-LLA; do not use these names for solver comparisons |
+
+`fista_lla_path` is an internal implementation name, not an MCP `solver=` value. See [solver algorithms](../guides/solver-algorithms.md#1-fista) for the inner FISTA step.
 
 ## CPU+GPU Examples
 

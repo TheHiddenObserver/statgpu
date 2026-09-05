@@ -152,6 +152,75 @@ test.describe('Documentation navigation', () => {
     await expect(page.locator('main h1')).toContainText('Ridge');
   });
 
+  test('keeps the model catalog focused and places specialized solvers on model pages', async ({
+    page,
+  }) => {
+    await page.goto(siteRoot + 'en/models/');
+    const modelCatalog = page.getByRole('main');
+    await expect(modelCatalog).not.toContainText('Solver lookup');
+    await modelCatalog.getByRole('link', { name: 'Ridge regression' }).click();
+    await expect(page).toHaveURL(siteRoot + 'en/models/ridge');
+    await expect(
+      page.getByRole('heading', { name: 'Solver support' }),
+    ).toBeVisible();
+
+    await page.goto(siteRoot + 'en/models/quantile');
+    const quantileMain = page.getByRole('main');
+    await expect(
+      quantileMain.getByRole('heading', {
+        name: 'Quantile proximal IRLS (SCAD/MCP)',
+      }),
+    ).toBeVisible();
+    await expect(
+      quantileMain.getByRole('heading', {
+        name: 'Quantile coordinate descent',
+      }),
+    ).toBeVisible();
+    await expect(quantileMain).toContainText(
+      'proximal_irls_quantile_solver',
+    );
+    expect(await quantileMain.locator('mjx-container').count()).toBeGreaterThan(
+      10,
+    );
+
+    await page.goto(siteRoot + 'en/guides/solver-algorithms');
+    const generalSolverMain = page.getByRole('main');
+    await expect(generalSolverMain).not.toContainText(
+      'Quantile coordinate descent',
+    );
+    await expect(generalSolverMain).not.toContainText(
+      'proximal_irls_quantile_solver',
+    );
+    expect(
+      await generalSolverMain.locator('mjx-container').count(),
+    ).toBeGreaterThan(10);
+
+    await page.goto(siteRoot + 'en/models/logistic-regression');
+    const logisticMain = page.getByRole('main');
+    await expect(logisticMain).toContainText(
+      'does not expose a public solver parameter',
+    );
+    await expect(logisticMain).toContainText('fixed IRLS');
+
+    await page.goto(siteRoot + 'cn/models/');
+    await expect(page.getByRole('main')).not.toContainText('求解器速查');
+    await page
+      .getByRole('main')
+      .getByRole('link', { name: '线性回归' })
+      .click();
+    await expect(page.locator('main h1')).toContainText(
+      '线性回归（LinearRegression）',
+    );
+
+    await page.goto(siteRoot + 'cn/models/quantile');
+    await expect(
+      page.getByRole('heading', { name: '分位数近端 IRLS（SCAD/MCP）' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: '分位数坐标下降' }),
+    ).toBeVisible();
+  });
+
   test('exposes solver documentation and GLM inference references', async ({
     page,
   }) => {
@@ -183,5 +252,142 @@ test.describe('Documentation navigation', () => {
     await expect(
       page.locator('.VPSidebar a[href="/statgpu/cn/guides/solver-penalty-matrix"]'),
     ).toHaveCount(1);
+  });
+
+  test('publishes algorithm references and detailed GLM family setup', async ({
+    page,
+  }) => {
+    await page.goto(siteRoot + 'en/guides/solver-algorithms');
+    const solverMain = page.getByRole('main');
+    await expect(solverMain).not.toContainText('was missing from the previous page');
+    await expect(solverMain.locator('table').first()).not.toContainText(
+      'Primary reference',
+    );
+    await expect(solverMain).not.toContainText('Primary reference');
+    await expect(solverMain).toContainText(
+      'following Beck and Teboulle (2009)',
+    );
+    await expect(solverMain).toContainText('follow Boyd et al. (2011)');
+    await expect(solverMain).toContainText(
+      'Proximal Newton-type methods for minimizing composite functions',
+    );
+    await expect(solverMain).toContainText(
+      'Iteratively reweighted least squares for maximum likelihood estimation',
+    );
+    await expect(solverMain).toContainText(
+      'Ridge regression: Biased estimation for nonorthogonal problems',
+    );
+    await expect(solverMain).not.toContainText('Quantile coordinate descent');
+    await expect(solverMain.locator('h2').last()).toContainText('References');
+
+    await page.goto(siteRoot + 'cn/guides/solver-algorithms');
+    const chineseSolverMain = page.getByRole('main');
+    await expect(chineseSolverMain).not.toContainText(
+      '\u65e7\u9875\u9762\u9057\u6f0f',
+    );
+    await expect(
+      chineseSolverMain.locator('table').first(),
+    ).not.toContainText('\u4e3b\u8981\u53c2\u8003\u6587\u732e');
+    await expect(chineseSolverMain).not.toContainText(
+      '\u4e3b\u8981\u53c2\u8003\u6587\u732e',
+    );
+    await expect(chineseSolverMain).toContainText(
+      'Beck \u4e0e Teboulle\uff082009\uff09',
+    );
+    await expect(chineseSolverMain.locator('h2').last()).toContainText(
+      '\u53c2\u8003\u6587\u732e',
+    );
+
+    await page.goto(siteRoot + 'en/models/generalized-linear-model');
+    await page
+      .getByRole('main')
+      .getByRole('link', { name: 'Gaussian setup' })
+      .click();
+    await expect(page).toHaveURL(
+      siteRoot + 'en/models/glm-family-reference#gaussian',
+    );
+    await expect(page.locator('main h2#gaussian')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByRole('main')).toContainText(
+      'GeneralizedLinearModel(family="gaussian", solver="newton", C=0)',
+    );
+
+    await page.goto(siteRoot + 'en/models/generalized-linear-model');
+    await page
+      .getByRole('main')
+      .getByRole('link', { name: 'Binomial setup' })
+      .click();
+    await expect(page).toHaveURL(
+      siteRoot + 'en/models/glm-family-reference#binomial',
+    );
+    await expect(page.locator('main h2#binomial')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByRole('main')).toContainText(
+      'it does not expose a trials denominator',
+    );
+
+    await page.goto(siteRoot + 'cn/models/generalized-linear-model');
+    await page
+      .getByRole('main')
+      .getByRole('link', { name: 'Gaussian \u8bbe\u7f6e' })
+      .click();
+    await expect(page.locator('main h2#gaussian')).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test('prefetches and searches bilingual documentation', async ({ page }) => {
+    const englishIndex = page.waitForResponse(
+      response =>
+        response.url().includes('@localSearchIndexroot') &&
+        response.status() === 200,
+    );
+    await page.goto(siteRoot + 'en/getting-started/quickstart');
+    await englishIndex;
+
+    await page.getByRole('button', { name: 'Search' }).click();
+    const englishInput = page.locator('#localsearch-input');
+    await englishInput.fill('solver algorithms');
+    const englishResult = page.locator(
+      `.VPLocalSearchBox a.result[href^='/statgpu/en/guides/solver-algorithms']`,
+    );
+    await expect(englishResult.first()).toBeVisible();
+    await expect(page.locator('.toggle-layout-button')).toHaveCount(0);
+    await englishResult.first().click();
+    await expect(page).toHaveURL(
+      /\/statgpu\/en\/guides\/solver-algorithms/,
+    );
+    await expect(page.locator('main h1')).toContainText('Solver algorithms');
+
+    const chineseIndex = page.waitForResponse(
+      response =>
+        response.url().includes('@localSearchIndexcn') &&
+        response.status() === 200,
+    );
+    await page.goto(siteRoot + 'cn/getting-started/quickstart');
+    await chineseIndex;
+
+    await page
+      .getByRole('button', { name: '\u641c\u7d22\u6587\u6863' })
+      .click();
+    const chineseInput = page.locator('#localsearch-input');
+    await expect(chineseInput).toHaveAttribute('placeholder', '\u641c\u7d22');
+    await chineseInput.fill('\u6c42\u89e3\u5668\u7b97\u6cd5');
+    const chineseResult = page.locator(
+      `.VPLocalSearchBox a.result[href^='/statgpu/cn/guides/solver-algorithms']`,
+    );
+    await expect(chineseResult.first()).toBeVisible();
+    await expect(page.locator('.search-keyboard-shortcuts')).toContainText(
+      '\u5bfc\u822a',
+    );
+    await chineseResult.first().click();
+    await expect(page).toHaveURL(
+      /\/statgpu\/cn\/guides\/solver-algorithms/,
+    );
+    await expect(page.locator('main h1')).toContainText(
+      '\u6c42\u89e3\u5668\u7b97\u6cd5',
+    );
   });
 });

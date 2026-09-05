@@ -17,11 +17,28 @@ $$
 
 其中 $f$ 是平均数据拟合损失，$P$ 可以为零、Ridge 等光滑惩罚，或者非光滑/非凸惩罚。截距通常不进入 $P$。
 
-本页按当前源码列出 **12 条核心求解路径**：其中 10 个低层函数由 `statgpu.solvers` 导出，IRLS 以 `statgpu.glm_core.IRLSSolver` 导出，`exact` 则是估计器内部的闭式路径。融合 GPU kernel 与 group-aware LLA 是这些路径的实现方式，不另算公开求解器名称。
+本页按当前源码列出 **10 条通用求解路径**：其中 8 个低层函数由 `statgpu.solvers` 导出，IRLS 以 `statgpu.glm_core.IRLSSolver` 导出，`exact` 则是估计器内部的闭式路径。模型专用算法只放在对应模型页；分位数专用求解器见[分位数回归](../models/quantile.md#算法详解)。
 
 ::: warning API 边界
 该清单比任意单个估计器接受的 `solver=` 取值更广。除非已经核对[求解器 × 惩罚兼容矩阵](solver-penalty-matrix.md)，否则优先使用 `solver="auto"`。直接求解器函数需要 loss 与 penalty 对象，属于进阶接口。
 :::
+
+## 从模型页面选择
+
+求解器应从正在拟合的模型页面选择，而不是从下方完整算法清单中随意挑选。各链接页面会列出公开选择器、默认值、`auto` 的实际分发路径，以及明确不可用的组合。
+
+| 模型接口 | 求解器控制项 | 模型专属说明 |
+|---|---|---|
+| `GeneralizedLinearModel` 与支持选择器的类型化 GLM | `solver` | [广义线性模型](../models/generalized-linear-model.md#求解器支持)、[Poisson](../models/poisson-regression.md#求解器支持) |
+| `LogisticRegression` 类型化 wrapper | 固定 IRLS；无选择器 | [逻辑回归](../models/logistic-regression.md#求解器支持) |
+| Ridge | `solver` | [岭回归](../models/ridge.md#求解器支持) |
+| Lasso 与 Elastic Net | `solver`；CV/路径辅助接口还提供 `cpu_solver` | [Lasso](../models/lasso.md#求解器支持)、[Elastic Net](../models/elastic-net.md#求解器支持) |
+| Adaptive Lasso、SCAD、MCP | 模型专属 continuation/加权 L1 路径 | [Adaptive Lasso](../models/adaptive-lasso.md#求解器支持)、[SCAD](../models/scad.md#求解器支持)、[MCP](../models/mcp.md#求解器支持) |
+| 稳健回归 | 模型专属 `solver` 规则 | [稳健回归](../models/robust.md#求解器支持) |
+| Cox 与有序响应模型 | 固定 Newton 路径或惩罚模型 `solver` | [CoxPH](../models/coxph.md#求解器支持)、[有序模型](../models/ordered.md#求解器支持) |
+| PCA、KernelPCA、NMF | `svd_solver`、`eigen_solver` 或 `solver` | [PCA](../unsupervised/pca.md#求解器支持)、[核方法](../models/kernel-methods.md#求解器支持)、[NMF](../unsupervised/nmf.md#求解器支持) |
+
+`fista_lla_path`、`proximal_newton_solver`、`lbfgs_b_solver` 等名称属于内部路径或低层 API，并不是所有估计器都能传入的 `solver=` 值。
 
 ## 完整清单
 
@@ -33,14 +50,12 @@ $$
 | 4 | Newton-Raphson | `newton_solver`；估计器会调度 | 无惩罚或 L2 的光滑损失 | NumPy、CuPy、Torch |
 | 5 | Proximal-Newton facade | `proximal_newton_solver`；低层直接 API | 光滑情形走 Newton；非光滑情形转 FISTA | NumPy、CuPy、Torch |
 | 6 | GLM IRLS | `IRLSSolver`；估计器会调度 | 普通 GLM 与受支持的光滑惩罚 GLM | NumPy、CuPy、Torch |
-| 7 | Quantile Proximal IRLS | `proximal_irls_quantile_solver`；内部调度子路径 | Quantile loss 配合 SCAD/MCP continuation | NumPy、CuPy、Torch |
-| 8 | Quantile coordinate descent | `quantile_cd_solver`；低层直接 API | Quantile loss 的 weighted-L1 LLA 子问题 | NumPy |
-| 9 | L-BFGS | `lbfgs_solver`；估计器会调度 | 不希望保存完整 Hessian 的光滑目标 | NumPy、CuPy、Torch |
-| 10 | L-BFGS-B | `lbfgs_b_solver`；低层直接 API | 带 box constraint 的光滑目标 | NumPy、CuPy、Torch |
-| 11 | ADMM | `admm_solver`；可显式选择 | 拆分光滑 loss 与近端 penalty 更新 | NumPy、CuPy、Torch |
-| 12 | Exact Ridge | 估计器 `solver="exact"` | squared error + L2 | NumPy、CuPy、Torch |
+| 7 | L-BFGS | `lbfgs_solver`；估计器会调度 | 不希望保存完整 Hessian 的光滑目标 | NumPy、CuPy、Torch |
+| 8 | L-BFGS-B | `lbfgs_b_solver`；低层直接 API | 带 box constraint 的光滑目标 | NumPy、CuPy、Torch |
+| 9 | ADMM | `admm_solver`；可显式选择 | 拆分光滑 loss 与近端 penalty 更新 | NumPy、CuPy、Torch |
+| 10 | Exact Ridge | 估计器 `solver="exact"` | squared error + L2 | NumPy、CuPy、Torch |
 
-旧页面遗漏了 `quantile_cd_solver`；旧中文页还完全缺少 L-BFGS/L-BFGS-B、ADMM 与 exact。
+下方每个算法段落会用文字解释方法，并在推导附近保留简洁的“作者—年份”引用；完整书目信息统一列在页面末尾。这些引用对应数学算法家族；statgpu 的后端 kernel、数值保护、停止规则与估计器分发属于具体实现。
 
 ## 公共记号：近端算子
 
@@ -68,7 +83,7 @@ $$
 
 **源码：**`statgpu/solvers/_fista.py`
 
-FISTA 把近端梯度更新与 Nesterov 动量结合。令 $L_k$ 为局部 Lipschitz 估计，则
+FISTA 按 Beck 与 Teboulle（2009）的方案把近端梯度更新与 Nesterov 动量结合；当前实现的重启行为与 O'Donoghue 和 Candès（2015）的自适应重启思想相关。令 $L_k$ 为局部 Lipschitz 估计，则
 
 $$
 \beta_{k+1}
@@ -98,7 +113,7 @@ $$
 
 **源码：**`statgpu/solvers/_fista_bb.py`
 
-FISTA-BB 用相邻参数和光滑梯度估计局部步长：
+FISTA-BB 保留 Beck 与 Teboulle（2009）的加速近端结构，同时采用 Barzilai 与 Borwein（1988）的谱步长构造。它用相邻参数和光滑梯度估计局部步长：
 
 $$
 s_k=\beta_k-\beta_{k-1},
@@ -124,7 +139,7 @@ burn-in 后会交替使用两种步长，并将其截断到安全范围；动量
 
 **源码：**`statgpu/solvers/_fista_lla.py` 与 `_fista_lla_group_contract.py`
 
-局部线性近似在 $\beta^{(m)}$ 附近把非凸惩罚替换为 weighted L1 surrogate：
+SCAD/MCP 的非凸惩罚背景来自 Fan 与 Li（2001），局部线性近似策略采用 Zou 与 Li（2008）的构造。它在 $\beta^{(m)}$ 附近把非凸惩罚替换为 weighted L1 surrogate：
 
 $$
 P_\lambda(|\beta_j|)
@@ -154,7 +169,7 @@ $$
 
 **源码：**`statgpu/solvers/_newton.py`
 
-对光滑目标，定义
+Newton 方向与线搜索采用 Nocedal 与 Wright（2006）的标准表述。对光滑目标，定义
 
 $$
 g_k=\nabla F(\beta_k),
@@ -176,7 +191,7 @@ $$
 
 **源码：**`statgpu/solvers/_proximal_newton.py`
 
-完整的非光滑 Proximal Newton 应求解 Hessian metric 子问题
+复合 Proximal Newton 框架可参见 Lee、Sun 与 Saunders（2014）。完整的非光滑 Proximal Newton 应求解 Hessian metric 子问题
 
 $$
 d_k
@@ -197,7 +212,7 @@ $$
 
 **源码：**`statgpu/glm_core/_irls.py`
 
-在当前均值 $\mu_i$ 和线性预测子 $\eta_i=g(\mu_i)$ 处，IRLS 构造
+IRLS 可参见 Green（1984）以及 McCullagh 与 Nelder（1989）的 GLM 论述。在当前均值 $\mu_i$ 和线性预测子 $\eta_i=g(\mu_i)$ 处，它构造
 
 $$
 z_i
@@ -221,89 +236,11 @@ $$
 
 其中 $D$ 通常不惩罚截距。backtracking line search 会检查已注册的 family/link 目标。`IRLSSolver` 支持解析 sample weight 和 NumPy、CuPy、Torch。普通 GLM 中 `solver="auto"` 当前会解析为 IRLS；需要无惩罚 IRLS 时设置 `C=0`。
 
-## 7. Quantile Proximal IRLS
-
-**源码：**`statgpu/solvers/_proximal_irls_quantile.py`
-
-对残差 $r_i=y_i-x_i^\top\beta$ 与分位数 $\tau$，check loss 为
-
-$$
-\rho_\tau(r)
-=
-r\left(\tau-\mathbf 1\{r<0\}\right).
-$$
-
-在每个 continuation 与 LLA 步内，实现使用
-
-$$
-a_i
-=
-\frac{
-\tau\mathbf 1\{r_i\ge0\}
-+
-(1-\tau)\mathbf 1\{r_i<0\}
-}{
-\max(|r_i|,\varepsilon)
-},
-\qquad
-\omega_j=P_\lambda'(|\beta_j|).
-$$
-
-令 $A=\operatorname{diag}(a_i)$，
-
-$$
-g=\tilde X^\top A(y-\tilde X\beta),
-\qquad
-h=\operatorname{diag}(\tilde X^\top A\tilde X),
-$$
-
-所有坐标并行更新：
-
-$$
-\beta_j^{\mathrm{new}}
-=
-\frac{
-\mathcal S_{n\omega_j}(g_j+h_j\beta_j)
-}{h_j}.
-$$
-
-这是一种适合 GPU 的 Jacobi 式对角 majorization，并不是 cyclic coordinate descent。解析 sample weight 在归一化到总和为 $n$ 后乘入 $a_i$。
-
-## 8. Quantile coordinate descent
-
-**源码：**`statgpu/solvers/_quantile_cd.py`
-
-这个仅 NumPy 的低层求解器，在 LLA 权重与 cyclic coordinate update 之间交替，目标为
-
-$$
-\min_\beta
-\sum_{i=1}^n\rho_\tau(y_i-x_i^\top\beta)
-+
-\sum_{j=1}^p\omega_j|\beta_j|.
-$$
-
-令 $r\ge0$ 时 $\psi_\tau(r)=\tau$，否则 $\psi_\tau(r)=-(1-\tau)$，实际坐标更新是
-
-$$
-\beta_j
-\leftarrow
-\frac{
-\mathcal S_{\omega_j}
-\left(
-\sum_i x_{ij}\psi_\tau(r_i^{(-j)})
-\right)
-}{
-\sum_i x_{ij}^2
-}.
-$$
-
-该函数可供进阶用户直接导入，但当前自动调度不会选择它。其签名虽然包含 `sample_weight`，当前实现尚未消费该参数；观测权重很重要时应使用已调度的 FISTA/Proximal IRLS 路径。
-
-## 9. L-BFGS
+## 7. L-BFGS
 
 **源码：**`statgpu/solvers/_lbfgs.py`
 
-L-BFGS 根据最近若干组
+有限内存更新采用 Liu 与 Nocedal（1989）的方法。L-BFGS 根据最近若干组
 
 $$
 s_k=\beta_{k+1}-\beta_k,
@@ -315,11 +252,11 @@ $$
 
 近似 $H_k^{-1}g_k$。标准 two-loop recursion 不需要形成稠密 Hessian 即可得到 $d_k=-B_kg_k$，随后用 Armijo backtracking 检查完整光滑目标。默认 history size 为 10，只接受 L2/无惩罚和均匀 `sample_weight`。
 
-## 10. L-BFGS-B
+## 8. L-BFGS-B
 
 **源码：**`statgpu/solvers/_lbfgs_b.py`
 
-L-BFGS-B 加入逐坐标 box constraint
+带边界约束的有限内存方法采用 Byrd 等（1995）的构造。L-BFGS-B 加入逐坐标 box constraint
 
 $$
 \ell_j\le\beta_j\le u_j
@@ -336,11 +273,11 @@ $$
 
 收敛判断使用 projected gradient：在活跃边界上继续指向边界外的分量会被置零。上下界必须与系数同形、不得包含 NaN，并满足 $\ell_j\le u_j$。该路径同样只接受光滑惩罚和均匀 sample weight。
 
-## 11. ADMM
+## 9. ADMM
 
 **源码：**`statgpu/solvers/_admm.py`
 
-ADMM 引入 $z$ 并求解
+变量拆分和残差诊断采用 Boyd 等（2011）的 ADMM 表述。该方法引入 $z$ 并求解
 
 $$
 \min_{\beta,z}
@@ -384,11 +321,11 @@ $$
 
 开启自适应 $\rho$ 后，当一侧残差超过另一侧十倍时会将 $\rho$ 加倍或减半。当前仅接受均匀 sample weight。
 
-## 12. Exact Ridge
+## 10. Exact Ridge
 
 **源码：**`statgpu/linear_model/penalized/_fit_mixin.py` 中的 `_solve_exact_numpy`、`_solve_exact_cupy` 与 `_solve_exact_torch`
 
-对中心化/加权后的 $X_c$ 与 $y_c$，估计器求解
+该 Ridge 闭式估计采用 Hoerl 与 Kennard（1970）的基本构造。对中心化/加权后的 $X_c$ 与 $y_c$，估计器求解
 
 $$
 \hat\beta
@@ -410,13 +347,12 @@ $$
 | 普通 `GeneralizedLinearModel` | IRLS |
 | CPU 上 squared error + L2 | exact |
 | GPU 上 squared error + L2 | Newton |
-| 标量或 group SCAD/MCP | FISTA-LLA；quantile loss 使用 Proximal IRLS |
-| quantile loss + 凸惩罚 | FISTA |
+| 标量或 group SCAD/MCP | FISTA-LLA |
 | squared error + L1/Elastic Net | FISTA |
 | 稀疏 GLM | 根据 family、后端、CV 模式和规模选择 FISTA 或 FISTA-BB |
 | 光滑 GLM/robust/Cox 目标 | Newton；部分 CV 情况使用 L-BFGS |
 
-`proximal_newton_solver`、`quantile_cd_solver` 与 `lbfgs_b_solver` 可以直接导入，但当前不是 `auto` 的目的地。估计器专属的 ordered-model trust-region Newton、融合 GPU kernel 与 group LLA wrapper 会归入父模型/父路径说明，不再虚增 solver keyword。
+`proximal_newton_solver` 与 `lbfgs_b_solver` 可以直接导入，但当前不是 `auto` 的目的地。模型专属算法、ordered-model trust-region Newton、融合 GPU kernel 与 group LLA wrapper 会归入父模型/父路径说明，不再虚增 solver keyword。
 
 准确的接受与拒绝组合见[求解器 × 惩罚兼容矩阵](solver-penalty-matrix.md)，架构关系见 [Loss × Penalty × Solver 框架](loss-penalty-solver-framework.md)。
 
@@ -435,11 +371,16 @@ $$
 
 ## 参考文献
 
-- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm. *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
-- Barzilai, J., & Borwein, J. M. (1988). Two-point step size gradient methods. *IMA Journal of Numerical Analysis*, 8(1), 141–148.
-- O'Donoghue, B., & Candès, E. (2015). Adaptive restart for accelerated gradient schemes. *Foundations of Computational Mathematics*, 15(3), 715–732.
-- Nocedal, J. (1980). Updating quasi-Newton matrices with limited storage. *Mathematics of Computation*, 35(151), 773–782.
-- Byrd, R. H., Lu, P., Nocedal, J., & Zhu, C. (1995). A limited memory algorithm for bound constrained optimization. *SIAM Journal on Scientific Computing*, 16(5), 1190–1208.
-- Boyd, S., Parikh, N., Chu, E., Peleato, B., & Eckstein, J. (2011). Distributed optimization and statistical learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1–122.
-- Fan, J., & Li, R. (2001). Variable selection via nonconcave penalized likelihood. *Journal of the American Statistical Association*, 96, 1348–1360.
-- Zou, H., & Li, R. (2008). One-step sparse estimates in nonconcave penalized likelihood models. *Annals of Statistics*, 36(4), 1509–1533.
+- Barzilai, J., & Borwein, J. M. (1988). [Two-point step size gradient methods](https://doi.org/10.1093/imanum/8.1.141). *IMA Journal of Numerical Analysis*, 8(1), 141–148.
+- Beck, A., & Teboulle, M. (2009). [A fast iterative shrinkage-thresholding algorithm for linear inverse problems](https://doi.org/10.1137/080716542). *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
+- Boyd, S., Parikh, N., Chu, E., Peleato, B., & Eckstein, J. (2011). [Distributed optimization and statistical learning via the alternating direction method of multipliers](https://doi.org/10.1561/2200000016). *Foundations and Trends in Machine Learning*, 3(1), 1–122.
+- Byrd, R. H., Lu, P., Nocedal, J., & Zhu, C. (1995). [A limited memory algorithm for bound constrained optimization](https://doi.org/10.1137/0916069). *SIAM Journal on Scientific Computing*, 16(5), 1190–1208.
+- Fan, J., & Li, R. (2001). [Variable selection via nonconcave penalized likelihood and its oracle properties](https://doi.org/10.1198/016214501753382273). *Journal of the American Statistical Association*, 96(456), 1348–1360.
+- Green, P. J. (1984). [Iteratively reweighted least squares for maximum likelihood estimation, and some robust and resistant alternatives](https://doi.org/10.1111/j.2517-6161.1984.tb01288.x). *Journal of the Royal Statistical Society: Series B*, 46(2), 149–192.
+- Hoerl, A. E., & Kennard, R. W. (1970). [Ridge regression: Biased estimation for nonorthogonal problems](https://doi.org/10.1080/00401706.1970.10488634). *Technometrics*, 12(1), 55–67.
+- Lee, J. D., Sun, Y., & Saunders, M. A. (2014). [Proximal Newton-type methods for minimizing composite functions](https://doi.org/10.1137/130921428). *SIAM Journal on Optimization*, 24(3), 1420–1443.
+- Liu, D. C., & Nocedal, J. (1989). [On the limited memory BFGS method for large scale optimization](https://doi.org/10.1007/BF01589116). *Mathematical Programming*, 45, 503–528.
+- McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models*（第 2 版）. Chapman & Hall/CRC.
+- Nocedal, J., & Wright, S. J. (2006). [*Numerical Optimization*（第 2 版）](https://doi.org/10.1007/978-0-387-40065-5). Springer.
+- O'Donoghue, B., & Candès, E. (2015). [Adaptive restart for accelerated gradient schemes](https://doi.org/10.1007/s10208-013-9150-3). *Foundations of Computational Mathematics*, 15(3), 715–732.
+- Zou, H., & Li, R. (2008). [One-step sparse estimates in nonconcave penalized likelihood models](https://doi.org/10.1214/07-AOS520). *Annals of Statistics*, 36(4), 1509–1533.

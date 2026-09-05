@@ -60,7 +60,7 @@ $$
 选出的 alpha 存在 `alpha_` 中。CV 诊断记录在 `cv_results_`；具体字段以所选路径
 拟合后的对象为准。
 
-## Kernel PCA
+## 核主成分分析（Kernel PCA）
 
 对中心化核矩阵 $\widetilde K$，Kernel PCA 执行
 
@@ -70,6 +70,17 @@ $$
 
 领先特征向量定义非线性主成分。变换新数据时，需要计算测试集到训练集的核矩阵，
 应用训练期中心化量，并投影到保留的成分。
+
+## 求解器支持
+
+| 估计器 | 公开控制项 | 支持行为 |
+|---|---|---|
+| `KernelRidge` | 无 | 固定的稠密核线性系统求解 |
+| `KernelRidgeCV` | 无 | 固定 CV/refit 路径；实现可在内部复用核特征分解 |
+| `KernelPCA` | `eigen_solver="auto"` 或 `"dense"` | 两者当前都使用稠密对称 `eigh`；`auto` 是别名，并不会按规模选择稀疏求解器 |
+| `Nystroem` | 无 | 固定的随机 landmark 构造，由 `n_components` 与 `random_state` 控制 |
+
+`KernelPCA` 会拒绝其他 `eigen_solver` 名称。该稠密特征分解专用于中心化核矩阵，不能与线性模型的 `solver=` 值互换。
 
 ## Nystroem 近似
 
@@ -255,7 +266,7 @@ model = KernelRidgeCV(kernel="rbf", cv=5, device="torch").fit(X, y)
 refit、核定义域错误以及输出后端保持。准确性和性能结论仅适用于相应测试或
 benchmark artifact 记录的具体估计器、后端、硬件和 commit。
 
-## FAQ
+## 常见问题
 
 ### 应使用 KernelRidge，还是 Nystroem 加线性模型？
 

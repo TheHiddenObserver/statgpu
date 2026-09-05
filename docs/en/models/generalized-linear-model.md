@@ -16,9 +16,9 @@ Choose the family from the kind of outcome and its mean-variance behavior:
 
 | Outcome | Family | Link function $g(\mu)$ | Variance function $V(\mu)$ | Model page |
 |---|---|---|---|---|
-| continuous, roughly symmetric | Gaussian | identity: $\mu$ | $1$ | [LinearRegression](linear-regression.md) |
-| 0/1 response | Binomial | logit: $\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Logistic regression](logistic-regression.md) |
-| non-negative counts, variance near mean | Poisson | log: $\log(\mu)$ | $\mu$ | [Poisson regression](poisson-regression.md) |
+| continuous, roughly symmetric | Gaussian | identity: $\mu$ | $1$ | [Gaussian setup](glm-family-reference.md#gaussian) · [LinearRegression](linear-regression.md) |
+| 0/1 response | Binomial | logit: $\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Binomial setup](glm-family-reference.md#binomial) · [Logistic regression](logistic-regression.md) |
+| non-negative counts, variance near mean | Poisson | log: $\log(\mu)$ | $\mu$ | [Poisson setup](glm-family-reference.md#poisson) · [typed wrapper](poisson-regression.md) |
 | overdispersed counts | Negative binomial | log: $\log(\mu)$ | $\mu+\alpha\mu^2$ | [Negative binomial](glm-family-reference.md#negative-binomial) |
 | positive, right-skewed response | Gamma | log by default | $\mu^2$ | [Gamma](glm-family-reference.md#gamma) |
 | positive, variance near $\mu^3$ | Inverse Gaussian | log: $\log(\mu)$ | $\mu^3$ | [Inverse Gaussian](glm-family-reference.md#inverse-gaussian) |
@@ -199,7 +199,21 @@ For a logit-link model, `exp(coef_[j])` is an odds ratio, not a probability chan
 
 Available penalized typed wrappers cover Gaussian, logistic, Poisson, Gamma, inverse Gaussian, negative binomial, and Tweedie models.
 
-## CPU, GPU, solver, and inference support
+## Solver support
+
+Ordinary `GeneralizedLinearModel` and its typed wrappers accept the following estimator-level values:
+
+| `solver` value | Ordinary GLM behavior | Important constraint |
+|---|---|---|
+| `auto` (default) | IRLS | Recommended starting point |
+| `irls` | Fisher-scoring / weighted least squares | The `C` parameter controls its L2 term; supports analytic sample weights |
+| `newton` | Newton-Raphson on the unpenalized loss | Smooth objective; only uniform sample weights |
+| `lbfgs` | Limited-memory quasi-Newton | Smooth objective; only uniform sample weights |
+| `fista` | Proximal-gradient implementation with zero penalty | Useful for numerical comparison; supports analytic sample weights |
+
+For penalized typed GLMs, `auto` is both family- and penalty-aware: smooth L2/no-penalty objectives resolve to Newton or a family-specific smooth path, sparse penalties resolve to FISTA/FISTA-BB, and SCAD/MCP use FISTA-LLA continuation. Check the [solver and penalty matrix](../guides/solver-penalty-matrix.md) before forcing a non-default combination. `exact`, quantile coordinate descent, and L-BFGS-B are not ordinary GLM estimator values.
+
+### CPU, GPU, and inference
 
 Explicit `device="cuda"` uses CuPy and `device="torch"` uses Torch CUDA on supported paths; an explicit GPU request does not silently fall back to CPU. Formula parsing is CPU-side preprocessing, so explicit arrays are preferable for large GPU workloads.
 

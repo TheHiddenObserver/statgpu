@@ -18,19 +18,36 @@ The displayed $V(\mu)$ omits the dispersion multiplier $\phi$.
 
 | Family | Response accepted by the implementation | Default link | $V(\mu)$ | Typed estimator |
 |---|---|---|---|---|
-| Gaussian | finite real values | identity | $1$ | `LinearRegression` or generic GLM |
-| Binomial | finite values in $[0,1]$ | logit | $\mu(1-\mu)$ | generic GLM; standalone `LogisticRegression` is array-only |
-| Poisson | finite non-negative values | log | $\mu$ | `PoissonRegression` |
-| Negative binomial | finite non-negative values | log | $\mu+\alpha\mu^2$ | `NegativeBinomialRegression` |
-| Gamma | finite strictly positive values | log | $\mu^2$ | `GammaRegression` |
-| Inverse Gaussian | finite strictly positive values | log | $\mu^3$ | `InverseGaussianRegression` |
-| Tweedie | finite non-negative values | log | $\mu^p$ | `TweedieRegression` |
+| [Gaussian](#gaussian) | finite real values | identity | $1$ | `LinearRegression` or generic GLM |
+| [Binomial](#binomial) | finite values in $[0,1]$ | logit | $\mu(1-\mu)$ | generic GLM; standalone `LogisticRegression` is array-only |
+| [Poisson](#poisson) | finite non-negative values | log | $\mu$ | `PoissonRegression` |
+| [Negative binomial](#negative-binomial) | finite non-negative values | log | $\mu+\alpha\mu^2$ | `NegativeBinomialRegression` |
+| [Gamma](#gamma) | finite strictly positive values | log | $\mu^2$ | `GammaRegression` |
+| [Inverse Gaussian](#inverse-gaussian) | finite strictly positive values | log | $\mu^3$ | `InverseGaussianRegression` |
+| [Tweedie](#tweedie) | finite non-negative values | log | $\mu^p$ | `TweedieRegression` |
 
 The validation contract allows non-integer non-negative responses in count-like losses. Scientific use still requires a family appropriate to the data-generating process.
 
 ## Gaussian
 
-The identity link gives $\mu=\eta$. Use [`LinearRegression`](linear-regression.md) for ordinary least squares and its full HC/HAC covariance set. The generic `GeneralizedLinearModel(family="gaussian")` instead uses the common iterative GLM interface.
+Use Gaussian when the conditional response is continuous and its variance is
+approximately constant:
+
+$$
+Y_i\mid x_i\sim\mathcal N(\mu_i,\phi),
+\qquad \mu_i=\eta_i.
+$$
+
+| Goal | Recommended setup |
+|---|---|
+| Ordinary least squares with the fullest HC/HAC inference | [`LinearRegression`](linear-regression.md) |
+| Shared GLM solver/API comparison | `GeneralizedLinearModel(family="gaussian", solver="newton", C=0)` |
+| Ridge or feature selection | `PenalizedLinearRegression` or Ridge/Lasso/Elastic Net wrappers |
+
+`C=0` removes the IRLS Ridge term on the generic GLM surface. With identity
+link, a coefficient is an additive change in the conditional mean. Inspect
+residual nonlinearity, heteroskedasticity, influential observations, and
+rank/conditioning.
 
 ## Binomial
 
@@ -42,33 +59,103 @@ g(\mu)=\log\frac{\mu}{1-\mu},
 \mu=\frac{1}{1+\exp(-\eta)}.
 $$
 
-Use `LogisticRegression` when you want the dedicated classification API (`predict_proba`, thresholds, ROC, and classification metrics). It currently accepts arrays only. Use `GeneralizedLinearModel(family="binomial")` when Formula input is required; `predict` then returns the fitted mean probability.
+For binary data, $Y_i\mid x_i\sim\operatorname{Bernoulli}(\mu_i)$ and the
+variance is $\mu_i(1-\mu_i)$.
+
+| Goal | Recommended setup |
+|---|---|
+| Classification metrics, ROC/PR curves, thresholded predictions | [`LogisticRegression`](logistic-regression.md); array input and currently fixed IRLS |
+| Formula input or an explicit ordinary-GLM solver | `GeneralizedLinearModel(family="binomial", solver=..., C=0)` |
+| Sparse or non-convex regularization | `PenalizedLogisticRegression` |
+
+The generic implementation accepts finite values in $[0,1]$, but it does not
+expose a trials denominator for aggregated successes/trials. `predict`
+returns mean probability. An exponentiated coefficient is an odds ratio, not a
+probability difference. Check class balance, calibration, separation,
+leverage, and out-of-sample discrimination.
 
 ## Poisson
 
-The log link keeps $\mu>0$. A coefficient exponentiates to a mean ratio. Compare negative binomial when conditional variance materially exceeds the mean, and do not treat robust covariance as a replacement for a misspecified conditional distribution.
+Poisson assumes
+
+$$
+\mathbb E(Y_i\mid x_i)=\operatorname{Var}(Y_i\mid x_i)=\mu_i,
+\qquad \log(\mu_i)=\eta_i.
+$$
+
+Use `PoissonRegression(solver="newton", compute_inference=True,
+cov_type="hc1")` for an unpenalized typed model with robust inference. If IRLS
+is selected and no Ridge term is intended, set `C=0`. Exponentiated
+coefficients are conditional mean ratios.
+
+Compare Negative Binomial when variance materially exceeds the mean. Inspect
+overdispersion, excess zeros, influential counts, residual patterns, and
+calibration by predicted-count groups. Robust covariance changes uncertainty;
+it does not repair a misspecified conditional distribution.
 
 ## Negative binomial
 
-`NegativeBinomialRegression(alpha=1.0, ...)` exposes the positive overdispersion parameter $\alpha$. As $\alpha\to0$, the variance approaches the Poisson variance. Here `alpha` belongs to the response distribution; it is not a regularization parameter.
+Negative Binomial keeps the log-mean model and relaxes equidispersion:
+
+$$
+\log(\mu_i)=\eta_i,
+\qquad \operatorname{Var}(Y_i\mid x_i)=\mu_i+\alpha\mu_i^2.
+$$
+
+Use `NegativeBinomialRegression(alpha=0.5, solver="newton", ...)`. The
+estimator treats the finite positive `alpha` as fixed; it does not estimate
+dispersion from the data. As $\alpha\to0$, variance approaches Poisson
+variance. This `alpha` is a distribution parameter, not regularization
+strength. Check residual overdispersion, zero frequency, predictive
+calibration, and sensitivity to the chosen `alpha`.
 
 ## Gamma
 
-`GammaRegression(link="log", ...)` is the stable default. `link="inverse_power"` is also implemented:
+Gamma is for strictly positive continuous responses with
+$\operatorname{Var}(Y_i\mid x_i)=\phi\mu_i^2$.
+`GammaRegression(link="log", solver="newton", ...)` is the stable default;
+exponentiated coefficients are conditional mean ratios. The implemented
+`link="inverse_power"` alternative is
 
 $$
 g(\mu)=\mu^{-1}.
 $$
 
-The inverse link requires extra care because the linear predictor must remain positive after numerical safeguarding.
+The inverse link does not have the ratio interpretation and requires extra
+care because the safeguarded linear predictor must remain positive. Confirm
+that the response has no zeros or negatives, and inspect scaled residuals,
+influence, link adequacy, and mean-dependent variance.
 
 ## Inverse Gaussian
 
-`InverseGaussianRegression` uses a log link and targets positive, strongly right-skewed outcomes whose variance grows approximately with the cube of the mean.
+`InverseGaussianRegression(solver="newton", ...)` targets strictly positive,
+strongly right-skewed outcomes:
+
+$$
+\log(\mu_i)=\eta_i,
+\qquad \operatorname{Var}(Y_i\mid x_i)=\phi\mu_i^3.
+$$
+
+Exponentiated coefficients are mean ratios. Compare Gamma when variance appears
+closer to $\mu^2$ than $\mu^3$. Check positivity, tail influence, link
+adequacy, residual variance growth, and prediction stability at large fitted
+means.
 
 ## Tweedie
 
-`TweedieRegression(power=1.5, ...)` requires $1<p<2$ in the implemented loss. This compound Poisson–Gamma range can represent an exact mass at zero plus positive continuous values. `power` controls the variance, not regularization strength.
+`TweedieRegression(power=1.5, solver="newton", ...)` uses
+
+$$
+\log(\mu_i)=\eta_i,
+\qquad \operatorname{Var}(Y_i\mid x_i)=\phi\mu_i^p,
+$$
+
+with $1<p<2$ in the implemented loss. This compound Poisson–Gamma range can
+represent an exact mass at zero plus positive continuous values. `power` is
+fixed by the user; it is not estimated and is not regularization strength.
+Exponentiated coefficients are mean ratios. Choose `power` using domain
+knowledge or external validation/profile procedures, then check zero mass,
+positive-tail fit, calibration, and sensitivity to `power`.
 
 ## Covariance by family, link, and covariance type
 

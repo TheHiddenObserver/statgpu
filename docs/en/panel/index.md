@@ -1,5 +1,7 @@
 # Panel models
 
+> Switch: [简体中文](../../cn/panel/)
+
 Panel estimators and diagnostics with documented covariance and fit-statistic
 contracts.
 

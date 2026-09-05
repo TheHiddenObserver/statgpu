@@ -18,19 +18,33 @@ $$
 
 | Family | 实现接受的响应 | 默认链接 | $V(\mu)$ | 类型化估计器 |
 |---|---|---|---|---|
-| Gaussian | 有限实数 | identity | $1$ | `LinearRegression` 或通用 GLM |
-| Binomial | $[0,1]$ 内的有限值 | logit | $\mu(1-\mu)$ | 通用 GLM；独立 `LogisticRegression` 仅接受数组 |
-| Poisson | 有限非负值 | log | $\mu$ | `PoissonRegression` |
-| Negative binomial | 有限非负值 | log | $\mu+\alpha\mu^2$ | `NegativeBinomialRegression` |
-| Gamma | 有限严格正值 | log | $\mu^2$ | `GammaRegression` |
-| Inverse Gaussian | 有限严格正值 | log | $\mu^3$ | `InverseGaussianRegression` |
-| Tweedie | 有限非负值 | log | $\mu^p$ | `TweedieRegression` |
+| [Gaussian](#gaussian) | 有限实数 | identity | $1$ | `LinearRegression` 或通用 GLM |
+| [Binomial](#binomial) | $[0,1]$ 内的有限值 | logit | $\mu(1-\mu)$ | 通用 GLM；独立 `LogisticRegression` 仅接受数组 |
+| [Poisson](#poisson) | 有限非负值 | log | $\mu$ | `PoissonRegression` |
+| [Negative binomial](#negative-binomial) | 有限非负值 | log | $\mu+\alpha\mu^2$ | `NegativeBinomialRegression` |
+| [Gamma](#gamma) | 有限严格正值 | log | $\mu^2$ | `GammaRegression` |
+| [Inverse Gaussian](#inverse-gaussian) | 有限严格正值 | log | $\mu^3$ | `InverseGaussianRegression` |
+| [Tweedie](#tweedie) | 有限非负值 | log | $\mu^p$ | `TweedieRegression` |
 
 实现层面对计数型 loss 接受非整数的非负响应；实际分析仍需确认所选 family 符合数据生成机制。
 
 ## Gaussian
 
-identity 链接满足 $\mu=\eta$。普通最小二乘及完整 HC/HAC 推断优先使用[`LinearRegression`](linear-regression.md)；`GeneralizedLinearModel(family="gaussian")` 使用统一的迭代 GLM 接口。
+当条件响应连续且方差近似恒定时使用 Gaussian：
+
+$$
+Y_i\mid x_i\sim\mathcal N(\mu_i,\phi),
+\qquad \mu_i=\eta_i.
+$$
+
+| 目标 | 推荐设置 |
+|---|---|
+| 普通最小二乘和最完整的 HC/HAC 推断 | [`LinearRegression`](linear-regression.md) |
+| 比较统一 GLM 的求解器/API | `GeneralizedLinearModel(family="gaussian", solver="newton", C=0)` |
+| Ridge 或特征选择 | `PenalizedLinearRegression` 或 Ridge/Lasso/Elastic Net wrapper |
+
+通用 GLM 中 `C=0` 会移除 IRLS 的 Ridge 项。identity 链接下，系数表示条件均值
+的加性变化。应检查残差非线性、异方差、强影响点以及秩/条件数。
 
 ## Binomial
 
@@ -42,33 +56,90 @@ g(\mu)=\log\frac{\mu}{1-\mu},
 \mu=\frac{1}{1+\exp(-\eta)}.
 $$
 
-需要 `predict_proba`、阈值、ROC 和分类指标时使用独立 `LogisticRegression`，但它目前只接受数组。需要 Formula 时使用 `GeneralizedLinearModel(family="binomial")`；此时 `predict` 返回拟合均值概率。
+二元数据满足 $Y_i\mid x_i\sim\operatorname{Bernoulli}(\mu_i)$，方差为
+$\mu_i(1-\mu_i)$。
+
+| 目标 | 推荐设置 |
+|---|---|
+| 分类指标、ROC/PR 曲线和阈值预测 | [`LogisticRegression`](logistic-regression.md)；数组输入且目前固定 IRLS |
+| Formula 输入或显式选择普通 GLM 求解器 | `GeneralizedLinearModel(family="binomial", solver=..., C=0)` |
+| 稀疏或非凸正则化 | `PenalizedLogisticRegression` |
+
+通用实现接受 $[0,1]$ 内有限值，但没有为聚合的“成功次数/试验次数”暴露 trials
+分母。`predict` 返回均值概率；指数化系数是 odds ratio，不是概率差。应检查类别
+平衡、校准、完全分离、高杠杆点和样本外区分能力。
 
 ## Poisson
 
-log 链接保证 $\mu>0$，系数指数化后可解释为均值比。条件方差明显超过均值时应比较 negative binomial；稳健协方差不能代替正确的条件分布。
+Poisson 假设
+
+$$
+\mathbb E(Y_i\mid x_i)=\operatorname{Var}(Y_i\mid x_i)=\mu_i,
+\qquad \log(\mu_i)=\eta_i.
+$$
+
+无惩罚类型化模型可使用 `PoissonRegression(solver="newton",
+compute_inference=True, cov_type="hc1")`。若选择 IRLS 且不需要 Ridge 项，应设置
+`C=0`。指数化系数是条件均值比。
+
+当方差明显超过均值时比较 Negative Binomial。应检查过度离散、过多零值、极端
+计数、残差模式以及按预测计数组的校准。稳健协方差只改变不确定性，不能修复设定
+错误的条件分布。
 
 ## Negative binomial
 
-`NegativeBinomialRegression(alpha=1.0, ...)` 暴露正的过度离散参数 $\alpha$。当 $\alpha\to0$ 时，方差趋近 Poisson 方差。这里的 `alpha` 是响应分布参数，不是正则化强度。
+Negative Binomial 保留 log 均值模型并放宽等离散假设：
+
+$$
+\log(\mu_i)=\eta_i,
+\qquad \operatorname{Var}(Y_i\mid x_i)=\mu_i+\alpha\mu_i^2.
+$$
+
+可使用 `NegativeBinomialRegression(alpha=0.5, solver="newton", ...)`。
+估计器把有限正 `alpha` 当作已给定值，不会从数据中估计它。当
+$\alpha\to0$ 时方差趋近 Poisson 方差。这里的 `alpha` 是分布参数，不是正则化
+强度。应检查残余过度离散、零值频率、预测校准和结论对 `alpha` 的敏感性。
 
 ## Gamma
 
-`GammaRegression(link="log", ...)` 是稳定的默认值，也实现了 `link="inverse_power"`：
+Gamma 适合严格为正的连续响应，并假设
+$\operatorname{Var}(Y_i\mid x_i)=\phi\mu_i^2$。
+`GammaRegression(link="log", solver="newton", ...)` 是稳定默认值；log 链接下
+指数化系数是条件均值比。另一个已实现选项 `link="inverse_power"` 为
 
 $$
 g(\mu)=\mu^{-1}.
 $$
 
-逆链接需要格外注意，因为经过数值保护后的线性预测子必须保持为正。
+inverse 链接不具有比率解释，而且经过数值保护后的线性预测子必须保持为正。应
+确认响应没有零或负值，并检查缩放残差、影响点、link 合理性和随均值变化的方差。
 
 ## Inverse Gaussian
 
-`InverseGaussianRegression` 使用 log 链接，适合严格为正、明显右偏且方差大致按均值三次方增长的响应。
+`InverseGaussianRegression(solver="newton", ...)` 针对严格为正、明显右偏的
+响应：
+
+$$
+\log(\mu_i)=\eta_i,
+\qquad \operatorname{Var}(Y_i\mid x_i)=\phi\mu_i^3.
+$$
+
+指数化系数是均值比。当方差更接近 $\mu^2$ 而非 $\mu^3$ 时应比较 Gamma。应
+检查正值约束、尾部影响、link 合理性、残差方差增长及大拟合均值处的预测稳定性。
 
 ## Tweedie
 
-`TweedieRegression(power=1.5, ...)` 在当前 loss 中要求 $1<p<2$。该复合 Poisson–Gamma 范围可同时表示零点质量与正连续值。`power` 控制方差结构，不是正则化强度。
+`TweedieRegression(power=1.5, solver="newton", ...)` 使用
+
+$$
+\log(\mu_i)=\eta_i,
+\qquad \operatorname{Var}(Y_i\mid x_i)=\phi\mu_i^p,
+$$
+
+且当前 loss 要求 $1<p<2$。该复合 Poisson–Gamma 范围可同时表示零点质量和正
+连续值。`power` 由用户固定，不会被估计，也不是正则化强度。指数化系数是条件
+均值比。应根据领域知识或外部验证/profile 程序选择 `power`，并检查零点质量、
+正值尾部拟合、校准和对 power 的敏感性。
 
 ## 不同 family、link 与协方差类型
 

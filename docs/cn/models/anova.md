@@ -1,4 +1,4 @@
-# ANOVA
+# 方差分析（ANOVA）
 
 > 语言：中文  
 > 最后更新：2026-07-24  
@@ -90,7 +90,7 @@ $$
 `TwoWayAnovaResult` 给出因子 A、因子 B 和可选交互项的统计量、p 值、自由度、
 eta-squared，以及残差自由度和残差平方和。
 
-## Welch ANOVA
+## Welch 方差分析（Welch ANOVA）
 
 `f_welch` 是允许组间方差不等的单因素检验。分母自由度使用
 Welch-Satterthwaite 公式，通常为小数，因此返回的
@@ -190,7 +190,7 @@ CPU 标量分布调用只是执行边界，不是另一套近似 ANOVA 公式。
 NumPy/Torch 一致性、自由度语义、平衡设计限制、效应量验证和后端执行边界。
 所有验证结论仅适用于记录中的具体函数、后端、环境和 commit。
 
-## FAQ
+## 常见问题
 
 ### Torch 输入是否必须指定 `backend="torch"`？
 

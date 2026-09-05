@@ -1,4 +1,4 @@
-# KMeans
+# K 均值聚类（KMeans）
 
 > 语言：中文
 > 最后更新：2026-05-02
@@ -74,7 +74,7 @@ KMeans 是非凸迭代优化器，不是 strict inference estimator。不同初�
 - `n_iter_`
 - `n_features_in_`
 
-## FAQ
+## 常见问题
 
 **为什么标签 ID 和 sklearn 不同但聚类看起来一样？**
 Cluster ID 本身任意。验证应使用 inertia、center matching 或 permutation-invariant label metrics。
@@ -88,7 +88,7 @@ Cluster ID 本身任意。验证应使用 inertia、center matching 或 permutat
 - Benchmark：`dev/benchmarks/benchmark_unsupervised.py`。
 - Baseline：sklearn KMeans，对齐 `n_clusters`、初始化、`n_init`、`max_iter`、`tol` 和 seed。
 
-## References
+## 参考文献
 
 - MacQueen, J. (1967). Some methods for classification and analysis of multivariate observations. In *Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability* (Vol. 1, pp. 281-297). University of California Press.
 - Lloyd, S. P. (1982). Least squares quantization in PCM. *IEEE Transactions on Information Theory*, 28(2), 129-137. https://doi.org/10.1109/TIT.1982.1056489

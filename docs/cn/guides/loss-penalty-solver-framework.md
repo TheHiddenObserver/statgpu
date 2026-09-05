@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-07-12
+> 最后更新：2026-09-04
 >
 > 切换：[English](../../en/guides/loss-penalty-solver-framework.md)
 
@@ -19,12 +19,12 @@ fit(X, y, sample_weight)
   ├── _select_solver()   → solver 名称（auto 或显式）
   ├── _pre_fit()         → 后端转换、截距增强
   └── _fit_loss_backend() → 路由到具体 solver 路径
-       ├── fista / fista_bb / fista_lla → FISTA 家族
-       ├── newton / irls                  → 光滑路径
-       ├── proximal_irls_cd              → quantile + SCAD/MCP
-       ├── proximal_newton               → Huber/Bisquare + SCAD/MCP
-       ├── Cox + SCAD/MCP                → Cox 专用 FISTA-LLA
-       └── lbfgs / admm                 → 拟牛顿 / 增广拉格朗日
+       ├── fista / fista_bb              → 通用 proximal 路径
+       ├── newton / irls / lbfgs        → 光滑路径
+       ├── quantile refinement          → 分位数 IRLS 或 proximal IRLS + LLA
+       ├── robust refinement            → Newton、FISTA 或 FISTA-LLA
+       ├── Cox refinement               → Cox 专用 Newton/FISTA/FISTA-LLA
+       └── admm                         → 受支持的分裂路径
 ```
 
 ## 1. 损失函数
@@ -37,9 +37,9 @@ fit(X, y, sample_weight)
 class LossBase:
     name: str               # "quantile", "huber" 等
     y_type: str             # "continuous" / "survival"
-    smooth_gradient: bool   # True → Newton 可用
-    has_hessian: bool       # True → proximal Newton 可用
-    _supports_irls: bool    # True → 有 irls() 方法
+    smooth_gradient: bool   # 光滑性能力
+    has_hessian: bool       # Hessian contract，不等于公开 solver 保证
+    _supports_irls: bool    # 低层 IRLS contract
 ```
 
 ### 全部损失函数
@@ -54,10 +54,14 @@ class LossBase:
 | 负二项 | `GLMLoss` (negative_binomial) | ✅ | ✅ | ✅ | `glm.nb()` |
 | Tweedie | `GLMLoss` (tweedie) | ✅ | ✅ | ✅ | `glm(…, tweedie)` |
 | Quantile | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
-| Huber | `HuberLoss` | ✅ | ✅ | ✅ | `MASS::rlm()` |
+| Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
 | Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
+
+这些标志描述的是 loss 对象能力，并不会自动把某个名称变成估计器合法的
+`solver=` 取值。尤其是 Bisquare 和 Fair 虽然在 loss 层声明了 IRLS contract，
+目前并未作为高层估计器 IRLS 路径写入支持范围；请以对应模型页为准。
 
 ### 逐样本公式
 
@@ -111,85 +115,71 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ## 3. 求解器
 
-### 自动调度表
+::: warning 估计器边界
+求解器库包含的可调用函数多于高层估计器公开的 `solver=` 取值。选择算法时应先看
+模型页，本页只解释内部调度关系。
+:::
 
-`solver="auto"` 按以下优先级调度：
+### 公开控制项与内部路径
 
-| 优先级 | 求解器 | 条件 |
-|----------|--------|------|
-| 1 | `exact` | squared_error + l2 + numpy |
-| 2 | `newton` | squared_error + l2 + GPU |
-| 3 | `fista` (LLA) | 所有非凸惩罚 (SCAD/MCP/adaptive) |
-| 4 | `fista` | quantile（无 Hessian） |
-| 5 | `fista` / `fista_bb` | squared_error/GLM + 稀疏惩罚 |
-| 6 | `lbfgs` / `newton` | CV + L2 + loss 特定 |
-| 7 | `newton` / `irls` | 光滑惩罚 + 光滑损失 |
+| 层级 | 名称 | 含义 |
+|---|---|---|
+| 共享惩罚估计器选择器 | `auto`、`fista`、`fista_bb`、`irls`、`newton`、`lbfgs`、`admm`、`exact` | 候选值；每个估计器只接受其中一部分 |
+| CPU 平方误差兼容路径 | `coordinate_descent` | 仅 L1/Elastic Net；不是分位数 CD |
+| 内部或低层函数 | `fista_lla_path`、`proximal_irls_quantile_solver`、`quantile_cd_solver`、`proximal_newton_solver`、`lbfgs_b_solver` | 实现 API，不是通用估计器关键字 |
+| 固定算法估计器 | 无选择器 | Logistic 回归、普通分位数回归、普通 Cox PH 和有序模型自行选择算法 |
 
-### 全部求解器
+模型专属路由会先于部分通用 solver 分支执行。对 SCAD、MCP 和 Adaptive Lasso，
+一个通过共享校验的通用名称未必会切换到不同算法。除非模型页明确说明路径不同，
+不要用这些名称做算法性能对比。
 
-| 求解器 | 损失约束 | 惩罚约束 | sample_weight | warm_start |
-|--------|:-----------------|:---------------------|:------------:|:----------:|
-| `exact` | 仅 squared_error | 仅 l2 | ✅ | ❌ |
-| `irls` | 任意支持 IRLS 的损失 | l2 / none | ✅ | ❌ |
-| `newton` | 任意有 Hessian 的损失 | l2 / none | ❌ | ❌ |
-| `lbfgs` | 任意 | l2 / none | ❌ | ❌ |
-| `fista` | 任意 | 全部 | ✅ | ✅ |
-| `fista_bb` | 任意 | 全部（非凸 group 除外） | ✅ | ✅ |
-| `fista_lla` | 任意 | SCAD/MCP/adaptive | ✅ | ✅ |
-| `proximal_irls_cd` | 仅 quantile | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | 有 Hessian 的损失 | SCAD/MCP/adaptive (LLA) | ✅ | ✅ |
-| `admm` | 任意 | 全部 | ❌ | ✅ |
+### 当前自动路径
 
-### 专用求解器
+| 模型或目标 | 自动或固定路径 |
+|---|---|
+| 普通 GLM | IRLS |
+| Ridge | wrapper 默认 `exact`；共享 `auto` 在 NumPy 上用 exact，在 CuPy/Torch 上用 Newton |
+| Lasso / Elastic Net | FISTA |
+| Adaptive Lasso | 初始估计后执行加权 L1 FISTA |
+| SCAD / MCP | 模型专属 FISTA-LLA continuation |
+| 惩罚分位数，L2/none | 分位数 IRLS refinement |
+| 惩罚分位数，SCAD/MCP | proximal IRLS + LLA |
+| 惩罚稳健回归，L2/none | Newton |
+| 惩罚稳健回归，稀疏惩罚 | FISTA；SCAD/MCP 使用 FISTA-LLA |
+| 普通 Cox PH / 有序模型 | 固定 Newton 变体，不提供公开选择器 |
 
-**Proximal IRLS-CD** (quantile + SCAD/MCP):
-1. 计算 IRLS 权重：`w_i = τ_i / max(|r_i|, ε)`
-2. 二次上界：`Q(β) = ½ Σ w_i(y_i - X_iβ)²`
-3. 并行对角化 + LLA 阈值
-4. GPU：收敛检查在 device 上比较，仅同步 bool
+平方误差/L2 的 `exact` 求解器与 `CoxPH(ties="exact")` 无关。精确的接受与拒绝
+组合见[求解器 × 惩罚兼容矩阵](solver-penalty-matrix.md)。
 
-**Proximal Newton** (Huber/Bisquare + SCAD/MCP):
-1. 计算 Hessian `H = ∇²ℓ(β)` 和梯度 `g = ∇ℓ(β)`
-2. Newton 方向：`d = -H⁻¹·g`
-3. Armijo 线搜索 + proximal 步
-4. 通常 5-10 次迭代收敛
+### 专用内部路径
 
-**FISTA-LLA**（通用非凸路径；也是 Cox + SCAD/MCP 的当前路径）：
-1. Continuation path：λ_max → 目标 α（3-5 步）
-2. LLA 外层循环（每步 2-5 次迭代）
-3. 根据 loss 选择 FISTA 或 Proximal Newton 内层；Cox 明确使用后端原生 FISTA，
-   因为通用 composite proximal-Newton 的线搜索尚不适用于风险集目标
+- 分位数 SCAD/MCP 使用二次 IRLS majorization 和 LLA 阈值步骤。估计器暴露的是
+  高层 penalty-aware 路径，而不是低层函数名。
+- SCAD/MCP FISTA-LLA 先走 continuation path，再更新局部线性权重，并求解加权 L1
+  内层问题。
+- Proximal Newton 仍是低层求解器库 facade。当前稳健回归 SCAD/MCP 的估计器路径是
+  FISTA-LLA，而不是 Proximal Newton。
 
-## 4. 后端覆盖
+## 4. 后端范围
 
-| 求解器 / 路径 | NumPy | CuPy | Torch |
-|:---------------|:---:|:---:|:---:|
-| Proximal IRLS-CD | ✅ | ✅ | ✅ |
-| Proximal Newton | ✅ | ✅ | ✅ |
-| FISTA (加权) | ✅ | ✅ | ✅ |
-| FISTA-BB (加权) | ✅ | ✅ | ✅ |
-| FISTA-LLA (加权) | ✅ | ✅ | ✅ |
-| Quantile IRLS (光滑惩罚) | ✅ | ✅ | ✅ |
-| CoxPH Breslow/Efron loss | ✅ | ✅（后端原生） | ✅（后端原生） |
-| CoxPH Exact / start-stop / strata / subject | ✅ | ✅（共享计数过程实现） | ✅（共享计数过程实现） |
-| DBSCAN | ✅ | GPU 距离 + host-sync 连通分量 | ✅ on-device |
-| UMAP | ✅ | backend-aware + host transfer | backend-aware + host transfer |
+共享 FISTA、FISTA-BB、加权 L1/FISTA-LLA、分位数 IRLS、光滑
+Newton/L-BFGS 和 Cox 专属路径，在对应估计器开放时具有 NumPy、CuPy 与 Torch
+实现。后端覆盖不会扩大模型的公开选择器；例如 `LogisticRegression` 在所有后端
+都仍然固定使用 IRLS。
 
-## 5. 惩罚模型类
+## 5. 模型专属参考
 
-| 类 | 损失 | 惩罚 | 求解器 |
-|-------|------|-----------|---------|
-| `PenalizedGeneralizedLinearModel` | 任意 | 全部 10 种 | 全部 10 种 |
-| `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | exact/fista |
-| `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
-| `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 | proximal_irls_cd/fista/irls |
-| `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
-| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | FISTA；SCAD/MCP 为 FISTA-LLA |
+| 模型族 | 以此求解器章节为准 |
+|---|---|
+| GLM wrappers | [广义线性模型](../models/generalized-linear-model.md#求解器支持)、[逻辑回归](../models/logistic-regression.md#求解器支持)、[泊松回归](../models/poisson-regression.md#求解器支持) |
+| 凸正则化 | [Ridge](../models/ridge.md#求解器支持)、[Lasso](../models/lasso.md#求解器支持)、[Elastic Net](../models/elastic-net.md#求解器支持) |
+| 加权或非凸正则化 | [Adaptive Lasso](../models/adaptive-lasso.md#求解器支持)、[SCAD](../models/scad.md#求解器支持)、[MCP](../models/mcp.md#求解器支持) |
+| 专门回归 | [分位数回归](../models/quantile.md#求解器支持)、[稳健回归](../models/robust.md#求解器支持)、[Cox PH](../models/coxph.md#求解器支持) |
+| 其他模型专属算法 | [有序模型](../models/ordered.md#求解器支持)、[核方法](../models/kernel-methods.md#求解器支持)、[PCA](../unsupervised/pca.md#求解器支持)、[NMF](../unsupervised/nmf.md#求解器支持) |
 
-`PenalizedCoxPHModel` 仅提供惩罚估计，不拟合截距，也不提供协方差、显著性检验、
-baseline 或生存曲线。`fit_intercept=True` 会报错；`compute_inference=True` 会抛出
-`NotImplementedError`。需要这些结果时使用 `statgpu.survival.CoxPH`。
+`PenalizedCoxPHModel` 仅提供惩罚估计且不拟合截距。`compute_inference=True`
+会抛出 `NotImplementedError`；需要推断、baseline hazard 或生存曲线时使用普通
+`CoxPH`。
 
 ## 6. 快速参考
 
