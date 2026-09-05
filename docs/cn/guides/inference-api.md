@@ -1,10 +1,10 @@
 # 推断 API 参考
 
 > **模块:** `statgpu.inference`  
-> **最后更新:** 2026-06-14  
+> **最后更新:** 2026-09-06  
 > **后端:** NumPy, CuPy, PyTorch
 
-`statgpu.inference` 模块提供统计推断工具：分布函数、多重检验、排列检验和自助法。
+`statgpu.inference` 模块提供统计推断工具：分布函数、多重检验、排列检验和自助法。所有继承自 `BaseEstimator` 的公开 statgpu 估计器还会继承一组“绑定到模型上下文”的便利方法，它们会复用估计器已经解析好的 device/backend 语义。
 
 ## 快速参考
 
@@ -21,6 +21,52 @@ from statgpu.inference import norm, poisson, t, adjust_pvalues, combine_pvalues,
 | `permutation_test(statistic, X, y, ...)` | 基于排列的假设检验 |
 | `bootstrap_statistic(statistic, arrays, ...)` | 通用自助法引擎 |
 | `multipletests(...)` | `adjust_pvalues` 的别名（科学命名） |
+
+## 估计器绑定的推断辅助方法
+
+每个公开 `BaseEstimator` 子类都继承下列模型上下文包装器。`Ridge`、`Lasso`、`ElasticNet` 等模型不需要各自重新实现这些方法。
+
+| 估计器方法 | 签名 | 模型上下文行为 |
+|---|---|---|
+| `adjust_pvalues` | `adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")` | 未显式传 `pvalues` 时使用当前估计器的 `_pvalues`。返回原始/校正后 p 值、拒绝掩码、方法、alpha、axis 与实际 backend。 |
+| `combine_pvalues` | `combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")` | 未显式传 `pvalues` 时使用 `_pvalues`；返回合并统计量、全局 p 值和 backend 元数据。 |
+| `bootstrap_statistic` | `bootstrap_statistic(statistic, *arrays, n_resamples=200, strategy="iid", strata=None, clusters=None, block_size=None, confidence_level=0.95, random_state=None, statistic_name="statistic", backend="auto")` | 默认跟随估计器 backend。没有显式传 arrays 时，在可用的情况下使用拟合后缓存的设计矩阵与响应。 |
+| `permutation_test` | `permutation_test(statistic, X, y, n_resamples=1000, strategy="iid", strata=None, groups=None, alternative="two-sided", random_state=None, statistic_name="statistic", backend="auto")` | 在调用共享排列检验引擎之前，把数据以及可选的 strata/groups 转到模型上下文解析出的 backend。 |
+
+`backend="auto"` 跟随估计器的实际设备语义：CPU 对应 NumPy，`device="cuda"` 对应 CuPy，`device="torch"` 对应 Torch。若共享推断引擎支持，也可以显式指定 backend 覆盖该默认选择。
+
+如果没有显式传 p 值，而估计器也不存在 `_pvalues`，`adjust_pvalues()` 与 `combine_pvalues()` 会抛出 `RuntimeError`，不会静默构造输入。同样，若 `bootstrap_statistic()` 没有传 arrays，则需要模型已经拟合并保留可用的训练数组缓存。
+
+一个典型的模型绑定用法是：
+
+```python
+from statgpu.linear_model import Lasso
+
+model = Lasso(
+    alpha=0.08,
+    inference_method="debiased",
+    compute_inference=True,
+).fit(X, y)
+
+adjusted = model.adjust_pvalues(method="bh")
+combined = model.combine_pvalues(method="fisher")
+
+boot = model.bootstrap_statistic(
+    lambda X_, y_: float((X_[:, 0] * y_).mean()),
+    n_resamples=500,
+    random_state=7,
+)
+
+perm = model.permutation_test(
+    lambda X_, y_: float((X_[:, 0] * y_).mean()),
+    X,
+    y,
+    n_resamples=999,
+    random_state=7,
+)
+```
+
+当你希望推断工具**跟随已经拟合模型的 backend**，并在适用时复用模型状态时，使用这些估计器绑定方法。若推断计算与任何拟合模型无关，则使用下面的 `statgpu.inference` 模块级函数更清晰。
 
 ---
 
