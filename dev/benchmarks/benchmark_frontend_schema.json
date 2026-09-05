@@ -75,7 +75,7 @@
           },
           "physical_env_id": {
             "type": "string",
-            "description": "Stable physical hardware identity shared by benchmark sessions."
+            "description": "Stable UI grouping key for benchmark sessions in the same hardware class; it does not prove one physical host."
           }
         }
       }
