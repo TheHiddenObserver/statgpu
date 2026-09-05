@@ -1,209 +1,264 @@
 # Elastic Net
 
-> Language: English  
-> Last updated: 2026-09-04<br>
-> This page: Model documentation  
-> Language switch: [Chinese](../../cn/models/elastic-net.md)
+> Language: English
+> Last updated: 2026-09-05
+> Switch: [简体中文](../../cn/models/elastic-net.md)
 
-## Overview
+## What problem does it solve?
 
-`ElasticNet` combines L1 and L2 regularization for linear regression, enabling a balance between sparse feature selection (Lasso) and coefficient shrinkage (Ridge). It supports CPU, CuPy GPU, and PyTorch GPU backends with configurable device selection.
+`ElasticNet` combines the L1 penalty of [Lasso](lasso.md) with the L2 penalty of [Ridge](ridge.md). It is designed for situations where you want a sparse model **and** your predictors are correlated enough that pure Lasso selection is unstable.
 
-## Path
+The motivation is a practical tension:
 
-`statgpu.linear_model.ElasticNet`
+- Ridge handles correlated predictors well, but normally keeps every coefficient nonzero.
+- Lasso can remove features, but among nearly interchangeable predictors it may keep one and discard another arbitrarily.
+- Elastic Net adds both penalties so it can create zeros while still encouraging correlated predictors to share signal more smoothly.
 
-## Objective Function
+## A motivating example
 
-The Elastic Net optimization problem is:
+Suppose four useful predictors come in two highly correlated pairs. Within each pair, both variables really carry signal.
 
-$$
-\min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \cdot \lambda \cdot \|\beta\|_1 + \frac{\alpha}{2} \cdot (1 - \lambda) \cdot \|\beta\|_2^2
-$$
+Pure Lasso may split each pair unevenly:
 
-where:
-- `alpha` (α) controls overall regularization strength
-- `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives Lasso, λ=0 gives Ridge
-- Loss scaling by `1/(2n)` makes `alpha` interpretation scale-invariant to sample size
-
-**Note on regularization scaling**: `ElasticNet` and `Ridge` both use the same average-loss convention. Therefore, with `l1_ratio=0`, `ElasticNet(alpha)` is equivalent to `Ridge(alpha)`; no sample-size rescaling of the public `alpha` is required.
-
-## Estimating Equation
-
-The Elastic Net estimator solves the following first-order optimality (KKT) condition:
-
-$$
-\frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0
-$$
-
-where $\partial\|\hat{\beta}\|_1$ is the subdifferential of the L1 norm:
-- For $\hat{\beta}_j \neq 0$: $\text{sign}(\hat{\beta}_j)$
-- For $\hat{\beta}_j = 0$: any value in $[-1, 1]$
-
-At convergence, the KKT residual (subgradient violation) satisfies:
-$$
-\left| \frac{1}{n} X_j^\top(y - X\hat{\beta}) - \alpha(1-\lambda)\hat{\beta}_j \right| \leq \alpha\lambda \quad \forall j
-$$
-
-## Estimation Algorithm
-
-Elastic Net is solved via **FISTA** (Fast Iterative Shrinkage-Thresholding Algorithm), a proximal gradient method with Nesterov momentum acceleration.
-
-### Key Optimization Insight
-
-The L2 regularization term is handled **only in the proximal step**, not in gradient computation:
-
-```python
-# Gradient of RSS only (L2 handled separately)
-grad = (X.T @ X @ w - X.T @ y) / n
-
-# Proximal step with soft thresholding and L2 scaling
-w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (1 + alpha * (1 - l1_ratio) * step)
+```text
+              x1     x2     x3     x4
+Lasso        1.62   0.71  -0.68  -1.24
+Elastic Net  1.19   1.14  -0.95  -0.98
 ```
 
-This avoids redundant computation and improves numerical stability.
+Both fits can predict well, but Elastic Net better reflects the idea that the paired predictors are nearly interchangeable measurements of shared latent signals.
 
-### Convergence Criteria
+## Intuition
 
-Two stopping modes available via `stopping` parameter:
+Elastic Net asks the model to satisfy two regularization preferences at once:
 
-| Mode | Description |
-|------|-------------|
-| `coef_delta` | Stop when `||w_new - w_old||_∞ < tol` |
-| `kkt` | Stop when KKT subgradient violation < tol |
+1. **L1 part:** weak coefficients may be pushed all the way to zero;
+2. **L2 part:** large or unstable coefficients are smoothly shrunk, which helps correlated predictors behave more like a group.
 
-For `kkt` mode, the optimality condition is:
-- For non-zero coefficients: `|∇f + α(1-λ)w + αλ·sign(w)| < tol`
-- For zero coefficients: `|∇f + α(1-λ)w| ≤ αλ`
+Two parameters control the trade-off:
 
-**Note**: KKT violation ~1e-2 is acceptable for numerical solutions; exact zero is not required.
+- `alpha` controls **how much total regularization** is applied;
+- `l1_ratio` controls **what kind of regularization** it is.
 
-## Solver support
+A useful continuum is:
+
+```text
+l1_ratio = 0.0        0.5             1.0
+              Ridge ←──── Elastic Net ────→ Lasso
+```
+
+In statgpu's objective scaling, `l1_ratio=0` gives the Ridge penalty at the same public `alpha`, while `l1_ratio=1` gives the Lasso penalty.
+
+## When to use it
+
+Elastic Net is a strong choice when:
+
+- you want feature selection but many predictors are correlated;
+- predictors naturally come in groups that may carry similar information;
+- pure Lasso changes its selected feature among nearly duplicate variables;
+- you have many candidate predictors and want a sparse but more stable model;
+- you are willing to tune both regularization strength and mixture using validation.
+
+Prefer another method when:
+
+- you do **not** need exact zeros and mainly want stable prediction — Ridge is simpler;
+- you strongly expect one sparse representative from each feature group and want the most aggressive sparsity — Lasso may be enough;
+- the response is not appropriate for Gaussian linear regression — use the corresponding penalized GLM or other model family;
+- feature selection is not scientifically meaningful because predictors are arbitrary encodings or strongly confounded.
+
+## Model and objective
+
+With intercept $b$, Elastic Net minimizes
+
+$$
+\frac{1}{2n}\sum_{i=1}^{n}
+\left(y_i-b-x_i^\top\beta\right)^2
++\alpha\lambda\lVert\beta\rVert_1
++\frac{\alpha}{2}(1-\lambda)\lVert\beta\rVert_2^2,
+$$
+
+where $\lambda$ is `l1_ratio`.
+
+Here:
+
+- $\alpha\ge 0$ sets the overall penalty strength;
+- $0\le\lambda\le 1$ mixes L1 and L2;
+- the intercept is not penalized.
+
+Increasing `alpha` shrinks the model more strongly. Increasing `l1_ratio` makes exact zeros more likely; decreasing it makes the fit behave more like Ridge.
+
+## Minimal runnable example
+
+This example creates two pairs of almost-duplicate useful predictors and compares pure Lasso with Elastic Net.
+
+```python
+import numpy as np
+from statgpu.linear_model import ElasticNet, Lasso
+
+rng = np.random.default_rng(2)
+n = 500
+
+z1 = rng.normal(size=n)
+z2 = rng.normal(size=n)
+X = np.column_stack([
+    z1 + 0.05 * rng.normal(size=n),
+    z1 + 0.05 * rng.normal(size=n),
+    z2 + 0.05 * rng.normal(size=n),
+    z2 + 0.05 * rng.normal(size=n),
+    rng.normal(size=n),
+    rng.normal(size=n),
+])
+
+true_coef = np.array([1.2, 1.2, -1.0, -1.0, 0.0, 0.0])
+y = 0.5 + X @ true_coef + rng.normal(scale=0.8, size=n)
+
+lasso = Lasso(
+    alpha=0.08,
+    device="cpu",
+    compute_inference=False,
+).fit(X, y)
+
+elastic = ElasticNet(
+    alpha=0.08,
+    l1_ratio=0.5,
+    device="cpu",
+    compute_inference=False,
+).fit(X, y)
+
+print("Lasso:      ", np.round(lasso.coef_, 2))
+print("Elastic Net:", np.round(elastic.coef_, 2))
+```
+
+With the fixed seed, Lasso should split the first correlated pair quite unevenly (roughly `1.62` and `0.71`) and the second around `-0.68` and `-1.24`. Elastic Net should distribute the signal more evenly, around `1.19`, `1.14`, `-0.95`, and `-0.98`, while leaving the two noise features at or near zero.
+
+The point is not that equal coefficients are always correct. It is that the L2 component reduces the arbitrary winner-takes-most behavior pure Lasso can show among highly correlated predictors.
+
+## How to read the result
+
+- `coef_[j] == 0` means the combined penalty removed feature `j` at the selected hyperparameters.
+- Nonzero coefficients are still shrunk; they are not unpenalized OLS estimates.
+- `intercept_` is fitted separately and is not penalized.
+- `predict(X_new)` returns continuous predictions.
+- `score(X, y)` returns $R^2$.
+- The active set depends on **both** `alpha` and `l1_ratio`; changing either can change which variables survive.
+
+If two correlated variables stay nonzero together, that is a common Elastic Net behavior, not evidence that both are independently causal.
+
+## Key parameters and how to choose them
+
+| Parameter | Default | How to think about it |
+|---|---:|---|
+| `alpha` | `1.0` | Overall regularization strength. Larger values shrink more strongly and can remove more features. Tune with validation. |
+| `l1_ratio` | `0.5` | L1/L2 mixture. Values near 1 behave more like Lasso; values near 0 behave more like Ridge. Tune jointly with `alpha` when possible. |
+| `fit_intercept` | `True` | Usually keep it unless theory fixes the intercept or the design already contains one. |
+| `device` | `"auto"` | CPU is simplest for small problems; GPU becomes useful when the optimization workload is large enough. |
+| `solver` | `"fista"` | Stable default for the declared non-smooth objective. Change primarily for numerical/performance reasons. |
+| `stopping` | `"coef_delta"` | Use `"kkt"` when optimality-based convergence diagnostics are more important than coefficient movement. |
+| `compute_inference` | `False` | Keep off for ordinary prediction/selection. Enable only when you need a supported post-fit inference procedure. |
+
+For predictive modeling, `ElasticNetCV` is usually preferable to choosing `alpha` and `l1_ratio` by hand.
+
+### Standardize your features
+
+Both L1 and L2 penalties act on coefficient magnitude. Different feature units therefore change the effective penalty.
+
+Standardize continuous predictors before fitting unless the raw feature scale is deliberately part of the modeling convention.
+
+## Compare with Ridge and Lasso
+
+| Property | Ridge | Lasso | **Elastic Net** |
+|---|:---:|:---:|:---:|
+| Smooth coefficient shrinkage | yes | yes | yes |
+| Exact zero coefficients | usually no | yes | yes |
+| Stable with correlated predictors | strong | can be unstable | stronger than pure Lasso |
+| Main tuning choices | `alpha` | `alpha` | `alpha` + `l1_ratio` |
+| Best mental model | stabilize | select | select + stabilize |
+
+A practical rule of thumb:
+
+- start with **Ridge** when you care about prediction and correlated predictors but not deletion;
+- start with **Lasso** when sparsity is the main goal and correlations are modest;
+- start with **Elastic Net** when you want sparsity and know correlated feature groups are important.
+
+## CPU and GPU example
+
+```python
+from statgpu.linear_model import ElasticNet
+
+model = ElasticNet(
+    alpha=0.08,
+    l1_ratio=0.5,
+    device="cuda",
+    solver="fista",
+    compute_inference=False,
+).fit(X, y)
+```
+
+The public wrapper supports NumPy CPU, CuPy CUDA, and Torch CUDA paths where available. Backend speed depends on sample size, feature dimension, dtype, data residency, and transfer cost; benchmark the workload you actually care about.
+
+A one-fit warm start can be supplied with `fit(initial_coef=...)`.
+
+## Advanced: solver and optimization details
+
+Elastic Net is non-smooth whenever `l1_ratio > 0`, so proximal methods are the normal numerical path.
 
 | `solver` value | CPU | CuPy / Torch | Notes |
 |---|:---:|:---:|---|
 | `fista` (default) | yes | yes | Recommended proximal path |
 | `auto` | FISTA | FISTA | Current squared-error + Elastic Net dispatch |
 | `fista_bb` | yes | yes | Adaptive spectral steps |
-| `admm` | yes | yes | Alternative split solver; only uniform sample weights |
+| `admm` | yes | yes | Alternative split solver; uniform sample weights only |
 | `coordinate_descent` | yes | no | CPU-only compatibility path |
 
-`newton`, `lbfgs`, `irls`, and `exact` are rejected because Elastic Net has a non-smooth L1 component. `cpu_solver` does not override `solver` for a single estimator fit. Full algorithm equations are in the [solver guide](../guides/solver-algorithms.md).
+`newton`, `lbfgs`, `irls`, and `exact` are rejected for the non-smooth Elastic Net estimator surface. `cpu_solver` does not override `solver` for a single estimator fit. Full numerical mechanics are documented in the [solver guide](../guides/solver-algorithms.md).
 
-## Parameters
+The first-order KKT condition for the coefficient vector is
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `alpha` | `1.0` | Overall regularization strength |
-| `l1_ratio` | `0.5` | L1 mixing proportion: 0=Ridge, 1=Lasso |
-| `fit_intercept` | `True` | Fit an unpenalized intercept |
-| `max_iter` | `1000` | Maximum solver iterations |
-| `tol` | `1e-4` | Convergence tolerance |
-| `stopping` | `"coef_delta"` | `"coef_delta"` or `"kkt"` stopping rule |
-| `device` | `"auto"` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` |
-| `n_jobs` | `None` | CPU parallelism where supported |
-| `solver` | `"fista"` | Backend-aware optimization method |
-| `cpu_solver` | `"fista"` | CPU solver override |
-| `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant |
-| `gpu_memory_cleanup` | `False` | Release backend memory pools after fit where supported |
-| `compute_inference` | `False` | Compute post-fit coefficient inference |
-| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
-| `cov_type` | `"nonrobust"` | Covariance convention where applicable |
-| `hac_maxlags` | `None` | HAC lag count where supported |
+$$
+\frac{1}{n}X^\top(X\hat\beta-y)
++\alpha(1-\lambda)\hat\beta
++\alpha\lambda\,\partial\lVert\hat\beta\rVert_1
+=0.
+$$
 
-The public wrapper does not accept separate `backend`, `warm_start`, or
-`random_state` constructor parameters. Backend selection is controlled by
-`device`; a one-fit warm start can be supplied through `fit(initial_coef=...)`.
+`stopping="kkt"` checks this kind of optimality condition; it does not define a different statistical approximation.
 
-## CPU/GPU Examples
+## Advanced: inference
+
+`ElasticNet` is estimation-only by default. With `compute_inference=True`, statgpu runs a post-fit inference method without changing the penalized coefficients.
+
+| `inference_method` | Intended role | Important limitation |
+|---|---|---|
+| `debiased` (default inference method) | bias-corrected coefficient inference using the shared penalized-linear engine | assumptions for de-biasing matter; inference is conditional on selected regularization parameters |
+| `cpu_ols` | lightweight post-selection OLS-style path | heuristic after selection; not a general selective-inference guarantee |
+| `bootstrap` | resampling-based alternative | higher computational cost and conditional on the implemented bootstrap assumptions |
+
+When inference succeeds, `summary()` and reporting fields such as standard errors, z-style statistics, p-values, and confidence intervals become available according to the selected method.
+
+For `ElasticNetCV`, `compute_inference=True` applies only to the final full-data refit after `alpha` and `l1_ratio` have been selected. Fold models remain estimation-only.
+
+## Common pitfalls
+
+- **Do not tune only `alpha` while treating `l1_ratio` as irrelevant.** The mixture parameter changes the kind of model you are fitting.
+- **Do not assume correlated nonzero features have separate causal effects.** Elastic Net stabilizes prediction/selection; it does not identify causal structure.
+- **Do not forget standardization.** Both parts of the penalty depend on coefficient scale.
+- **Do not choose hyperparameters from training $R^2$.** Use held-out or cross-validation performance.
+- **Do not expect the same active set under tiny data perturbations when signals are weak.** Elastic Net improves correlated-feature stability but does not eliminate sampling uncertainty.
+- **Do not attach ordinary unpenalized inference to a data-selected active set without acknowledging selection.** Use the supported post-fit methods and their stated assumptions.
+
+## API and validation
+
+Import path:
 
 ```python
 from statgpu.linear_model import ElasticNet
-
-# CPU with NumPy
-model_cpu = ElasticNet(alpha=0.1, l1_ratio=0.5, device="cpu")
-model_cpu.fit(X, y)
-print(f"R²: {model_cpu.score(X, y):.4f}")
-
-# GPU with CuPy
-model_gpu_cupy = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="cuda",
-    gpu_memory_cleanup=True
-)
-model_gpu_cupy.fit(X, y)
-
-# GPU with PyTorch
-model_gpu_torch = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="torch"
-)
-model_gpu_torch.fit(X, y)
 ```
 
-Backend performance depends on sample size, feature dimension, dtype, hardware,
-data residency, and transfer costs. Benchmark the actual target workload before
-selecting a backend solely for speed.
+The public wrapper also exposes advanced controls including `max_iter`, `tol`, `cpu_solver`, `lipschitz_L`, `gpu_memory_cleanup`, `cov_type`, and `hac_maxlags`. It does not expose separate constructor parameters named `backend`, `warm_start`, or `random_state`; backend selection is controlled by `device`, and a one-fit warm start uses `fit(initial_coef=...)`.
 
-## Covariance/Inference
-
-`ElasticNet` is estimation-only by default. Set `compute_inference=True` to run
-post-fit inference through the shared penalized-linear inference engine. The
-default `inference_method="debiased"` uses nodewise Lasso to construct a
-bias-corrected estimator, standard errors, z statistics, p-values, and 95%
-confidence intervals. `summary()` is available after inference succeeds.
-
-| Parameter | Default | Meaning |
-|-----------|---------|---------|
-| `compute_inference` | `False` | Enable post-fit coefficient inference |
-| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
-| `cov_type` | `"nonrobust"` | Covariance convention where applicable |
-| `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC |
-
-Debiased inference is implemented for NumPy, CuPy, and Torch fitting paths. CPU
-validation is part of the hosted test suite; physical CUDA validation for CuPy
-and Torch remains a required remote gate for each exact release candidate.
-Post-selection OLS is a heuristic and does not provide valid selective-inference
-coverage. Inference is conditional on the selected regularization parameters
-and does not alter the fitted penalized coefficients.
-
-For `ElasticNetCV`, `compute_inference=True` applies inference only to the final
-full-data refit after alpha and `l1_ratio` have been selected. Fold models remain
-estimation-only.
-
-## Solver and Inference Semantics
-
-The default estimator uses FISTA for the declared Elastic Net objective. The
-`stopping` option changes only the convergence diagnostic (`coef_delta` versus
-KKT violation); it does not define a separate statistical approximation mode.
-
-`compute_inference=False` returns the penalized estimate only. With
-`compute_inference=True`, the same fitted coefficients are retained and the
-selected post-fit inference method is run afterward. The standalone
-`ElasticNet` wrapper and the final full-data refit of `ElasticNetCV` both support
-this contract directly; users do not need to switch estimator classes merely
-to request debiased inference.
-
-## Outputs
-
-After fitting, the following attributes are available:
-
-| Attribute | Description |
-|-----------|-------------|
-| `coef_` | Estimated coefficients (shape: n_features) |
-| `intercept_` | Fitted intercept |
-| `n_iter_` | Number of iterations until convergence |
-| `aic` | Akaike Information Criterion (when inference provides it) |
-| `bic` | Bayesian Information Criterion (when inference provides it) |
-
-Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
-
-## Numerical Validation
-
-The maintained regression suite checks agreement across supported backends and
-against reference implementations at tolerances chosen for each dtype and
-solver path. Physical CUDA validation remains part of the exact-head handoff;
-no universal coefficient tolerance or speedup applies to every workload.
+Maintained validation checks the declared Elastic Net objective, solver/KKT behavior, CPU and supported GPU paths, post-fit inference, and the final-refit inference contract for `ElasticNetCV`. Physical CUDA validation remains part of exact release acceptance where applicable.
 
 ## References
 
-- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
-- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.
+- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301–320.
+- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
