@@ -335,7 +335,7 @@ model.fit(
 | `summary` | `summary()` | Prints the coefficient/inference summary; requires a fitted model with inference enabled and available. |
 | `get_params` / `set_params` | sklearn-style estimator utilities | Inspect or replace constructor state using the shared `BaseEstimator` contract. |
 
-The shared estimator base also exposes p-value adjustment/combination helpers when inference p-values are available; see the [Inference API](../guides/inference-api.md).
+The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` are documented with their complete signatures and backend/fitted-state semantics in the [Inference API](../guides/inference-api.md).
 
 ### Fitted attributes and diagnostics
 
