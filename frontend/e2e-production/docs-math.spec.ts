@@ -26,19 +26,19 @@ test('renders inline and display LaTeX on documentation pages', async ({ page })
   await expect(page.locator('main')).not.toContainText('$$');
 });
 
-test('renders every solver algorithm with MathJax in both languages', async ({
+test('renders every general solver algorithm with MathJax in both languages', async ({
   page,
 }) => {
   const pages = [
     {
       route: '/statgpu/en/guides/solver-algorithms',
-      missingAlgorithm: '8. Quantile coordinate descent',
-      finalAlgorithm: '12. Exact Ridge solve',
+      firstAlgorithm: '1. FISTA',
+      finalAlgorithm: '10. Exact Ridge solve',
     },
     {
       route: '/statgpu/cn/guides/solver-algorithms',
-      missingAlgorithm: '8. Quantile coordinate descent',
-      finalAlgorithm: '12. Exact Ridge',
+      firstAlgorithm: '1. FISTA',
+      finalAlgorithm: '10. Exact Ridge',
     },
   ];
 
@@ -46,17 +46,31 @@ test('renders every solver algorithm with MathJax in both languages', async ({
     await page.goto(solverPage.route);
     const main = page.getByRole('main');
     await expect(
-      main.getByRole('heading', { name: solverPage.missingAlgorithm }),
+      main.getByRole('heading', { name: solverPage.firstAlgorithm }),
     ).toBeVisible();
     await expect(
       main.getByRole('heading', { name: solverPage.finalAlgorithm }),
     ).toBeVisible();
 
     const numberedSections = main.locator('h2').filter({ hasText: /^\d+\./ });
-    await expect(numberedSections).toHaveCount(12);
+    await expect(numberedSections).toHaveCount(10);
     expect(
       await main.locator('mjx-container[display="true"]').count(),
     ).toBeGreaterThanOrEqual(20);
     await expect(main).not.toContainText('$$');
+    await expect(main).not.toContainText('Quantile coordinate descent');
   }
+
+  // Quantile coordinate descent is intentionally model-specific rather than a
+  // general solver path. Verify its formulas on the model page instead of
+  // reintroducing it into the shared solver inventory.
+  await page.goto('/statgpu/en/models/quantile');
+  const quantileMain = page.getByRole('main');
+  await expect(
+    quantileMain.getByRole('heading', { name: 'Quantile coordinate descent' }),
+  ).toBeVisible();
+  expect(
+    await quantileMain.locator('mjx-container[display="true"]').count(),
+  ).toBeGreaterThan(0);
+  await expect(quantileMain).not.toContainText('$$');
 });
