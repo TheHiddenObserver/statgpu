@@ -10,62 +10,58 @@
 
 假设你有 100 个候选特征，但相信真正有用的只有少数几个。OLS 会给每个特征一个系数；Ridge 会把所有系数缩小，但通常不会让它们变成 0；Lasso 则可以直接返回一个很小的 active set。
 
-它通常回答这些问题：
+典型问题包括：
 
-- 哪些特征可以从线性模型中移除，同时保留主要预测能力？
-- 当候选特征很多、绝大部分只是噪声时，能否减少过拟合？
+- 哪些特征可以移除，同时保留主要预测能力？
+- 候选特征很多、绝大部分只是噪声时，能否减少过拟合？
 - 能否得到一个更容易解释、存储或部署的稀疏模型？
 
 ## 一个直观例子
 
-想象一个数据集有 12 个测量变量，但真实响应实际上只由其中 3 个生成。
-
-未正则化模型可能给很多噪声变量分配小系数，而 Lasso 更倾向于得到：
+假设有 12 个测量变量，但真实响应只由其中三个产生：
 
 ```text
-特征          0    1    2    3    4    5    6    7    8    9   10   11
-真实系数      0   2.0   0    0    0  -1.5   0    0    0   0.8   0    0
-Lasso 系数    0  ~2.0   0    0    0  ~-1.4  0    0    0  ~0.7   0    0
+feature       0    1    2    3    4    5    6    7    8    9   10   11
+true coef     0   2.0   0    0    0  -1.5   0    0    0   0.8   0    0
+Lasso coef    0  ~2.0   0    0    0  ~-1.4  0    0    0  ~0.7   0    0
 ```
 
-这就是 Lasso 的核心吸引力：它不需要额外做一次硬特征筛选，就能把连续回归问题直接转化为稀疏表示。
+Lasso 的核心吸引力，就是不需要额外的硬特征选择步骤，也能得到稀疏线性表示。
 
 ## 直觉
 
-Lasso 会按照系数绝对值的大小收取“代价”：
+Lasso 按绝对值惩罚系数：
 
 $$
 \lVert\beta\rVert_1=\sum_j|\beta_j|.
 $$
 
-这会产生一种**软阈值（soft-thresholding）**效果。证据较弱的系数不仅会变小，还可能被一路拉到 0。
-
-可以这样记：
+这会产生**软阈值**效果：证据较弱的系数不仅会变小，还可能被直接压到 0。
 
 ```text
-OLS   ：只保留能改善拟合的东西
-Ridge ：所有系数一起收缩
-Lasso ：收缩，并把弱系数直接删掉
+OLS   ：只要能改善拟合就保留
+Ridge ：把所有系数缩小
+Lasso ：收缩，同时把弱系数直接删除
 ```
 
-稀疏性的代价是：当多个特征携带几乎相同的信息时，选择可能不稳定。纯 Lasso 可能保留相关变量组中的一个、丢掉另一个，而且这个决定会随样本轻微变化。[Elastic Net](elastic-net.md) 往往更适合这种场景。
+代价是：当多个特征几乎携带相同信息时，纯 Lasso 的选择可能不稳定。它可能任意保留其中一个、丢掉另一个；这种场景通常更适合 [Elastic Net](elastic-net.md)。
 
 ## 什么时候使用？
 
 Lasso 特别适合：
 
-- 你相信真实信号本身比较稀疏；
-- 候选特征数量相对样本量较大；
-- 希望最终模型只保留少量 active features；
-- 存储、部署或下游流程会从“删除特征”中直接受益；
-- 愿意通过验证数据选择正则化强度。
+- 你相信真实信号是稀疏的；
+- 候选特征相对样本量很多；
+- 希望得到较小的 active set；
+- 存储、部署或下游建模能从删除特征中获益；
+- 愿意通过验证来选择正则化强度。
 
-以下情况应优先考虑其他方法：
+优先考虑其他方法，当：
 
-- 大多数特征都可能有小但真实的作用——[Ridge](ridge.md) 往往更合适；
-- 特征明显成组高度相关，希望同组变量一起保留/收缩——优先尝试 [Elastic Net](elastic-net.md)；
-- 因变量并不适合 Gaussian 线性回归——使用相应的 penalized GLM、生存或其他模型族；
-- 首要目标是严格的选择后推断，而不是预测/筛选——post-selection inference 需要额外假设和专门处理。
+- 大多数特征都可能有小但真实的作用——考虑 [Ridge](ridge.md)；
+- 特征形成高度相关的组，希望组内变量一起保留/收缩——考虑 [Elastic Net](elastic-net.md)；
+- 响应不适合 Gaussian 线性回归——使用相应 penalized GLM、生存模型等；
+- 首要目标是严格 post-selection inference——需要更谨慎的选择后推断设计。
 
 ## 模型与目标函数
 
@@ -77,19 +73,11 @@ $$
 +\alpha\lVert\beta\rVert_1.
 $$
 
-其中：
+`alpha` 越大，收缩和精确 0 通常越多；截距不受惩罚。
 
-- $n$ 是样本数；
-- $x_i$ 是第 $i$ 个样本的特征向量；
-- $\beta$ 是系数向量；
-- $\alpha\ge 0$ 控制正则化强度；
-- 截距不参与 L1 惩罚。
+### 为什么 L1 会产生精确 0？
 
-`alpha` 越大，出现 0 系数的可能性越高。`alpha` 很小时接近未正则化线性拟合；过大时则可能把真正有用的信号也一起删除。
-
-### 为什么 L1 会产生精确的 0？
-
-绝对值惩罚在 0 点有一个尖角。优化时，小的系数更新会经过软阈值：
+绝对值惩罚在 0 处有尖角。优化中的 soft-thresholding 为
 
 $$
 \mathcal S_\lambda(z)
@@ -97,11 +85,9 @@ $$
 \operatorname{sign}(z)\max(|z|-\lambda,0).
 $$
 
-只要 $|z|\le\lambda$，结果就是精确的 0。这就是 Lasso 稀疏性的计算机制。
+当 $|z|\le\lambda$ 时，结果就是精确的 0。这是 Lasso 稀疏性的直接计算机制。
 
 ## 最小可运行示例
-
-下面的数据有 12 个特征，但只有索引 `1`、`5`、`9` 真正影响响应。
 
 ```python
 import numpy as np
@@ -125,49 +111,47 @@ print("selected features:", np.flatnonzero(np.abs(model.coef_) > 1e-8))
 print("R²:", round(model.score(X, y), 3))
 ```
 
-使用固定随机种子和这个 `alpha` 后，明显非零的系数应位于 `1`、`5`、`9`，大约是 `1.97`、`-1.41` 和 `0.73`。它们会比生成数据时的真实系数略小，因为**收缩本身就是估计器的一部分**。
+固定随机种子和这个 `alpha` 后，明显非零的系数应在索引 `1`、`5`、`9`，大约为 `1.97`、`-1.41`、`0.73`。它们比生成系数更小，是因为收缩本来就是估计量的一部分。
 
 ## 如何理解结果？
 
-- `coef_[j] == 0` 表示在当前 `alpha` 下，Lasso 把这个变量从拟合线性预测器中移除了。
-- 非零系数同样已经被**收缩**，不能把它直接当成未惩罚 OLS 的效应估计。
-- `intercept_` 独立拟合，不属于 L1 penalty。
-- `predict(X_new)` 返回连续响应预测值。
-- `score(X, y)` 返回 $R^2$。
-- `n_iter_` 表示当前数值路径的优化迭代次数。
+- `coef_[j] == 0` 表示在当前 `alpha` 下，该特征没有进入拟合线性 predictor。
+- 非零系数仍然经过收缩，不能当作未惩罚 OLS 系数。
+- `intercept_` 不受 L1 惩罚。
+- `predict(X_new)` 返回连续预测。
+- `score(X, y)` 返回 $R^2$，并支持 `sample_weight=`。
+- `n_iter_` 是所选数值路径的迭代次数。
 
-变量选择是数据依赖的。某个特征在这次样本中被压成 0，并不能证明它在总体中的真实效应严格等于 0，尤其是在特征相关或样本较小时。
+一个特征在某个样本中被压成 0，并不证明总体中的真实作用必然为 0。
 
 ## 关键参数应该怎么选？
 
+这里是正常工作流的**精选参数表**。完整 constructor 见[完整 API 参考](#完整-api-参考)。
+
 | 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
-| `alpha` | `1.0` | 最重要的统计选择。越大，收缩越强、0 越多。预测型特征选择优先用 `LassoCV` 或其他验证程序。 |
-| `fit_intercept` | `True` | 一般保持开启，除非理论上截距固定，或设计矩阵已经包含截距。 |
-| `device` | `"auto"` | 小问题 CPU 最简单；优化规模足够大、能覆盖传输和初始化成本时再使用 GPU。 |
-| `solver` | `"fista"` | 单模型拟合的稳定默认值。通常因为数值/性能原因才修改，而不是为了改变统计模型。 |
-| `stopping` | `"coef_delta"` | 如果希望按照最优性条件而不是单纯系数移动判断收敛，可以使用 `"kkt"`。 |
-| `compute_inference` | `True` | 只做预测/选择时建议关闭；如果要推断，应明确选择 `inference_method` 并理解后面的有效性边界。 |
+| `alpha` | `1.0` | 最重要的统计选择；越大通常收缩越强、0 越多。预测/选择任务优先用 `LassoCV`。 |
+| `fit_intercept` | `True` | 一般保持开启，除非理论固定截距或设计矩阵已有截距。 |
+| `device` | `"auto"` | 小问题优先 CPU；工作负载足够大时再考虑 GPU。 |
+| `solver` | `"fista"` | 单模型拟合的稳定默认路径，改变它主要是数值/性能选择。 |
+| `stopping` | `"coef_delta"` | 需要按最优性而不是系数变化判断收敛时可用 `"kkt"`。 |
+| `compute_inference` | `True` | 只做预测/选择时可关闭；需要推断时应显式理解 `inference_method` 的统计含义。 |
 
-### 正则化前先标准化
+### 正则化之前先标准化
 
-L1 直接惩罚系数大小。不同量纲的变量因此会受到实际上不同程度的惩罚。
-
-大多数 Lasso workflow 都应先标准化连续特征。上面的合成数据天然处在近似相同尺度上，所以不需要额外处理。
+L1 直接惩罚系数大小。特征量纲差异会导致有效惩罚不同，因此多数 Lasso workflow 应先标准化连续变量。
 
 ## 与相近方法比较
 
-| 方法 | 对相关变量组的行为 | 会产生精确 0 吗？ | 典型使用理由 |
+| 方法 | 相关变量组 | 精确 0？ | 典型选择理由 |
 |---|---|:---:|---|
-| OLS / `LinearRegression` | 不正则化 | 否 | 设计稳定，使用未惩罚估计 |
-| [Ridge](ridge.md) | 更倾向于共享信号 | 否 | 稳定相关特征，但不做变量删除 |
-| **Lasso** | 可能只选同组中的一个 | 会 | 稀疏预测 / 自动特征选择 |
-| [Elastic Net](elastic-net.md) | 比 Lasso 更照顾相关变量组 | 会 | 既要稀疏，又有较强共线性 |
-| Adaptive Lasso | 使用数据驱动的 L1 权重 | 会 | 在更强的稀疏模型假设下减轻统一 penalty 的偏差 |
+| OLS / `LinearRegression` | 无正则化 | 否 | 未惩罚估计 |
+| [Ridge](ridge.md) | 倾向共享信号 | 否 | 稳定相关变量，不删除特征 |
+| **Lasso** | 可能只选组内一个 | 是 | 稀疏预测 / 自动特征选择 |
+| [Elastic Net](elastic-net.md) | 比 Lasso 更照顾组 | 是 | 稀疏模型 + 相关变量 |
+| Adaptive Lasso | 数据依赖 L1 权重 | 是 | 在更强稀疏假设下减轻统一惩罚偏差 |
 
-如果你在纠结“Ridge 还是 Lasso”，先问自己：**精确删除变量真的有价值吗？** 如果没有，Ridge 往往是更稳健的低方差选择。
-
-## CPU 与 GPU 示例
+## CPU、GPU、Formula 与加权拟合
 
 ```python
 from statgpu.linear_model import Lasso
@@ -181,34 +165,38 @@ model = Lasso(
 ).fit(X, y)
 ```
 
-显式 `device="cuda"` 和 `device="torch"` 会在支持时使用相应 GPU backend；如果显式请求的设备不可用，应报错，而不是静默改变执行路径。
+显式 `device="cuda"` / `"torch"` 使用相应 GPU backend；不可用时应失败，而不是静默换执行路径。
+
+`fit()` 同时支持 `sample_weight=`，以及共享的 `formula=` / `data=` 接口。Formula 元数据会用于后续 DataFrame prediction。
 
 ## 进阶：求解器支持
 
 | `solver` 值 | CPU | CuPy / Torch | 含义 |
 |---|:---:|:---:|---|
 | `fista`（默认） | 支持 | 支持 | L1 目标的稳定近端梯度路径 |
-| `auto` | FISTA | FISTA | squared-error + L1 当前自动分发结果 |
-| `fista_bb` | 支持 | 支持 | 使用 Barzilai-Borwein 步长调整的 FISTA |
-| `admm` | 支持 | 支持 | 拆分求解替代路径；仅均匀样本权重 |
-| `coordinate_descent` | 支持 | 不支持 | 单次 squared-error 拟合的 CPU-only 兼容路径 |
+| `auto` | FISTA | FISTA | 当前 squared-error + L1 自动分发 |
+| `fista_bb` | 支持 | 支持 | Barzilai-Borwein 步长 FISTA |
+| `admm` | 支持 | 支持 | 替代拆分路径；仅均匀样本权重 |
+| `coordinate_descent` | 支持 | 不支持 | CPU-only 兼容路径 |
 
-非光滑 L1 目标会拒绝 `newton`、`lbfgs`、`irls` 和 `exact`。`cpu_solver` 由 Lasso 的 CV/path 辅助接口使用，不会覆盖单次 `Lasso.fit` 的 `solver`。通用算法机制见[求解器指南](../guides/solver-algorithms.md)。
+L1 目标拒绝 `newton`、`lbfgs`、`irls`、`exact`。`cpu_solver` 由 Lasso CV/path helper 使用，不会覆盖单次 `Lasso.fit` 的 `solver`。
+
+`admm_rho` 控制 ADMM penalty parameter；`lipschitz_L` 可为兼容近端路径提供预计算 Lipschitz 常数。
 
 ## 进阶：Lasso 之后的推断
 
-数据驱动选择之后的统计推断，比一个预先指定的 OLS 模型困难得多。statgpu 暴露了多个实用路径，但它们**不代表相同的统计保证**。
+选择后推断比预先指定的 OLS 模型推断困难得多。不同 `inference_method` 代表不同统计主张：
 
-| `inference_method` | 主要用途 | 重要限制 |
+| `inference_method` | 用途 | 重要限制 |
 |---|---|---|
-| `cpu_ols_inference` | 轻量 CPU post-selection 诊断 | OLS 风格启发式区间；不是严格 selective-inference 区间 |
-| `gpu_ols_inference` | 同类诊断，同时减少 GPU→CPU 大块传输 | 同样存在选择后有效性限制 |
-| `debiased` | de-biased / de-sparsified 系数推断 | 当前 `_conf_int` 是单个系数的边际区间；高维去偏方法本身的假设仍然必须满足 |
-| `bootstrap` | residual-bootstrap 替代方案 | 开销更高，并且仍条件于具体重采样与模型假设 |
+| `cpu_ols_inference` | 轻量 CPU post-selection diagnostic | 启发式 OLS-style 区间，不是严格 selective inference |
+| `gpu_ols_inference` | 减少 GPU→CPU 大块传输 | 同样存在 selection validity 限制 |
+| `debiased`（constructor 默认） | de-biased / de-sparsified 推断 | `_conf_int` 当前是单系数 marginal interval，且依赖高维去偏假设 |
+| `bootstrap` | residual-bootstrap 替代路径 | 计算更贵，并依赖相应重采样假设 |
 
-`compute_inference=True` 时，公开报告可包含 `_bse`、根据推断方法使用 t 或 z 口径的统计量、`_pvalues` 和 `_conf_int`。
+`n_bootstrap` 与 `bootstrap_random_state` 控制 bootstrap 路径。推断成功后可以得到 `_bse`、`_tvalues` 或 `_zvalues`、`_pvalues`、`_conf_int`。
 
-对于 `inference_method="debiased"`，还可以开启 simultaneous interval：
+可选 simultaneous interval：
 
 ```python
 model = Lasso(
@@ -220,37 +208,142 @@ model = Lasso(
     simultaneous_n_bootstrap=1000,
     simultaneous_random_state=7,
 ).fit(X, y)
-
-marginal_ci = model._conf_int
-simultaneous_ci = model._conf_int_simultaneous
 ```
 
-边际区间和 simultaneous family-wise 区间回答的是不同问题，不能互相替代描述。
+Simultaneous inference 要求 `compute_inference=True`、`inference_method="debiased"` 和 `simultaneous_method="maxz_bootstrap"`。
 
 ## 常见误区
 
-- **不要把“被选中”理解成“已经证明有因果作用”，甚至也不能直接理解成“总体效应必然非零”。** Lasso 选择依赖样本和 tuning。
-- **不要忽略特征尺度。** L1 penalty 不具备尺度不变性。
-- **不要期待高度重复的变量之间有稳定选择。** 纯 Lasso 可能任意偏好一个相关变量；Elastic Net 往往更适合。
-- **不要通过最大化训练 $R^2$ 选择 `alpha`。** 应使用 held-out validation 或 cross-validation。
-- **不要在变量选择以后直接套普通 OLS p 值，再假装模型是预先指定的。** 推断方法必须匹配你的统计问题。
-- **不要把数值收敛等同于统计正确。** KKT residual 很小只说明声明的优化问题求解得足够准确。
+- “被选择”不等于“总体真实非零”，更不等于因果。
+- L1 不具备尺度不变性，不能忽略标准化。
+- 高度相关变量之间的纯 Lasso 选择可能很不稳定。
+- 不要根据训练 $R^2$ 选择 `alpha`。
+- 不要在数据驱动选择后直接附上普通 OLS p 值并当作预先指定模型推断。
+- 数值收敛（例如 KKT 很小）不等于统计模型正确。
 
-## API 与验证
+## 完整 API 参考
 
-导入：
+前面的参数表是教学用的选择指南；这里是当前 `Lasso` wrapper 的完整 constructor 和 model-method inventory。
+
+### Constructor
 
 ```python
-from statgpu.linear_model import Lasso
+Lasso(
+    alpha=1.0,
+    fit_intercept=True,
+    max_iter=1000,
+    tol=1e-4,
+    stopping="coef_delta",
+    inference_method="debiased",
+    n_bootstrap=200,
+    bootstrap_random_state=None,
+    enable_simultaneous_inference=False,
+    simultaneous_method="maxz_bootstrap",
+    simultaneous_alpha=0.05,
+    simultaneous_n_bootstrap=1000,
+    simultaneous_random_state=None,
+    simultaneous_include_intercept=False,
+    device="auto",
+    n_jobs=None,
+    compute_inference=True,
+    solver="fista",
+    cpu_solver="coordinate_descent",
+    lipschitz_L=None,
+    admm_rho=1.0,
+    gpu_memory_cleanup=False,
+)
 ```
 
-进阶构造参数包括 `max_iter`、`tol`、`cpu_solver`、`gpu_memory_cleanup`、`inference_method` 和 simultaneous-inference 相关设置。它们被有意放到本页后半段。
+<!-- API-CONSTRUCTOR-START:Lasso -->
+| 参数 | 默认值 | API 含义 |
+|---|---:|---|
+| `alpha` | `1.0` | L1 惩罚强度。 |
+| `fit_intercept` | `True` | 拟合不受惩罚的截距。 |
+| `max_iter` | `1000` | 最大求解迭代数。 |
+| `tol` | `1e-4` | 数值收敛容差。 |
+| `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
+| `inference_method` | `"debiased"` | 拟合后推断路径。 |
+| `n_bootstrap` | `200` | `inference_method="bootstrap"` 时 residual-bootstrap 抽样次数。 |
+| `bootstrap_random_state` | `None` | residual bootstrap 随机种子。 |
+| `enable_simultaneous_inference` | `False` | 在 debiased inference 后启用 simultaneous max-|Z| 区间。 |
+| `simultaneous_method` | `"maxz_bootstrap"` | simultaneous calibration 方法；当前为 `maxz_bootstrap`。 |
+| `simultaneous_alpha` | `0.05` | simultaneous interval 的 family-wise error level。 |
+| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier-bootstrap 次数。 |
+| `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
+| `simultaneous_include_intercept` | `False` | 在支持时把截距纳入 simultaneous target family。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
+| `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
+| `compute_inference` | `True` | 执行所选拟合后推断。 |
+| `solver` | `"fista"` | 单模型求解器。 |
+| `cpu_solver` | `"coordinate_descent"` | Lasso CV/path helper 的 CPU 选择，不会替代单次拟合的 `solver`。 |
+| `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
+| `admm_rho` | `1.0` | ADMM augmented-Lagrangian penalty parameter。 |
+| `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存 GPU 内存。 |
+<!-- API-CONSTRUCTOR-END:Lasso -->
 
-维护中的验证覆盖求解器收敛、CPU/GPU 一致性、KKT stopping、de-biased inference、bootstrap/推断路径以及需要时的真实 GPU 行为。相关入口包括 `dev/tests/test_lasso_debiased_inference.py`、`dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` 与 `dev/comparisons/compare_lasso_kkt_stopping.py`。
+### `fit`
+
+共享 penalized-linear fit 签名为：
+
+```python
+model.fit(
+    X=None,
+    y=None,
+    sample_weight=None,
+    formula=None,
+    data=None,
+)
+```
+
+| 参数 | 含义 |
+|---|---|
+| `X` | 二维特征矩阵。 |
+| `y` | 一维连续因变量。 |
+| `sample_weight` | 可选非负分析权重；部分 solver 还有额外限制。 |
+| `formula` | 可选 Patsy 风格 Formula。 |
+| `data` | Formula 接口使用的 DataFrame。 |
+
+`fit()` 返回 `self`。
+
+### 预测、评分与报告方法
+
+| 方法 | 签名 | 行为 |
+|---|---|---|
+| `predict` | `predict(X, return_cpu=True)` | 连续预测；`return_cpu=False` 可让 GPU 预测留在实际 backend。 |
+| `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
+| `summary` | `summary()` | 打印系数/推断摘要；要求已拟合且推断可用。 |
+| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换 constructor 状态。 |
+
+已有 p 值时，共享 estimator base 还提供 p 值校正/合并工具，见[推断 API](../guides/inference-api.md)。
+
+### 拟合后属性与诊断量
+
+| 属性 | 含义 / 可用条件 |
+|---|---|
+| `coef_` | 惩罚系数；精确 0 定义当前 fitted active set。 |
+| `intercept_` | 不受惩罚的截距。 |
+| `n_iter_` | 所选数值路径迭代次数。 |
+| `n_features_in_` | 相应拟合路径发布时的特征数。 |
+| `rsquared`, `rsquared_adj` | 所需状态可用时的 $R^2$ 与调整 $R^2$。 |
+| `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
+| `llf`, `aic`, `bic` | 所需 reporting state 可用时的 Gaussian fit diagnostics。 |
+| `_bse` | 所选 inference method 产生的标准误。 |
+| `_tvalues` | 使用 t-style 语义的推断路径统计量。 |
+| `_zvalues` | debiased inference 的 z-style 统计量。 |
+| `_pvalues` | 推断成功时的系数 p 值。 |
+| `_conf_int` | 推断成功时的 marginal coefficient interval。 |
+| `_conf_int_simultaneous` | 显式启用并成功校准时的 simultaneous interval。 |
+| `_inference_result` | 结构化推断结果与 metadata。 |
+
+下划线推断属性在当前版本中是既有 reporting surface；其统计含义取决于 `inference_method`。
+
+## 验证
+
+维护中的验证覆盖 solver 收敛、CPU/GPU 一致性、KKT stopping、debiased inference、bootstrap、simultaneous inference 和 physical-GPU 行为。
 
 ## 参考文献
 
 - Tibshirani, R. (1996). Regression shrinkage and selection via the lasso. *Journal of the Royal Statistical Society: Series B*, 58(1), 267–288.
 - Bühlmann, P., & van de Geer, S. (2011). *Statistics for High-Dimensional Data*. Springer.
-- Zhang, C.-H., & Zhang, S. S. (2014). Confidence intervals for low-dimensional parameters in high-dimensional linear models. *Journal of the Royal Statistical Society: Series B*, 76(1), 217–242.
-- Javanmard, A., & Montanari, A. (2014). Confidence intervals and hypothesis testing for high-dimensional regression. *Journal of Machine Learning Research*, 15, 2869–2909.
+- Zhang, C.-H., & Zhang, S. S. (2014). Confidence intervals for low-dimensional parameters in high-dimensional linear models. *JRSS B*, 76(1), 217–242.
+- Javanmard, A., & Montanari, A. (2014). Confidence intervals and hypothesis testing for high-dimensional regression. *JMLR*, 15, 2869–2909.
