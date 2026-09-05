@@ -3,13 +3,17 @@
 ## Purpose
 
 This document defines the canonical structure for public statgpu model pages.
-The primary audience of a model page is a user who may know the programming
-language but does **not** yet know the statistical or machine-learning method.
+The primary audience of a model page is a user who may know Python but does
+**not** yet know the statistical or machine-learning method.
 
 The first half of a model page must therefore teach the method before it acts as
 an API reference. Solver dispatch, backend internals, validation tolerances, and
 complete constructor inventories are important, but they must not displace the
 conceptual path a new user needs.
+
+Learner-first does **not** mean API-incomplete. A public model entry page must
+still provide an exhaustive API inventory later on the page, or link to a
+maintained dedicated reference page that provides it.
 
 `docs/en/models/linear-regression.md` is the canonical simple-model example.
 `docs/en/models/generalized-linear-model.md` is the canonical example for a
@@ -17,8 +21,8 @@ family of related models with substantial method-selection guidance.
 
 ## Documentation layers
 
-statgpu documentation should distinguish three layers rather than forcing all
-material into one page.
+statgpu documentation distinguishes three layers rather than forcing all
+material into the first screen of one page.
 
 ### 1. Learner/model guide
 
@@ -40,20 +44,29 @@ advanced reference page.
 
 ### 2. Statistical/API reference
 
-Use a separate reference page when a model has enough advanced material to make
-the learner page hard to scan. Appropriate content includes:
+Every public estimator must have a complete statistical/API lookup surface.
+This may be an inline **Complete API reference** near the end of the learner
+page, or a dedicated maintained reference page linked prominently from it.
 
-- complete constructor and `fit` signatures;
-- every fitted attribute and output shape;
-- covariance and inference formulas;
+The reference layer should cover, where applicable:
+
+- the complete public constructor signature and every constructor parameter;
+- the complete `fit` signature, including forwarded public keyword arguments;
+- primary public methods such as `predict`, `score`, and `summary`;
+- fitted attributes and their availability conditions;
+- covariance and inference outputs;
 - multi-output behavior;
-- unsupported combinations and exact failure conditions;
-- complete family/link/penalty compatibility matrices;
-- detailed solver selection tables when they are part of the public API;
+- unsupported combinations and important failure conditions;
+- family/link/penalty compatibility matrices when relevant;
 - backend-specific behavior and transfer boundaries.
 
-`linear-regression-inference.md` and `glm-family-reference.md` illustrate this
-layer. A learner page may summarize these topics and link to the reference.
+`linear-regression-inference.md` and `glm-family-reference.md` illustrate the
+dedicated-reference form. Ridge, Lasso, and Elastic Net illustrate the inline
+reference form.
+
+The key rule is:
+
+> **Curated teaching tables may be incomplete; the reference inventory may not.**
 
 ### 3. Numerical/implementation guide
 
@@ -201,8 +214,9 @@ causality" or "cluster numbers have no ordinal meaning".
 
 ### 10. Key parameters and how to choose them
 
-Do not reproduce the constructor docstring as the main parameter table.
-Prioritize parameters that change the statistical meaning or normal workflow.
+Do **not** reproduce the complete constructor docstring as the main teaching
+table. Prioritize parameters that change the statistical meaning or normal
+workflow.
 
 The guidance column should answer "what happens when I change this?" and "how
 should I choose it?"
@@ -219,7 +233,8 @@ Preferred:
 |---|---|
 | `alpha` | Larger values shrink coefficients more strongly. For prediction or feature selection, choose it with cross-validation rather than by hand. |
 
-Move exhaustive parameter inventories to the reference layer when needed.
+This table is explicitly **curated**. It must not be labeled as the complete API
+unless it actually contains every public constructor parameter.
 
 ### 11. Compare with alternatives
 
@@ -268,18 +283,38 @@ Examples:
 - forgetting that fixed effects remove time-invariant regressors;
 - treating PCA component signs or KMeans labels as intrinsically identified.
 
-### 14. Advanced/API links and references
+### 14. Complete API reference or reference link
 
-End with links to advanced reference pages, solver guides, validation documents,
-and primary literature.
+A public learner page must end its modeling narrative with one of two options:
+
+1. an inline `Complete API reference`; or
+2. a prominent link to a maintained dedicated statistical/API reference page.
+
+An inline complete reference should normally include:
+
+- complete constructor signature;
+- every constructor parameter and default;
+- complete `fit` signature, including public forwarded keyword arguments;
+- `predict`, `score`, `summary`, and other model-specific public methods;
+- fitted attributes and conditions under which optional fields exist;
+- important invalid combinations or fail-closed behavior.
+
+For contract-managed pages, constructor parameter inventories should be checked
+against source automatically. The current docs contract AST-checks Ridge, Lasso,
+and Elastic Net English/Chinese inventories so source changes cannot silently
+outgrow their API tables.
+
+### 15. Advanced links and references
+
+End with links to solver guides, validation documents, shared inference/API
+guides, and primary literature where useful.
 
 Validation file names and benchmark artifacts may be mentioned here, but should
 not interrupt the beginner narrative.
 
 ## Method-family adaptations
 
-The canonical order is a framework, not a rigid requirement. The following
-adaptations are expected.
+The canonical order is a framework, not a rigid requirement.
 
 ### GLM/family pages
 
@@ -329,6 +364,8 @@ or a solver table was added. A migrated page must satisfy all of the following:
 9. English and Chinese versions preserve the same conceptual structure even
    when wording is not sentence-by-sentence identical.
 10. Public claims match the current implementation and hosted validation.
+11. The public API is exhaustively documented inline or through a maintained
+    reference link; a curated key-parameter table alone is not sufficient.
 
 ## Review rubric
 
@@ -347,9 +384,11 @@ Review each learner page on a 0-2 scale for the following dimensions:
 | Pitfalls | absent | API-only | scientific + API pitfalls |
 | Advanced-detail separation | dominates | mixed | learner-first, advanced linked |
 
-A page is considered fully migrated at **17/20 or higher**, with no zero in
+A page is considered learner-first at **17/20 or higher**, with no zero in
 Problem framing, Motivation / intuition, Runnable example, or Result
-interpretation.
+interpretation. **API completeness is an additional hard gate**, not an eleventh
+scored dimension: a page cannot be considered fully migrated if its public API
+reference is incomplete.
 
 ## Migration priority
 
@@ -368,10 +407,10 @@ Recommended first migration wave:
 
 This wave intentionally covers regularization, classification, count models,
 robust/quantile estimation, survival, panel data, and unsupervised learning so
-the template is tested across method families before the remaining pages are
+the template is tested across method families before remaining pages are
 migrated in bulk.
 
-## What should remain out of the learner page
+## What should remain out of the learner-first half
 
 Do not delete advanced information. Relocate or link it when it harms the
 learning path. In particular, avoid placing the following before the normal
@@ -387,6 +426,7 @@ workflow unless the method cannot be understood without them:
 - every fitted attribute shape;
 - historical implementation fixes.
 
+These items may and often should appear later in the complete reference layer.
 The goal is not to make statgpu documentation less technical. The goal is to
-make the technical depth **progressive**: motivation first, working use second,
-full statistical and numerical detail available immediately after that.
+make technical depth **progressive**: motivation first, working use second,
+complete public API third, numerical implementation detail after that.
