@@ -1,7 +1,7 @@
-# Lasso
+# Lasso 回归
 
 > 语言: 中文  
-> 最后更新: 2026-04-17  
+> 最后更新: 2026-09-04
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/lasso.md)
 
@@ -50,6 +50,20 @@ $$
 - `naive_ols` -> `cpu_ols_inference`
 - `gpu_naive_ols` -> `gpu_ols_inference`
 
+## 求解器支持
+
+| 控制项 | CPU | CuPy / Torch | 含义 |
+|---|:---:|:---:|---|
+| `solver="fista"`（默认） | 支持 | 支持 | L1 目标的稳定近端梯度路径 |
+| `solver="auto"` | FISTA | FISTA | squared-error + L1 当前的自动分发结果 |
+| `solver="fista_bb"` | 支持 | 支持 | 使用 Barzilai-Borwein 自适应步长的 FISTA |
+| `solver="admm"` | 支持 | 支持 | 拆分求解替代路径；只支持均匀样本权重 |
+| `solver="coordinate_descent"` | 支持 | 不支持 | 单次 squared-error 拟合的 CPU-only 兼容路径 |
+
+L1 目标会拒绝 `newton`、`lbfgs`、`irls` 与 `exact`。`cpu_solver` 由 Lasso 的 CV/路径辅助接口使用，不会覆盖单次 `Lasso.fit` 的 `solver`；因此需要复现单模型 CPU 路径时，应直接设置 `solver=`。
+
+这些名称是估计器取值；低层的 quantile coordinate-descent 函数与 Lasso 的 `solver=` 接口无关。迭代公式见[求解器指南](../guides/solver-algorithms.md)。
+
 ## 参数（Parameters）
 
 | 参数 | 默认值 | 说明 |
@@ -57,8 +71,8 @@ $$
 | `alpha` | `1.0` | L1 正则强度 |
 | `max_iter` | `1000` | 最大迭代数 |
 | `tol` | `1e-4` | 收敛阈值 |
-| `solver` | `"fista"` | GPU 求解器：`fista` / `admm` |
-| `cpu_solver` | `"coordinate_descent"` | CPU 求解器：`coordinate_descent` / `fista` |
+| `solver` | `"fista"` | 单模型拟合求解器；见上方支持表 |
+| `cpu_solver` | `"coordinate_descent"` | Lasso CV/路径辅助接口的 CPU 选项；不会覆盖单次拟合的 `solver` |
 | `stopping` | `"coef_delta"` | 停止准则：`coef_delta` / `kkt` |
 | `inference_method` | `"cpu_ols_inference"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
 | `compute_inference` | `True` | 是否计算推断统计 |

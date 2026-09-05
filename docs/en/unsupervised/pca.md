@@ -64,6 +64,17 @@ The two objectives are equivalent because total variance is fixed after centerin
   $$
 - `explained_variance_ratio_` divides each retained variance by total centered variance.
 
+## Solver support
+
+| `svd_solver` value | Exactness | Selection and use |
+|---|---|---|
+| `auto` (default) | exact | `covariance` when `n_samples >= n_features`; otherwise `full` |
+| `full` | exact up to floating-point error | Direct dense SVD; preferable when the feature dimension exceeds the sample count |
+| `covariance` | exact up to floating-point error | Eigendecomposition of the feature covariance; avoids decomposing the full rectangular matrix |
+| `randomized` | approximate | Random projection plus power iterations; control with `random_state`, `n_oversamples`, and `iterated_power` |
+
+All four values are implemented on the selected NumPy, CuPy, or Torch backend. These are PCA-specific `svd_solver` values, not aliases for linear-model `solver=` names.
+
 ## Parameters
 
 - `n_components`: number of principal components to keep; `None` keeps all feasible components.

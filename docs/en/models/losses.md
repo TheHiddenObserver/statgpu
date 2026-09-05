@@ -41,6 +41,8 @@ MCP; it is estimation-only and never fits an intercept.
 statgpu.losses.LossBase
 statgpu.losses.QuantileLoss
 statgpu.losses.HuberLoss
+statgpu.losses.BisquareLoss
+statgpu.losses.FairLoss
 statgpu.losses.CoxPartialLikelihoodLoss
 statgpu.linear_model.PenalizedCoxPHModel
 ```
@@ -53,6 +55,8 @@ LossBase (statgpu/losses/_base.py)
 │   ├── SquaredErrorLoss, LogisticLoss, PoissonLoss, ...
 ├── QuantileLoss — pinball loss, non-smooth
 ├── HuberLoss — robust, smooth
+├── BisquareLoss — redescending robust loss, smooth
+├── FairLoss — Fair robust loss, smooth
 └── CoxPartialLikelihoodLoss — survival, has Hessian
 ```
 
@@ -79,6 +83,28 @@ $$
 \delta(|y - \eta| - \frac{1}{2}\delta) & \text{otherwise}
 \end{cases}
 $$
+
+### Bisquare Loss (Tukey biweight)
+
+$$
+\ell(\eta,y)=\rho_c(y-\eta),
+\qquad
+\rho_c(u)=
+\begin{cases}
+\dfrac{c^2}{6}\left[1-\left(1-(u/c)^2\right)^3\right], & |u|\le c,\\
+\dfrac{c^2}{6}, & |u|>c.
+\end{cases}
+$$
+
+### Fair Loss
+
+For tuning constant $c>0$ and residual $u=y-\eta$,
+
+$$
+\rho_c(u)=c^2\left(\frac{|u|}{c}-\log\left(1+\frac{|u|}{c}\right)\right).
+$$
+
+Fair loss is smooth and approaches linear growth for large residuals without the hard redescending cutoff of Bisquare.
 
 ### Cox Partial Likelihood (Negative)
 
@@ -118,6 +144,19 @@ delayed-entry/start-stop data, and strata.
 | Parameter | Default | Description |
 |---|---:|---|
 | `delta` | `1.0` | Threshold: quadratic for \|u\| ≤ delta, linear otherwise |
+
+### BisquareLoss
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `epsilon` | `4.685` | Robustness tuning constant |
+| `method` | `"MAD"` | Scale estimation method |
+
+### FairLoss
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `c` | `1.4` | Fair-loss tuning constant |
 
 ### CoxPartialLikelihoodLoss
 

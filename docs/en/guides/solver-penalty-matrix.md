@@ -1,51 +1,50 @@
 # Solver × Penalty Compatibility Matrix
 
 > Language: English  
-> Last updated: 2026-08-03  
+> Last updated: 2026-09-04
 > This page: Reference guide  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
 ## Overview
 
-`PenalizedGeneralizedLinearModel` supports **7 loss families × 9 registered penalty names × 9 solvers**. `AdaptiveGroupLassoPenalty` is additionally available as a public penalty object; it intentionally has no string-registry alias because callers must supply explicit group weights.
+The shared penalized engine supports several losses, penalties, and solver paths, but there is no universal list of values that applies to every estimator. Wrapper defaults and model-specific routes can narrow the shared engine.
 
-**Key rule**: supported loss × penalty combinations work with `solver='auto'`. Explicit solver requests are validated before numerical work.
+::: warning Source of truth
+Use the corresponding model page to select `solver=`. This page explains shared compatibility; it does not turn low-level functions into estimator keywords. Start from the [model solver lookup](../models/#solver-lookup).
+:::
 
-## 1. Auto-Dispatch Table
+## 1. Auto-dispatch rules
 
-| Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
-|------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
-| **squared_error** | exact | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **logistic** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **poisson** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **inverse_gaussian** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **negative_binomial** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+`auto` depends on the loss, penalty, resolved backend, CV mode, and sometimes problem size. The main current rules are:
 
-**Dispatch notes**:
-- `AdaptiveGroupLassoPenalty` follows the `group_lasso` column, using its supplied per-group weights.
-- `fista_lla` is not a user-facing `solver=` keyword. It is invoked internally for nonconvex penalties. The exported `fista_lla_path()` function enforces the same surrogate when called directly.
-- Scalar squared-error SCAD/MCP may use coordinate-descent continuation. Group SCAD/MCP always use a weighted Group Lasso surrogate with a group-aware FISTA inner solve.
-- Every Group Lasso or Adaptive Group Lasso estimator uses the advertised loss gradient and the exact Euclidean group proximal operator. This includes squared error, robust/GLM losses, `sample_weight`, CV folds, and the selected-alpha final refit.
-- The former Gaussian block update is not public-routed. Solving a group Gram system and then applying Euclidean block thresholding is exact only for orthonormal group blocks, which the public design matrix does not require.
+| Model objective | Automatic dispatch or refined path |
+|---|---|
+| squared error + L2 | exact on CPU; Newton on CuPy/Torch |
+| squared error + L1 / Elastic Net | FISTA |
+| ordinary `GeneralizedLinearModel` | IRLS |
+| smooth penalized GLM / robust / Cox objective | Newton; selected CV cases use L-BFGS |
+| sparse GLM | FISTA or FISTA-BB according to family, backend, CV mode, and size |
+| Adaptive Lasso | weighted-L1 FISTA |
+| scalar SCAD / MCP | FISTA dispatch refined to model-specific FISTA-LLA; quantile uses proximal IRLS + LLA |
+| group penalties | model-specific group proximal/LLA path |
+| quantile + L2/none | FISTA dispatch refined internally to quantile IRLS |
+
+Wrapper defaults can be more specific than the shared `auto` policy: `Ridge` defaults to `exact`, Lasso and Elastic Net default to `fista`, `LogisticRegression` exposes no selector and uses fixed IRLS, and ordered models use fixed trust-region Newton. Follow the links from the model catalog rather than inferring a keyword from this table.
 
 ## 2. Explicit Solver Constraints
 
 | Solver | Accepts | Rejects | Notes |
 |--------|---------|---------|-------|
 | `exact` | l2 only, squared_error only | everything else | Eigendecomposition closed-form |
-| `irls` | l2 only (any loss) | all non-smooth | Iteratively Reweighted Least Squares |
-| `newton` | l2 / none (any loss) | l1, elasticnet, scad, mcp, adaptive_l1, all group penalties | Newton-Raphson with line search |
-| `lbfgs` | l2 / none (any loss) | l1, elasticnet, scad, mcp, adaptive_l1, all group penalties | L-BFGS with line search |
+| `irls` | l2/none and a loss declaring the IRLS contract | all non-smooth; squared error and Huber on the shared penalized surface | Model-specific IRLS |
+| `newton` | l2 / none with a Hessian-equipped loss | non-smooth penalties and quantile loss | Newton-Raphson with line search |
+| `lbfgs` | l2 / none with a smooth loss | non-smooth penalties and quantile loss | L-BFGS with line search |
 | `fista` | all proximal penalties (any supported loss) | — | FISTA with Nesterov momentum |
 | `fista_bb` | supported sparse penalties | unsupported combinations fail explicitly | FISTA + Barzilai-Borwein step size |
-| `admm` | supported proximal penalties | unsupported combinations fail explicitly | ADMM with proximal z-update |
-| `irls_cd` | scalar scad, mcp, adaptive_l1 | l1, elasticnet, all group penalties | IRLS outer + coordinate descent inner |
-| `proximal_irls_cd` | scalar scad, mcp (quantile only) | group penalties and non-quantile losses | IRLS majorization + LLA |
-| `proximal_newton` | l2 / none use Newton; non-smooth direct calls delegate visibly to FISTA | group penalties and unsupported penalties | no silent Euclidean-prox approximation |
+| `admm` | supported loss/penalty pairs | non-uniform sample weights | ADMM with proximal z-update |
+| `coordinate_descent` | CPU squared-error L1/Elastic Net compatibility path | GPU and non-squared losses | Estimator compatibility path, not quantile CD |
 
-Unsupported combinations raise `ValueError` before numerical work.
+`irls_cd`, `proximal_irls_quantile_solver`, `fista_lla_path`, `proximal_newton_solver`, and `lbfgs_b_solver` are internal or direct low-level APIs, not universal estimator `solver=` values. Some model-specific penalties refine a generic dispatch label into a fixed internal path; the model page states that boundary explicitly.
 
 ## 3. Solver Capabilities
 
@@ -53,12 +52,12 @@ Unsupported combinations raise `ValueError` before numerical work.
 |--------|:------------:|:----------:|:---------:|----------|
 | `exact` | ✅ | ❌ | ✅ (OLS) | squared_error + l2 |
 | `irls` | ✅ | ❌ | ❌ | GLM + l2 |
-| `newton` | loss dependent | ❌ | ❌ | smooth objectives |
-| `lbfgs` | loss dependent | ❌ | ❌ | large smooth objectives |
+| `newton` | uniform only | ❌ | ❌ | smooth objectives |
+| `lbfgs` | uniform only | ❌ | ❌ | large smooth objectives |
 | `fista` | ✅ | ✅ | ❌ | convex group/sparse objectives and LLA inner solves |
 | `fista_bb` | ✅ | ✅ | ❌ | supported sparse objectives with adaptive steps |
-| `admm` | ✅ | ✅ | ❌ | supported proximal objectives |
-| `irls_cd` | ✅ | ✅ | ❌ | squared_error + scalar SCAD/MCP |
+| `admm` | uniform only | ✅ | ❌ | supported proximal objectives |
+| `coordinate_descent` | ✅ | ✅ | ❌ | CPU squared-error L1/Elastic Net |
 
 Group warm starts carry the coefficient and intercept components together for one fit call and are cleared after success or failure.
 

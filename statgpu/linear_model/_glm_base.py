@@ -326,6 +326,11 @@ class GeneralizedLinearModel(BaseEstimator):
 
         # params may be GPU array
         params_np = np.asarray(_to_numpy(self._params))
+        inference_feature_names = None
+        if self._feature_names is not None:
+            inference_feature_names = list(self._feature_names)
+            if self._effective_intercept:
+                inference_feature_names.insert(0, "Intercept")
 
         self._inference_result = ParameterInferenceResult(
             method="m_estimation",
@@ -336,6 +341,7 @@ class GeneralizedLinearModel(BaseEstimator):
             pvalues=self._pvalues.copy(),
             conf_int=self._conf_int.copy(),
             distribution="normal",
+            feature_names=inference_feature_names,
             metadata={
                 "dispersion": result["dispersion"],
                 "wald_stat": result["wald_stat"],
@@ -355,7 +361,7 @@ class GeneralizedLinearModel(BaseEstimator):
     # ------------------------------------------------------------------
 
     def summary(self):
-        """Print a summary table of inference results.
+        """Return a summary table of fit and inference results.
 
         Returns
         -------
@@ -371,7 +377,10 @@ class GeneralizedLinearModel(BaseEstimator):
         lines.append(f"  {self.__class__.__name__} Results")
         lines.append(f"{'='*60}")
         lines.append(f"  Family: {family_name}")
-        lines.append(f"  Solver: {getattr(self, 'solver', 'unknown')}")
+        solver_used = self._fit_metadata.get("solver_used")
+        lines.append(
+            f"  Solver: {solver_used or getattr(self, 'solver', 'unknown')}"
+        )
         lines.append(f"  No. Observations: {self._nobs}")
         lines.append(f"  Df Residuals: {self._df_resid:g}")
         lines.append(f"  Covariance Type: {getattr(self, 'cov_type', 'nonrobust')}")
@@ -616,14 +625,15 @@ class GeneralizedLinearModel(BaseEstimator):
         else:
             self._sample_weight_inf = None
 
+        self._fit_metadata = {
+            "solver_used": solver_name,
+            "objective_scale": "mean_loss_plus_penalty",
+            "ridge_alpha_avg": None,
+            "penalty_curvature_diag": None,
+        }
+
         # ---- Compute inference if requested ----
         if self._compute_inference_enabled:
-            self._fit_metadata = {
-                "solver_used": solver_name,
-                "objective_scale": "mean_loss_plus_penalty",
-                "ridge_alpha_avg": None,
-                "penalty_curvature_diag": None,
-            }
             # IRLS with finite C: add ridge curvature
             if solver_name == "irls" and self.C > 0:
                 lam = self._get_penalty_alpha()

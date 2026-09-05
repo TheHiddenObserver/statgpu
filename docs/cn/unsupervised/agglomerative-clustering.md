@@ -1,4 +1,4 @@
-# AgglomerativeClustering
+# 凝聚层次聚类（AgglomerativeClustering）
 
 > 语言：中文
 > 最后更新：2026-05-09
@@ -102,7 +102,7 @@ AgglomerativeClustering 没有 strict inference 模式。CPU、CuPy 和 Torch �
 - `distances_`
 - `n_features_in_`
 
-## FAQ
+## 常见问题
 
 **什么时候适合用 GPU 路径？**
 小中规模 dense 数据可以显式使用 `device="cuda"` 或 `device="torch"`。层次聚类仍是顺序贪心过程且需要 dense 距离矩阵；大数据可能更适合 CPU 路径或其他聚类方法。
@@ -118,7 +118,7 @@ AgglomerativeClustering 没有 strict inference 模式。CPU、CuPy 和 Torch �
 - Baseline：sklearn `AgglomerativeClustering`、SciPy `linkage`，以及参数可对齐时的 R `cluster::agnes`。
 - Phase 3B 验证目标：`"single"`、`"complete"`、`"average"`、`"ward"` 的 label permutation-invariant 一致性、ARI，以及可比较场景下的 linkage distance。
 
-## References
+## 参考文献
 
 - Sneath, P. H. A. (1957). The application of computers to taxonomy. *Journal of General Microbiology*, 17(1), 201-226. https://doi.org/10.1099/00221287-17-1-201
 - Murtagh, F. (1983). A survey of recent advances in hierarchical clustering algorithms. *The Computer Journal*, 26(4), 354-359. https://doi.org/10.1093/comjnl/26.4.354

@@ -1,5 +1,7 @@
 # 多重检验校正
 
+> 切换：[English](../../en/models/multiple-testing.md)
+
 > **模块：** `statgpu.inference`  
 > **最后更新：** 2026-06-14  
 > **后端：** NumPy, CuPy, PyTorch

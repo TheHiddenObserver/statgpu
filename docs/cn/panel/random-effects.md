@@ -1,20 +1,20 @@
-# RandomEffects
+# 随机效应模型（RandomEffects）
 
 > 语言：中文  
 > 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/random-effects.md)
 
-## Overview
+## 概述
 
 `RandomEffects` 使用 Swamy-Arora 方法估计单向 random-intercept panel model 的 variance components，再通过 feasible GLS 得到 coefficient。与 fixed effects 不同，它把 entity-specific effect 建模为随机成分，而不是为每个 entity 设置一个 unrestricted fixed parameter。
 
 `cov_type` 只改变 GLS 拟合之后报告的 standard error 和检验，不会改变 Swamy-Arora variance components，也不会改变 coefficient estimate。
 
-## Path
+## 路径
 
 实现：`statgpu/panel/_random_effects.py`。
 
-## Statistical Model and Identification
+## 统计模型与识别
 
 标准的 one-way random-effects model 可以写成
 
@@ -51,7 +51,7 @@ $$
 
 在这个统计模型下，within-entity 和 between-entity variation 都可以用于估计同一个公共 slope $\beta$。如果 $a_i$ 与 regressor history 存在系统性关系，random-effects GLS 在数值上仍然可以计算，但其 coefficient 一般不再保证识别与 fixed-effects estimator 相同的 structural $\beta$。这也是 classical FE-versus-RE Hausman comparison 背后的实质区别。
 
-## Estimator
+## 估计量
 
 Swamy-Arora 先估计
 
@@ -92,7 +92,7 @@ $$
 =(X^{*\top}X^*)^+X^{*\top}y^*.
 $$
 
-## Covariance and Inference
+## 协方差与推断
 
 standard error 基于实际用于 GLS 的 quasi-demeaned data $(y^*,X^*)$ 计算。特别地，
 
@@ -107,7 +107,7 @@ $$
 
 robust covariance 可以放宽**完成 GLS transformation 以后所报告 covariance** 的部分假设，但不会改变 Swamy-Arora transformation 本身，也不能消除 usual random-effects interpretation 对 $E(a_i\mid X_i)=0$ 的要求。如果该 mean-model orthogonality 失效，换用 robust standard error 并不会自动解决 coefficient 的识别问题。
 
-## Parameters
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
@@ -125,7 +125,7 @@ model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 
 `entity_ids` 必需，因为 variance-component estimation 与 quasi-demeaning 都按 entity 进行。Driscoll-Kraay 还需要 `time_ids`；clustered covariance 需要 `cluster`。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import RandomEffects
@@ -137,7 +137,7 @@ torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
 
 若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。
 
-## Formula Example
+## Formula 接口示例
 
 假设 `df` 包含 `y`、`x1`、`x2` 与 `entity` 列。
 
@@ -157,11 +157,11 @@ without_intercept = RandomEffects().fit(
 
 pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="driscoll-kraay"` 时才接受第二个 pipe 变量，并将其作为 `time_ids`；其他 covariance 下会明确报错，而不是静默忽略该变量。如果同时显式传入 `entity_ids`/`time_ids`，它们必须与 pipe 中命名的对应列一致。`RandomEffects` 会拒绝 fixed-effect magic tokens（`EntityEffects`、`TimeEffects`、`FixedEffects`）；grouping metadata 应使用 pipe syntax 提供。
 
-## Outputs
+## 输出
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`theta_`、`variance_components_`、`fit_statistics_`、`nobs` 与 `df_resid`。`variance_components_` 保存 $\widehat\sigma_e^2$ 与 $\widehat\sigma_a^2$；`theta_` 是拟合中各 entity quasi-demeaning factor 按 entity 数量加权后的平均值。
 
-## Numerical and Strict Behavior
+## 数值行为与 strict 模式
 
 改变 `cov_type` 不会重新拟合 random-effects model：variance components 与 coefficient 保持不变，只改变报告的不确定性。
 
@@ -175,13 +175,13 @@ Swamy-Arora variance-component step 要求 within 与 between auxiliary regressi
 
 Classical Hausman comparison 只在 [面板 diagnostics](diagnostics.md) 说明的条件下可用。不合法的 covariance 输入或不可用的显式 GPU backend 会直接报错。
 
-## FAQ
+## 常见问题
 
 **`cov_type` 会改变 Swamy-Arora coefficient estimate 吗？**  不会；它只改变 GLS 拟合后的 standard error 与相关 inference。
 
 **为什么 $\widehat\sigma_a^2$ 可能等于 0？**  finite sample 下 raw Swamy-Arora estimate 可能为负；由于 variance 不能为负，statgpu 会将该估计截断为 0。
 
-## External Validation
+## 外部验证
 
 我们**不宣称** RandomEffects coefficient 与其他 package 完全一致，因为 statgpu 使用自身的 Swamy-Arora variance-component construction。验证时先取 statgpu 得到的 quasi-demeaned $(X^*,y^*)$：robust 与 Driscoll-Kraay covariance 和 `linearmodels==7.0` 比较，HC2/HC3 covariance 和 `statsmodels==0.14.6` 比较。covariance comparison 使用 `rtol=5e-9, atol=5e-11`；见 [validation matrix](covariance.md#validation-matrix)。
 

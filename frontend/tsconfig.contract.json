@@ -7,5 +7,9 @@
     "noEmit": true,
     "resolveJsonModule": true
   },
-  "include": ["src/schema.ts", "src/identity.ts"]
+  "include": [
+    "src/schema.ts",
+    "src/identity.ts",
+    "src/providers/benchmark.ts"
+  ]
 }

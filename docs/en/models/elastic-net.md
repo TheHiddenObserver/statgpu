@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-08-05<br>
+> Last updated: 2026-09-04<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
@@ -77,6 +77,18 @@ For `kkt` mode, the optimality condition is:
 - For zero coefficients: `|∇f + α(1-λ)w| ≤ αλ`
 
 **Note**: KKT violation ~1e-2 is acceptable for numerical solutions; exact zero is not required.
+
+## Solver support
+
+| `solver` value | CPU | CuPy / Torch | Notes |
+|---|:---:|:---:|---|
+| `fista` (default) | yes | yes | Recommended proximal path |
+| `auto` | FISTA | FISTA | Current squared-error + Elastic Net dispatch |
+| `fista_bb` | yes | yes | Adaptive spectral steps |
+| `admm` | yes | yes | Alternative split solver; only uniform sample weights |
+| `coordinate_descent` | yes | no | CPU-only compatibility path |
+
+`newton`, `lbfgs`, `irls`, and `exact` are rejected because Elastic Net has a non-smooth L1 component. `cpu_solver` does not override `solver` for a single estimator fit. Full algorithm equations are in the [solver guide](../guides/solver-algorithms.md).
 
 ## Parameters
 

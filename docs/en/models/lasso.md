@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-09-04
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/lasso.md)
 
@@ -40,13 +40,27 @@ Validity notes:
 - `cpu_ols_inference` / `gpu_ols_inference` intervals are heuristic post-selection intervals and should not be interpreted as valid selective-inference confidence intervals.
 - The current `debiased` implementation returns per-coefficient marginal confidence intervals only; simultaneous/joint coverage is not guaranteed.
 
+## Solver support
+
+| Control | CPU | CuPy / Torch | Meaning |
+|---|:---:|:---:|---|
+| `solver="fista"` (default) | yes | yes | Stable proximal-gradient path for the L1 objective |
+| `solver="auto"` | FISTA | FISTA | Current automatic destination for squared-error + L1 |
+| `solver="fista_bb"` | yes | yes | FISTA with Barzilai-Borwein step adaptation |
+| `solver="admm"` | yes | yes | Alternative split solver; only uniform sample weights |
+| `solver="coordinate_descent"` | yes | no | CPU-only compatibility path for a single squared-error fit |
+
+`newton`, `lbfgs`, `irls`, and `exact` are rejected for the L1 objective. `cpu_solver` is consumed by Lasso CV/path helpers; it does not override `solver` on a single `Lasso.fit`. Thus, for a reproducible one-model CPU fit, choose the path with `solver=` directly.
+
+These are estimator values. The low-level quantile coordinate-descent function is unrelated to Lasso's `solver=` interface. See the [solver guide](../guides/solver-algorithms.md) for the update equations.
+
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
 | `alpha` | `1.0` | L1 regularization strength |
-| `solver` | `"fista"` | GPU solver: `fista` / `admm` |
-| `cpu_solver` | `"coordinate_descent"` | CPU solver: `coordinate_descent` / `fista` |
+| `solver` | `"fista"` | Single-estimator solver; see the support table above |
+| `cpu_solver` | `"coordinate_descent"` | CPU choice used by Lasso CV/path helpers; does not override single-fit `solver` |
 | `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt` |
 | `inference_method` | `"cpu_ols_inference"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
 | `compute_inference` | `True` | Whether to compute inference stats |

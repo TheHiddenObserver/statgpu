@@ -69,6 +69,12 @@ P(y=k | X) = F(θ_k - Xβ) - F(θ_{k-1} - Xβ)
 
 边界约定 `θ_{-1} = -∞`，`θ_{K-1} = ∞`。
 
+## 求解器支持
+
+`OrderedLogitRegression` 与 `OrderedProbitRegression` 不暴露公开 `solver` 参数。两者在 NumPy、CuPy 或 Torch 上始终使用模型专属、带 trust-region ridge regularization 的 Newton-Raphson。类型化 wrapper 在内部传入的 `solver="auto"` 不是用户可选的分发接口。
+
+该优化器需要联合更新回归系数与有序阈值，因此不能与通用 GLM Newton 函数互换；其公式与收敛行为应以本模型页为准。
+
 ## 优化算法
 
 Newton-Raphson + 信赖域正则化（三端统一）：
@@ -191,7 +197,7 @@ print(model._bse)
 print(model._pvalues)
 ```
 
-## strict vs approximate
+## strict 与 approximate 模式
 
 - **strict**：MLE 处的解析 Hessian 是精确的观测 Fisher 信息矩阵。在相同优化目标（无惩罚 NLL）下，
   标准误与 R `MASS::polr` 和 `ordinal::clm` 在 float64 容差内一致。

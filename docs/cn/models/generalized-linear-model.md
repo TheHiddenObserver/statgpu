@@ -1,264 +1,265 @@
-# GeneralizedLinearModel 与 Penalized GLM
+# GeneralizedLinearModel 与惩罚 GLM
 
-> 语言: 中文  
-> 最后更新: 2026-08-02
-> 页面定位: 模型文档  
-> 切换: [English](../../en/models/generalized-linear-model.md)
+> 语言：简体中文
+> 最后更新：2026-09-04
+> 切换：[English](../../en/models/generalized-linear-model.md)
 
-语言切换: [English](../../en/models/generalized-linear-model.md)
+## GLM 解决什么问题？
 
-## Overview
+广义线性模型（GLM）把线性回归扩展到取值范围或方差结构不适合高斯连续模型的响应变量。它保留可解释的线性预测子，再通过链接函数把预测子映射到响应的条件均值。
 
-`GeneralizedLinearModel` 是普通 GLM 的统一入口，当前覆盖 Gaussian、binomial、Poisson 等普通 GLM family。`PenalizedGeneralizedLinearModel` 及 typed wrapper 用于带惩罚项的 GLM，并为 L1、L2、ElasticNet、group、adaptive 等 penalty 预留统一接口。
+在 statgpu 中，`GeneralizedLinearModel` 是统一入口；`PoissonRegression` 等类型化估计器会明确响应分布，惩罚版本则增加系数收缩或特征选择。
 
-推荐用户使用 typed penalized estimator：
+## 什么时候使用 GLM？
+
+应根据响应类型与均值—方差关系选择 family：
+
+| 响应 | Family | 链接函数 $g(\mu)$ | 方差函数 $V(\mu)$ | 模型页面 |
+|---|---|---|---|---|
+| 连续且大致对称 | Gaussian | identity：$\mu$ | $1$ | [Gaussian 设置](glm-family-reference.md#gaussian) · [线性回归](linear-regression.md) |
+| 0/1 响应 | Binomial | logit：$\log\{\mu/(1-\mu)\}$ | $\mu(1-\mu)$ | [Binomial 设置](glm-family-reference.md#binomial) · [Logistic 回归](logistic-regression.md) |
+| 非负计数，方差接近均值 | Poisson | log：$\log(\mu)$ | $\mu$ | [Poisson 设置](glm-family-reference.md#poisson) · [类型化 wrapper](poisson-regression.md) |
+| 过度离散计数 | Negative binomial | log：$\log(\mu)$ | $\mu+\alpha\mu^2$ | [Negative binomial](glm-family-reference.md#negative-binomial) |
+| 正值、右偏连续响应 | Gamma | 默认 log | $\mu^2$ | [Gamma](glm-family-reference.md#gamma) |
+| 正值且方差大致按 $\mu^3$ 增长 | Inverse Gaussian | log：$\log(\mu)$ | $\mu^3$ | [Inverse Gaussian](glm-family-reference.md#inverse-gaussian) |
+| 同时包含零和正值或符合幂方差 | Tweedie | log：$\log(\mu)$ | $\mu^p$ | [Tweedie](glm-family-reference.md#tweedie) |
+
+完整的 [GLM 分布族与 API 参考](glm-family-reference.md)说明每一行的响应取值范围、可配置参数、构造器、输出与解释方法。
+
+不要只根据响应变量的名字选择 family。还应检查取值范围、方差模式、过多零值、观测依赖性，以及链接函数是否具有合理的科学解释。
+
+## 直观理解
+
+每个 GLM 都包含三部分：
+
+1. 响应分布，即 **family**；
+2. 线性预测子 $\eta_i=\beta_0+x_i^\top\beta$；
+3. 把均值连接到预测子的 **link function**：
+
+$$
+g(\mu_i)=\eta_i,
+\qquad
+\mu_i=\mathbb E(Y_i\mid x_i).
+$$
+
+log 链接满足 $\mu_i=\exp(\eta_i)$，因此预测保持为正；logit 链接的逆函数则把任意线性预测子映射为 0 到 1 之间的概率。
+
+## 模型、目标函数与假设
+
+普通 GLM 最小化对应 family 的平均负对数似然：
+
+$$
+\hat\beta
+=
+\arg\min_\beta
+\frac{1}{n}\sum_{i=1}^{n}
+\ell(y_i,x_i^\top\beta).
+$$
+
+惩罚 GLM 在此基础上加入正则项：
+
+$$
+\hat\beta
+=
+\arg\min_\beta
+\left[
+\frac{1}{n}\sum_{i=1}^{n}
+\ell(y_i,x_i^\top\beta)
++\alpha P(\beta)
+\right],
+$$
+
+其中截距不被惩罚。
+
+系数解释与推断要求 family、链接函数和线性预测子设定合理，观测独立或依赖结构被正确处理，并且没有严重秩亏。GLM 不会自动修复遗漏变量、过多零值或聚类观测。
+
+## 最小可运行示例
+
+下面生成计数数据，并用 Poisson 模型进行无惩罚拟合和稳健推断。
+
+```python
+import numpy as np
+from statgpu.linear_model import PoissonRegression
+
+rng = np.random.default_rng(1)
+X = rng.normal(size=(800, 2))
+true_coef = np.array([0.45, -0.25])
+mean_count = np.exp(0.30 + X @ true_coef)
+y = rng.poisson(mean_count)
+
+model = PoissonRegression(
+    solver="newton",
+    device="cpu",
+    compute_inference=True,
+    cov_type="hc1",
+).fit(X, y)
+
+print(model.summary())
+print("截距：", model.intercept_)
+print("对数率系数：", model.coef_)
+print("率比：", np.exp(model.coef_))
+print("p 值：", model._pvalues)
+print("期望计数：", model.predict(X[:3]))
+```
+
+这里显式设置 `solver="newton"`，因为 IRLS 路径中的 `C` 参数会加入 L2 正则化。估计系数应接近 `[0.45, -0.25]`。
+
+`summary()` 返回字符串，因此在脚本或 notebook 中应使用 `print(model.summary())`。上面的示例会得到：
+
+```text
+============================================================
+  PoissonRegression Results
+============================================================
+  Family: poisson
+  Solver: newton
+  No. Observations: 800
+  Df Residuals: 797
+  Covariance Type: hc1
+
+   term  estimate  std_error         z       pvalue  conf_low  conf_high
+param_0  0.276253   0.031812  8.683944 3.822764e-18  0.213903   0.338604
+param_1  0.445486   0.030514 14.599521 2.828265e-48  0.385680   0.505292
+param_2 -0.196156   0.029631 -6.619933 3.593609e-11 -0.254232  -0.138080
+
+  Log-Likelihood: -556.4021
+  AIC: 1118.8043
+  BIC: 1132.8581
+============================================================
+```
+
+未使用 Formula 元数据时，表格以 `param_0` 表示截距，再以 `param_1`、`param_2` 等表示特征系数；Formula 拟合会在结构化推断结果中保留项名称。
+
+## Formula 与 DataFrame 示例
+
+安装可选的 Formula 依赖后，同一个类型化估计器即可直接使用列名：
+
+```bash
+pip install "statgpu[formula]"
+```
+
+```python
+import pandas as pd
+from statgpu.linear_model import PoissonRegression
+
+frame = pd.DataFrame({"count": y, "x1": X[:, 0], "x2": X[:, 1]})
+
+formula_model = PoissonRegression(
+    solver="newton",
+    device="cpu",
+    compute_inference=True,
+    cov_type="hc1",
+).fit(
+    formula="count ~ x1 + x2",
+    data=frame,
+)
+
+print(formula_model.summary())
+expected_count = formula_model.predict(frame.iloc[:3])
+```
+
+Formula 支持取决于具体估计器。尤其是独立实现的 `LogisticRegression` 数组接口不接受 `formula=`；需要 Logistic Formula 时，应使用 `GeneralizedLinearModel(family="binomial")` 或 `PenalizedLogisticRegression`。回归、面板和生存模型的已核对边界见 [Formula 支持矩阵](../guides/formula-interface.md)。
+
+## 如何读取结果？
+
+对 log 链接模型：
+
+$$
+\log(\mu_i)=\beta_0+x_i^\top\beta.
+$$
+
+- `coef_[j]` 是对数均值尺度上的变化。
+- `exp(coef_[j])` 是均值的乘法比。例如系数 `0.45` 表示该特征增加一个单位时，控制其他特征不变后的期望计数约为原来的 `exp(0.45)=1.57` 倍。
+- `predict(X_new)` 返回响应自然尺度上的条件期望。
+- 开启推断后，`_bse`、`_zvalues`、`_pvalues` 和 `_conf_int` 描述系数不确定性。
+
+对 logit 模型，`exp(coef_[j])` 是优势比（odds ratio），并不是概率的直接变化量。
+
+## 关键参数怎么选？
+
+| 参数 | 选择建议 |
+|---|---|
+| `family` | 根据响应取值范围与方差模式选择；支持 `gaussian`、`binomial`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial` 和 `tweedie` |
+| `fit_intercept` | 通常保留 `True`；仅当设计中已有截距或理论要求截距为零时关闭 |
+| `solver` | 先使用 `"auto"`；需要固定调度或明确无惩罚路径时显式指定；算法原理见[求解器算法](../guides/solver-algorithms.md) |
+| `device` | 根据估计器、数据规模和已安装后端选择 `cpu`、`cuda`、`torch` 或 `auto` |
+| `compute_inference` | 需要普通模型的标准误和检验时开启；许多 GLM 包装器默认关闭 |
+| `cov_type` | 普通 GLM 支持 `nonrobust`、`hc0` 和 `hc1` |
+| `alpha` | 在惩罚模型中，值越大收缩越强；应通过交叉验证选择 |
+| `l1_ratio` | Elastic Net 中接近 1 更偏向稀疏，接近 0 更像 L2 收缩 |
+
+## 普通模型还是惩罚模型？
+
+| 目标 | 推荐 API |
+|---|---|
+| 估计并解释少量预先指定的变量 | `PoissonRegression` 等类型化普通估计器 |
+| 收缩高度相关的系数 | 类型化惩罚估计器配合 `penalty="l2"` |
+| 自动选择特征 | `penalty="l1"`、`"elasticnet"`、SCAD 或 MCP |
+| 调整正则化强度 | `PenalizedGLM_CV` |
+| 使用公式和 DataFrame | 安装 `statgpu[formula]`，同时传入 `formula=...` 与 `data=...` |
+
+惩罚类型化包装器现已覆盖 Gaussian、logistic、Poisson、Gamma、inverse Gaussian、negative binomial 与 Tweedie。
+
+## 求解器支持
+
+普通 `GeneralizedLinearModel` 与类型化 wrapper 接受以下估计器级取值：
+
+| `solver` 值 | 普通 GLM 行为 | 重要限制 |
+|---|---|---|
+| `auto`（默认） | IRLS | 推荐起点 |
+| `irls` | Fisher scoring / 加权最小二乘 | `C` 控制其 L2 项；支持解析样本权重 |
+| `newton` | 无惩罚损失上的 Newton-Raphson | 仅适用于光滑目标与均匀样本权重 |
+| `lbfgs` | 有限内存拟 Newton | 仅适用于光滑目标与均匀样本权重 |
+| `fista` | 零惩罚的近端梯度实现 | 适合数值对照；支持解析样本权重 |
+
+对于惩罚类型化 GLM，`auto` 同时感知 family 与 penalty：L2/无惩罚的光滑目标会分发到 Newton 或 family 专属光滑路径，稀疏惩罚会分发到 FISTA/FISTA-BB，SCAD/MCP 则走 FISTA-LLA continuation。强制指定非默认组合前，请核对[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)。`exact`、quantile coordinate descent 与 L-BFGS-B 不是普通 GLM 的估计器取值。
+
+### CPU、GPU 与推断
+
+受支持的路径中，显式 `device="cuda"` 使用 CuPy，`device="torch"` 使用 Torch CUDA；显式请求 GPU 时不会静默回退到 CPU。公式解析属于 CPU 预处理，大规模 GPU 任务更适合直接传入数组。
+
+准确的数据生命周期、传输边界、线性代数模式、同步成本与 dtype 建议见 [CPU/GPU 加速实现](../guides/acceleration-internals.md)。
+
+`solver="auto"` 会根据 family、penalty 和设备选择路径。光滑目标可使用 IRLS、Newton 或 L-BFGS；非光滑惩罚使用 FISTA 等近端算法。不合法的求解器与惩罚组合会直接报错。独立的[求解器算法指南](../guides/solver-algorithms.md)解释数值方法，[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)记录公开 API 接受的组合。
+
+普通类型化 GLM 可通过 `compute_inference=True` 进行拟合后推断。[GLM 协方差与推断参考](glm-family-reference.md#不同-familylink-与协方差类型)给出实际实现的 bread/meat 公式、离散参数约定和每个 family/link 的支持边界。惩罚模型的推断能力取决于模型和惩罚类型；请查看[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)，不要假定特征选择后仍可直接使用普通模型 p 值。
+
+`PenalizedGLM_CV` 默认使用严格交叉验证。`cv_strategy="two_stage"` 是显式的近似筛选模式，未确认接受近似时会发出 `ApproximateCVWarning`。
+
+## 常见误区
+
+- Poisson 数据的方差明显大于均值时可能存在过度离散，应比较 negative binomial 或稳健推断。
+- log 链接系数不是响应值的加法变化量。
+- 计数中零值过多时可能需要零膨胀或 hurdle 模型，选择 Poisson 并不会自动处理。
+- 正则化系数有意带偏；特征选择后不能简单套用普通标准误。
+- 不同库的目标函数尺度不同，不能在未核对定义时直接复制 `alpha` 或 `C`。
+- 始终检查收敛状态、样本外表现、残差或校准诊断。
+
+## API 与验证
+
+主要导入：
 
 ```python
 from statgpu.linear_model import (
     GeneralizedLinearModel,
+    LogisticRegression,
     PoissonRegression,
+    GammaRegression,
+    InverseGaussianRegression,
+    NegativeBinomialRegression,
+    TweedieRegression,
+    PenalizedGeneralizedLinearModel,
     PenalizedLinearRegression,
     PenalizedLogisticRegression,
     PenalizedPoissonRegression,
 )
 ```
 
-`Ridge`、`Lasso`、`ElasticNet` 是 sklearn 风格的薄包装，内部走 penalized Gaussian regression。
+本入门页只保留模型选择与常用流程。[GLM 分布族与完整 API 参考](glm-family-reference.md#完整-api-参考)会列出全部通用构造与拟合输入、每个分布族的专属参数、拟合输出、`summary()` 行为、推断元数据和不支持的组合。私有求解器状态属于源码级实现细节，而不是公开 API。
 
-## Path
+外部框架与多后端验证覆盖系数一致性、目标函数差异、KKT 残差、推断和 CPU/CuPy/Torch 行为。入口见[已实现方法指南](../guides/implemented-methods.md)中的验证链接。
 
-- `statgpu.linear_model.GeneralizedLinearModel`
-- `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.PenalizedGeneralizedLinearModel`
-- `statgpu.linear_model.PenalizedLinearRegression`
-- `statgpu.linear_model.PenalizedLogisticRegression`
-- `statgpu.linear_model.PenalizedPoissonRegression`
-- `statgpu.linear_model.Ridge`
-- `statgpu.linear_model.Lasso`
-- `statgpu.linear_model.ElasticNet`
-- 内部 GLM core：`statgpu.glm_core`
-
-## Objective Function
-
-普通 GLM 最小化对应 family 的平均负对数似然：
-
-$$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta)
-$$
-
-Penalized GLM 在此基础上加入惩罚项：
-
-$$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta)
-$$
-
-截距项不惩罚。`statgpu.glm_core` 只表示 GLM 专用核心层；Cox partial likelihood、panel objective、time-series likelihood、zero-inflated composite likelihood 不应强行塞入 `glm_core`，后续应通过更通用的 objective 层共享底层能力。
-
-## Estimating Equation
-
-光滑 GLM 在可用时通过 IRLS/Newton 风格更新求解 score equation。带非光滑惩罚项的目标函数通过 FISTA 等 proximal/KKT 风格优化路径求解。
-
-当前 `solver="auto"` 的行为如下：
-
-| 设置 | `solver="auto"` 行为 |
-|---|---|
-| `PenalizedLinearRegression(penalty="l2")` | `solver="exact"` 闭式 L2 路径 |
-| `PenalizedLinearRegression(penalty="l1"|"elasticnet")` | FISTA |
-| `PenalizedLogisticRegression(penalty="l2")` on NumPy/CPU | IRLS |
-| `PenalizedPoissonRegression(penalty="l2")` on NumPy/CPU | IRLS |
-| `PenalizedLogisticRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
-| `PenalizedPoissonRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
-| 显式 `solver="irls"` | NumPy/CuPy/Torch 对应后端原生 IRLS |
-| 显式 `solver="newton"` | smooth objective 上使用对应后端 Newton |
-| 显式 `solver="lbfgs"` | smooth objective 上使用对应后端 L-BFGS（所有 GLM family + L2/ElasticNet） |
-| 非光滑 penalty 搭配 `solver="newton"` 或 `solver="lbfgs"` | 直接抛出 `ValueError` |
-
-重要设备规则：显式 `device="cuda"` 会保持 CuPy 核心计算，显式 `device="torch"` 会保持 Torch CUDA 核心计算；显式 solver 不允许静默回落到 CPU。Formula/DataFrame 解析可以作为 CPU 预处理，但 fit/predict 核心计算必须转换到所选后端。
-
-## Covariance/Inference
-
-本页覆盖的是估计主线的 GLM 与 penalized GLM API。新的 penalized GLM 层尚未暴露完整 strict inference 输出。当前 inference 较完整的模型仍分别见独立页面：
-
-- `LinearRegression`：classical、HC0-HC3、HAC。
-- `Ridge`：classical、HC0-HC3、HAC。
-- `LogisticRegression`：classical、HC0-HC3、HAC。
-- `Lasso`：OLS-style 与 bootstrap inference 路径。
-
-后续 GLM inference 扩展需要先满足项目统一的 strict inference gate，再进入稳定文档。
-
-## Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `family` | model-specific | GLM family，例如 `"gaussian"`、`"binomial"`、`"poisson"` |
-| `penalty` | `"l2"` 或模型默认 | `none`、`l1`、`l2`、`elasticnet` 以及预留 structured penalties |
-| `alpha` | `1.0` 或模型默认 | statgpu 目标函数尺度下的惩罚强度 |
-| `l1_ratio` | `None` | ElasticNet 的 L1/L2 混合比例 |
-| `fit_intercept` | `True` | 是否拟合截距 |
-| `solver` | `"auto"` | solver 调度规则见 Estimating Equation |
-| `device` | `"auto"` | 按 estimator 支持情况使用 `cpu`、`cuda`、`torch` 或 `auto` |
-| `max_iter` | model-specific | 最大迭代次数 |
-| `tol` | model-specific | 收敛阈值 |
-| `formula` | `None` | 可选 patsy 风格公式，需要与 `data` 一起使用 |
-| `data` | `None` | formula 模式下的数据表 |
-
-alpha scaling 必须显式对齐，不能直接比较不同框架中的同名参数：
-
-- Ridge：`sklearn_alpha = n_samples * statgpu_alpha`
-- Logistic L2：`sklearn_C = 1 / (n_samples * statgpu_alpha)`
-- Poisson L2：与 sklearn `PoissonRegressor(alpha=...)` 对齐
-- Poisson L1/ElasticNet：与 statsmodels `fit_regularized` 对齐
-
-## CPU+GPU Examples
-
-```python
-from statgpu.linear_model import GeneralizedLinearModel, PenalizedLogisticRegression
-
-# 普通 Poisson GLM；所选路径支持 GPU 时可在 GPU 上运行。
-glm = GeneralizedLinearModel(family="poisson", device="cuda")
-glm.fit(X, y_count)
-
-# CPU L2 logistic 路径：auto 选择 IRLS。
-logit_cpu = PenalizedLogisticRegression(
-    penalty="l2",
-    alpha=0.01,
-    solver="auto",
-    device="cpu",
-)
-logit_cpu.fit(X, y_binary)
-
-# GPU L2 logistic 路径：auto 选择 GPU-capable FISTA。
-logit_gpu = PenalizedLogisticRegression(
-    penalty="l2",
-    alpha=0.01,
-    solver="auto",
-    device="cuda",
-)
-logit_gpu.fit(X, y_binary)
-```
-
-Formula 是可选依赖：
-
-```bash
-pip install statgpu[formula]
-```
-
-```python
-from statgpu.linear_model import LinearRegression, PenalizedPoissonRegression
-
-lm = LinearRegression()
-lm.fit(formula="y ~ x1 + x2 + C(group)", data=df)
-pred = lm.predict(df_new)
-
-pois = PenalizedPoissonRegression(penalty="l2", alpha=0.01)
-pois.fit(formula="count ~ exposure + x1", data=df)
-```
-
-Formula 解析在 CPU 上完成，适合作为便利建模层。大规模 GPU 任务建议直接传入显式 `X, y` 数组。
-
-## strict/approx difference
-
-当前 GLM 重构的 strict 数值验证通过远程 CPU/GPU accuracy 和外部框架对比脚本完成。新的 penalized GLM 层还没有公开 robust standard error、confidence interval 等 strict inference 输出。
-
-`solver="auto"` 对 penalized GLM 是 device-aware 的。Gaussian L2 使用 exact Ridge；CPU logistic/poisson L2 使用 IRLS；CuPy/Torch GPU logistic/poisson L2 使用 FISTA。显式 `irls`、`newton`、`lbfgs` 在数学上适用时会运行在用户选择的后端。
-
-`PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。strict 模式下，每个 fold/alpha 都使用用户传入的 `max_iter` 与 `tol`；GPU 优化只做缓存、fused kernel 和 validation score 批量传输，不做 alpha 粗筛。可选的 `cv_strategy="two_stage"` 会先用放松的 CV 求解筛选 alpha grid，再对候选 alpha 做 strict 复核，并且最终 refit 仍然是 strict/full-iteration。由于粗筛阶段在 CV 曲线很接近时可能改变 alpha 排名，two-stage 模式默认发出 `ApproximateCVWarning`；如果用户已确认接受该近似，可传入 `acknowledge_approx=True` 静默该 warning。
-
-```python
-from statgpu.linear_model import PenalizedGLM_CV
-
-# 默认: strict CV。
-strict_cv = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="elasticnet",
-    cv_strategy="strict",
-    device="cuda",
-)
-
-# 显式启用 approximate screening；候选复核和最终 refit 仍使用 strict。
-fast_cv = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="elasticnet",
-    cv_strategy="two_stage",
-    acknowledge_approx=True,
-    refine_top_k=3,
-    device="cuda",
-)
-```
-
-### 生存感知的惩罚 Cox 交叉验证
-
-`PenalizedGLM_CV(loss="cox_ph")` 使用独立的生存分析路径，不会进入标量响应
-GLM scorer。`y` 必须是 `(n_samples, 2)` 数组，两列依次为 `[time, event]`。
-L1、L2、ElasticNet、SCAD 与 MCP 均支持 NumPy、CuPy CUDA 和 Torch CUDA。
-该路径会：
-
-- 保留二维生存目标，且绝不拟合截距；
-- 用未惩罚的逐行 Cox 负 partial likelihood 评价 held-out fold；
-- 仅在每个可评估 fold 都提供有限证据时选择 alpha；
-- 所有候选均无效时 hard-fail，且不发布任何拟合状态；
-- 最终以 `compute_inference=False` 重拟合 `PenalizedCoxPHModel`。
-
-```python
-survival_y = np.column_stack([time, event])
-cox_cv = PenalizedGLM_CV(
-    loss="cox_ph",
-    penalty="scad",              # l1、l2、elasticnet、scad 或 mcp
-    alpha_grid=[0.1, 0.03, 0.01],
-    cv=5,
-    cv_strategy="strict",
-    loss_kwargs={"ties": "efron"},
-    device="cpu",                # 也可用 "cuda" / "torch"
-).fit(X, survival_y)
-```
-
-该 Cox 分支不支持 `cv_strategy="two_stage"`、`sample_weight`、字典 target
-或 post-selection 系数推断。`cv_results_` 会记录逐 fold loss、有效证据数、
-event 数、失败原因、ties 方法和最终重拟合模型类型。
-
-## Outputs
-
-常见拟合属性和方法包括：
-
-- `coef_`
-- `intercept_`
-- `n_iter_`，取决于 solver 是否暴露
-- `fit`
-- `predict`
-- `predict_proba`，用于 logistic 模型
-- `score`，在对应模型中提供
-- `cv_results_`，用于 `PenalizedGLM_CV`，包含 `cv_strategy_`、`cv_selected_device_`、`refined_mask`，以及两阶段筛选启用时的 stage-1 scores
-
-统一 `FitResult` 是未来预留，不属于本页当前 public contract。
-
-## 参见
-
-- [Solver × Penalty 兼容性矩阵](../guides/solver-penalty-matrix.md) — loss × penalty × solver 完整分发表、CV 快速路径、推断支持状态。
-
-## FAQ
-
-- 为什么不保留 `statgpu.losses` 作为兼容入口？因为未提交的 `losses` 层实际只服务 GLM，改名为 `glm_core` 可以避免误导为全项目通用 objective 系统。
-- `device="cuda"` 是否强制所有 GLM solver 使用 GPU？对已支持的 GLM solver 路径，是的：核心计算使用 CuPy；如果依赖或设备不可用，会清晰报错，不会静默回落到 CPU。
-- 大规模 GPU 数据是否建议使用 formula？通常不建议。formula 是 CPU 侧便利层，大规模任务应使用显式数组。
-- `Ridge`、`Lasso`、`ElasticNet` 是 alias 吗？不是。它们是薄包装类，用于保留清晰的 sklearn 风格构造器语义。
-
-## External Validation
-
-本地只做 import 和 smoke 检查。accuracy、runtime、GPU 行为和外部框架对比统一放在远程 `myconda` 环境。
-
-**v23c 全矩阵基准测试 (2026-05-20):** 1043/1043 ALL PASS，覆盖 7 families x 10 penalties x 3 规模 x 3 backends，vs sklearn 和 vs statsmodels 全部通过。详见 `dev/tests/_bench_v23c_report.md` 和 `dev/tests/_bench_full_matrix.py`。
-- Gaussian penalized 与 sklearn Ridge/Lasso/ElasticNet 对比。
-- Logistic 与 sklearn 对比。
-- Poisson L2 与 sklearn 对比。
-- Poisson L1/ElasticNet 与 statsmodels `fit_regularized` 对比。
-- 含 warm-up 与 GPU synchronization 的 runtime benchmark。
-
-远程凭据必须从环境变量读取，不得写入代码或文档。
-
-## References
+## 参考文献
 
 - McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models* (2nd ed.). Chapman & Hall/CRC.
 - Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of Statistical Learning* (2nd ed.). Springer.
-- Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. *Journal of Statistical Software*, 33(1), 1-22. [https://doi.org/10.18637/jss.v033.i01](https://doi.org/10.18637/jss.v033.i01)
-- scikit-learn linear models documentation: [https://scikit-learn.org/stable/modules/linear_model.html](https://scikit-learn.org/stable/modules/linear_model.html)
-- statsmodels GLM documentation: [https://www.statsmodels.org/stable/glm.html](https://www.statsmodels.org/stable/glm.html)
+- Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. *Journal of Statistical Software*, 33(1), 1-22.

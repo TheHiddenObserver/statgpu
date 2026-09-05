@@ -214,6 +214,17 @@ Formula row removal is applied consistently to `entry`/`start`, `cluster`,
 `strata`, and `subject_id`. Supplying `entry=` or `start=` together with a
 three-column `Surv(start, stop, event)` response raises an error.
 
+## Solver support
+
+| Estimator | Public control | Supported path |
+|---|---|---|
+| `CoxPH` / `CoxPHCV` | no `solver` parameter | Newton-Raphson with line search and final KKT verification |
+| `PenalizedCoxPHModel`, L2/none | `auto` (default) or `newton` | `auto` resolves to Newton |
+| `PenalizedCoxPHModel`, L1/Elastic Net | `auto`, `fista`, or `fista_bb` | Proximal sparse path |
+| `PenalizedCoxPHModel`, SCAD/MCP | `auto` or `fista` | Cox-specific FISTA-LLA continuation |
+
+`exact`, IRLS, quantile coordinate descent, and ordered-model trust-region Newton are not Cox estimator choices. `fista_lla_path` is an internal subpath rather than a value for `solver=`. The ordinary model's fixed Newton implementation is described below; generic update equations are in the [solver guide](../guides/solver-algorithms.md).
+
 ## Optimization and Convergence
 
 Newton iterations use line search and final-state KKT verification. A failed

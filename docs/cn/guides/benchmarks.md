@@ -7,7 +7,7 @@
 
 ## 交互式基准面板
 
-- **打开面板**：[Benchmark Dashboard](../../assets/benchmarks/index.html)
+- **打开面板**：[Benchmark Dashboard](/dashboard/)
 - **使用说明**：[筛选、图表、指标与复现](../../en/guides/statgpu_benchmark_dashboard.md)
 
 当前 canonical dashboard 只注册日期不早于 **2026-06-01** 的 benchmark source，共包含：

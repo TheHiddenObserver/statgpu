@@ -1,18 +1,18 @@
-# FamaMacBeth
+# Fama–MacBeth 回归（FamaMacBeth）
 
 > 语言：中文  
 > 最后更新：2026-08-20<br>
 > 切换：[English](../../en/panel/fama-macbeth.md)
 
-## Overview
+## 概述
 
 `FamaMacBeth` 在每个 time period 分别做一次 cross-sectional regression，再对这些 period-specific coefficient 取平均。它与其他 panel estimator 的一个关键区别是：目标参数是平均 cross-sectional slope，standard error 则来自这些 slope **随时间的波动**。
 
-## Path
+## 路径
 
 实现：`statgpu/panel/_fama_macbeth.py`。
 
-## Statistical Model and Target
+## 统计模型与目标
 
 一个自然的 period-specific model 是
 
@@ -38,7 +38,7 @@ $$
 
 上述 coefficient interpretation 要求每个最终保留时期的 cross-sectional design 都能唯一识别相应 coefficient vector。完成 observation-count filtering 后，statgpu 会按照共享的 panel SVD rank policy 检查加入 intercept 后的 $X_t$。如果某个 retained period rank deficient，`.fit()` 会在 coefficient averaging 与 inference 之前直接抛出 `ValueError`，而不会基于非唯一的 coefficient representation 继续做 coordinate-level inference。
 
-## Estimator
+## 估计量
 
 对每个保留时期，令 $X_t$ 表示已加入 intercept 的 period design。在要求 full column rank 的契约下，
 
@@ -56,7 +56,7 @@ $$
 
 对 non-intercept Gram candidate 的精确 0，不会一律直接拒绝，而是在已经进入 unsafe fallback 后再做一次 rare-path 检查：statgpu 使用 magnitude-tiered reducer 重新计算原始 non-intercept RHS。只有当普通 BLAS RHS 为 0、但 stable RHS 非 0 时，才证明一个仍可表示的 cancellation tail 确实被擦除，此时直接抛出 `FloatingPointError`，而不会把 rounded SVD basis 当成可靠补救。如果 raw RHS 与 stable RHS 都等于 0，则不会把它判作 lost tail，普通 SVD/precision certificate 可以继续，因此 genuine zero coefficient 仍被允许。普通 unsafe subset 中，Torch 使用 documented stacked-SVD，NumPy/CuPy 保持二维 fallback。
 
-## Covariance and Inference
+## 协方差与推断
 
 定义每个 period coefficient 与最终平均 coefficient 的偏差
 
@@ -109,7 +109,7 @@ retained coefficient series 的顺序由 `time_ids` 决定。numeric 与 datetim
 
 成功拟合还会发布 inference-capable statgpu estimator 共用的 `ParameterInferenceResult`。公开的 `coef_`、`bse_`、`tvalues_`、`pvalues_` 与 `conf_int_` 继续保持 backend-native。distribution inference 跟随实际 fit backend：NumPy 使用 NumPy inference backend，CuPy 使用 CuPy inference backend，Torch 则在实际 tensor device 上使用 Torch inference backend。`_inference_result` 以及 `_params`、`_bse`、`_tvalues`/`_zvalues`、`_pvalues`、`_conf_int` 保存的 NumPy snapshot 仅用于统一 inference/reporting contract，不参与 p-value 或 confidence interval 的数值计算。对于 GPU fit，reporting fields 会先在 active backend 上打包，再在 numerical inference 完成后一次性形成小型 NumPy snapshot。`newey-west` 标记为 `z`/normal inference，`nonrobust` 标记为自由度 $T-1$ 的 Student-t inference。
 
-## Parameters
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
@@ -126,7 +126,7 @@ model.fit(X, y, time_ids=time_ids, entity_ids=None)
 
 `time_ids` 必需，用于定义每个 cross-sectional regression。`entity_ids` 可选，只用于 standardized within/between $R^2$。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import FamaMacBeth
@@ -138,7 +138,7 @@ torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
 
 当 `device="auto"` 时，已经是 NumPy/CuPy/Torch 原生数组的输入可以保留其原生后端；但显式 `device="cpu"`、`device="cuda"` 或 `device="torch"` 请求具有最高优先级，即使输入容器属于另一个后端，statgpu 也会将拟合与预测输入转换到请求/已拟合的后端执行。若显式请求的 GPU 后端不可用，`.fit()` 会报错，而不会静默切换执行后端。
 
-## Formula Example
+## Formula 接口示例
 
 假设 `df` 包含 `y`、`x1`、`x2` 与 `time` 列。
 
@@ -154,11 +154,11 @@ model = FamaMacBeth().fit(
 
 `FamaMacBeth` 与 array API 一致，始终包含 period-specific intercept。因此 `y ~ 0 + x1 + x2` 或 `y ~ x1 + x2 - 1` 这类显式 no-intercept formula 会得到清晰的 `ValueError`，而不会被静默改写成带 intercept 的模型。
 
-## Outputs
+## 输出
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`betas_`、`cov_params_`、`fit_statistics_`、`nobs`、`n_periods` 与 `df_resid`。`betas_` 保存各保留时期的 coefficient，`coef_` 则是这些 coefficient 的平均；`_inference_result` 提供统一的 inference container，供 statgpu 的通用 reporting/downstream tooling 使用。
 
-## Numerical and Strict Behavior
+## 数值行为与 strict 模式
 
 过滤后至少需要两个有效 period，否则 `.fit()` 会报错，因为少于两个 period 无法估计 coefficient series 的波动。每个 retained period 还必须在共享 panel SVD cutoff 下 full column rank；若某个 retained period rank deficient，会在 inference 之前 fail closed。与 rank deficiency 区分开，full-rank period 也可能发生 float64 coefficient-resolution failure：若某个非 intercept coordinate 已小于 absolute projection error 可可靠分辨的尺度，并且 SVD fallback 明显违反 least-squares stationarity，`.fit()` 会抛出 `FloatingPointError` 并指出对应 retained period，而不会把该情形误报为 rank deficient。类似地，如果 ordinary BLAS non-intercept RHS 为 0、但 magnitude-tiered fallback RHS 非 0，两种 reduction 对一个仍可表示的 cancellation tail 给出不同结论，该 period 会 fail closed；若 raw zero 在 stable reducer 下仍为 zero，则允许继续，并可能对应 genuine zero coefficient。上述情况即使在 perfect-conditioned design 中也可能出现，因此反映的是 coefficient resolution，而不是 rank。Gram certificate 仍然只是 fast-path selector；真正的 rank boundary 继续由 SVD policy 决定。
 
@@ -172,7 +172,7 @@ p-value 与 critical value 通过所选 inference backend 计算，不把 statis
 
 `cov_type="newey-west"` 使用 asymptotic-normal inference；`cov_type="nonrobust"` 使用自由度 $T-1$ 的 Student-t reference。每次新的 fit attempt 都会先失效旧 fitted/inference state；若新拟合失败，对象保持 unfitted。显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用。
 
-## FAQ
+## 常见问题
 
 **为什么它的 covariance 不列在 HC/cluster/Driscoll-Kraay 中？**  这些方法基于 observation-level regression residual。Fama-MacBeth inference 则基于各时期 coefficient $\widehat\beta_t$ 形成的 time series。
 
@@ -182,7 +182,7 @@ p-value 与 critical value 通过所选 inference backend 计算，不把 statis
 
 **如果 period full rank，但某个 coefficient 低于可靠的 float64 resolution 呢？**  当现有 arithmetic 无法认证该 coordinate 时，fit 会抛出带 coefficient-resolution 信息的 `FloatingPointError`。对于 zero non-intercept RHS，statgpu 会先比较 ordinary BLAS reduction 与 magnitude-tiered fallback reduction：若 `raw=0`、`stable≠0`，说明确有 lost tail并 fail closed；若两者都为 0，则允许把它作为 genuine-zero candidate继续处理。
 
-## External Validation
+## 外部验证
 
 `dev/tests/test_fama_macbeth_linearmodels_external.py` 提供维护中的 pinned `linearmodels==7.0` definition-alignment gate。fixture 在两边使用相同显式 period intercept、full-rank balanced panel、period ordering 与 coefficient set；两种 covariance mode 都比较 period-by-period coefficient（`betas_` 对 `all_params`）以及最终平均 coefficient。
 

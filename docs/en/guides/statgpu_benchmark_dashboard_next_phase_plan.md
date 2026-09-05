@@ -1,5 +1,8 @@
 # statgpu Benchmark Dashboard — Remaining Work After PR #78
 
+> Historical planning record. For the current public-site build and deployment
+> contract, see [Website deployment](../../website-deployment.md).
+
 ## Status
 
 The benchmark dashboard data-pipeline expansion and frontend modularization are implemented in PR #78.
@@ -26,7 +29,7 @@ This document now lists only remaining product and maintenance work. It is no lo
 PR #78 is suitable for integration when:
 
 1. All required CI checks remain green on the final head commit.
-2. The deployed build loads from `docs/assets/benchmarks/index.html`.
+2. The assembled build loads from `/statgpu/dashboard/`.
 3. A final manual browser smoke test finds no blocking issue.
 4. Generated data and deployment assets are current.
 5. No unresolved review thread or known correctness defect remains.
@@ -40,12 +43,15 @@ The dashboard should not be merged solely because the frontend compiles. The man
 Test the production build rather than only the Vite development server:
 
 ```bash
-cd frontend
 npm ci
-npm run build
-
-cd ../docs/assets/benchmarks
-python -m http.server 8000
+npm ci --prefix frontend
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+npm run site:build
+npm run site:preview
 ```
 
 Verify:
@@ -53,7 +59,7 @@ Verify:
 - No console error.
 - All three JSON files load.
 - The header metadata is consistent with the generated files.
-- Static assets work from the nested `docs/assets/benchmarks/` path.
+- Static assets work from the nested `/statgpu/dashboard/` path.
 - Refreshing the page does not break relative asset URLs.
 
 ### Default state
@@ -284,7 +290,8 @@ npm run test:e2e
 For staleness verification, regenerate the deterministic bundle, rebuild, and confirm:
 
 ```bash
-git status --porcelain -- frontend/public/data docs/assets/benchmarks
+npm run --silent site:hash
+git status --porcelain --untracked-files=no
 ```
 
 The command must produce no output.

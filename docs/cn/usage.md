@@ -45,7 +45,7 @@ PyTorch 后端使用 `statgpu[torch]`。维护中的 Cox 实现已包含在基�
 
 ## 贡献者检查
 
-修改代码时遵循 [`dev/AGENTS.md`](../../dev/AGENTS.md) 与
-[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md)：
+修改代码时遵循 [`dev/AGENTS.md`](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md) 与
+[`.claude/workflows/new-module-dev.md`](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/workflows/new-module-dev.md)：
 显式设备不得静默回退，外部比较前确认目标函数归一化，补齐架构相关测试，并同步
 README、中英文文档及三份 changelog。

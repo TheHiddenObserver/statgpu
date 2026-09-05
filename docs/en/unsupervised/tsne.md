@@ -1,5 +1,7 @@
 # TSNE
 
+> Switch: [简体中文](../../cn/unsupervised/tsne.md)
+
 > Language: English
 > Last updated: 2026-05-09
 > Path: `statgpu.unsupervised.TSNE`

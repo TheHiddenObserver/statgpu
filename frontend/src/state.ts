@@ -11,6 +11,7 @@ export type ChartViewMode = 'focused' | 'full';
 export interface AppState {
   selectedCategoryIds: Set<string>;
   selectedEnvId: string | null;
+  selectedEnvIds: Set<string>;
   selectedMetricScope: MetricScope;
   selectedModelId: string | null;
   selectedVariant: string | null;
@@ -37,15 +38,19 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
   if (envs.length === 0) throw new Error('environments must have at least 1 entry');
 
   const runEnvIds = new Set(runs.map(run => run.env_id));
+  const environmentHasRuns = (env: Environment): boolean =>
+    (env.member_env_ids ?? [env.env_id]).some(envId => runEnvIds.has(envId));
   const preferredEnvId = envs.find(
-    env => env.env_id === 'remote-p100' && (runs.length === 0 || runEnvIds.has(env.env_id)),
+    env => env.env_id === 'remote-p100' && (runs.length === 0 || environmentHasRuns(env)),
   )?.env_id;
-  const firstEnvWithRuns = envs.find(env => runEnvIds.has(env.env_id))?.env_id;
+  const firstEnvWithRuns = envs.find(environmentHasRuns)?.env_id;
   const defaultEnvId = preferredEnvId ?? firstEnvWithRuns ?? envs[0].env_id;
+  const defaultEnv = envs.find(env => env.env_id === defaultEnvId) ?? envs[0];
+  const selectedEnvIds = new Set(defaultEnv.member_env_ids ?? [defaultEnv.env_id]);
 
   const availableCategories = new Set(
     runs
-      .filter(run => run.env_id === defaultEnvId)
+      .filter(run => selectedEnvIds.has(run.env_id))
       .flatMap(run => run.category_ids),
   );
   const firstAvailableCategory = availableCategories.values().next().value as string | undefined;
@@ -56,6 +61,7 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
   return {
     selectedCategoryIds: defaultCategory ? new Set([defaultCategory]) : new Set(),
     selectedEnvId: defaultEnvId,
+    selectedEnvIds,
     selectedMetricScope: 'all',
     selectedModelId: null,
     selectedVariant: null,
@@ -75,6 +81,22 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
     timingChartGroupLimit: Number.MAX_SAFE_INTEGER,
     speedupChartLimit: Number.MAX_SAFE_INTEGER,
   };
+}
+
+export function setSelectedEnvironment(state: AppState, env: Environment): void {
+  state.selectedEnvId = env.env_id;
+  state.selectedEnvIds = new Set(env.member_env_ids ?? [env.env_id]);
+  resetDownstreamFilters(state, {
+    clearMetricScope: true,
+    clearModel: true,
+    clearVariant: true,
+    clearPenalty: true,
+    clearSolver: true,
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
+  state.tableLimit = 200;
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ Sources of truth:
 
 - JSON Schema: `dev/benchmarks/benchmark_frontend_schema.json`
 - TypeScript representation: `frontend/src/schema.ts`
-- Runtime consumer check: `frontend/src/data.ts`
+- Runtime schema/provider check: `frontend/src/providers/benchmark.ts`
 - Python structural and semantic validation: `dev/benchmarks/frontend_data/cli.py`
 
 The JSON Schema pins `schema_version` to the constant `1.1.0`. The frontend rejects any other version rather than attempting a best-effort interpretation.
@@ -21,7 +21,7 @@ One generator execution produces three files:
 |---|---|---|
 | `benchmark_data.json` | `schema_version: "1.1.0"` | Registries and normalized benchmark runs |
 | `parse_report.json` | `report_version: "2.0"` | Parse coverage and structured issues |
-| `source_inventory.json` | `inventory_version: "1.0"` | Catalog and registered-source coverage |
+| `source_inventory.json` | `inventory_version: "2.0"` | Audited catalog and registered-source coverage |
 
 All three files contain the same 64-character lowercase SHA256 `generation_id`.
 
@@ -60,6 +60,21 @@ The top-level arrays provide referential registries used by runs:
 - `comparisons[].comparison_id`
 
 Every run reference must resolve to the corresponding registry.
+
+### Environment grouping
+
+An environment may provide `physical_env_id`. Despite the historical field name,
+this is a **maintainer-assigned UI grouping key for benchmark sessions in the
+same hardware class**. It does not prove that every member session ran on the
+same host or physical machine; the original session-level `env_id`, optional
+`host`, `benchmark_session_id`, and source provenance remain authoritative for
+that distinction.
+
+The static provider groups environments that share `physical_env_id` into one
+hardware selector entry and records their original IDs in the UI-only
+`member_env_ids` field. Filtering then includes runs from all member sessions.
+Metric panels that can show historical and current evidence together retain
+session/source columns so grouping does not erase provenance.
 
 ## Run contract
 
@@ -307,6 +322,11 @@ Backward-compatible optional fields may remain within v1.1 only when:
 - The JSON Schema and TypeScript types are updated together.
 - Contract tests and generated fixtures are updated.
 - The frontend remains safe when the optional field is absent.
+
+The public website does not introduce a second benchmark schema. Both the
+static JSON provider and any future API provider must return this normalized
+three-file bundle. Provider behavior is specified in
+[`provider-contract.md`](provider-contract.md).
 
 ## Verification
 

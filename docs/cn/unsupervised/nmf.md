@@ -1,4 +1,4 @@
-# NMF
+# 非负矩阵分解（NMF）
 
 > 语言：中文
 > 最后更新：2026-05-02
@@ -41,6 +41,16 @@ $$
 
 Factors 使用按 `X` 均值缩放的正随机值初始化。重构误差每 10 次迭代和最后一次迭代检查。`transform(X)` 会固定已经拟合的 `H`，为新数据更新新的 `W`。
 
+## 求解器支持
+
+| 控制项 | 支持值 | 后端 | 含义 |
+|---|---|---|---|
+| `solver` | 仅 `"mu"` | NumPy、CuPy、Torch | 上方给出的 multiplicative updates |
+| `init` | 仅 `"random"` | 全部 | 正值随机初始化 |
+| `beta_loss` | 仅 `"frobenius"` | 全部 | Frobenius 平方重构目标 |
+
+其他 `solver` 会抛出 `NotImplementedError`；实现不会静默替换为 coordinate descent 或其他 beta loss。
+
 ## 参数
 
 - `n_components`：latent dimension；`None` 使用 `min(n_samples, n_features)`。
@@ -75,7 +85,7 @@ NMF 没有 strict inference 模式。目标函数是非凸的，multiplicative u
 - `n_components_`
 - `n_features_in_`
 
-## FAQ
+## 常见问题
 
 **输入可以有负数吗？**
 不可以。`X` 包含负数时 NMF 会报错。
@@ -90,7 +100,7 @@ NMF 没有 strict inference 模式。目标函数是非凸的，multiplicative u
 - Baseline：sklearn `NMF(solver="mu", beta_loss="frobenius")`。
 - 最新远程矩阵：CPU/CuPy/Torch reconstruction differences 处于浮点噪声量级；sklearn reconstruction error 与 statgpu CPU 同尺度。
 
-## References
+## 参考文献
 
 - Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.

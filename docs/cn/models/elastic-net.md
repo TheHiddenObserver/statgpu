@@ -1,7 +1,7 @@
-# Elastic Net 弹性网络
+# 弹性网络（Elastic Net）
 
 > Language: Chinese (中文)  
-> Last updated: 2026-08-05<br>
+> Last updated: 2026-09-04<br>
 > This page: 模型文档  
 > Language switch: [English](../../en/models/elastic-net.md)
 
@@ -77,6 +77,18 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (1 + alpha * (1 - l1_rati
 - 对于零系数：`|∇f + α(1-λ)w| ≤ αλ`
 
 **注意**：数值优化中 KKT 违反 ~1e-2 是可接受的；不需要精确为零。
+
+## 求解器支持
+
+| `solver` 值 | CPU | CuPy / Torch | 说明 |
+|---|:---:|:---:|---|
+| `fista`（默认） | 支持 | 支持 | 推荐的近端优化路径 |
+| `auto` | FISTA | FISTA | squared-error + Elastic Net 当前的自动分发 |
+| `fista_bb` | 支持 | 支持 | 自适应谱步长 |
+| `admm` | 支持 | 支持 | 拆分求解替代路径；只支持均匀样本权重 |
+| `coordinate_descent` | 支持 | 不支持 | CPU-only 兼容路径 |
+
+Elastic Net 含非光滑 L1 部分，因此会拒绝 `newton`、`lbfgs`、`irls` 与 `exact`。单模型拟合时，`cpu_solver` 不会覆盖 `solver`。完整迭代公式见[求解器指南](../guides/solver-algorithms.md)。
 
 ## 参数
 

@@ -1,5 +1,7 @@
 # Multiple Testing Correction
 
+> Switch: [简体中文](../../cn/models/multiple-testing.md)
+
 > **Module:** `statgpu.inference`  
 > **Last updated:** 2026-06-14  
 > **Backends:** NumPy, CuPy, PyTorch

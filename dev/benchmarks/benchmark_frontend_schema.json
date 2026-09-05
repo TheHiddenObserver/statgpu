@@ -72,6 +72,10 @@
           },
           "host": {
             "type": "string"
+          },
+          "physical_env_id": {
+            "type": "string",
+            "description": "Stable UI grouping key for benchmark sessions in the same hardware class; it does not prove one physical host."
           }
         }
       }
