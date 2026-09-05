@@ -150,6 +150,10 @@ Use explicitly aligned features, observations, tie handling, solvers, tolerances
 
 User-visible changes must update the relevant documentation. The default order is English first, followed by the corresponding Chinese documentation.
 
+Public model pages follow the learner-first standard in [`dev/documentation/model-page-style-guide.md`](dev/documentation/model-page-style-guide.md). The default model page is a teaching entry point for a user who may not know the method yet; complete solver/API/numerical detail should be progressively disclosed or moved to reference pages when it overwhelms that learning path. `LinearRegression` is the canonical simple-model example and `GeneralizedLinearModel` is the canonical complex-family example.
+
+A model-page rewrite is not considered complete merely because headings, solver tables, or links were updated. The style-guide rubric requires problem framing, motivation/intuition, a self-contained runnable example, semantic result interpretation, choice-oriented parameter guidance, comparisons with nearby methods, and scientific pitfalls. English and Chinese pages should preserve the same conceptual structure.
+
 Depending on scope, update:
 
 - `README.md` for project-level capabilities and entry points;
@@ -174,6 +178,7 @@ A pull request that changes a statistical method is generally not complete until
 ## Pull request checklist
 
 - [ ] The public API and statistical behavior are documented.
+- [ ] Public model pages affected by the change follow the learner-first documentation standard or clearly justify why they are reference-only pages.
 - [ ] NumPy, CuPy, and Torch behavior is implemented or an explicit limitation is justified.
 - [ ] Explicit GPU devices do not silently fall back to CPU.
 - [ ] Focused tests pass.
