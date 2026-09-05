@@ -1,6 +1,31 @@
 import { test, expect } from '@playwright/test';
 import { StaticJsonBenchmarkProvider } from '../src/providers/benchmark';
 
+function validBenchmarkData() {
+  return {
+    schema_version: '1.1.0',
+    generated: '2026-09-05T00:00:00Z',
+    meta: {
+      generator: 'provider-contract-test',
+      git_sha: '0'.repeat(40),
+      generation_id: '1'.repeat(64),
+    },
+    environments: [
+      {
+        env_id: 'test-env',
+        label: 'Test environment',
+        gpu: 'none',
+        cpu: 'test-cpu',
+      },
+    ],
+    categories: [],
+    models: [],
+    frameworks: [],
+    comparisons: [],
+    runs: [],
+  };
+}
+
 test.describe('Benchmark data provider contract', () => {
   test('fails closed for an unsupported benchmark schema', async ({ page }) => {
     await page.route('**/data/benchmark_data.json', async route => {
@@ -45,28 +70,7 @@ test.describe('Benchmark data provider contract', () => {
         if (benchmarkAttempts === 1) {
           return new Response('temporary failure', { status: 503 });
         }
-        return Response.json({
-          schema_version: '1.1.0',
-          generated: '2026-09-05T00:00:00Z',
-          meta: {
-            generator: 'provider-contract-test',
-            git_sha: '0'.repeat(40),
-            generation_id: '1'.repeat(64),
-          },
-          environments: [
-            {
-              env_id: 'test-env',
-              label: 'Test environment',
-              gpu: 'none',
-              cpu: 'test-cpu',
-            },
-          ],
-          categories: [],
-          models: [],
-          frameworks: [],
-          comparisons: [],
-          runs: [],
-        });
+        return Response.json(validBenchmarkData());
       }
       return new Response('', { status: 404 });
     };
@@ -94,5 +98,34 @@ test.describe('Benchmark data provider contract', () => {
     // A successful bundle remains cached; only the rejected request is evicted.
     await provider.loadBundle();
     expect(benchmarkAttempts).toBe(2);
+  });
+
+  test('ignores malformed optional metadata instead of rejecting valid data', async () => {
+    const fetcher: typeof fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/data/benchmark_data.json')) {
+        return Response.json(validBenchmarkData());
+      }
+      if (
+        url.endsWith('/data/parse_report.json') ||
+        url.endsWith('/data/source_inventory.json')
+      ) {
+        return new Response('{not valid json', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const provider = new StaticJsonBenchmarkProvider({
+      baseUrl: 'https://example.invalid/dashboard/',
+      fetcher,
+    });
+    const bundle = await provider.loadBundle();
+
+    expect(bundle.data.schema_version).toBe('1.1.0');
+    expect(bundle.parseReport).toBeNull();
+    expect(bundle.sourceInventory).toBeNull();
   });
 });
