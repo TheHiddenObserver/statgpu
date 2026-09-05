@@ -1,10 +1,10 @@
 # Inference API Reference
 
 > **Module:** `statgpu.inference`  
-> **Last updated:** 2026-06-14  
+> **Last updated:** 2026-09-06  
 > **Backends:** NumPy, CuPy, PyTorch
 
-The `statgpu.inference` module provides statistical inference tools: distributions, multiple testing, permutation tests, and bootstrap.
+The `statgpu.inference` module provides statistical inference tools: distributions, multiple testing, permutation tests, and bootstrap. Public statgpu estimators also inherit model-bound convenience methods that call these engines using the estimator's device/backend context.
 
 ## Quick Reference
 
@@ -21,6 +21,52 @@ from statgpu.inference import norm, poisson, t, adjust_pvalues, combine_pvalues,
 | `permutation_test(statistic, X, y, ...)` | Permutation-based hypothesis testing |
 | `bootstrap_statistic(statistic, arrays, ...)` | Generic bootstrap engine |
 | `multipletests(...)` | Alias for `adjust_pvalues` (scientific naming) |
+
+## Estimator-bound inference helpers
+
+Every public estimator derived from `BaseEstimator` also exposes thin model-context wrappers around the shared inference engines. These methods are inherited; they do not need to be reimplemented by `Ridge`, `Lasso`, `ElasticNet`, or other estimators.
+
+| Estimator method | Signature | Model-context behavior |
+|---|---|---|
+| `adjust_pvalues` | `adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")` | If `pvalues` is omitted, uses the fitted estimator's `_pvalues`. Returns raw/adjusted p-values, reject mask, method, alpha, axis, and resolved backend. |
+| `combine_pvalues` | `combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")` | If `pvalues` is omitted, uses `_pvalues`; returns the combination statistic and global p-value together with backend metadata. |
+| `bootstrap_statistic` | `bootstrap_statistic(statistic, *arrays, n_resamples=200, strategy="iid", strata=None, clusters=None, block_size=None, confidence_level=0.95, random_state=None, statistic_name="statistic", backend="auto")` | Uses the estimator's backend. If no arrays are supplied, it uses cached fitted design/response arrays when available. |
+| `permutation_test` | `permutation_test(statistic, X, y, n_resamples=1000, strategy="iid", strata=None, groups=None, alternative="two-sided", random_state=None, statistic_name="statistic", backend="auto")` | Casts the supplied data and optional strata/groups to the resolved model-context backend before calling the shared permutation engine. |
+
+`backend="auto"` follows the estimator's resolved device: NumPy for CPU, CuPy for `device="cuda"`, and Torch for `device="torch"`. Passing an explicit backend overrides that model-context choice where the shared engine supports it.
+
+If `adjust_pvalues()` or `combine_pvalues()` is called without explicit p-values and the fitted estimator has no `_pvalues`, statgpu raises a `RuntimeError` rather than silently fabricating an input. Likewise, `bootstrap_statistic()` without explicit arrays requires cached training arrays from a fitted model.
+
+A typical model-bound workflow is:
+
+```python
+from statgpu.linear_model import Lasso
+
+model = Lasso(
+    alpha=0.08,
+    inference_method="debiased",
+    compute_inference=True,
+).fit(X, y)
+
+adjusted = model.adjust_pvalues(method="bh")
+combined = model.combine_pvalues(method="fisher")
+
+boot = model.bootstrap_statistic(
+    lambda X_, y_: float((X_[:, 0] * y_).mean()),
+    n_resamples=500,
+    random_state=7,
+)
+
+perm = model.permutation_test(
+    lambda X_, y_: float((X_[:, 0] * y_).mean()),
+    X,
+    y,
+    n_resamples=999,
+    random_state=7,
+)
+```
+
+Use the **estimator-bound methods** when you want inference utilities to follow the fitted model's backend and, where supported, reuse fitted state. Use the **module-level functions** below when you want a standalone inference calculation that is independent of a fitted estimator.
 
 ---
 
