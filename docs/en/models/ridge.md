@@ -90,9 +90,7 @@ Here:
 
 As `alpha` increases, the model accepts more training error in exchange for smaller coefficients. At `alpha=0`, the objective reduces to OLS.
 
-### Why L2 helps with correlated predictors
-
-After centering, the Ridge normal equation is
+**Why L2 helps with correlated predictors.** After centering, the Ridge normal equation is
 
 $$
 \left(X_c^\top X_c+n\alpha I\right)\hat\beta
@@ -184,12 +182,10 @@ For most regularized workflows, standardize continuous predictors before fitting
 
 A useful mental model is:
 
-```text
-OLS        : fit only
-Ridge      : fit + shrink
-Lasso      : fit + shrink + select
-Elastic Net: fit + shrink + select, with extra stability for correlated features
-```
+- **OLS:** fit only.
+- **Ridge:** fit + shrink.
+- **Lasso:** fit + shrink + select.
+- **Elastic Net:** fit + shrink + select, with extra stability for correlated features.
 
 ## CPU, GPU, formula, and weighted fitting
 
@@ -236,9 +232,7 @@ Supported covariance choices are `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, and `h
 
 For weighted inference, the numerical design uses the same analytic-weight convention as fitting. Numerical covariance and reference-distribution calculations remain on the executed NumPy/CuPy/Torch backend before reporting arrays are snapshotted to NumPy.
 
-### Comparing `alpha` with scikit-learn
-
-statgpu uses the average-loss objective shown above. scikit-learn Ridge uses an unnormalized residual sum of squares. For coefficient comparisons:
+**Comparing `alpha` with scikit-learn.** statgpu uses the average-loss objective shown above. scikit-learn Ridge uses an unnormalized residual sum of squares. For coefficient comparisons:
 
 - unweighted: `sklearn_alpha = n_samples * statgpu_alpha`;
 - weighted: `sklearn_alpha = sample_weight.sum() * statgpu_alpha`.
@@ -327,7 +321,7 @@ model.fit(
 | `summary` | `summary()` | Prints the Ridge coefficient/inference summary; requires a fitted model with inference enabled and available. |
 | `get_params` / `set_params` | sklearn-style estimator utilities | Inspect or replace constructor state using the shared `BaseEstimator` contract. |
 
-The shared estimator base also exposes p-value adjustment/combination helpers when inference p-values are available; see the [Inference API](../guides/inference-api.md).
+The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` are documented with their complete signatures and backend/fitted-state semantics in the [Inference API](../guides/inference-api.md).
 
 ### Fitted attributes and diagnostics
 
