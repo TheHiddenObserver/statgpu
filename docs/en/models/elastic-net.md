@@ -139,12 +139,14 @@ The point is not that equal coefficients are always correct. It is that the L2 c
 - Nonzero coefficients are still shrunk; they are not unpenalized OLS estimates.
 - `intercept_` is fitted separately and is not penalized.
 - `predict(X_new)` returns continuous predictions.
-- `score(X, y)` returns $R^2$.
+- `score(X, y)` returns $R^2$ and accepts `sample_weight=`.
 - The active set depends on **both** `alpha` and `l1_ratio`; changing either can change which variables survive.
 
 If two correlated variables stay nonzero together, that is a common Elastic Net behavior, not evidence that both are independently causal.
 
 ## Key parameters and how to choose them
+
+This table is intentionally **curated** for the normal workflow. The exhaustive constructor inventory is in [Complete API reference](#complete-api-reference).
 
 | Parameter | Default | How to think about it |
 |---|---:|---|
@@ -162,7 +164,7 @@ For predictive modeling, `ElasticNetCV` is usually preferable to choosing `alpha
 
 Both L1 and L2 penalties act on coefficient magnitude. Different feature units therefore change the effective penalty.
 
-Standardize continuous predictors before fitting unless the raw feature scale is deliberately part of the modeling convention.
+Standardize continuous predictors before fitting unless raw feature scale is deliberately part of the modeling convention.
 
 ## Compare with Ridge and Lasso
 
@@ -180,7 +182,7 @@ A practical rule of thumb:
 - start with **Lasso** when sparsity is the main goal and correlations are modest;
 - start with **Elastic Net** when you want sparsity and know correlated feature groups are important.
 
-## CPU and GPU example
+## CPU, GPU, Formula, weighted fitting, and warm starts
 
 ```python
 from statgpu.linear_model import ElasticNet
@@ -194,9 +196,17 @@ model = ElasticNet(
 ).fit(X, y)
 ```
 
-The public wrapper supports NumPy CPU, CuPy CUDA, and Torch CUDA paths where available. Backend speed depends on sample size, feature dimension, dtype, data residency, and transfer cost; benchmark the workload you actually care about.
+The public wrapper supports NumPy CPU, CuPy CUDA, and Torch CUDA paths where available. Backend speed depends on sample size, feature dimension, dtype, data residency, and transfer cost.
 
-A one-fit warm start can be supplied with `fit(initial_coef=...)`.
+`fit()` accepts `sample_weight=` and forwards the shared `formula=` / `data=` interface. A one-fit warm start can be supplied with `initial_coef=`:
+
+```python
+warm = ElasticNet(alpha=0.08, l1_ratio=0.5).fit(
+    X,
+    y,
+    initial_coef=previous_coef,
+)
+```
 
 ## Advanced: solver and optimization details
 
@@ -233,7 +243,7 @@ $$
 | `cpu_ols` | lightweight post-selection OLS-style path | heuristic after selection; not a general selective-inference guarantee |
 | `bootstrap` | resampling-based alternative | higher computational cost and conditional on the implemented bootstrap assumptions |
 
-When inference succeeds, `summary()` and reporting fields such as standard errors, z-style statistics, p-values, and confidence intervals become available according to the selected method.
+`cov_type` and `hac_maxlags` are public constructor controls used where the selected inference path supports the corresponding covariance convention. When inference succeeds, `summary()` and reporting fields such as standard errors, test statistics, p-values, and confidence intervals become available according to the selected method.
 
 For `ElasticNetCV`, `compute_inference=True` applies only to the final full-data refit after `alpha` and `l1_ratio` have been selected. Fold models remain estimation-only.
 
@@ -246,17 +256,115 @@ For `ElasticNetCV`, `compute_inference=True` applies only to the final full-data
 - **Do not expect the same active set under tiny data perturbations when signals are weak.** Elastic Net improves correlated-feature stability but does not eliminate sampling uncertainty.
 - **Do not attach ordinary unpenalized inference to a data-selected active set without acknowledging selection.** Use the supported post-fit methods and their stated assumptions.
 
-## API and validation
+## Complete API reference
 
-Import path:
+The earlier parameter table is a decision guide. This section is the exhaustive constructor and model-method inventory for the current `ElasticNet` wrapper.
+
+### Constructor
 
 ```python
-from statgpu.linear_model import ElasticNet
+ElasticNet(
+    alpha=1.0,
+    l1_ratio=0.5,
+    fit_intercept=True,
+    max_iter=1000,
+    tol=1e-4,
+    stopping="coef_delta",
+    device="auto",
+    n_jobs=None,
+    solver="fista",
+    cpu_solver="fista",
+    lipschitz_L=None,
+    gpu_memory_cleanup=False,
+    compute_inference=False,
+    inference_method="debiased",
+    cov_type="nonrobust",
+    hac_maxlags=None,
+)
 ```
 
-The public wrapper also exposes advanced controls including `max_iter`, `tol`, `cpu_solver`, `lipschitz_L`, `gpu_memory_cleanup`, `cov_type`, and `hac_maxlags`. It does not expose separate constructor parameters named `backend`, `warm_start`, or `random_state`; backend selection is controlled by `device`, and a one-fit warm start uses `fit(initial_coef=...)`.
+<!-- API-CONSTRUCTOR-START:ElasticNet -->
+| Parameter | Default | Reference meaning |
+|---|---:|---|
+| `alpha` | `1.0` | Overall regularization strength. |
+| `l1_ratio` | `0.5` | L1 mixture proportion; `0` is Ridge-like, `1` is Lasso-like. |
+| `fit_intercept` | `True` | Fit an unpenalized intercept. |
+| `max_iter` | `1000` | Maximum solver iterations. |
+| `tol` | `1e-4` | Numerical convergence tolerance. |
+| `stopping` | `"coef_delta"` | `coef_delta` or `kkt` convergence criterion where supported. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
+| `n_jobs` | `None` | Parallelism hint where the selected path uses it. |
+| `solver` | `"fista"` | Single-estimator solver; see the solver table above. |
+| `cpu_solver` | `"fista"` | CPU helper/dispatch control for compatible shared paths. |
+| `lipschitz_L` | `None` | Optional precomputed Lipschitz constant for compatible proximal paths. |
+| `gpu_memory_cleanup` | `False` | Best-effort release of cached GPU memory after fit. |
+| `compute_inference` | `False` | Run the selected post-fit inference path. |
+| `inference_method` | `"debiased"` | Post-fit inference method. |
+| `cov_type` | `"nonrobust"` | Covariance convention where the selected inference method uses one. |
+| `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC. |
+<!-- API-CONSTRUCTOR-END:ElasticNet -->
 
-Maintained validation checks the declared Elastic Net objective, solver/KKT behavior, CPU and supported GPU paths, post-fit inference, and the final-refit inference contract for `ElasticNetCV`. Physical CUDA validation remains part of exact release acceptance where applicable.
+### `fit`
+
+The wrapper's direct signature is:
+
+```python
+model.fit(
+    X=None,
+    y=None,
+    sample_weight=None,
+    initial_coef=None,
+    **kwargs,
+)
+```
+
+The forwarded shared fit keyword arguments currently include `formula` and `data`.
+
+| Argument | Meaning |
+|---|---|
+| `X` | Two-dimensional feature matrix for array-style fitting. |
+| `y` | One-dimensional continuous response. |
+| `sample_weight` | Optional non-negative analytic weights with positive finite total; some solver paths have additional weight restrictions. |
+| `initial_coef` | Optional warm-start coefficient vector with one value per feature. |
+| `formula` | Optional Patsy-style formula forwarded through `**kwargs`; use with `data`. |
+| `data` | DataFrame used by the Formula interface, forwarded through `**kwargs`. |
+
+`fit()` returns `self`.
+
+### Prediction, scoring, and reporting methods
+
+| Method | Signature | Behavior |
+|---|---|---|
+| `predict` | `predict(X, return_cpu=True)` | Continuous predictions. `return_cpu=False` can keep GPU predictions on the executed backend. |
+| `score` | `score(X, y, sample_weight=None)` | $R^2$, optionally weighted. |
+| `summary` | `summary()` | Prints the coefficient/inference summary; requires a fitted model with inference enabled and available. |
+| `get_params` / `set_params` | sklearn-style estimator utilities | Inspect or replace constructor state using the shared `BaseEstimator` contract. |
+
+The shared estimator base also exposes p-value adjustment/combination helpers when inference p-values are available; see the [Inference API](../guides/inference-api.md).
+
+### Fitted attributes and diagnostics
+
+| Attribute | Availability / meaning |
+|---|---|
+| `coef_` | Penalized coefficients; exact zeros define the fitted active set. |
+| `intercept_` | Fitted unpenalized intercept. |
+| `n_iter_` | Iteration count for the selected numerical path. |
+| `n_features_in_` | Number of fitted input features when published by the fit path. |
+| `rsquared`, `rsquared_adj` | $R^2$ and adjusted $R^2$ when the required fitted state is available. |
+| `fvalue`, `f_pvalue` | Classical joint fit statistic and p-value when defined. |
+| `llf`, `aic`, `bic` | Gaussian fit diagnostics when the required reporting state is available. |
+| `_bse` | Standard errors produced by the selected inference method. |
+| `_tvalues` | t-style statistics for inference paths that use them. |
+| `_zvalues` | z-style statistics for de-biased inference. |
+| `_pvalues` | Coefficient p-values when inference succeeds. |
+| `_conf_int` | Coefficient confidence intervals when inference succeeds. |
+| `_inference_result` | Structured inference result/metadata used by the reporting layer. |
+
+Underscore-prefixed inference arrays are established reporting attributes in the current release. Their statistical interpretation depends on `inference_method`.
+
+## Validation
+
+Maintained validation checks the declared Elastic Net objective, solver/KKT behavior, CPU and supported GPU paths, post-fit inference, warm-start behavior, and the final-refit inference contract for `ElasticNetCV`. Physical CUDA validation remains part of exact release acceptance where applicable.
 
 ## References
 
