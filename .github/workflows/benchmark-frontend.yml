@@ -90,6 +90,9 @@ jobs:
       NO_PROXY: 127.0.0.1,localhost
     steps:
       - uses: actions/checkout@v6
+        with:
+          # VitePress lastUpdated derives page timestamps from git history.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -135,7 +138,7 @@ jobs:
           git diff --exit-code
           test -z "$(git status --porcelain --untracked-files=no)"
       - name: Install browser engines
-        run: npm exec --prefix frontend playwright install --with-deps chromium firefox webkit
+        run: npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
       - name: Run dashboard regression suite
         run: npm run test:e2e --prefix frontend
       - name: Run assembled production QA
@@ -149,9 +152,6 @@ jobs:
             frontend/playwright-report/
             frontend/test-results/
           retention-days: 30
-      - name: Configure GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: actions/configure-pages@v5
       - name: Upload GitHub Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v4
@@ -163,12 +163,15 @@ jobs:
     needs: site
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
