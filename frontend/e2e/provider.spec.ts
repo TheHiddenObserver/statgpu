@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { StaticJsonBenchmarkProvider } from '../src/providers/benchmark';
 
 test.describe('Benchmark data provider contract', () => {
   test('fails closed for an unsupported benchmark schema', async ({ page }) => {
@@ -33,5 +34,65 @@ test.describe('Benchmark data provider contract', () => {
     await expect(page.locator('#env-select option')).toContainText(
       '8 benchmark sessions',
     );
+  });
+
+  test('retries a required bundle after a transient failed load', async () => {
+    let benchmarkAttempts = 0;
+    const fetcher: typeof fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/data/benchmark_data.json')) {
+        benchmarkAttempts += 1;
+        if (benchmarkAttempts === 1) {
+          return new Response('temporary failure', { status: 503 });
+        }
+        return Response.json({
+          schema_version: '1.1.0',
+          generated: '2026-09-05T00:00:00Z',
+          meta: {
+            generator: 'provider-contract-test',
+            git_sha: '0'.repeat(40),
+            generation_id: '1'.repeat(64),
+          },
+          environments: [
+            {
+              env_id: 'test-env',
+              label: 'Test environment',
+              gpu: 'none',
+              cpu: 'test-cpu',
+            },
+          ],
+          categories: [],
+          models: [],
+          frameworks: [],
+          comparisons: [],
+          runs: [],
+        });
+      }
+      return new Response('', { status: 404 });
+    };
+
+    const provider = new StaticJsonBenchmarkProvider({
+      baseUrl: 'https://example.invalid/dashboard/',
+      fetcher,
+    });
+
+    let firstError: unknown = null;
+    try {
+      await provider.loadBundle();
+    } catch (error) {
+      firstError = error;
+    }
+    expect(String(firstError)).toContain(
+      'Failed to load data/benchmark_data.json: 503',
+    );
+
+    const recovered = await provider.loadBundle();
+    expect(recovered.data.schema_version).toBe('1.1.0');
+    expect(recovered.data.environments[0].env_id).toBe('test-env');
+    expect(benchmarkAttempts).toBe(2);
+
+    // A successful bundle remains cached; only the rejected request is evicted.
+    await provider.loadBundle();
+    expect(benchmarkAttempts).toBe(2);
   });
 });
