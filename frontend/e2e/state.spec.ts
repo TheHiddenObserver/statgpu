@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
+import { runHasMetricScope } from '../src/data';
 import { getUniqueScaleKeys } from '../src/scales';
 import {
   createDefaultState,
@@ -88,6 +89,33 @@ test('grouped environments expose every benchmark session to the default filters
     new Set(['remote-p100', 'remote-p100-cv']),
   );
   expect([...state.selectedCategoryIds]).toEqual(['linear_models']);
+});
+
+test('structured cross-validation metrics define CV scope without naming heuristics', () => {
+  const run = makeRun('remote-p100', ['linear_models']);
+  run.model_id = 'RegularizedModel';
+  run.metrics.cross_validation = {
+    status: 'success',
+    reason: null,
+    cv_evaluation_ms: 2,
+    final_refit_ms: 1,
+    total_fit_ms: 3,
+    selected_parameters: { alpha: 0.1 },
+    validation_score: 0.25,
+    final_score: 0.2,
+    scoring_name: 'loss',
+    scoring_direction: 'minimize',
+    candidate_count: 2,
+    fold_count: 3,
+    failed_candidates: 0,
+    failed_folds: 0,
+    final_refit_converged: true,
+    quality: 'measured',
+    source_file: 'cv.json',
+  };
+
+  expect(runHasMetricScope(run, 'cross_validation')).toBeTruthy();
+  expect(runHasMetricScope(run, 'fit')).toBeFalsy();
 });
 
 test('scale keys are ordered by numeric workload dimensions, not lexicographically', () => {
