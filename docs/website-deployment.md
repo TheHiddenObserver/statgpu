@@ -35,24 +35,27 @@ generates the benchmark bundle deterministically, builds VitePress, builds the
 dashboard, copies the dashboard to `.site-dist/dashboard/`, verifies links and
 size budgets, runs browser tests, and uploads one GitHub Pages artifact.
 
-Pull requests execute all build and validation gates but do not deploy. A push
-to `master` deploys through the protected `github-pages` environment.
-Compiled HTML, JavaScript, CSS, search indexes, and generated dashboard JSON are
-not committed.
+VitePress builds with full Git history so `lastUpdated` reflects source history,
+and local-search indexing is serialized so repeated builds produce the same
+artifact bytes. Pull requests execute all build and validation gates but do not
+deploy. Only a push to `master` may upload and deploy through the `github-pages`
+environment. Compiled HTML, JavaScript, CSS, search indexes, and generated
+dashboard JSON are not committed.
 
 ## Verification
 
 The assembled artifact must contain the four public entry routes, the complete
 three-file benchmark bundle, and `.nojekyll`. Verification rejects:
 
-- missing internal targets;
+- missing internal targets, with deployment-path case sensitivity preserved;
 - root-absolute URLs outside the configured site base;
 - the legacy `docs/assets/benchmarks` route;
 - dashboard JavaScript above 750 KiB;
 - `benchmark_data.json` above 6 MiB.
 
-The workflow builds twice and compares complete artifact hashes. It also checks
-that tracked repository files remain unchanged.
+The workflow builds twice and compares complete artifact hashes. It also
+requires a clean repository tree, including non-ignored untracked files, before
+browser QA and publication.
 
 ## Custom domain migration
 
