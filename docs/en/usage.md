@@ -49,11 +49,10 @@ artifacts. A skipped GPU test is not treated as physical-GPU evidence.
 
 ## Contributor Checklist
 
-Follow [`dev/AGENTS.md`](../../dev/AGENTS.md) and the canonical Claude Code
-[`new-module-dev` skill](../../.claude/skills/new-module-dev/SKILL.md). Use the
-[`code-review` skill](../../.claude/skills/code-review/SKILL.md) for independent
-review passes and the [`benchmark` skill](../../.claude/skills/benchmark/SKILL.md)
-when performance/evidence work is active. Classify impact first, preserve explicit
-device semantics, verify objective normalization before external comparisons, add
-tests for the active contracts, and synchronize affected English/Chinese public
-claims.
+Follow the repository's [development guide](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md)
+and canonical Claude Code [`new-module-dev` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/new-module-dev/SKILL.md).
+Use the [`code-review` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/code-review/SKILL.md)
+for independent review passes and the [`benchmark` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/benchmark/SKILL.md)
+when performance/evidence work is active. These are external repository-source links rather than VitePress routes.
+Classify impact first, preserve explicit device semantics, verify objective normalization before external comparisons,
+add tests for the active/default contracts, and synchronize affected English/Chinese public claims.
