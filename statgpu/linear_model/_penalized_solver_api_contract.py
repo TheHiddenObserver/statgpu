@@ -67,13 +67,22 @@ def _inside_non_user_constructor_replay() -> bool:
             module_name = str(frame.f_globals.get("__name__", ""))
             function_name = frame.f_code.co_name
 
-            # statgpu's own reconstruction contract (sklearn >=1.3 and
-            # transactional set_params) should not turn a previously omitted
-            # legacy default into a user-facing warning.
+            # statgpu's sklearn>=1.3 clone hook is always framework replay.
             if (
                 module_name == "statgpu._base"
-                and function_name in {"__sklearn_clone__", "set_params"}
+                and function_name == "__sklearn_clone__"
             ):
+                return True
+
+            # Transactional set_params reconstructs the whole estimator from
+            # get_params(). Suppress the replay only when cpu_solver was *not*
+            # one of the user's explicit updates. If it was explicitly updated,
+            # that public set_params call is caller-owned deprecated API use and
+            # must still warn once.
+            if module_name == "statgpu._base" and function_name == "set_params":
+                direct_updates = frame.f_locals.get("direct_updates", {})
+                if isinstance(direct_updates, dict) and "cpu_solver" in direct_updates:
+                    return False
                 return True
 
             # sklearn <=1.2 reconstructs estimators directly from
