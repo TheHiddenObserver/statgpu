@@ -12,11 +12,11 @@ There is no single global precedence order across documents with different respo
 2. `dev/AGENTS.md`.
 3. The mandatory checklist in [`TO_DO.md`](TO_DO.md), which summarizes but does not weaken the two sources above.
 
-Legacy flat `.claude/skills/*.md` files and `.claude/workflows/new-module-dev.md` are compatibility pointers for historical links, not authoritative entrypoints.
+Legacy flat `.claude/skills/*.md` files are compatibility pointers for historical links, not authoritative entrypoints. The old Markdown-era workflow note now lives at `.claude/legacy/new-module-dev-workflow.md`; `.claude/workflows/` is reserved for Claude Code Dynamic Workflow scripts and is not a policy/document archive.
 
 Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override active/default hard gates. Impact classification in the canonical skills prevents an API-only/refactor-only change from reopening unrelated backend/CV/inference/formula/performance work. It does **not** permit a genuinely new shared numerical capability to define away the repository defaults: NumPy/CuPy/Torch closure is the default, and a new tunable loss x penalty capability closes direct fit + CV by default. A legitimate narrower capability or deferral must be explicit under the applicable skill contract. Any approved exception follows the approval/deferral contract in the canonical skill and `dev/AGENTS.md`.
 
-The canonical `code-review` blocking fork contract requires Claude Code >= 2.1.218.
+For `code-review`, Claude Code >= 2.1.218 supports explicit `background: false`; earlier forked skills already block the invoking turn by default. The version boundary is a frontmatter-feature boundary, not a minimum version for blocking review semantics.
 
 ### Current public capability
 

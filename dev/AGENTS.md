@@ -8,9 +8,11 @@
 - `.claude/skills/code-review/SKILL.md`
 - `.claude/skills/benchmark/SKILL.md`
 
-各 skill 的 supporting reference 按需加载。`.claude/workflows/new-module-dev.md` 与旧的 `.claude/skills/*.md` 平铺文件仅作为历史链接兼容指针，不再是 authoritative entrypoint。若本文和 canonical skill 有冲突，开发任务中优先执行 canonical skill，并在结果中说明差异。
+各 skill 的 supporting reference 按需加载。旧的 `.claude/skills/*.md` 平铺文件仅作为历史链接兼容指针。旧 Markdown-era workflow 的说明已移到 `.claude/legacy/new-module-dev-workflow.md`；`.claude/workflows/` 保留给 Claude Code Dynamic Workflow scripts，不作为 policy/document archive。若本文和 canonical skill 有冲突，开发任务中优先执行 canonical skill，并在结果中说明差异。
 
-`code-review` 使用 `context: fork` + `background: false` 作为独立、阻塞式 review gate；该同步 fork contract 要求 **Claude Code >= 2.1.218**。更旧客户端不要假定这一阻塞语义成立，应先升级再把 `/code-review` 当作 completion gate。
+根目录 `CLAUDE.md` 是 Claude Code 的小型 bootstrap：它把 forked/general-purpose agent 引导到本文件和 canonical skills，而不是复制这里的规则。
+
+`code-review` 使用 `context: fork`；Claude Code >= 2.1.218 可用 `background: false` 显式保持阻塞式 review。更早版本的 forked skill 本来就默认阻塞 invoking turn，因此**不存在“为了 blocking 必须升级到 2.1.218”**的要求。
 
 ## 项目概览
 

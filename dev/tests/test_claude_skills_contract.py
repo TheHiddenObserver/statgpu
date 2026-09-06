@@ -73,6 +73,7 @@ def test_canonical_claude_skill_layout_and_entrypoints():
             assert supporting.is_file(), f"missing referenced supporting file: {supporting}"
             assert supporting_name in text, f"{entry} must point readers to {supporting_name}"
         assert len(text.splitlines()) < 500, f"{entry} should stay concise; move detail to supporting files"
+        assert text.endswith("\n"), f"{entry} must end with a newline"
 
 
 def test_code_review_remains_a_blocking_forked_independent_pass():
@@ -86,6 +87,8 @@ def test_code_review_remains_a_blocking_forked_independent_pass():
     assert "read `dev/AGENTS.md`" in text
     assert "target-resolution.md" in text
     assert "Before v2.1.218, forked skills already blocked" in text
+    assert "--fix` is accepted as an alias for `auto-fix" in text
+    assert "--comment` explicitly authorizes posting the final review summary" in text
 
 
 def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
@@ -166,7 +169,7 @@ def test_skill_eval_definitions_are_present_and_well_formed():
             assert item.get("assertions")
 
 
-def test_current_contributor_entrypoints_reference_canonical_skills():
+def test_current_authority_docs_use_current_claude_namespaces_and_version_semantics():
     current_files = [
         ROOT / "dev" / "AGENTS.md",
         ROOT / "dev" / "plans" / "README.md",
@@ -176,6 +179,16 @@ def test_current_contributor_entrypoints_reference_canonical_skills():
     for path in current_files:
         text = _read(path)
         assert ".claude/skills/" in text, f"{path} should point to canonical skill entrypoints"
+        assert ".claude/workflows/new-module-dev.md" not in text
+        assert "requires Claude Code >= 2.1.218" not in text
+
+    agents = _read(ROOT / "dev" / "AGENTS.md")
+    assert ".claude/legacy/new-module-dev-workflow.md" in agents
+    assert "earlier versions" in agents or "更早版本" in agents
+
+    roadmap = _read(ROOT / "dev" / "plans" / "ROADMAP.md")
+    assert "canonical `.claude/skills/<skill-name>/SKILL.md`" in roadmap
+    assert "Dynamic Workflow" in roadmap
 
 
 def test_vitepress_usage_pages_use_external_repo_links_for_non_docs_files():

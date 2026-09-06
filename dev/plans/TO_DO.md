@@ -8,9 +8,9 @@
 > Canonical review skill: [`.claude/skills/code-review/SKILL.md`](../../.claude/skills/code-review/SKILL.md)  
 > Last synchronized: **2026-08-28**, release **0.2.5**, commit `84f8bc7e17f66466b3a325cbb007b6cb41843821`.
 
-This file is intentionally shorter than `dev/AGENTS.md` and the canonical `.claude/skills/*/SKILL.md` protocols, but it is not a weaker checklist. Impact classification determines which gates are active. When wording conflicts, the applicable canonical skill takes precedence, followed by `dev/AGENTS.md`. Legacy flat `.claude/skills/*.md` and `.claude/workflows/new-module-dev.md` files are compatibility pointers only. `ROADMAP.md` controls priority; GitHub issues control executable scope.
+This file is intentionally shorter than `dev/AGENTS.md` and the canonical `.claude/skills/*/SKILL.md` protocols, but it is not a weaker checklist. Impact classification determines which gates are active. When wording conflicts, the applicable canonical skill takes precedence, followed by `dev/AGENTS.md`. Legacy flat `.claude/skills/*.md` files are compatibility pointers only. The old Markdown-era workflow note is archived at `.claude/legacy/new-module-dev-workflow.md`; `.claude/workflows/` is reserved for Dynamic Workflow scripts. `ROADMAP.md` controls priority; GitHub issues control executable scope.
 
-Impact-driven scope does not allow new capability to define away repository defaults: new shared numerical/statistical capability closes NumPy/CuPy/Torch by default, and new tunable loss x penalty capability closes direct fit + CV by default, unless a legitimate narrower contract is already part of the task or an explicit deferral is approved. The blocking fork contract of the canonical `code-review` skill requires Claude Code >= 2.1.218.
+Impact-driven scope does not allow new capability to define away repository defaults: new shared numerical/statistical capability closes NumPy/CuPy/Torch by default, and new tunable loss x penalty capability closes direct fit + CV by default, unless a legitimate narrower contract is already part of the task or an explicit deferral is approved. For `code-review`, Claude Code >= 2.1.218 supports explicit `background: false`; earlier forked skills already block by default, so 2.1.218 is not a minimum version for blocking review semantics.
 
 ## 1. Required task classification
 

@@ -40,6 +40,16 @@
         "The response records the branch/working-tree base and head identity.",
         "The response applies statgpu/linear_model as a path filter."
       ]
+    },
+    {
+      "id": 5,
+      "prompt": "/code-review --fix PR #136 --comment",
+      "expected_output": "The project skill treats --fix as auto-fix, resolves PR #136 exactly before editing, posts or attempts to post the final summary only because --comment was explicitly supplied, and does not interpret --comment as permission to merge or make unrelated repository changes.",
+      "assertions": [
+        "--fix has the same mutation semantics as auto-fix.",
+        "--comment is scoped to the resolved PR review summary.",
+        "The response does not treat --comment as merge or branch-mutation authorization."
+      ]
     }
   ]
 }

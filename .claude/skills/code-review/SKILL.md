@@ -2,7 +2,7 @@
 name: code-review
 description: Review statgpu changes for correctness, public API compatibility, statistical and numerical behavior, backend dispatch, CV/inference/formula contracts, tests, docs, and performance. Use when the user asks for a review or audit, or when a development workflow explicitly requests a fresh independent review pass.
 when_to_use: Trigger for PR review, audit, fresh review, or an explicit review/fix pass. Do not trigger merely because code is being edited.
-argument-hint: "[audit|auto-fix] [PR|branch|range|path]"
+argument-hint: "[audit|auto-fix|--fix] [PR|branch|range|path] [--comment]"
 compatibility: "Claude Code >= 2.1.218 supports background: false explicitly; earlier versions block forked skills by default."
 context: fork
 background: false
@@ -22,11 +22,14 @@ A review that cannot identify its target precisely must not return a clean/block
 
 `background: false` explicitly keeps this fork blocking on Claude Code >= 2.1.218. Before v2.1.218, forked skills already blocked the invoking turn by default; no upgrade is required merely to preserve blocking behavior.
 
-## Modes
+## Modes and bundled-override compatibility
 
 - `audit`: findings only; do not edit files.
 - `auto-fix`: fix in-scope CRITICAL/HIGH issues and relevant MEDIUM issues, run targeted validation, then re-review the resulting state.
+- `--fix` is accepted as an alias for `auto-fix` so the common bundled-skill spelling does not silently lose effect after the project skill overrides `/code-review`.
+- `--comment` explicitly authorizes posting the final review summary only when the resolved target is a PR. It does not authorize code edits, merge, branch changes, or other repository mutation. If a PR comment cannot be posted, report that rather than silently ignoring the flag.
 - If no mode is supplied, infer `audit` for review-only requests and `auto-fix` only when the caller explicitly asks for fixes or a development workflow requests a review/fix pass.
+- Bundled effort-tier flags are not part of statgpu's project review contract; if supplied, do not let them change target resolution or hard gates. Report unsupported/ignored review-control flags rather than silently assigning them project semantics.
 
 ## 1. Target freshness is a hard gate
 
