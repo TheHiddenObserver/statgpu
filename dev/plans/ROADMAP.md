@@ -9,7 +9,8 @@
 
 This document defines current development priority and sequencing. It is not a public support matrix and does not override repository development gates.
 
-- Hard development and completion gates come first from the applicable `.claude` workflow/skill and then from `dev/AGENTS.md`.
+- Hard development and completion gates come first from the applicable canonical `.claude/skills/<skill-name>/SKILL.md` procedure and then from `dev/AGENTS.md`.
+- `.claude/workflows/` is the Dynamic Workflow orchestration namespace; a saved workflow does not become policy authority unless a canonical skill or scoped task explicitly incorporates it.
 - For implemented public methods and backend support, use validated implementation/tests together with `docs/en/guides/implemented-methods.md` and linked maintained model pages.
 - For executable scope, use open GitHub issues and pull requests.
 - Module-specific plans under `dev/plans/` provide design and literature context but may contain historical checklists.
@@ -199,7 +200,7 @@ A deferred item may be promoted only through a scoped issue with a public contra
 
 A statistical feature is complete only when all applicable items pass:
 
-- applicable `.claude` and `dev/AGENTS.md` hard gates;
+- applicable canonical `.claude/skills/<skill-name>/SKILL.md` and `dev/AGENTS.md` hard gates;
 - documented public API and failure behavior;
 - NumPy, CuPy, and Torch execution paths, or an explicitly approved exception;
 - no silent fallback for explicit device requests;

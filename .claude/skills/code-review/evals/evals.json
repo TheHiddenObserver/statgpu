@@ -1,0 +1,70 @@
+{
+  "skill_name": "code-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review PR #136 in audit mode. I may be checked out on another branch.",
+      "expected_output": "The review resolves PR #136 to immutable base/head SHAs instead of substituting the current checkout, reads dev/AGENTS.md, reports target identity, makes no edits, and rechecks that neither the PR base nor head moved before the verdict.",
+      "assertions": [
+        "The response records an exact base SHA and head SHA for PR #136.",
+        "The response does not treat the current checkout as the PR target unless it proves they match.",
+        "The response states or demonstrates that dev/AGENTS.md was used as project grounding.",
+        "The final verdict is explicitly scoped to a re-resolved exact base/head pair."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review my current changes. No PR or branch scope specified; the working tree is intentionally dirty because I just implemented the feature.",
+      "expected_output": "The review resolves the repository default branch, merge-base and current HEAD; treats the existing staged/unstaged/untracked state as the legitimate reviewed_before target; fingerprints that content rather than identifying it only by paths; and rechecks base/head/fingerprint freshness before the verdict.",
+      "assertions": [
+        "The response defines a base SHA and current head SHA.",
+        "The response accounts for staged, unstaged, and relevant untracked changes.",
+        "The response records a content fingerprint for the dirty working-tree target.",
+        "The final freshness check recomputes the working-tree fingerprint."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Auto-fix the issues in PR #136, but do not change branches or commit anything. My current checkout has unrelated uncommitted work.",
+      "expected_output": "The skill resolves PR #136 first and refuses to edit the unrelated/pre-dirty checkout, reporting a target/write-state mismatch and recommending a clean PR-head worktree rather than layering fixes onto unrelated changes.",
+      "assertions": [
+        "The response never edits an unrelated or pre-dirty checkout for an explicit PR target.",
+        "The response identifies the target/write-state mismatch.",
+        "The response does not commit or push."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review only statgpu/linear_model for the changes on my branch.",
+      "expected_output": "The skill treats the path as a filter on a branch/working-tree target, still resolves immutable base/head identity, and does not mistake the path itself for the comparison base.",
+      "assertions": [
+        "The response records the branch/working-tree base and head identity.",
+        "The response applies statgpu/linear_model as a path filter."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "/code-review --fix PR #136 --comment; leave the fixes uncommitted and do not push.",
+      "expected_output": "The project skill treats --fix as auto-fix and --comment as permission to publish a PR review summary, but it does not claim the remote PR is fixed/clean when the fixes exist only in a local dirty worktree. Any comment distinguishes the original remote-head verdict/findings from local draft fixes.",
+      "assertions": [
+        "--fix has the same mutation semantics as auto-fix.",
+        "A comment never represents unpushed local fixes as part of the remote PR head.",
+        "The response does not treat --comment as merge, push, or branch-mutation authorization."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Fresh-audit this immutable historical statgpu range as a staged public API/deprecation cleanup: b17c8a6c161065bfbe9efa9f60d0fad69a464773...ac19eed297cff557a1c86595c1ec418e1b505249. Hosted CI for that snapshot was green; treat CI as evidence, not as proof that the review is clean. Do not edit anything.",
+      "expected_output": "The review resolves and records the exact immutable range, classifies the change primarily as API/deprecation plus affected CV/backend-preservation work rather than a new numerical capability, and does not return REVIEW CLEAN merely because hosted CI was green. A high-quality review identifies the historical compatibility defects in that snapshot: legacy LassoCV cpu_solver behavior was incorrectly reinterpreted on CUDA/Torch instead of preserving GPU FISTA; sklearn 1.2 clone reconstruction could turn an omitted direct cpu_solver default into a spurious deprecation warning; statgpu-internal debiased node-wise Lasso could leak deprecated-API warnings; and the public penalized-base runtime help/docstring still taught cpu_solver as a CPU direct-fit selector. The verdict is blocking and distinguishes HIGH compatibility regressions from MEDIUM warning/docs issues.",
+      "assertions": [
+        "The response records base b17c8a6c161065bfbe9efa9f60d0fad69a464773 and head ac19eed297cff557a1c86595c1ec418e1b505249 with three-dot range semantics.",
+        "The response treats this as API/deprecation and affected CV/backend-preservation review, not as a request to implement a new NumPy/CuPy/Torch numerical capability.",
+        "Green CI is not used as sufficient evidence for a clean verdict.",
+        "The review finds the legacy LassoCV cpu_solver CUDA/Torch behavior regression or equivalently explains that the old CPU-only control must not replace the maintained GPU FISTA path.",
+        "The review finds the sklearn 1.2 get_params-to-constructor clone/reconstruction warning regression for an omitted direct cpu_solver default.",
+        "The review finds at least one of the two MEDIUM-quality defects: internal debiased node-wise Lasso warning leakage or stale public runtime help/docstring cpu_solver semantics.",
+        "The final verdict is blocking rather than REVIEW CLEAN."
+      ]
+    }
+  ]
+}
