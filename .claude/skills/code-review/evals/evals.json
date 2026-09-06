@@ -51,6 +51,20 @@
         "A comment never represents unpushed local fixes as part of the remote PR head.",
         "The response does not treat --comment as merge, push, or branch-mutation authorization."
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "Fresh-audit this immutable historical statgpu range as a staged public API/deprecation cleanup: b17c8a6c161065bfbe9efa9f60d0fad69a464773...ac19eed297cff557a1c86595c1ec418e1b505249. Hosted CI for that snapshot was green; treat CI as evidence, not as proof that the review is clean. Do not edit anything.",
+      "expected_output": "The review resolves and records the exact immutable range, classifies the change primarily as API/deprecation plus affected CV/backend-preservation work rather than a new numerical capability, and does not return REVIEW CLEAN merely because hosted CI was green. A high-quality review identifies the historical compatibility defects in that snapshot: legacy LassoCV cpu_solver behavior was incorrectly reinterpreted on CUDA/Torch instead of preserving GPU FISTA; sklearn 1.2 clone reconstruction could turn an omitted direct cpu_solver default into a spurious deprecation warning; statgpu-internal debiased node-wise Lasso could leak deprecated-API warnings; and the public penalized-base runtime help/docstring still taught cpu_solver as a CPU direct-fit selector. The verdict is blocking and distinguishes HIGH compatibility regressions from MEDIUM warning/docs issues.",
+      "assertions": [
+        "The response records base b17c8a6c161065bfbe9efa9f60d0fad69a464773 and head ac19eed297cff557a1c86595c1ec418e1b505249 with three-dot range semantics.",
+        "The response treats this as API/deprecation and affected CV/backend-preservation review, not as a request to implement a new NumPy/CuPy/Torch numerical capability.",
+        "Green CI is not used as sufficient evidence for a clean verdict.",
+        "The review finds the legacy LassoCV cpu_solver CUDA/Torch behavior regression or equivalently explains that the old CPU-only control must not replace the maintained GPU FISTA path.",
+        "The review finds the sklearn 1.2 get_params-to-constructor clone/reconstruction warning regression for an omitted direct cpu_solver default.",
+        "The review finds at least one of the two MEDIUM-quality defects: internal debiased node-wise Lasso warning leakage or stale public runtime help/docstring cpu_solver semantics.",
+        "The final verdict is blocking rather than REVIEW CLEAN."
+      ]
     }
   ]
 }
