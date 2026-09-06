@@ -4,82 +4,89 @@
 > Canonical roadmap: [`ROADMAP.md`](ROADMAP.md)  
 > Issue index: [`ISSUES.md`](ISSUES.md)  
 > Development guide: [`../AGENTS.md`](../AGENTS.md)  
-> Hard automation protocol: [`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md)  
+> Canonical automation skill: [`.claude/skills/new-module-dev/SKILL.md`](../../.claude/skills/new-module-dev/SKILL.md)  
+> Canonical review skill: [`.claude/skills/code-review/SKILL.md`](../../.claude/skills/code-review/SKILL.md)  
 > Last synchronized: **2026-08-28**, release **0.2.5**, commit `84f8bc7e17f66466b3a325cbb007b6cb41843821`.
 
-This file is intentionally shorter than `dev/AGENTS.md` and the `.claude` workflows, but it is not a weaker checklist. When wording conflicts, the applicable `.claude` workflow/skill takes precedence, followed by `dev/AGENTS.md`. `ROADMAP.md` controls priority; GitHub issues control executable scope. Roadmap and issue scope may narrow work but may not weaken hard gates.
+This file is intentionally shorter than `dev/AGENTS.md` and the canonical `.claude/skills/*/SKILL.md` protocols, but it is not a weaker checklist. Impact classification determines which gates are active. When wording conflicts, the applicable canonical skill takes precedence, followed by `dev/AGENTS.md`. Legacy flat `.claude/skills/*.md` files are compatibility pointers only. The old Markdown-era workflow note is archived at `.claude/legacy/new-module-dev-workflow.md`; `.claude/workflows/` is reserved for Dynamic Workflow scripts. `ROADMAP.md` controls priority; GitHub issues control executable scope.
+
+Impact-driven scope does not allow new capability to define away repository defaults: new shared numerical/statistical capability closes NumPy/CuPy/Torch by default, and new tunable loss x penalty capability closes direct fit + CV by default, unless a legitimate narrower contract is already part of the task or an explicit deferral is approved. For `code-review`, Claude Code >= 2.1.218 supports explicit `background: false`; earlier forked skills already block by default, so 2.1.218 is not a minimum version for blocking review semantics.
 
 ## 1. Required task classification
 
 Before implementation, classify touched impact axes and record active gates:
 
-- public API;
+- public API / backward compatibility / deprecation;
 - backend, dtype, device, memory ownership, or fallback;
 - loss, penalty, solver, or loss x penalty capability;
 - cross-validation;
 - inference;
 - formula/model-matrix semantics;
 - benchmark or performance;
-- documentation-only.
+- documentation/evidence-only.
 
-Choose the broader classification when uncertain. Documentation-only work does not activate runtime gates unless it changes a support, evidence, or performance claim.
+Choose the broader **plausibly affected** classification when uncertain, but do not activate unrelated gates solely because the edited class already exposes them. Documentation-only work does not activate runtime gates unless it changes a support, evidence, statistical, or performance claim. Conversely, a repository-default gate for genuinely new capability is not inactive merely because a first draft omits it.
 
 Every development report ends with exactly one workflow status:
 
-- `COMPLETE` — all active blocking gates pass and required docs/artifacts are current;
+- `COMPLETE` — all active/default local blocking gates pass and required docs/artifacts are current;
 - `PARTIAL_REMOTE_PENDING` — local work is complete, but specified physical-GPU, R/external, or large-benchmark evidence is unavailable;
-- `BLOCKED_NEEDS_USER_APPROVAL` — continuation requires an explicit decision such as backend deferral, API break, performance caveat, commit/push/PR/merge/release/publication;
-- `FAILED` — a blocking correctness, backend, formula, precision, convergence, fallback, review, or artifact gate remains unresolved.
+- `BLOCKED_NEEDS_USER_APPROVAL` — continuation requires an explicit decision such as backend/CV deferral, an unrequested API break, accepted performance caveat, merge/release/publication, or credentials;
+- `FAILED` — an active/default blocking correctness, compatibility, backend, CV, formula, precision, convergence, fallback, review, or artifact gate remains unresolved.
 
-Do not use “mostly complete” or `planned` as a completion status.
+Do not use “mostly complete” or `planned` as a completion status. Do not call a genuinely inactive gate incomplete, and do not call a repository-default capability complete by silently shrinking its scope.
 
 ## 2. Non-negotiable development gates
 
-### 2.1 Public contract
+### 2.1 Public contract and migration
 
 - [ ] Define inputs, outputs, shapes, dtype/device behavior, errors, fallback behavior, statistical parameterization, and explicit non-goals before final implementation.
-- [ ] Preserve sklearn-style constructor identity, `get_params` / `set_params`, cloning, fitted-state invalidation, pipeline, and CV behavior where applicable.
+- [ ] Preserve sklearn-style constructor identity, `get_params` / `set_params`, cloning, fitted-state invalidation, pipeline, and CV behavior where the estimator claims those contracts.
+- [ ] Public API migrations/deprecations cover omitted versus explicitly supplied historical defaults, warning category/message/stacklevel, old/new conflict handling, internal clone/reconstruction warning noise, legacy behavior during the compatibility window, migration docs, and planned removal boundary.
 - [ ] Unsupported user-visible combinations fail early and precisely; they do not optimize an incomplete objective or change behavior silently.
 
-### 2.2 Three backends and device locality
+### 2.2 Backends and device locality
 
-- [ ] Every new or materially changed statistical method implements NumPy, CuPy, and Torch; CPU-only work is incomplete.
-- [ ] A backend deferral requires explicit user approval plus reason, user-visible failure behavior, deterministic skip condition, and follow-up issue.
+- [ ] Every **new or materially changed shared numerical/statistical capability** implements/tests **NumPy, CuPy, and Torch by default**. A narrower backend contract is valid only when it is already a legitimate task/issue scope or an explicit deferral is approved with reason, user-visible failure behavior, deterministic test/skip condition, and follow-up scope.
+- [ ] CPU-only implementation may be an intermediate step, but it is not `COMPLETE` for a new shared capability whose repository-default backend contract remains three-backend.
+- [ ] API-only/deprecation-only/docs-only/narrow refactor work does not require new backend implementation when numerical dispatch is unchanged; instead verify existing backend support and routing are preserved where the interface can affect them.
 - [ ] Explicit `device="cuda"` and `device="torch"` never silently fall back to CPU/another backend; only `device="auto"` may select automatically.
-- [ ] Core fitting, prediction, scoring, inference, and validation remain on the selected backend; no hidden full-array GPU-to-CPU transfer is introduced.
+- [ ] Active core fitting, prediction, scoring, inference, and validation remain on the selected backend according to the declared contract; no hidden full-array GPU-to-CPU transfer is introduced.
 - [ ] Fallback, approximate inference, dtype conversion, or device conversion is part of the public contract and visible through an error, warning, result field, or report.
-- [ ] GPU-buffer-owning estimators follow the documented `gpu_memory_cleanup` lifecycle without discarding needed fit state prematurely.
+- [ ] GPU-buffer-owning estimators follow their documented `gpu_memory_cleanup` lifecycle without discarding needed fitted state prematurely.
 
 ### 2.3 Reuse and architecture
 
 - [ ] Reuse `BaseEstimator`, `statgpu/backends/`, existing array helpers, solver/penalty registries, `statgpu/cross_validation/`, formula infrastructure, and `statgpu/inference/` before adding private parallel implementations.
-- [ ] Model modules do not scatter direct backend imports or duplicate backend selection/conversion without a documented reason.
+- [ ] Model modules do not scatter direct backend imports or duplicate backend selection/conversion without a documented kernel/device-specific reason.
 - [ ] New reference-distribution, p-value, or interval logic checks existing backend-aware inference utilities first.
 
 ### 2.4 Direct fit and CV closure
 
-- [ ] Every public tunable loss x penalty capability supported by direct `fit()` also supports path/grid generation, deterministic folds, fold scoring, best-parameter selection, and final refit.
-- [ ] CV preserves loss, weighting, backend, device, dtype, formula alignment, and objective normalization.
-- [ ] CV may be omitted only for an explicitly non-tunable capability or an approved deferral with failure behavior, tests, docs, and follow-up issue.
-- [ ] A declared penalty matrix is not complete until direct fit and CV close for the entire declared matrix.
+- [ ] Every **new tunable loss x penalty capability** closes **direct fit + CV path/grid/folds/scoring/selection/final refit by default**.
+- [ ] CV may be omitted only when the new capability is genuinely non-tunable or an explicit CV deferral is approved with failure behavior, tests, docs, and follow-up scope; merely omitting a CV claim does not make the default gate inactive.
+- [ ] CV preserves loss, weighting, backend, device, dtype, formula alignment, objective normalization, and stage-specific solver semantics.
+- [ ] A direct-estimator API cleanup that does not alter CV semantics does not automatically create new CV scope; add targeted CV regression only when the API can affect CV dispatch/refit/clone behavior.
+- [ ] A declared tunable loss x penalty matrix is not complete until the direct and CV capability promised by the repository contract close for the declared surface.
 
 ### 2.5 Inference contract
 
-- [ ] A family exposing inference/summary/covariance/SE/p-values/CI implements inference or is explicitly documented/tested as estimation-only.
-- [ ] Strict inference is the default; downgrade/approximation requires explicit opt-in and visible status.
-- [ ] Inference outputs remain consistent across supported backends, including applicable coefficient, BSE, t/z, p, CI, AIC, BIC, and LLF fields.
-- [ ] Default external-alignment thresholds remain explicit where applicable: coefficient error `<= 1e-6`, BSE error `<= 1e-3`, p-value error `<= 5e-2`; deviations require numerical/statistical justification.
-- [ ] Direct-fit and final-CV-refit inference use the same declared estimator contract.
+- [ ] Inference is an active blocking gate when the API/docs claim it or the change touches `compute_inference`, `summary()`, covariance, SE, p-values, CI, inference results, or inference backend behavior.
+- [ ] A prediction/estimation estimator with no inference public contract may legitimately remain estimation-only; do not require inference solely because an external package offers it.
+- [ ] When inference is supported, outputs remain semantically consistent across declared backends, including applicable coefficient, BSE, t/z, p, CI, AIC, BIC, and LLF fields.
+- [ ] Strict/fallback behavior follows the estimator's explicit public contract; downgrade/approximation never occurs silently.
+- [ ] Historical external-alignment thresholds are applied only where the maintained test/validator names them; deviations elsewhere use method-specific numerical/statistical justification rather than a universal threshold.
+- [ ] Direct-fit and final-CV-refit inference use the declared stage contract when both are supported.
 
 ### 2.6 Formula contract
 
-- [ ] Formula-facing methods test intercept handling, categorical reference levels, interactions/transforms, missing-data row alignment, feature names, and prediction column order.
-- [ ] Array and formula paths agree after model-matrix alignment.
+- [ ] Formula-facing changes test intercept handling, categorical reference levels, interactions/transforms, missing-data row alignment, feature names, and prediction column order.
+- [ ] Array and formula paths agree after model-matrix alignment when both are supported.
 - [ ] R-style/Patsy semantics are externally checked where applicable; unsupported syntax has precise failure behavior.
 
 ### 2.7 Objective, penalty, precision, and convergence
 
-- [ ] State sum/average objective normalization and intercept-penalty policy.
+- [ ] State sum/average objective normalization and intercept-penalty policy for active numerical changes/comparisons.
 - [ ] Map external regularization scales explicitly instead of changing the statgpu objective to force agreement.
 - [ ] Validate active loss/gradient/Hessian/prox/KKT/line-search/stopping/convergence behavior.
 - [ ] Precision and convergence are blocking before performance optimization.
@@ -87,42 +94,44 @@ Do not use “mostly complete” or `planned` as a completion status.
 
 ### 2.8 External and architecture-specific validation
 
-- [ ] Use the strongest available baseline: analytic check, trusted statgpu path, Python reference, R reference, then documented numerical invariants.
+- [ ] Use the strongest available baseline for the active contract: analytic check, trusted statgpu path, Python reference, R reference, then documented numerical invariants.
 - [ ] Align feature sets, weights, ties, solver, penalty, normalization, hyperparameters, and tolerances.
-- [ ] Prefer statsmodels for statistical inference, sklearn for estimator/prediction behavior, and authoritative R packages for key statistical definitions.
-- [ ] Activate and extend the relevant architecture matrix rather than relying only on isolated smoke tests.
+- [ ] Prefer statsmodels when inference alignment is active, sklearn when estimator/prediction compatibility is active, and authoritative R packages for key statistical definitions when needed.
+- [ ] Extend the relevant architecture matrix rather than relying only on isolated smoke tests; do not run unrelated matrices for inactive axes.
 
 ### 2.9 Testing, review, and validation tier
 
-- [ ] Run applicable lint/type/unit/regression/compatibility/formula/external-alignment/import-order tests.
-- [ ] Add deterministic NumPy/CuPy/Torch parity and unavailable-backend error/skip tests.
-- [ ] Complete maintained physical CuPy/Torch validation for a `COMPLETE` claim when those paths are active; otherwise use `PARTIAL_REMOTE_PENDING` with exact missing commands/resources.
-- [ ] Record highest completed tier: `local-minimal`, `local-full`, or `remote-full`.
-- [ ] Run review/fix cycles until no unresolved CRITICAL or HIGH remains; relevant actionable MEDIUM must be fixed or explicitly bounded as a non-blocking follow-up.
+- [ ] Run applicable lint/type/unit/regression/compatibility/formula/external-alignment/import-order tests proportional to the change's blast radius.
+- [ ] Add NumPy/CuPy/Torch parity and unavailable-backend behavior for new shared numerical capability; for existing narrow changes, test only affected backends plus preservation regressions proportional to blast radius.
+- [ ] Complete maintained physical CuPy/Torch validation for a `COMPLETE` claim when the active/default change requires physical-GPU evidence; otherwise do not convert skipped GPU tests into evidence.
+- [ ] Record highest completed evidence tier where useful: `local-minimal`, `local-full`, or `remote-full`.
+- [ ] Run a fresh canonical `code-review` pass until no unresolved CRITICAL or HIGH remains; relevant actionable MEDIUM must be fixed or explicitly bounded as non-blocking follow-up.
 - [ ] Independently calculate expected statistical values where feasible rather than only comparing one statgpu path with another.
 
 ### 2.10 Performance and evidence artifacts
 
 - [ ] Performance work starts only after correctness/precision/convergence gates pass.
 - [ ] GPU timing synchronizes the correct CuPy/Torch backend around each measured region.
-- [ ] Record target scale, shape, dtype, hardware/software, timing scope, transfer policy, repeats, seeds, and comparison identity.
-- [ ] Store machine-readable evidence under `results/*.json`; public claims do not rely only on rounded prose.
+- [ ] Record exact source, clean/dirty state, environment identity, target scale, shape, dtype, hardware/software, timing scope, transfer policy, repeats, seeds, and comparison identity.
+- [ ] Store machine-readable evidence under `results/*.json` when the result is meant to be retained/published; public claims do not rely only on rounded prose.
+- [ ] Keep materially different hardware/software environment groups separate; do not aggregate their speedups as one homogeneous measurement.
 - [ ] Do not claim universal GPU acceleration; report measured crossover/slower regimes.
-- [ ] Remote/benchmark evidence is provenance-bearing and reproducible.
-- [ ] Canonical physical evidence is tied to both numerical source and validator acceptance contract; changing validator acceptance logic after a run requires rerunning affected evidence.
+- [ ] Canonical physical evidence is tied to both numerical source and validator acceptance contract; changing validator acceptance logic after a run requires rerunning affected evidence before claiming the new contract is proven.
 
 ### 2.11 Documentation and release surface
 
-- [ ] Update exports/README/USAGE/model pages/compatibility matrices/changelogs where applicable.
-- [ ] Follow EN-first/CN-follow.
-- [ ] Keep root, EN, and CN changelog capability/evidence claims consistent.
-- [ ] Model docs include applicable objective, estimating equation, covariance/inference, parameters, backend examples, strict/approx behavior, outputs, FAQ, external validation, and references.
-- [ ] Remote/benchmark claims cite auditable artifact paths.
+- [ ] Update exports/README/USAGE/model pages/compatibility matrices/changelogs only where applicable to the changed capability.
+- [ ] Follow EN-first/CN-follow when both maintained language surfaces are affected, and keep capability claims conceptually aligned.
+- [ ] Learner-facing model pages lead with problem/motivation/intuition/use guidance, include a self-contained example and interpretation, and keep advanced solver/backend details later.
+- [ ] `Key parameters` teaching tables may be selective, but the public API reference/inventory must be complete or link to the canonical complete API reference.
+- [ ] Reference/implementation pages may remain reference-first.
+- [ ] Remote/benchmark claims cite auditable source/environment/artifact provenance.
 
-### 2.12 Required completion report
+### 2.12 Required completion report and repository actions
 
-- [ ] Report impact classification, workflow status, validation tier, files changed, backend matrix, CV/inference/formula status, objective/penalty mapping, precision/convergence evidence, tests, external baselines, physical-GPU evidence, artifacts, review outcome, docs, and pending remote commands.
-- [ ] Commits, pushes, PR creation, merges, tags, releases, and package publication occur only after explicit user request.
+- [ ] Report impact classification, workflow status, files changed, repository-default gates and approved exceptions, active backend/CV/inference/formula status, API compatibility decision, objective/penalty mapping and precision/convergence evidence when active, tests, benchmarks/evidence, review outcome, docs, and pending remote commands.
+- [ ] Task-scoped implementation authorizes relevant file edits and validation. Commit/push/PR actions occur only when explicitly requested or when the active task already includes an approved branch/PR workflow.
+- [ ] Merge, tag, release, package publication, credential setup, or an unrequested breaking API decision requires explicit user direction.
 - [ ] Credentials are never read from tracked Markdown/settings; remote execution uses maintained untracked/environment configuration.
 
 ## 3. Active execution queue
@@ -177,4 +186,4 @@ Do not use “mostly complete” or `planned` as a completion status.
 
 Not immediate priorities: Panel IV/HDFE/DID/dynamic-panel GMM, frailty/Fine-Gray/multi-state survival, mixed models, GEE, meta-analysis, changepoints, copulas, multiple imputation, nonlinear least squares, and broad new unsupervised families.
 
-Promote a deferred item only through a scoped issue satisfying `ROADMAP.md`, this checklist, `dev/AGENTS.md`, and the applicable `.claude` workflow/skill.
+Promote a deferred item only through a scoped issue satisfying `ROADMAP.md`, this checklist, `dev/AGENTS.md`, and the applicable canonical `.claude/skills/<skill-name>/SKILL.md` protocol.

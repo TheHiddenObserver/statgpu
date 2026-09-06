@@ -45,7 +45,10 @@ PyTorch 后端使用 `statgpu[torch]`。维护中的 Cox 实现已包含在基�
 
 ## 贡献者检查
 
-修改代码时遵循 [`dev/AGENTS.md`](../../dev/AGENTS.md) 与
-[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md)：
-显式设备不得静默回退，外部比较前确认目标函数归一化，补齐架构相关测试，并同步
-README、中英文文档及三份 changelog。
+修改代码时遵循仓库中的[开发指南](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md)
+与 canonical Claude Code [`new-module-dev` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/new-module-dev/SKILL.md)。
+独立 review 使用 [`code-review` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/code-review/SKILL.md)，
+性能/证据工作激活时使用 [`benchmark` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/benchmark/SKILL.md)。
+这些链接指向 GitHub 仓库源码，而不是 VitePress 站内路由。先按影响范围激活必要 gate，同时保留新 statistical/numerical capability
+默认的三后端 closure 与新 tunable loss x penalty 的 direct+CV closure；保持显式设备语义，外部比较前确认 objective normalization，
+并同步受影响的中英文 public capability claim。
