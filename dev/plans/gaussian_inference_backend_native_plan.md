@@ -430,7 +430,7 @@ Do not claim every repository inference implementation is backend-native.
 
 ### Phase 7 — implementation review/fix
 
-Run `.claude/skills/code-review.md` in auto-fix mode until:
+Run the canonical `.claude/skills/code-review/SKILL.md` in `auto-fix` mode (`/code-review auto-fix ...`) until:
 
 - CRITICAL = 0;
 - HIGH = 0;
