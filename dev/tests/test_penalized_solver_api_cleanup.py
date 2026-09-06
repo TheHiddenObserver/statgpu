@@ -42,13 +42,16 @@ def test_explicit_legacy_default_cpu_solver_still_warns():
 
 def test_explicit_set_params_cpu_solver_warns_but_other_replay_does_not():
     model = Lasso(device="cpu", compute_inference=False)
-    with pytest.warns(FutureWarning, match="Lasso.*cpu_solver.*deprecated"):
+    with pytest.warns(
+        FutureWarning, match="Lasso.*cpu_solver.*deprecated"
+    ) as caught:
         model.set_params(cpu_solver="fista")
+    assert caught[0].filename == __file__
 
-    with warnings.catch_warnings(record=True) as caught:
+    with warnings.catch_warnings(record=True) as replay_caught:
         warnings.simplefilter("always")
         model.set_params(solver="fista")
-    assert not any("cpu_solver" in str(item.message) for item in caught)
+    assert not any("cpu_solver" in str(item.message) for item in replay_caught)
 
 
 def test_default_direct_estimator_does_not_emit_cpu_solver_warning():
