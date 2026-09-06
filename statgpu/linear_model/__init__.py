@@ -50,6 +50,14 @@ from ._ordered_probit import OrderedProbitRegression
 # tensor or concrete device is available to select a CUDA device.
 from . import _gaussian_inference_device_contract as _gaussian_inference_device_contract
 
+# The unified penalized engine uses one backend-neutral direct-fit `solver`.
+# Keep the historical `cpu_solver` constructor argument for one compatibility
+# cycle, but make meaningful legacy use visibly deprecated. LassoCV owns the
+# separate CV-path migration to `cv_solver`.
+from . import _penalized_solver_api_contract as _penalized_solver_api_contract
+
+_penalized_solver_api_contract.install_penalized_solver_api_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
