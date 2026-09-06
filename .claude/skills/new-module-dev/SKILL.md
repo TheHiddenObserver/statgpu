@@ -7,7 +7,7 @@ argument-hint: "[module-or-task]"
 
 # statgpu New Module Development
 
-Develop `$ARGUMENTS` using the smallest set of gates that proves the changed public contract.
+Develop `$ARGUMENTS` using the smallest set of gates that proves the changed public contract **without weakening statgpu's default capability closure for genuinely new numerical/statistical features**.
 
 Read [workflow.md](workflow.md) before broad implementation, when more than one impact axis is active, or when a completion/blocking decision is needed.
 
@@ -39,12 +39,15 @@ Record active axes:
 - benchmark/performance;
 - docs/evidence only.
 
-**Impact classification controls the gates.** Do not activate unrelated backend/CV/inference/formula/performance work merely because an estimator class happens to expose those capabilities.
+**Impact classification controls the gates.** Do not activate unrelated backend/CV/inference/formula/performance work merely because an existing estimator class happens to expose those capabilities.
+
+That scope rule does **not** let a newly introduced capability define away repository defaults. For a new or materially changed shared statistical/numerical capability, backend closure is active by default; for a new tunable loss x penalty capability, direct-fit + CV closure is active by default. Narrower capability requires an explicit non-applicable rationale or an approved deferral rather than simply omitting the claim.
 
 Examples:
 
-- New numerical estimator: backend + API + tests, plus CV/inference/formula only if claimed by that estimator.
-- New solver path: solver + affected backends + convergence, plus CV only if the solver participates in CV dispatch.
+- New shared numerical estimator: API + correctness + NumPy/CuPy/Torch backend closure by default; CV/inference/formula are added when the model's contract requires them.
+- New tunable loss x penalty capability: direct fit + CV selection/refit closure by default, plus affected backends and inference/formula when applicable.
+- New solver path: solver + affected backends + convergence, plus CV when the solver participates in CV dispatch.
 - Constructor deprecation only: API/compatibility + targeted regression; no new numerical backend matrix unless dispatch changes.
 - Docs-only wording: docs gate only, unless the edit changes a support/evidence claim.
 
@@ -56,11 +59,15 @@ Changing a public API incompatibly requires an explicit breaking decision unless
 
 For API migrations, include omission versus explicit historical default, `get_params`, `set_params`, sklearn clone compatibility where claimed, warning behavior, and old/new conflict semantics.
 
+Do not narrow an otherwise shared new statistical capability to CPU-only or direct-fit-only merely to avoid repository completion gates. If a backend or CV layer is intentionally deferred, record the reason, user-visible behavior, tests, and follow-up scope and obtain the required approval.
+
 ## 4. Implement numerical capability only where active
 
-For new or materially changed numerical/statistical capability, implement every backend that capability declares. statgpu normally targets NumPy, CuPy, and Torch for shared statistical methods; an intentional backend deferral must be explicit in the task contract and fail visibly.
+For a new or materially changed shared statistical/numerical capability, statgpu's default backend contract is **NumPy + CuPy + Torch**. Implement and test all three unless the task/issue already defines a legitimate narrower capability or the user explicitly approves a backend deferral. A deferral must be visible in API behavior and must not masquerade as complete three-backend support.
 
-For API-only/refactor-only changes, preserve existing numerical paths instead of reopening or rewriting them without evidence.
+For a new tunable public loss x penalty capability, the default completion contract also includes **direct fit + CV path/grid/folds/scoring/selection/final refit**. CV may be omitted only when the capability is genuinely non-tunable or an explicit deferral is approved.
+
+For API-only/refactor-only changes that do not alter numerical capability or dispatch, preserve existing numerical paths instead of reopening or rewriting them without evidence. These changes may keep backend/CV/inference axes inactive except for targeted regressions needed to prove compatibility.
 
 Explicit CUDA/Torch requests must not silently fall back to CPU. Only automatic device selection may choose another available backend under the documented contract.
 
@@ -71,16 +78,17 @@ Add the smallest deterministic tests that prove the active contract, then widen 
 When applicable test:
 
 - numerical baseline or analytic identity;
-- affected backend parity and unavailable-backend behavior;
+- NumPy/CuPy/Torch parity for new shared numerical capability, or affected-backend parity for narrower existing changes;
+- dtype/device and unavailable-backend behavior;
 - objective/penalty scaling;
 - convergence/KKT/gradient/Hessian/prox semantics;
 - public constructor and error behavior;
-- CV grid/folds/selection/refit;
+- CV grid/folds/selection/refit, including the default closure for new tunable loss x penalty capability;
 - inference fields/summary/covariance;
 - formula alignment;
 - API migration/clone/set_params/deprecation behavior.
 
-Do not require unrelated matrices for inactive axes.
+Do not require unrelated matrices for genuinely inactive axes, but do not label a default repository capability inactive merely because the implementation has not been completed yet.
 
 ## 6. External alignment and numerical gates
 
@@ -130,9 +138,9 @@ Never read or write credentials from tracked Markdown or `.claude/settings.json`
 
 End implementation workflows with one of:
 
-- `COMPLETE`: all active local blocking gates pass; no unresolved CRITICAL/HIGH review finding remains.
+- `COMPLETE`: all active local blocking gates pass; a new shared statistical/numerical capability has closed its default backend contract, and a new tunable loss x penalty capability has closed its default CV contract unless an approved exception applies; no unresolved CRITICAL/HIGH review finding remains.
 - `PARTIAL_REMOTE_PENDING`: local work is complete and only explicitly identified remote GPU/R/external/large-scale evidence remains.
-- `BLOCKED_NEEDS_USER_APPROVAL`: progress requires a user decision such as a breaking API choice, backend deferral, merge/release/publication, credentials, or an accepted performance caveat.
-- `FAILED`: an active local correctness/compatibility/backend/convergence/fallback/review gate remains unresolved.
+- `BLOCKED_NEEDS_USER_APPROVAL`: progress requires a user decision such as a backend/CV deferral, breaking API choice, merge/release/publication, credentials, or an accepted performance caveat.
+- `FAILED`: an active local correctness/compatibility/backend/CV/convergence/fallback/review gate remains unresolved.
 
-Report active axes, changed files, tests/benchmarks, compatibility decisions, unrun evidence, and review outcome. Do not call inactive gates incomplete.
+Report active axes, changed files, tests/benchmarks, compatibility decisions, approved exceptions, unrun evidence, and review outcome. Do not call genuinely inactive gates incomplete.
