@@ -84,7 +84,7 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 | `lipschitz_L` | `None` | 可选的用户指定 Lipschitz 常数 |
 | `gpu_memory_cleanup` | `False` | 在支持的后端上于拟合后释放内存池 |
 | `compute_inference` | `False` | 计算拟合后系数推断 |
-| `inference_method` | `"debiased"` | `"debiased"`、`"cpu_ols"` 或 `"bootstrap"` |
+| `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"`；`cpu_ols` / `gpu_ols` 暂时作为 deprecated alias 接受 |
 | `cov_type` | `"nonrobust"` | 适用方法中的协方差约定 |
 | `hac_maxlags` | `None` | 支持 HAC 时使用的滞后阶数 |
 
@@ -133,17 +133,25 @@ model_gpu_torch.fit(X, y)
 | 参数 | 默认值 | 含义 |
 |------|--------|------|
 | `compute_inference` | `False` | 启用拟合后系数推断 |
-| `inference_method` | `"debiased"` | `"debiased"`、`"cpu_ols"` 或 `"bootstrap"` |
+| `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"` |
 | `cov_type` | `"nonrobust"` | 在相应推断方法中使用的协方差约定 |
 | `hac_maxlags` | `None` | 所选方法支持 HAC 时使用的滞后阶数 |
 
-Post-selection OLS 是启发式方法，不提供一般 selective-inference coverage。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
+`post_selection_ols` 是与硬件无关的 canonical active-set diagnostic。统一 wrapper 中历史 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**，一个兼容周期内仍接受并发出 `FutureWarning`，随后归一化到 `post_selection_ols`；它们不负责选择设备。
+
+`post_selection_ols` 会先使用 penalized model 的 fitted coefficients 确定 active set，再在成功拟合所记录的 backend 上，只对该 active set 做无惩罚 OLS；传入 `sample_weight` 时做 WLS。原始 penalized `coef_` 保持不变并继续用于预测，active-set 重拟合通过 `_params` / `_inference_result` 等字段参与推断与报告。
+
+Post-selection OLS 仍是启发式方法，不提供一般 selective-inference coverage。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
+
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。拟合后推断复用 fit-resolved backend，而不会重新从原始输入检测一次。
 
 对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终 full-data refit；各折模型仍仅用于估计和评分。
 
 ## 求解器与推断语义
 
 对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期 hardware-split API 的 deprecated compatibility 参数，新代码不应继续使用。
+
+同样，需要 active-set OLS/WLS diagnostic 时应使用 `inference_method="post_selection_ols"`，而不是根据硬件去选 `cpu_ols` 或 `gpu_ols`；后两者只是同一个统计方法的 deprecated aliases。
 
 `compute_inference=False` 只返回 penalized estimate；开启推断后保留同一拟合系数，再运行所选 post-fit inference method。
 
@@ -153,9 +161,11 @@ Post-selection OLS 是启发式方法，不提供一般 selective-inference cove
 
 | 属性 | 说明 |
 |------|------|
-| `coef_` | 估计系数 |
+| `coef_` | 用于预测的 penalized coefficients |
 | `intercept_` | 拟合截距 |
 | `n_iter_` | 收敛所需迭代次数 |
+| `_params` | 推断成功时的 reporting 参数向量；`post_selection_ols` 下是嵌入完整参数布局的 active-set OLS/WLS 重拟合 |
+| `_inference_result` | structured inference result 与数值 backend metadata |
 | `aic` | 可用时的 Akaike 信息准则 |
 | `bic` | 可用时的 Bayesian 信息准则 |
 
@@ -163,7 +173,7 @@ Post-selection OLS 是启发式方法，不提供一般 selective-inference cove
 
 ## 数值验证
 
-维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖。
+维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；post-selection OLS API 迁移与 active-set OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
 
 ## 参考文献
 
