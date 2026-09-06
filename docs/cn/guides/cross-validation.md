@@ -1,7 +1,7 @@
 # 交叉验证
 
 > 语言：中文  
-> 最后更新：2026-08-03
+> 最后更新：2026-09-06
 > 页面定位：CV 用户指南 + 架构实现 + 缓存机制（统一页面）  
 > 切换：[English](../../en/guides/cross-validation.md)
 
@@ -132,6 +132,24 @@ print(f"准确率: {model.score(X_test, y_test):.4f}")
 | `cov_type` | str | `"nonrobust"` | 推断的协方差类型。 |
 | `gpu_cv_mixed_precision` | bool | `True` | CV 使用 float32（GPU 更快）。 |
 
+### LassoCV 专用
+
+`LassoCV` 将交叉验证阶段与最终全数据重拟合阶段的 solver 控制明确分开。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `alphas` | array | `None` | Alpha 网格；`None` 时自动生成。 |
+| `n_alphas` | int | `12` | 自动生成时的 alpha 数量。 |
+| `solver` | str | `"fista"` | 最终全数据 `Lasso` 重拟合使用的 solver。 |
+| `cv_solver` | str | `"auto"` | CV folds/path 的 solver；`auto` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为 FISTA。 |
+| `cpu_solver` | str/None | `None` | **已弃用**的旧 CPU-CV 控制。CPU 上在新控制为 `auto` 时作为 `cv_solver` alias；CUDA/Torch 上只 warning，不会替换 GPU FISTA。 |
+| `method` | str | `"standard"` | CV path profile；CPU 的 `glmnet` 固定 coordinate descent，CUDA/Torch 仍保持 FISTA。 |
+| `cd_kkt_check_every` | int/None | `None` | 适用时 coordinate descent 的 KKT 扫描频率。 |
+| `gpu_cv_mixed_precision` | bool | `True` | GPU CV path 是否使用混合精度。 |
+| `compute_inference` | bool | `False` | 仅对选定后的最终全数据重拟合执行推断。 |
+
+拟合后，`cv_solver_` 记录设备与 `method` 解析后**实际执行**的 CV 算法。`cpu_solver` 的弃用与迁移语义见 [penalized solver API 迁移指南](penalized-solver-api-migration.md)。
+
 ### ElasticNetCV 专用
 
 | 参数 | 类型 | 默认值 | 说明 |
@@ -255,7 +273,7 @@ alpha 严格为正；L1、L2 与 ElasticNet Cox 网格允许零值。
 | `coef_` | 重拟合模型的系数 |
 | `intercept_` | 重拟合模型的截距 |
 
-`ElasticNetCV` 额外有 `l1_ratio_`（传入列表时的最优 l1_ratio）。
+`LassoCV` 额外暴露 `cv_solver_`，表示设备/`method` 解析后实际执行的 CV 算法；`ElasticNetCV` 额外有 `l1_ratio_`（传入列表时的最优 l1_ratio）。
 
 ## 评分
 
@@ -696,7 +714,8 @@ Cache key 包含所有影响 CV 结果的参数：
 - `alphas` — alpha 网格（如有）
 - `n_alphas`, `alpha_min_ratio` — 网格生成参数
 - `fit_intercept`, `use_gpu`, `max_iter`, `tol` — 求解器参数
-- `cpu_solver`, `cv_method`, `cd_kkt_check_every` — 算法参数
+- `solver` — `LassoCV` 最终全数据重拟合算法
+- `cv_solver`（以及显式提供时的已弃用 `cpu_solver`）、`method`、`cd_kkt_check_every` — `LassoCV` 的 CV-path 控制
 - `fold_indices` — 每 fold 前 5 个 index
 - `sample_weight_shape` — 权重维度
 - `data_digest` — 来自 `_hash_data` 的数据指纹
@@ -838,6 +857,7 @@ statgpu 使用数据驱动的 alpha 网格：`alpha_max` 从 `max(|X'y|)/n` 计�
 - `dev/tests/test_glm_penalty_review_fixes.py` — 2015 行 penalty 测试
 - `dev/tests/test_elasticnet_cv.py` — ElasticNetCV 专项测试
 - `dev/tests/test_ridge_cv.py` — RidgeCV 专项测试
+- `dev/tests/test_penalized_solver_api_cleanup.py` — LassoCV 阶段化 solver/deprecation 回归覆盖
 
 **基准测试：**
 - `dev/tests/benchmark_cv_full.py` — CV 全量基准测试
