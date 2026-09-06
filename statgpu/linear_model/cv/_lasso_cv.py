@@ -196,7 +196,7 @@ class LassoCV(CVEstimatorBase):
                 "remain non-authoritative and do not replace GPU FISTA. "
                 "cpu_solver will be removed in a future breaking release.",
                 FutureWarning,
-                stacklevel=3,
+                stacklevel=4,
             )
             if (
                 device_name == "cpu"
