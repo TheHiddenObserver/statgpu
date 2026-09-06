@@ -1,24 +1,43 @@
-import re
+import json
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / ".claude" / "skills"
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _parse_frontmatter(text: str) -> dict[str, str]:
-    """Parse the scalar top-level YAML subset used by repository SKILL.md files.
-
-    This deliberately avoids adding a PyYAML runtime/dev dependency while still
-    rejecting the frontmatter failures that would break Claude Code discovery:
-    missing delimiters, malformed/indented top-level entries, duplicate keys,
-    missing values, and invalid key names.
-    """
-
+def _frontmatter(text: str) -> dict:
     lines = text.splitlines()
     assert lines and lines[0].strip() == "---", "SKILL.md must start with YAML frontmatter"
     try:
@@ -26,57 +45,64 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     except ValueError as exc:
         raise AssertionError("SKILL.md frontmatter must have a closing ---") from exc
 
-    metadata: dict[str, str] = {}
-    for raw_line in lines[1:end]:
-        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
-            continue
-        assert raw_line == raw_line.lstrip(), (
-            "repository SKILL.md frontmatter must use scalar top-level keys only"
-        )
-        assert ":" in raw_line, f"malformed frontmatter line: {raw_line!r}"
-        key, value = raw_line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        assert re.fullmatch(r"[A-Za-z0-9_-]+", key), f"invalid frontmatter key: {key!r}"
-        assert key not in metadata, f"duplicate frontmatter key: {key}"
-        assert value, f"frontmatter value must not be empty: {key}"
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        metadata[key] = value
+    raw = "\n".join(lines[1:end])
+    metadata = yaml.load(raw, Loader=_UniqueKeyLoader)
+    assert isinstance(metadata, dict), "SKILL.md frontmatter must parse to a YAML mapping"
     return metadata
 
 
 def test_canonical_claude_skill_layout_and_entrypoints():
     expected = {
-        "benchmark": "schema.md",
-        "code-review": "review-matrix.md",
-        "new-module-dev": "workflow.md",
+        "benchmark": ["schema.md"],
+        "code-review": ["review-matrix.md", "target-resolution.md"],
+        "new-module-dev": ["workflow.md"],
     }
 
-    for skill_name, supporting_name in expected.items():
+    for skill_name, supporting_names in expected.items():
         skill_dir = SKILLS / skill_name
         entry = skill_dir / "SKILL.md"
-        supporting = skill_dir / supporting_name
         assert entry.is_file(), f"missing canonical skill entrypoint: {entry}"
-        assert supporting.is_file(), f"missing referenced supporting file: {supporting}"
 
         text = _read(entry)
-        metadata = _parse_frontmatter(text)
+        metadata = _frontmatter(text)
         assert metadata["name"] == skill_name
         assert metadata.get("description")
         assert metadata.get("when_to_use")
-        assert supporting_name in text, f"{entry} must point readers to {supporting_name}"
+        for supporting_name in supporting_names:
+            supporting = skill_dir / supporting_name
+            assert supporting.is_file(), f"missing referenced supporting file: {supporting}"
+            assert supporting_name in text, f"{entry} must point readers to {supporting_name}"
         assert len(text.splitlines()) < 500, f"{entry} should stay concise; move detail to supporting files"
 
 
 def test_code_review_remains_a_blocking_forked_independent_pass():
     text = _read(SKILLS / "code-review" / "SKILL.md")
-    metadata = _parse_frontmatter(text)
+    metadata = _frontmatter(text)
     assert metadata["context"] == "fork"
-    assert metadata["background"] == "false"
-    assert "2.1.218" in metadata["compatibility"]
-    assert "Do not trigger merely because code is being edited" in metadata["when_to_use"]
-    assert "blocking fork behavior requires Claude Code >= 2.1.218" in text
+    assert metadata["background"] is False
+    compatibility = metadata["compatibility"]
+    assert "2.1.218" in compatibility
+    assert "earlier versions block forked skills by default" in compatibility
+    assert "read `dev/AGENTS.md`" in text
+    assert "target-resolution.md" in text
+    assert "Before v2.1.218, forked skills already blocked" in text
+
+
+def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
+    target = _read(SKILLS / "code-review" / "target-resolution.md")
+    for phrase in (
+        "base_sha",
+        "head_sha",
+        "working_tree",
+        "Explicit PR",
+        "No explicit scope",
+        "gh pr view",
+        "merge-base",
+        "re-resolve",
+        "Fail-closed conditions",
+        "target/write-state mismatch",
+    ):
+        assert phrase in target
 
 
 def test_new_capability_defaults_cannot_be_defined_away():
@@ -102,7 +128,7 @@ def test_api_only_scope_remains_narrow():
     assert "does not require a new backend implementation" in review
 
 
-def test_legacy_flat_skill_paths_are_pointers_not_duplicate_authority():
+def test_legacy_paths_do_not_occupy_dynamic_workflow_namespace():
     for name in ("benchmark", "code-review", "new-module-dev"):
         legacy = SKILLS / f"{name}.md"
         assert legacy.is_file(), f"historical link compatibility file missing: {legacy}"
@@ -111,11 +137,33 @@ def test_legacy_flat_skill_paths_are_pointers_not_duplicate_authority():
         assert f"{name}/SKILL.md" in text
         assert not text.startswith("---"), "legacy flat files must not look like skill entrypoints"
 
-    workflow_pointer = ROOT / ".claude" / "workflows" / "new-module-dev.md"
-    text = _read(workflow_pointer)
-    assert text.startswith("# Legacy workflow pointer")
-    assert "../skills/new-module-dev/SKILL.md" in text
-    assert "no longer authoritative" in text
+    assert not (ROOT / ".claude" / "workflows" / "new-module-dev.md").exists()
+    legacy_note = ROOT / ".claude" / "legacy" / "new-module-dev-workflow.md"
+    assert legacy_note.is_file()
+    assert "Dynamic Workflow" in _read(legacy_note)
+
+
+def test_claude_bootstrap_routes_forked_agents_to_project_guide():
+    bootstrap = _read(ROOT / "CLAUDE.md")
+    assert "dev/AGENTS.md" in bootstrap
+    assert ".claude/skills/code-review/SKILL.md" in bootstrap
+    assert ".claude/workflows/" in bootstrap
+    assert "Dynamic Workflow" in bootstrap
+
+
+def test_skill_eval_definitions_are_present_and_well_formed():
+    for skill_name in ("benchmark", "code-review", "new-module-dev"):
+        path = SKILLS / skill_name / "evals" / "evals.json"
+        data = json.loads(_read(path))
+        assert data["skill_name"] == skill_name
+        evals = data["evals"]
+        assert len(evals) >= 2
+        ids = [item["id"] for item in evals]
+        assert len(ids) == len(set(ids))
+        for item in evals:
+            assert item["prompt"].strip()
+            assert item["expected_output"].strip()
+            assert item.get("assertions")
 
 
 def test_current_contributor_entrypoints_reference_canonical_skills():
@@ -123,6 +171,7 @@ def test_current_contributor_entrypoints_reference_canonical_skills():
         ROOT / "dev" / "AGENTS.md",
         ROOT / "dev" / "plans" / "README.md",
         ROOT / "dev" / "plans" / "TO_DO.md",
+        ROOT / "dev" / "plans" / "ROADMAP.md",
     ]
     for path in current_files:
         text = _read(path)

@@ -1,0 +1,33 @@
+{
+  "skill_name": "benchmark",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Benchmark Lasso on CPU, CuPy CUDA, and Torch CUDA against sklearn at n=10000, p=200.",
+      "expected_output": "The benchmark defines synchronized timing scope, exact environment/source provenance, objective/penalty mapping, numerical correctness, and separate NumPy/CuPy/Torch results without aggregating different environments.",
+      "assertions": [
+        "GPU timing is synchronized.",
+        "The comparison records objective or penalty-scale alignment with sklearn.",
+        "Exact source and environment provenance are recorded."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Measure whether a GPU kernel change is faster than the old path; do not make a public speed claim yet.",
+      "expected_output": "The benchmark measures the affected path with correctness first and does not require unrelated CV/inference/formula sections or a universal speedup claim.",
+      "assertions": [
+        "Correctness/convergence is checked before interpreting timing.",
+        "Inactive evidence sections are not added solely as null placeholders."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Compare benchmark results from two machines with different GPUs and CUDA versions and summarize the speedup.",
+      "expected_output": "The benchmark keeps the two environment groups separate and refuses to average their speedups as if they were homogeneous measurements.",
+      "assertions": [
+        "Different hardware/software environments remain separate groups.",
+        "The output does not report one pooled speedup that hides environment differences."
+      ]
+    }
+  ]
+}

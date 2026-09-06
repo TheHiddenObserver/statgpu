@@ -1,0 +1,33 @@
+{
+  "skill_name": "new-module-dev",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add a new shared statistical estimator to statgpu. Start with the simplest correct implementation.",
+      "expected_output": "The workflow treats NumPy, CuPy, and Torch as the default completion contract for a genuinely new shared numerical capability, while allowing CPU-first as an intermediate implementation rather than declaring it complete.",
+      "assertions": [
+        "The plan includes NumPy, CuPy, and Torch closure or an explicit approved narrower contract/deferral.",
+        "A CPU-only first step is not labeled COMPLETE."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Deprecate one constructor parameter without changing numerical dispatch or results.",
+      "expected_output": "The workflow keeps scope on API compatibility, warnings, clone/get_params/set_params and targeted regressions instead of opening unrelated GPU, inference or CV implementation work.",
+      "assertions": [
+        "The response treats the task as API/deprecation work.",
+        "The response does not require new backend implementations merely because the estimator has GPU support.",
+        "The response checks omission versus explicit legacy defaults and sklearn-style reconstruction where applicable."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Expose a new tunable loss x penalty combination in the public penalized-model API.",
+      "expected_output": "The workflow includes direct fit plus CV path/grid/folds/scoring/selection/final-refit closure by default and does not allow the first implementation to avoid CV simply by omitting the claim.",
+      "assertions": [
+        "Direct fit and CV are both part of the default completion contract.",
+        "Any CV deferral is explicit rather than implied by omission."
+      ]
+    }
+  ]
+}
