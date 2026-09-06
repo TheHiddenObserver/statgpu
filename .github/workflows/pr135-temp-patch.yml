@@ -18,54 +18,47 @@ jobs:
         with:
           ref: refactor/penalized-solver-api-cleanup-push-staging-2
           fetch-depth: 0
-      - name: Apply verified PR135 patch
+      - name: Fix cache FAQ wording
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          
-          # Preserve the concrete input backend during GPU validation in the legacy Lasso CV selector.
-          p = Path("statgpu/linear_model/wrappers/_lasso.py")
-          s = p.read_text(encoding="utf-8")
-          old = """    if gpu_input_cupy or gpu_input_torch:
-                  # GPU inputs - get backend for validation
-                  backend = get_backend(backend='auto', device='cuda')
-          """
-          new = """    if gpu_input_cupy or gpu_input_torch:
-                  # GPU inputs - validate on the concrete input backend. A resolved
-                  # Torch/CuPy request must not be reinterpreted by auto-selection.
-                  if gpu_input_torch:
-                      backend = get_backend(backend='torch', device='cuda')
-                  else:
-                      backend = get_backend(backend='cupy', device='cuda')
-          """
-          assert old in s, "expected Lasso CV validation block not found"
-          p.write_text(s.replace(old, new, 1), encoding="utf-8")
-          
-          
-          def replace_section(path, start, end, replacement):
-              p = Path(path)
+
+          replacements = {
+              "docs/en/guides/cross-validation.md": (
+                  """**Q: Why is the CV cache not hitting?**
+          The CV cache uses blake2b hashing to detect data changes. Cache misses occur when:
+          - The data array memory address changes (even if values are the same)
+          - `sample_weight` changes
+          - `alpha_grid` changes
+          - Data shape changes
+          """,
+                  """**Q: Why is the CV cache not hitting?**
+          For `LassoCV`, a miss occurs when sampled data/weight content or another selection-key field changes, including the evaluated alpha grid, complete fold indices, CV solver/method controls, tolerance/iteration settings, intercept mode, CPU/GPU execution, or mixed-precision configuration. Reallocating an array with the same sampled content, shape, and dtype does not by itself cause a miss.
+          """,
+              ),
+              "docs/cn/guides/cross-validation.md": (
+                  """**Q: 为什么 CV 缓存没有命中？**
+          CV 缓存使用 blake2b 哈希检测数据变化。以下情况会导致缓存未命中：
+          - 数据数组的内存地址变化（即使数值相同）
+          - `sample_weight` 变化
+          - `alpha_grid` 变化
+          - 数据形状变化
+          """,
+                  """**Q: 为什么 CV 缓存没有命中？**
+          对 `LassoCV`，当抽样后的数据/权重内容或其他 selection-key 字段变化时会 miss，包括实际评估的 alpha 网格、完整 fold indices、CV solver/method 控制、容差/迭代设置、截距模式、CPU/GPU 执行方式以及 mixed-precision 配置。仅重新分配一个抽样内容、shape 与 dtype 相同的数组，本身不会导致 miss。
+          """,
+              ),
+          }
+          for name, (old, new) in replacements.items():
+              p = Path(name)
               s = p.read_text(encoding="utf-8")
-              a = s.index(start)
-              b = s.index(end, a)
-              p.write_text(s[:a] + replacement + s[b:], encoding="utf-8")
-          
-          replace_section(
-              "docs/en/guides/cross-validation.md",
-              "### Result Caching",
-              "### Alpha Convention",
-              "### Result Caching\n\n`LassoCV` uses a selection-only LRU cache inside `statgpu.linear_model.wrappers._lasso`. The cached payload contains `alpha`, the evaluated `alphas`, `mse_path`, and `mean_mse`; the final full-data estimator and its coefficients are always produced by the refit stage and are not stored in this selection cache.\n\n#### LassoCV data identity\n\nEach of `X`, `y`, and `sample_weight` is represented by `_array_identity_token(...)`:\n\n- `None` has its own token;\n- NumPy, CuPy, and Torch arrays carry a backend tag, shape, dtype, and a BLAKE2b digest;\n- arrays with at most 100 rows hash all rows; larger arrays hash 100 evenly spaced rows;\n- CuPy/Torch sample rows are transferred to host only for hashing the sampled content.\n\nThis is content-based identity: allocating a new array with the same sampled values, shape, and dtype does not miss merely because its memory address changed.\n\n#### LassoCV selection key\n\n`_make_lasso_cv_auto_cache_key(...)` currently contains:\n\n- the `X`, `y`, and `sample_weight` identity tokens;\n- a digest of the complete evaluated alpha grid;\n- a digest of the **complete train and validation index arrays for every fold**;\n- `fit_intercept` and whether the CV execution is GPU-backed;\n- `max_iter` and `tol`;\n- the resolved CV solver (the helper's historical field name is `cpu_solver`);\n- normalized `method` / `cv_method`;\n- `cd_kkt_check_every`;\n- `gpu_cv_mixed_precision`.\n\nThe final-refit `solver` is intentionally absent because it cannot change alpha scoring. The selected alpha and CV evidence can therefore be reused when only the final-refit algorithm changes.\n\n#### LRU payload and capacity\n\nThe cache is an `OrderedDict`; reads move an entry to the end and inserts evict the least-recently-used entry after the configured capacity is exceeded. The default capacity is **64**, controlled by `STATGPU_LASSO_CV_CACHE_SIZE` at import time. A cache hit returns cloned NumPy arrays for the cached selection payload so callers cannot mutate the stored entry accidentally.\n\nThis subsection documents the current `LassoCV` selection cache specifically. `RidgeCV` and `ElasticNetCV` have their own cache implementations and should be read from their corresponding implementation paths rather than inferred from this key.\n\n",
-          )
-          replace_section(
-              "docs/cn/guides/cross-validation.md",
-              "## 结果缓存",
-              "## Alpha 约定",
-              '## 结果缓存\n\n`LassoCV` 在 `statgpu.linear_model.wrappers._lasso` 中使用 selection-only LRU cache。缓存 payload 只包含 `alpha`、实际评估的 `alphas`、`mse_path` 和 `mean_mse`；最终全数据重拟合得到的 estimator 与系数不会存入这个 selection cache。\n\n### LassoCV 数据身份\n\n`X`、`y` 和 `sample_weight` 分别通过 `_array_identity_token(...)` 表示：\n\n- `None` 有独立 token；\n- NumPy、CuPy、Torch 数组的 token 包含 backend tag、shape、dtype 和 BLAKE2b digest；\n- 行数不超过 100 时 hash 全部行；更大数组 hash 100 个均匀抽样行；\n- CuPy/Torch 只把用于 hash 的抽样行传回 host。\n\n这是**基于内容**的身份，而不是内存地址身份：重新分配一个 shape、dtype 与抽样内容相同的数组，不会仅因地址变化而 miss。\n\n### LassoCV selection key\n\n当前 `_make_lasso_cv_auto_cache_key(...)` 包含：\n\n- `X`、`y`、`sample_weight` 的 identity token；\n- 完整已评估 alpha 网格的 digest；\n- **每个 fold 的完整 train/validation index 数组**的 digest；\n- `fit_intercept` 与 CV 是否在 GPU 上执行；\n- `max_iter`、`tol`；\n- 解析后的 CV solver（helper 的历史字段名仍为 `cpu_solver`）；\n- 规范化后的 `method` / `cv_method`；\n- `cd_kkt_check_every`；\n- `gpu_cv_mixed_precision`。\n\n最终 refit 的 `solver` 被刻意排除，因为它不会改变 alpha scoring。因此只改变最终重拟合算法时，可以复用同一份 alpha-selection evidence。\n\n### LRU payload 与容量\n\n缓存使用 `OrderedDict`；读取命中后把条目移到末尾，插入超出容量后淘汰最久未使用的条目。默认容量是 **64**，导入时由 `STATGPU_LASSO_CV_CACHE_SIZE` 控制。命中时返回 selection payload 中 NumPy 数组的副本，避免调用者意外修改缓存内部对象。\n\n本节描述的是当前 **LassoCV selection cache**。`RidgeCV` 与 `ElasticNetCV` 有各自的缓存实现，不应从这份 key 反推它们的具体字段。\n\n',
-          )
+              assert old in s, f"expected stale FAQ block not found: {name}"
+              p.write_text(s.replace(old, new, 1), encoding="utf-8")
           PY
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add statgpu/linear_model/wrappers/_lasso.py docs/en/guides/cross-validation.md docs/cn/guides/cross-validation.md
-          git commit -m "temp: materialize pr135 reviewed patch"
+          git add docs/en/guides/cross-validation.md docs/cn/guides/cross-validation.md
+          git commit -m "temp: materialize pr135 cache FAQ fix"
           git push origin HEAD:refactor/penalized-solver-api-cleanup-push-staging-2
