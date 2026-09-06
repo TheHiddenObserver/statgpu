@@ -16,7 +16,9 @@ gpu_model = Lasso(alpha=0.1, device="cuda", solver="fista")
 ```
 
 `cpu_solver` 暂时保留一个兼容周期，但在统一引擎中它**不会**选择 direct-fit
-算法。具有实际意义的旧式用法会产生 `FutureWarning`；请迁移到 `solver=...`。
+算法。调用者自己显式使用旧参数时会产生 `FutureWarning`；框架重建以及 statgpu
+内部 helper estimator 的构造不会把原本省略的默认值误报成用户弃用 warning。
+新代码请迁移到 `solver=...`。
 
 这适用于公开的 penalized estimator 家族，包括 `Ridge`、`Lasso`、
 `ElasticNet`、typed `Penalized*Regression`、penalized robust/quantile 以及
@@ -36,12 +38,15 @@ model = LassoCV(
 ```
 
 `cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为
-FISTA。`cv_solver="coordinate_descent"` 仅支持 CPU。`method="glmnet"` 会固定
-CV path 使用 coordinate descent。
+FISTA。显式的新接口 `cv_solver="coordinate_descent"` 仅支持 CPU。
+`method="glmnet"` 只在 CPU CV path 上固定使用 coordinate descent；CUDA/Torch
+仍保留维护中的 backend-native FISTA 路径，拟合后的 `cv_solver_` 记录实际执行的
+算法。
 
-旧的 `LassoCV(cpu_solver=...)` 是 `cv_solver=...` 的 deprecated alias。如果同时
-提供两个冲突值，会抛出 `ValueError`，而不是静默选择其中一个。拟合后实际使用的
-CV 算法记录在 `cv_solver_`。
+旧的 `LassoCV(cpu_solver=...)` 已弃用。在 CPU 上，它作为旧版 `cv_solver` alias
+保留原行为；在 CUDA/Torch 上，它会 warning 但仍保持**非权威**，从而保留旧版本
+中“CPU-only 控制不改变 GPU FISTA CV 路径”的行为。在 CPU 上同时提供冲突的新旧
+控制会抛出 `ValueError`。
 
 最终 refit 不再接收 `cpu_solver`；这个阶段只由 `solver` 控制。
 
@@ -51,7 +56,8 @@ CV 算法记录在 `cv_solver_`。
 |---|---|
 | `Lasso(device="cpu", cpu_solver="coordinate_descent")` | `Lasso(device="cpu", solver="coordinate_descent")` |
 | `ElasticNet(device="cpu", cpu_solver="fista")` | `ElasticNet(device="cpu", solver="fista")` |
-| `LassoCV(cpu_solver="fista")` | `LassoCV(cv_solver="fista")` |
-| `LassoCV(solver="fista", cpu_solver="coordinate_descent")` | `LassoCV(solver="fista", cv_solver="coordinate_descent")` |
+| `LassoCV(device="cpu", cpu_solver="fista")` | `LassoCV(device="cpu", cv_solver="fista")` |
+| `LassoCV(device="cuda", cpu_solver="coordinate_descent")` | `LassoCV(device="cuda", cv_solver="auto")` |
+| `LassoCV(solver="fista", cpu_solver="coordinate_descent", device="cpu")` | `LassoCV(solver="fista", cv_solver="coordinate_descent", device="cpu")` |
 
 在本次 deprecation 周期之后，`cpu_solver` 计划在未来 breaking release 中删除。
