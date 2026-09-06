@@ -167,4 +167,95 @@ Because the same critical value protects the target family, these intervals are 
 
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `enable_simultaneous_inference` | `False` | Run simultane
+| `enable_simultaneous_inference` | `False` | Run simultaneous calibration after successful de-biased inference. |
+| `simultaneous_method` | `"maxz_bootstrap"` | Current supported simultaneous calibration method. |
+| `simultaneous_alpha` | `0.05` | Family-wise error level used to select the max-|Z| critical value. |
+| `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws. |
+| `simultaneous_random_state` | `None` | Seed for reproducible multiplier draws. |
+| `simultaneous_include_intercept` | `False` | Requests that the reported simultaneous target include the intercept; see the implementation boundary below. |
+
+`enable_simultaneous_inference=True` requires `compute_inference=True`, `inference_method="debiased"`, and `simultaneous_method="maxz_bootstrap"`. Unsupported combinations fail instead of silently returning ordinary marginal intervals.
+
+### Current intercept boundary
+
+The recommended/default simultaneous family is the feature vector (`simultaneous_include_intercept=False`). In the current implementation, setting `simultaneous_include_intercept=True` applies the feature-calibrated max-|Z| critical value to the intercept row, but the bootstrap maximum itself is still constructed from feature-score coordinates. Therefore, do **not** interpret that option as a separately bootstrapped intercept-inclusive max-|Z| family. If a scientifically essential family must include the intercept, treat that case as requiring additional validation rather than relying on the default feature-family guarantee.
+
+## Simultaneous intervals are not the same as p-value adjustment
+
+These operations answer related but different questions:
+
+- `_conf_int` gives coefficient-wise marginal intervals.
+- `_conf_int_simultaneous` uses a common max-|Z| critical value for an interval family.
+- `model.adjust_pvalues(method="bh")` or `adjust_pvalues(...)` applies a multiple-testing correction to an existing vector of p-values.
+- `model.combine_pvalues(...)` asks whether a set of p-values contains global evidence; it does not construct simultaneous coefficient intervals.
+
+The generic estimator-bound and module-level multiple-testing APIs are documented in the [Inference API reference](../guides/inference-api.md).
+
+## Backend behavior and reporting boundary
+
+De-biased coefficient inference has dedicated numerical paths for NumPy CPU, CuPy CUDA, and Torch CUDA. The expensive node-wise/decorrelation work is performed on the selected numerical backend where the corresponding path is implemented.
+
+The reporting layer is NumPy-oriented: final inferential arrays such as `_bse`, `_pvalues`, `_conf_int`, and structured result metadata are exposed as host-side reporting objects.
+
+Simultaneous calibration has an additional boundary: after backend-native de-biased inference, the state required by the max-|Z| multiplier bootstrap is represented on the CPU/NumPy side and the bootstrap calibration runs there. Thus `device="cuda"` or `device="torch"` does **not** mean that every simultaneous-bootstrap draw stays on the GPU.
+
+Explicit unavailable GPU devices should fail rather than silently becoming CPU estimation paths. The CPU reporting/calibration boundary described above is an explicit part of inference reporting, not a hidden estimator fallback.
+
+## Sample weights and inferential scope
+
+`Lasso.fit(..., sample_weight=...)` is a supported fitting surface. Weighted high-dimensional inference, however, has stronger modeling and normalization questions than the unweighted formulas shown above. The equations on this page describe the core de-biased construction and should not be read as an automatic theorem for arbitrary analytic-weight designs. If weighted coefficient inference is scientifically central, validate the exact weighting convention and target estimand for that application rather than assuming that unweighted asymptotics transfer unchanged.
+
+## Residual bootstrap path
+
+`inference_method="bootstrap"` performs repeated residual resampling and penalized refits. The constructor controls are:
+
+- `n_bootstrap` (default `200`);
+- `bootstrap_random_state` (default `None`).
+
+The current implementation derives standard errors from bootstrap variability, sign-based two-sided p-values, and percentile confidence intervals. This is computationally much more expensive than one de-biased fit. It is also not advertised as a complete selective-inference procedure: resampling the fitted residual model does not automatically account for every consequence of choosing the active set and tuning parameters from the same data.
+
+## OLS-style post-selection paths
+
+The OLS-style paths refit or diagnose the selected active set using ordinary linear-model machinery. They are useful for engineering comparison and for seeing what an unpenalized active-set refit would report, but their intervals must not be described as valid selective-inference intervals merely because the selected model is sparse.
+
+Use them when that diagnostic is exactly what you want; do not choose them as a shortcut around the assumptions of de-biased or selection-aware inference.
+
+## Fitted inference outputs
+
+When the selected inference path succeeds, the reporting surface can include:
+
+| Attribute | Meaning |
+|---|---|
+| `_params` | parameter vector used by inference reporting; for `debiased`, feature entries are de-biased estimates |
+| `_bse` | standard errors |
+| `_tvalues` | historical/statistic storage used by some paths; de-biased reporting has z semantics |
+| `_zvalues` | z-style statistic field when populated through the structured result layer |
+| `_pvalues` | two-sided coefficient p-values |
+| `_conf_int` | marginal confidence intervals |
+| `_conf_int_simultaneous` | simultaneous intervals after successful max-|Z| calibration |
+| `_simultaneous_critical_value` | calibrated common critical value |
+| `_inference_result` | structured inference result and method/backend metadata |
+
+`summary()` uses the inference result available for the fitted model. Underscore-prefixed arrays are established reporting surfaces in the current release, but their meaning remains method-specific.
+
+## Reproducibility and cost
+
+For reproducible resampling, set `bootstrap_random_state` or `simultaneous_random_state` as appropriate. Increasing `simultaneous_n_bootstrap` reduces Monte Carlo noise in the critical-value estimate at the cost of more CPU work and memory traffic.
+
+De-biased inference can be substantially more expensive than fitting the original Lasso because it solves many node-wise sparse regressions. This is especially noticeable as the feature dimension grows. Backend acceleration changes the numerical cost profile but not the statistical assumptions.
+
+## What the current implementation does not claim
+
+- Ordinary post-selection OLS intervals are not general selective-inference intervals.
+- Residual bootstrap is not advertised as a universal correction for model-selection uncertainty.
+- Marginal de-biased intervals do not provide joint coverage without simultaneous calibration.
+- Simultaneous max-|Z| intervals do not replace FDR procedures such as Benjamini-Hochberg when FDR is the scientific target.
+- Numerical convergence, GPU execution, and a small KKT residual do not prove that the high-dimensional assumptions required for de-biased inference hold for a dataset.
+- The default simultaneous target is the feature family; see the intercept boundary above before requesting intercept inclusion.
+
+## References
+
+- Zhang, C.-H., & Zhang, S. S. (2014). Confidence intervals for low-dimensional parameters in high-dimensional linear models. *Journal of the Royal Statistical Society: Series B*, 76(1), 217–242.
+- van de Geer, S., Bühlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *The Annals of Statistics*, 42(3), 1166–1202.
+- Javanmard, A., & Montanari, A. (2014). Confidence intervals and hypothesis testing for high-dimensional regression. *Journal of Machine Learning Research*, 15, 2869–2909.
+- Bühlmann, P., & van de Geer, S. (2011). *Statistics for High-Dimensional Data*. Springer.
