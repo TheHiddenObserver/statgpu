@@ -125,7 +125,7 @@ class LassoCV(CVEstimatorBase):
         cpu_solver: Optional[str] = None,
         method: str = "standard",
         cd_kkt_check_every: Optional[int] = None,
-        inference_method: str = "cpu_ols_inference",
+        inference_method: str = "post_selection_ols",
         lipschitz_L: Optional[float] = None,
         admm_rho: float = 1.0,
         gpu_memory_cleanup: bool = False,
@@ -154,7 +154,12 @@ class LassoCV(CVEstimatorBase):
         self.cv_solver = str(cv_solver)
         self.method = _normalize_lassocv_method(method)
         self.cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
-        self.inference_method = str(inference_method)
+        from statgpu.linear_model._penalized_inference_api import (
+            normalize_penalized_inference_method,
+        )
+        self.inference_method = normalize_penalized_inference_method(
+            inference_method, allow_lassocv_legacy=True
+        )
         self.lipschitz_L = lipschitz_L
         self.admm_rho = float(admm_rho)
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
@@ -189,30 +194,28 @@ class LassoCV(CVEstimatorBase):
         for attr in ("_bse", "_pvalues", "_tvalues", "_conf_int"):
             self.__dict__.pop(attr, None)
 
-    def _prepare_cv_inputs_for_resolved_device(
-        self, X, y, sample_weight, device_name: str
-    ):
-        """Preserve the concrete resolved backend before entering the CV helper.
+    def _prepare_cv_inputs_for_explicit_device(self, X, y, sample_weight):
+        """Preserve an explicit CUDA/Torch backend before entering the CV helper.
 
-        ``device='auto'`` may resolve through the global device configuration.
-        Once ``_get_compute_device()`` has produced a concrete CUDA/Torch device,
-        the CV selector must not reinterpret that decision through its legacy
-        auto-backend inference.
+        The legacy selector accepts a device string but infers the concrete GPU
+        array library from its inputs. Convert only explicit device requests so
+        ``device='auto'`` keeps its historical auto-selection behavior while an
+        explicit CUDA or Torch request cannot be reinterpreted as another GPU
+        backend.
         """
-        resolved = str(device_name).strip().lower()
-        if resolved == Device.CUDA.value:
+        if self._device == Device.CUDA:
             target_device = Device.CUDA
             backend_name = "cupy"
-        elif resolved == Device.TORCH.value:
+        elif self._device == Device.TORCH:
             target_device = Device.TORCH
             backend_name = "torch"
         else:
             return X, y, sample_weight
 
-        # Explicit conversion is itself the availability gate: Torch conversion
-        # requires CUDA, while CuPy conversion raises when the requested CuPy/CUDA
-        # backend is unavailable. This applies equally to constructor-explicit and
-        # globally resolved device choices.
+        # Reuse BaseEstimator's strict explicit-device availability gate before
+        # conversion.  This prevents a missing requested backend from reaching
+        # the selector's generic auto-backend path.
+        self._get_backend()
         X_cv = self._to_array(X, target_device, backend=backend_name)
         y_cv = self._to_array(y, target_device, backend=backend_name)
         sample_weight_cv = (
@@ -261,7 +264,7 @@ class LassoCV(CVEstimatorBase):
                     "cv_solver and deprecated cpu_solver specify different CV solvers"
                 )
 
-        method = str(self._method).strip().lower()
+        method = str(self.method).strip().lower()
 
         # The maintained GPU CV engine is FISTA-based. Historically cpu_solver
         # was a CPU-only control and did not change that GPU path, including in
@@ -298,11 +301,10 @@ class LassoCV(CVEstimatorBase):
         self._reset_cv_fit_state()
         device_name = self._get_compute_device().value
         effective_cv_solver = self._resolve_cv_solver(device_name)
-        X_cv, y_cv, sample_weight_cv = self._prepare_cv_inputs_for_resolved_device(
+        X_cv, y_cv, sample_weight_cv = self._prepare_cv_inputs_for_explicit_device(
             X,
             y,
             sample_weight,
-            device_name,
         )
 
         effective_cd_kkt = self._cd_kkt_check_every

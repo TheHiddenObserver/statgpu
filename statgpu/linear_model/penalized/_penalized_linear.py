@@ -226,13 +226,25 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             feature_names = [f"x{i+1}" for i in range(len(self.coef_))]
 
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+        inference_method = str(
+            getattr(self, "_inference_method", getattr(self, "inference_method", "debiased"))
+        ).lower()
         is_debiased = penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method
+        is_post_selection_ols = (
+            penalty_name in ("l1", "elasticnet", "en")
+            and inference_method == "post_selection_ols"
+        )
 
         if is_debiased:
             title = "Debiased Lasso Results"
             stat_label = "z"
             pval_label = "P>|z|"
+        elif is_post_selection_ols:
+            title = "Post-selection OLS Diagnostic"
+            stat_label = str(
+                getattr(getattr(self, "_inference_result", None), "statistic_name", "t")
+            )
+            pval_label = f"P>|{stat_label}|"
         elif penalty_name == "l2":
             title = "Ridge Regression Results"
             stat_label = "t"
@@ -291,4 +303,3 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
                 print(f"{name:<15} {'':>12} {'':>12} {'':>10} {'':>10} {lo:>12.4f} {hi:>12.4f}")
 
         print("=" * 80)
-

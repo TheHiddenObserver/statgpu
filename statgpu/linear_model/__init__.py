@@ -58,6 +58,13 @@ from . import _penalized_solver_api_contract as _penalized_solver_api_contract
 
 _penalized_solver_api_contract.install_penalized_solver_api_contract()
 
+# Keep statistical method identity separate from execution hardware. The
+# historical cpu_ols/gpu_ols values remain one-cycle compatibility aliases for
+# the canonical post_selection_ols inference method.
+from . import _penalized_inference_api_contract as _penalized_inference_api_contract
+
+_penalized_inference_api_contract.install_penalized_inference_api_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
