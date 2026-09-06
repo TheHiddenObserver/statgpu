@@ -1,0 +1,64 @@
+name: PR135 temporary cache FAQ fix
+
+on:
+  push:
+    branches:
+      - refactor/penalized-solver-api-cleanup-push-staging-2
+    paths:
+      - .github/workflows/pr135-temp-faq-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/penalized-solver-api-cleanup-push-staging-2
+          fetch-depth: 0
+      - name: Fix cache FAQ wording
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "docs/en/guides/cross-validation.md": (
+                  """**Q: Why is the CV cache not hitting?**
+          The CV cache uses blake2b hashing to detect data changes. Cache misses occur when:
+          - The data array memory address changes (even if values are the same)
+          - `sample_weight` changes
+          - `alpha_grid` changes
+          - Data shape changes
+          """,
+                  """**Q: Why is the CV cache not hitting?**
+          For `LassoCV`, a miss occurs when sampled data/weight content or another selection-key field changes, including the evaluated alpha grid, complete fold indices, CV solver/method controls, tolerance/iteration settings, intercept mode, CPU/GPU execution, or mixed-precision configuration. Reallocating an array with the same sampled content, shape, and dtype does not by itself cause a miss.
+          """,
+              ),
+              "docs/cn/guides/cross-validation.md": (
+                  """**Q: 为什么 CV 缓存没有命中？**
+          CV 缓存使用 blake2b 哈希检测数据变化。以下情况会导致缓存未命中：
+          - 数据数组的内存地址变化（即使数值相同）
+          - `sample_weight` 变化
+          - `alpha_grid` 变化
+          - 数据形状变化
+          """,
+                  """**Q: 为什么 CV 缓存没有命中？**
+          对 `LassoCV`，当抽样后的数据/权重内容或其他 selection-key 字段变化时会 miss，包括实际评估的 alpha 网格、完整 fold indices、CV solver/method 控制、容差/迭代设置、截距模式、CPU/GPU 执行方式以及 mixed-precision 配置。仅重新分配一个抽样内容、shape 与 dtype 相同的数组，本身不会导致 miss。
+          """,
+              ),
+          }
+          for name, (old, new) in replacements.items():
+              p = Path(name)
+              s = p.read_text(encoding="utf-8")
+              assert old in s, f"expected stale FAQ block not found: {name}"
+              p.write_text(s.replace(old, new, 1), encoding="utf-8")
+          PY
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/en/guides/cross-validation.md docs/cn/guides/cross-validation.md
+          git commit -m "temp: materialize pr135 cache FAQ fix"
+          git push origin HEAD:refactor/penalized-solver-api-cleanup-push-staging-2
