@@ -54,16 +54,16 @@ def _explicit_cpu_solver(signature, self, args, kwargs):
     return False, None
 
 
-def _inside_non_user_constructor_replay() -> bool:
-    """Return True for framework or statgpu-internal constructor replay."""
+def _constructor_warning_policy():
+    """Return (suppress_warning, stacklevel) for the current constructor call."""
     frame = inspect.currentframe()
     try:
         for _ in range(20):
             if frame is None:
-                return False
+                return False, 2
             frame = frame.f_back
             if frame is None:
-                return False
+                return False, 2
             module_name = str(frame.f_globals.get("__name__", ""))
             function_name = frame.f_code.co_name
 
@@ -72,18 +72,18 @@ def _inside_non_user_constructor_replay() -> bool:
                 module_name == "statgpu._base"
                 and function_name == "__sklearn_clone__"
             ):
-                return True
+                return True, 2
 
             # Transactional set_params reconstructs the whole estimator from
-            # get_params(). Suppress the replay only when cpu_solver was *not*
-            # one of the user's explicit updates. If it was explicitly updated,
-            # that public set_params call is caller-owned deprecated API use and
-            # must still warn once.
+            # get_params(). Suppress replay of an omitted/default cpu_solver,
+            # but preserve one user-facing warning when cpu_solver itself was
+            # the explicit set_params update. In that case stacklevel=3 skips
+            # both the constructor wrapper and BaseEstimator.set_params.
             if module_name == "statgpu._base" and function_name == "set_params":
                 direct_updates = frame.f_locals.get("direct_updates", {})
                 if isinstance(direct_updates, dict) and "cpu_solver" in direct_updates:
-                    return False
-                return True
+                    return False, 3
+                return True, 2
 
             # sklearn <=1.2 reconstructs estimators directly from
             # get_params(deep=False) -> klass(**params), so __sklearn_clone__
@@ -92,15 +92,15 @@ def _inside_non_user_constructor_replay() -> bool:
                 module_name == "sklearn.base"
                 and function_name in {"clone", "_clone_parametrized"}
             ):
-                return True
+                return True, 2
 
             # Internal statgpu algorithms may construct helper penalized
             # estimators (for example node-wise Lasso in debiased inference).
             # Those calls are implementation details, not caller-owned use of
             # the deprecated public argument.
             if module_name.startswith("statgpu.") and module_name != __name__:
-                return True
-        return False
+                return True, 2
+        return False, 2
     finally:
         del frame
 
@@ -140,6 +140,7 @@ def _install_constructor_warning(cls):
     def wrapped(self, *args, **kwargs):
         depth = int(getattr(self, _CONSTRUCTOR_DEPTH_ATTR, 0))
         explicit, value = _explicit_cpu_solver(signature, self, args, kwargs)
+        suppress_warning, warning_stacklevel = _constructor_warning_policy()
 
         # Forwarding through a typed wrapper into the shared base must not emit
         # the same warning repeatedly. Framework/internal reconstruction must
@@ -150,7 +151,7 @@ def _install_constructor_warning(cls):
             depth == 0
             and explicit
             and value is not None
-            and not _inside_non_user_constructor_replay()
+            and not suppress_warning
         ):
             warnings.warn(
                 f"{cls.__name__}(cpu_solver=...) is deprecated for direct "
@@ -159,7 +160,7 @@ def _install_constructor_warning(cls):
                 "instead. cpu_solver will be removed in a future breaking "
                 "release.",
                 FutureWarning,
-                stacklevel=2,
+                stacklevel=warning_stacklevel,
             )
 
         setattr(self, _CONSTRUCTOR_DEPTH_ATTR, depth + 1)
