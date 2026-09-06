@@ -207,6 +207,8 @@ $$
 
 `cov_type` 与 `hac_maxlags` 也是 public constructor controls，在所选 inference path 支持相应 covariance 时使用。
 
+对于 `ElasticNetCV`，`compute_inference=True` 仅在 `alpha` 和 `l1_ratio` 选择完成后的最终全数据 refit 上运行推断；各 fold model 仍只用于估计与评分。
+
 ## 常见误区
 
 - 不要只调 `alpha` 而把 `l1_ratio` 当作无关参数。
@@ -300,7 +302,7 @@ model.fit(
 | `summary` | `summary()` | 打印系数/推断摘要；要求已拟合且推断可用。 |
 | `get_params` / `set_params` | sklearn 风格工具 | 查看或替换 constructor 状态。 |
 
-已有 p 值时，共享 estimator base 还提供 p 值校正/合并工具，见[推断 API](../guides/inference-api.md)。
+继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、backend 解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。
 
 ### 拟合后属性与诊断量
 
