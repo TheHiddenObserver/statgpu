@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-08-03
+> Last updated: 2026-09-06
 > This page: Unified CV guide — API reference, architecture, GPU acceleration, and caching  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -137,6 +137,24 @@ print(f"Accuracy: {model.score(X_test, y_test):.4f}")
 | `cov_type` | str | `"nonrobust"` | Covariance type for inference. |
 | `gpu_cv_mixed_precision` | bool | `True` | Use float32 for CV (faster on GPU). |
 
+#### LassoCV-Specific
+
+`LassoCV` separates the solver used during cross-validation from the solver used for the final full-data refit.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `alphas` | array | `None` | Alpha grid. `None` = auto-generate. |
+| `n_alphas` | int | `12` | Number of alphas when auto-generating. |
+| `solver` | str | `"fista"` | Solver for the final full-data `Lasso` refit. |
+| `cv_solver` | str | `"auto"` | CV folds/path solver. `auto` resolves to coordinate descent on CPU and FISTA on CUDA/Torch. |
+| `cpu_solver` | str/None | `None` | **Deprecated** legacy CPU-CV control. On CPU it aliases `cv_solver` when the new control is `auto`; on CUDA/Torch it warns but does not replace GPU FISTA. |
+| `method` | str | `"standard"` | CV path profile; CPU `glmnet` forces coordinate descent, while CUDA/Torch retain FISTA. |
+| `cd_kkt_check_every` | int/None | `None` | Coordinate-descent KKT scan cadence where applicable. |
+| `gpu_cv_mixed_precision` | bool | `True` | Use mixed precision on the GPU CV path. |
+| `compute_inference` | bool | `False` | Run inference only on the selected final full-data refit. |
+
+After fitting, `cv_solver_` records the algorithm that actually executed for the CV path. See the [penalized solver API migration guide](penalized-solver-api-migration.md) for the `cpu_solver` deprecation contract.
+
 #### ElasticNetCV-Specific
 
 | Parameter | Type | Default | Description |
@@ -269,7 +287,7 @@ After `fit()`, all CV estimators expose:
 | `coef_` | Coefficients from refit model |
 | `intercept_` | Intercept from refit model |
 
-`ElasticNetCV` additionally has `l1_ratio_` (best l1_ratio if a list was passed).
+`LassoCV` additionally exposes `cv_solver_`, the actual CV algorithm after device/method resolution. `ElasticNetCV` additionally has `l1_ratio_` (best l1_ratio if a list was passed).
 
 ### Scoring
 
@@ -707,7 +725,8 @@ The cache key includes all parameters that affect CV results:
 - `alphas` -- alpha grid (if provided)
 - `n_alphas`, `alpha_min_ratio` -- grid generation params
 - `fit_intercept`, `use_gpu`, `max_iter`, `tol` -- solver params
-- `cpu_solver`, `cv_method`, `cd_kkt_check_every` -- algorithm params
+- `solver` -- final-refit algorithm for `LassoCV`
+- `cv_solver` (plus deprecated `cpu_solver` when supplied), `method`, `cd_kkt_check_every` -- `LassoCV` CV-path controls
 - `fold_indices` -- first 5 indices per fold
 - `sample_weight_shape` -- weight dimensions
 - `data_digest` -- from `_hash_data`
@@ -832,6 +851,7 @@ statgpu uses a data-driven alpha grid: `alpha_max` is computed from `max(|X'y|)/
 - `dev/tests/test_glm_penalty_review_fixes.py` -- 2015 lines of penalty tests
 - `dev/tests/test_elasticnet_cv.py` -- ElasticNetCV dedicated tests
 - `dev/tests/test_ridge_cv.py` -- RidgeCV dedicated tests
+- `dev/tests/test_penalized_solver_api_cleanup.py` -- stage-specific LassoCV solver/deprecation regression coverage
 
 **Benchmark scripts:**
 - `dev/tests/benchmark_cv_full.py` -- Full CV benchmark
