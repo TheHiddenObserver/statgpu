@@ -8,8 +8,13 @@ from statgpu.backends import _to_numpy
 from statgpu.inference._results import ParameterInferenceResult
 from statgpu.linear_model._gaussian_inference import (
     _as_backend_array,
+    _diag,
     _inverse_or_pinv,
+    _maximum,
     _namespace,
+    _reference_inference,
+    _sqrt,
+    _stack,
     compute_gaussian_inference,
 )
 
@@ -62,14 +67,61 @@ def _active_design(X_native, selected_idx, *, fit_intercept: bool, backend_name:
     return np.column_stack([np.ones(n, dtype=X_native.dtype), features])
 
 
+def _normal_nonrobust_inference(
+    X_work,
+    params_native,
+    resid_work,
+    scale_native,
+    *,
+    backend_name: str,
+    selected_device: str,
+):
+    """Preserve the pre-migration normal/z post-selection reporting contract.
+
+    The old unified ``cpu_ols`` / ``gpu_ols`` path performed an active-set
+    unpenalized refit and reported z/normal inference.  The API migration keeps
+    that statistical definition while moving the same numerical work to the
+    fit-resolved NumPy/CuPy/Torch backend.
+    """
+    XtX = X_work.T @ X_work
+    bread_inv = _inverse_or_pinv(XtX, backend_name)
+    cov_params = scale_native * bread_inv
+    bse_native = _sqrt(
+        _maximum(_diag(cov_params, backend_name), 0.0, backend_name),
+        backend_name,
+    )
+    statistic_native = params_native / (bse_native + 1e-30)
+    pvalues_native, critical = _reference_inference(
+        statistic_native,
+        distribution="normal",
+        alpha=0.05,
+        backend=backend_name,
+        device=selected_device,
+    )
+    conf_int_native = _stack(
+        [
+            params_native - critical * bse_native,
+            params_native + critical * bse_native,
+        ],
+        backend_name,
+        axis=1,
+    )
+    return (
+        np.asarray(_to_numpy(bse_native), dtype=np.float64),
+        np.asarray(_to_numpy(statistic_native), dtype=np.float64),
+        np.asarray(_to_numpy(pvalues_native), dtype=np.float64),
+        np.asarray(_to_numpy(conf_int_native), dtype=np.float64),
+    )
+
+
 def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     """Populate heuristic active-set OLS/WLS inference on the fitted backend.
 
     The sparse penalized fit chooses the active set. This function then refits an
     unpenalized least-squares model on exactly those columns and computes the
-    requested Gaussian covariance/reference-distribution inference there. The
-    intervals remain a post-selection diagnostic; they do not account for
-    data-driven active-set selection.
+    requested covariance/reference-distribution inference there. The intervals
+    remain a post-selection diagnostic; they do not account for data-driven
+    active-set selection.
 
     Numerical work is performed on the backend/device recorded by the successful
     penalized fit. A NumPy reporting snapshot is taken only after parameter,
@@ -138,7 +190,7 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         df_resid = n
         scale_native = xp.sum(resid_work * resid_work) / float(df_resid)
         resolved_cov_type = str(getattr(model, "_cov_type", "nonrobust"))
-        resolved_distribution = "t" if resolved_cov_type == "nonrobust" else "normal"
+        resolved_distribution = "normal"
         numerical_metadata = {
             "numerical_backend": backend_name,
             "numerical_device": selected_device,
@@ -153,32 +205,52 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         resid_work = y_work - X_work @ params_native
         df_resid = n - k
         scale_native = xp.sum(resid_work * resid_work) / float(df_resid)
-        cov_type = str(getattr(model, "_cov_type", "nonrobust"))
+        cov_type = str(getattr(model, "_cov_type", "nonrobust")).lower()
         hac_maxlags = getattr(model, "_hac_maxlags", None)
-        gaussian = compute_gaussian_inference(
-            X_work,
-            params_native,
-            resid_work,
-            scale_native,
-            df_resid,
-            cov_type,
-            hac_maxlags=hac_maxlags,
-            backend=backend_name,
-            device=selected_device,
-        )
-        if gaussian is None:
-            raise RuntimeError(
-                "post_selection_ols could not construct finite Gaussian inference "
-                "for the selected active set."
+
+        if cov_type == "nonrobust":
+            bse_sel, stat_sel, pvalues_sel, ci_sel = _normal_nonrobust_inference(
+                X_work,
+                params_native,
+                resid_work,
+                scale_native,
+                backend_name=backend_name,
+                selected_device=selected_device,
             )
-        params_sel = np.asarray(gaussian.params, dtype=np.float64)
-        bse_sel = np.asarray(gaussian.bse, dtype=np.float64)
-        stat_sel = np.asarray(gaussian.statistic, dtype=np.float64)
-        pvalues_sel = np.asarray(gaussian.pvalues, dtype=np.float64)
-        ci_sel = np.asarray(gaussian.conf_int, dtype=np.float64)
-        numerical_metadata = dict(gaussian.metadata)
-        resolved_cov_type = gaussian.cov_type
-        resolved_distribution = gaussian.distribution
+            params_sel = np.asarray(_to_numpy(params_native), dtype=np.float64)
+            numerical_metadata = {
+                "numerical_backend": backend_name,
+                "numerical_device": selected_device,
+                "reporting_backend": "numpy",
+                "reporting_boundary": "post_numerical_inference",
+            }
+            resolved_cov_type = "nonrobust"
+            resolved_distribution = "normal"
+        else:
+            gaussian = compute_gaussian_inference(
+                X_work,
+                params_native,
+                resid_work,
+                scale_native,
+                df_resid,
+                cov_type,
+                hac_maxlags=hac_maxlags,
+                backend=backend_name,
+                device=selected_device,
+            )
+            if gaussian is None:
+                raise RuntimeError(
+                    "post_selection_ols could not construct finite Gaussian inference "
+                    "for the selected active set."
+                )
+            params_sel = np.asarray(gaussian.params, dtype=np.float64)
+            bse_sel = np.asarray(gaussian.bse, dtype=np.float64)
+            stat_sel = np.asarray(gaussian.statistic, dtype=np.float64)
+            pvalues_sel = np.asarray(gaussian.pvalues, dtype=np.float64)
+            ci_sel = np.asarray(gaussian.conf_int, dtype=np.float64)
+            numerical_metadata = dict(gaussian.metadata)
+            resolved_cov_type = gaussian.cov_type
+            resolved_distribution = "normal"
 
     full_dim = p_full + int(bool(model._effective_intercept))
     # Preserve the fitted penalized values for coordinates that were not
@@ -229,6 +301,7 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         "selected_feature_indices": selected_idx.tolist(),
         "active_set_tolerance": _POST_SELECTION_ACTIVE_TOL,
         "sample_weighted": sample_weight is not None,
+        "compatibility_reference_distribution": "normal",
     }
     result = ParameterInferenceResult(
         method="post_selection_ols",
@@ -236,12 +309,12 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         params=params,
         bse=bse,
         statistic=statistic,
-        statistic_name="t" if resolved_distribution == "t" else "z",
+        statistic_name="z",
         pvalues=pvalues,
         conf_int=conf_int,
         cov_type=resolved_cov_type,
         distribution=resolved_distribution,
-        df=float(df_resid),
+        df=None,
         metadata=metadata,
     )
     result.apply_to(model)
