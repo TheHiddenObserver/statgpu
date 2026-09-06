@@ -719,14 +719,13 @@ With 100 sampled rows, the probability of two different datasets having identica
 
 #### Parameter Fingerprint: `_make_cache_key(...)`
 
-The cache key includes all parameters that affect CV results:
+For the `LassoCV` **selection cache**, the key contains the parameters that can change CV evidence. The final-refit `solver` is deliberately not part of that selection key because it does not change alpha scoring.
 
 - `X_shape`, `y_shape` -- data dimensions
 - `alphas` -- alpha grid (if provided)
 - `n_alphas`, `alpha_min_ratio` -- grid generation params
-- `fit_intercept`, `use_gpu`, `max_iter`, `tol` -- solver params
-- `solver` -- final-refit algorithm for `LassoCV`
-- `cv_solver` (plus deprecated `cpu_solver` when supplied), `method`, `cd_kkt_check_every` -- `LassoCV` CV-path controls
+- `fit_intercept`, `use_gpu`, `max_iter`, `tol` -- CV execution params
+- the resolved CV solver (the helper's internal field is still named `cpu_solver`), public `method` (internally `cv_method`), and `cd_kkt_check_every` -- LassoCV CV-path controls
 - `fold_indices` -- first 5 indices per fold
 - `sample_weight_shape` -- weight dimensions
 - `data_digest` -- from `_hash_data`
