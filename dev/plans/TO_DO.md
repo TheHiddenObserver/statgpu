@@ -10,6 +10,8 @@
 
 This file is intentionally shorter than `dev/AGENTS.md` and the canonical `.claude/skills/*/SKILL.md` protocols, but it is not a weaker checklist. Impact classification determines which gates are active. When wording conflicts, the applicable canonical skill takes precedence, followed by `dev/AGENTS.md`. Legacy flat `.claude/skills/*.md` and `.claude/workflows/new-module-dev.md` files are compatibility pointers only. `ROADMAP.md` controls priority; GitHub issues control executable scope.
 
+Impact-driven scope does not allow new capability to define away repository defaults: new shared numerical/statistical capability closes NumPy/CuPy/Torch by default, and new tunable loss x penalty capability closes direct fit + CV by default, unless a legitimate narrower contract is already part of the task or an explicit deferral is approved. The blocking fork contract of the canonical `code-review` skill requires Claude Code >= 2.1.218.
+
 ## 1. Required task classification
 
 Before implementation, classify touched impact axes and record active gates:
@@ -23,16 +25,16 @@ Before implementation, classify touched impact axes and record active gates:
 - benchmark or performance;
 - documentation/evidence-only.
 
-Choose the broader **plausibly affected** classification when uncertain, but do not activate unrelated gates solely because the edited class already exposes them. Documentation-only work does not activate runtime gates unless it changes a support, evidence, statistical, or performance claim.
+Choose the broader **plausibly affected** classification when uncertain, but do not activate unrelated gates solely because the edited class already exposes them. Documentation-only work does not activate runtime gates unless it changes a support, evidence, statistical, or performance claim. Conversely, a repository-default gate for genuinely new capability is not inactive merely because a first draft omits it.
 
 Every development report ends with exactly one workflow status:
 
-- `COMPLETE` — all active local blocking gates pass and required docs/artifacts are current;
+- `COMPLETE` — all active/default local blocking gates pass and required docs/artifacts are current;
 - `PARTIAL_REMOTE_PENDING` — local work is complete, but specified physical-GPU, R/external, or large-benchmark evidence is unavailable;
-- `BLOCKED_NEEDS_USER_APPROVAL` — continuation requires an explicit decision such as backend deferral, an unrequested API break, accepted performance caveat, merge/release/publication, or credentials;
-- `FAILED` — an active blocking correctness, compatibility, backend, formula, precision, convergence, fallback, review, or artifact gate remains unresolved.
+- `BLOCKED_NEEDS_USER_APPROVAL` — continuation requires an explicit decision such as backend/CV deferral, an unrequested API break, accepted performance caveat, merge/release/publication, or credentials;
+- `FAILED` — an active/default blocking correctness, compatibility, backend, CV, formula, precision, convergence, fallback, review, or artifact gate remains unresolved.
 
-Do not use “mostly complete” or `planned` as a completion status. Do not call an inactive gate incomplete.
+Do not use “mostly complete” or `planned` as a completion status. Do not call a genuinely inactive gate incomplete, and do not call a repository-default capability complete by silently shrinking its scope.
 
 ## 2. Non-negotiable development gates
 
@@ -45,9 +47,9 @@ Do not use “mostly complete” or `planned` as a completion status. Do not cal
 
 ### 2.2 Backends and device locality
 
-- [ ] Every **new or materially changed numerical/statistical capability** implements/tests every backend that capability declares. Shared statgpu statistical capabilities normally target NumPy, CuPy, and Torch; CPU-only work cannot be described as complete three-backend support.
+- [ ] Every **new or materially changed shared numerical/statistical capability** implements/tests **NumPy, CuPy, and Torch by default**. A narrower backend contract is valid only when it is already a legitimate task/issue scope or an explicit deferral is approved with reason, user-visible failure behavior, deterministic test/skip condition, and follow-up scope.
+- [ ] CPU-only implementation may be an intermediate step, but it is not `COMPLETE` for a new shared capability whose repository-default backend contract remains three-backend.
 - [ ] API-only/deprecation-only/docs-only/narrow refactor work does not require new backend implementation when numerical dispatch is unchanged; instead verify existing backend support and routing are preserved where the interface can affect them.
-- [ ] A backend deferral for an otherwise declared capability requires explicit approval plus reason, user-visible failure behavior, deterministic skip condition, and follow-up scope.
 - [ ] Explicit `device="cuda"` and `device="torch"` never silently fall back to CPU/another backend; only `device="auto"` may select automatically.
 - [ ] Active core fitting, prediction, scoring, inference, and validation remain on the selected backend according to the declared contract; no hidden full-array GPU-to-CPU transfer is introduced.
 - [ ] Fallback, approximate inference, dtype conversion, or device conversion is part of the public contract and visible through an error, warning, result field, or report.
@@ -61,10 +63,11 @@ Do not use “mostly complete” or `planned` as a completion status. Do not cal
 
 ### 2.4 Direct fit and CV closure
 
-- [ ] When a **new or changed public capability declares tuning/CV support**, validate path/grid generation, deterministic/custom folds, fold scoring, best-parameter selection, and final refit.
+- [ ] Every **new tunable loss x penalty capability** closes **direct fit + CV path/grid/folds/scoring/selection/final refit by default**.
+- [ ] CV may be omitted only when the new capability is genuinely non-tunable or an explicit CV deferral is approved with failure behavior, tests, docs, and follow-up scope; merely omitting a CV claim does not make the default gate inactive.
 - [ ] CV preserves loss, weighting, backend, device, dtype, formula alignment, objective normalization, and stage-specific solver semantics.
 - [ ] A direct-estimator API cleanup that does not alter CV semantics does not automatically create new CV scope; add targeted CV regression only when the API can affect CV dispatch/refit/clone behavior.
-- [ ] A declared tunable loss x penalty matrix is not complete until the direct and CV capability promised by that matrix close for the declared surface.
+- [ ] A declared tunable loss x penalty matrix is not complete until the direct and CV capability promised by the repository contract close for the declared surface.
 
 ### 2.5 Inference contract
 
@@ -99,10 +102,10 @@ Do not use “mostly complete” or `planned` as a completion status. Do not cal
 ### 2.9 Testing, review, and validation tier
 
 - [ ] Run applicable lint/type/unit/regression/compatibility/formula/external-alignment/import-order tests proportional to the change's blast radius.
-- [ ] Add affected-backend parity and unavailable-backend error/skip tests when backend behavior is active.
-- [ ] Complete maintained physical CuPy/Torch validation for a `COMPLETE` claim only when the active change requires physical-GPU evidence; otherwise do not convert skipped GPU tests into evidence.
+- [ ] Add NumPy/CuPy/Torch parity and unavailable-backend behavior for new shared numerical capability; for existing narrow changes, test only affected backends plus preservation regressions proportional to blast radius.
+- [ ] Complete maintained physical CuPy/Torch validation for a `COMPLETE` claim when the active/default change requires physical-GPU evidence; otherwise do not convert skipped GPU tests into evidence.
 - [ ] Record highest completed evidence tier where useful: `local-minimal`, `local-full`, or `remote-full`.
-- [ ] Run a fresh `code-review` pass until no unresolved CRITICAL or HIGH remains; relevant actionable MEDIUM must be fixed or explicitly bounded as non-blocking follow-up.
+- [ ] Run a fresh canonical `code-review` pass until no unresolved CRITICAL or HIGH remains; relevant actionable MEDIUM must be fixed or explicitly bounded as non-blocking follow-up.
 - [ ] Independently calculate expected statistical values where feasible rather than only comparing one statgpu path with another.
 
 ### 2.10 Performance and evidence artifacts
@@ -126,7 +129,7 @@ Do not use “mostly complete” or `planned` as a completion status. Do not cal
 
 ### 2.12 Required completion report and repository actions
 
-- [ ] Report impact classification, workflow status, files changed, active backend/CV/inference/formula status, API compatibility decision, objective/penalty mapping and precision/convergence evidence when active, tests, benchmarks/evidence, review outcome, docs, and pending remote commands.
+- [ ] Report impact classification, workflow status, files changed, repository-default gates and approved exceptions, active backend/CV/inference/formula status, API compatibility decision, objective/penalty mapping and precision/convergence evidence when active, tests, benchmarks/evidence, review outcome, docs, and pending remote commands.
 - [ ] Task-scoped implementation authorizes relevant file edits and validation. Commit/push/PR actions occur only when explicitly requested or when the active task already includes an approved branch/PR workflow.
 - [ ] Merge, tag, release, package publication, credential setup, or an unrequested breaking API decision requires explicit user direction.
 - [ ] Credentials are never read from tracked Markdown/settings; remote execution uses maintained untracked/environment configuration.
