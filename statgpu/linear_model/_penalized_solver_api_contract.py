@@ -60,6 +60,26 @@ def _explicit_cpu_solver(signature, self, args, kwargs):
     return False, None, inspect.Parameter.empty
 
 
+def _inside_statgpu_reconstruction() -> bool:
+    """Return True for BaseEstimator clone/set_params constructor replay."""
+    frame = inspect.currentframe()
+    try:
+        for _ in range(12):
+            if frame is None:
+                return False
+            frame = frame.f_back
+            if frame is None:
+                return False
+            if (
+                frame.f_globals.get("__name__") == "statgpu._base"
+                and frame.f_code.co_name in {"__sklearn_clone__", "set_params"}
+            ):
+                return True
+        return False
+    finally:
+        del frame
+
+
 def _install_constructor_warning(cls):
     original = cls.__dict__.get("__init__")
     if original is None or getattr(original, _WRAPPER_MARKER, False):
@@ -80,14 +100,15 @@ def _install_constructor_warning(cls):
         )
 
         # Forwarding through a typed wrapper into the shared base must not emit
-        # the same warning repeatedly.  Also avoid warning for a constructor's
-        # unchanged legacy default: sklearn clone/set_params reconstruct an
-        # estimator with every constructor parameter explicitly supplied.
+        # the same warning repeatedly. Avoid framework-internal clone/set_params
+        # reconstruction as well: the user-facing call that introduced the
+        # deprecated value is the useful warning boundary.
         if (
             depth == 0
             and explicit
             and value is not None
             and (default is inspect.Parameter.empty or value != default)
+            and not _inside_statgpu_reconstruction()
         ):
             warnings.warn(
                 f"{cls.__name__}(cpu_solver=...) is deprecated for direct "
