@@ -1,9 +1,28 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-30<br>
+> 最后更新：2026-09-06<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — Penalized solver API 清理（PR #135）
+
+### 变更
+
+- 公开 direct penalized estimator 统一以与后端无关的 `solver` 作为 direct-fit 的权威算法选择器。旧 `cpu_solver` 暂时保留一个兼容周期，调用者显式使用时产生 `FutureWarning`，但不会被静默映射成 `solver`，从而保持当前 unified-engine 的实际数值行为。
+- `LassoCV` 将 `solver`（最终全数据 refit）与 `cv_solver`（CV folds/path）分开；`cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为 FISTA，拟合后的 `cv_solver_` 记录实际执行算法。
+- 已弃用的 `LassoCV(cpu_solver=...)` 保留历史阶段语义：CPU 上继续作为旧 CV-solver alias；CUDA/Torch 上会 warning，但保持非权威，因此不会替换维护中的 GPU FISTA 路径。
+
+### 兼容性
+
+- 省略 direct `cpu_solver` 与框架内部 reconstruction 不会产生弃用噪声，包括 scikit-learn 1.2 的 `get_params() -> constructor` clone 路径和较新版本的 `__sklearn_clone__` 路径。
+- 显式 `set_params(cpu_solver=...)` 以及 legacy `LassoCV(..., cpu_solver=...).fit(...)` 的 warning 会指向调用者，而不是 statgpu 内部 reconstruction/validation frame。
+- 迁移指南明确区分“删除已经非权威的 direct `cpu_solver` 以保持当前实际行为”和“把旧算法意图显式搬到 `solver`、主动改变实际 solver”两种操作。
+
+### 验证
+
+- 增加 focused solver/deprecation regression coverage，覆盖 direct solver authority、参数省略与显式旧值、sklearn clone/reconstruction、内部 helper warning suppression、`set_params`、LassoCV CPU/GPU alias、`cv_solver_` 与 warning call site。
+- Maintenance compatibility workflow 会在 scikit-learn 1.2.2、1.3.2 与 current 上运行该 focused suite；最终 exact-head hosted 结果在 PR #135 的最终 source head 完成 CI 后记录。
 
 ## 未发布 — Gaussian 后端原生推断（PR #129 / Issue #127）
 
@@ -163,44 +182,23 @@ Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；St
 
 ### 生存分析
 
-- 完成 CoxPH Phase 1：支持 Breslow、Efron 与 Exact ties，delayed entry、
-  `(start, stop]` counting-process 数据、共享系数的分层模型、subject identifier，
-  以及 `Surv(start, stop, event)` 公式输入。
-- 为 NumPy、CuPy 与 Torch-CUDA 增加共享的 Cox risk-set objective、gradient、
-  information matrix 与 baseline estimation primitive；Exact tied-event partition
-  使用 backend-native dynamic programming。
-- `CoxPHCV` 的 held-out partial likelihood 现支持全部 tie method、delayed entry、
-  start-stop row、strata 与按 subject 分组的 fold。
-- 强化 Cox inference、centered risk-set 数值计算、log-domain baseline prediction、
-  公式 NA 对齐、奇异 information 检查、CV cache identity、fold eligibility、
-  selected-penalty 全数据 refit 与失败 fit 的状态清理。
-- 强化 L1、L2、Elastic Net、SCAD 与 MCP penalized Cox estimation；移除不可识别
-  intercept，修正 Cox-specific warm start，并使 Torch Efron 的 value、gradient
-  与 Hessian 路径保持原生实现。
+- 完成 CoxPH Phase 1：支持 Breslow、Efron 与 Exact ties，delayed-entry 和 `(start, stop]` counting-process 数据、共享系数的分层模型、subject identifier，以及 `Surv(start, stop, event)` 公式输入。
+- 为 NumPy、CuPy 与 Torch-CUDA 增加共享的 Cox risk-set objective、gradient、information matrix 与 baseline estimation primitive；Exact tied-event partition 使用 backend-native dynamic programming。
+- `CoxPHCV` 的 held-out partial likelihood 现支持全部 tie method、delayed entry、start-stop row、strata 与按 subject 分组的 fold。
+- 强化 Cox inference、centered risk-set 数值计算、log-domain baseline prediction、公式 NA 对齐、奇异 information 检查、CV cache identity、fold eligibility、selected-penalty 全数据 refit 与失败 fit 的状态清理。
+- 强化 L1、L2、Elastic Net、SCAD 与 MCP penalized Cox estimation；移除不可识别 intercept，修正 Cox-specific warm start，并使 Torch Efron 的 value、gradient 与 Hessian 路径保持原生实现。
 
 ### 交叉验证与分组惩罚
 
-- 请求 CoxPHCV two-stage 或 successive-halving 时，统一执行一次显式 exhaustive
-  full-precision candidate pass，在保持确定性选择语义的同时避免重复完整 grid fit。
-- 一次性 `CoxPHCV.cv_splits` iterator 可在重复 fit、scikit-learn clone、参数重建
-  与 pickle 中复用。
-- 公开 Group Lasso 与 Adaptive Group Lasso 在支持的 backend 上统一采用 generic
-  loss-gradient 与 exact group-proximal 路径。
+- 请求 CoxPHCV two-stage 或 successive-halving 时，统一执行一次显式 exhaustive full-precision candidate pass，在保持确定性选择语义的同时避免重复完整 grid fit。
+- 一次性 `CoxPHCV.cv_splits` iterator 可在重复 fit、scikit-learn clone、参数重建与 pickle 中复用。
+- 公开 Group Lasso 与 Adaptive Group Lasso 在支持的 backend 上统一采用 generic loss-gradient 与 exact group-proximal 路径。
 
 ### 验证与打包
 
-- Hosted workflow #960 已在最终审查 head
-  `f05a44ad363b46612e956e137e2f00d040765acb` 上通过：文档、static、完整 CPU
-  与 Python 3.9–3.12 regression job 均通过；完整 CPU suite 为 1881 passed、
-  662 skipped。
-- 最终 exact-head 物理 GPU promotion artifact 已作为
-  [schema-3 evidence](https://gist.github.com/TheHiddenObserver/afdcad86a243e68a918d852b92e984a4)
-  持久发布。它记录 134/134 项检查通过、child 与 nested return code 均为 0、
-  gate-failure 数组为空、运行前后源码状态干净，SHA-256 为
-  `bd4058450def691dd29e9d78853534016c6da70c33192a97dc312d95cbe5d76d`。
-- 包版本更新为 `0.2.3`。新增 release-package validation：检查版本一致性，构建
-  pure-Python wheel 与 sdist，执行 `twine check`，核验 artifact 内容，并在干净
-  环境中分别 smoke-install 两种发行包。
+- Hosted workflow #960 已在最终审查 head `f05a44ad363b46612e956e137e2f00d040765acb` 上通过：文档、static、完整 CPU 与 Python 3.9–3.12 regression job 均通过；完整 CPU suite 为 1881 passed、662 skipped。
+- 最终 exact-head 物理 GPU promotion artifact 已作为 [schema-3 evidence](https://gist.github.com/TheHiddenObserver/afdcad86a243e68a918d852b92e984a4) 持久发布。它记录 134/134 项检查通过、child 与 nested return code 均为 0、gate-failure 数组为空、运行前后源码状态干净，SHA-256 为 `bd4058450def691dd29e9d78853534016c6da70c33192a97dc312d95cbe5d76d`。
+- 包版本更新为 `0.2.3`。新增 release-package validation：检查版本一致性，构建 pure-Python wheel 与 sdist，执行 `twine check`，核验 artifact 内容，并在干净环境中分别 smoke-install 两种发行包。
 
 ## 更早的历史记录
 
