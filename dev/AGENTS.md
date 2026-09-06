@@ -10,6 +10,8 @@
 
 各 skill 的 supporting reference 按需加载。`.claude/workflows/new-module-dev.md` 与旧的 `.claude/skills/*.md` 平铺文件仅作为历史链接兼容指针，不再是 authoritative entrypoint。若本文和 canonical skill 有冲突，开发任务中优先执行 canonical skill，并在结果中说明差异。
 
+`code-review` 使用 `context: fork` + `background: false` 作为独立、阻塞式 review gate；该同步 fork contract 要求 **Claude Code >= 2.1.218**。更旧客户端不要假定这一阻塞语义成立，应先升级再把 `/code-review` 当作 completion gate。
+
 ## 项目概览
 
 `statgpu` 是一个 GPU 加速的统计计算 Python 库，提供接近 scikit-learn 的 `fit` / `predict` / `score` API。项目重点是统计建模、推断、特征选择、生存分析和非参数方法，并通过 NumPy、CuPy、PyTorch 后端在 CPU/GPU 间切换。
@@ -58,12 +60,12 @@
 
 ## 通用开发硬规则
 
-以下规则适用于后续功能开发和重构，但由 impact classification 决定哪些 gate 真正激活：
+以下规则适用于后续功能开发和重构，但由 impact classification 决定哪些 gate 真正激活。**Impact-driven 不等于 capability 自己缩窄默认 DoD**：
 
-- **新增或实质改变 numerical/statistical capability** 时，若该能力声明 NumPy、CuPy、Torch 三后端支持，则必须关闭三后端实现/验证；CPU-only 新能力不能冒充完整的三后端能力。若某端暂不可行，必须有明确 deferral、用户可见失败行为、测试条件和后续路径。
-- **API-only、deprecation-only、docs-only 或不改变 numerical dispatch 的窄 refactor** 不要求重新实现或扩展无关 backend/CV/inference 能力；应验证已有 support claim 与相关 dispatch 没有被破坏。
+- **新增或实质改变 shared numerical/statistical capability** 时，statgpu 的默认 backend contract 是 **NumPy + CuPy + Torch**。除非 task/issue 已明确给出合理的更窄能力，或用户明确批准 backend deferral，否则三后端实现/验证都是 completion gate；CPU-only 可以是中间阶段，但不能被称为完整新 capability。deferral 必须记录原因、用户可见失败行为、确定性测试/skip 条件和后续 scope。
+- **新增 tunable loss x penalty capability** 时，默认 completion contract 同时包含 **direct fit + CV path/grid/folds/scoring/selection/final refit**。只有该能力统计上确实 non-tunable，或用户明确批准 CV deferral，才可以不做 CV。不能通过“不声明 CV”来绕过默认 closure。
+- **API-only、deprecation-only、docs-only 或不改变 numerical dispatch 的窄 refactor** 不要求重新实现或扩展无关 backend/CV/inference 能力；应验证已有 support claim 与相关 dispatch/clone/refit 没有被破坏。这是 impact-driven scope 收敛的主要用途。
 - 显式 `device="cuda"` 或 `device="torch"` 不允许静默回退 CPU；fallback、approximate inference、dtype/device 变化必须是公开契约的一部分，并在错误、warning 或结果字段中可见。
-- 新增/改变 public tunable loss x penalty capability 时，若该能力声明 CV 支持，则必须同步验证 alpha/lambda/C path、fold scoring、best parameter selection 和 final refit。单纯修改一个与 CV 无关的 API 不应被迫扩展 CV scope。
 - inference 是 blocking gate 当且仅当当前 public API/docs 声明 inference，或本次变更触及 `compute_inference`、`summary()`、covariance、SE、p-value、CI、inference result/backend behavior。一个没有 inference public contract 的 prediction-oriented estimator 可以合法 estimation-only；不要仅因为外部包提供 inference 就自动扩大 statgpu scope。
 - Formula-facing 方法必须验证 R-style/patsy 兼容，包括 intercept、categorical reference level、interaction/transform、missing data、列名和列顺序；暂不支持的语法要有明确失败模式和文档说明。
 - 新增 inference、stopping rule、solver dispatch、影响数值的 memory behavior 或 estimator 行为时，外部/analytic baseline 应覆盖本次 active contract；能覆盖 coef/bse/p/CI/AIC/BIC/LLF、预测、目标函数或 KKT 的场景按需覆盖。
@@ -307,4 +309,4 @@ GPU、远程、benchmark、R 对比类脚本较多，通常不应在本地无目
 - 优先沿用现有 sklearn 风格 API、后端抽象、solver/penalty 注册表和文档结构。
 - 新增 estimator 时尽量继承或模仿现有 `BaseEstimator`、`linear_model` 和 `glm_core` 模式。
 - 新增后端相关逻辑时，要同时考虑 NumPy、CuPy、Torch 的数组类型、设备纯度和结果转回 NumPy 的边界。
-- 新增统计方法时，至少补充针对性单元测试；若涉及 GPU 或性能，再补充相应 backend validation/benchmark，而不是无条件跑全部远程矩阵。
+- 新增统计方法时，至少补充针对性单元测试；新 shared numerical capability 的三后端 closure 仍是默认 DoD；若涉及性能，再补充相应 benchmark，而不是无条件跑与任务无关的远程矩阵。
