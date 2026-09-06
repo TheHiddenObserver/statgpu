@@ -38,7 +38,7 @@ class LassoCV(CVEstimatorBase):
 
     ``solver`` controls the final full-data refit. ``cv_solver`` controls the
     cross-validation path. The deprecated ``cpu_solver`` parameter is retained
-    temporarily as an alias for ``cv_solver``.
+    temporarily as a compatibility alias for CPU CV behavior.
 
     Parameters
     ----------
@@ -62,10 +62,13 @@ class LassoCV(CVEstimatorBase):
         Solver for the final full-data Lasso refit.
     cv_solver : {'auto', 'coordinate_descent', 'fista'}, default='auto'
         Solver for the CV folds/path. ``auto`` chooses coordinate descent on
-        CPU and FISTA on GPU. ``method='glmnet'`` always uses coordinate descent.
+        CPU and FISTA on CUDA/Torch. ``method='glmnet'`` forces coordinate
+        descent only on the CPU path; GPU paths retain backend-native FISTA.
     cpu_solver : str or None, deprecated
-        Deprecated compatibility alias for ``cv_solver``. It will be removed
-        in a future breaking release.
+        Deprecated compatibility control for the historical CPU CV solver.
+        On CPU it is treated as the legacy alias for ``cv_solver``. On
+        CUDA/Torch it warns but remains non-authoritative, preserving the old
+        behavior where this CPU-only control did not change the GPU CV solver.
     compute_inference : bool
         Whether to compute inference on the final refit.
     random_state : int or None
@@ -90,7 +93,7 @@ class LassoCV(CVEstimatorBase):
     estimator_ : Lasso
         The fitted Lasso estimator with selected alpha.
     cv_solver_ : str
-        Resolved solver used by the CV path.
+        Actual solver used by the CV path after device/method resolution.
 
     Examples
     --------
@@ -170,7 +173,7 @@ class LassoCV(CVEstimatorBase):
         self.cv_solver_ = None
 
     def _resolve_cv_solver(self, device_name: str) -> str:
-        """Resolve the CV-only solver without changing final-refit semantics."""
+        """Resolve the actual CV solver without changing legacy GPU behavior."""
         requested = str(self.cv_solver).strip().lower()
         allowed = {"auto", "coordinate_descent", "fista"}
         if requested not in allowed:
@@ -178,6 +181,7 @@ class LassoCV(CVEstimatorBase):
                 "cv_solver must be one of 'auto', 'coordinate_descent', or 'fista'"
             )
 
+        device_name = str(device_name).strip().lower()
         legacy = None
         if self.cpu_solver is not None:
             legacy = str(self.cpu_solver).strip().lower()
@@ -188,39 +192,49 @@ class LassoCV(CVEstimatorBase):
             warnings.warn(
                 "LassoCV(cpu_solver=...) is deprecated; use cv_solver=... for "
                 "the cross-validation path. solver=... controls only the final "
-                "full-data refit. cpu_solver will be removed in a future "
-                "breaking release.",
+                "full-data refit. On CUDA/Torch, historical cpu_solver values "
+                "remain non-authoritative and do not replace GPU FISTA. "
+                "cpu_solver will be removed in a future breaking release.",
                 FutureWarning,
                 stacklevel=3,
             )
-            if requested != "auto" and requested != legacy:
+            if (
+                device_name == "cpu"
+                and requested != "auto"
+                and requested != legacy
+            ):
                 raise ValueError(
                     "cv_solver and deprecated cpu_solver specify different CV solvers"
                 )
 
         method = str(self.method).strip().lower()
+
+        # The maintained GPU CV engine is FISTA-based. Historically cpu_solver
+        # was a CPU-only control and did not change that GPU path, including in
+        # method='glmnet' mode. Preserve that behavior for the deprecated alias
+        # and make cv_solver_ report the algorithm that actually executes.
+        if device_name != "cpu":
+            if requested == "coordinate_descent":
+                raise ValueError(
+                    "cv_solver='coordinate_descent' is CPU-only; use "
+                    "cv_solver='auto' or cv_solver='fista' for CUDA/Torch CV"
+                )
+            return "fista" if requested == "auto" else requested
+
+        # CPU glmnet mode historically forced coordinate descent regardless of
+        # cpu_solver. Preserve that result for the deprecated alias, while a
+        # conflicting value supplied through the new cv_solver API is explicit.
         if method == "glmnet":
-            # Historical glmnet mode always overrode cpu_solver to coordinate
-            # descent. Preserve that result for the deprecated alias, while a
-            # conflicting value supplied through the new cv_solver API is an
-            # explicit contract error.
             if requested not in {"auto", "coordinate_descent"}:
                 raise ValueError(
-                    "method='glmnet' requires cv_solver='coordinate_descent' or 'auto'"
+                    "method='glmnet' requires cv_solver='coordinate_descent' or 'auto' on CPU"
                 )
             return "coordinate_descent"
 
         if requested == "auto" and legacy is not None:
             requested = legacy
-
-        device_name = str(device_name).strip().lower()
         if requested == "auto":
-            return "coordinate_descent" if device_name == "cpu" else "fista"
-        if requested == "coordinate_descent" and device_name != "cpu":
-            raise ValueError(
-                "cv_solver='coordinate_descent' is CPU-only; use cv_solver='auto' "
-                "or cv_solver='fista' for CUDA/Torch CV"
-            )
+            return "coordinate_descent"
         return requested
 
     def fit(self, X, y, sample_weight=None):
