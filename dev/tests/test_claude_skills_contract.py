@@ -184,6 +184,37 @@ def test_skill_eval_definitions_are_present_and_well_formed():
             assert item.get("assertions")
 
 
+def test_code_review_has_substantive_known_bug_golden_eval():
+    data = json.loads(_read(SKILLS / "code-review" / "evals" / "evals.json"))
+    base_sha = "b17c8a6c161065bfbe9efa9f60d0fad69a464773"
+    buggy_head_sha = "ac19eed297cff557a1c86595c1ec418e1b505249"
+
+    matches = [
+        item
+        for item in data["evals"]
+        if base_sha in item["prompt"] and buggy_head_sha in item["prompt"]
+    ]
+    assert len(matches) == 1, "code-review must keep one immutable known-bug golden eval"
+
+    golden = matches[0]
+    combined = "\n".join(
+        [golden["prompt"], golden["expected_output"], *golden["assertions"]]
+    ).lower()
+    for phrase in (
+        "three-dot",
+        "api/deprecation",
+        "green ci",
+        "lassocv",
+        "cuda/torch",
+        "sklearn 1.2",
+        "debiased",
+        "docstring",
+        "blocking",
+    ):
+        assert phrase in combined, f"known-bug golden eval must cover {phrase!r}"
+    assert "review clean" in combined
+
+
 def test_current_authority_docs_use_current_claude_namespaces_and_version_semantics():
     current_files = [
         ROOT / "dev" / "AGENTS.md",
