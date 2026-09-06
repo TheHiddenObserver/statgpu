@@ -791,7 +791,7 @@ Cache hash **不影响估计精度**：
 
 **临时方案**：对加权 GLM 使用 `penalty='l2'` 配合 `solver='irls'`。
 
-**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`) ，以支持所有惩罚的非均匀权重。
+**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`），以支持所有惩罚的非均匀权重。
 
 ## 性能特征
 
