@@ -619,145 +619,40 @@ for alpha in alphas_descending:
 
 ## 结果缓存
 
-`LassoCV`、`ElasticNetCV`、`RidgeCV` 实现了基于 hash 的结果缓存，避免对相同数据和参数重复执行交叉验证。**这不是 GPU 特有的优化**，而是通用的计算缓存机制，对 CPU 和 GPU 路径同等生效。
+`LassoCV` 在 `statgpu.linear_model.wrappers._lasso` 中使用 selection-only LRU cache。缓存 payload 只包含 `alpha`、实际评估的 `alphas`、`mse_path` 和 `mean_mse`；最终全数据重拟合得到的 estimator 与系数不会存入这个 selection cache。
 
-### 为什么需要缓存？
+### LassoCV 数据身份
 
-交叉验证（CV）是昂贵的操作：
+`X`、`y` 和 `sample_weight` 分别通过 `_array_identity_token(...)` 表示：
 
-```
-LassoCV(n_alphas=100, cv=5) → 100 × 5 = 500 次模型拟合
-```
+- `None` 有独立 token；
+- NumPy、CuPy、Torch 数组的 token 包含 backend tag、shape、dtype 和 BLAKE2b digest；
+- 行数不超过 100 时 hash 全部行；更大数组 hash 100 个均匀抽样行；
+- CuPy/Torch 只把用于 hash 的抽样行传回 host。
 
-在以下场景中，用户可能对相同数据多次调用 fit：
+这是**基于内容**的身份，而不是内存地址身份：重新分配一个 shape、dtype 与抽样内容相同的数组，不会仅因地址变化而 miss。
 
-```python
-# 场景 1：超参数搜索
-for max_iter in [100, 500, 1000]:
-    m = LassoCV(max_iter=max_iter).fit(X, y)  # 同一数据，不同参数
+### LassoCV selection key
 
-# 场景 2：逐步建模
-m1 = LassoCV().fit(X, y)          # 第一次 fit
-m2 = LassoCV().fit(X, y)          # 相同参数，应直接返回缓存
+当前 `_make_lasso_cv_auto_cache_key(...)` 包含：
 
-# 场景 3：调试/实验
-m = LassoCV().fit(X, y)           # 运行一次
-# ... 修改其他代码 ...
-m = LassoCV().fit(X, y)           # 再次运行，应命中缓存
-```
+- `X`、`y`、`sample_weight` 的 identity token；
+- 完整已评估 alpha 网格的 digest；
+- **每个 fold 的完整 train/validation index 数组**的 digest；
+- `fit_intercept` 与 CV 是否在 GPU 上执行；
+- `max_iter`、`tol`；
+- 解析后的 CV solver（helper 的历史字段名仍为 `cpu_solver`）；
+- 规范化后的 `method` / `cv_method`；
+- `cd_kkt_check_every`；
+- `gpu_cv_mixed_precision`。
 
-### 缓存架构
+最终 refit 的 `solver` 被刻意排除，因为它不会改变 alpha scoring。因此只改变最终重拟合算法时，可以复用同一份 alpha-selection evidence。
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ LassoCV.fit(X, y, sample_weight)                        │
-│                                                          │
-│  1. data_digest = _hash_data(X, y, sample_weight)        │
-│     └─ 采样 100 行 + shape + 摘要统计 → 16 字节指纹      │
-│                                                          │
-│  2. cache_key = _make_cache_key(参数 + data_digest)      │
-│     └─ 所有 CV 参数 + 数据指纹 → 32 字节哈希             │
-│                                                          │
-│  3. 查缓存                                               │
-│     ├─ 命中 → 直接返回缓存的 alpha, mse_path, coef_      │
-│     └─ 未命中 → 执行 CV → 结果存入 LRU 缓存              │
-└─────────────────────────────────────────────────────────┘
-```
+### LRU payload 与容量
 
-### 数据指纹 `_hash_data(X, y, sample_weight)`
+缓存使用 `OrderedDict`；读取命中后把条目移到末尾，插入超出容量后淘汰最久未使用的条目。默认容量是 **64**，导入时由 `STATGPU_LASSO_CV_CACHE_SIZE` 控制。命中时返回 selection payload 中 NumPy 数组的副本，避免调用者意外修改缓存内部对象。
 
-**设计目标**：
-- 能区分不同数据集（避免碰撞）
-- 计算成本低（O(100×p) 而非 O(n×p)）
-- 支持 GPU 数组（CuPy/torch → 自动转 numpy）
-
-**实现**：
-
-```python
-def _hash_data(X, y, sample_weight=None) -> bytes:
-    h = blake2b(digest_size=16)
-
-    # 1. 记录 shape
-    h.update(shape_bytes)           # (n, p) → 8 bytes
-
-    # 2. 采样 100 行（均匀间距）
-    idx = arange(0, n, n//100)[:100]
-    h.update(X[idx].tobytes())      # 100 × p × 8 bytes
-    h.update(y[idx].tobytes())      # 100 × 8 bytes
-
-    # 3. 摘要统计（兜底唯一性）
-    h.update([mean(X), std(X)])     # 16 bytes
-    h.update([mean(y), std(y)])     # 8 bytes
-
-    # 4. sample_weight（如有）
-    h.update(sw[idx].tobytes())     # 100 × 8 bytes
-    h.update([mean(sw)])            # 8 bytes
-
-    return h.digest()               # 16 bytes
-```
-
-**为什么采样 100 行？**
-
-| 方案 | 成本 | 碰撞风险 |
-|------|------|---------|
-| 全量数据 | O(n×p) | ≈ 0 |
-| 首末行 + 摘要 | O(1) | 高（中间行不同无法检测） |
-| **100 行采样** | O(100×p) | 极低 |
-
-100 行采样使得两个不同数据集的 100 个采样点完全相同的概率极低（对随机数据约为 2^(-128)）。
-
-### 参数指纹 `_make_cache_key(...)`
-
-对 `LassoCV` 的 **selection cache** 来说，key 只包含会改变 CV evidence 的参数。最终 refit 的 `solver` 不会影响 alpha scoring，因此刻意不放进 selection key。
-
-- `X_shape`, `y_shape` — 数据维度
-- `alphas` — alpha 网格（如有）
-- `n_alphas`, `alpha_min_ratio` — 网格生成参数
-- `fit_intercept`, `use_gpu`, `max_iter`, `tol` — CV 执行参数
-- 解析后的 CV solver（helper 内部字段仍名为 `cpu_solver`）、公开的 `method`（内部名为 `cv_method`）以及 `cd_kkt_check_every` — `LassoCV` 的 CV-path 控制
-- `fold_indices` — 每 fold 前 5 个 index
-- `sample_weight_shape` — 权重维度
-- `data_digest` — 来自 `_hash_data` 的数据指纹
-
-### LRU 缓存
-
-```python
-_LASSO_CV_ALPHA_CACHE = {}  # 全局字典
-_LASSO_CV_ALPHA_CACHE_MAXSIZE = 16  # 最多缓存 16 个结果
-
-def _cache_get(key):
-    val = cache.get(key)
-    if val is not None:
-        cache.move_to_end(key)  # LRU: 最近使用移到末尾
-    return val
-
-def _cache_put(key, value):
-    cache[key] = value
-    while len(cache) > MAXSIZE:
-        cache.popitem(last=False)  # 淘汰最久未用
-```
-
-### 缓存与 GPU 的关系
-
-Cache hash **不是 GPU 特有的优化**，但对 GPU 路径特别有价值：
-
-| 开销来源 | CPU | GPU |
-|----------|-----|-----|
-| 数据传输 (H2D) | 无 | ~1-10ms |
-| JIT 编译 (torch.compile) | 无 | ~100ms 首次 |
-| CV 计算本身 | 相同 | 相同或更快 |
-
-GPU 的首次调用开销（JIT + H2D）使得缓存命中时的节省更大。
-
-### 精度影响
-
-Cache hash **不影响估计精度**：
-
-- 缓存存储的是完整的 CV 结果（alpha, mse_path, coef_）
-- 碰撞概率极低（blake2b 128-bit + 参数区分）
-- 缓存未命中时正常计算，结果完全相同
-
-唯一的理论风险是 hash 碰撞导致返回错误数据集的结果，但对随机数据概率约为 2^(-128)。
+本节描述的是当前 **LassoCV selection cache**。`RidgeCV` 与 `ElasticNetCV` 有各自的缓存实现，不应从这份 key 反推它们的具体字段。
 
 ## Alpha 约定
 

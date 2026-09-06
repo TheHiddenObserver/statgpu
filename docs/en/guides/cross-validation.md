@@ -649,116 +649,40 @@ This reduces iterations by 3-5x compared to cold start.
 
 ### Result Caching
 
-`LassoCV`, `ElasticNetCV`, and `RidgeCV` implement hash-based result caching to avoid redundant cross-validation runs on identical data and parameters. This benefits both CPU and GPU paths equally.
+`LassoCV` uses a selection-only LRU cache inside `statgpu.linear_model.wrappers._lasso`. The cached payload contains `alpha`, the evaluated `alphas`, `mse_path`, and `mean_mse`; the final full-data estimator and its coefficients are always produced by the refit stage and are not stored in this selection cache.
 
-**Motivation**: Cross-validation is expensive -- e.g., `LassoCV(n_alphas=100, cv=5)` performs 500 model fits. Caching avoids redundant computation when the same estimator is fit multiple times on the same data:
+#### LassoCV data identity
 
-```python
-# Same data, different max_iter -> cache miss, recomputed
-m1 = LassoCV(max_iter=100).fit(X, y)
-m2 = LassoCV(max_iter=500).fit(X, y)
+Each of `X`, `y`, and `sample_weight` is represented by `_array_identity_token(...)`:
 
-# Same data, same params -> cache hit, instant return
-m3 = LassoCV(max_iter=100).fit(X, y)
-```
+- `None` has its own token;
+- NumPy, CuPy, and Torch arrays carry a backend tag, shape, dtype, and a BLAKE2b digest;
+- arrays with at most 100 rows hash all rows; larger arrays hash 100 evenly spaced rows;
+- CuPy/Torch sample rows are transferred to host only for hashing the sampled content.
 
-#### Cache Architecture
+This is content-based identity: allocating a new array with the same sampled values, shape, and dtype does not miss merely because its memory address changed.
 
-```
-+---------------------------------------------------------+
-| LassoCV.fit(X, y, sample_weight)                        |
-|                                                          |
-|  1. data_digest = _hash_data(X, y, sample_weight)        |
-|     +-- Sample 100 rows + shape + summary stats -> 16 B  |
-|                                                          |
-|  2. cache_key = _make_cache_key(params + data_digest)    |
-|     +-- All CV params + data fingerprint -> 32 B hash    |
-|                                                          |
-|  3. Lookup                                               |
-|     +-- Hit -> return cached alpha, mse_path, coef_      |
-|     +-- Miss -> run CV -> store result in LRU cache      |
-+---------------------------------------------------------+
-```
+#### LassoCV selection key
 
-#### Data Fingerprint: `_hash_data(X, y, sample_weight)`
+`_make_lasso_cv_auto_cache_key(...)` currently contains:
 
-**Design goals**: distinguish different datasets, low computation cost (O(100*p) not O(n*p)), and support GPU arrays (CuPy/torch auto-convert to numpy).
+- the `X`, `y`, and `sample_weight` identity tokens;
+- a digest of the complete evaluated alpha grid;
+- a digest of the **complete train and validation index arrays for every fold**;
+- `fit_intercept` and whether the CV execution is GPU-backed;
+- `max_iter` and `tol`;
+- the resolved CV solver (the helper's historical field name is `cpu_solver`);
+- normalized `method` / `cv_method`;
+- `cd_kkt_check_every`;
+- `gpu_cv_mixed_precision`.
 
-```python
-def _hash_data(X, y, sample_weight=None) -> bytes:
-    h = blake2b(digest_size=16)
+The final-refit `solver` is intentionally absent because it cannot change alpha scoring. The selected alpha and CV evidence can therefore be reused when only the final-refit algorithm changes.
 
-    # 1. Record shape
-    h.update(shape_bytes)           # (n, p) -> 8 bytes
+#### LRU payload and capacity
 
-    # 2. Sample 100 evenly-spaced rows
-    idx = arange(0, n, n//100)[:100]
-    h.update(X[idx].tobytes())      # 100 x p x 8 bytes
-    h.update(y[idx].tobytes())      # 100 x 8 bytes
+The cache is an `OrderedDict`; reads move an entry to the end and inserts evict the least-recently-used entry after the configured capacity is exceeded. The default capacity is **64**, controlled by `STATGPU_LASSO_CV_CACHE_SIZE` at import time. A cache hit returns cloned NumPy arrays for the cached selection payload so callers cannot mutate the stored entry accidentally.
 
-    # 3. Summary stats (fallback uniqueness)
-    h.update([mean(X), std(X)])     # 16 bytes
-    h.update([mean(y), std(y)])     # 8 bytes
-
-    # 4. sample_weight (if provided)
-    h.update(sw[idx].tobytes())     # 100 x 8 bytes
-    h.update([mean(sw)])            # 8 bytes
-
-    return h.digest()               # 16 bytes
-```
-
-**Why sample 100 rows?**
-
-| Approach | Cost | Collision Risk |
-|----------|------|----------------|
-| Full data | O(n*p) | ~ 0 |
-| First/last + summary | O(1) | High (middle rows differ) |
-| **100-row sample** | O(100*p) | Negligible |
-
-With 100 sampled rows, the probability of two different datasets having identical samples is approximately 2^(-128) for random data.
-
-#### Parameter Fingerprint: `_make_cache_key(...)`
-
-For the `LassoCV` **selection cache**, the key contains the parameters that can change CV evidence. The final-refit `solver` is deliberately not part of that selection key because it does not change alpha scoring.
-
-- `X_shape`, `y_shape` -- data dimensions
-- `alphas` -- alpha grid (if provided)
-- `n_alphas`, `alpha_min_ratio` -- grid generation params
-- `fit_intercept`, `use_gpu`, `max_iter`, `tol` -- CV execution params
-- the resolved CV solver (the helper's internal field is still named `cpu_solver`), public `method` (internally `cv_method`), and `cd_kkt_check_every` -- LassoCV CV-path controls
-- `fold_indices` -- first 5 indices per fold
-- `sample_weight_shape` -- weight dimensions
-- `data_digest` -- from `_hash_data`
-
-#### LRU Cache
-
-```python
-_LASSO_CV_ALPHA_CACHE = {}      # Global dict
-_LASSO_CV_ALPHA_CACHE_MAXSIZE = 16  # Max 16 cached results
-
-def _cache_get(key):
-    val = cache.get(key)
-    if val is not None:
-        cache.move_to_end(key)  # LRU: move to end on access
-    return val
-
-def _cache_put(key, value):
-    cache[key] = value
-    while len(cache) > MAXSIZE:
-        cache.popitem(last=False)  # Evict least recently used
-```
-
-#### GPU Impact
-
-Cache hash is not a GPU-specific optimization, but it is particularly valuable for GPU paths:
-
-| Overhead Source | CPU | GPU |
-|-----------------|-----|-----|
-| Data transfer (H2D) | None | ~1-10ms |
-| JIT compilation (torch.compile) | None | ~100ms first call |
-| CV computation | Same | Same or faster |
-
-A cache hit on GPU saves not only CV computation time but also JIT + H2D fixed overhead. Cached results store complete CV outputs and do not affect estimation precision.
+This subsection documents the current `LassoCV` selection cache specifically. `RidgeCV` and `ElasticNetCV` have their own cache implementations and should be read from their corresponding implementation paths rather than inferred from this key.
 
 ### Alpha Convention
 

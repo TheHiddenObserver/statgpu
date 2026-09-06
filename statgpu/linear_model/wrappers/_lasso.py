@@ -1563,8 +1563,12 @@ def _select_lasso_alpha_cv(
     sample_weight_np = None
 
     if gpu_input_cupy or gpu_input_torch:
-        # GPU inputs - get backend for validation
-        backend = get_backend(backend='auto', device='cuda')
+        # GPU inputs - validate on the concrete input backend. A resolved
+        # Torch/CuPy request must not be reinterpreted by auto-selection.
+        if gpu_input_torch:
+            backend = get_backend(backend='torch', device='cuda')
+        else:
+            backend = get_backend(backend='cupy', device='cuda')
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
