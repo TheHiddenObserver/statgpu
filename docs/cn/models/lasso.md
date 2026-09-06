@@ -9,7 +9,7 @@
 
 ## 概览（Overview）
 
-`Lasso` 提供 L1 正则线性回归，支持 CPU/GPU 训练与多种推断模式。直接拟合现在使用**统一、与后端无关的 `solver` 接口**；“在哪个设备上算”和“使用哪种算法”是两个独立选择。
+`Lasso` 提供 L1 正则线性回归，支持 CPU/GPU 训练与多种推断模式。直接拟合使用统一、与后端无关的 `solver` 接口；设备选择、求解算法和统计推断方法是三个独立维度。
 
 ## 路径（Path）
 
@@ -41,18 +41,33 @@ Lasso 通过迭代优化求解，而不是闭式 normal equation。停止条件�
 
 `Lasso` 推断由 `inference_method` 控制：
 
-- `cpu_ols_inference`：CPU 侧 OLS 风格 post-selection 推断
-- `gpu_ols_inference`：GPU 侧推断，减少 host/device 大块传输
-- `debiased`：去偏 Lasso 推断（de-biased / de-sparsified），使用 z 统计量语义
-- `bootstrap`：重采样推断，通常更慢
+- `post_selection_ols`：与硬件无关的 active-set OLS/WLS 重拟合 diagnostic；
+- `debiased`：去偏 Lasso 推断（de-biased / de-sparsified），使用 z 统计量语义；
+- `bootstrap`：residual bootstrap，计算通常更昂贵，也不是对模型选择不确定性的普适修正。
+
+统一 wrapper 中的 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**。一个兼容周期内仍可传入，但会发出 `FutureWarning` 并统一归一化为 `post_selection_ols`；它们不是“CPU 版”和“GPU 版”两个不同的统计方法。`LassoCV` 还会在其兼容边界接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并映射到同一个 canonical method。
+
+### `post_selection_ols` 实际计算什么？
+
+penalized fit 先选出 active feature set。随后 statgpu 在**成功拟合已经记录的 backend/device** 上，只对这些选中列做无惩罚 OLS；如果传入 `sample_weight`，则做 WLS，并在同一个数值 backend 上计算 Gaussian covariance 与参考分布推断，最后才执行既有的 NumPy reporting snapshot。
+
+原始 penalized `coef_` 保持不变，并继续用于预测；active-set OLS/WLS 重拟合用于推断与报告，保存在 `_params`、`_inference_result`、`_bse`、`_tvalues` / `_zvalues`、`_pvalues`、`_conf_int` 等字段中。
 
 有效性边界：
-- `cpu_ols_inference` / `gpu_ols_inference` 的区间是 post-selection 启发式区间，不应解释为严格 selective-inference confidence interval。
-- 普通 `debiased` `_conf_int` 是单个系数的 marginal interval；需要 family-wise 区间时应显式启用 simultaneous inference。
 
-兼容旧名映射：
-- `naive_ols` -> `cpu_ols_inference`
-- `gpu_naive_ols` -> `gpu_ols_inference`
+- `post_selection_ols` 是启发式 post-selection diagnostic。用同一数据先选变量再做普通 OLS/WLS，并不会自动获得一般 selective-inference coverage；
+- 普通 `debiased` `_conf_int` 是单个系数的 marginal interval；需要 family-wise 区间时，应显式启用 simultaneous inference。
+
+### 设备/backend 规则
+
+`inference_method` 只描述**计算哪种统计程序**，不选择硬件：
+
+- 显式 `device="cpu"` -> NumPy CPU；
+- 显式 `device="cuda"` -> 只允许 CuPy CUDA，不可用时 fail closed；
+- 显式 `device="torch"` -> 只允许 Torch CUDA，不可用时 fail closed；
+- 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
+
+fit 成功以后，拟合后系数推断复用 `_selected_backend_name` / `_selected_backend_device`，不会再根据原始输入容器重新猜一次 backend。
 
 ## 参数（Parameters）
 
@@ -65,7 +80,7 @@ Lasso 通过迭代优化求解，而不是闭式 normal equation。停止条件�
 | `max_iter` | `1000` | 优化最大迭代次数。 |
 | `tol` | `1e-4` | 收敛容差。 |
 | `stopping` | `"coef_delta"` | 停止准则：`coef_delta` / `kkt`。 |
-| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap`。 |
+| `inference_method` | `"debiased"` | `post_selection_ols` / `debiased` / `bootstrap`；`cpu_ols` 和 `gpu_ols` 暂时作为 deprecated alias 接受。 |
 | `n_bootstrap` | `200` | residual-bootstrap 推断的抽样次数。 |
 | `bootstrap_random_state` | `None` | residual-bootstrap 随机种子。 |
 | `enable_simultaneous_inference` | `False` | 是否启用 simultaneous inference（仅 `debiased`）。 |
@@ -97,16 +112,20 @@ m_cpu = Lasso(
 )
 m_cpu.fit(X, y)
 
-# GPU FISTA：GPU 上仍使用同一个 solver 接口。
+# GPU FISTA + 同一个与硬件无关的 post-selection inference method。
 m_gpu = Lasso(
     alpha=0.1,
     device="cuda",
     solver="fista",
     stopping="kkt",
-    inference_method="gpu_ols_inference",
+    inference_method="post_selection_ols",
     gpu_memory_cleanup=True,
 )
 m_gpu.fit(X, y)
+
+# 预测使用 penalized fit；推断/reporting 使用 active-set OLS/WLS 重拟合。
+penalized_coef = m_gpu.coef_
+post_selection_params = m_gpu._params
 ```
 
 simultaneous inference 示例：
@@ -129,17 +148,17 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## strict/approx 差异（strict/approx difference）
 
-`debiased` 是高维推断主路径；`cpu_ols_inference` / `gpu_ols_inference` 是更轻量的近似 post-selection diagnostic，`bootstrap` 则计算成本更高。它们的统计含义不能互换。
+`debiased` 是高维逐系数推断的主路径；`post_selection_ols` 是更轻量的 active-set OLS/WLS diagnostic；`bootstrap` 是计算成本更高的重采样路径。三者的统计主张不同，不能互换解释。
 
 ## 输出（Outputs）
 
-- `fit(X, y) -> self`
-- `predict(X)`、`score(X, y)`（`R^2`）
-- 主要属性：`intercept_`, `coef_`, `n_iter_`, `aic`, `bic`
-- 推断属性（`compute_inference=True`）：`_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`
-- 当 `inference_method="debiased"` 时，普通 `_conf_int` 为单变量 marginal interval
-- 开启 simultaneous inference 后，`_conf_int_simultaneous` 给出配置目标集合上的联合区间
-- 汇总：`summary()`
+- penalized fit：`intercept_`, `coef_`, `n_iter_`
+- 推断（启用时）：`_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`, `_inference_result`
+- `inference_method="post_selection_ols"` 时，`coef_` 仍为 penalized coefficients，而 `_params` 保存嵌入完整参数布局的 active-set OLS/WLS 重拟合结果；
+- `inference_method="debiased"` 时，普通 `_conf_int` 为单变量 marginal interval；
+- 开启 simultaneous inference 后，`_conf_int_simultaneous` 给出配置目标集合上的联合区间；
+- 方法：`fit`, `predict`, `score`, `summary`
+- 可用时还包括 `aic`、`bic` 等诊断。
 
 ## 常见问题（FAQ）
 
@@ -147,12 +166,14 @@ ci_simul = m_sim._conf_int_simultaneous
   不同数值后端和算法实现可能产生不同收敛轨迹；比较时固定 `solver` 与 `stopping`。
 - **CPU 用户应该设置 `cpu_solver` 吗？**  
   不应该。直接拟合统一使用 `solver`；`cpu_solver` 是旧 CPU/GPU split API 的 deprecated compatibility 参数。
-- **何时优先 `gpu_ols_inference`？**  
-  大样本且训练在 GPU 上时可用于减少 host/device 传输。
+- **应该根据硬件选择 `cpu_ols` 或 `gpu_ols` 吗？**  
+  不应该。两者都是 `post_selection_ols` 的 deprecated alias。统计方法由 `inference_method` 选择，执行位置由 `device` 选择。
+- **`post_selection_ols` 会改变 `coef_` 吗？**  
+  不会。预测继续使用 penalized coefficients；active-set 重拟合保存在 `_params`、`_inference_result` 等推断/reporting 字段中。
 - **`debiased` 适用于什么场景？**  
   适用于高维稀疏设置下需要系数级推断的场景，但仍依赖对应理论假设。
-- **`cpu_ols_inference/gpu_ols_inference` 的区间能当严格置信区间吗？**  
-  不建议；它们不保证严格 post-selection coverage。
+- **`post_selection_ols` 能当严格 selective-inference 置信程序吗？**  
+  不能；应把它理解为 post-selection diagnostic。
 - **普通 `debiased` 区间是联合区间吗？**  
   不是。普通 `_conf_int` 是 marginal interval；需要联合控制时使用 dedicated simultaneous path。
 - **如何启用联合区间？**  
@@ -160,11 +181,15 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## 外部验证（External Validation）
 
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/validate_post_selection_ols_gpu.py`
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`（历史 hardware-bearing API benchmark）
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
+- `dev/tests/test_post_selection_ols_inference_api.py`
 - `dev/tests/test_penalized_solver_api_cleanup.py`
+
+physical post-selection OLS validator 要求同时存在 CuPy CUDA 与 Torch CUDA。脚本存在本身不等于 physical GPU evidence；只有在物理 CUDA 环境对 exact head 真正执行并记录结果后，才能作为 GPU acceptance 证据。
 
 ## 参考（References）
 
