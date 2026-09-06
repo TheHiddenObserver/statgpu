@@ -1,7 +1,7 @@
 # 弹性网络（Elastic Net）
 
 > 语言：中文
-> 最后更新：2026-09-05
+> 最后更新：2026-09-06
 > 切换：[English](../../en/models/elastic-net.md)
 
 ## 它解决什么问题？
@@ -182,7 +182,7 @@ warm = ElasticNet(alpha=0.08, l1_ratio=0.5).fit(
 | `admm` | 支持 | 支持 | 替代拆分路径；仅均匀样本权重 |
 | `coordinate_descent` | 支持 | 不支持 | CPU-only 兼容路径 |
 
-`newton`、`lbfgs`、`irls`、`exact` 会被当前非光滑 Elastic Net estimator surface 拒绝。`cpu_solver` 不会覆盖单次拟合的 `solver`。
+`newton`、`lbfgs`、`irls`、`exact` 会被当前非光滑 Elastic Net estimator surface 拒绝。一次直接 `ElasticNet.fit` 中，`solver` 是权威算法选择器；`cpu_solver` 仅作为 legacy/shared 路径的兼容控制保留，不会选择 direct-fit 算法。新代码应使用 `solver`。
 
 KKT 条件为
 
@@ -202,6 +202,7 @@ $$
 |---|---|---|
 | `debiased`（默认 inference method） | bias-corrected coefficient inference | 依赖去偏假设；推断条件于选定正则化参数 |
 | `cpu_ols` | 轻量 post-selection OLS-style 路径 | 启发式，不是一般 selective-inference 保证 |
+| `gpu_ols` | 当前复用 CPU-oriented post-selection OLS helper 的兼容 selector | 不是 backend-native GPU inference；同样存在 selection validity 限制 |
 | `bootstrap` | 重采样替代路径 | 计算更贵，并依赖相应 bootstrap 假设 |
 
 `cov_type` 与 `hac_maxlags` 也是 public constructor controls，在所选 inference path 支持相应 covariance 时使用。
@@ -253,12 +254,12 @@ ElasticNet(
 | `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
-| `solver` | `"fista"` | 单模型求解器。 |
-| `cpu_solver` | `"fista"` | 兼容共享路径使用的 CPU helper/dispatch 控制。 |
+| `solver` | `"fista"` | backend-neutral direct-fit solver；一次 `ElasticNet.fit` 中由它决定算法。 |
+| `cpu_solver` | `"fista"` | legacy/shared 行为的兼容控制；不会替代 direct fit 的 `solver`。 |
 | `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
 | `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存 GPU 内存。 |
 | `compute_inference` | `False` | 执行所选拟合后推断。 |
-| `inference_method` | `"debiased"` | 拟合后推断方法。 |
+| `inference_method` | `"debiased"` | 拟合后路径：`debiased`、`cpu_ols`、`gpu_ols` 或 `bootstrap`；`gpu_ols` 当前是兼容 selector，而不是 backend-native OLS inference。 |
 | `cov_type` | `"nonrobust"` | 所选推断路径使用 covariance 时的约定。 |
 | `hac_maxlags` | `None` | 所选推断方法支持 HAC 时的滞后阶数。 |
 <!-- API-CONSTRUCTOR-END:ElasticNet -->

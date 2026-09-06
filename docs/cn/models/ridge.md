@@ -1,7 +1,7 @@
 # 岭回归（Ridge）
 
 > 语言：中文
-> 最后更新：2026-09-05
+> 最后更新：2026-09-06
 > 切换：[English](../../en/models/ridge.md)
 
 ## 它解决什么问题？
@@ -186,7 +186,7 @@ weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
 | `admm` | 支持 | 支持 | 实验性拆分路径，仅均匀样本权重 |
 | `irls` | 不支持 | 不支持 | squared-error 没有 IRLS contract |
 
-通用迭代机制见[求解器算法指南](../guides/solver-algorithms.md)。
+一次直接 `Ridge.fit` 中，`solver` 是权威算法选择器。`cpu_solver` 仅作为 legacy/shared 路径的兼容控制保留，不会选择 direct-fit 算法；新代码应使用 `solver`。通用迭代机制见[求解器算法指南](../guides/solver-algorithms.md)。
 
 ## 进阶：推断与目标函数尺度
 
@@ -243,8 +243,8 @@ Ridge(
 | `hac_maxlags` | `None` | HAC 最大滞后阶。 |
 | `max_iter` | `1000` | 迭代路径最大迭代次数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
-| `solver` | `"exact"` | 估计器级求解器选择。 |
-| `cpu_solver` | `"fista"` | 兼容共享路径使用的 CPU helper/dispatch 控制。 |
+| `solver` | `"exact"` | backend-neutral direct-fit solver；一次 `Ridge.fit` 中由它决定算法。 |
+| `cpu_solver` | `"fista"` | legacy/shared 行为的兼容控制；不会替代 direct fit 的 `solver`。 |
 | `lipschitz_L` | `None` | 兼容迭代路径可使用的预计算 Lipschitz 常数。 |
 <!-- API-CONSTRUCTOR-END:Ridge -->
 

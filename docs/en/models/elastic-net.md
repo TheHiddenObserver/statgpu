@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English
-> Last updated: 2026-09-05
+> Last updated: 2026-09-06
 > Switch: [简体中文](../../cn/models/elastic-net.md)
 
 ## What problem does it solve?
@@ -218,7 +218,7 @@ Elastic Net is non-smooth whenever `l1_ratio > 0`, so proximal methods are the n
 | `admm` | yes | yes | Alternative split solver; uniform sample weights only |
 | `coordinate_descent` | yes | no | CPU-only compatibility path |
 
-`newton`, `lbfgs`, `irls`, and `exact` are rejected for the non-smooth Elastic Net estimator surface. `cpu_solver` does not override `solver` for a single estimator fit. Full numerical mechanics are documented in the [solver guide](../guides/solver-algorithms.md).
+`newton`, `lbfgs`, `irls`, and `exact` are rejected for the non-smooth Elastic Net estimator surface. For a direct `ElasticNet.fit`, `solver` is authoritative; `cpu_solver` is retained only as a compatibility control for legacy/shared paths and does not select the direct-fit algorithm. New code should use `solver`. Full numerical mechanics are documented in the [solver guide](../guides/solver-algorithms.md).
 
 The first-order KKT condition for the coefficient vector is
 
@@ -239,6 +239,7 @@ $$
 |---|---|---|
 | `debiased` (default inference method) | bias-corrected coefficient inference using the shared penalized-linear engine | assumptions for de-biasing matter; inference is conditional on selected regularization parameters |
 | `cpu_ols` | lightweight post-selection OLS-style path | heuristic after selection; not a general selective-inference guarantee |
+| `gpu_ols` | compatibility selector that currently reuses the CPU-oriented post-selection OLS helper | not backend-native GPU inference; same post-selection validity limitation |
 | `bootstrap` | resampling-based alternative | higher computational cost and conditional on the implemented bootstrap assumptions |
 
 `cov_type` and `hac_maxlags` are public constructor controls used where the selected inference path supports the corresponding covariance convention. When inference succeeds, `summary()` and reporting fields such as standard errors, test statistics, p-values, and confidence intervals become available according to the selected method.
@@ -292,12 +293,12 @@ ElasticNet(
 | `stopping` | `"coef_delta"` | `coef_delta` or `kkt` convergence criterion where supported. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | Parallelism hint where the selected path uses it. |
-| `solver` | `"fista"` | Single-estimator solver; see the solver table above. |
-| `cpu_solver` | `"fista"` | CPU helper/dispatch control for compatible shared paths. |
+| `solver` | `"fista"` | Backend-neutral direct-fit solver; authoritative for one `ElasticNet.fit`. |
+| `cpu_solver` | `"fista"` | Compatibility control retained for legacy/shared behavior; it does not replace `solver` for a direct fit. |
 | `lipschitz_L` | `None` | Optional precomputed Lipschitz constant for compatible proximal paths. |
 | `gpu_memory_cleanup` | `False` | Best-effort release of cached GPU memory after fit. |
 | `compute_inference` | `False` | Run the selected post-fit inference path. |
-| `inference_method` | `"debiased"` | Post-fit inference method. |
+| `inference_method` | `"debiased"` | Post-fit path: `debiased`, `cpu_ols`, `gpu_ols`, or `bootstrap`; `gpu_ols` is currently a compatibility selector rather than a backend-native OLS inference path. |
 | `cov_type` | `"nonrobust"` | Covariance convention where the selected inference method uses one. |
 | `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC. |
 <!-- API-CONSTRUCTOR-END:ElasticNet -->

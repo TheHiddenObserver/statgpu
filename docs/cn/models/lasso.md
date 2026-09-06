@@ -192,8 +192,8 @@ model = Lasso(
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
 | `debiased`（constructor 默认） | de-biased / de-sparsified 逐系数推断 | 边际区间依赖高维去偏假设；联合覆盖需要单独的 simultaneous procedure |
-| `cpu_ols_inference` | 轻量 CPU post-selection diagnostic | 选择后启发式区间，不是一般 selective inference |
-| `gpu_ols_inference` | 面向 GPU 的 OLS-style diagnostic | 同样存在 selection validity 限制 |
+| `cpu_ols` | CPU-oriented post-selection diagnostic | 选择后启发式区间，不是一般 selective inference |
+| `gpu_ols` | 当前复用 CPU-oriented OLS helper 的兼容 selector | 不是 backend-native GPU inference；同样存在 selection validity 限制 |
 | `bootstrap` | residual-bootstrap 替代路径 | 计算更贵，也不是选择不确定性的普适修正 |
 
 node-wise Lasso 构造、边际 z 推断、max-|Z| multiplier bootstrap、backend/reporting boundary、多重检验区别、输出字段，以及当前截距/权重边界都集中在 **[Lasso 推断](lasso-inference.md)**。
@@ -248,7 +248,7 @@ Lasso(
 | `max_iter` | `1000` | 最大求解迭代数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
 | `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
-| `inference_method` | `"debiased"` | 拟合后推断路径：debiased、bootstrap 或受支持的 OLS-style diagnostic alias。 |
+| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`、`cpu_ols`、`gpu_ols` 或 `bootstrap`；执行边界见 [Lasso 推断](lasso-inference.md)。 |
 | `n_bootstrap` | `200` | `inference_method="bootstrap"` 时 residual-bootstrap 抽样次数。 |
 | `bootstrap_random_state` | `None` | residual bootstrap 随机种子。 |
 | `enable_simultaneous_inference` | `False` | 在 debiased inference 后启用 simultaneous max-|Z| 区间。 |

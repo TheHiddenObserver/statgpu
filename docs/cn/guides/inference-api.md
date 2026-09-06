@@ -4,7 +4,7 @@
 > **最后更新:** 2026-09-06  
 > **后端:** NumPy, CuPy, PyTorch
 
-`statgpu.inference` 模块提供统计推断工具：分布函数、多重检验、排列检验和自助法。所有继承自 `BaseEstimator` 的公开 statgpu 估计器还会继承一组“绑定到模型上下文”的便利方法，它们会复用估计器已经解析好的 device/backend 语义。
+`statgpu.inference` 模块提供统计推断工具：分布函数、多重检验、排列检验和自助法。所有继承自 `BaseEstimator` 的公开 statgpu 估计器还会继承一组“绑定到模型上下文”的便利方法，它们会按照估计器当前的 device 解析来选择默认 backend。
 
 ## 快速参考
 
@@ -28,12 +28,12 @@ from statgpu.inference import norm, poisson, t, adjust_pvalues, combine_pvalues,
 
 | 估计器方法 | 签名 | 模型上下文行为 |
 |---|---|---|
-| `adjust_pvalues` | `adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")` | 未显式传 `pvalues` 时使用当前估计器的 `_pvalues`。返回原始/校正后 p 值、拒绝掩码、方法、alpha、axis 与实际 backend。 |
+| `adjust_pvalues` | `adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")` | 未显式传 `pvalues` 时使用估计器的 `_pvalues`。返回原始/校正后 p 值、拒绝掩码、方法、alpha、axis 与解析出的 backend。 |
 | `combine_pvalues` | `combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")` | 未显式传 `pvalues` 时使用 `_pvalues`；返回合并统计量、全局 p 值和 backend 元数据。 |
-| `bootstrap_statistic` | `bootstrap_statistic(statistic, *arrays, n_resamples=200, strategy="iid", strata=None, clusters=None, block_size=None, confidence_level=0.95, random_state=None, statistic_name="statistic", backend="auto")` | 默认跟随估计器 backend。没有显式传 arrays 时，在可用的情况下使用拟合后缓存的设计矩阵与响应。 |
-| `permutation_test` | `permutation_test(statistic, X, y, n_resamples=1000, strategy="iid", strata=None, groups=None, alternative="two-sided", random_state=None, statistic_name="statistic", backend="auto")` | 在调用共享排列检验引擎之前，把数据以及可选的 strata/groups 转到模型上下文解析出的 backend。 |
+| `bootstrap_statistic` | `bootstrap_statistic(statistic, *arrays, n_resamples=200, strategy="iid", strata=None, clusters=None, block_size=None, confidence_level=0.95, random_state=None, statistic_name="statistic", backend="auto")` | `backend="auto"` 按估计器**当前 device 设置**解析。未显式传 arrays 时，会在可用时读取拟合后缓存的设计矩阵与响应，并转换到该解析 backend。 |
+| `permutation_test` | `permutation_test(statistic, X, y, n_resamples=1000, strategy="iid", strata=None, groups=None, alternative="two-sided", random_state=None, statistic_name="statistic", backend="auto")` | 在调用共享排列检验引擎之前，把数据以及可选的 strata/groups 转到由当前 estimator device 解析出的 backend。 |
 
-`backend="auto"` 跟随估计器的实际设备语义：CPU 对应 NumPy，`device="cuda"` 对应 CuPy，`device="torch"` 对应 Torch。若共享推断引擎支持，也可以显式指定 backend 覆盖该默认选择。
+`backend="auto"` 跟随估计器的**当前 device resolution**：CPU 对应 NumPy，`device="cuda"` 对应 CuPy，`device="torch"` 对应 Torch。它不会读取之前某次拟合记录的 `_selected_backend_name`；因此，若 `device="auto"` 的拟合曾因自动路由选择另一 backend，之后的模型上下文 helper 可能再次解析到不同 backend。需要固定 helper 的实际 backend 时，请显式传 `backend=`。若共享推断引擎支持，显式 backend 会覆盖模型上下文默认选择。
 
 如果没有显式传 p 值，而估计器也不存在 `_pvalues`，`adjust_pvalues()` 与 `combine_pvalues()` 会抛出 `RuntimeError`，不会静默构造输入。同样，若 `bootstrap_statistic()` 没有传 arrays，则需要模型已经拟合并保留可用的训练数组缓存。
 
@@ -66,7 +66,7 @@ perm = model.permutation_test(
 )
 ```
 
-当你希望推断工具**跟随已经拟合模型的 backend**，并在适用时复用模型状态时，使用这些估计器绑定方法。若推断计算与任何拟合模型无关，则使用下面的 `statgpu.inference` 模块级函数更清晰。
+当你希望推断工具根据估计器的**当前 device 上下文**解析 backend，并在适用时复用拟合状态时，使用这些估计器绑定方法；需要精确固定 helper backend 时显式传 `backend=`。若推断计算与任何拟合模型无关，则使用下面的 `statgpu.inference` 模块级函数更清晰。
 
 ---
 

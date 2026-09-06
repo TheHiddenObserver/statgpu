@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English
-> Last updated: 2026-09-05
+> Last updated: 2026-09-06
 > Switch: [简体中文](../../cn/models/ridge.md)
 
 ## What problem does it solve?
@@ -224,7 +224,7 @@ The same `fit()` method also accepts `formula=` with `data=` when the optional F
 | `admm` | yes | yes | Experimental split formulation; uniform sample weights only |
 | `irls` | no | no | Squared-error loss does not expose the IRLS contract |
 
-`coordinate_descent`, quantile coordinate descent, and L-BFGS-B are not Ridge estimator choices. General update equations are documented in the [solver algorithms guide](../guides/solver-algorithms.md).
+For a direct `Ridge.fit`, `solver` is the authoritative algorithm selector. `cpu_solver` is retained only as a compatibility control for legacy/shared paths and does not choose the direct-fit algorithm; new code should use `solver`. General update equations are documented in the [solver algorithms guide](../guides/solver-algorithms.md).
 
 ## Advanced: inference and objective scaling
 
@@ -285,8 +285,8 @@ Ridge(
 | `hac_maxlags` | `None` | Maximum HAC lag; used only with `cov_type="hac"`. |
 | `max_iter` | `1000` | Maximum iterations for iterative solver paths. |
 | `tol` | `1e-4` | Numerical convergence tolerance for iterative paths. |
-| `solver` | `"exact"` | Estimator-level solver choice; see the solver table above. |
-| `cpu_solver` | `"fista"` | CPU helper/dispatch control used by compatible shared paths. |
+| `solver` | `"exact"` | Backend-neutral direct-fit solver; authoritative for one `Ridge.fit`. |
+| `cpu_solver` | `"fista"` | Compatibility control retained for legacy/shared behavior; it does not replace `solver` for a direct fit. |
 | `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant for compatible iterative paths. |
 <!-- API-CONSTRUCTOR-END:Ridge -->
 

@@ -28,14 +28,14 @@ Every public estimator derived from `BaseEstimator` also exposes thin model-cont
 
 | Estimator method | Signature | Model-context behavior |
 |---|---|---|
-| `adjust_pvalues` | `adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")` | If `pvalues` is omitted, uses the fitted estimator's `_pvalues`. Returns raw/adjusted p-values, reject mask, method, alpha, axis, and resolved backend. |
+| `adjust_pvalues` | `adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")` | If `pvalues` is omitted, uses the estimator's `_pvalues`. Returns raw/adjusted p-values, reject mask, method, alpha, axis, and resolved backend. |
 | `combine_pvalues` | `combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")` | If `pvalues` is omitted, uses `_pvalues`; returns the combination statistic and global p-value together with backend metadata. |
-| `bootstrap_statistic` | `bootstrap_statistic(statistic, *arrays, n_resamples=200, strategy="iid", strata=None, clusters=None, block_size=None, confidence_level=0.95, random_state=None, statistic_name="statistic", backend="auto")` | Uses the estimator's backend. If no arrays are supplied, it uses cached fitted design/response arrays when available. |
-| `permutation_test` | `permutation_test(statistic, X, y, n_resamples=1000, strategy="iid", strata=None, groups=None, alternative="two-sided", random_state=None, statistic_name="statistic", backend="auto")` | Casts the supplied data and optional strata/groups to the resolved model-context backend before calling the shared permutation engine. |
+| `bootstrap_statistic` | `bootstrap_statistic(statistic, *arrays, n_resamples=200, strategy="iid", strata=None, clusters=None, block_size=None, confidence_level=0.95, random_state=None, statistic_name="statistic", backend="auto")` | Resolves `backend="auto"` from the estimator's current device setting. If no arrays are supplied, it uses cached fitted design/response arrays when available and casts them to that resolved backend. |
+| `permutation_test` | `permutation_test(statistic, X, y, n_resamples=1000, strategy="iid", strata=None, groups=None, alternative="two-sided", random_state=None, statistic_name="statistic", backend="auto")` | Casts the supplied data and optional strata/groups to the backend resolved from the current estimator device before calling the shared permutation engine. |
 
-`backend="auto"` follows the estimator's resolved device: NumPy for CPU, CuPy for `device="cuda"`, and Torch for `device="torch"`. Passing an explicit backend overrides that model-context choice where the shared engine supports it.
+`backend="auto"` follows the estimator's **current device resolution**: NumPy for CPU, CuPy for `device="cuda"`, and Torch for `device="torch"`. It does not read a recorded `_selected_backend_name` from an earlier fit, so an estimator whose `device="auto"` execution was rerouted can resolve a different helper backend later. Pass an explicit `backend=` when exact helper-backend identity matters. An explicit backend overrides the model-context choice where the shared inference engine supports it.
 
-If `adjust_pvalues()` or `combine_pvalues()` is called without explicit p-values and the fitted estimator has no `_pvalues`, statgpu raises a `RuntimeError` rather than silently fabricating an input. Likewise, `bootstrap_statistic()` without explicit arrays requires cached training arrays from a fitted model.
+If `adjust_pvalues()` or `combine_pvalues()` is called without explicit p-values and the estimator has no `_pvalues`, statgpu raises a `RuntimeError` rather than silently fabricating an input. Likewise, `bootstrap_statistic()` without explicit arrays requires cached training arrays from a fitted model.
 
 A typical model-bound workflow is:
 
@@ -66,7 +66,7 @@ perm = model.permutation_test(
 )
 ```
 
-Use the **estimator-bound methods** when you want inference utilities to follow the fitted model's backend and, where supported, reuse fitted state. Use the **module-level functions** below when you want a standalone inference calculation that is independent of a fitted estimator.
+Use the **estimator-bound methods** when you want inference utilities to resolve from the estimator's current device context and, where supported, reuse fitted state. Use an explicit `backend=` when helper-backend identity must be pinned. Use the **module-level functions** below when you want a standalone inference calculation that is independent of a fitted estimator.
 
 ---
 

@@ -18,11 +18,11 @@ Lasso 的拟合系数来自一个带惩罚的预测/选择问题，而不是“�
 | `inference_method` | statgpu 计算什么 | 合适的解释 | 主要限制 |
 |---|---|---|---|
 | `debiased` | 去偏/去稀疏化系数、标准误、z 统计量、p 值和边际置信区间 | 在去偏 Lasso 假设下做逐系数高维推断 | 有效性依赖稀疏性、设计矩阵、噪声以及正则化/去偏构造 |
-| `cpu_ols_inference` | 在 CPU 上对选中的 active set 做 OLS 风格重拟合/诊断 | 工程或 post-selection diagnostic | 不是一般意义上的 selective-inference 置信程序 |
-| `gpu_ols_inference` | 面向 GPU 的 OLS 风格诊断路径 | 在减少不必要 host/device 移动时完成同类诊断 | 同样存在选择后有效性限制 |
+| `cpu_ols` | 通过当前 CPU-oriented helper 对 selected active set 做 OLS 风格重拟合/诊断 | 工程或 post-selection diagnostic | 不是一般意义上的 selective-inference 置信程序 |
+| `gpu_ols` | unified wrapper 接受的兼容 selector；当前复用同一个 CPU-oriented post-selection OLS helper | diagnostic only | 不是 backend-native GPU OLS inference；GPU-resident 输入可能不适用 |
 | `bootstrap` | 对惩罚模型做 residual-bootstrap 重拟合 | 基于重采样的不确定性诊断 | 计算昂贵，而且本身并不是对数据驱动模型选择的普适修正 |
 
-`naive_ols` 和 `gpu_naive_ols` 是 OLS 风格路径保留的兼容别名。
+较早的 `cpu_ols_inference` / `gpu_ols_inference` 名称属于 legacy Lasso surface 和历史文档，不是当前 unified `Lasso` wrapper 的 active `inference_method` 值。
 
 如果目标是 Lasso 之后的正式逐系数推断，`debiased` 是 statgpu 的主要路径。如果只关心预测或特征选择，可以设置 `compute_inference=False`，避免支付不需要的推断成本。
 

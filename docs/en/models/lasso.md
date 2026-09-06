@@ -210,8 +210,8 @@ Inference after data-driven selection is substantially harder than inference aft
 | `inference_method` | Intended use | Important limitation |
 |---|---|---|
 | `debiased` (constructor default) | de-biased/de-sparsified coefficient inference | marginal intervals require high-dimensional de-biasing assumptions; joint coverage needs the separate simultaneous procedure |
-| `cpu_ols_inference` | lightweight CPU post-selection diagnostic | heuristic after selection; not a general selective-inference interval |
-| `gpu_ols_inference` | GPU-oriented version of the OLS-style diagnostic | same post-selection validity limitation |
+| `cpu_ols` | CPU-oriented post-selection diagnostic | heuristic after selection; not a general selective-inference interval |
+| `gpu_ols` | compatibility selector that currently reuses the CPU-oriented OLS helper | not backend-native GPU inference; same post-selection validity limitation |
 | `bootstrap` | residual-bootstrap alternative | materially more expensive and not a universal correction for selection uncertainty |
 
 For the actual node-wise-Lasso construction, marginal z inference, max-|Z| multiplier bootstrap, backend/reporting boundaries, multiple-testing distinction, output fields, and current intercept/weight limitations, see **[Lasso inference](lasso-inference.md)**.
@@ -266,7 +266,7 @@ Lasso(
 | `max_iter` | `1000` | Maximum solver iterations. |
 | `tol` | `1e-4` | Numerical convergence tolerance. |
 | `stopping` | `"coef_delta"` | `coef_delta` or `kkt` convergence criterion where supported. |
-| `inference_method` | `"debiased"` | Post-fit inference path: de-biased, bootstrap, or supported OLS-style diagnostic aliases. |
+| `inference_method` | `"debiased"` | Post-fit inference path: `debiased`, `cpu_ols`, `gpu_ols`, or `bootstrap`; see [Lasso inference](lasso-inference.md) for execution boundaries. |
 | `n_bootstrap` | `200` | Number of residual-bootstrap draws for `inference_method="bootstrap"`. |
 | `bootstrap_random_state` | `None` | RNG seed for the residual-bootstrap inference path. |
 | `enable_simultaneous_inference` | `False` | Enable simultaneous max-|Z| intervals after de-biased inference. |

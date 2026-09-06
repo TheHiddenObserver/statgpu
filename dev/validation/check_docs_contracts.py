@@ -44,7 +44,7 @@ BANNED_TEXT = {
     ),
     "docs/index.md": (
         "USAGE_CN.md",
-        "CoxPH` (Skeleton",
+        "CoxPHCV` (Skeleton",
     ),
 }
 
@@ -126,6 +126,8 @@ LASSO_INFERENCE_REQUIRED_TERMS = {
         "CuPy",
         "Torch",
         "adjust_pvalues",
+        "cpu_ols",
+        "gpu_ols",
     ),
     "docs/cn/models/lasso-inference.md": (
         "node-wise",
@@ -138,6 +140,8 @@ LASSO_INFERENCE_REQUIRED_TERMS = {
         "CuPy",
         "Torch",
         "adjust_pvalues",
+        "cpu_ols",
+        "gpu_ols",
     ),
 }
 
