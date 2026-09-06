@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-08-28  
+> Last updated: 2026-09-06  
 > This page: Guide  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -24,13 +24,9 @@ NumPy snapshot. This is a reporting boundary, not a CPU inference fallback.
 `reporting_boundary="post_numerical_inference"` for this shared path.
 
 Explicit `device="cuda"` and `device="torch"` requests do not silently downgrade
-Gaussian L2 inference to NumPy. Missing or invalid executed-backend provenance
-fails closed. `device="auto"` retains the estimator's existing backend-selection
-policy.
-
-This statement is deliberately scoped to the migrated shared Gaussian inference
-path. It does **not** imply that every inference implementation in statgpu has
-been migrated to the same lifecycle.
+Gaussian inference to NumPy. Missing or invalid executed-backend provenance fails
+closed. `device="auto"` is the only mode that may select among available backends
+automatically.
 
 Supported covariance choices on the Gaussian path are:
 
@@ -44,20 +40,48 @@ Student-t identities at one and two residual degrees of freedom, avoiding
 subtractive cancellation or an avoidable `t**2` overflow in representable
 extreme tails.
 
-## Lasso inference methods
+## Sparse penalized-linear inference
 
-`Lasso.inference_method` options:
+For `Lasso` and `ElasticNet`, statistical method identity and execution hardware
+are separate controls. The maintained inference methods are:
 
-- `cpu_ols_inference` (default)
-- `gpu_ols_inference`
-- `bootstrap`
+- `debiased` — de-biased/de-sparsified coefficient inference.
+- `post_selection_ols` — heuristic OLS/WLS refit on the active set selected by
+  the penalized fit.
+- `bootstrap` — residual-bootstrap inference where supported.
 
-Backward-compatible aliases:
+`post_selection_ols` is the canonical hardware-neutral spelling. The unified
+aliases `cpu_ols` and `gpu_ols` are deprecated together and are accepted for one
+compatibility cycle with `FutureWarning`; both normalize to
+`post_selection_ols`. `LassoCV` also accepts the older
+`cpu_ols_inference` / `gpu_ols_inference` spellings at its compatibility boundary
+and normalizes them to the same method.
 
-- `naive_ols` -> `cpu_ols_inference`
-- `gpu_naive_ols` -> `gpu_ols_inference`
+The method name does **not** choose a device. Device/backend routing follows the
+estimator contract:
 
-Recommended usage:
+- explicit `device="cpu"` runs the NumPy CPU route;
+- explicit `device="cuda"` requires CuPy CUDA and fails closed when unavailable;
+- explicit `device="torch"` requires Torch CUDA and fails closed when unavailable;
+- only genuine estimator/global `device="auto"` may preserve an already
+  backend-native CuPy or Torch-CUDA input as part of automatic routing.
+
+After a successful penalized fit, post-fit coefficient inference reuses that
+fit's recorded `_selected_backend_name` / `_selected_backend_device`; it does not
+make a second backend decision from the raw input container.
+
+### What `post_selection_ols` computes
+
+The penalized model first selects an active set. statgpu then refits an
+**unpenalized OLS or WLS model on exactly that active set** on the fit-resolved
+backend and computes the requested Gaussian covariance/reference-distribution
+inference there. The original penalized `coef_` remains the coefficient vector
+used for prediction; the active-set refit is an inferential/reporting object in
+`_params` / `_inference_result`.
+
+This remains a post-selection diagnostic. Ordinary OLS/WLS intervals formed
+after choosing variables from the same data are not general selective-inference
+confidence intervals.
 
 ```python
 from statgpu.linear_model import Lasso
@@ -66,15 +90,27 @@ model = Lasso(
     alpha=0.1,
     device="cuda",
     solver="fista",
-    stopping="kkt",
     compute_inference=True,
-    inference_method="gpu_ols_inference",
+    inference_method="post_selection_ols",
 )
 model.fit(X, y)
+
+# Prediction still uses the penalized fit.
+penalized_coef = model.coef_
+
+# Reporting/inference uses the active-set OLS/WLS refit.
+post_selection_params = model._params
 ```
 
-Related robust covariance support:
+For high-dimensional coefficient inference rather than an engineering
+post-selection diagnostic, prefer `inference_method="debiased"` and check its
+statistical assumptions. Lasso's simultaneous max-|Z| path is a separate
+procedure from ordinary marginal intervals and from p-value adjustment.
+
+## Related robust covariance support
 
 - `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
 - `Ridge(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- sparse Gaussian `post_selection_ols` uses the same Gaussian covariance layer
+  for covariance choices exposed by the estimator.
 - `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
