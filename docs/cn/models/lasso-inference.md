@@ -9,20 +9,20 @@
 
 ## 为什么 Lasso 推断需要单独一页？
 
-Lasso 的拟合系数来自一个带惩罚的预测/选择问题，而不是“模型在看数据之前就已经固定”的普通 OLS 估计量。用同一批数据选择稀疏 active set、再估计系数之后，直接给选中模型附上普通 OLS 标准误，通常会忽略选择带来的额外不确定性。
+Lasso 的拟合系数来自带惩罚的预测/选择问题，而不是“在看数据之前就已经固定模型”的普通 OLS 估计量。用同一批数据选择稀疏 active set、再估计系数之后，直接给选中模型附上普通 OLS 标准误，通常会忽略选择带来的额外不确定性。
 
-因此，statgpu 提供的多个 `inference_method` 并不是“打印同一组 p 值的不同实现”，而是统计主张不同的路径。
+因此，statgpu 的多个 `inference_method` 并不是“打印同一组 p 值的不同实现”，而是统计主张不同的路径。
 
 ## 根据你真正需要的统计主张选择路径
 
 | `inference_method` | statgpu 计算什么 | 合适的解释 | 主要限制 |
 |---|---|---|---|
 | `debiased` | 去偏/去稀疏化系数、标准误、z 统计量、p 值和边际置信区间 | 在去偏 Lasso 假设下做逐系数高维推断 | 有效性依赖稀疏性、设计矩阵、噪声以及正则化/去偏构造 |
-| `cpu_ols` | 通过当前 CPU-oriented helper 对 selected active set 做 OLS 风格重拟合/诊断 | 工程或 post-selection diagnostic | 不是一般意义上的 selective-inference 置信程序 |
-| `gpu_ols` | unified wrapper 接受的兼容 selector；当前复用同一个 CPU-oriented post-selection OLS helper | diagnostic only | 不是 backend-native GPU OLS inference；GPU-resident 输入可能不适用 |
-| `bootstrap` | 对惩罚模型做 residual-bootstrap 重拟合 | 基于重采样的不确定性诊断 | 计算昂贵，而且本身并不是对数据驱动模型选择的普适修正 |
+| `cpu_ols` | 通过当前 CPU-oriented helper 对 selected active set 做 OLS 风格重拟合 | 工程或 post-selection diagnostic | 不是一般意义上的 selective-inference 置信程序 |
+| `gpu_ols` | unified wrapper 接受的兼容拼法；当前同样进入 CPU-oriented post-selection OLS helper | 与 `cpu_ols` 相同的 diagnostic 角色 | 不是 backend-native GPU OLS inference；GPU-resident 输入可能不适用 |
+| `bootstrap` | 对惩罚模型做 residual-bootstrap 重拟合 | 基于重采样的不确定性 diagnostic | 计算昂贵，而且本身不是对数据驱动模型选择的普适修正 |
 
-较早的 `cpu_ols_inference` / `gpu_ols_inference` 名称属于 legacy Lasso surface 和历史文档，不是当前 unified `Lasso` wrapper 的 active `inference_method` 值。
+当前 unified 实现中，`cpu_ols` 与 `gpu_ols` **并不是两个不同的统计程序**：两者最终都进入同一个 CPU-oriented post-selection OLS helper。它们带硬件含义的名字属于兼容 surface，而不应该成为“根据设备选择统计方法”的理由。更早的 `cpu_ols_inference` / `gpu_ols_inference` 名称属于 legacy Lasso surface 和历史文档，不是当前 unified `Lasso` wrapper 的 active `inference_method` 值。
 
 如果目标是 Lasso 之后的正式逐系数推断，`debiased` 是 statgpu 的主要路径。如果只关心预测或特征选择，可以设置 `compute_inference=False`，避免支付不需要的推断成本。
 
@@ -51,11 +51,11 @@ print(model._pvalues)
 print(model._conf_int)
 ```
 
-用于预测的惩罚系数仍然保存在 `coef_`。推断报告使用去偏后的参数向量，因此某个 penalized coefficient 与它对应的去偏推断估计不必数值相同。
+用于预测的惩罚系数仍保存在 `coef_`。推断报告使用去偏后的参数向量，因此 penalized coefficient 与对应的去偏推断估计不必数值相同。
 
 ## 去偏到底改变了什么？
 
-记拟合得到的 Lasso 系数为 \(\hat\beta\)，残差为
+记拟合得到的 Lasso 系数为 $\hat\beta$，残差为
 
 $$
 r = y - b - X\hat\beta.
@@ -68,20 +68,20 @@ $$
 = \hat\beta + \frac{1}{n} M X^\top r
 $$
 
-校正系数，其中 \(M\) 是由数据构造的 decorrelation matrix，用来近似特征 Gram/协方差矩阵的逆。
+校正系数，其中 $M$ 是由数据构造的 decorrelation matrix，用来近似特征 Gram/协方差矩阵的逆。
 
-这并不意味着原来的稀疏 Lasso 估计“变成了 OLS”。`coef_` 仍然是预测时使用的惩罚模型；去偏向量是用于逐系数不确定性报告的 inference object。
+这并不意味着原来的稀疏 Lasso 估计“变成了 OLS”。`coef_` 仍然是预测使用的惩罚模型；去偏向量是逐系数不确定性报告使用的 inference object。
 
 ## statgpu 如何构造 decorrelation matrix？
 
-对每个特征 \(j\)，statgpu 用 node-wise Lasso 把 \(x_j\) 对其余列 \(X_{-j}\) 做稀疏回归。在 CPU 实现中，node-wise penalty scale 为
+对每个特征 $j$，statgpu 用 node-wise Lasso 把 $x_j$ 对其余列 $X_{-j}$ 做稀疏回归。在 CPU 实现中，node-wise penalty scale 为
 
 $$
 \lambda_{\mathrm{nw}}
 = \hat\sigma\sqrt{\frac{2\log(\max(p,2))}{n}}.
 $$
 
-记 node-wise 系数为 \(\hat\gamma_j\)，定义
+记 node-wise 系数为 $\hat\gamma_j$，定义
 
 $$
 z_j = x_j - X_{-j}\hat\gamma_j,
@@ -89,9 +89,9 @@ z_j = x_j - X_{-j}\hat\gamma_j,
 C_j = \frac{z_j^\top x_j}{n}.
 $$
 
-随后用对角位置的 \(1/C_j\) 与其他位置的 \(-\hat\gamma_j/C_j\) 组成 \(M\) 的第 \(j\) 行。这正是 de-sparsified Lasso 中稀疏 precision/decorrelation 思路与 statgpu 实际计算之间的桥梁。
+随后用对角位置的 $1/C_j$ 与其他位置的 $-\hat\gamma_j/C_j$ 组成 $M$ 的第 $j$ 行。这正是 de-sparsified Lasso 中稀疏 precision/decorrelation 思路与 statgpu 实际计算之间的桥梁。
 
-如果某些线性代数系统发生数值秩失败，相应推断路径会在定义了 fallback 的位置使用受控的逆/伪逆处理。node-wise 数值收敛是必要条件，但不能替代去偏推断所需要的统计假设。
+node-wise 数值收敛是必要条件，但不能替代去偏推断所要求的统计假设。
 
 ## 标准误、z 统计量与边际区间
 
@@ -143,7 +143,7 @@ simultaneous = model._conf_int_simultaneous
 critical = model._simultaneous_critical_value
 ```
 
-当前方法抽取独立标准正态 multiplier \(\xi_i\)，用拟合残差构造 bootstrap score perturbation，并记录目标特征集合上最大的标准化绝对扰动。示意地，
+当前方法抽取独立标准正态 multiplier $\xi_i$，用拟合残差构造 bootstrap score perturbation，并记录目标特征集合上最大的标准化绝对扰动。示意地，
 
 $$
 T^*
@@ -154,7 +154,7 @@ T^*
 \right|.
 $$
 
-\(T^*\) 的经验 \((1-\alpha)\) 分位数给出共同临界值 \(c_{1-\alpha}\)，区间为
+$T^*$ 的经验 $(1-\alpha)$ 分位数给出共同临界值 $c_{1-\alpha}$，区间为
 
 $$
 \hat\theta_j^{\mathrm{db}}
@@ -169,7 +169,7 @@ $$
 |---|---:|---|
 | `enable_simultaneous_inference` | `False` | 成功完成 debiased inference 后再做 simultaneous calibration。 |
 | `simultaneous_method` | `"maxz_bootstrap"` | 当前支持的 simultaneous calibration 方法。 |
-| `simultaneous_alpha` | `0.05` | 用于选择 max-|Z| 临界值的 family-wise error level。 |
+| `simultaneous_alpha` | `0.05` | 用于选择共同临界值的 family-wise error level。 |
 | `simultaneous_n_bootstrap` | `1000` | multiplier-bootstrap 抽样次数。 |
 | `simultaneous_random_state` | `None` | 控制 multiplier 抽样的随机种子。 |
 | `simultaneous_include_intercept` | `False` | 请求把截距加入报告的 simultaneous target；见下面的当前实现边界。 |
@@ -195,11 +195,11 @@ $$
 
 去偏系数推断具有 NumPy CPU、CuPy CUDA 和 Torch CUDA 的专用数值路径。在相应路径可用时，昂贵的 node-wise/decorrelation 计算会在所选 numerical backend 上执行。
 
-最终 reporting layer 以 NumPy 为主：`_bse`、`_pvalues`、`_conf_int` 等推断数组及 structured result metadata 会作为 host-side reporting object 暴露。
+最终 reporting layer 以 NumPy 为主：`_bse`、`_pvalues`、`_conf_int` 等推断数组以及 structured result metadata 会作为 host-side reporting object 暴露。
 
 Simultaneous calibration 还存在进一步的边界：backend-native debiased inference 完成后，max-|Z| multiplier bootstrap 所需状态会表示到 CPU/NumPy 侧，bootstrap calibration 在那里运行。因此 `device="cuda"` / `device="torch"` 并不意味着每一次 simultaneous-bootstrap draw 都留在 GPU。
 
-显式不可用的 GPU device 应失败，而不是静默转成 CPU estimation path。这里描述的 CPU reporting/calibration boundary 是明确的推断报告边界，不是隐藏 estimator fallback。
+显式不可用的 GPU device 应失败，而不是静默转成 CPU estimation path。这里描述的 CPU reporting/calibration boundary 是明确的 inference/reporting boundary，不是隐藏 estimator fallback。
 
 ## Sample weight 与推断范围
 
@@ -207,18 +207,15 @@ Simultaneous calibration 还存在进一步的边界：backend-native debiased i
 
 ## Residual bootstrap 路径
 
-`inference_method="bootstrap"` 会反复重采样 residual 并重新拟合惩罚模型。constructor 控制项为：
+`inference_method="bootstrap"` 会反复重采样 residual 并重新拟合惩罚模型。constructor 控制项为 `n_bootstrap`（默认 `200`）和 `bootstrap_random_state`（默认 `None`）。
 
-- `n_bootstrap`（默认 `200`）；
-- `bootstrap_random_state`（默认 `None`）。
-
-当前实现用 bootstrap variability 计算标准误，用符号变化概率构造双侧 p 值，并使用 percentile confidence interval。它比一次去偏拟合昂贵得多，也没有被声明为完整的 selective-inference procedure：仅仅对 fitted residual model 重采样，并不会自动修正同一数据上 active-set 与 tuning parameter 选择的所有影响。
+当前实现用 bootstrap variability 计算标准误，用符号变化概率构造双侧 p 值，并使用 percentile confidence interval。它比一次去偏拟合昂贵得多，也没有被声明为完整的 selective-inference procedure。
 
 ## OLS 风格 post-selection 路径
 
-OLS 风格路径使用普通线性模型机制对 selected active set 做重拟合/诊断。它们适合工程比较，或用来观察“不惩罚地重拟合 active set 会报告什么”，但不能因为模型是稀疏的就把这些区间描述成有效 selective-inference interval。
+当前 `cpu_ols` 与 `gpu_ols` 两个拼法都进入同一个 post-selection OLS diagnostic。它使用普通线性模型机制对 selected active set 做重拟合。这个结果适合工程对比，但不能因为模型是稀疏的就把区间描述成有效 selective-inference interval。
 
-只有当这种 diagnostic 本身就是你的目标时才使用它；不要把它当作绕过去偏或 selection-aware inference 假设的捷径。
+尤其需要把**统计方法**和**执行 backend**分开理解：`inference_method` 应描述“计算什么”，而 `device`/backend routing 描述“在哪里计算”。当前带硬件含义的两个 alias 尚未做到这种干净分离。
 
 ## 拟合后推断输出
 
@@ -236,13 +233,13 @@ OLS 风格路径使用普通线性模型机制对 selected active set 做重拟�
 | `_simultaneous_critical_value` | 校准出的共同临界值 |
 | `_inference_result` | structured inference result 与 method/backend metadata |
 
-`summary()` 使用当前 fitted model 已存在的 inference result。下划线推断数组在当前 release 中属于既有 reporting surface，但它们的含义仍然取决于具体 `inference_method`。
+`summary()` 使用当前 fitted model 已存在的 inference result。下划线推断数组在当前 release 中属于既有 reporting surface，但其含义仍然取决于具体 `inference_method`。
 
 ## 可复现性与计算成本
 
 需要可复现重采样时，应分别设置 `bootstrap_random_state` 或 `simultaneous_random_state`。提高 `simultaneous_n_bootstrap` 可以减少临界值 Monte Carlo 波动，但会增加 CPU 计算与内存流量。
 
-去偏推断通常显著比原始 Lasso 拟合昂贵，因为它需要求解许多 node-wise sparse regression；特征维度增大时尤其明显。backend acceleration 会改变计算成本，但不会改变统计假设。
+去偏推断通常显著比原始 Lasso 拟合昂贵，因为它需要求解许多 node-wise sparse regression。backend acceleration 会改变计算成本，但不会改变统计假设。
 
 ## 当前实现没有声称什么？
 
