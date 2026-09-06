@@ -15,6 +15,7 @@ from statgpu.linear_model._penalized_inference_api import (
     normalize_penalized_inference_method,
 )
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
 from statgpu.linear_model.penalized._post_selection_ols import (
     compute_post_selection_ols_inference,
 )
@@ -27,6 +28,7 @@ _ROUTER_MARKER = "__statgpu_post_selection_router__"
 _VALIDATOR_MARKER = "__statgpu_post_selection_validator__"
 _SOLVER_WARNING_MARKER = "__statgpu_post_selection_solver_warning_bridge__"
 _LASSOCV_RUNTIME_MARKER = "__statgpu_post_selection_lassocv_runtime__"
+_SPARSE_GAUSSIAN_PENALTIES = frozenset({"l1", "elasticnet", "en"})
 
 
 def _iter_subclasses(cls):
@@ -55,6 +57,29 @@ def _explicit_argument(signature, self, args, kwargs, name):
         if isinstance(extra, dict) and name in extra:
             return True, extra[name]
     return False, None
+
+
+def _supports_sparse_gaussian_migration(self) -> bool:
+    """Whether #137's hardware-neutral migration applies to this estimator.
+
+    Existing non-Gaussian penalized GLMs already expose cpu_ols/gpu_ols oracle
+    inference. #137 is deliberately scoped to the sparse Gaussian linear
+    family, so those older non-Gaussian surfaces must not be reinterpreted by
+    this compatibility layer.
+    """
+    loss_name = str(getattr(self, "loss", "squared_error")).strip().lower()
+    penalty_obj = getattr(self, "_penalty", None)
+    penalty_name = str(
+        getattr(penalty_obj, "name", getattr(self, "penalty", ""))
+    ).strip().lower()
+    return loss_name == "squared_error" and penalty_name in _SPARSE_GAUSSIAN_PENALTIES
+
+
+def _is_lassocv_instance(self) -> bool:
+    cls = type(self)
+    return cls.__name__ == "LassoCV" and cls.__module__.startswith(
+        "statgpu.linear_model.cv"
+    )
 
 
 def _constructor_warning_policy():
@@ -89,13 +114,7 @@ def _constructor_warning_policy():
 
 
 def _solver_constructor_warning_policy():
-    """Preserve #135 cpu_solver warning semantics through this wrapper layer.
-
-    The inference constructor wrapper is intentionally transparent to the older
-    solver-deprecation contract.  Without this bridge, #135 sees the wrapper as
-    an internal statgpu reconstruction and suppresses caller-owned cpu_solver
-    warnings; its warning stacklevel is also one frame too shallow.
-    """
+    """Preserve #135 cpu_solver warning semantics through this wrapper layer."""
     frame = inspect.currentframe()
     transparent_frames = 0
     try:
@@ -159,24 +178,6 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
         explicit, value = _explicit_argument(
             signature, self, args, kwargs, "inference_method"
         )
-        alias = (
-            deprecated_post_selection_alias(
-                value, allow_lassocv_legacy=allow_lassocv_legacy
-            )
-            if explicit
-            else None
-        )
-        suppress, stacklevel = _constructor_warning_policy()
-        if depth == 0 and alias is not None and not suppress:
-            warnings.warn(
-                f"{cls.__name__}(inference_method={alias!r}) is deprecated. "
-                f"Use inference_method={POST_SELECTION_OLS!r}. Statistical "
-                "method selection no longer encodes CPU/GPU execution; use "
-                "device=... for backend selection. The deprecated spelling "
-                "will be removed in a future breaking release.",
-                FutureWarning,
-                stacklevel=stacklevel,
-            )
 
         setattr(self, _CONSTRUCTOR_DEPTH_ATTR, depth + 1)
         try:
@@ -187,7 +188,37 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
             else:
                 setattr(self, _CONSTRUCTOR_DEPTH_ATTR, depth)
 
+        # Nested wrapper frames (for example Lasso -> PenalizedLinearRegression)
+        # are transparent. The outer public constructor owns migration/warning.
+        if depth != 0:
+            return result
+
         runtime_value = getattr(self, "inference_method", value)
+        migration_applies = allow_lassocv_legacy or _supports_sparse_gaussian_migration(self)
+        if not migration_applies:
+            # Preserve unrelated/non-Gaussian legacy inference semantics.
+            self._inference_method = str(runtime_value).strip().lower()
+            return result
+
+        alias = (
+            deprecated_post_selection_alias(
+                runtime_value, allow_lassocv_legacy=allow_lassocv_legacy
+            )
+            if explicit
+            else None
+        )
+        suppress, stacklevel = _constructor_warning_policy()
+        if alias is not None and not suppress:
+            warnings.warn(
+                f"{cls.__name__}(inference_method={alias!r}) is deprecated. "
+                f"Use inference_method={POST_SELECTION_OLS!r}. Statistical "
+                "method selection no longer encodes CPU/GPU execution; use "
+                "device=... for backend selection. The deprecated spelling "
+                "will be removed in a future breaking release.",
+                FutureWarning,
+                stacklevel=stacklevel,
+            )
+
         self._inference_method = normalize_penalized_inference_method(
             runtime_value,
             allow_lassocv_legacy=allow_lassocv_legacy,
@@ -207,16 +238,11 @@ def _install_inference_validator():
     def wrapped(self):
         if not self._compute_inference_enabled:
             return original(self)
-        method = normalize_penalized_inference_method(
+        method = str(
             getattr(self, "_inference_method", getattr(self, "inference_method", ""))
-        )
-        self._inference_method = method
-        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        ).strip().lower()
         if method == POST_SELECTION_OLS:
-            if (
-                self.loss == "squared_error"
-                and penalty_name in {"l1", "elasticnet", "en"}
-            ):
+            if _supports_sparse_gaussian_migration(self):
                 return None
             raise NotImplementedError(
                 "inference_method='post_selection_ols' is supported only for "
@@ -237,15 +263,13 @@ def _install_post_fit_router():
 
     @functools.wraps(original)
     def wrapped(self, X, y, sample_weight=None):
-        method = normalize_penalized_inference_method(
+        method = str(
             getattr(self, "_inference_method", getattr(self, "inference_method", ""))
-        )
-        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        ).strip().lower()
         if (
             self._compute_inference_enabled
-            and self.loss == "squared_error"
-            and penalty_name in {"l1", "elasticnet", "en"}
             and method == POST_SELECTION_OLS
+            and _supports_sparse_gaussian_migration(self)
         ):
             return compute_post_selection_ols_inference(
                 self, X, y, sample_weight=sample_weight
@@ -257,7 +281,9 @@ def _install_post_fit_router():
 
 
 def _input_native_device(self, X):
-    """Return an explicit temporary device only for genuine AUTO/AUTO input routing."""
+    """Return temporary native device only for genuine AUTO/AUTO target scope."""
+    if not (_supports_sparse_gaussian_migration(self) or _is_lassocv_instance(self)):
+        return None
     if getattr(self, "_device", None) != Device.AUTO:
         return None
     if _get_configured_device() != Device.AUTO or X is None:
@@ -273,7 +299,9 @@ def _input_native_device(self, X):
 
 
 def _install_fit_device_contract(cls):
-    original = cls.__dict__.get("fit")
+    # ``fit`` is inherited by PenalizedLinearRegression from the fit mixin.
+    # Use getattr so the sparse Gaussian family actually receives the wrapper.
+    original = getattr(cls, "fit", None)
     if original is None or getattr(original, _FIT_MARKER, False):
         return
     try:
@@ -399,16 +427,23 @@ def _install_lassocv_runtime_contract(LassoCV):
 
 
 def install_penalized_inference_api_contract():
-    """Install migration, device-routing, validation, and inference dispatch."""
+    """Install the #137 Gaussian-sparse migration without widening old GLM scope."""
     _install_solver_warning_bridge()
     _install_inference_validator()
     _install_post_fit_router()
 
-    for cls in _iter_subclasses(PenalizedGeneralizedLinearModel):
+    # Only the sparse Gaussian linear public family receives hardware-bearing
+    # alias migration. Non-Gaussian penalized GLMs keep their existing oracle
+    # surface unchanged.
+    for cls in _iter_subclasses(PenalizedLinearRegression):
         if not cls.__module__.startswith("statgpu.linear_model"):
             continue
         _install_constructor_contract(cls)
-        _install_fit_device_contract(cls)
+
+    # Lasso/ElasticNet inherit fit from PenalizedLinearRegression; wrap the
+    # inherited method once at this family boundary. Runtime scope checks keep
+    # Ridge/L2 behavior unchanged.
+    _install_fit_device_contract(PenalizedLinearRegression)
 
     from statgpu.linear_model.cv._lasso_cv import LassoCV
 
