@@ -197,6 +197,13 @@ def test_code_review_has_substantive_known_bug_golden_eval():
     assert len(matches) == 1, "code-review must keep one immutable known-bug golden eval"
 
     golden = matches[0]
+    prompt_lower = golden["prompt"].lower()
+    for leaked_answer in ("lassocv", "sklearn 1.2", "debiased", "docstring"):
+        assert leaked_answer not in prompt_lower, (
+            "known-bug golden prompt must not leak expected findings: "
+            f"{leaked_answer!r}"
+        )
+
     combined = "\n".join(
         [golden["prompt"], golden["expected_output"], *golden["assertions"]]
     ).lower()
