@@ -8,6 +8,7 @@ from _lasso.py for all CV logic (cache, fast-refit, backend-aware).
 __all__ = ["LassoCV"]
 
 from typing import Optional, Union
+import warnings
 
 import numpy as np
 
@@ -35,6 +36,10 @@ class LassoCV(CVEstimatorBase):
     This class implements K-fold cross-validation to select the optimal
     regularization parameter alpha for Lasso regression.
 
+    ``solver`` controls the final full-data refit. ``cv_solver`` controls the
+    cross-validation path. The deprecated ``cpu_solver`` parameter is retained
+    temporarily as an alias for ``cv_solver``.
+
     Parameters
     ----------
     alphas : array-like or None
@@ -46,15 +51,23 @@ class LassoCV(CVEstimatorBase):
     cv : int
         Number of CV folds. Default is 5.
     fit_intercept : bool
-        Whether to fit intercept. Default is False.
+        Whether to fit intercept. Default is True.
     device : str or Device
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
     max_iter : int
         Maximum iterations for Lasso solver. Default is 3000.
     tol : float
         Convergence tolerance. Default is 1e-4.
+    solver : str, default='fista'
+        Solver for the final full-data Lasso refit.
+    cv_solver : {'auto', 'coordinate_descent', 'fista'}, default='auto'
+        Solver for the CV folds/path. ``auto`` chooses coordinate descent on
+        CPU and FISTA on GPU. ``method='glmnet'`` always uses coordinate descent.
+    cpu_solver : str or None, deprecated
+        Deprecated compatibility alias for ``cv_solver``. It will be removed
+        in a future breaking release.
     compute_inference : bool
-        Whether to compute standard errors, t-stats, p-values and CI.
+        Whether to compute inference on the final refit.
     random_state : int or None
         Random seed for CV splits.
     gpu_cv_mixed_precision : bool
@@ -69,13 +82,15 @@ class LassoCV(CVEstimatorBase):
     cv_results_ : dict
         CV results including mse_path and mean_mse.
     best_score_ : float
-        Best (minimum) MSE across CV folds.
+        Best score (negative MSE; higher is better).
     coef_ : ndarray
         Coefficients of the final model.
     intercept_ : float
         Intercept of the final model.
     estimator_ : Lasso
         The fitted Lasso estimator with selected alpha.
+    cv_solver_ : str
+        Resolved solver used by the CV path.
 
     Examples
     --------
@@ -83,10 +98,10 @@ class LassoCV(CVEstimatorBase):
     >>> from statgpu.linear_model import LassoCV
     >>> X = np.random.randn(1000, 20)
     >>> y = X @ np.random.randn(20) + 0.1 * np.random.randn(1000)
-    >>> model = LassoCV(cv=5, device='cuda')
+    >>> model = LassoCV(cv=5, device='cpu')
     >>> model.fit(X, y)
     >>> print(f"Selected alpha: {model.alpha_:.4f}")
-    >>> print(f"Best CV score: {model.best_score_:.4f}")
+    >>> print(f"CV solver: {model.cv_solver_}")
     """
 
     def __init__(
@@ -104,7 +119,7 @@ class LassoCV(CVEstimatorBase):
         tol: float = 1e-4,
         stopping: str = "coef_delta",
         solver: str = "fista",
-        cpu_solver: str = "coordinate_descent",
+        cpu_solver: Optional[str] = None,
         method: str = "standard",
         cd_kkt_check_every: Optional[int] = None,
         inference_method: str = "cpu_ols_inference",
@@ -113,6 +128,7 @@ class LassoCV(CVEstimatorBase):
         gpu_memory_cleanup: bool = False,
         random_state: Optional[int] = None,
         gpu_cv_mixed_precision: bool = True,
+        cv_solver: str = "auto",
     ):
         super().__init__(
             cv=cv,
@@ -131,7 +147,8 @@ class LassoCV(CVEstimatorBase):
         self.tol = float(tol)
         self.stopping = str(stopping)
         self.solver = str(solver)
-        self.cpu_solver = str(cpu_solver)
+        self.cpu_solver = cpu_solver
+        self.cv_solver = str(cv_solver)
         self.method = _normalize_lassocv_method(method)
         self.cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
         self.inference_method = str(inference_method)
@@ -150,34 +167,64 @@ class LassoCV(CVEstimatorBase):
         self.intercept_ = None
         self.n_iter_ = None
         self.estimator_ = None
+        self.cv_solver_ = None
+
+    def _resolve_cv_solver(self, device_name: str) -> str:
+        """Resolve the CV-only solver without changing final-refit semantics."""
+        requested = str(self.cv_solver).strip().lower()
+        allowed = {"auto", "coordinate_descent", "fista"}
+        if requested not in allowed:
+            raise ValueError(
+                "cv_solver must be one of 'auto', 'coordinate_descent', or 'fista'"
+            )
+
+        if self.cpu_solver is not None:
+            legacy = str(self.cpu_solver).strip().lower()
+            if legacy not in {"coordinate_descent", "fista"}:
+                raise ValueError(
+                    "deprecated cpu_solver must be 'coordinate_descent' or 'fista'"
+                )
+            warnings.warn(
+                "LassoCV(cpu_solver=...) is deprecated; use cv_solver=... for "
+                "the cross-validation path. solver=... controls only the final "
+                "full-data refit. cpu_solver will be removed in a future "
+                "breaking release.",
+                FutureWarning,
+                stacklevel=3,
+            )
+            if requested != "auto" and requested != legacy:
+                raise ValueError(
+                    "cv_solver and deprecated cpu_solver specify different CV solvers"
+                )
+            if requested == "auto":
+                requested = legacy
+
+        method = str(self.method).strip().lower()
+        if method == "glmnet":
+            if requested not in {"auto", "coordinate_descent"}:
+                raise ValueError(
+                    "method='glmnet' requires cv_solver='coordinate_descent' or 'auto'"
+                )
+            return "coordinate_descent"
+
+        device_name = str(device_name).strip().lower()
+        if requested == "auto":
+            return "coordinate_descent" if device_name == "cpu" else "fista"
+        if requested == "coordinate_descent" and device_name != "cpu":
+            raise ValueError(
+                "cv_solver='coordinate_descent' is CPU-only; use cv_solver='auto' "
+                "or cv_solver='fista' for CUDA/Torch CV"
+            )
+        return requested
 
     def fit(self, X, y, sample_weight=None):
-        """
-        Fit Lasso regression with cross-validation to select alpha.
-
-        Delegates to ``_select_lasso_alpha_cv`` for CV with cache, fast-refit,
-        and backend-aware optimizations.
-
-        Parameters
-        ----------
-        X : array-like
-            Training data (n_samples, n_features).
-        y : array-like
-            Target values.
-        sample_weight : array-like or None
-            Sample weights.
-
-        Returns
-        -------
-        self : LassoCV
-            Fitted estimator.
-        """
+        """Fit Lasso regression with cross-validation to select alpha."""
         from statgpu.linear_model.wrappers._lasso import _select_lasso_alpha_cv, Lasso
 
         device_name = self._get_compute_device().value
-        effective_cpu_solver = (
-            "coordinate_descent" if str(self._method).lower() == "glmnet" else str(self._cpu_solver)
-        )
+        effective_cv_solver = self._resolve_cv_solver(device_name)
+        self.cv_solver_ = effective_cv_solver
+
         effective_cd_kkt = self._cd_kkt_check_every
         if effective_cd_kkt is None:
             effective_cd_kkt = 4 if str(self._method).lower() == "glmnet" else 1
@@ -195,14 +242,13 @@ class LassoCV(CVEstimatorBase):
             device=device_name,
             max_iter=self._max_iter,
             tol=self._tol,
-            cpu_solver=effective_cpu_solver,
+            cpu_solver=effective_cv_solver,
             method=self._method,
             cd_kkt_check_every=effective_cd_kkt,
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
 
-        # Store CV results
         self.alpha_ = float(details["alpha"])
         self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
         mse_path = np.asarray(details["mse_path"], dtype=np.float64)
@@ -211,10 +257,8 @@ class LassoCV(CVEstimatorBase):
         self.cv_results_ = {"mse_path": mse_path}
         self.mse_path_ = mse_path
         self.mean_mse_ = mean_mse
-        # sklearn convention: best_score_ is negative MSE (higher is better)
         self.best_score_ = -float(np.nanmin(mean_mse)) if np.any(np.isfinite(mean_mse)) else np.nan
 
-        # Fit final model with selected alpha
         estimator = Lasso(
             alpha=self.alpha_,
             fit_intercept=self._fit_intercept,
@@ -226,7 +270,6 @@ class LassoCV(CVEstimatorBase):
             n_jobs=self.n_jobs,
             compute_inference=self._compute_inference_enabled,
             solver=self._solver,
-            cpu_solver=effective_cpu_solver,
             lipschitz_L=self.lipschitz_L,
             admm_rho=self._admm_rho,
             gpu_memory_cleanup=self._gpu_memory_cleanup,
@@ -238,7 +281,6 @@ class LassoCV(CVEstimatorBase):
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
 
-        # Copy inference attributes if available (preserve underscore prefix)
         for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
             val = getattr(estimator, attr, None)
             if val is not None:
