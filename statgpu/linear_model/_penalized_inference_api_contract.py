@@ -27,7 +27,6 @@ _FIT_MARKER = "__statgpu_post_selection_fit_device__"
 _ROUTER_MARKER = "__statgpu_post_selection_router__"
 _VALIDATOR_MARKER = "__statgpu_post_selection_validator__"
 _SOLVER_WARNING_MARKER = "__statgpu_post_selection_solver_warning_bridge__"
-_LASSOCV_RUNTIME_MARKER = "__statgpu_post_selection_lassocv_runtime__"
 _SPARSE_GAUSSIAN_PENALTIES = frozenset({"l1", "elasticnet", "en"})
 
 
@@ -332,100 +331,6 @@ def _install_fit_device_contract(cls):
     cls.fit = wrapped
 
 
-def _install_lassocv_runtime_contract(LassoCV):
-    """Restore #135 CV semantics while adding only inference/backend migration."""
-    if getattr(LassoCV, _LASSOCV_RUNTIME_MARKER, False):
-        return
-
-    def _prepare_cv_inputs_for_explicit_device(self, X, y, sample_weight):
-        """Convert inputs for the concrete device resolved before CV selection."""
-        resolved = self._get_compute_device()
-        if resolved == Device.CUDA:
-            target_device = Device.CUDA
-            backend_name = "cupy"
-        elif resolved == Device.TORCH:
-            target_device = Device.TORCH
-            backend_name = "torch"
-        else:
-            return X, y, sample_weight
-
-        X_cv = self._to_array(X, target_device, backend=backend_name)
-        y_cv = self._to_array(y, target_device, backend=backend_name)
-        sample_weight_cv = (
-            None
-            if sample_weight is None
-            else self._to_array(
-                sample_weight,
-                target_device,
-                backend=backend_name,
-            )
-        )
-        return X_cv, y_cv, sample_weight_cv
-
-    def _resolve_cv_solver(self, device_name: str) -> str:
-        """Resolve CV solver using #135 normalized method/device semantics."""
-        requested = str(self.cv_solver).strip().lower()
-        allowed = {"auto", "coordinate_descent", "fista"}
-        if requested not in allowed:
-            raise ValueError(
-                "cv_solver must be one of 'auto', 'coordinate_descent', or 'fista'"
-            )
-
-        device_name = str(device_name).strip().lower()
-        legacy = None
-        if self.cpu_solver is not None:
-            legacy = str(self.cpu_solver).strip().lower()
-            if legacy not in {"coordinate_descent", "fista"}:
-                raise ValueError(
-                    "deprecated cpu_solver must be 'coordinate_descent' or 'fista'"
-                )
-            fit_wrapper_active = int(getattr(self, _FIT_DEPTH_ATTR, 0)) > 0
-            warnings.warn(
-                "LassoCV(cpu_solver=...) is deprecated; use cv_solver=... for "
-                "the cross-validation path. solver=... controls only the final "
-                "full-data refit. On CUDA/Torch, historical cpu_solver values "
-                "remain non-authoritative and do not replace GPU FISTA. "
-                "cpu_solver will be removed in a future breaking release.",
-                FutureWarning,
-                stacklevel=5 if fit_wrapper_active else 2,
-            )
-            if (
-                device_name == "cpu"
-                and requested != "auto"
-                and requested != legacy
-            ):
-                raise ValueError(
-                    "cv_solver and deprecated cpu_solver specify different CV solvers"
-                )
-
-        method = str(self._method).strip().lower()
-
-        if device_name != "cpu":
-            if requested == "coordinate_descent":
-                raise ValueError(
-                    "cv_solver='coordinate_descent' is CPU-only; use "
-                    "cv_solver='auto' or cv_solver='fista' for CUDA/Torch CV"
-                )
-            return "fista" if requested == "auto" else requested
-
-        if method == "glmnet":
-            if requested not in {"auto", "coordinate_descent"}:
-                raise ValueError(
-                    "method='glmnet' requires cv_solver='coordinate_descent' or 'auto' on CPU"
-                )
-            return "coordinate_descent"
-
-        if requested == "auto" and legacy is not None:
-            requested = legacy
-        if requested == "auto":
-            return "coordinate_descent"
-        return requested
-
-    LassoCV._prepare_cv_inputs_for_explicit_device = _prepare_cv_inputs_for_explicit_device
-    LassoCV._resolve_cv_solver = _resolve_cv_solver
-    setattr(LassoCV, _LASSOCV_RUNTIME_MARKER, True)
-
-
 def install_penalized_inference_api_contract():
     """Install the #137 Gaussian-sparse migration without widening old GLM scope."""
     _install_solver_warning_bridge()
@@ -449,7 +354,6 @@ def install_penalized_inference_api_contract():
 
     _install_constructor_contract(LassoCV, allow_lassocv_legacy=True)
     _install_fit_device_contract(LassoCV)
-    _install_lassocv_runtime_contract(LassoCV)
 
 
 __all__ = ["install_penalized_inference_api_contract"]
