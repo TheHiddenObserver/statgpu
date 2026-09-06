@@ -3,7 +3,13 @@ import warnings
 import numpy as np
 import pytest
 
-from statgpu.linear_model import Lasso, LassoCV, PenalizedLinearRegression, Ridge
+from statgpu.linear_model import (
+    Lasso,
+    LassoCV,
+    PenalizedGeneralizedLinearModel,
+    PenalizedLinearRegression,
+    Ridge,
+)
 
 
 def _regression_data(seed=123, n=80, p=6):
@@ -40,6 +46,46 @@ def test_default_direct_estimator_does_not_emit_cpu_solver_warning():
         warnings.simplefilter("always")
         Ridge(alpha=0.2, device="cpu", compute_inference=False).fit(X, y)
     assert not any("cpu_solver" in str(item.message) for item in caught)
+
+
+def test_sklearn_clone_does_not_turn_omitted_cpu_solver_into_warning():
+    pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    estimators = [
+        Lasso(device="cpu", compute_inference=False),
+        Ridge(device="cpu", compute_inference=False),
+        PenalizedLinearRegression(
+            penalty="l1", device="cpu", compute_inference=False
+        ),
+    ]
+    for estimator in estimators:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cloned = clone(estimator)
+        assert cloned is not estimator
+        assert not any("cpu_solver" in str(item.message) for item in caught)
+
+
+def test_internal_debiased_nodewise_lasso_does_not_emit_cpu_solver_warning():
+    X, y = _regression_data(n=60, p=6)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        Lasso(
+            alpha=0.08,
+            device="cpu",
+            solver="fista",
+            compute_inference=True,
+            inference_method="debiased",
+            max_iter=500,
+        ).fit(X, y)
+    assert not any("cpu_solver" in str(item.message) for item in caught)
+
+
+def test_public_penalized_base_help_marks_cpu_solver_deprecated():
+    doc = PenalizedGeneralizedLinearModel.__doc__ or ""
+    assert "cpu_solver : str, deprecated" in doc
+    assert "no longer selects the direct-fit algorithm" in doc
 
 
 def test_lassocv_default_separates_cv_solver_from_final_refit_solver():
@@ -90,6 +136,27 @@ def test_lassocv_deprecated_cpu_solver_alias_preserves_old_cpu_choice():
     assert model.estimator_._selected_solver == "fista"
 
 
+def test_lassocv_legacy_cpu_solver_does_not_override_gpu_cv_solver():
+    model = LassoCV(cpu_solver="coordinate_descent", cv_solver="auto")
+    with pytest.warns(FutureWarning, match="LassoCV.*cpu_solver"):
+        assert model._resolve_cv_solver("cuda") == "fista"
+    with pytest.warns(FutureWarning, match="LassoCV.*cpu_solver"):
+        assert model._resolve_cv_solver("torch") == "fista"
+
+
+def test_lassocv_gpu_glmnet_reports_actual_fista_solver():
+    model = LassoCV(method="glmnet", cv_solver="auto")
+    assert model._resolve_cv_solver("cuda") == "fista"
+    assert model._resolve_cv_solver("torch") == "fista"
+    assert model._resolve_cv_solver("cpu") == "coordinate_descent"
+
+
+def test_lassocv_explicit_coordinate_descent_remains_cpu_only():
+    model = LassoCV(cv_solver="coordinate_descent")
+    with pytest.raises(ValueError, match="CPU-only"):
+        model._resolve_cv_solver("cuda")
+
+
 def test_lassocv_glmnet_preserves_legacy_cpu_solver_override_behavior():
     X, y = _regression_data()
     with pytest.warns(FutureWarning, match="LassoCV.*cpu_solver"):
@@ -108,7 +175,7 @@ def test_lassocv_glmnet_preserves_legacy_cpu_solver_override_behavior():
     assert model.estimator_._selected_solver == "fista"
 
 
-def test_lassocv_rejects_conflicting_new_and_legacy_cv_solver_controls():
+def test_lassocv_rejects_conflicting_new_and_legacy_cv_solver_controls_on_cpu():
     X, y = _regression_data()
     model = LassoCV(
         alphas=[0.03, 0.08],
@@ -123,7 +190,7 @@ def test_lassocv_rejects_conflicting_new_and_legacy_cv_solver_controls():
             model.fit(X, y)
 
 
-def test_lassocv_glmnet_rejects_non_coordinate_descent_cv_solver():
+def test_lassocv_glmnet_rejects_non_coordinate_descent_cv_solver_on_cpu():
     X, y = _regression_data()
     model = LassoCV(
         alphas=[0.03, 0.08],
