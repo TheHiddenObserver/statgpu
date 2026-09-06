@@ -7,11 +7,11 @@ Load this file from `SKILL.md` when a review spans multiple axes or needs a bloc
 | Active axis | Required review evidence |
 | --- | --- |
 | Public API / deprecation | Signature/introspection, defaults, old/new conflict behavior, warnings, `get_params`, `set_params`, clone/meta-estimator behavior, fitted-state invalidation, migration docs |
-| Backend / device | Declared backend routing, dtype/device ownership, no hidden host transfer, explicit unavailable-backend behavior, output ownership |
+| Backend / device | For new shared numerical capability: NumPy/CuPy/Torch closure by default or approved deferral; otherwise affected declared routing, dtype/device ownership, no hidden host transfer, explicit unavailable-backend behavior, output ownership |
 | Loss / objective | Formula, normalization, intercept policy, gradient/Hessian or finite-difference checks, external/analytic baseline |
 | Penalty | Value/gradient/prox/LLA semantics, parameter validation, solver compatibility, objective scaling |
 | Solver | Dispatch, supported objective classes, convergence/KKT/monotonicity, stopping semantics, backend compatibility, CV dispatch if shared |
-| CV | Grid/path generation, folds, sample weights, scoring, selection, determinism, no leakage, final refit, backend/device contract |
+| CV | For new tunable loss x penalty capability: direct + CV closure by default or approved non-tunable/deferral contract; otherwise grid/path generation, folds, sample weights, scoring, selection, determinism, no leakage, final refit, backend/device contract |
 | Inference | Result container/fields, covariance, reference distribution, SE/t-or-z/p/CI, summary, sample weights, backend provenance, strict/fallback behavior |
 | Formula | Intercept, categorical reference levels, interactions/transforms, missing-row alignment, feature names/order, prediction matrix behavior |
 | Performance | Correctness first, synchronized timing, environment provenance, transfer scope, target scale, external comparison identity |
@@ -21,7 +21,11 @@ Load this file from `SKILL.md` when a review spans multiple axes or needs a bloc
 
 ### New numerical/statistical capability
 
-A new public numerical capability should normally cover every backend the capability declares. If project policy declares NumPy/CuPy/Torch support for that capability, missing one is blocking unless an explicit deferral is part of the approved task.
+For a new or materially changed **shared statistical/numerical capability**, statgpu's default completion contract is NumPy + CuPy + Torch. Missing one is blocking unless the task/issue already defines a legitimate narrower capability or an explicit backend deferral has been approved with reason, user-visible failure behavior, deterministic tests/skips, and follow-up scope.
+
+For a new **tunable loss x penalty capability**, direct fit + CV path/grid/folds/scoring/selection/final refit are part of the default completion contract. CV may be absent only when the capability is genuinely non-tunable or an explicit deferral is approved.
+
+Do not let a first implementation silently redefine a repository-default capability as CPU-only or direct-fit-only merely to avoid these gates. Intermediate partial work is allowed; calling it `COMPLETE` is not.
 
 Do not use a new capability as an excuse to silently fallback from an explicit GPU device to CPU.
 
@@ -35,6 +39,8 @@ Instead verify:
 - existing public support claims remain true;
 - relevant targeted regressions cover the touched interfaces;
 - shared infrastructure changes receive broader regression coverage proportional to blast radius.
+
+This exemption applies to genuinely narrow existing-capability work; it does not weaken the default closure rules above for newly introduced public capability.
 
 ### Docs-only change
 
@@ -74,6 +80,7 @@ External agreement is meaningful only after aligning objective normalization, pe
 
 When backend behavior is active:
 
+- for new shared numerical capability, NumPy/CuPy/Torch are all covered unless an approved narrower scope exists;
 - explicit CPU/CUDA/Torch requests have deterministic routing;
 - `device="auto"` is the only path that may select among available backends automatically;
 - unavailable explicit backends fail visibly;
@@ -85,6 +92,7 @@ When backend behavior is active:
 
 When CV is active:
 
+- for a new tunable loss x penalty capability, direct + CV closure is default unless a non-tunable/approved-deferral contract applies;
 - fold construction and custom splits are validated;
 - sample weights align with the selected objective;
 - alpha/lambda/C grids use the correct public scale;
@@ -143,6 +151,8 @@ Do not aggregate speedups from different hardware/software environments as if th
 
 ### HIGH
 
+- a new shared numerical capability is declared complete without NumPy/CuPy/Torch or an approved deferral;
+- a new tunable loss x penalty capability is declared complete without CV closure or an approved non-tunable/deferral contract;
 - deprecation breaks clone/set_params or legacy numerical behavior without an approved break;
 - a declared backend path no longer works;
 - CV selects/refits the wrong hyperparameter/solver;
