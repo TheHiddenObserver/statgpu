@@ -185,8 +185,6 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
             else:
                 setattr(self, _CONSTRUCTOR_DEPTH_ATTR, depth)
 
-        # Nested wrapper frames (for example Lasso -> PenalizedLinearRegression)
-        # are transparent. The outer public constructor owns migration/warning.
         if depth != 0:
             return result
 
@@ -304,12 +302,15 @@ def _fit_input_from_call(args, kwargs):
 
 
 def _install_fit_device_contract(cls):
-    # ``fit`` is inherited and already wrapped by several maintained contracts,
-    # so its runtime inspect.signature may collapse to *args/**kwargs. The public
-    # estimator contract still has X as the first positional argument; extract it
-    # directly rather than relying on signature reconstruction.
     original = getattr(cls, "fit", None)
-    if original is None or getattr(original, _FIT_MARKER, False):
+    if original is None:
+        return
+    # Marker checks must be class-local. BaseEstimator.__init_subclass__ installs
+    # a concrete finite-validation ``fit`` on each subclass, so an inherited
+    # marker on the base must not cause Lasso/ElasticNet's own wrapper to be
+    # skipped.
+    local_fit = cls.__dict__.get("fit")
+    if local_fit is not None and getattr(local_fit, _FIT_MARKER, False):
         return
 
     @functools.wraps(original)
@@ -341,15 +342,17 @@ def install_penalized_inference_api_contract():
     _install_inference_validator()
     _install_post_fit_router()
 
+    # BaseEstimator.__init_subclass__ materializes a finite-validation ``fit`` on
+    # each concrete estimator. Install both constructor and fit wrappers on every
+    # concrete penalized-linear subclass; runtime scope checks make the fit layer
+    # a transparent no-op outside squared-error L1/ElasticNet models.
+    _install_fit_device_contract(PenalizedLinearRegression)
     for cls in _iter_subclasses(PenalizedLinearRegression):
         if not cls.__module__.startswith("statgpu.linear_model"):
             continue
         _install_constructor_contract(cls)
-
-    # Lasso/ElasticNet inherit the same fit implementation. Install one wrapper
-    # at the PenalizedLinearRegression boundary; runtime scope checks leave
-    # Ridge/L2 and unrelated penalized models unchanged.
-    _install_fit_device_contract(PenalizedLinearRegression)
+        if cls is not PenalizedLinearRegression:
+            _install_fit_device_contract(cls)
 
     from statgpu.linear_model.cv._lasso_cv import LassoCV
 
