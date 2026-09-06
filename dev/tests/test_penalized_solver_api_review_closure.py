@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import statgpu.linear_model.wrappers._lasso as lasso_impl
+from statgpu._config import Device
 from statgpu.linear_model import Lasso, LassoCV
 
 
@@ -112,3 +113,76 @@ def test_lassocv_failed_final_refit_does_not_publish_candidate_state(monkeypatch
         model.fit(X, y)
 
     _assert_cv_state_cleared(model, X)
+
+
+@pytest.mark.parametrize(
+    ("device_name", "target_device", "backend_name"),
+    [
+        ("cuda", Device.CUDA, "cupy"),
+        ("torch", Device.TORCH, "torch"),
+    ],
+)
+def test_lassocv_explicit_gpu_fit_preserves_requested_cv_backend(
+    monkeypatch,
+    device_name,
+    target_device,
+    backend_name,
+):
+    X, y = _regression_data()
+    sample_weight = np.ones(X.shape[0], dtype=np.float64)
+    model = LassoCV(
+        alphas=[0.03, 0.08],
+        cv=3,
+        device=device_name,
+        compute_inference=False,
+        random_state=11,
+    )
+
+    # Exercise the public fit path without requiring physical CUDA. The strict
+    # availability gate is replaced by a sentinel, while _to_array records the
+    # exact backend identity that LassoCV requests before entering the legacy
+    # selector.
+    monkeypatch.setattr(model, "_get_backend", lambda: object())
+    converted = {}
+
+    def fake_to_array(value, device=None, backend=None):
+        marker = object()
+        converted[id(value)] = (marker, device, backend)
+        return marker
+
+    monkeypatch.setattr(model, "_to_array", fake_to_array)
+
+    def synthetic_selection(X_cv, y_cv, **kwargs):
+        assert X_cv is converted[id(X)][0]
+        assert y_cv is converted[id(y)][0]
+        assert kwargs["sample_weight"] is converted[id(sample_weight)][0]
+        assert kwargs["device"] == device_name
+        assert kwargs["cpu_solver"] == "fista"
+        return {
+            "alpha": 0.03,
+            "alphas": np.asarray([0.03, 0.08], dtype=np.float64),
+            "mse_path": np.asarray(
+                [[0.30, 0.31, 0.29], [0.42, 0.40, 0.41]],
+                dtype=np.float64,
+            ),
+            "mean_mse": np.asarray([0.30, 0.41], dtype=np.float64),
+        }
+
+    def successful_refit(self, *args, **kwargs):
+        self.coef_ = np.zeros(X.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        self._fitted = True
+        return self
+
+    monkeypatch.setattr(lasso_impl, "_select_lasso_alpha_cv", synthetic_selection)
+    monkeypatch.setattr(Lasso, "fit", successful_refit)
+
+    model.fit(X, y, sample_weight=sample_weight)
+
+    assert model.cv_solver_ == "fista"
+    assert len(converted) == 3
+    for original in (X, y, sample_weight):
+        _, converted_device, converted_backend = converted[id(original)]
+        assert converted_device == target_device
+        assert converted_backend == backend_name
