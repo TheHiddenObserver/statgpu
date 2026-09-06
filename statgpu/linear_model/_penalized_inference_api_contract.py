@@ -321,7 +321,6 @@ def _install_lassocv_runtime_contract(LassoCV):
         else:
             return X, y, sample_weight
 
-        self._get_backend()
         X_cv = self._to_array(X, target_device, backend=backend_name)
         y_cv = self._to_array(y, target_device, backend=backend_name)
         sample_weight_cv = (
