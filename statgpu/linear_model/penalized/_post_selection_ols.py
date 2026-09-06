@@ -13,6 +13,10 @@ from statgpu.linear_model._gaussian_inference import (
     compute_gaussian_inference,
 )
 
+# Preserve the maintained pre-migration active-set boundary. An API cleanup
+# should not silently turn solver-scale numerical dust into selected variables.
+_POST_SELECTION_ACTIVE_TOL = 1e-10
+
 
 def _selected_device(model, backend_name: str) -> str:
     selected = getattr(model, "_selected_backend_device", None)
@@ -64,8 +68,8 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     The sparse penalized fit chooses the active set. This function then refits an
     unpenalized least-squares model on exactly those columns and computes the
     requested Gaussian covariance/reference-distribution inference there. The
-    intervals remain a post-selection
-    diagnostic; they do not account for data-driven active-set selection.
+    intervals remain a post-selection diagnostic; they do not account for
+    data-driven active-set selection.
 
     Numerical work is performed on the backend/device recorded by the successful
     penalized fit. A NumPy reporting snapshot is taken only after parameter,
@@ -92,7 +96,9 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         raise RuntimeError(
             "post_selection_ols coefficient dimension does not match the fitted design."
         )
-    selected_idx = np.flatnonzero(np.abs(coef_penalized) > 1e-15)
+    selected_idx = np.flatnonzero(
+        np.abs(coef_penalized) > _POST_SELECTION_ACTIVE_TOL
+    )
     X_design = _active_design(
         X_native,
         selected_idx,
@@ -175,11 +181,17 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         resolved_distribution = gaussian.distribution
 
     full_dim = p_full + int(bool(model._effective_intercept))
-    params = np.zeros(full_dim, dtype=np.float64)
-    bse = np.zeros(full_dim, dtype=np.float64)
-    statistic = np.zeros(full_dim, dtype=np.float64)
-    pvalues = np.ones(full_dim, dtype=np.float64)
-    conf_int = np.zeros((full_dim, 2), dtype=np.float64)
+    # Preserve the fitted penalized values for coordinates that were not
+    # selected, matching the pre-migration reporting contract. Crucially, those
+    # coordinates did not receive an OLS/WLS refit, so their inferential fields
+    # are NaN rather than fake zero-variance [0, 0] intervals.
+    params = coef_penalized.copy()
+    if model._effective_intercept:
+        params = np.concatenate([[float(model.intercept_)], params])
+    bse = np.full(full_dim, np.nan, dtype=np.float64)
+    statistic = np.full(full_dim, np.nan, dtype=np.float64)
+    pvalues = np.full(full_dim, np.nan, dtype=np.float64)
+    conf_int = np.full((full_dim, 2), np.nan, dtype=np.float64)
 
     if model._effective_intercept and k:
         params[0] = params_sel[0]
@@ -215,6 +227,7 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         "requested_method": str(getattr(model, "inference_method", "post_selection_ols")),
         "n_selected": int(selected_idx.size),
         "selected_feature_indices": selected_idx.tolist(),
+        "active_set_tolerance": _POST_SELECTION_ACTIVE_TOL,
         "sample_weighted": sample_weight is not None,
     }
     result = ParameterInferenceResult(
