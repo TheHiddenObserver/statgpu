@@ -189,6 +189,41 @@ class LassoCV(CVEstimatorBase):
         for attr in ("_bse", "_pvalues", "_tvalues", "_conf_int"):
             self.__dict__.pop(attr, None)
 
+    def _prepare_cv_inputs_for_explicit_device(self, X, y, sample_weight):
+        """Preserve an explicit CUDA/Torch backend before entering the CV helper.
+
+        The legacy selector accepts a device string but infers the concrete GPU
+        array library from its inputs. Convert only explicit device requests so
+        ``device='auto'`` keeps its historical auto-selection behavior while an
+        explicit CUDA or Torch request cannot be reinterpreted as another GPU
+        backend.
+        """
+        if self._device == Device.CUDA:
+            target_device = Device.CUDA
+            backend_name = "cupy"
+        elif self._device == Device.TORCH:
+            target_device = Device.TORCH
+            backend_name = "torch"
+        else:
+            return X, y, sample_weight
+
+        # Reuse BaseEstimator's strict explicit-device availability gate before
+        # conversion.  This prevents a missing requested backend from reaching
+        # the selector's generic auto-backend path.
+        self._get_backend()
+        X_cv = self._to_array(X, target_device, backend=backend_name)
+        y_cv = self._to_array(y, target_device, backend=backend_name)
+        sample_weight_cv = (
+            None
+            if sample_weight is None
+            else self._to_array(
+                sample_weight,
+                target_device,
+                backend=backend_name,
+            )
+        )
+        return X_cv, y_cv, sample_weight_cv
+
     def _resolve_cv_solver(self, device_name: str) -> str:
         """Resolve the actual CV solver without changing legacy GPU behavior."""
         requested = str(self.cv_solver).strip().lower()
@@ -261,20 +296,25 @@ class LassoCV(CVEstimatorBase):
         self._reset_cv_fit_state()
         device_name = self._get_compute_device().value
         effective_cv_solver = self._resolve_cv_solver(device_name)
+        X_cv, y_cv, sample_weight_cv = self._prepare_cv_inputs_for_explicit_device(
+            X,
+            y,
+            sample_weight,
+        )
 
         effective_cd_kkt = self._cd_kkt_check_every
         if effective_cd_kkt is None:
             effective_cd_kkt = 4 if str(self._method).lower() == "glmnet" else 1
 
         details = _select_lasso_alpha_cv(
-            X, y,
+            X_cv, y_cv,
             alphas=self.alphas,
             n_alphas=self._n_alphas,
             alpha_min_ratio=self._alpha_min_ratio,
             cv_folds=self._cv,
             cv_splits=self.cv_splits,
             random_state=self.random_state,
-            sample_weight=sample_weight,
+            sample_weight=sample_weight_cv,
             fit_intercept=self._fit_intercept,
             device=device_name,
             max_iter=self._max_iter,
