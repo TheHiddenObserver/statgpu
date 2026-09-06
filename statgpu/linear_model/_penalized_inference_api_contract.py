@@ -61,10 +61,8 @@ def _explicit_argument(signature, self, args, kwargs, name):
 def _supports_sparse_gaussian_migration(self) -> bool:
     """Whether #137's hardware-neutral migration applies to this estimator.
 
-    Existing non-Gaussian penalized GLMs already expose cpu_ols/gpu_ols oracle
-    inference. #137 is deliberately scoped to the sparse Gaussian linear
-    family, so those older non-Gaussian surfaces must not be reinterpreted by
-    this compatibility layer.
+    The canonical method is deliberately scoped to squared-error L1/ElasticNet
+    models. Existing non-Gaussian inference validation must remain unchanged.
     """
     loss_name = str(getattr(self, "loss", "squared_error")).strip().lower()
     penalty_obj = getattr(self, "_penalty", None)
@@ -195,7 +193,6 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
         runtime_value = getattr(self, "inference_method", value)
         migration_applies = allow_lassocv_legacy or _supports_sparse_gaussian_migration(self)
         if not migration_applies:
-            # Preserve unrelated/non-Gaussian legacy inference semantics.
             self._inference_method = str(runtime_value).strip().lower()
             return result
 
@@ -297,22 +294,29 @@ def _input_native_device(self, X):
     return None
 
 
+def _fit_input_from_call(args, kwargs):
+    """Return the public ``fit`` X argument without trusting wrapped signatures."""
+    if "X" in kwargs:
+        return kwargs["X"]
+    if args:
+        return args[0]
+    return None
+
+
 def _install_fit_device_contract(cls):
-    # ``fit`` is inherited by PenalizedLinearRegression from the fit mixin.
-    # Use getattr so the sparse Gaussian family actually receives the wrapper.
+    # ``fit`` is inherited and already wrapped by several maintained contracts,
+    # so its runtime inspect.signature may collapse to *args/**kwargs. The public
+    # estimator contract still has X as the first positional argument; extract it
+    # directly rather than relying on signature reconstruction.
     original = getattr(cls, "fit", None)
     if original is None or getattr(original, _FIT_MARKER, False):
-        return
-    try:
-        signature = inspect.signature(original)
-    except (TypeError, ValueError):
         return
 
     @functools.wraps(original)
     def wrapped(self, *args, **kwargs):
         depth = int(getattr(self, _FIT_DEPTH_ATTR, 0))
-        explicit_x, X = _explicit_argument(signature, self, args, kwargs, "X")
-        target = _input_native_device(self, X if explicit_x else None) if depth == 0 else None
+        X = _fit_input_from_call(args, kwargs)
+        target = _input_native_device(self, X) if depth == 0 else None
         prior_device = getattr(self, "_device", None)
         setattr(self, _FIT_DEPTH_ATTR, depth + 1)
         if target is not None:
@@ -337,17 +341,14 @@ def install_penalized_inference_api_contract():
     _install_inference_validator()
     _install_post_fit_router()
 
-    # Only the sparse Gaussian linear public family receives hardware-bearing
-    # alias migration. Non-Gaussian penalized GLMs keep their existing oracle
-    # surface unchanged.
     for cls in _iter_subclasses(PenalizedLinearRegression):
         if not cls.__module__.startswith("statgpu.linear_model"):
             continue
         _install_constructor_contract(cls)
 
-    # Lasso/ElasticNet inherit fit from PenalizedLinearRegression; wrap the
-    # inherited method once at this family boundary. Runtime scope checks keep
-    # Ridge/L2 behavior unchanged.
+    # Lasso/ElasticNet inherit the same fit implementation. Install one wrapper
+    # at the PenalizedLinearRegression boundary; runtime scope checks leave
+    # Ridge/L2 and unrelated penalized models unchanged.
     _install_fit_device_contract(PenalizedLinearRegression)
 
     from statgpu.linear_model.cv._lasso_cv import LassoCV
