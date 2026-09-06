@@ -9,7 +9,7 @@ Language switch: [Chinese](../../cn/models/lasso.md)
 
 ## Overview
 
-`Lasso` provides L1-regularized linear regression with CPU/GPU execution and multiple inference backends. Direct fitting uses one backend-neutral `solver` interface; device selection and solver selection are separate choices.
+`Lasso` provides L1-regularized linear regression with CPU/GPU execution and multiple inference modes. Direct fitting uses one backend-neutral `solver` interface; device selection, solver selection, and statistical inference method are separate choices.
 
 ## Path
 
@@ -37,16 +37,35 @@ The historical `cpu_solver` constructor argument is deprecated. It remains accep
 
 ## Covariance/Inference
 
-- `inference_method="cpu_ols_inference"`: CPU-side OLS-style post-selection inference surface.
-- `inference_method="gpu_ols_inference"`: GPU-side inference path to reduce host/device transfer overhead.
-- `inference_method="debiased"`: de-biased (de-sparsified) Lasso inference with z-statistic semantics.
-- `inference_method="bootstrap"`: residual bootstrap; typically more robust and slower.
-- `compute_inference=True` enables `_bse`, `_tvalues`, `_pvalues`, `_conf_int`.
-- Legacy aliases are accepted: `naive_ols -> cpu_ols_inference`, `gpu_naive_ols -> gpu_ols_inference`.
+`Lasso` inference is controlled by `inference_method`:
+
+- `post_selection_ols`: hardware-neutral active-set OLS/WLS refit diagnostic.
+- `debiased`: de-biased (de-sparsified) Lasso inference with z-statistic semantics.
+- `bootstrap`: residual bootstrap; typically slower and still not a universal selection-aware correction.
+
+The unified spellings `cpu_ols` and `gpu_ols` are deprecated together. During the compatibility window they emit `FutureWarning` and normalize to `post_selection_ols`; they are **not** separate CPU and GPU statistical procedures. `LassoCV` additionally accepts the older `cpu_ols_inference` / `gpu_ols_inference` spellings at its compatibility boundary and normalizes them to the same method.
+
+### What `post_selection_ols` computes
+
+The penalized fit first chooses an active feature set. statgpu then refits an **unpenalized OLS model on exactly those selected columns**, or WLS when `sample_weight` is supplied, using the backend/device recorded by the successful penalized fit. Gaussian covariance and reference-distribution inference are computed on that same numerical backend before the established NumPy reporting snapshot is taken.
+
+The original penalized `coef_` remains the coefficient vector used for prediction. The active-set OLS/WLS refit is exposed for inference/reporting through `_params`, `_inference_result`, `_bse`, `_tvalues`/`_zvalues`, `_pvalues`, and `_conf_int`.
 
 Validity notes:
-- `cpu_ols_inference` / `gpu_ols_inference` intervals are heuristic post-selection intervals and should not be interpreted as valid selective-inference confidence intervals.
-- The current `debiased` implementation returns per-coefficient marginal confidence intervals only; simultaneous/joint coverage is not guaranteed unless simultaneous inference is explicitly enabled.
+
+- `post_selection_ols` is a heuristic post-selection diagnostic. Its intervals should not be interpreted as general selective-inference confidence intervals after choosing variables from the same data.
+- The ordinary `debiased` `_conf_int` is marginal per coefficient. Simultaneous/joint family-wise coverage requires the dedicated simultaneous inference path.
+
+### Device/backend rule
+
+`inference_method` describes **what statistical procedure is computed**; it does not choose hardware.
+
+- explicit `device="cpu"` -> NumPy CPU;
+- explicit `device="cuda"` -> CuPy CUDA only, failing closed if unavailable;
+- explicit `device="torch"` -> Torch CUDA only, failing closed if unavailable;
+- only genuine estimator/global `device="auto"` may preserve an already backend-native CuPy or Torch-CUDA input during automatic routing.
+
+After fit succeeds, post-fit coefficient inference reuses `_selected_backend_name` / `_selected_backend_device`; it does not make a second backend decision from the raw input container.
 
 ## Parameters
 
@@ -59,7 +78,7 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 | `max_iter` | `1000` | Maximum optimization iterations. |
 | `tol` | `1e-4` | Convergence tolerance. |
 | `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt`. |
-| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap`. |
+| `inference_method` | `"debiased"` | `post_selection_ols` / `debiased` / `bootstrap`; deprecated `cpu_ols` and `gpu_ols` aliases remain temporarily accepted. |
 | `n_bootstrap` | `200` | Bootstrap draws for the residual-bootstrap inference path. |
 | `bootstrap_random_state` | `None` | RNG seed for residual-bootstrap inference. |
 | `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only). |
@@ -91,19 +110,23 @@ m_cpu = Lasso(
 )
 m_cpu.fit(X, y)
 
-# GPU FISTA: the same solver interface is used on GPU.
+# GPU FISTA + the same hardware-neutral post-selection inference method.
 m_gpu = Lasso(
     alpha=0.1,
     device="cuda",
     solver="fista",
     stopping="kkt",
-    inference_method="gpu_ols_inference",
+    inference_method="post_selection_ols",
     gpu_memory_cleanup=True,
 )
 m_gpu.fit(X, y)
+
+# Prediction uses the penalized model; inference reports the active-set refit.
+penalized_coef = m_gpu.coef_
+post_selection_params = m_gpu._params
 ```
 
-Simultaneous inference example (supports `device="cpu"` and `device="cuda"`, with device-consistent computation):
+Simultaneous inference example:
 
 ```python
 m_sim = Lasso(
@@ -123,12 +146,13 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## strict/approx difference
 
-`debiased` is the strict mainline inference path for high-dimensional statistical inference. `cpu_ols_inference` and `gpu_ols_inference` are lighter approximate paths for engineering throughput, while `bootstrap` is usually more robust but materially slower.
+`debiased` is the main high-dimensional coefficient-inference path. `post_selection_ols` is a lighter active-set OLS/WLS diagnostic, while `bootstrap` is a more expensive resampling path. Their statistical claims are different and should not be treated as interchangeable.
 
 ## Outputs
 
-- Coefficients: `intercept_`, `coef_`, `n_iter_`
-- Inference (if enabled): `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`
+- Penalized fit: `intercept_`, `coef_`, `n_iter_`
+- Inference (if enabled): `_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`, `_inference_result`
+- Under `inference_method="post_selection_ols"`, `coef_` remains penalized while `_params` contains the active-set OLS/WLS refit embedded in the full parameter layout.
 - Under `inference_method="debiased"`, summary/statistical reporting uses z-style semantics (`z`, `P>|z|`), and `_conf_int` is marginal per coefficient.
 - With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target set (`maxz_bootstrap`).
 - Methods: `fit`, `predict`, `score`, `summary`
@@ -138,19 +162,24 @@ ci_simul = m_sim._conf_int_simultaneous
 
 - Why can CPU and GPU iteration counts differ under the same `tol`? Different numerical backends and solver implementations can converge differently; compare under fixed `solver` and `stopping`.
 - Should CPU users set `cpu_solver`? No. Use `solver`; `cpu_solver` is a deprecated compatibility argument from the previous CPU/GPU-split API.
-- When should I use `gpu_ols_inference`? Prefer it for larger GPU-trained workloads to reduce transfer overhead.
-- When should I use `debiased`? Prefer it when you need inferential quantities (SE/p-values/intervals) in high-dimensional sparse settings.
-- Are `cpu_ols_inference` / `gpu_ols_inference` intervals statistically valid confidence intervals? Not in a strict selective-inference sense; treat them as engineering diagnostics.
-- Are `debiased` intervals simultaneous/joint confidence regions? The ordinary `_conf_int` values are marginal. Enable the dedicated simultaneous path when family-wise intervals are required.
+- Should I choose `cpu_ols` or `gpu_ols` based on hardware? No. Both are deprecated aliases for `post_selection_ols`. Choose the statistical method with `inference_method` and the execution location with `device`.
+- Does `post_selection_ols` change `coef_`? No. Prediction keeps the penalized coefficients; the active-set refit lives in inference/reporting fields such as `_params` and `_inference_result`.
+- When should I use `debiased`? Prefer it when you need coefficient-level inference in high-dimensional sparse settings, subject to the method's assumptions.
+- Is `post_selection_ols` a valid selective-inference confidence procedure? No. Treat it as a post-selection diagnostic.
+- Are ordinary `debiased` intervals simultaneous/joint confidence regions? No. Ordinary `_conf_int` values are marginal. Enable the dedicated simultaneous path when family-wise intervals are required.
 - How do I enable simultaneous intervals? Set `enable_simultaneous_inference=True` with `inference_method="debiased"` and `simultaneous_method="maxz_bootstrap"`.
 
 ## External Validation
 
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/validate_post_selection_ols_gpu.py`
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` (historical hardware-bearing API benchmark)
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
+- `dev/tests/test_post_selection_ols_inference_api.py`
 - `dev/tests/test_penalized_solver_api_cleanup.py`
+
+The physical post-selection OLS validator requires both CuPy CUDA and Torch CUDA. Its presence is not itself physical-GPU evidence; exact-head GPU acceptance must be recorded separately when executed on physical CUDA hardware.
 
 ## References
 
