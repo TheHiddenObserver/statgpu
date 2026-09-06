@@ -55,7 +55,7 @@ def test_ridge_is_outside_sparse_gaussian_auto_native_pin_scope(monkeypatch):
     assert inference_contract._input_native_device(ridge, fake_cupy) is None
 
 
-def test_non_gaussian_legacy_ols_alias_keeps_preexisting_oracle_surface():
+def test_non_gaussian_legacy_ols_alias_keeps_current_master_rejection_contract():
     rng = np.random.default_rng(138)
     X = rng.normal(size=(120, 3))
     eta = 0.2 + 0.25 * X[:, 0] - 0.15 * X[:, 1]
@@ -73,8 +73,15 @@ def test_non_gaussian_legacy_ols_alias_keeps_preexisting_oracle_surface():
             solver="fista",
             max_iter=1000,
             tol=1e-7,
-        ).fit(X, y)
+        )
+        with pytest.raises(
+            NotImplementedError,
+            match="does not support inference_method='cpu_ols'",
+        ):
+            model.fit(X, y)
 
+    # #138 must not reinterpret this unrelated non-Gaussian spelling as the new
+    # Gaussian-only post_selection_ols migration or emit its deprecation warning.
     assert not any(
         issubclass(item.category, FutureWarning)
         and "post_selection_ols" in str(item.message)
@@ -82,8 +89,6 @@ def test_non_gaussian_legacy_ols_alias_keeps_preexisting_oracle_surface():
     )
     assert model.inference_method == "cpu_ols"
     assert model._inference_method == "cpu_ols"
-    assert model._inference_result is not None
-    assert model._inference_result.method == "oracle"
 
 
 def test_explicit_canonical_method_remains_gaussian_sparse_only():
