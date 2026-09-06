@@ -14,7 +14,9 @@ There is no single global precedence order across documents with different respo
 
 Legacy flat `.claude/skills/*.md` files and `.claude/workflows/new-module-dev.md` are compatibility pointers for historical links, not authoritative entrypoints.
 
-Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override active hard gates. Impact classification in the canonical skills determines which gates are active; an inactive backend/CV/inference/formula/performance axis is not missing completion work. Any approved exception must follow the explicit approval/deferral contract in the applicable skill and `dev/AGENTS.md`.
+Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override active/default hard gates. Impact classification in the canonical skills prevents an API-only/refactor-only change from reopening unrelated backend/CV/inference/formula/performance work. It does **not** permit a genuinely new shared numerical capability to define away the repository defaults: NumPy/CuPy/Torch closure is the default, and a new tunable loss x penalty capability closes direct fit + CV by default. A legitimate narrower capability or deferral must be explicit under the applicable skill contract. Any approved exception follows the approval/deferral contract in the canonical skill and `dev/AGENTS.md`.
+
+The canonical `code-review` blocking fork contract requires Claude Code >= 2.1.218.
 
 ### Current public capability
 
@@ -26,7 +28,7 @@ Use [`ROADMAP.md`](ROADMAP.md). It selects what should be worked on next; it doe
 
 ### Executable scope and dependencies
 
-Use open GitHub issues and active pull requests, summarized in [`ISSUES.md`](ISSUES.md). Issues may split or narrow roadmap packages but may not declare completion below repository hard gates.
+Use open GitHub issues and active pull requests, summarized in [`ISSUES.md`](ISSUES.md). Issues may split or narrow roadmap packages but may not declare completion below repository hard gates. When an issue intentionally defines a narrower backend/non-tunable contract, state that explicitly rather than relying on omission.
 
 ### Research and historical context
 
@@ -83,15 +85,15 @@ A roadmap item becomes executable only after it has a GitHub issue defining:
 - user/developer problem;
 - scope and explicit non-goals;
 - public API and failure behavior;
-- backend/device contract relevant to the capability;
-- direct-fit/CV closure when tuning is part of the declared public capability;
+- backend/device contract, with NumPy/CuPy/Torch as the default for a new shared statistical/numerical capability unless a narrower scope/deferral is explicit;
+- direct-fit/CV closure for a new tunable loss x penalty capability unless the capability is explicitly non-tunable or an approved CV deferral applies;
 - inference/formula implications where applicable;
 - external baselines and normalization/alignment settings;
-- unit/regression/compatibility and physical-GPU validation when those gates are active;
+- unit/regression/compatibility and physical-GPU validation when those gates are active/default for the capability;
 - validator/evidence provenance where remote acceptance is active;
 - documentation/benchmark deliverables when applicable;
-- dependencies and completion criteria.
+- dependencies, approved exceptions, and completion criteria.
 
-Do not mark a module complete using only implementation count or passing CPU smoke tests when active numerical/backend gates require stronger evidence. Completion is contract-based, evidence-based, and subject to the impact-activated workflow gates.
+Do not mark a module complete using only implementation count or passing CPU smoke tests when active/default numerical/backend gates require stronger evidence. Completion is contract-based, evidence-based, and subject to impact-activated plus repository-default workflow gates.
 
 Conversely, do not treat stale unchecked planning text as proof that released numerical work is absent. Reconcile plans/issues against merged implementation and acceptance evidence before reopening production scope.
