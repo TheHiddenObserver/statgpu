@@ -33,11 +33,11 @@ A review that cannot identify its target precisely must not return a clean/block
 
 ## 1. Target freshness is a hard gate
 
-The review report must identify the target using the fields defined in `target-resolution.md`, including `target_kind`, `base_sha`, `head_sha`, and working-tree state when relevant.
+The review report must identify the target using the fields defined in `target-resolution.md`, including `target_kind`, `base_sha`, `head_sha`, and `worktree_fingerprint` when dirty working-tree content is part of scope.
 
-Before the final verdict, re-resolve the effective comparison **base and head** plus audited working-tree state where relevant. If either side of the diff or the audited dirty state changed unexpectedly, discard the stale verdict and review the new state or report that the target moved.
+Before the final verdict, re-resolve the effective comparison **base and head** plus the audited working-tree content fingerprint where relevant. If either side of the diff or the audited content changed unexpectedly, discard the stale verdict and review the new state or report that the target moved.
 
-In `auto-fix`, report the **post-fix** state separately from the original reviewed state. Do not claim that pre-fix CI or an earlier review proves a later head.
+In `auto-fix`, report the **post-fix** state separately from the original reviewed state. Do not claim that pre-fix CI or an earlier review proves a later head/fingerprint.
 
 ## 2. Classify impact before opening gates
 
@@ -127,13 +127,13 @@ Historical benchmark or GPU evidence proves only the source, validator contract,
 
 In `auto-fix` mode:
 
-1. record the original exact target and working-tree state;
-2. if the target is an explicit committed PR/branch target, require a clean writable worktree at its resolved head; if the target is the current no-scope working tree, capture its existing dirty state as `reviewed_before` instead of rejecting it;
+1. record the original exact target and working-tree fingerprint when applicable;
+2. if the target is an explicit committed PR/branch target, require a clean writable worktree at its resolved head; if the target is the current no-scope working tree, capture its existing dirty content/fingerprint as `reviewed_before` instead of rejecting it;
 3. record findings with severity and active dimension;
 4. fix all in-scope CRITICAL/HIGH issues that can be fixed without an unrequested breaking/deferral decision;
 5. fix MEDIUM issues that affect the requested feature or a completion gate;
 6. run targeted tests/static checks/benchmarks as applicable;
-7. resolve and record the new state;
+7. resolve and record the new head/fingerprint;
 8. re-review that new state from scratch.
 
 Do not broaden an API cleanup into unrelated numerical refactoring. Do not commit, push, merge, or retarget branches unless the caller separately authorizes those repository actions.

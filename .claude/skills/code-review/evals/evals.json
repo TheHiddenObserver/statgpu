@@ -15,12 +15,12 @@
     {
       "id": 2,
       "prompt": "Review my current changes. No PR or branch scope specified; the working tree is intentionally dirty because I just implemented the feature.",
-      "expected_output": "The review resolves the repository default branch, merge-base and current HEAD; treats the existing staged/unstaged/untracked state as the legitimate reviewed_before target rather than refusing auto-fix merely because it is dirty; and rechecks base/head/working-tree freshness before the verdict.",
+      "expected_output": "The review resolves the repository default branch, merge-base and current HEAD; treats the existing staged/unstaged/untracked state as the legitimate reviewed_before target; fingerprints that content rather than identifying it only by paths; and rechecks base/head/fingerprint freshness before the verdict.",
       "assertions": [
         "The response defines a base SHA and current head SHA.",
         "The response accounts for staged, unstaged, and relevant untracked changes.",
-        "The response accepts the captured dirty working tree as part of a no-scope review target.",
-        "The final freshness check includes the effective comparison base as well as the head."
+        "The response records a content fingerprint for the dirty working-tree target.",
+        "The final freshness check recomputes the working-tree fingerprint."
       ]
     },
     {

@@ -12,9 +12,23 @@ Every review records:
 - `default_branch`: the resolved repository default branch when used;
 - `path_filter`: explicit path restriction, if any;
 - `working_tree`: `clean` or `dirty`, plus changed/untracked paths when the working tree is part of scope;
+- `worktree_fingerprint`: required when staged/unstaged/untracked content is part of scope; use a content hash, not only a path list;
 - `resolution_command/source`: enough detail to reproduce how the target was resolved.
 
 A PR/branch review is not identified by a branch name alone. Record immutable SHAs.
+
+## Working-tree fingerprint
+
+When the working tree is part of the target, compute a deterministic fingerprint over the **content being reviewed**. A suitable contract is SHA-256 over a canonical byte stream containing, in order:
+
+1. the current `HEAD` SHA;
+2. `git diff --binary` for included unstaged tracked changes;
+3. `git diff --cached --binary` for included staged changes;
+4. each included untracked path in sorted path order plus a SHA-256 of that file's bytes.
+
+Apply an explicit path filter consistently to the tracked diffs and untracked-file set. Record excluded generated/ignored artifacts rather than silently varying the fingerprint scope.
+
+The exact helper/command may vary by platform, but the report must provide enough detail to recompute the same fingerprint. Rechecking only `git status` or only the changed path names is insufficient because file contents can change while the path set remains identical.
 
 ## Resolution rules
 
@@ -56,10 +70,10 @@ Review the current branch's work relative to the repository default branch:
 3. include committed branch changes from `base_sha...HEAD`;
 4. include staged and unstaged tracked changes;
 5. enumerate untracked paths and inspect all potentially task-relevant untracked files; any exclusions (for example ignored/generated artifacts) must be explicit rather than silently dropping untracked state;
-6. record whether the working tree is clean/dirty and the changed/untracked paths;
-7. before the verdict, re-resolve current `HEAD`, default-branch head/merge-base, and working-tree status. Unexpected changes to the effective base/head or audited dirty state make the prior review stale.
+6. record whether the working tree is clean/dirty, the changed/untracked paths, and a `worktree_fingerprint` over the included content;
+7. before the verdict, re-resolve current `HEAD`, default-branch head/merge-base, working-tree status, and the fingerprint. Any unexpected change to the effective base/head or audited content fingerprint makes the prior review stale.
 
-A dirty working tree is **expected and valid** for no-scope development review: it is part of `reviewed_before`, not a reason to refuse auto-fix. Snapshot the pre-fix changed/untracked paths and diff identity before editing so later changes can be attributed to the review/fix pass.
+A dirty working tree is **expected and valid** for no-scope development review: it is part of `reviewed_before`, not a reason to refuse auto-fix. Snapshot the pre-fix paths and fingerprint before editing so later changes can be attributed to the review/fix pass.
 
 If the current branch is the default branch and has no divergent commits, the scope may consist only of working-tree changes.
 
@@ -69,10 +83,10 @@ If the current branch is the default branch and has no divergent commits, the sc
 
 `auto-fix` records two identities:
 
-- `reviewed_before`: the target/state that produced the findings;
-- `reviewed_after`: the post-fix state that receives the final re-review.
+- `reviewed_before`: the target/state that produced the findings, including its fingerprint when dirty;
+- `reviewed_after`: the post-fix state that receives the final re-review, with a new fingerprint when dirty.
 
-For an **explicit committed target** (PR or branch), start from a clean worktree at the resolved head. For a **no-scope working-tree target**, preserve the captured dirty state as the legitimate pre-fix target and distinguish it from review-created edits. If edits remain uncommitted, report the final `HEAD` plus dirty working-tree paths. If commits are separately authorized and created, report the resulting exact head SHA. Never cite CI or review evidence from an earlier head as proof of a later head.
+For an **explicit committed target** (PR or branch), start from a clean worktree at the resolved head. For a **no-scope working-tree target**, preserve the captured dirty state as the legitimate pre-fix target and distinguish it from review-created edits. If edits remain uncommitted, report the final `HEAD` plus dirty working-tree paths/fingerprint. If commits are separately authorized and created, report the resulting exact head SHA. Never cite CI or review evidence from an earlier head/fingerprint as proof of a later state.
 
 ## PR comment freshness
 
@@ -87,6 +101,7 @@ Do not return `REVIEW CLEAN`, approval, or another blocking-completion verdict w
 - PR/branch/range resolution is ambiguous;
 - a requested PR cannot be resolved to exact SHAs;
 - the effective comparison base or head moved during audit and was not re-reviewed;
+- a working-tree fingerprint changed unexpectedly during audit and the new content was not re-reviewed;
 - `auto-fix` of an explicit committed target would write to a checkout that is not the resolved target or is not clean before the fix;
 - relevant untracked/dirty changes in a working-tree review are known to exist but were excluded without an explicit path filter/exclusion rationale;
 - a PR comment would describe an unpushed local fix state as though it were the current remote PR head.

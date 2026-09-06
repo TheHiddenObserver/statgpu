@@ -96,7 +96,8 @@ def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
     for phrase in (
         "base_sha",
         "head_sha",
-        "working_tree",
+        "worktree_fingerprint",
+        "Working-tree fingerprint",
         "Explicit PR",
         "No explicit scope / working-tree review",
         "gh pr view",
