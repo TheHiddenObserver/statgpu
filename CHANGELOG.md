@@ -2,7 +2,12 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — 2026-08-28
+## Unreleased — 2026-09-06
+
+### PR #135 — Penalized solver API cleanup
+- Made backend-neutral `solver` the authoritative direct-fit solver selector across the public penalized estimator family while deprecating legacy `cpu_solver` without remapping it into a different direct numerical path.
+- Added stage-specific `LassoCV.cv_solver` for CV folds/path and fitted `cv_solver_` for the algorithm that actually executed; `solver` remains the final full-data refit control, with legacy CPU alias and CUDA/Torch FISTA behavior preserved during the compatibility window.
+- Added sklearn 1.2.2/1.3.2/current clone/reconstruction warning regressions, caller-facing warning-location coverage, and bilingual migration/CV documentation that distinguishes behavior-preserving migration from an intentional solver change.
 
 ### PR #129 / Issue #127 — Gaussian linear-model backend-native inference
 - Migrated maintained Gaussian linear-model covariance, standard-error, test-statistic, p-value, and confidence-interval numerical work to the executed NumPy/CuPy/Torch backend while preserving the established final NumPy reporting snapshot.
