@@ -71,37 +71,37 @@ def _active_ols_reference(
         params = np.concatenate([[float(penalized_intercept)], params])
     full_dim = params.shape[0]
     bse = np.full(full_dim, np.nan)
-    tvalues = np.full(full_dim, np.nan)
+    zvalues = np.full(full_dim, np.nan)
     pvalues = np.full(full_dim, np.nan)
     conf_int = np.full((full_dim, 2), np.nan)
 
     if k:
         XtX_inv = np.linalg.pinv(design_work.T @ design_work)
         bse_sel = np.sqrt(np.maximum(scale * np.diag(XtX_inv), 0.0))
-        t_sel = params_sel / (bse_sel + 1e-30)
-        p_sel = 2.0 * stats.t.sf(np.abs(t_sel), df=df_resid)
-        critical = stats.t.ppf(0.975, df=df_resid)
+        z_sel = params_sel / (bse_sel + 1e-30)
+        p_sel = 2.0 * stats.norm.sf(np.abs(z_sel))
+        critical = stats.norm.ppf(0.975)
         ci_sel = np.column_stack(
             [params_sel - critical * bse_sel, params_sel + critical * bse_sel]
         )
         if fit_intercept:
-            params[0], bse[0], tvalues[0], pvalues[0], conf_int[0] = (
-                params_sel[0], bse_sel[0], t_sel[0], p_sel[0], ci_sel[0]
+            params[0], bse[0], zvalues[0], pvalues[0], conf_int[0] = (
+                params_sel[0], bse_sel[0], z_sel[0], p_sel[0], ci_sel[0]
             )
             target = selected + 1
             params[target] = params_sel[1:]
             bse[target] = bse_sel[1:]
-            tvalues[target] = t_sel[1:]
+            zvalues[target] = z_sel[1:]
             pvalues[target] = p_sel[1:]
             conf_int[target] = ci_sel[1:]
         else:
             params[selected] = params_sel
             bse[selected] = bse_sel
-            tvalues[selected] = t_sel
+            zvalues[selected] = z_sel
             pvalues[selected] = p_sel
             conf_int[selected] = ci_sel
 
-    return selected, params, bse, tvalues, pvalues, conf_int, df_resid, scale
+    return selected, params, bse, zvalues, pvalues, conf_int, df_resid, scale
 
 
 @pytest.mark.parametrize("alias", ["cpu_ols", "gpu_ols"])
@@ -220,14 +220,14 @@ def test_post_selection_ols_refits_active_set_and_keeps_penalized_coef():
         fit_intercept=True,
         penalized_intercept=model.intercept_,
     )
-    selected, params, bse, tvalues, pvalues, conf_int, df_resid, scale = ref
+    selected, params, bse, zvalues, pvalues, conf_int, df_resid, scale = ref
 
     np.testing.assert_allclose(model._params, params, rtol=1e-11, atol=1e-11)
     np.testing.assert_allclose(
         model._bse, bse, rtol=1e-10, atol=1e-11, equal_nan=True
     )
     np.testing.assert_allclose(
-        model._tvalues, tvalues, rtol=1e-10, atol=1e-11, equal_nan=True
+        model._zvalues, zvalues, rtol=1e-10, atol=1e-11, equal_nan=True
     )
     np.testing.assert_allclose(
         model._pvalues, pvalues, rtol=1e-10, atol=1e-12, equal_nan=True
@@ -239,6 +239,9 @@ def test_post_selection_ols_refits_active_set_and_keeps_penalized_coef():
     assert model._df_resid == df_resid
     assert model._scale == pytest.approx(scale, rel=1e-12, abs=1e-12)
     assert model._inference_result.method == "post_selection_ols"
+    assert model._inference_result.statistic_name == "z"
+    assert model._inference_result.distribution == "normal"
+    assert model._inference_result.df is None
     assert model._inference_result.metadata["numerical_backend"] == "numpy"
     assert model._inference_result.metadata["numerical_device"] == "cpu"
     assert model._inference_result.metadata["selected_feature_indices"] == selected.tolist()
@@ -274,13 +277,13 @@ def test_post_selection_ols_weighted_refit_matches_wls():
         penalized_intercept=model.intercept_,
         sample_weight=sample_weight,
     )
-    _, params, bse, tvalues, pvalues, conf_int, df_resid, scale = ref
+    _, params, bse, zvalues, pvalues, conf_int, df_resid, scale = ref
     np.testing.assert_allclose(model._params, params, rtol=1e-11, atol=1e-11)
     np.testing.assert_allclose(
         model._bse, bse, rtol=1e-10, atol=1e-11, equal_nan=True
     )
     np.testing.assert_allclose(
-        model._tvalues, tvalues, rtol=1e-10, atol=1e-11, equal_nan=True
+        model._zvalues, zvalues, rtol=1e-10, atol=1e-11, equal_nan=True
     )
     np.testing.assert_allclose(
         model._pvalues, pvalues, rtol=1e-10, atol=1e-12, equal_nan=True
@@ -308,7 +311,7 @@ def test_post_selection_ols_intercept_only_marks_unselected_features_uninferred(
     assert model._params[0] == pytest.approx(float(np.mean(y)), rel=1e-12, abs=1e-12)
     np.testing.assert_array_equal(model._params[1:], model.coef_)
     assert np.all(np.isnan(model._bse[1:]))
-    assert np.all(np.isnan(model._tvalues[1:]))
+    assert np.all(np.isnan(model._zvalues[1:]))
     assert np.all(np.isnan(model._pvalues[1:]))
     assert np.all(np.isnan(model._conf_int[1:]))
     assert model._df_resid == X.shape[0] - 1
@@ -328,7 +331,7 @@ def test_post_selection_ols_no_intercept_empty_active_set_is_uninferred():
 
     np.testing.assert_array_equal(model._params, model.coef_)
     assert np.all(np.isnan(model._bse))
-    assert np.all(np.isnan(model._tvalues))
+    assert np.all(np.isnan(model._zvalues))
     assert np.all(np.isnan(model._pvalues))
     assert np.all(np.isnan(model._conf_int))
     assert model._df_resid == X.shape[0]
@@ -525,6 +528,7 @@ def test_post_selection_ols_honors_hc3_covariance_contract():
     np.testing.assert_allclose(model._conf_int[target], ci_sel, rtol=1e-9, atol=1e-10)
     assert model._inference_result.cov_type == "hc3"
     assert model._inference_result.distribution == "normal"
+    assert model._inference_result.statistic_name == "z"
 
 
 def test_post_selection_ols_rejects_non_gaussian_sparse_model_before_fit_dispatch():
