@@ -49,8 +49,11 @@ artifacts. A skipped GPU test is not treated as physical-GPU evidence.
 
 ## Contributor Checklist
 
-Follow [`dev/AGENTS.md`](../../dev/AGENTS.md) and
-[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md):
-preserve explicit device semantics, verify objective normalization before external
-comparisons, add architecture-specific tests, and synchronize README, English/Chinese
-docs, and all three changelogs for user-visible changes.
+Follow [`dev/AGENTS.md`](../../dev/AGENTS.md) and the canonical Claude Code
+[`new-module-dev` skill](../../.claude/skills/new-module-dev/SKILL.md). Use the
+[`code-review` skill](../../.claude/skills/code-review/SKILL.md) for independent
+review passes and the [`benchmark` skill](../../.claude/skills/benchmark/SKILL.md)
+when performance/evidence work is active. Classify impact first, preserve explicit
+device semantics, verify objective normalization before external comparisons, add
+tests for the active contracts, and synchronize affected English/Chinese public
+claims.

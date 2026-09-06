@@ -45,7 +45,9 @@ PyTorch 后端使用 `statgpu[torch]`。维护中的 Cox 实现已包含在基�
 
 ## 贡献者检查
 
-修改代码时遵循 [`dev/AGENTS.md`](../../dev/AGENTS.md) 与
-[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md)：
-显式设备不得静默回退，外部比较前确认目标函数归一化，补齐架构相关测试，并同步
-README、中英文文档及三份 changelog。
+修改代码时遵循 [`dev/AGENTS.md`](../../dev/AGENTS.md) 与 canonical Claude Code
+[`new-module-dev` skill](../../.claude/skills/new-module-dev/SKILL.md)。独立 review 使用
+[`code-review` skill](../../.claude/skills/code-review/SKILL.md)，性能/证据工作激活时使用
+[`benchmark` skill](../../.claude/skills/benchmark/SKILL.md)。先按影响范围激活必要 gate，
+保持显式设备语义，外部比较前确认 objective normalization，并同步受影响的中英文
+public capability claim。

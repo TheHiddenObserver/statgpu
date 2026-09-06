@@ -8,11 +8,13 @@ There is no single global precedence order across documents with different respo
 
 ### Hard development and completion gates
 
-1. Applicable `.claude/workflows/` and `.claude/skills/` protocol.
+1. Applicable canonical Claude Code skills under `.claude/skills/<skill-name>/SKILL.md` (especially `new-module-dev`, `code-review`, and `benchmark`) and their referenced supporting files.
 2. `dev/AGENTS.md`.
 3. The mandatory checklist in [`TO_DO.md`](TO_DO.md), which summarizes but does not weaken the two sources above.
 
-Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override these hard gates. Any approved exception must follow the explicit approval/deferral contract in the applicable workflow and `dev/AGENTS.md`.
+Legacy flat `.claude/skills/*.md` files and `.claude/workflows/new-module-dev.md` are compatibility pointers for historical links, not authoritative entrypoints.
+
+Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override active hard gates. Impact classification in the canonical skills determines which gates are active; an inactive backend/CV/inference/formula/performance axis is not missing completion work. Any approved exception must follow the explicit approval/deferral contract in the applicable skill and `dev/AGENTS.md`.
 
 ### Current public capability
 
@@ -52,7 +54,7 @@ The release baseline does not imply that every historical plan item is complete.
 |---|---|---|
 | `ROADMAP.md` | Canonical priority source | Current priorities, sequencing, dependencies, and roadmap-level definition of done. |
 | `ISSUES.md` | Canonical navigation | Maps roadmap work packages to executable GitHub issues and dependency order. GitHub issue state remains authoritative for execution. |
-| `TO_DO.md` | Mandatory summary checklist | Compact hard-gate checklist plus active queue; subordinate to `.claude` and `dev/AGENTS.md`, not a weaker alternative. |
+| `TO_DO.md` | Mandatory summary checklist | Compact hard-gate checklist plus active queue; subordinate to canonical `.claude/skills/*/SKILL.md` and `dev/AGENTS.md`, not a weaker alternative. |
 | `gaussian_inference_backend_native_plan.md` | Active implementation plan | Issue #127: backend-native Gaussian linear-model numerical inference, consumer inventory, provenance, precision, validator, and review/fix contract. |
 | `panel_framework_proposal.md` | Delivered-design/reference document | Panel architecture/design context. Validate against 0.2.5 implementation and #93 evidence; do not treat old unchecked work as current scope. |
 | `panel_p1_stage_c_covariance_plan.md` | Delivered phase reference | Stage-C covariance design and acceptance context for the 0.2.5 Panel line; useful for provenance/review, not a new implementation queue. |
@@ -81,15 +83,15 @@ A roadmap item becomes executable only after it has a GitHub issue defining:
 - user/developer problem;
 - scope and explicit non-goals;
 - public API and failure behavior;
-- NumPy/CuPy/Torch backend contract;
-- direct-fit/CV closure for tunable capabilities;
+- backend/device contract relevant to the capability;
+- direct-fit/CV closure when tuning is part of the declared public capability;
 - inference/formula implications where applicable;
 - external baselines and normalization/alignment settings;
-- unit/regression/compatibility and physical-GPU validation;
+- unit/regression/compatibility and physical-GPU validation when those gates are active;
 - validator/evidence provenance where remote acceptance is active;
-- documentation/benchmark deliverables;
+- documentation/benchmark deliverables when applicable;
 - dependencies and completion criteria.
 
-Do not mark a module complete using only implementation count or passing CPU smoke tests. Completion is contract-based, evidence-based, and subject to hard workflow gates.
+Do not mark a module complete using only implementation count or passing CPU smoke tests when active numerical/backend gates require stronger evidence. Completion is contract-based, evidence-based, and subject to the impact-activated workflow gates.
 
 Conversely, do not treat stale unchecked planning text as proof that released numerical work is absent. Reconcile plans/issues against merged implementation and acceptance evidence before reopening production scope.
