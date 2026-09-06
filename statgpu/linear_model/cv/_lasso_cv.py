@@ -241,9 +241,12 @@ class LassoCV(CVEstimatorBase):
         """Fit Lasso regression with cross-validation to select alpha."""
         from statgpu.linear_model.wrappers._lasso import _select_lasso_alpha_cv, Lasso
 
+        # Do not publish a solver identity until the CV selector has actually
+        # completed. This also clears a prior successful value before a refit
+        # attempt that may fail during selection.
+        self.cv_solver_ = None
         device_name = self._get_compute_device().value
         effective_cv_solver = self._resolve_cv_solver(device_name)
-        self.cv_solver_ = effective_cv_solver
 
         effective_cd_kkt = self._cd_kkt_check_every
         if effective_cd_kkt is None:
@@ -268,6 +271,7 @@ class LassoCV(CVEstimatorBase):
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
+        self.cv_solver_ = effective_cv_solver
 
         self.alpha_ = float(details["alpha"])
         self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
