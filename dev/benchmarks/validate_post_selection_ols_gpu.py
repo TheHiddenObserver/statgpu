@@ -71,11 +71,26 @@ def _runtime(backend: str):
 
 
 def _max_error(a, b) -> float:
+    """Compare finite values after requiring identical NaN reporting masks."""
     left = np.asarray(a, dtype=np.float64)
     right = np.asarray(b, dtype=np.float64)
-    if left.size == 0:
+    if left.shape != right.shape:
+        raise AssertionError(
+            f"shape mismatch: left={left.shape}, right={right.shape}"
+        )
+    left_nan = np.isnan(left)
+    right_nan = np.isnan(right)
+    if not np.array_equal(left_nan, right_nan):
+        raise AssertionError(
+            "CPU/GPU inference NaN masks differ; inactive/uninferred coordinates "
+            "must agree exactly before finite-value parity is assessed"
+        )
+    finite = ~left_nan
+    if not np.any(finite):
         return 0.0
-    return float(np.max(np.abs(left - right)))
+    if not np.all(np.isfinite(left[finite])) or not np.all(np.isfinite(right[finite])):
+        raise AssertionError("non-finite non-NaN values encountered in parity check")
+    return float(np.max(np.abs(left[finite] - right[finite])))
 
 
 def _fit(X, y, *, device: str, sample_weight=None):
@@ -124,6 +139,10 @@ def _case(backend: str, *, weighted: bool):
         raise AssertionError(f"reporting boundary mismatch: {meta}")
     if meta.get("resolved_method") != "post_selection_ols":
         raise AssertionError(f"method provenance mismatch: {meta}")
+    if gpu._inference_result.statistic_name != "z":
+        raise AssertionError("post-selection OLS must preserve z-statistic semantics")
+    if gpu._inference_result.distribution != "normal":
+        raise AssertionError("post-selection OLS must preserve normal reference inference")
 
     cpu_selected = cpu._inference_result.metadata["selected_feature_indices"]
     gpu_selected = gpu._inference_result.metadata["selected_feature_indices"]
@@ -136,7 +155,7 @@ def _case(backend: str, *, weighted: bool):
         "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
         "post_selection_params": _max_error(gpu._params, cpu._params),
         "bse": _max_error(gpu._bse, cpu._bse),
-        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "statistic": _max_error(gpu._zvalues, cpu._zvalues),
         "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
         "ci": _max_error(gpu._conf_int, cpu._conf_int),
     }
@@ -165,6 +184,8 @@ def _case(backend: str, *, weighted: bool):
         "executed_device": meta.get("numerical_device"),
         "reporting_boundary": meta.get("reporting_boundary"),
         "selected_feature_indices": gpu_selected,
+        "statistic_name": gpu._inference_result.statistic_name,
+        "distribution": gpu._inference_result.distribution,
         "errors": errors,
         "limits": limits,
         "status": "success",
@@ -186,7 +207,7 @@ def main() -> int:
         raise ValueError("--backends must be exactly 'cupy,torch' in that order")
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "issue": 137,
         "head_sha": _git("rev-parse", "HEAD"),
         "worktree_clean": _git("status", "--porcelain") == "",
