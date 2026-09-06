@@ -26,7 +26,9 @@ def _data(seed=123, n=320, p=7):
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
     beta = np.zeros(p)
-    beta[:3] = [1.4, -0.9, 0.65]
+    signals = np.asarray([1.4, -0.9, 0.65])
+    width = min(p, signals.size)
+    beta[:width] = signals[:width]
     y = 0.35 + X @ beta + rng.normal(scale=0.5, size=n)
     return X, y
 
