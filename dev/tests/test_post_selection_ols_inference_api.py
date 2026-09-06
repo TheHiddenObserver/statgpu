@@ -17,6 +17,7 @@ from statgpu.linear_model import (
 )
 import statgpu.linear_model._penalized_inference_api_contract as inference_contract
 from statgpu.linear_model.penalized._post_selection_ols import (
+    _POST_SELECTION_ACTIVE_TOL,
     compute_post_selection_ols_inference,
 )
 
@@ -30,8 +31,17 @@ def _data(seed=123, n=320, p=7):
     return X, y
 
 
-def _active_ols_reference(X, y, penalized_coef, *, fit_intercept, sample_weight=None):
-    selected = np.flatnonzero(np.abs(np.asarray(penalized_coef)) > 1e-15)
+def _active_ols_reference(
+    X,
+    y,
+    penalized_coef,
+    *,
+    fit_intercept,
+    penalized_intercept=0.0,
+    sample_weight=None,
+):
+    penalized_coef = np.asarray(penalized_coef, dtype=float).reshape(-1)
+    selected = np.flatnonzero(np.abs(penalized_coef) > _POST_SELECTION_ACTIVE_TOL)
     X_sel = X[:, selected]
     if fit_intercept:
         design = np.column_stack([np.ones(X.shape[0]), X_sel])
@@ -53,15 +63,17 @@ def _active_ols_reference(X, y, penalized_coef, *, fit_intercept, sample_weight=
     else:
         params_sel = np.empty(0)
         resid_work = y_work
-    df_resid = max(X.shape[0] - k, 1)
+    df_resid = X.shape[0] - k
     scale = float(resid_work @ resid_work / df_resid)
 
-    full_dim = X.shape[1] + int(fit_intercept)
-    params = np.zeros(full_dim)
-    bse = np.zeros(full_dim)
-    tvalues = np.zeros(full_dim)
-    pvalues = np.ones(full_dim)
-    conf_int = np.zeros((full_dim, 2))
+    params = penalized_coef.copy()
+    if fit_intercept:
+        params = np.concatenate([[float(penalized_intercept)], params])
+    full_dim = params.shape[0]
+    bse = np.full(full_dim, np.nan)
+    tvalues = np.full(full_dim, np.nan)
+    pvalues = np.full(full_dim, np.nan)
+    conf_int = np.full((full_dim, 2), np.nan)
 
     if k:
         XtX_inv = np.linalg.pinv(design_work.T @ design_work)
@@ -116,7 +128,6 @@ def test_post_selection_alias_clone_is_warning_clean():
     assert cloned._inference_method == "post_selection_ols"
 
 
-
 def test_penalized_base_alias_uses_same_deprecation_contract():
     with pytest.warns(FutureWarning, match="post_selection_ols"):
         model = PenalizedLinearRegression(
@@ -141,6 +152,7 @@ def test_lassocv_legacy_alias_clone_is_warning_clean():
     assert cloned.inference_method == "gpu_ols_inference"
     assert cloned._inference_method == "post_selection_ols"
 
+
 def test_set_params_alias_warns_once_and_invalidates_fit_state():
     X, y = _data(seed=1, n=100)
     model = Lasso(compute_inference=False, device="cpu").fit(X, y)
@@ -153,7 +165,6 @@ def test_set_params_alias_warns_once_and_invalidates_fit_state():
     assert model.inference_method == "gpu_ols"
     assert model._inference_method == "post_selection_ols"
     assert not model._fitted
-
 
 
 @pytest.mark.parametrize("alias", ["cpu_ols", "gpu_ols"])
@@ -180,10 +191,15 @@ def test_deprecated_aliases_execute_canonical_post_selection_numerics(alias):
 
     np.testing.assert_allclose(migrated.coef_, canonical.coef_, rtol=0, atol=0)
     np.testing.assert_allclose(migrated._params, canonical._params, rtol=0, atol=0)
-    np.testing.assert_allclose(migrated._bse, canonical._bse, rtol=0, atol=0)
-    np.testing.assert_allclose(migrated._pvalues, canonical._pvalues, rtol=0, atol=0)
+    np.testing.assert_allclose(
+        migrated._bse, canonical._bse, rtol=0, atol=0, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        migrated._pvalues, canonical._pvalues, rtol=0, atol=0, equal_nan=True
+    )
     assert migrated._inference_result.method == "post_selection_ols"
     assert migrated._inference_result.metadata["requested_method"] == alias
+
 
 def test_post_selection_ols_refits_active_set_and_keeps_penalized_coef():
     X, y = _data()
@@ -198,24 +214,43 @@ def test_post_selection_ols_refits_active_set_and_keeps_penalized_coef():
 
     penalized_coef = model.coef_.copy()
     ref = _active_ols_reference(
-        X, y, penalized_coef, fit_intercept=True
+        X,
+        y,
+        penalized_coef,
+        fit_intercept=True,
+        penalized_intercept=model.intercept_,
     )
     selected, params, bse, tvalues, pvalues, conf_int, df_resid, scale = ref
 
     np.testing.assert_allclose(model._params, params, rtol=1e-11, atol=1e-11)
-    np.testing.assert_allclose(model._bse, bse, rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(model._tvalues, tvalues, rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(model._pvalues, pvalues, rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(model._conf_int, conf_int, rtol=1e-10, atol=1e-11)
+    np.testing.assert_allclose(
+        model._bse, bse, rtol=1e-10, atol=1e-11, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._tvalues, tvalues, rtol=1e-10, atol=1e-11, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._pvalues, pvalues, rtol=1e-10, atol=1e-12, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._conf_int, conf_int, rtol=1e-10, atol=1e-11, equal_nan=True
+    )
     np.testing.assert_allclose(model.coef_, penalized_coef, rtol=0, atol=0)
     assert model._df_resid == df_resid
     assert model._scale == pytest.approx(scale, rel=1e-12, abs=1e-12)
     assert model._inference_result.method == "post_selection_ols"
-    assert model._inference_result.metadata["resolved_method"] == "post_selection_ols"
     assert model._inference_result.metadata["numerical_backend"] == "numpy"
     assert model._inference_result.metadata["numerical_device"] == "cpu"
     assert model._inference_result.metadata["selected_feature_indices"] == selected.tolist()
+    assert model._inference_result.metadata["active_set_tolerance"] == _POST_SELECTION_ACTIVE_TOL
     assert not np.allclose(model._params[1:][selected], penalized_coef[selected])
+
+    inactive = np.setdiff1d(np.arange(X.shape[1]), selected)
+    if inactive.size:
+        np.testing.assert_allclose(model._params[1:][inactive], penalized_coef[inactive])
+        assert np.all(np.isnan(model._bse[1:][inactive]))
+        assert np.all(np.isnan(model._pvalues[1:][inactive]))
+        assert np.all(np.isnan(model._conf_int[1:][inactive]))
 
 
 def test_post_selection_ols_weighted_refit_matches_wls():
@@ -236,20 +271,29 @@ def test_post_selection_ols_weighted_refit_matches_wls():
         y,
         model.coef_,
         fit_intercept=True,
+        penalized_intercept=model.intercept_,
         sample_weight=sample_weight,
     )
     _, params, bse, tvalues, pvalues, conf_int, df_resid, scale = ref
     np.testing.assert_allclose(model._params, params, rtol=1e-11, atol=1e-11)
-    np.testing.assert_allclose(model._bse, bse, rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(model._tvalues, tvalues, rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(model._pvalues, pvalues, rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(model._conf_int, conf_int, rtol=1e-10, atol=1e-11)
+    np.testing.assert_allclose(
+        model._bse, bse, rtol=1e-10, atol=1e-11, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._tvalues, tvalues, rtol=1e-10, atol=1e-11, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._pvalues, pvalues, rtol=1e-10, atol=1e-12, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._conf_int, conf_int, rtol=1e-10, atol=1e-11, equal_nan=True
+    )
     assert model._df_resid == df_resid
     assert model._scale == pytest.approx(scale, rel=1e-12, abs=1e-12)
     assert model._inference_result.metadata["sample_weighted"] is True
 
 
-def test_post_selection_ols_intercept_only_active_set():
+def test_post_selection_ols_intercept_only_marks_unselected_features_uninferred():
     rng = np.random.default_rng(9)
     X = rng.normal(size=(100, 4))
     y = 1.75 + rng.normal(scale=0.2, size=100)
@@ -262,12 +306,15 @@ def test_post_selection_ols_intercept_only_active_set():
 
     assert np.count_nonzero(model.coef_) == 0
     assert model._params[0] == pytest.approx(float(np.mean(y)), rel=1e-12, abs=1e-12)
-    np.testing.assert_array_equal(model._params[1:], np.zeros(X.shape[1]))
-    np.testing.assert_array_equal(model._pvalues[1:], np.ones(X.shape[1]))
+    np.testing.assert_array_equal(model._params[1:], model.coef_)
+    assert np.all(np.isnan(model._bse[1:]))
+    assert np.all(np.isnan(model._tvalues[1:]))
+    assert np.all(np.isnan(model._pvalues[1:]))
+    assert np.all(np.isnan(model._conf_int[1:]))
     assert model._df_resid == X.shape[0] - 1
 
 
-def test_post_selection_ols_no_intercept_empty_active_set_is_deterministic():
+def test_post_selection_ols_no_intercept_empty_active_set_is_uninferred():
     rng = np.random.default_rng(10)
     X = rng.normal(size=(80, 3))
     y = 2.0 + rng.normal(scale=0.2, size=80)
@@ -279,11 +326,32 @@ def test_post_selection_ols_no_intercept_empty_active_set_is_deterministic():
         device="cpu",
     ).fit(X, y)
 
-    np.testing.assert_array_equal(model._params, np.zeros(X.shape[1]))
-    np.testing.assert_array_equal(model._bse, np.zeros(X.shape[1]))
-    np.testing.assert_array_equal(model._pvalues, np.ones(X.shape[1]))
-    np.testing.assert_array_equal(model._conf_int, np.zeros((X.shape[1], 2)))
+    np.testing.assert_array_equal(model._params, model.coef_)
+    assert np.all(np.isnan(model._bse))
+    assert np.all(np.isnan(model._tvalues))
+    assert np.all(np.isnan(model._pvalues))
+    assert np.all(np.isnan(model._conf_int))
     assert model._df_resid == X.shape[0]
+
+
+def test_post_selection_active_tolerance_preserves_numeric_dust_as_uninferred():
+    X, y = _data(seed=22, n=90, p=2)
+    model = Lasso(compute_inference=False, device="cpu").fit(X, y)
+    model.coef_ = np.array([0.5 * _POST_SELECTION_ACTIVE_TOL, 0.25])
+    model.intercept_ = 0.0
+    model._selected_backend_name = "numpy"
+    model._selected_backend_device = "cpu"
+    model._effective_intercept = False
+    model.inference_method = "post_selection_ols"
+    model._inference_method = "post_selection_ols"
+
+    compute_post_selection_ols_inference(model, X[:, :2], y)
+
+    assert model._inference_result.metadata["selected_feature_indices"] == [1]
+    assert model._params[0] == pytest.approx(0.5 * _POST_SELECTION_ACTIVE_TOL)
+    assert np.isnan(model._bse[0])
+    assert np.isnan(model._pvalues[0])
+    assert np.all(np.isnan(model._conf_int[0]))
 
 
 def test_post_selection_ols_reuses_fit_backend_not_raw_input_type():
@@ -294,8 +362,6 @@ def test_post_selection_ols_reuses_fit_backend_not_raw_input_type():
     X_torch = torch.as_tensor(X, dtype=torch.float64)
     y_torch = torch.as_tensor(y, dtype=torch.float64)
 
-    # Explicit CPU fit converts heterogeneous Torch input to NumPy. Post-fit
-    # inference must reuse that fit backend rather than re-detecting Torch.
     model = Lasso(
         alpha=0.05,
         inference_method="post_selection_ols",
@@ -321,12 +387,17 @@ def test_post_selection_torch_cpu_numerical_kernel_matches_numpy_reporting():
         max_iter=4000,
         tol=1e-8,
     ).fit(X, y)
-    selected = np.flatnonzero(np.abs(model.coef_) > 1e-15)
-    ref = _active_ols_reference(X, y, model.coef_, fit_intercept=True)
+    selected = np.flatnonzero(np.abs(model.coef_) > _POST_SELECTION_ACTIVE_TOL)
+    ref = _active_ols_reference(
+        X,
+        y,
+        model.coef_,
+        fit_intercept=True,
+        penalized_intercept=model.intercept_,
+    )
 
-    # Hosted CI has Torch CPU only. Exercise the exact backend-native numerical
-    # kernel using fitted-backend provenance without pretending this is a public
-    # device='torch' execution (public Torch remains CUDA-only).
+    # Hosted CI has Torch CPU only. Exercise the numerical kernel without
+    # pretending this is public device='torch' execution (public Torch is CUDA).
     model._selected_backend_name = "torch"
     model._selected_backend_device = "cpu"
     model.inference_method = "post_selection_ols"
@@ -338,8 +409,12 @@ def test_post_selection_torch_cpu_numerical_kernel_matches_numpy_reporting():
     )
 
     np.testing.assert_allclose(model._params, ref[1], rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(model._bse, ref[2], rtol=1e-9, atol=1e-10)
-    np.testing.assert_allclose(model._pvalues, ref[4], rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(
+        model._bse, ref[2], rtol=1e-9, atol=1e-10, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        model._pvalues, ref[4], rtol=1e-8, atol=1e-10, equal_nan=True
+    )
     assert model._inference_result.metadata["numerical_backend"] == "torch"
     assert model._inference_result.metadata["numerical_device"] == "cpu"
     assert model._inference_result.metadata["selected_feature_indices"] == selected.tolist()
@@ -413,7 +488,6 @@ def test_elasticnet_uses_same_canonical_post_selection_contract():
     assert model._inference_result.metadata["numerical_backend"] == "numpy"
 
 
-
 def test_post_selection_ols_honors_hc3_covariance_contract():
     X, y = _data(seed=18, n=240, p=6)
     model = PenalizedLinearRegression(
@@ -427,7 +501,7 @@ def test_post_selection_ols_honors_hc3_covariance_contract():
         tol=1e-8,
     ).fit(X, y)
 
-    selected = np.flatnonzero(np.abs(model.coef_) > 1e-15)
+    selected = np.flatnonzero(np.abs(model.coef_) > _POST_SELECTION_ACTIVE_TOL)
     design = np.column_stack([np.ones(X.shape[0]), X[:, selected]])
     params_sel = np.linalg.pinv(design) @ y
     resid = y - design @ params_sel
