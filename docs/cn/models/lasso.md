@@ -56,21 +56,32 @@ Lasso 通过迭代优化求解，而不是闭式 normal equation。停止条件�
 
 ## 参数（Parameters）
 
+下表是 `statgpu.linear_model.Lasso` 的完整公开构造参数清单。
+
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `alpha` | `1.0` | L1 正则强度 |
-| `solver` | `"fista"` | 与后端无关的 direct-fit 求解器；CPU coordinate descent 使用 `"coordinate_descent"`，proximal path 使用 `"fista"` 等支持值 |
-| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter**；当前不再决定 direct-fit 算法，请改用 `solver` |
-| `stopping` | `"coef_delta"` | 停止准则：`coef_delta` / `kkt` |
-| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
-| `compute_inference` | `True` | 是否计算推断统计 |
-| `enable_simultaneous_inference` | `False` | 是否启用 simultaneous inference（仅 `debiased`） |
-| `simultaneous_method` | `"maxz_bootstrap"` | 当前仅支持 `maxz_bootstrap` |
-| `simultaneous_alpha` | `0.05` | simultaneous family-wise error level |
-| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 抽样次数 |
-| `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子 |
-| `simultaneous_include_intercept` | `False` | simultaneous 目标集合是否包含截距 |
-| `gpu_memory_cleanup` | `False` | `fit` 后尽力释放 CuPy memory pool |
+| `alpha` | `1.0` | L1 正则强度。 |
+| `fit_intercept` | `True` | 是否拟合截距。 |
+| `max_iter` | `1000` | 优化最大迭代次数。 |
+| `tol` | `1e-4` | 收敛容差。 |
+| `stopping` | `"coef_delta"` | 停止准则：`coef_delta` / `kkt`。 |
+| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap`。 |
+| `n_bootstrap` | `200` | residual-bootstrap 推断的抽样次数。 |
+| `bootstrap_random_state` | `None` | residual-bootstrap 随机种子。 |
+| `enable_simultaneous_inference` | `False` | 是否启用 simultaneous inference（仅 `debiased`）。 |
+| `simultaneous_method` | `"maxz_bootstrap"` | simultaneous inference 方法；当前为 `maxz_bootstrap`。 |
+| `simultaneous_alpha` | `0.05` | simultaneous family-wise error level。 |
+| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 抽样次数。 |
+| `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
+| `simultaneous_include_intercept` | `False` | simultaneous 目标集合是否包含截距。 |
+| `device` | `"auto"` | 执行设备：`auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
+| `n_jobs` | `None` | 适用 CPU 路径的并行度。 |
+| `compute_inference` | `True` | 是否计算拟合后推断。 |
+| `solver` | `"fista"` | 与后端无关的 direct-fit 求解器；CPU coordinate descent 使用 `coordinate_descent`，其他值按当前 compatibility contract。 |
+| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter**；当前不再决定 direct-fit 算法，请改用 `solver`。 |
+| `lipschitz_L` | `None` | 兼容迭代求解器可用的用户指定 Lipschitz 常数。 |
+| `admm_rho` | `1.0` | 选择 ADMM 路径时的 penalty 参数。 |
+| `gpu_memory_cleanup` | `False` | 支持路径上拟合后的 best-effort GPU 内存清理。 |
 
 ## CPU+GPU 示例（CPU+GPU Examples）
 

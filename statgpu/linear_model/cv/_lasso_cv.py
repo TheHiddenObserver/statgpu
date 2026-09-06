@@ -189,28 +189,30 @@ class LassoCV(CVEstimatorBase):
         for attr in ("_bse", "_pvalues", "_tvalues", "_conf_int"):
             self.__dict__.pop(attr, None)
 
-    def _prepare_cv_inputs_for_explicit_device(self, X, y, sample_weight):
-        """Preserve an explicit CUDA/Torch backend before entering the CV helper.
+    def _prepare_cv_inputs_for_resolved_device(
+        self, X, y, sample_weight, device_name: str
+    ):
+        """Preserve the concrete resolved backend before entering the CV helper.
 
-        The legacy selector accepts a device string but infers the concrete GPU
-        array library from its inputs. Convert only explicit device requests so
-        ``device='auto'`` keeps its historical auto-selection behavior while an
-        explicit CUDA or Torch request cannot be reinterpreted as another GPU
-        backend.
+        ``device='auto'`` may resolve through the global device configuration.
+        Once ``_get_compute_device()`` has produced a concrete CUDA/Torch device,
+        the CV selector must not reinterpret that decision through its legacy
+        auto-backend inference.
         """
-        if self._device == Device.CUDA:
+        resolved = str(device_name).strip().lower()
+        if resolved == Device.CUDA.value:
             target_device = Device.CUDA
             backend_name = "cupy"
-        elif self._device == Device.TORCH:
+        elif resolved == Device.TORCH.value:
             target_device = Device.TORCH
             backend_name = "torch"
         else:
             return X, y, sample_weight
 
-        # Reuse BaseEstimator's strict explicit-device availability gate before
-        # conversion.  This prevents a missing requested backend from reaching
-        # the selector's generic auto-backend path.
-        self._get_backend()
+        # Explicit conversion is itself the availability gate: Torch conversion
+        # requires CUDA, while CuPy conversion raises when the requested CuPy/CUDA
+        # backend is unavailable. This applies equally to constructor-explicit and
+        # globally resolved device choices.
         X_cv = self._to_array(X, target_device, backend=backend_name)
         y_cv = self._to_array(y, target_device, backend=backend_name)
         sample_weight_cv = (
@@ -259,7 +261,7 @@ class LassoCV(CVEstimatorBase):
                     "cv_solver and deprecated cpu_solver specify different CV solvers"
                 )
 
-        method = str(self.method).strip().lower()
+        method = str(self._method).strip().lower()
 
         # The maintained GPU CV engine is FISTA-based. Historically cpu_solver
         # was a CPU-only control and did not change that GPU path, including in
@@ -296,10 +298,11 @@ class LassoCV(CVEstimatorBase):
         self._reset_cv_fit_state()
         device_name = self._get_compute_device().value
         effective_cv_solver = self._resolve_cv_solver(device_name)
-        X_cv, y_cv, sample_weight_cv = self._prepare_cv_inputs_for_explicit_device(
+        X_cv, y_cv, sample_weight_cv = self._prepare_cv_inputs_for_resolved_device(
             X,
             y,
             sample_weight,
+            device_name,
         )
 
         effective_cd_kkt = self._cd_kkt_check_every

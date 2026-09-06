@@ -50,21 +50,32 @@ Validity notes:
 
 ## Parameters
 
+This table is the complete public constructor inventory for `statgpu.linear_model.Lasso`.
+
 | Parameter | Default | Description |
 |---|---:|---|
-| `alpha` | `1.0` | L1 regularization strength |
-| `solver` | `"fista"` | Backend-neutral direct-fit solver; use `"coordinate_descent"` for the CPU CD path or `"fista"`/other supported values as appropriate |
-| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter.** It does not select the current direct-fit algorithm; use `solver` instead |
-| `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt` |
-| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
-| `compute_inference` | `True` | Whether to compute inference stats |
-| `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only) |
-| `simultaneous_method` | `"maxz_bootstrap"` | Currently only `maxz_bootstrap` is supported |
-| `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level |
-| `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws for max-|Z| calibration |
-| `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap |
-| `simultaneous_include_intercept` | `False` | Whether the simultaneous target set includes intercept |
-| `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
+| `alpha` | `1.0` | L1 regularization strength. |
+| `fit_intercept` | `True` | Whether to fit an intercept. |
+| `max_iter` | `1000` | Maximum optimization iterations. |
+| `tol` | `1e-4` | Convergence tolerance. |
+| `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt`. |
+| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap`. |
+| `n_bootstrap` | `200` | Bootstrap draws for the residual-bootstrap inference path. |
+| `bootstrap_random_state` | `None` | RNG seed for residual-bootstrap inference. |
+| `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only). |
+| `simultaneous_method` | `"maxz_bootstrap"` | Simultaneous-inference method; currently `maxz_bootstrap`. |
+| `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level. |
+| `simultaneous_n_bootstrap` | `1000` | Multiplier-bootstrap draws for max-|Z| calibration. |
+| `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap. |
+| `simultaneous_include_intercept` | `False` | Whether the simultaneous target set includes the intercept. |
+| `device` | `"auto"` | Execution device: `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
+| `n_jobs` | `None` | CPU parallelism where supported. |
+| `compute_inference` | `True` | Whether to compute post-fit inference. |
+| `solver` | `"fista"` | Backend-neutral direct-fit solver; use `coordinate_descent` for the CPU CD path or another supported solver as appropriate. |
+| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter.** It does not select the current direct-fit algorithm; use `solver` instead. |
+| `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant for compatible iterative solvers. |
+| `admm_rho` | `1.0` | ADMM penalty parameter when the ADMM path is selected. |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU memory cleanup after fit where supported. |
 
 ## CPU+GPU Examples
 
