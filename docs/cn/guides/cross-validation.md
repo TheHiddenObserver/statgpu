@@ -708,14 +708,13 @@ def _hash_data(X, y, sample_weight=None) -> bytes:
 
 ### 参数指纹 `_make_cache_key(...)`
 
-Cache key 包含所有影响 CV 结果的参数：
+对 `LassoCV` 的 **selection cache** 来说，key 只包含会改变 CV evidence 的参数。最终 refit 的 `solver` 不会影响 alpha scoring，因此刻意不放进 selection key。
 
 - `X_shape`, `y_shape` — 数据维度
 - `alphas` — alpha 网格（如有）
 - `n_alphas`, `alpha_min_ratio` — 网格生成参数
-- `fit_intercept`, `use_gpu`, `max_iter`, `tol` — 求解器参数
-- `solver` — `LassoCV` 最终全数据重拟合算法
-- `cv_solver`（以及显式提供时的已弃用 `cpu_solver`）、`method`、`cd_kkt_check_every` — `LassoCV` 的 CV-path 控制
+- `fit_intercept`, `use_gpu`, `max_iter`, `tol` — CV 执行参数
+- 解析后的 CV solver（helper 内部字段仍名为 `cpu_solver`）、公开的 `method`（内部名为 `cv_method`）以及 `cd_kkt_check_every` — `LassoCV` 的 CV-path 控制
 - `fold_indices` — 每 fold 前 5 个 index
 - `sample_weight_shape` — 权重维度
 - `data_digest` — 来自 `_hash_data` 的数据指纹
@@ -792,7 +791,7 @@ Cache hash **不影响估计精度**：
 
 **临时方案**：对加权 GLM 使用 `penalty='l2'` 配合 `solver='irls'`。
 
-**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`），以支持所有惩罚的非均匀权重。
+**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`) ，以支持所有惩罚的非均匀权重。
 
 ## 性能特征
 
