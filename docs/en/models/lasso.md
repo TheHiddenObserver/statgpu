@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-09-06  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/lasso.md)
 
@@ -9,7 +9,7 @@ Language switch: [Chinese](../../cn/models/lasso.md)
 
 ## Overview
 
-`Lasso` provides L1-regularized linear regression with selectable CPU/GPU solvers and inference backends. It targets sparse feature selection while preserving a familiar estimator interface.
+`Lasso` provides L1-regularized linear regression with CPU/GPU execution and multiple inference backends. Direct fitting uses one backend-neutral `solver` interface; device selection and solver selection are separate choices.
 
 ## Path
 
@@ -21,11 +21,19 @@ Estimate
 $$
 \min_{\beta}\frac{1}{2n}\|y - X\beta\|_2^2 + \alpha\|\beta\|_1
 $$
-with iterative optimization (`fista`, `admm`, or coordinate descent depending on backend configuration).
+with iterative optimization (`fista`, `admm`, or coordinate descent where supported).
 
 ## Estimating Equation
 
 The model is solved by iterative optimization rather than a closed-form normal equation. Stopping can be based on coefficient change (`coef_delta`) or KKT consistency (`kkt`), depending on `stopping`.
+
+`solver` is the authoritative direct-fit algorithm selector on every backend:
+
+- CPU coordinate descent: `solver="coordinate_descent"`
+- CPU or GPU proximal path: `solver="fista"` (or another supported solver)
+- backend location: selected separately with `device="cpu"`, `"cuda"`, or `"torch"`
+
+The historical `cpu_solver` constructor argument is deprecated. It remains accepted for a compatibility cycle but does not select the direct-fit algorithm in the unified solver engine. Migrate legacy code to `solver=...`; see the [penalized solver API migration guide](../guides/penalized-solver-api-migration.md).
 
 ## Covariance/Inference
 
@@ -38,21 +46,21 @@ The model is solved by iterative optimization rather than a closed-form normal e
 
 Validity notes:
 - `cpu_ols_inference` / `gpu_ols_inference` intervals are heuristic post-selection intervals and should not be interpreted as valid selective-inference confidence intervals.
-- The current `debiased` implementation returns per-coefficient marginal confidence intervals only; simultaneous/joint coverage is not guaranteed.
+- The current `debiased` implementation returns per-coefficient marginal confidence intervals only; simultaneous/joint coverage is not guaranteed unless simultaneous inference is explicitly enabled.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
 | `alpha` | `1.0` | L1 regularization strength |
-| `solver` | `"fista"` | GPU solver: `fista` / `admm` |
-| `cpu_solver` | `"coordinate_descent"` | CPU solver: `coordinate_descent` / `fista` |
+| `solver` | `"fista"` | Backend-neutral direct-fit solver; use `"coordinate_descent"` for the CPU CD path or `"fista"`/other supported values as appropriate |
+| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter.** It does not select the current direct-fit algorithm; use `solver` instead |
 | `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt` |
-| `inference_method` | `"cpu_ols_inference"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
+| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
 | `compute_inference` | `True` | Whether to compute inference stats |
 | `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only) |
 | `simultaneous_method` | `"maxz_bootstrap"` | Currently only `maxz_bootstrap` is supported |
-| `simultaneous_alpha` | `0.05` | Simultaneous coverage level parameter |
+| `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level |
 | `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws for max-|Z| calibration |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap |
 | `simultaneous_include_intercept` | `False` | Whether the simultaneous target set includes intercept |
@@ -63,11 +71,16 @@ Validity notes:
 ```python
 from statgpu.linear_model import Lasso
 
-# CPU
-m_cpu = Lasso(alpha=0.1, device="cpu", cpu_solver="coordinate_descent", stopping="kkt")
+# CPU coordinate descent: solver selects the algorithm, device selects CPU.
+m_cpu = Lasso(
+    alpha=0.1,
+    device="cpu",
+    solver="coordinate_descent",
+    stopping="kkt",
+)
 m_cpu.fit(X, y)
 
-# GPU
+# GPU FISTA: the same solver interface is used on GPU.
 m_gpu = Lasso(
     alpha=0.1,
     device="cuda",
@@ -104,7 +117,7 @@ ci_simul = m_sim._conf_int_simultaneous
 ## Outputs
 
 - Coefficients: `intercept_`, `coef_`, `n_iter_`
-- Inference (if enabled): `_bse`, `_tvalues`, `_pvalues`, `_conf_int`
+- Inference (if enabled): `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`
 - Under `inference_method="debiased"`, summary/statistical reporting uses z-style semantics (`z`, `P>|z|`), and `_conf_int` is marginal per coefficient.
 - With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target set (`maxz_bootstrap`).
 - Methods: `fit`, `predict`, `score`, `summary`
@@ -112,11 +125,12 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## FAQ
 
-- Why can CPU and GPU iteration counts differ under the same `tol`? Different solvers and numeric paths converge differently; compare under fixed `solver` and `stopping`.
+- Why can CPU and GPU iteration counts differ under the same `tol`? Different numerical backends and solver implementations can converge differently; compare under fixed `solver` and `stopping`.
+- Should CPU users set `cpu_solver`? No. Use `solver`; `cpu_solver` is a deprecated compatibility argument from the previous CPU/GPU-split API.
 - When should I use `gpu_ols_inference`? Prefer it for larger GPU-trained workloads to reduce transfer overhead.
 - When should I use `debiased`? Prefer it when you need inferential quantities (SE/p-values/intervals) in high-dimensional sparse settings.
 - Are `cpu_ols_inference` / `gpu_ols_inference` intervals statistically valid confidence intervals? Not in a strict selective-inference sense; treat them as engineering diagnostics.
-- Are `debiased` intervals simultaneous/joint confidence regions? No. They are currently marginal per-coefficient intervals.
+- Are `debiased` intervals simultaneous/joint confidence regions? The ordinary `_conf_int` values are marginal. Enable the dedicated simultaneous path when family-wise intervals are required.
 - How do I enable simultaneous intervals? Set `enable_simultaneous_inference=True` with `inference_method="debiased"` and `simultaneous_method="maxz_bootstrap"`.
 
 ## External Validation
@@ -125,6 +139,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
+- `dev/tests/test_penalized_solver_api_cleanup.py`
 
 ## References
 
