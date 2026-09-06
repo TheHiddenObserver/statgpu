@@ -753,11 +753,7 @@ The speedup comes from eliminating per-fold overhead (Lipschitz computation, mod
 ### FAQ
 
 **Q: Why is the CV cache not hitting?**
-The CV cache uses blake2b hashing to detect data changes. Cache misses occur when:
-- The data array memory address changes (even if values are the same)
-- `sample_weight` changes
-- `alpha_grid` changes
-- Data shape changes
+For `LassoCV`, a miss occurs when sampled data/weight content or another selection-key field changes, including the evaluated alpha grid, complete fold indices, CV solver/method controls, tolerance/iteration settings, intercept mode, CPU/GPU execution, or mixed-precision configuration. Reallocating an array with the same sampled content, shape, and dtype does not by itself cause a miss.
 
 **Q: Why is `PenalizedGLM_CV`'s `alpha_grid` different from sklearn?**
 statgpu uses a data-driven alpha grid: `alpha_max` is computed from `max(|X'y|)/n`, then decays in a geometric sequence. sklearn uses a similar but potentially slightly different strategy.

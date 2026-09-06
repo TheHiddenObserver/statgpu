@@ -717,11 +717,7 @@ Tesla P100 上的 benchmark 数据：
 ## FAQ
 
 **Q: 为什么 CV 缓存没有命中？**
-CV 缓存使用 blake2b 哈希检测数据变化。以下情况会导致缓存未命中：
-- 数据数组的内存地址变化（即使数值相同）
-- `sample_weight` 变化
-- `alpha_grid` 变化
-- 数据形状变化
+对 `LassoCV`，当抽样后的数据/权重内容或其他 selection-key 字段变化时会 miss，包括实际评估的 alpha 网格、完整 fold indices、CV solver/method 控制、容差/迭代设置、截距模式、CPU/GPU 执行方式以及 mixed-precision 配置。仅重新分配一个抽样内容、shape 与 dtype 相同的数组，本身不会导致 miss。
 
 **Q: `n_jobs` 参数有什么作用？**
 当前 `n_jobs` 被接受但 fold 循环是顺序执行的。这是为了未来并行化预留的接口。
