@@ -35,7 +35,7 @@ A review that cannot identify its target precisely must not return a clean/block
 
 The review report must identify the target using the fields defined in `target-resolution.md`, including `target_kind`, `base_sha`, `head_sha`, and working-tree state when relevant.
 
-Before the final verdict, re-resolve the target. If the PR/branch head or audited working tree changed unexpectedly during an audit, discard the stale verdict and review the new state or report that the target moved.
+Before the final verdict, re-resolve the effective comparison **base and head** plus audited working-tree state where relevant. If either side of the diff or the audited dirty state changed unexpectedly, discard the stale verdict and review the new state or report that the target moved.
 
 In `auto-fix`, report the **post-fix** state separately from the original reviewed state. Do not claim that pre-fix CI or an earlier review proves a later head.
 
@@ -128,12 +128,13 @@ Historical benchmark or GPU evidence proves only the source, validator contract,
 In `auto-fix` mode:
 
 1. record the original exact target;
-2. record findings with severity and active dimension;
-3. fix all in-scope CRITICAL/HIGH issues that can be fixed without an unrequested breaking/deferral decision;
-4. fix MEDIUM issues that affect the requested feature or a completion gate;
-5. run targeted tests/static checks/benchmarks as applicable;
-6. resolve and record the new state;
-7. re-review that new state from scratch.
+2. require a clean writable worktree at the resolved target before applying fixes;
+3. record findings with severity and active dimension;
+4. fix all in-scope CRITICAL/HIGH issues that can be fixed without an unrequested breaking/deferral decision;
+5. fix MEDIUM issues that affect the requested feature or a completion gate;
+6. run targeted tests/static checks/benchmarks as applicable;
+7. resolve and record the new state;
+8. re-review that new state from scratch.
 
 Do not broaden an API cleanup into unrelated numerical refactoring. Do not commit, push, merge, or retarget branches unless the caller separately authorizes those repository actions.
 

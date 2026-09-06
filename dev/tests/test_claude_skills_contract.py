@@ -101,7 +101,8 @@ def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
         "No explicit scope",
         "gh pr view",
         "merge-base",
-        "re-resolve",
+        "either the PR `base_sha` or `head_sha` changed",
+        "clean before the fix",
         "Fail-closed conditions",
         "target/write-state mismatch",
     ):

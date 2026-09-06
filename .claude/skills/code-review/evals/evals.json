@@ -4,30 +4,31 @@
     {
       "id": 1,
       "prompt": "Review PR #136 in audit mode. I may be checked out on another branch.",
-      "expected_output": "The review resolves PR #136 to immutable base/head SHAs instead of substituting the current checkout, reads dev/AGENTS.md, reports target identity, makes no edits, and rechecks that the PR head did not move before the verdict.",
+      "expected_output": "The review resolves PR #136 to immutable base/head SHAs instead of substituting the current checkout, reads dev/AGENTS.md, reports target identity, makes no edits, and rechecks that neither the PR base nor head moved before the verdict.",
       "assertions": [
         "The response records an exact base SHA and head SHA for PR #136.",
         "The response does not treat the current checkout as the PR target unless it proves they match.",
         "The response states or demonstrates that dev/AGENTS.md was used as project grounding.",
-        "The final verdict is explicitly scoped to the resolved exact head."
+        "The final verdict is explicitly scoped to a re-resolved exact base/head pair."
       ]
     },
     {
       "id": 2,
       "prompt": "Review my current changes. No PR or branch scope specified.",
-      "expected_output": "The review resolves the repository default branch, merge-base and current HEAD; includes committed branch changes plus staged, unstaged and relevant untracked changes; and reports dirty/clean state before giving a verdict.",
+      "expected_output": "The review resolves the repository default branch, merge-base and current HEAD; includes committed branch changes plus staged, unstaged and relevant untracked changes; records dirty/clean state; and rechecks base/head/working-tree freshness before giving a verdict.",
       "assertions": [
         "The response defines a base SHA and current head SHA.",
         "The response accounts for staged, unstaged, and relevant untracked changes.",
-        "The response records working-tree state rather than assuming it is clean."
+        "The response records working-tree state rather than assuming it is clean.",
+        "The final freshness check includes the effective comparison base as well as the head."
       ]
     },
     {
       "id": 3,
       "prompt": "Auto-fix the issues in PR #136, but do not change branches or commit anything.",
-      "expected_output": "The skill resolves PR #136 first and edits only if the current writable checkout matches the PR head. Otherwise it fails closed with a target/write-state mismatch. If it edits, it records before/after target state and re-reviews the post-fix state without committing.",
+      "expected_output": "The skill resolves PR #136 first and edits only if the current writable checkout is a clean worktree at the PR head. Otherwise it fails closed with a target/write-state mismatch. If it edits, it records before/after target state and re-reviews the post-fix state without committing.",
       "assertions": [
-        "The response never edits an unrelated checkout.",
+        "The response never edits an unrelated or pre-dirty checkout.",
         "The response distinguishes the pre-fix and post-fix reviewed state.",
         "The response does not commit or push."
       ]
@@ -44,7 +45,7 @@
     {
       "id": 5,
       "prompt": "/code-review --fix PR #136 --comment",
-      "expected_output": "The project skill treats --fix as auto-fix, resolves PR #136 exactly before editing, posts or attempts to post the final summary only because --comment was explicitly supplied, and does not interpret --comment as permission to merge or make unrelated repository changes.",
+      "expected_output": "The project skill treats --fix as auto-fix, resolves PR #136 exactly before editing, requires a clean worktree at the PR head, posts or attempts to post the final summary only because --comment was explicitly supplied, and does not interpret --comment as permission to merge or make unrelated repository changes.",
       "assertions": [
         "--fix has the same mutation semantics as auto-fix.",
         "--comment is scoped to the resolved PR review summary.",
