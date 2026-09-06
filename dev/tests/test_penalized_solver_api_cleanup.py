@@ -150,6 +150,22 @@ def test_lassocv_deprecated_cpu_solver_alias_preserves_old_cpu_choice():
     assert model.estimator_._selected_solver == "fista"
 
 
+def test_lassocv_deprecated_cpu_solver_warning_points_to_fit_caller():
+    X, y = _regression_data()
+    model = LassoCV(
+        alphas=[0.03, 0.08],
+        cv=3,
+        device="cpu",
+        cpu_solver="fista",
+        compute_inference=False,
+        max_iter=400,
+        random_state=7,
+    )
+    with pytest.warns(FutureWarning, match="LassoCV.*cpu_solver") as caught:
+        model.fit(X, y)
+    assert caught[0].filename == __file__
+
+
 def test_lassocv_legacy_cpu_solver_does_not_override_gpu_cv_solver():
     model = LassoCV(cpu_solver="coordinate_descent", cv_solver="auto")
     with pytest.warns(FutureWarning, match="LassoCV.*cpu_solver"):
