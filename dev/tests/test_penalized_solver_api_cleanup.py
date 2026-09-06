@@ -29,6 +29,11 @@ def test_direct_solver_is_authoritative_over_legacy_cpu_solver():
     assert model._selected_solver == "fista"
 
 
+def test_explicit_legacy_default_cpu_solver_still_warns():
+    with pytest.warns(FutureWarning, match="Lasso.*cpu_solver.*deprecated"):
+        Lasso(cpu_solver="coordinate_descent", device="cpu")
+
+
 def test_default_direct_estimator_does_not_emit_cpu_solver_warning():
     X, y = _regression_data()
     with warnings.catch_warnings(record=True) as caught:
