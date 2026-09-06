@@ -22,7 +22,7 @@
 ### Validation
 
 - Added focused solver/deprecation regression coverage for direct solver authority, omission versus explicit legacy values, sklearn clone/reconstruction, internal helper warning suppression, `set_params`, LassoCV CPU/GPU alias behavior, `cv_solver_`, and warning call sites.
-- Exact head `a56e4ad0d5de9251d6cd399a9b1d3e69b4b65077` passed Tests #3158, Maintenance compatibility #2171 (scikit-learn 1.2.2/1.3.2/current), Gaussian inference backend-native #212, Release notes validation #2013, and Release package validation #2020 including Linux/macOS/Windows wheel smoke tests.
+- The maintenance compatibility workflow runs the focused suite under scikit-learn 1.2.2, 1.3.2, and current; exact-head hosted results are recorded in PR #135 after the final source head completes CI.
 
 ## Unreleased — Gaussian backend-native inference (PR #129 / Issue #127)
 
@@ -90,7 +90,7 @@ A fresh review-fix loop on the PR branch hardened the remaining numerical and de
 - Added public structured `PanelTestResult` and `PanelFitStatistics` outputs plus standardized `fit_statistics_` on the maintained panel estimators. The new fit statistics use parameter-based within/between/overall R², an explicitly defined adjusted R², and a classical homoskedastic model F statistic where the estimator has a residual-OLS fit space.
 - Kept Stage-A coefficient inference and legacy R²/df behavior unchanged. In particular, `PanelOLS` continues to expose its historical public residual df and BSE/t/p/CI, while Stage-B diagnostics use a separate standard fixed-effect nuisance-rank df; the classical Hausman calculation consumes only a diagnostic small covariance rescaled to that standard denominator.
 - Added the classical pooling F test for fixed effects, the one-way entity error-components Breusch-Pagan LM test including the Baltagi-Li unbalanced-panel formula, and the classical one-way entity FE-vs-RE Hausman test. Inapplicable econometric cases return structured reasons; singular positive-semidefinite Hausman covariance differences use a documented generalized-inverse/rank extension, while materially indefinite differences are rejected.
-- Added optional `entity_ids` to `PooledOLS.fit()` and `FamaMacBeth.fit()` solely for Stage-B within/between fit statistics and the panel BP-LM. Pooled HAC stable sorting now carries entity diagnostic metadata through exactly the same permutation as X/y. Formula missing-row filtering also aligns observation-level side arrays before diagnostics are formed.
+- Added optional `entity_ids` to `PooledOLS.fit()` and `FamaMacBeth.fit()` solely for Stage-B within/between fit statistics and the panel BP-LM path. Pooled HAC sorting now carries entity diagnostic metadata through the same stable permutation as X/y. Formula missing-row filtering aligns observation-level side arrays before diagnostics are formed.
 - Added analytic/fitted regressions, maintained Python 3.9 + Torch 2.0 CPU parity, and an executable `linearmodels==7.0` definition-alignment job. FirstDifference external comparison is restricted to panels where both implementations use the same transformed sample; Stage B does not silently redefine the Stage-A adjacent-observed-row differencing contract for internal time gaps.
 - Added `dev/benchmarks/validate_panel_stage_b_gpu.py` as the exact-head physical correctness/provenance gate. The previously accepted P100 artifacts at numerical implementation `a57efcea29b0e87ecb89865c5a6902d5773812c6` remain immutable historical evidence: CuPy and Torch each passed all 17 estimator cases with requested-backend provenance and no fallback, while the focused disconnected two-way FE artifact validated the df=1 inference boundary to machine precision. The four Hausman parameterizations per backend in that run were all correctly structured `applicable=false` cases, so they validate applicability/reason parity but do not physically exercise an applicable Hausman statistic/p-value/df path.
 - The reopened physical gate is now closed on exact clean measurement head `2701aa9feb3796c33c94e6480fcb78c80c6a809c`: Tesla P100 CuPy and Torch each passed all 17 estimator cases and all five Hausman diagnostics with requested/executed backend identity and no CPU fallback. The dedicated 48-observation nonzero-effect fixture is `applicable=true` on both backends with df=1; its Hausman statistic differs from NumPy by at most `1.10e-13` and p-value by at most `2.19e-14`. The promoted 44-row canonical validation source preserves statistic/pvalue/df for that branch, while the older 42-row a57efcea source remains historical audit evidence. No timing or speedup claim is made.
@@ -135,11 +135,11 @@ Related: Issue #112 and pull request #116.
 
 - Corrected arbitrary-link Binomial IRLS Fisher weights, working responses, line-search objectives, backend-native warm starts, and quadratic-penalty validation.
 - Hardened direct `LogisticRegression` validation, transactional refits, convergence reporting, integer hard predictions, single-column response handling, and finite decision thresholds.
-- Unified fitted logistic likelihood diagnostics across NumPy, CuPy, and Torch with the registered stable `LogisticLoss` objective. Likelihood, AIC, BIC, pseudo-R², and convergence remain available independently of covariance inference.
+- Unified fitted logistic likelihood diagnostics across NumPy, CuPy and Torch with the registered stable `LogisticLoss` objective. Likelihood, AIC, BIC, pseudo-R² and convergence remain available independently of covariance inference.
 - Kept confusion-matrix metrics available for one-class targets while retaining explicit class-support errors for ROC-AUC and average precision.
-- Kept analytic weights device-native on CuPy/Torch fits and corrected weighted IRLS curvature, likelihood, dispersion, and sandwich-inference semantics.
-- Standardized GLM analytic-weight behavior across fitting, line search, diagnostics, and covariance. Globally rescaling analytic weights does not change fitted parameters or reported diagnostics.
-- Added backend-native response-domain, real-valued, finite, shape, and length validation for scalar GLMs, including penalized and CV entry points.
+- Kept analytic weights device-native on CuPy/Torch fits and corrected weighted IRLS curvature, likelihood, dispersion and sandwich-inference semantics.
+- Standardized GLM analytic-weight behavior across fitting, line search, diagnostics and covariance. Globally rescaling analytic weights does not change fitted parameters or reported diagnostics.
+- Added backend-native response-domain, real-valued, finite, shape and length validation for scalar GLMs, including penalized and CV entry points.
 - Aligned formula sample weights after Patsy row filtering and corrected weighted Gaussian FISTA centering.
 
 ### Cross-validation, inference, and estimator contracts
@@ -156,9 +156,9 @@ Related: Issue #112 and pull request #116.
 
 - Corrected the solver matrix so Newton, L-BFGS, and L-BFGS-B reject unsupported non-smooth penalties rather than optimizing only the smooth component.
 - Removed the incorrect Euclidean-prox Newton shortcut. Smooth L2/no-penalty objectives retain Newton; non-smooth proximal-Newton requests delegate visibly to backend-native FISTA until a Hessian-metric proximal solver exists.
-- Narrowed Armijo, linear-solve, CV-grid, and inference fallbacks to recognized numeric or rank failures. CUDA OOM, device, index, contract, and unrelated runtime failures propagate.
-- Normalized warm starts for FISTA, Newton-family, L-BFGS-family, and ADMM solvers to the preprocessed design backend, device, and dtype.
-- Completed ADMM's legitimate Cholesky fallback and hardened L-BFGS-B directions, backend-native bounds, and NaN-bound validation.
+- Narrowed Armijo, linear-solve, CV-grid and inference fallbacks to recognized numeric or rank failures. CUDA OOM, device, index, contract and unrelated runtime failures propagate.
+- Normalized warm starts for FISTA, Newton-family, L-BFGS-family and ADMM solvers to the preprocessed design backend, device and dtype.
+- Completed ADMM's legitimate Cholesky fallback and hardened L-BFGS-B directions, backend-native bounds and NaN-bound validation.
 - Added a centralized, observable Torch compile policy: eager remains the default for unset, `auto`, and `disable`; `default` and `reduce-overhead` are explicit opt-ins. Only the known CUDA Graph output-lifecycle failure becomes a permanent eager fallback.
 - Removed the package-initialization cycle between `statgpu.glm_core` and the Cox loss export by lazily exposing `CoxPartialLikelihoodLoss`; fresh-interpreter imports no longer require a particular order.
 
