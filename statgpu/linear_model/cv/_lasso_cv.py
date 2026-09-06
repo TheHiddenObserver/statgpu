@@ -178,6 +178,7 @@ class LassoCV(CVEstimatorBase):
                 "cv_solver must be one of 'auto', 'coordinate_descent', or 'fista'"
             )
 
+        legacy = None
         if self.cpu_solver is not None:
             legacy = str(self.cpu_solver).strip().lower()
             if legacy not in {"coordinate_descent", "fista"}:
@@ -196,16 +197,21 @@ class LassoCV(CVEstimatorBase):
                 raise ValueError(
                     "cv_solver and deprecated cpu_solver specify different CV solvers"
                 )
-            if requested == "auto":
-                requested = legacy
 
         method = str(self.method).strip().lower()
         if method == "glmnet":
+            # Historical glmnet mode always overrode cpu_solver to coordinate
+            # descent. Preserve that result for the deprecated alias, while a
+            # conflicting value supplied through the new cv_solver API is an
+            # explicit contract error.
             if requested not in {"auto", "coordinate_descent"}:
                 raise ValueError(
                     "method='glmnet' requires cv_solver='coordinate_descent' or 'auto'"
                 )
             return "coordinate_descent"
+
+        if requested == "auto" and legacy is not None:
+            requested = legacy
 
         device_name = str(device_name).strip().lower()
         if requested == "auto":
