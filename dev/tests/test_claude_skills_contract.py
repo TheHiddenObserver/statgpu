@@ -88,7 +88,7 @@ def test_code_review_remains_a_blocking_forked_independent_pass():
     assert "target-resolution.md" in text
     assert "Before v2.1.218, forked skills already blocked" in text
     assert "--fix` is accepted as an alias for `auto-fix" in text
-    assert "--comment` explicitly authorizes posting the final review summary" in text
+    assert "remote" in text and "local unpushed fixes" in text
 
 
 def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
@@ -98,11 +98,12 @@ def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
         "head_sha",
         "working_tree",
         "Explicit PR",
-        "No explicit scope",
+        "No explicit scope / working-tree review",
         "gh pr view",
         "merge-base",
         "either the PR `base_sha` or `head_sha` changed",
-        "clean before the fix",
+        "dirty working tree is **expected and valid**",
+        "PR comment freshness",
         "Fail-closed conditions",
         "target/write-state mismatch",
     ):

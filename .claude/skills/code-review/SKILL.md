@@ -27,7 +27,7 @@ A review that cannot identify its target precisely must not return a clean/block
 - `audit`: findings only; do not edit files.
 - `auto-fix`: fix in-scope CRITICAL/HIGH issues and relevant MEDIUM issues, run targeted validation, then re-review the resulting state.
 - `--fix` is accepted as an alias for `auto-fix` so the common bundled-skill spelling does not silently lose effect after the project skill overrides `/code-review`.
-- `--comment` explicitly authorizes posting the final review summary only when the resolved target is a PR. It does not authorize code edits, merge, branch changes, or other repository mutation. If a PR comment cannot be posted, report that rather than silently ignoring the flag.
+- `--comment` explicitly authorizes posting a review summary only when the resolved target is a PR. The published verdict must correspond to the PR's current **remote** exact head; local unpushed fixes may be mentioned only as draft work and must not be presented as if the PR itself were already fixed/clean.
 - If no mode is supplied, infer `audit` for review-only requests and `auto-fix` only when the caller explicitly asks for fixes or a development workflow requests a review/fix pass.
 - Bundled effort-tier flags are not part of statgpu's project review contract; if supplied, do not let them change target resolution or hard gates. Report unsupported/ignored review-control flags rather than silently assigning them project semantics.
 
@@ -127,8 +127,8 @@ Historical benchmark or GPU evidence proves only the source, validator contract,
 
 In `auto-fix` mode:
 
-1. record the original exact target;
-2. require a clean writable worktree at the resolved target before applying fixes;
+1. record the original exact target and working-tree state;
+2. if the target is an explicit committed PR/branch target, require a clean writable worktree at its resolved head; if the target is the current no-scope working tree, capture its existing dirty state as `reviewed_before` instead of rejecting it;
 3. record findings with severity and active dimension;
 4. fix all in-scope CRITICAL/HIGH issues that can be fixed without an unrequested breaking/deferral decision;
 5. fix MEDIUM issues that affect the requested feature or a completion gate;
