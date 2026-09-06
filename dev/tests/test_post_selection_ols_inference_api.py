@@ -341,12 +341,15 @@ def test_post_selection_ols_no_intercept_empty_active_set_is_uninferred():
 
 def test_post_selection_active_tolerance_preserves_numeric_dust_as_uninferred():
     X, y = _data(seed=22, n=90, p=2)
-    model = Lasso(compute_inference=False, device="cpu").fit(X, y)
+    model = Lasso(
+        compute_inference=False,
+        device="cpu",
+        fit_intercept=False,
+    ).fit(X, y)
     model.coef_ = np.array([0.5 * _POST_SELECTION_ACTIVE_TOL, 0.25])
     model.intercept_ = 0.0
     model._selected_backend_name = "numpy"
     model._selected_backend_device = "cpu"
-    model._effective_intercept = False
     model.inference_method = "post_selection_ols"
     model._inference_method = "post_selection_ols"
 
@@ -401,8 +404,6 @@ def test_post_selection_torch_cpu_numerical_kernel_matches_numpy_reporting():
         penalized_intercept=model.intercept_,
     )
 
-    # Hosted CI has Torch CPU only. Exercise the numerical kernel without
-    # pretending this is public device='torch' execution (public Torch is CUDA).
     model._selected_backend_name = "torch"
     model._selected_backend_device = "cpu"
     model.inference_method = "post_selection_ols"
