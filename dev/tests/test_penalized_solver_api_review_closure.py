@@ -13,6 +13,26 @@ def _regression_data(seed=321, n=48, p=5):
     return X, y
 
 
+def _assert_cv_state_cleared(model, X):
+    assert model._fitted is False
+    for attr in (
+        "alpha_",
+        "alphas_",
+        "cv_results_",
+        "mse_path_",
+        "mean_mse_",
+        "best_score_",
+        "coef_",
+        "intercept_",
+        "n_iter_",
+        "estimator_",
+        "cv_solver_",
+    ):
+        assert getattr(model, attr) is None
+    with pytest.raises(RuntimeError, match="not fitted"):
+        model.predict(X)
+
+
 def test_direct_legacy_constructor_warning_points_to_caller():
     with pytest.warns(
         FutureWarning, match="Lasso.*cpu_solver.*deprecated"
@@ -37,7 +57,31 @@ def test_lassocv_explicit_historical_default_warns_and_preserves_cpu_cv_solver()
     assert model.cv_solver_ == "coordinate_descent"
 
 
-def test_lassocv_failed_selection_does_not_publish_cv_solver(monkeypatch):
+def test_lassocv_failed_selection_clears_previous_fit_state(monkeypatch):
+    X, y = _regression_data()
+    model = LassoCV(
+        alphas=[0.03, 0.08],
+        cv=3,
+        device="cpu",
+        compute_inference=False,
+        max_iter=300,
+        random_state=11,
+    ).fit(X, y)
+    assert model._fitted is True
+    assert model.estimator_ is not None
+    assert model.cv_solver_ == "coordinate_descent"
+
+    def fail_selection(*args, **kwargs):
+        raise RuntimeError("synthetic CV selection failure")
+
+    monkeypatch.setattr(lasso_impl, "_select_lasso_alpha_cv", fail_selection)
+    with pytest.raises(RuntimeError, match="synthetic CV selection failure"):
+        model.fit(X, y)
+
+    _assert_cv_state_cleared(model, X)
+
+
+def test_lassocv_failed_final_refit_does_not_publish_candidate_state(monkeypatch):
     X, y = _regression_data()
     model = LassoCV(
         alphas=[0.03, 0.08],
@@ -47,11 +91,24 @@ def test_lassocv_failed_selection_does_not_publish_cv_solver(monkeypatch):
         random_state=11,
     )
 
-    def fail_selection(*args, **kwargs):
-        raise RuntimeError("synthetic CV selection failure")
+    def synthetic_selection(*args, **kwargs):
+        return {
+            "alpha": 0.03,
+            "alphas": np.asarray([0.03, 0.08], dtype=np.float64),
+            "mse_path": np.asarray(
+                [[0.30, 0.31, 0.29], [0.42, 0.40, 0.41]],
+                dtype=np.float64,
+            ),
+            "mean_mse": np.asarray([0.30, 0.41], dtype=np.float64),
+        }
 
-    monkeypatch.setattr(lasso_impl, "_select_lasso_alpha_cv", fail_selection)
-    with pytest.raises(RuntimeError, match="synthetic CV selection failure"):
+    def fail_refit(self, *args, **kwargs):
+        raise RuntimeError("synthetic final refit failure")
+
+    monkeypatch.setattr(lasso_impl, "_select_lasso_alpha_cv", synthetic_selection)
+    monkeypatch.setattr(Lasso, "fit", fail_refit)
+
+    with pytest.raises(RuntimeError, match="synthetic final refit failure"):
         model.fit(X, y)
 
-    assert model.cv_solver_ is None
+    _assert_cv_state_cleared(model, X)

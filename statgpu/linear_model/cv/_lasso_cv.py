@@ -172,6 +172,23 @@ class LassoCV(CVEstimatorBase):
         self.estimator_ = None
         self.cv_solver_ = None
 
+    def _reset_cv_fit_state(self):
+        """Clear all fitted outputs before a new CV attempt."""
+        self._fitted = False
+        self.alpha_ = None
+        self.alphas_ = None
+        self.cv_results_ = None
+        self.mse_path_ = None
+        self.mean_mse_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+        self.cv_solver_ = None
+        for attr in ("_bse", "_pvalues", "_tvalues", "_conf_int"):
+            self.__dict__.pop(attr, None)
+
     def _resolve_cv_solver(self, device_name: str) -> str:
         """Resolve the actual CV solver without changing legacy GPU behavior."""
         requested = str(self.cv_solver).strip().lower()
@@ -241,10 +258,7 @@ class LassoCV(CVEstimatorBase):
         """Fit Lasso regression with cross-validation to select alpha."""
         from statgpu.linear_model.wrappers._lasso import _select_lasso_alpha_cv, Lasso
 
-        # Do not publish a solver identity until the CV selector has actually
-        # completed. This also clears a prior successful value before a refit
-        # attempt that may fail during selection.
-        self.cv_solver_ = None
+        self._reset_cv_fit_state()
         device_name = self._get_compute_device().value
         effective_cv_solver = self._resolve_cv_solver(device_name)
 
@@ -271,20 +285,21 @@ class LassoCV(CVEstimatorBase):
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
-        self.cv_solver_ = effective_cv_solver
 
-        self.alpha_ = float(details["alpha"])
-        self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
+        # Keep candidate CV results local until the final full-data refit
+        # succeeds, matching the failure-safe contract of the other CV classes.
+        selected_alpha = float(details["alpha"])
+        selected_alphas = np.asarray(details["alphas"], dtype=np.float64)
         mse_path = np.asarray(details["mse_path"], dtype=np.float64)
         mean_mse = np.asarray(details["mean_mse"], dtype=np.float64)
-
-        self.cv_results_ = {"mse_path": mse_path}
-        self.mse_path_ = mse_path
-        self.mean_mse_ = mean_mse
-        self.best_score_ = -float(np.nanmin(mean_mse)) if np.any(np.isfinite(mean_mse)) else np.nan
+        best_score = (
+            -float(np.nanmin(mean_mse))
+            if np.any(np.isfinite(mean_mse))
+            else np.nan
+        )
 
         estimator = Lasso(
-            alpha=self.alpha_,
+            alpha=selected_alpha,
             fit_intercept=self._fit_intercept,
             max_iter=self._max_iter,
             tol=self._tol,
@@ -300,10 +315,17 @@ class LassoCV(CVEstimatorBase):
         )
         estimator.fit(X, y, sample_weight=sample_weight)
 
+        self.alpha_ = selected_alpha
+        self.alphas_ = selected_alphas
+        self.cv_results_ = {"mse_path": mse_path}
+        self.mse_path_ = mse_path
+        self.mean_mse_ = mean_mse
+        self.best_score_ = best_score
         self.estimator_ = estimator
         self.coef_ = np.asarray(estimator.coef_)
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
+        self.cv_solver_ = effective_cv_solver
 
         for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
             val = getattr(estimator, attr, None)
