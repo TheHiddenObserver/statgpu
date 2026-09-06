@@ -1,7 +1,7 @@
 # Lasso 回归
 
-> 语言：中文
-> 最后更新：2026-09-05
+> 语言：中文  
+> 最后更新：2026-09-06  
 > 切换：[English](../../en/models/lasso.md)
 
 ## 它解决什么问题？
@@ -133,9 +133,9 @@ print("R²:", round(model.score(X, y), 3))
 | `alpha` | `1.0` | 最重要的统计选择；越大通常收缩越强、0 越多。预测/选择任务优先用 `LassoCV`。 |
 | `fit_intercept` | `True` | 一般保持开启，除非理论固定截距或设计矩阵已有截距。 |
 | `device` | `"auto"` | 小问题优先 CPU；工作负载足够大时再考虑 GPU。 |
-| `solver` | `"fista"` | 单模型拟合的稳定默认路径，改变它主要是数值/性能选择。 |
+| `solver` | `"fista"` | 所有 backend 上权威的 direct-fit 算法选择器。CPU coordinate descent 用 `coordinate_descent`；其他场景按支持矩阵选择 FISTA 等 proximal solver。 |
 | `stopping` | `"coef_delta"` | 需要按最优性而不是系数变化判断收敛时可用 `"kkt"`。 |
-| `compute_inference` | `True` | 只做预测/选择时可关闭；需要推断时应显式理解 `inference_method` 的统计含义。 |
+| `compute_inference` | `True` | 只做预测/选择时可关闭；需要推断时应显式理解 `inference_method`，并阅读独立推断参考页。 |
 
 ### 正则化之前先标准化
 
@@ -177,40 +177,26 @@ model = Lasso(
 | `auto` | FISTA | FISTA | 当前 squared-error + L1 自动分发 |
 | `fista_bb` | 支持 | 支持 | Barzilai-Borwein 步长 FISTA |
 | `admm` | 支持 | 支持 | 替代拆分路径；仅均匀样本权重 |
-| `coordinate_descent` | 支持 | 不支持 | CPU-only 兼容路径 |
+| `coordinate_descent` | 支持 | 不支持 | CPU-only direct-fit coordinate-descent 路径 |
 
-L1 目标拒绝 `newton`、`lbfgs`、`irls`、`exact`。`cpu_solver` 由 Lasso CV/path helper 使用，不会覆盖单次 `Lasso.fit` 的 `solver`。
+`solver` 是统一的 backend-neutral direct-fit selector。L1 目标拒绝 `newton`、`lbfgs`、`irls`、`exact`。
+
+`cpu_solver` 作为 legacy/CV 行为的兼容控制仍被保留，但它不选择一次直接 `Lasso.fit` 的算法；direct-fit 算法应使用 `solver`。CV 估计器具有独立的 selection 与最终 refit 阶段，详见[交叉验证指南](../guides/cross-validation.md)。
 
 `admm_rho` 控制 ADMM penalty parameter；`lipschitz_L` 可为兼容近端路径提供预计算 Lipschitz 常数。
 
 ## 进阶：Lasso 之后的推断
 
-选择后推断比预先指定的 OLS 模型推断困难得多。不同 `inference_method` 代表不同统计主张：
+选择后推断比预先指定的 OLS 模型推断困难得多。statgpu 提供 debiased、OLS-style diagnostic、residual bootstrap，以及可选的 simultaneous max-|Z| 路径；它们的统计主张并不相同。
 
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
-| `cpu_ols_inference` | 轻量 CPU post-selection diagnostic | 启发式 OLS-style 区间，不是严格 selective inference |
-| `gpu_ols_inference` | 减少 GPU→CPU 大块传输 | 同样存在 selection validity 限制 |
-| `debiased`（constructor 默认） | de-biased / de-sparsified 推断 | `_conf_int` 当前是单系数 marginal interval，且依赖高维去偏假设 |
-| `bootstrap` | residual-bootstrap 替代路径 | 计算更贵，并依赖相应重采样假设 |
+| `debiased`（constructor 默认） | de-biased / de-sparsified 逐系数推断 | 边际区间依赖高维去偏假设；联合覆盖需要单独的 simultaneous procedure |
+| `cpu_ols_inference` | 轻量 CPU post-selection diagnostic | 选择后启发式区间，不是一般 selective inference |
+| `gpu_ols_inference` | 面向 GPU 的 OLS-style diagnostic | 同样存在 selection validity 限制 |
+| `bootstrap` | residual-bootstrap 替代路径 | 计算更贵，也不是选择不确定性的普适修正 |
 
-`n_bootstrap` 与 `bootstrap_random_state` 控制 bootstrap 路径。推断成功后可以得到 `_bse`、`_tvalues` 或 `_zvalues`、`_pvalues`、`_conf_int`。
-
-可选 simultaneous interval：
-
-```python
-model = Lasso(
-    alpha=0.08,
-    inference_method="debiased",
-    enable_simultaneous_inference=True,
-    simultaneous_method="maxz_bootstrap",
-    simultaneous_alpha=0.05,
-    simultaneous_n_bootstrap=1000,
-    simultaneous_random_state=7,
-).fit(X, y)
-```
-
-Simultaneous inference 要求 `compute_inference=True`、`inference_method="debiased"` 和 `simultaneous_method="maxz_bootstrap"`。
+node-wise Lasso 构造、边际 z 推断、max-|Z| multiplier bootstrap、backend/reporting boundary、多重检验区别、输出字段，以及当前截距/权重边界都集中在 **[Lasso 推断](lasso-inference.md)**。
 
 ## 常见误区
 
@@ -218,7 +204,7 @@ Simultaneous inference 要求 `compute_inference=True`、`inference_method="debi
 - L1 不具备尺度不变性，不能忽略标准化。
 - 高度相关变量之间的纯 Lasso 选择可能很不稳定。
 - 不要根据训练 $R^2$ 选择 `alpha`。
-- 不要在数据驱动选择后直接附上普通 OLS p 值并当作预先指定模型推断。
+- 不要在数据驱动选择后直接附上普通 OLS p 值并当作预先指定模型推断；见 [Lasso 推断](lasso-inference.md)。
 - 数值收敛（例如 KKT 很小）不等于统计模型正确。
 
 ## 完整 API 参考
@@ -262,7 +248,7 @@ Lasso(
 | `max_iter` | `1000` | 最大求解迭代数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
 | `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
-| `inference_method` | `"debiased"` | 拟合后推断路径。 |
+| `inference_method` | `"debiased"` | 拟合后推断路径：debiased、bootstrap 或受支持的 OLS-style diagnostic alias。 |
 | `n_bootstrap` | `200` | `inference_method="bootstrap"` 时 residual-bootstrap 抽样次数。 |
 | `bootstrap_random_state` | `None` | residual bootstrap 随机种子。 |
 | `enable_simultaneous_inference` | `False` | 在 debiased inference 后启用 simultaneous max-|Z| 区间。 |
@@ -270,12 +256,12 @@ Lasso(
 | `simultaneous_alpha` | `0.05` | simultaneous interval 的 family-wise error level。 |
 | `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier-bootstrap 次数。 |
 | `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
-| `simultaneous_include_intercept` | `False` | 在支持时把截距纳入 simultaneous target family。 |
+| `simultaneous_include_intercept` | `False` | 请求把截距加入 simultaneous reporting；当前实现边界见 [Lasso 推断](lasso-inference.md)。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
 | `compute_inference` | `True` | 执行所选拟合后推断。 |
-| `solver` | `"fista"` | 单模型求解器。 |
-| `cpu_solver` | `"coordinate_descent"` | Lasso CV/path helper 的 CPU 选择，不会替代单次拟合的 `solver`。 |
+| `solver` | `"fista"` | backend-neutral direct-fit solver；在 CPU/GPU 上都是权威 selector。 |
+| `cpu_solver` | `"coordinate_descent"` | legacy/CV 行为的兼容控制；不会替代一次直接 `Lasso.fit` 中的 `solver`。 |
 | `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
 | `admm_rho` | `1.0` | ADMM augmented-Lagrangian penalty parameter。 |
 | `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存 GPU 内存。 |
@@ -314,7 +300,7 @@ model.fit(
 | `summary` | `summary()` | 打印系数/推断摘要；要求已拟合且推断可用。 |
 | `get_params` / `set_params` | sklearn 风格工具 | 查看或替换 constructor 状态。 |
 
-继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、backend 解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。
+继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、backend 解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。Lasso-specific coefficient inference 见 [Lasso 推断](lasso-inference.md)。
 
 ### 拟合后属性与诊断量
 
@@ -328,8 +314,8 @@ model.fit(
 | `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
 | `llf`, `aic`, `bic` | 所需 reporting state 可用时的 Gaussian fit diagnostics。 |
 | `_bse` | 所选 inference method 产生的标准误。 |
-| `_tvalues` | 使用 t-style 语义的推断路径统计量。 |
-| `_zvalues` | debiased inference 的 z-style 统计量。 |
+| `_tvalues` | 兼容路径沿用的 historical/statistic field；debiased inference 是 z 语义。 |
+| `_zvalues` | structured inference result 填充时的 z-style statistic。 |
 | `_pvalues` | 推断成功时的系数 p 值。 |
 | `_conf_int` | 推断成功时的 marginal coefficient interval。 |
 | `_conf_int_simultaneous` | 显式启用并成功校准时的 simultaneous interval。 |

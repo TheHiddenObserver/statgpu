@@ -105,6 +105,47 @@ MODEL_API_CONTRACTS = {
     ),
 }
 
+# Lasso's learner page deliberately stays readable while the inference
+# companion owns the method-specific statistical depth. Keep that split a
+# checked contract so a future page rewrite cannot silently drop the advanced
+# reference or one language version.
+LASSO_INFERENCE_COMPANIONS = {
+    "docs/en/models/lasso.md": "docs/en/models/lasso-inference.md",
+    "docs/cn/models/lasso.md": "docs/cn/models/lasso-inference.md",
+}
+
+LASSO_INFERENCE_REQUIRED_TERMS = {
+    "docs/en/models/lasso-inference.md": (
+        "node-wise",
+        "max-|Z|",
+        "simultaneous_include_intercept",
+        "_conf_int_simultaneous",
+        "_simultaneous_critical_value",
+        "sample_weight",
+        "NumPy",
+        "CuPy",
+        "Torch",
+        "adjust_pvalues",
+    ),
+    "docs/cn/models/lasso-inference.md": (
+        "node-wise",
+        "max-|Z|",
+        "simultaneous_include_intercept",
+        "_conf_int_simultaneous",
+        "_simultaneous_critical_value",
+        "sample_weight",
+        "NumPy",
+        "CuPy",
+        "Torch",
+        "adjust_pvalues",
+    ),
+}
+
+LASSO_NAV_LINKS = (
+    "'/en/models/lasso-inference'",
+    "'/cn/models/lasso-inference'",
+)
+
 
 def iter_maintained_files() -> list[Path]:
     files = set(MAINTAINED_PATHS)
@@ -121,7 +162,6 @@ def normalize_link_target(raw_target: str) -> str:
     target = raw_target.strip()
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1]
-    # Markdown permits an optional quoted title after whitespace.
     target = target.split(maxsplit=1)[0]
     target = unquote(target)
     target = target.split("#", 1)[0]
@@ -153,8 +193,6 @@ def validate_links(path: Path, text: str) -> list[str]:
             continue
 
         if target.startswith("/"):
-            # Site-root routes are validated after VitePress clean-URL routing,
-            # base-path rewriting, and dashboard assembly have been applied.
             continue
 
         resolved = (path.parent / target).resolve()
@@ -312,6 +350,40 @@ def validate_model_api_constructor_contract(path: Path, text: str) -> list[str]:
     return errors
 
 
+def validate_lasso_inference_companion(path: Path, text: str) -> list[str]:
+    """Keep Lasso learner pages and bilingual inference companions connected."""
+    rel = path.relative_to(ROOT).as_posix()
+    errors: list[str] = []
+
+    companion_rel = LASSO_INFERENCE_COMPANIONS.get(rel)
+    if companion_rel is not None:
+        companion = ROOT / companion_rel
+        if not companion.is_file():
+            errors.append(f"{rel}: missing Lasso inference companion {companion_rel}")
+        if "(lasso-inference.md)" not in text:
+            errors.append(f"{rel}: must link prominently to lasso-inference.md")
+
+    required_terms = LASSO_INFERENCE_REQUIRED_TERMS.get(rel)
+    if required_terms is not None:
+        for term in required_terms:
+            if term not in text:
+                errors.append(f"{rel}: Lasso inference reference missing required term {term!r}")
+
+    return errors
+
+
+def validate_lasso_inference_navigation() -> list[str]:
+    config_path = ROOT / "docs" / ".vitepress" / "config.ts"
+    if not config_path.is_file():
+        return ["docs/.vitepress/config.ts: missing VitePress configuration"]
+    text = config_path.read_text(encoding="utf-8")
+    return [
+        f"docs/.vitepress/config.ts: missing Lasso inference navigation link {link}"
+        for link in LASSO_NAV_LINKS
+        if link not in text
+    ]
+
+
 def main() -> int:
     errors: list[str] = []
     files = iter_maintained_files()
@@ -322,6 +394,9 @@ def main() -> int:
         errors.extend(validate_content(path, text))
         errors.extend(validate_python_fences(path, text))
         errors.extend(validate_model_api_constructor_contract(path, text))
+        errors.extend(validate_lasso_inference_companion(path, text))
+
+    errors.extend(validate_lasso_inference_navigation())
 
     if errors:
         print("Documentation contract check failed:", file=sys.stderr)

@@ -1,7 +1,7 @@
 # Lasso
 
-> Language: English
-> Last updated: 2026-09-05
+> Language: English  
+> Last updated: 2026-09-06  
 > Switch: [简体中文](../../cn/models/lasso.md)
 
 ## What problem does it solve?
@@ -147,9 +147,9 @@ This table is intentionally **curated** for the normal workflow. The exhaustive 
 | `alpha` | `1.0` | Main statistical choice. Larger values create more shrinkage and more zeros. Prefer `LassoCV` or another validation procedure for predictive selection. |
 | `fit_intercept` | `True` | Usually keep it unless theory fixes the intercept or the design already contains one. |
 | `device` | `"auto"` | CPU is usually simplest for small problems; GPU is useful when the optimization workload is large enough to amortize transfer/setup cost. |
-| `solver` | `"fista"` | Stable default for a single estimator fit. Change it mainly for numerical/performance reasons, not to change the statistical model. |
+| `solver` | `"fista"` | Authoritative direct-fit algorithm selector on every backend. Use `coordinate_descent` for the CPU CD path; use proximal solvers such as `fista` where appropriate. |
 | `stopping` | `"coef_delta"` | `"kkt"` is useful when you want convergence judged against optimality conditions rather than coefficient movement alone. |
-| `compute_inference` | `True` | Turn it off for pure prediction/selection. If inference matters, choose `inference_method` deliberately and read the limitations below. |
+| `compute_inference` | `True` | Turn it off for pure prediction/selection. If inference matters, choose `inference_method` deliberately and read the dedicated inference reference. |
 
 ### Standardize before regularizing
 
@@ -195,43 +195,26 @@ Explicit `device="cuda"` and `device="torch"` use their corresponding GPU backen
 | `auto` | FISTA | FISTA | Current squared-error + L1 automatic destination |
 | `fista_bb` | yes | yes | FISTA with Barzilai-Borwein step adaptation |
 | `admm` | yes | yes | Alternative split solver; uniform sample weights only |
-| `coordinate_descent` | yes | no | CPU-only compatibility path for a single squared-error fit |
+| `coordinate_descent` | yes | no | CPU-only direct-fit coordinate-descent path |
 
-`newton`, `lbfgs`, `irls`, and `exact` are rejected for the non-smooth L1 objective. `cpu_solver` is used by Lasso CV/path helpers and does not override `solver` on a single `Lasso.fit`. General algorithm mechanics are in the [solver guide](../guides/solver-algorithms.md).
+`solver` is the single backend-neutral direct-fit selector. `newton`, `lbfgs`, `irls`, and `exact` are rejected for the non-smooth L1 objective.
+
+`cpu_solver` is retained as a compatibility control for legacy/CV behavior, but it does not select the algorithm for a direct `Lasso.fit`; use `solver` for direct-fit algorithm choice. The CV estimator has separate selection and final-refit stages, documented in the [cross-validation guide](../guides/cross-validation.md).
 
 `admm_rho` controls the ADMM penalty parameter when the ADMM path is selected. `lipschitz_L` supplies a precomputed Lipschitz constant for compatible proximal paths.
 
 ## Advanced: inference after Lasso
 
-Inference after data-driven selection is substantially harder than inference after a prespecified OLS model. statgpu exposes several practical paths, but they do **not** all make the same statistical claim.
+Inference after data-driven selection is substantially harder than inference after a prespecified OLS model. statgpu exposes de-biased, OLS-style diagnostic, residual-bootstrap, and optional simultaneous max-|Z| paths, and they do **not** make the same statistical claim.
 
 | `inference_method` | Intended use | Important limitation |
 |---|---|---|
-| `cpu_ols_inference` | lightweight CPU post-selection diagnostic | heuristic OLS-style intervals; not valid selective-inference intervals |
-| `gpu_ols_inference` | same style while reducing GPU→CPU transfer | same post-selection validity limitation |
-| `debiased` (constructor default) | de-biased/de-sparsified coefficient inference | current `_conf_int` is marginal per coefficient; high-dimensional de-biasing assumptions still matter |
-| `bootstrap` | residual-bootstrap alternative | materially more expensive and conditional on implemented resampling/model assumptions |
+| `debiased` (constructor default) | de-biased/de-sparsified coefficient inference | marginal intervals require high-dimensional de-biasing assumptions; joint coverage needs the separate simultaneous procedure |
+| `cpu_ols_inference` | lightweight CPU post-selection diagnostic | heuristic after selection; not a general selective-inference interval |
+| `gpu_ols_inference` | GPU-oriented version of the OLS-style diagnostic | same post-selection validity limitation |
+| `bootstrap` | residual-bootstrap alternative | materially more expensive and not a universal correction for selection uncertainty |
 
-`n_bootstrap` and `bootstrap_random_state` control the bootstrap inference path. With `compute_inference=True`, reporting can include `_bse`, `_tvalues` or `_zvalues` depending on the selected method, `_pvalues`, and `_conf_int`.
-
-For `inference_method="debiased"`, optional simultaneous intervals are available with:
-
-```python
-model = Lasso(
-    alpha=0.08,
-    inference_method="debiased",
-    enable_simultaneous_inference=True,
-    simultaneous_method="maxz_bootstrap",
-    simultaneous_alpha=0.05,
-    simultaneous_n_bootstrap=1000,
-    simultaneous_random_state=7,
-).fit(X, y)
-
-marginal_ci = model._conf_int
-simultaneous_ci = model._conf_int_simultaneous
-```
-
-Simultaneous inference requires `compute_inference=True`, `inference_method="debiased"`, and `simultaneous_method="maxz_bootstrap"`.
+For the actual node-wise-Lasso construction, marginal z inference, max-|Z| multiplier bootstrap, backend/reporting boundaries, multiple-testing distinction, output fields, and current intercept/weight limitations, see **[Lasso inference](lasso-inference.md)**.
 
 ## Common pitfalls
 
@@ -239,7 +222,7 @@ Simultaneous inference requires `compute_inference=True`, `inference_method="deb
 - **Do not ignore feature scaling.** An L1 penalty is not scale invariant.
 - **Do not expect stable choices among nearly duplicate predictors.** Pure Lasso can arbitrarily prefer one correlated feature; Elastic Net is often more appropriate.
 - **Do not choose `alpha` by maximizing training $R^2$.** Use held-out validation or cross-validation.
-- **Do not attach ordinary OLS p-values after selection and treat them as if the model had been prespecified.** Use an inference method whose assumptions match your question.
+- **Do not attach ordinary OLS p-values after selection and treat them as if the model had been prespecified.** Use an inference method whose assumptions match your question; see [Lasso inference](lasso-inference.md).
 - **Do not confuse numerical convergence with statistical correctness.** A tiny KKT residual only says the declared optimization problem was solved accurately.
 
 ## Complete API reference
@@ -291,12 +274,12 @@ Lasso(
 | `simultaneous_alpha` | `0.05` | Family-wise error level used for simultaneous intervals. |
 | `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws for max-|Z| calibration. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap calibration. |
-| `simultaneous_include_intercept` | `False` | Include the intercept in the simultaneous target family when supported. |
+| `simultaneous_include_intercept` | `False` | Request intercept inclusion in simultaneous reporting; see the current implementation boundary in [Lasso inference](lasso-inference.md). |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | Parallelism hint where a selected path uses it. |
 | `compute_inference` | `True` | Compute the selected post-fit inference path. |
-| `solver` | `"fista"` | Single-estimator solver; see the solver table above. |
-| `cpu_solver` | `"coordinate_descent"` | CPU choice consumed by Lasso CV/path helpers; it does not replace `solver` for one `Lasso.fit`. |
+| `solver` | `"fista"` | Backend-neutral direct-fit solver; authoritative on CPU and GPU. |
+| `cpu_solver` | `"coordinate_descent"` | Compatibility control retained for legacy/CV behavior; it does not replace `solver` for one direct `Lasso.fit`. |
 | `lipschitz_L` | `None` | Optional precomputed Lipschitz constant for compatible proximal paths. |
 | `admm_rho` | `1.0` | ADMM augmented-Lagrangian penalty parameter when ADMM is selected. |
 | `gpu_memory_cleanup` | `False` | Best-effort release of cached GPU memory after fit. |
@@ -335,7 +318,7 @@ model.fit(
 | `summary` | `summary()` | Prints the coefficient/inference summary; requires a fitted model with inference enabled and available. |
 | `get_params` / `set_params` | sklearn-style estimator utilities | Inspect or replace constructor state using the shared `BaseEstimator` contract. |
 
-The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` are documented with their complete signatures and backend/fitted-state semantics in the [Inference API](../guides/inference-api.md).
+The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` are documented with their complete signatures and backend/fitted-state semantics in the [Inference API](../guides/inference-api.md). Lasso-specific coefficient inference is documented in [Lasso inference](lasso-inference.md).
 
 ### Fitted attributes and diagnostics
 
@@ -349,8 +332,8 @@ The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `
 | `fvalue`, `f_pvalue` | Classical joint fit statistic and p-value when defined. |
 | `llf`, `aic`, `bic` | Gaussian fit diagnostics when the required reporting state is available. |
 | `_bse` | Standard errors produced by the selected inference method. |
-| `_tvalues` | t-style statistics for inference paths that use them. |
-| `_zvalues` | z-style statistics for de-biased inference. |
+| `_tvalues` | Historical/statistic field used by compatible inference paths; de-biased inference has z semantics. |
+| `_zvalues` | z-style statistics when populated through the structured inference result. |
 | `_pvalues` | Coefficient p-values when inference succeeds. |
 | `_conf_int` | Marginal coefficient intervals when inference succeeds. |
 | `_conf_int_simultaneous` | Simultaneous intervals when explicitly enabled and successfully calibrated. |
