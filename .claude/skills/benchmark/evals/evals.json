@@ -6,9 +6,9 @@
       "prompt": "Benchmark Lasso on CPU, CuPy CUDA, and Torch CUDA against sklearn at n=10000, p=200.",
       "expected_output": "The benchmark defines synchronized timing scope, exact environment/source provenance, objective/penalty mapping, numerical correctness, and separate NumPy/CuPy/Torch results without aggregating different environments.",
       "assertions": [
-        "GPU timing is synchronized.",
+        "GPU timing is synchronized on the concrete executed CUDA device.",
         "The comparison records objective or penalty-scale alignment with sklearn.",
-        "Exact source and environment provenance are recorded."
+        "Exact source, environment, and device provenance are recorded."
       ]
     },
     {
@@ -27,6 +27,15 @@
       "assertions": [
         "Different hardware/software environments remain separate groups.",
         "The output does not report one pooled speedup that hides environment differences."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Benchmark a statgpu model that actually executes on cuda:1 while CUDA device 0 is also busy with unrelated work.",
+      "expected_output": "The benchmark derives the executed device from backend/estimator provenance, synchronizes cuda:1 specifically before and after timing, and records the concrete executed/synchronized device rather than synchronizing the default device.",
+      "assertions": [
+        "Timing synchronization targets cuda:1 rather than the default device.",
+        "The result records the executed and synchronized device identity."
       ]
     }
   ]

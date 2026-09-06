@@ -14,7 +14,7 @@ Load this file from `SKILL.md` when a review spans multiple axes or needs a bloc
 | CV | For new tunable loss x penalty capability: direct + CV closure by default or approved non-tunable/deferral contract; otherwise grid/path generation, folds, sample weights, scoring, selection, determinism, no leakage, final refit, backend/device contract |
 | Inference | Result container/fields, covariance, reference distribution, SE/t-or-z/p/CI, summary, sample weights, backend provenance, strict/fallback behavior |
 | Formula | Intercept, categorical reference levels, interactions/transforms, missing-row alignment, feature names/order, prediction matrix behavior |
-| Performance | Correctness first, synchronized timing, environment provenance, transfer scope, target scale, external comparison identity |
+| Performance | Correctness first, synchronized timing on the concrete executed device, environment/device provenance, transfer scope, target scale, external comparison identity |
 | Docs/evidence | Current support claim, exact-source provenance, EN/CN conceptual parity when both pages exist, no unsupported performance/statistical claim |
 
 ## Change-type rules
@@ -129,16 +129,16 @@ When formula behavior is active:
 
 Performance findings require measurement, not intuition. Record:
 
-- exact commit and clean/dirty tree status;
+- exact commit and clean/dirty tree status/fingerprint when relevant;
 - Python/statgpu/NumPy/CuPy/Torch versions;
-- CUDA/driver, CPU/GPU model, dtype, data shape;
+- CUDA/driver, CPU/GPU model, concrete executed device ordinal/UUID when available, dtype, data shape;
 - warmup, repeats, seeds;
-- timing boundaries and synchronization;
+- timing boundaries and synchronization on the executed device;
 - transfer policy;
 - numerical error versus the comparison path;
 - target scale and whether the comparison uses the same algorithm/objective.
 
-Do not aggregate speedups from different hardware/software environments as if they were one homogeneous measurement.
+Do not accept a GPU speedup timing whose synchronization targeted a different/default device than the execution provenance. Do not aggregate speedups from different hardware/software environments as if they were one homogeneous measurement.
 
 ## Severity examples
 

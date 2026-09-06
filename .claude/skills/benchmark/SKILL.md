@@ -22,18 +22,29 @@ Read [schema.md](schema.md) when writing a machine-readable result, comparing mo
 
 ## Timing
 
-GPU timing must synchronize around the measured region:
+GPU timing must synchronize the **concrete device that actually executed the measured work** before and after the measured region. Do not assume CUDA device 0/current-default device when the estimator/backend may execute elsewhere.
+
+A device-aware helper can look like:
 
 ```python
-def sync_backend(name):
+def sync_backend(name, device=None):
     if name == "cupy":
         import cupy as cp
-        cp.cuda.Stream.null.synchronize()
+
+        if isinstance(device, str) and device.startswith("cuda:"):
+            device = int(device.split(":", 1)[1])
+        device_id = cp.cuda.runtime.getDevice() if device is None else int(device)
+        cp.cuda.Device(device_id).synchronize()
     elif name == "torch":
         import torch
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("Torch CUDA benchmark requested but CUDA is unavailable")
+        target = torch.cuda.current_device() if device is None else device
+        torch.cuda.synchronize(device=target)
 ```
+
+Resolve `device` from executed-backend/device provenance rather than merely copying the requested input option. For a CUDA timing claim, inability to identify/synchronize the executed device is a provenance/timing failure, not permission to time unsynchronized work.
 
 Separate where relevant:
 
@@ -68,12 +79,13 @@ A precision/convergence failure blocks a speedup claim.
 
 Every result used as evidence should identify at least:
 
-- exact git commit and clean/dirty working-tree state;
+- exact git commit and clean/dirty working-tree state (plus a diff/content fingerprint when dirty evidence is retained);
 - benchmark script and arguments;
 - Python/statgpu/NumPy/CuPy/Torch versions as applicable;
 - CUDA/runtime/driver and CPU/GPU identity when available;
+- concrete executed CUDA device ordinal/UUID where available;
 - dtype, data shape, seed/data identity;
-- timing scope, warmup, repeats, transfer policy;
+- timing scope, synchronized device, warmup, repeats, transfer policy;
 - reference implementation/version and objective-scale mapping;
 - validation tier and uncovered reason(s).
 
@@ -114,8 +126,8 @@ Machine-readable results should follow the common envelope and conditional secti
 Report:
 
 - script/result paths and exact command;
-- exact source/environment;
-- timing scope and run statistic;
+- exact source/environment and executed device;
+- timing scope, synchronized device, and run statistic;
 - correctness/precision/convergence result;
 - backend timings relevant to the claim;
 - external/analytic reference and scale mapping;

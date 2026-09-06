@@ -18,6 +18,7 @@ Recommended JSON shape:
   "source": {
     "git_commit": "...",
     "working_tree": "clean",
+    "worktree_fingerprint": null,
     "statgpu_version": "..."
   },
   "environment": {
@@ -30,6 +31,8 @@ Recommended JSON shape:
     "driver": null,
     "cpu": "...",
     "gpu": null,
+    "gpu_device": null,
+    "gpu_uuid": null,
     "os": "..."
   },
   "problem": {
@@ -45,6 +48,7 @@ Recommended JSON shape:
     "repeats": 5,
     "statistic": "median",
     "transfer_policy": "excluded",
+    "synchronized_device": null,
     "backend_seconds": {}
   },
   "correctness": {
@@ -74,14 +78,14 @@ Use `null` inside the common envelope only when the field is genuinely part of t
 - statgpu version;
 - optional validator commit/version when a separate acceptance runner determines pass/fail.
 
-If the tree is dirty and the result is used beyond local exploration, record a diff identifier or do not present it as canonical evidence.
+If the tree is dirty and the result is used beyond local exploration, record a deterministic diff/content fingerprint or do not present it as canonical evidence.
 
 ## Environment grouping
 
 `environment_id` identifies measurements that are safe to compare/aggregate. Include or derive it from materially relevant fields such as:
 
 - CPU model;
-- GPU model;
+- GPU model plus concrete executed device ordinal/UUID where available;
 - CUDA/runtime/driver;
 - Python;
 - NumPy/CuPy/Torch versions;
@@ -114,7 +118,7 @@ For stochastic algorithms record all seeds that affect data, initialization, CV,
 
 If both fit-only and end-to-end matter, store separate timing records rather than one ambiguous number.
 
-GPU regions must be synchronized before and after timing. Record warmup/repeats and whether the reported value is mean/median/min/etc.
+GPU regions must be synchronized before and after timing **on the concrete executed CUDA device**. Record `timing.synchronized_device` (for example `cuda:1`), warmup/repeats, and whether the reported value is mean/median/min/etc. If the executed device cannot be established, do not use the timing as canonical GPU evidence.
 
 ## Correctness contract
 
@@ -158,13 +162,13 @@ Use when the benchmark makes a backend parity/device claim:
 ```json
 "backend": {
   "numpy": {"status": "pass", "device": "cpu"},
-  "cupy": {"status": "pass", "device": "cuda:0"},
+  "cupy": {"status": "pass", "device": "cuda:1"},
   "torch": {"status": "skipped", "reason": "not installed"},
   "pairwise_metrics": {}
 }
 ```
 
-Include explicit skipped/unavailable reasons.
+Include explicit skipped/unavailable reasons and make the recorded device match the device synchronized for timing.
 
 ## CV section (conditional)
 
@@ -238,7 +242,7 @@ Use when the result supports a performance claim:
 }
 ```
 
-A speedup must identify numerator/denominator timing scopes and environment group. `crossover` should record measured workload points; do not interpolate a precise threshold from sparse data without saying it is an estimate.
+A speedup must identify numerator/denominator timing scopes, synchronized device(s), and environment group. `crossover` should record measured workload points; do not interpolate a precise threshold from sparse data without saying it is an estimate.
 
 ## Validation status
 
@@ -256,7 +260,7 @@ A result used for release/public documentation should be tied to:
 
 - exact numerical source;
 - exact validator/acceptance contract if separate;
-- environment identity;
+- environment identity and concrete executed device;
 - reproducible command;
 - machine-readable raw result.
 

@@ -111,6 +111,18 @@ def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
         assert phrase in target
 
 
+def test_benchmark_syncs_concrete_executed_device_and_records_it():
+    benchmark = _read(SKILLS / "benchmark" / "SKILL.md")
+    schema = _read(SKILLS / "benchmark" / "schema.md")
+    review_matrix = _read(SKILLS / "code-review" / "review-matrix.md")
+    assert "cp.cuda.Device(device_id).synchronize()" in benchmark
+    assert "torch.cuda.synchronize(device=target)" in benchmark
+    assert "concrete device that actually executed" in benchmark
+    assert "synchronized_device" in schema
+    assert "gpu_uuid" in schema
+    assert "concrete executed device" in review_matrix
+
+
 def test_new_capability_defaults_cannot_be_defined_away():
     new_module = _read(SKILLS / "new-module-dev" / "SKILL.md")
     workflow = _read(SKILLS / "new-module-dev" / "workflow.md")
