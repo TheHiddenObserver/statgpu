@@ -1,7 +1,7 @@
 # Lasso
 
 > 语言: 中文  
-> 最后更新: 2026-04-17  
+> 最后更新: 2026-09-06  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/lasso.md)
 
@@ -9,7 +9,7 @@
 
 ## 概览（Overview）
 
-`Lasso` 提供 L1 正则线性回归，支持 CPU/GPU 训练与推断。当前实现支持多求解器与多推断模式，重点覆盖工程可用性与 CPU/GPU 对比。
+`Lasso` 提供 L1 正则线性回归，支持 CPU/GPU 训练与多种推断模式。直接拟合现在使用**统一、与后端无关的 `solver` 接口**；“在哪个设备上算”和“使用哪种算法”是两个独立选择。
 
 ## 路径（Path）
 
@@ -27,24 +27,28 @@ $$
 
 ## 估计方程（Estimating Equation）
 
-- GPU 求解器：`solver="fista"` 或 `solver="admm"`
-- CPU 求解器：`cpu_solver="coordinate_descent"` 或 `cpu_solver="fista"`
-- 停止准则：`stopping="coef_delta"` 或 `stopping="kkt"`
+Lasso 通过迭代优化求解，而不是闭式 normal equation。停止条件可由系数变化（`coef_delta`）或 KKT 一致性（`kkt`）控制。
 
-不同求解器在同一 `tol` 下可能表现出不同迭代步数与运行时间。
+对于**单次直接拟合**，真正控制算法的是 `solver`，无论 CPU 还是 GPU：
+
+- CPU coordinate descent：`solver="coordinate_descent"`
+- CPU 或 GPU proximal path：`solver="fista"`（或其他当前支持的求解器）
+- 后端位置另外通过 `device="cpu"`、`"cuda"` 或 `"torch"` 选择
+
+历史参数 `cpu_solver` 已进入弃用流程。为兼容旧代码它暂时仍可传入，但在统一 solver engine 中**不再决定 direct-fit 算法**。旧代码应迁移到 `solver=...`；参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 ## 协方差与推断（Covariance/Inference）
 
 `Lasso` 推断由 `inference_method` 控制：
 
-- `cpu_ols_inference`：CPU 侧 OLS 风格推断
+- `cpu_ols_inference`：CPU 侧 OLS 风格 post-selection 推断
 - `gpu_ols_inference`：GPU 侧推断，减少 host/device 大块传输
-- `debiased`：去偏 Lasso 推断（de-biased / de-sparsified），输出 z 统计量口径
-- `bootstrap`：重采样推断，通常更稳健但更慢
+- `debiased`：去偏 Lasso 推断（de-biased / de-sparsified），使用 z 统计量语义
+- `bootstrap`：重采样推断，通常更慢
 
-有效性边界说明：
-- `cpu_ols_inference` / `gpu_ols_inference` 的区间是 post-selection 启发式区间，不保证严格 selective-inference 覆盖率。
-- `debiased` 当前输出的是“单个系数的边际置信区间”（marginal CI），不提供联合（simultaneous）覆盖或多重比较校正保证。
+有效性边界：
+- `cpu_ols_inference` / `gpu_ols_inference` 的区间是 post-selection 启发式区间，不应解释为严格 selective-inference confidence interval。
+- 普通 `debiased` `_conf_int` 是单个系数的 marginal interval；需要 family-wise 区间时应显式启用 simultaneous inference。
 
 兼容旧名映射：
 - `naive_ols` -> `cpu_ols_inference`
@@ -52,40 +56,48 @@ $$
 
 ## 参数（Parameters）
 
+下表是 `statgpu.linear_model.Lasso` 的完整公开构造参数清单。
+
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `alpha` | `1.0` | L1 正则强度 |
-| `max_iter` | `1000` | 最大迭代数 |
-| `tol` | `1e-4` | 收敛阈值 |
-| `solver` | `"fista"` | GPU 求解器：`fista` / `admm` |
-| `cpu_solver` | `"coordinate_descent"` | CPU 求解器：`coordinate_descent` / `fista` |
-| `stopping` | `"coef_delta"` | 停止准则：`coef_delta` / `kkt` |
-| `inference_method` | `"cpu_ols_inference"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap` |
-| `compute_inference` | `True` | 是否计算推断统计 |
-| `enable_simultaneous_inference` | `False` | 是否启用 simultaneous inference（仅 `debiased`） |
-| `simultaneous_method` | `"maxz_bootstrap"` | 当前仅支持 `maxz_bootstrap` |
-| `simultaneous_alpha` | `0.05` | simultaneous 置信水平参数 |
-| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 抽样次数 |
-| `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子 |
-| `simultaneous_include_intercept` | `False` | simultaneous 目标集合是否包含截距 |
-| `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy memory pool |
+| `alpha` | `1.0` | L1 正则强度。 |
+| `fit_intercept` | `True` | 是否拟合截距。 |
+| `max_iter` | `1000` | 优化最大迭代次数。 |
+| `tol` | `1e-4` | 收敛容差。 |
+| `stopping` | `"coef_delta"` | 停止准则：`coef_delta` / `kkt`。 |
+| `inference_method` | `"debiased"` | `cpu_ols_inference` / `gpu_ols_inference` / `debiased` / `bootstrap`。 |
+| `n_bootstrap` | `200` | residual-bootstrap 推断的抽样次数。 |
+| `bootstrap_random_state` | `None` | residual-bootstrap 随机种子。 |
+| `enable_simultaneous_inference` | `False` | 是否启用 simultaneous inference（仅 `debiased`）。 |
+| `simultaneous_method` | `"maxz_bootstrap"` | simultaneous inference 方法；当前为 `maxz_bootstrap`。 |
+| `simultaneous_alpha` | `0.05` | simultaneous family-wise error level。 |
+| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 抽样次数。 |
+| `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
+| `simultaneous_include_intercept` | `False` | simultaneous 目标集合是否包含截距。 |
+| `device` | `"auto"` | 执行设备：`auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
+| `n_jobs` | `None` | 适用 CPU 路径的并行度。 |
+| `compute_inference` | `True` | 是否计算拟合后推断。 |
+| `solver` | `"fista"` | 与后端无关的 direct-fit 求解器；CPU coordinate descent 使用 `coordinate_descent`，其他值按当前 compatibility contract。 |
+| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter**；当前不再决定 direct-fit 算法，请改用 `solver`。 |
+| `lipschitz_L` | `None` | 兼容迭代求解器可用的用户指定 Lipschitz 常数。 |
+| `admm_rho` | `1.0` | 选择 ADMM 路径时的 penalty 参数。 |
+| `gpu_memory_cleanup` | `False` | 支持路径上拟合后的 best-effort GPU 内存清理。 |
 
 ## CPU+GPU 示例（CPU+GPU Examples）
 
 ```python
 from statgpu.linear_model import Lasso
 
-# CPU
+# CPU coordinate descent：solver 选择算法，device 选择 CPU。
 m_cpu = Lasso(
     alpha=0.1,
     device="cpu",
-    cpu_solver="coordinate_descent",
+    solver="coordinate_descent",
     stopping="kkt",
-    inference_method="cpu_ols_inference",
 )
 m_cpu.fit(X, y)
 
-# GPU
+# GPU FISTA：GPU 上仍使用同一个 solver 接口。
 m_gpu = Lasso(
     alpha=0.1,
     device="cuda",
@@ -97,7 +109,7 @@ m_gpu = Lasso(
 m_gpu.fit(X, y)
 ```
 
-simultaneous inference 示例（支持 `device="cpu"` 与 `device="cuda"`，并在对应设备侧完成计算）：
+simultaneous inference 示例：
 
 ```python
 m_sim = Lasso(
@@ -117,41 +129,42 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## strict/approx 差异（strict/approx difference）
 
-`debiased` 是当前 Lasso 的 strict 主路径（默认高一致性推断语义），`cpu_ols_inference` / `gpu_ols_inference` 属于更轻量的近似推断路径；`bootstrap` 通常更稳健但耗时更高。
+`debiased` 是高维推断主路径；`cpu_ols_inference` / `gpu_ols_inference` 是更轻量的近似 post-selection diagnostic，`bootstrap` 则计算成本更高。它们的统计含义不能互换。
 
 ## 输出（Outputs）
 
 - `fit(X, y) -> self`
 - `predict(X)`、`score(X, y)`（`R^2`）
 - 主要属性：`intercept_`, `coef_`, `n_iter_`, `aic`, `bic`
-- 推断属性（`compute_inference=True`）：`_bse`, `_tvalues`, `_pvalues`, `_conf_int`
-- 当 `inference_method="debiased"` 时，统计口径为 z 统计（`summary()` 中对应 z/P>|z| 展示），`_conf_int` 为单变量边际区间
-- 开启 simultaneous inference 后，`_conf_int_simultaneous` 给出目标集合上的联合区间（`maxz_bootstrap`）
+- 推断属性（`compute_inference=True`）：`_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`
+- 当 `inference_method="debiased"` 时，普通 `_conf_int` 为单变量 marginal interval
+- 开启 simultaneous inference 后，`_conf_int_simultaneous` 给出配置目标集合上的联合区间
 - 汇总：`summary()`
 
 ## 常见问题（FAQ）
 
 - **为什么同样 `tol` 下 CPU/GPU 迭代数不同？**  
-  不同求解器与数值路径导致收敛轨迹不同，建议固定 `solver/stopping` 后再做性能或精度对比。
+  不同数值后端和算法实现可能产生不同收敛轨迹；比较时固定 `solver` 与 `stopping`。
+- **CPU 用户应该设置 `cpu_solver` 吗？**  
+  不应该。直接拟合统一使用 `solver`；`cpu_solver` 是旧 CPU/GPU split API 的 deprecated compatibility 参数。
 - **何时优先 `gpu_ols_inference`？**  
-  大样本且训练在 GPU 上时优先，可减少 host/device 传输开销。
+  大样本且训练在 GPU 上时可用于减少 host/device 传输。
 - **`debiased` 适用于什么场景？**  
-  适用于高维稀疏建模下需要可解释推断（标准误、显著性检验）的场景；低维稠密设置下可与 OLS 推断结果做对照验证。
+  适用于高维稀疏设置下需要系数级推断的场景，但仍依赖对应理论假设。
 - **`cpu_ols_inference/gpu_ols_inference` 的区间能当严格置信区间吗？**  
-  不建议。它们主要用于工程对比与快速诊断，不保证严格 post-selection 置信覆盖。
-- **`debiased` 的区间是联合区间吗？**  
-  不是。目前实现是单个系数的边际区间；若需要联合推断，请额外做多重比较控制或专门的 simultaneous inference 程序。
+  不建议；它们不保证严格 post-selection coverage。
+- **普通 `debiased` 区间是联合区间吗？**  
+  不是。普通 `_conf_int` 是 marginal interval；需要联合控制时使用 dedicated simultaneous path。
 - **如何启用联合区间？**  
-  使用 `enable_simultaneous_inference=True` 且 `inference_method="debiased"`，并设置 `simultaneous_method="maxz_bootstrap"`。
+  使用 `enable_simultaneous_inference=True`、`inference_method="debiased"` 和 `simultaneous_method="maxz_bootstrap"`。
 
 ## 外部验证（External Validation）
-
-建议优先使用以下脚本做外部对齐与性能回归：
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
+- `dev/tests/test_penalized_solver_api_cleanup.py`
 
 ## 参考（References）
 

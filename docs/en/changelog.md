@@ -1,9 +1,28 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-08-30<br>
+> Last updated: 2026-09-06<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## Unreleased — Penalized solver API cleanup (PR #135)
+
+### Changed
+
+- Direct public penalized estimators use backend-neutral `solver` as the authoritative direct-fit solver selector. Legacy `cpu_solver` remains accepted for one compatibility cycle and emits `FutureWarning` for caller-owned explicit use, but it is not silently remapped into `solver`, so existing unified-engine numerical behavior is preserved.
+- `LassoCV` now separates `solver` (final full-data refit) from `cv_solver` (CV folds/path). `cv_solver="auto"` resolves to coordinate descent on CPU and FISTA on CUDA/Torch; `cv_solver_` records the algorithm that actually executed.
+- Deprecated `LassoCV(cpu_solver=...)` preserves its historical stage semantics: on CPU it remains a legacy CV-solver alias, while on CUDA/Torch it warns but stays non-authoritative so the maintained GPU FISTA path is unchanged.
+
+### Compatibility
+
+- Omitted direct `cpu_solver` values and framework reconstruction stay warning-free, including scikit-learn 1.2's `get_params() -> constructor` clone path and newer `__sklearn_clone__` reconstruction.
+- Explicit `set_params(cpu_solver=...)` and legacy `LassoCV(..., cpu_solver=...).fit(...)` warnings point to the caller rather than statgpu reconstruction/validation frames.
+- Migration guidance distinguishes behavior-preserving removal of an already non-authoritative direct `cpu_solver` from an intentional solver change that explicitly moves an old algorithm choice into `solver`.
+
+### Validation
+
+- Added focused solver/deprecation regression coverage for direct solver authority, omission versus explicit legacy values, sklearn clone/reconstruction, internal helper warning suppression, `set_params`, LassoCV CPU/GPU alias behavior, `cv_solver_`, and warning call sites.
+- The maintenance compatibility workflow runs the focused suite under scikit-learn 1.2.2, 1.3.2, and current; exact-head hosted results are recorded in PR #135 after the final source head completes CI.
 
 ## Unreleased — Gaussian backend-native inference (PR #129 / Issue #127)
 

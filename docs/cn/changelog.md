@@ -1,9 +1,28 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-30<br>
+> 最后更新：2026-09-06<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — Penalized solver API 清理（PR #135）
+
+### 变更
+
+- 公开 direct penalized estimator 统一以与后端无关的 `solver` 作为 direct-fit 的权威算法选择器。旧 `cpu_solver` 暂时保留一个兼容周期，调用者显式使用时产生 `FutureWarning`，但不会被静默映射成 `solver`，从而保持当前 unified-engine 的实际数值行为。
+- `LassoCV` 将 `solver`（最终全数据 refit）与 `cv_solver`（CV folds/path）分开；`cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为 FISTA，拟合后的 `cv_solver_` 记录实际执行算法。
+- 已弃用的 `LassoCV(cpu_solver=...)` 保留历史阶段语义：CPU 上继续作为旧 CV-solver alias；CUDA/Torch 上会 warning，但保持非权威，因此不会替换维护中的 GPU FISTA 路径。
+
+### 兼容性
+
+- 省略 direct `cpu_solver` 与框架内部 reconstruction 不会产生弃用噪声，包括 scikit-learn 1.2 的 `get_params() -> constructor` clone 路径和较新版本的 `__sklearn_clone__` 路径。
+- 显式 `set_params(cpu_solver=...)` 以及 legacy `LassoCV(..., cpu_solver=...).fit(...)` 的 warning 会指向调用者，而不是 statgpu 内部 reconstruction/validation frame。
+- 迁移指南明确区分“删除已经非权威的 direct `cpu_solver` 以保持当前实际行为”和“把旧算法意图显式搬到 `solver`、主动改变实际 solver”两种操作。
+
+### 验证
+
+- 增加 focused solver/deprecation regression coverage，覆盖 direct solver authority、参数省略与显式旧值、sklearn clone/reconstruction、内部 helper warning suppression、`set_params`、LassoCV CPU/GPU alias、`cv_solver_` 与 warning call site。
+- Maintenance compatibility workflow 会在 scikit-learn 1.2.2、1.3.2 与 current 上运行该 focused suite；最终 exact-head hosted 结果在 PR #135 的最终 source head 完成 CI 后记录。
 
 ## 未发布 — Gaussian 后端原生推断（PR #129 / Issue #127）
 
