@@ -135,11 +135,11 @@ Related: Issue #112 and pull request #116.
 
 - Corrected arbitrary-link Binomial IRLS Fisher weights, working responses, line-search objectives, backend-native warm starts, and quadratic-penalty validation.
 - Hardened direct `LogisticRegression` validation, transactional refits, convergence reporting, integer hard predictions, single-column response handling, and finite decision thresholds.
-- Unified fitted logistic likelihood diagnostics across NumPy, CuPy and Torch with the registered stable `LogisticLoss` objective. Likelihood, AIC, BIC, pseudo-R² and convergence remain available independently of covariance inference.
+- Unified fitted logistic likelihood diagnostics across NumPy, CuPy, and Torch with the registered stable `LogisticLoss` objective. Likelihood, AIC, BIC, pseudo-R², and convergence remain available independently of covariance inference.
 - Kept confusion-matrix metrics available for one-class targets while retaining explicit class-support errors for ROC-AUC and average precision.
-- Kept analytic weights device-native on CuPy/Torch fits and corrected weighted IRLS curvature, likelihood, dispersion and sandwich-inference semantics.
-- Standardized GLM analytic-weight behavior across fitting, line search, diagnostics and covariance. Globally rescaling analytic weights does not change fitted parameters or reported diagnostics.
-- Added backend-native response-domain, real-valued, finite, shape and length validation for scalar GLMs, including penalized and CV entry points.
+- Kept analytic weights device-native on CuPy/Torch fits and corrected weighted IRLS curvature, likelihood, dispersion, and sandwich-inference semantics.
+- Standardized GLM analytic-weight behavior across fitting, line search, diagnostics, and covariance. Globally rescaling analytic weights does not change fitted parameters or reported diagnostics.
+- Added backend-native response-domain, real-valued, finite, shape, and length validation for scalar GLMs, including penalized and CV entry points.
 - Aligned formula sample weights after Patsy row filtering and corrected weighted Gaussian FISTA centering.
 
 ### Cross-validation, inference, and estimator contracts
@@ -156,9 +156,9 @@ Related: Issue #112 and pull request #116.
 
 - Corrected the solver matrix so Newton, L-BFGS, and L-BFGS-B reject unsupported non-smooth penalties rather than optimizing only the smooth component.
 - Removed the incorrect Euclidean-prox Newton shortcut. Smooth L2/no-penalty objectives retain Newton; non-smooth proximal-Newton requests delegate visibly to backend-native FISTA until a Hessian-metric proximal solver exists.
-- Narrowed Armijo, linear-solve, CV-grid and inference fallbacks to recognized numeric or rank failures. CUDA OOM, device, index, contract and unrelated runtime failures propagate.
-- Normalized warm starts for FISTA, Newton-family, L-BFGS-family and ADMM solvers to the preprocessed design backend, device and dtype.
-- Completed ADMM's legitimate Cholesky fallback and hardened L-BFGS-B directions, backend-native bounds and NaN-bound validation.
+- Narrowed Armijo, linear-solve, CV-grid, and inference fallbacks to recognized numeric or rank failures. CUDA OOM, device, index, contract, and unrelated runtime failures propagate.
+- Normalized warm starts for FISTA, Newton-family, L-BFGS-family, and ADMM solvers to the preprocessed design backend, device, and dtype.
+- Completed ADMM's legitimate Cholesky fallback and hardened L-BFGS-B directions, backend-native bounds, and NaN-bound validation.
 - Added a centralized, observable Torch compile policy: eager remains the default for unset, `auto`, and `disable`; `default` and `reduce-overhead` are explicit opt-ins. Only the known CUDA Graph output-lifecycle failure becomes a permanent eager fallback.
 - Removed the package-initialization cycle between `statgpu.glm_core` and the Cox loss export by lazily exposing `CoxPartialLikelihoodLoss`; fresh-interpreter imports no longer require a particular order.
 
