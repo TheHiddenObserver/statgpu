@@ -1,9 +1,9 @@
 """Public solver-API deprecation contract for direct penalized estimators.
 
 The modern penalized engine uses ``solver`` as the backend-neutral direct-fit
-solver selector.  ``cpu_solver`` is a legacy public constructor parameter from
-an older CPU/GPU split API.  Keep it accepted for one compatibility cycle, but
-make meaningful legacy use visible without changing numerical behavior.
+solver selector. ``cpu_solver`` is a legacy public constructor parameter from
+an older CPU/GPU split API. Keep it accepted for one compatibility cycle, but
+make every caller-owned legacy use visible without changing numerical behavior.
 
 LassoCV has a separate migration because its legacy ``cpu_solver`` really did
 control the CPU cross-validation path; that API now uses ``cv_solver``.
@@ -35,29 +35,23 @@ def _iter_subclasses(cls):
 
 
 def _explicit_cpu_solver(signature, self, args, kwargs):
-    """Return (explicit, value, default) for caller-owned cpu_solver input."""
+    """Return whether the caller explicitly supplied cpu_solver and its value."""
     try:
         bound = signature.bind_partial(self, *args, **kwargs)
     except TypeError:
-        return False, None, inspect.Parameter.empty
+        return False, None
 
     if "cpu_solver" in bound.arguments:
-        parameter = signature.parameters.get("cpu_solver")
-        default = (
-            inspect.Parameter.empty
-            if parameter is None
-            else parameter.default
-        )
-        return True, bound.arguments["cpu_solver"], default
+        return True, bound.arguments["cpu_solver"]
 
     for name, parameter in signature.parameters.items():
         if parameter.kind is not inspect.Parameter.VAR_KEYWORD:
             continue
         extra = bound.arguments.get(name, {})
         if isinstance(extra, dict) and "cpu_solver" in extra:
-            return True, extra["cpu_solver"], inspect.Parameter.empty
+            return True, extra["cpu_solver"]
 
-    return False, None, inspect.Parameter.empty
+    return False, None
 
 
 def _inside_statgpu_reconstruction() -> bool:
@@ -95,19 +89,18 @@ def _install_constructor_warning(cls):
     @functools.wraps(original)
     def wrapped(self, *args, **kwargs):
         depth = int(getattr(self, _CONSTRUCTOR_DEPTH_ATTR, 0))
-        explicit, value, default = _explicit_cpu_solver(
-            signature, self, args, kwargs
-        )
+        explicit, value = _explicit_cpu_solver(signature, self, args, kwargs)
 
         # Forwarding through a typed wrapper into the shared base must not emit
         # the same warning repeatedly. Avoid framework-internal clone/set_params
         # reconstruction as well: the user-facing call that introduced the
-        # deprecated value is the useful warning boundary.
+        # deprecated value is the useful warning boundary. Any caller-owned
+        # explicit value, including a value equal to the historical default,
+        # should receive the deprecation warning.
         if (
             depth == 0
             and explicit
             and value is not None
-            and (default is inspect.Parameter.empty or value != default)
             and not _inside_statgpu_reconstruction()
         ):
             warnings.warn(
