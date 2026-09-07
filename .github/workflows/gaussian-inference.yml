@@ -14,6 +14,8 @@ on:
       - 'statgpu/linear_model/_post_selection_ols_review_fix_contract.py'
       - 'statgpu/linear_model/_post_selection_ols_fifth_review_contract.py'
       - 'statgpu/linear_model/_weighted_lassocv_review_contract.py'
+      - 'statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py'
+      - 'statgpu/linear_model/_lassocv_device_affinity_contract.py'
       - 'statgpu/linear_model/cv/_lasso_cv.py'
       - 'statgpu/backends/_gpu_inference_cupy.py'
       - 'statgpu/backends/_utils.py'
@@ -152,6 +154,8 @@ jobs:
             statgpu/linear_model/_post_selection_ols_review_fix_contract.py \
             statgpu/linear_model/_post_selection_ols_fifth_review_contract.py \
             statgpu/linear_model/_weighted_lassocv_review_contract.py \
+            statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py \
+            statgpu/linear_model/_lassocv_device_affinity_contract.py \
             statgpu/linear_model/cv/_lasso_cv.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
@@ -204,6 +208,8 @@ jobs:
             statgpu/linear_model/_post_selection_ols_review_fix_contract.py \
             statgpu/linear_model/_post_selection_ols_fifth_review_contract.py \
             statgpu/linear_model/_weighted_lassocv_review_contract.py \
+            statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py \
+            statgpu/linear_model/_lassocv_device_affinity_contract.py \
             statgpu/linear_model/cv/_lasso_cv.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
