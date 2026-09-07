@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from statgpu._config import Device
+from statgpu.linear_model import LassoCV
 from statgpu.linear_model import _lassocv_device_affinity_contract as affinity
 
 
@@ -59,3 +61,36 @@ def test_lassocv_affinity_is_transparent_for_synthetic_backend_double(monkeypatc
     assert X_out is X_cv
     assert y_out is y_cv
     assert w_out is w_cv
+
+
+def test_lassocv_resolved_cpu_converts_all_operands_to_numpy_backend(monkeypatch):
+    model = LassoCV(device="cpu", compute_inference=False)
+    X = object()
+    y = object()
+    weight = object()
+    converted = {}
+    calls = []
+
+    def fake_to_array(value, device=None, backend=None):
+        calls.append((value, device, backend))
+        result = object()
+        converted[value] = result
+        return result
+
+    monkeypatch.setattr(model, "_to_array", fake_to_array)
+
+    X_out, y_out, w_out = model._prepare_cv_inputs_for_resolved_device(
+        X,
+        y,
+        weight,
+        "cpu",
+    )
+
+    assert X_out is converted[X]
+    assert y_out is converted[y]
+    assert w_out is converted[weight]
+    assert calls == [
+        (X, Device.CPU, "numpy"),
+        (y, Device.CPU, "numpy"),
+        (weight, Device.CPU, "numpy"),
+    ]
