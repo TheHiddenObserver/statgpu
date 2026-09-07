@@ -6,6 +6,9 @@ import pytest
 from statgpu._config import Device
 from statgpu.linear_model import Lasso, PenalizedGeneralizedLinearModel, Ridge
 import statgpu.linear_model._penalized_inference_api_contract as inference_contract
+from statgpu.linear_model.penalized._post_selection_ols import (
+    compute_post_selection_ols_inference,
+)
 
 
 def _gaussian_data(seed=137, n=80, p=4):
@@ -53,6 +56,50 @@ def test_ridge_is_outside_sparse_gaussian_auto_native_pin_scope(monkeypatch):
     monkeypatch.setattr(inference_contract, "_get_configured_device", lambda: Device.AUTO)
 
     assert inference_contract._input_native_device(ridge, fake_cupy) is None
+
+
+def test_post_selection_refit_does_not_replace_penalized_diagnostic_state():
+    X, y = _gaussian_data(seed=140, n=100, p=4)
+    model = Lasso(
+        alpha=0.04,
+        device="cpu",
+        compute_inference=False,
+        max_iter=4000,
+        tol=1e-8,
+    ).fit(X, y)
+
+    # These generic fields belong to the fitted prediction model. Use explicit
+    # sentinels so the regression fails if the auxiliary post-selection refit
+    # starts owning rsquared/AIC/BIC/F diagnostic state.
+    sentinel_X = np.array([[11.0, 12.0], [13.0, 14.0]])
+    sentinel_y = np.array([21.0, 22.0])
+    sentinel_resid = np.array([31.0, 32.0])
+    model._X_design = sentinel_X.copy()
+    model._y = sentinel_y.copy()
+    model._resid = sentinel_resid.copy()
+    model._scale = 41.0
+    model._df_resid = 42
+    model._nobs = 43
+    model.inference_method = "post_selection_ols"
+    model._inference_method = "post_selection_ols"
+
+    compute_post_selection_ols_inference(model, X, y)
+
+    np.testing.assert_array_equal(model._X_design, sentinel_X)
+    np.testing.assert_array_equal(model._y, sentinel_y)
+    np.testing.assert_array_equal(model._resid, sentinel_resid)
+    assert model._scale == 41.0
+    assert model._df_resid == 42
+    assert model._nobs == 43
+
+    assert model._post_selection_X_design.shape[0] == X.shape[0]
+    assert model._post_selection_y.shape == y.shape
+    assert model._post_selection_resid.shape == y.shape
+    assert model._post_selection_nobs == X.shape[0]
+    meta = model._inference_result.metadata
+    assert meta["refit_nobs"] == X.shape[0]
+    assert meta["refit_df_resid"] == model._post_selection_df_resid
+    assert meta["refit_scale"] == pytest.approx(model._post_selection_scale)
 
 
 def test_non_gaussian_legacy_ols_alias_keeps_current_master_rejection_contract():
