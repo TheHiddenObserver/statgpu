@@ -4,7 +4,8 @@ This contract keeps several cross-path public boundaries aligned with #137:
 
 * pre-fit migration detection recognizes public ``Penalty`` objects as well as
   string penalty names, so warning normalization and AUTO native-input routing
-  are identical for both constructor forms;
+  are identical for both constructor forms and follow the current public value
+  rather than stale resolved state from a previous fit;
 * a no-intercept fit with an empty active set preserves the caller's requested
   covariance/reference-distribution semantics instead of silently claiming
   ``nonrobust`` Student-t inference;
@@ -42,11 +43,11 @@ _ORIGINAL_CPU_DEBIASED = PenalizedGeneralizedLinearModel._compute_post_fit_debia
 
 
 def _supports_sparse_gaussian_migration(self) -> bool:
-    """Recognize sparse Gaussian scope before or after penalty resolution."""
+    """Recognize sparse Gaussian scope from the current public constructor state."""
     loss_name = str(getattr(self, "loss", "squared_error")).strip().lower()
-    penalty_obj = getattr(self, "_penalty", None)
+    penalty_obj = getattr(self, "penalty", None)
     if penalty_obj is None:
-        penalty_obj = getattr(self, "penalty", "")
+        penalty_obj = getattr(self, "_penalty", "")
     penalty_name = str(getattr(penalty_obj, "name", penalty_obj)).strip().lower()
     return loss_name == "squared_error" and penalty_name in _SPARSE_GAUSSIAN_PENALTIES
 
