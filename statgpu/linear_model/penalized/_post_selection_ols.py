@@ -76,13 +76,7 @@ def _classical_nonrobust_inference(
     selected_device: str,
     df_resid: int,
 ):
-    """Compute the maintained classical Student-t post-selection report.
-
-    The pre-migration ``cpu_ols`` path used a classical OLS covariance and
-    Student-t reference distribution. The hardware-neutral API keeps that
-    reporting contract while moving the numerical work to the fit-resolved
-    NumPy/CuPy/Torch backend.
-    """
+    """Compute the maintained classical Student-t post-selection report."""
     XtX = X_work.T @ X_work
     bread_inv = _inverse_or_pinv(XtX, backend_name)
     cov_params = scale_native * bread_inv
@@ -118,16 +112,9 @@ def _classical_nonrobust_inference(
 def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     """Populate heuristic active-set OLS/WLS inference on the fitted backend.
 
-    The sparse penalized fit chooses the active set. This function then refits an
-    unpenalized least-squares model on exactly those columns and computes the
-    requested covariance/reference-distribution inference there. The intervals
-    remain a post-selection diagnostic; they do not account for data-driven
-    active-set selection.
-
-    Numerical work is performed on the backend/device recorded by the successful
-    penalized fit. A NumPy reporting snapshot is taken only after parameter,
-    covariance, reference-distribution, p-value, and confidence-interval work is
-    complete.
+    ``coef_`` and the estimator's generic fit diagnostics continue to describe
+    the penalized prediction model.  The active-set refit has its own private
+    diagnostic snapshot and supplies only the inference/reporting fields.
     """
     backend_name = str(getattr(model, "_selected_backend_name", "")).lower()
     if backend_name not in {"numpy", "cupy", "torch"}:
@@ -254,10 +241,6 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
             resolved_distribution = str(gaussian.distribution)
 
     full_dim = p_full + int(bool(model._effective_intercept))
-    # Preserve the established full-layout placeholders for coordinates that
-    # were not selected. These zeros/ones are compatibility placeholders, not
-    # zero-variance inferential claims; the selected_feature_indices metadata is
-    # authoritative about which coordinates actually received OLS/WLS inference.
     params = coef_penalized.copy()
     if model._effective_intercept:
         params = np.concatenate([[float(model.intercept_)], params])
@@ -285,13 +268,19 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         pvalues[selected_idx] = pvalues_sel
         conf_int[selected_idx] = ci_sel
 
-    # Reporting boundary: all numerical inference above has completed.
-    model._X_design = np.asarray(_to_numpy(X_design), dtype=np.float64)
-    model._y = np.asarray(_to_numpy(y_native), dtype=np.float64).reshape(-1)
-    model._resid = np.asarray(_to_numpy(resid_native), dtype=np.float64).reshape(-1)
-    model._scale = float(np.asarray(_to_numpy(scale_native), dtype=np.float64))
-    model._df_resid = int(df_resid)
-    model._nobs = n
+    # Dedicated reporting snapshot for the auxiliary refit. Do not overwrite
+    # _X_design/_y/_resid/_scale/_df_resid/_nobs: those generic fields describe
+    # the penalized fitted estimator and drive rsquared/AIC/BIC/F diagnostics.
+    post_X_design = np.asarray(_to_numpy(X_design), dtype=np.float64)
+    post_y = np.asarray(_to_numpy(y_native), dtype=np.float64).reshape(-1)
+    post_resid = np.asarray(_to_numpy(resid_native), dtype=np.float64).reshape(-1)
+    post_scale = float(np.asarray(_to_numpy(scale_native), dtype=np.float64))
+    model._post_selection_X_design = post_X_design
+    model._post_selection_y = post_y
+    model._post_selection_resid = post_resid
+    model._post_selection_scale = post_scale
+    model._post_selection_df_resid = int(df_resid)
+    model._post_selection_nobs = n
 
     metadata = {
         **numerical_metadata,
@@ -303,6 +292,9 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         "active_set_tolerance": _POST_SELECTION_ACTIVE_TOL,
         "sample_weighted": sample_weight is not None,
         "inactive_inference_placeholders": True,
+        "refit_df_resid": int(df_resid),
+        "refit_scale": post_scale,
+        "refit_nobs": n,
     }
     statistic_name = "t" if resolved_distribution == "t" else "z"
     result = ParameterInferenceResult(
