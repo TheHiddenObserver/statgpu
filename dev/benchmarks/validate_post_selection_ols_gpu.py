@@ -4,8 +4,9 @@
 Canonical acceptance covers the original direct-Lasso parity matrix plus the
 public closure surfaces touched by #138: ElasticNet, the generic squared-error
 penalized estimator, LassoCV final refit, preservation of weighted debiased GPU
-inference, and rank-deficient active-set refit semantics. Explicit CUDA/Torch
-requests must fail rather than fall back.
+inference, rank-deficient active-set refit semantics, Penalty-object AUTO-native
+routing, and empty-active robust reporting. Explicit CUDA/Torch requests must
+fail rather than fall back.
 """
 
 from __future__ import annotations
@@ -20,12 +21,14 @@ from pathlib import Path
 
 import numpy as np
 
+from statgpu._config import Device, set_device
 from statgpu.linear_model import (
     ElasticNet,
     Lasso,
     LassoCV,
     PenalizedGeneralizedLinearModel,
 )
+from statgpu.penalties import get_penalty
 
 _REQUIRED_BACKENDS = ("cupy", "torch")
 _POST_LIMITS = {
@@ -321,6 +324,158 @@ def _rank_deficient_post_selection_case(backend: str):
     }
 
 
+def _penalty_object_auto_native_case(backend: str):
+    X, y, weights = _problem(seed=263)
+    common = dict(
+        loss="squared_error",
+        alpha=0.05,
+        fit_intercept=True,
+        solver="fista",
+        inference_method="post_selection_ols",
+        compute_inference=True,
+        max_iter=6000,
+        tol=1e-9,
+    )
+    cpu = PenalizedGeneralizedLinearModel(
+        penalty=get_penalty("l1", alpha=0.05),
+        device="cpu",
+        **common,
+    ).fit(X, y, sample_weight=weights)
+
+    set_device("auto")
+    expected_device, version = _runtime(backend)
+    gpu = PenalizedGeneralizedLinearModel(
+        penalty=get_penalty("l1", alpha=0.05),
+        device="auto",
+        **common,
+    ).fit(
+        _native(X, backend),
+        _native(y, backend),
+        sample_weight=_native(weights, backend),
+    )
+    meta, gpu_selected = _assert_post_selection_provenance(
+        gpu,
+        cpu,
+        backend,
+        expected_device,
+    )
+    if gpu._device != Device.AUTO or str(gpu.device).lower() not in {"auto", "device.auto"}:
+        raise AssertionError("AUTO native-input routing mutated the estimator's public device")
+    if getattr(gpu.penalty, "name", None) != "l1":
+        raise AssertionError("Penalty-object identity/name was lost during AUTO routing")
+
+    errors = {
+        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
+        "post_selection_params": _max_error(gpu._params, cpu._params),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+    for key, limit in _POST_LIMITS.items():
+        value = errors[key]
+        if not np.isfinite(value) or value > limit:
+            raise AssertionError(
+                f"Penalty-object AUTO {backend} {key} error {value:.3e} exceeds {limit:.3e}"
+            )
+
+    return {
+        "model": "generic_l1_penalty_object",
+        "case": "weighted_auto_native_penalty_object",
+        "backend": backend,
+        "backend_version": version,
+        "requested_device": "auto",
+        "executed_backend": gpu._selected_backend_name,
+        "executed_device": meta.get("numerical_device"),
+        "selected_feature_indices": gpu_selected,
+        "public_device_restored": True,
+        "errors": errors,
+        "limits": dict(_POST_LIMITS),
+        "status": "success",
+    }
+
+
+def _empty_active_robust_case(backend: str):
+    rng = np.random.default_rng(271)
+    X = rng.normal(size=(180, 5))
+    y = rng.normal(scale=0.2, size=X.shape[0])
+    common = dict(
+        loss="squared_error",
+        penalty="l1",
+        alpha=100.0,
+        fit_intercept=False,
+        solver="fista",
+        inference_method="post_selection_ols",
+        compute_inference=True,
+        cov_type="hc3",
+        max_iter=3000,
+        tol=1e-9,
+    )
+    cpu = PenalizedGeneralizedLinearModel(device="cpu", **common).fit(X, y)
+    cpu_result = cpu._inference_result
+    if cpu_result is None or cpu_result.metadata.get("n_selected") != 0:
+        raise AssertionError("empty-active robust CPU fixture did not select zero features")
+    if cpu_result.cov_type != "hc3" or cpu_result.distribution != "normal":
+        raise AssertionError("empty-active robust CPU result lost requested covariance semantics")
+    if cpu_result.statistic_name != "z" or cpu_result.df is not None:
+        raise AssertionError("empty-active robust CPU reference family is inconsistent")
+
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    gpu = PenalizedGeneralizedLinearModel(device=requested_device, **common).fit(
+        _native(X, backend),
+        _native(y, backend),
+    )
+    result = gpu._inference_result
+    if result is None:
+        raise AssertionError("empty-active robust GPU result is missing")
+    meta = dict(result.metadata)
+    if gpu._selected_backend_name != backend:
+        raise AssertionError("empty-active robust fit executed on the wrong backend")
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"empty-active robust inference backend mismatch: {meta}")
+    if str(meta.get("numerical_device")) != expected_device:
+        raise AssertionError(f"empty-active robust device provenance mismatch: {meta}")
+    if result.cov_type != "hc3" or result.distribution != "normal":
+        raise AssertionError("empty-active robust GPU result lost HC3/normal semantics")
+    if result.statistic_name != "z" or result.df is not None:
+        raise AssertionError("empty-active robust GPU reference family is inconsistent")
+    if int(meta.get("n_selected", -1)) != 0 or int(meta.get("refit_parameter_count", -1)) != 0:
+        raise AssertionError(f"empty-active robust metadata is inconsistent: {meta}")
+
+    errors = {
+        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
+        "post_selection_params": _max_error(gpu._params, cpu._params),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+    for key, limit in _POST_LIMITS.items():
+        value = errors[key]
+        if not np.isfinite(value) or value > limit:
+            raise AssertionError(
+                f"empty-active robust {backend} {key} error {value:.3e} exceeds {limit:.3e}"
+            )
+
+    return {
+        "model": "generic_l1",
+        "case": "empty_active_hc3_no_intercept",
+        "backend": backend,
+        "backend_version": version,
+        "requested_device": requested_device,
+        "executed_backend": gpu._selected_backend_name,
+        "executed_device": meta.get("numerical_device"),
+        "cov_type": result.cov_type,
+        "distribution": result.distribution,
+        "statistic_name": result.statistic_name,
+        "refit_df_resid": meta.get("refit_df_resid"),
+        "errors": errors,
+        "limits": dict(_POST_LIMITS),
+        "status": "success",
+    }
+
+
 def _weighted_debiased_case(backend: str):
     X, y, weights = _problem(seed=211)
     cpu = Lasso(
@@ -470,7 +625,7 @@ def main() -> int:
         raise ValueError("--backends must be exactly 'cupy,torch' in that order")
 
     payload = {
-        "schema_version": 5,
+        "schema_version": 6,
         "issue": 137,
         "head_sha": _git("rev-parse", "HEAD"),
         "worktree_clean": _git("status", "--porcelain") == "",
@@ -492,8 +647,9 @@ def main() -> int:
             )
 
     # Review closure for the public surfaces whose routing shares or consumes
-    # the repaired path. Schema v5 adds one rank-deficient active-set case per
-    # physical backend because effective-rank df is now backend-native work.
+    # the repaired path. Schema v6 preserves the v5 rank-deficient cases and
+    # adds Penalty-object AUTO-native plus empty-active robust closure per
+    # physical backend.
     for backend in backends:
         payload["closure_cases"].append(
             _post_selection_case(backend, weighted=True, kind="elasticnet")
@@ -504,6 +660,8 @@ def main() -> int:
         payload["closure_cases"].append(_weighted_debiased_case(backend))
         payload["closure_cases"].append(_lassocv_final_refit_case(backend))
         payload["closure_cases"].append(_rank_deficient_post_selection_case(backend))
+        payload["closure_cases"].append(_penalty_object_auto_native_case(backend))
+        payload["closure_cases"].append(_empty_active_robust_case(backend))
 
     payload["status"] = "success"
     text = json.dumps(payload, indent=2, sort_keys=True)
