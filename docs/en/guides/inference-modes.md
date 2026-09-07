@@ -79,6 +79,11 @@ CPU-native residual-refit implementation. An explicit GPU `device` therefore
 controls the penalized fit but must not be interpreted as making residual
 bootstrap GPU-native.
 
+With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
+use the same weighted-centered average-loss working problem. Multiplying every
+weight by the same positive constant therefore leaves both the penalized fit and
+the debiased inference unchanged.
+
 ### What `post_selection_ols` computes
 
 The penalized model first selects an active set. statgpu then refits an
