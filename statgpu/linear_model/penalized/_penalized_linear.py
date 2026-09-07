@@ -408,7 +408,25 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         if not is_debiased:
             print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
-        print(f"Degrees of Freedom:         {self._df_resid:>15}")
+        if is_post_selection_ols:
+            refit_df = getattr(self, "_post_selection_df_resid", None)
+            if refit_df is None:
+                result_metadata = dict(
+                    getattr(getattr(self, "_inference_result", None), "metadata", {})
+                    or {}
+                )
+                refit_df = result_metadata.get("refit_df_resid")
+            if refit_df is not None:
+                refit_df = int(refit_df)
+            print(
+                f"Penalized-fit Residual DoF:  {_fmt(self._df_resid, '>15')}"
+            )
+            print(
+                f"Post-selection Refit DoF:    {_fmt(refit_df, '>15')}"
+            )
+            print("Penalized-fit diagnostics:")
+        else:
+            print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"R-squared:                  {_fmt(self.rsquared, '>15.4f')}")
         print(f"Adj. R-squared:             {_fmt(self.rsquared_adj, '>15.4f')}")
         print(f"F-statistic:                {_fmt(self.fvalue, '>15.4f')}")
