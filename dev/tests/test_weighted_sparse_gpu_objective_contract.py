@@ -107,8 +107,9 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
     monkeypatch,
     backend_name,
 ):
+    torch = None
     if backend_name == "torch":
-        pytest.importorskip("torch")
+        torch = pytest.importorskip("torch")
 
     rng = np.random.default_rng(140)
     X = rng.normal(size=(41, 3))
@@ -184,10 +185,19 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
 
     monkeypatch.setattr(review_fix, "_BASE_GPU_FIT", fake_base_fit)
 
+    if backend_name == "torch":
+        X_input = torch.as_tensor(X, dtype=torch.float64)
+        y_input = torch.as_tensor(y, dtype=torch.float64)
+        weights_input = torch.as_tensor(weights, dtype=torch.float64)
+    else:
+        X_input = X
+        y_input = y
+        weights_input = weights
+
     model._fit_gpu_backend(
-        X,
-        y,
-        sample_weight=weights,
+        X_input,
+        y_input,
+        sample_weight=weights_input,
         backend_name=backend_name,
     )
 
