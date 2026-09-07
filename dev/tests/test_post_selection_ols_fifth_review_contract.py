@@ -1,8 +1,15 @@
+import warnings
+
 import numpy as np
 import pytest
+from sklearn.base import clone
 
 from statgpu._config import Device
-from statgpu.linear_model import PenalizedGeneralizedLinearModel, PenalizedLinearRegression
+from statgpu.linear_model import (
+    LassoCV,
+    PenalizedGeneralizedLinearModel,
+    PenalizedLinearRegression,
+)
 import statgpu.linear_model._penalized_inference_api_contract as inference_contract
 from statgpu.penalties import get_penalty
 
@@ -22,6 +29,27 @@ def test_penalty_object_alias_uses_same_warning_and_normalization_contract():
     assert model.penalty is penalty
     assert model.inference_method == "gpu_ols"
     assert model._inference_method == "post_selection_ols"
+
+
+def test_penalty_object_alias_clone_is_warning_clean_and_stays_normalized():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error",
+            penalty=get_penalty("l1", alpha=0.05),
+            inference_method="cpu_ols",
+            compute_inference=False,
+            device="cpu",
+        )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cloned = clone(model)
+
+    assert not [item for item in caught if issubclass(item.category, FutureWarning)]
+    assert getattr(cloned.penalty, "name", None) == "l1"
+    assert cloned.inference_method == "cpu_ols"
+    assert cloned._inference_method == "post_selection_ols"
 
 
 @pytest.mark.parametrize("penalty_name", ["l1", "elasticnet"])
@@ -44,6 +72,23 @@ def test_penalty_object_participates_in_pre_fit_auto_native_scope(
 
     assert inference_contract._supports_sparse_gaussian_migration(model) is True
     assert inference_contract._input_native_device(model, fake_cupy) == Device.CUDA
+
+
+def test_lassocv_set_params_legacy_alias_warns_normalizes_and_invalidates():
+    model = LassoCV(inference_method="post_selection_ols", compute_inference=False)
+    model._fitted = True
+    model.coef_ = np.ones(2, dtype=np.float64)
+    model.estimator_ = object()
+
+    with pytest.warns(FutureWarning, match="post_selection_ols") as caught:
+        model.set_params(inference_method="gpu_ols_inference")
+
+    assert len(caught) == 1
+    assert model.inference_method == "gpu_ols_inference"
+    assert model._inference_method == "post_selection_ols"
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.estimator_ is None
 
 
 @pytest.mark.parametrize("cov_type", ["hc3", "hac"])
