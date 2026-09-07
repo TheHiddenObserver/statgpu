@@ -159,7 +159,7 @@ Related: Issue #112 and pull request #116.
 
 ### Cross-validation, inference, and estimator contracts
 
-- Made `RidgeCV`, `ElasticNetCV`, and `LogisticRegressionCV` fits failure-safe: stale state is cleared before fitting and selected parameters are published only after the final full-data refit succeeds.
+- Made `RidgeCV`, `ElasticNetCV`, and `LogisticRegressionCV` failure-safe: stale state is cleared before fitting and selected parameters are published only after the final full-data refit succeeds.
 - Preserved explicit Torch/CuPy requests and pinned `device="auto"` final refits to the backend selected during cross-validation.
 - Updated Logistic and Elastic Net default regularization grids to incorporate analytic weights and satisfy integer-weight row-replication equivalence.
 - Preserved declared validation losses and analytic weights in penalized CV; programming, shape, CUDA OOM, and device errors are no longer converted into candidate `NaN` values or unrelated MSE fallback.
@@ -214,10 +214,10 @@ Related: Issue #45, Issue #81, Issue #82, Issue #83, and pull request #87.
 
 ### Cross-validation and grouped penalties
 
-- Requested CoxPHCV two-stage or successive-halving controls now execute one
+- Requested CoxPHCV two-stage and successive-halving controls now execute one
   explicit exhaustive full-precision candidate pass, preserving deterministic
-  selection while avoiding repeated complete grid fit.
-- One-shot `CoxPHCV.cv_splits` iterator is reusable across repeated fit,
+  selection while avoiding repeated complete-grid fitting.
+- One-shot `CoxPHCV.cv_splits` iterators are reusable across repeated fit,
   scikit-learn clone, parameter reconstruction, and pickle.
 - Public Group Lasso and Adaptive Group Lasso use the generic loss-gradient and
   exact group-proximal path consistently across supported backends.
