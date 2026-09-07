@@ -3,8 +3,9 @@
 
 Canonical acceptance covers the original direct-Lasso parity matrix plus the
 public closure surfaces touched by #138: ElasticNet, the generic squared-error
-penalized estimator, LassoCV final refit, and preservation of weighted debiased
-GPU inference. Explicit CUDA/Torch requests must fail rather than fall back.
+penalized estimator, LassoCV final refit, preservation of weighted debiased GPU
+inference, and rank-deficient active-set refit semantics. Explicit CUDA/Torch
+requests must fail rather than fall back.
 """
 
 from __future__ import annotations
@@ -229,6 +230,97 @@ def _post_selection_case(backend: str, *, weighted: bool, kind: str = "lasso"):
     }
 
 
+def _rank_deficient_post_selection_case(backend: str):
+    rng = np.random.default_rng(251)
+    n = 220
+    x = rng.normal(size=n)
+    X = np.column_stack(
+        [
+            x,
+            x,
+            rng.normal(size=n),
+            rng.normal(size=n),
+        ]
+    )
+    y = 0.25 + 2.0 * x + 0.6 * X[:, 2] + rng.normal(scale=0.35, size=n)
+    weights = rng.uniform(0.4, 1.7, size=n)
+    common = dict(
+        alpha=0.02,
+        l1_ratio=0.5,
+        solver="fista",
+        inference_method="post_selection_ols",
+        compute_inference=True,
+        max_iter=6000,
+        tol=1e-9,
+    )
+    cpu = ElasticNet(device="cpu", **common).fit(X, y, sample_weight=weights)
+    cpu_meta = dict(cpu._inference_result.metadata)
+    cpu_selected = list(cpu_meta["selected_feature_indices"])
+    if 0 not in cpu_selected or 1 not in cpu_selected:
+        raise AssertionError(
+            f"rank-deficient fixture did not retain both duplicate columns: {cpu_selected}"
+        )
+    if not cpu_meta.get("refit_rank_deficient"):
+        raise AssertionError(f"CPU rank-deficient fixture was not detected: {cpu_meta}")
+    if int(cpu_meta.get("refit_rank")) >= int(cpu_meta.get("refit_parameter_count")):
+        raise AssertionError(f"CPU rank metadata is inconsistent: {cpu_meta}")
+
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    gpu = ElasticNet(device=requested_device, **common).fit(
+        _native(X, backend),
+        _native(y, backend),
+        sample_weight=_native(weights, backend),
+    )
+    meta, gpu_selected = _assert_post_selection_provenance(
+        gpu,
+        cpu,
+        backend,
+        expected_device,
+    )
+    for key in ("refit_rank", "refit_parameter_count", "refit_rank_deficient"):
+        if meta.get(key) != cpu_meta.get(key):
+            raise AssertionError(
+                f"rank-deficient {backend} metadata mismatch for {key}: "
+                f"cpu={cpu_meta.get(key)!r}, gpu={meta.get(key)!r}"
+            )
+    if gpu_selected != cpu_selected:
+        raise AssertionError("rank-deficient active-set identity changed across backends")
+
+    errors = {
+        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
+        "post_selection_params": _max_error(gpu._params, cpu._params),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+    for key, limit in _POST_LIMITS.items():
+        value = errors[key]
+        if not np.isfinite(value) or value > limit:
+            raise AssertionError(
+                f"rank-deficient {backend} {key} error {value:.3e} exceeds {limit:.3e}"
+            )
+
+    return {
+        "model": "elasticnet",
+        "case": "weighted_rank_deficient_active_refit",
+        "backend": backend,
+        "backend_version": version,
+        "requested_device": requested_device,
+        "executed_backend": gpu._selected_backend_name,
+        "executed_device": meta.get("numerical_device"),
+        "selected_feature_indices": gpu_selected,
+        "refit_rank": meta.get("refit_rank"),
+        "refit_parameter_count": meta.get("refit_parameter_count"),
+        "refit_rank_deficient": meta.get("refit_rank_deficient"),
+        "refit_df_resid": meta.get("refit_df_resid"),
+        "errors": errors,
+        "limits": dict(_POST_LIMITS),
+        "status": "success",
+    }
+
+
 def _weighted_debiased_case(backend: str):
     X, y, weights = _problem(seed=211)
     cpu = Lasso(
@@ -378,7 +470,7 @@ def main() -> int:
         raise ValueError("--backends must be exactly 'cupy,torch' in that order")
 
     payload = {
-        "schema_version": 4,
+        "schema_version": 5,
         "issue": 137,
         "head_sha": _git("rev-parse", "HEAD"),
         "worktree_clean": _git("status", "--porcelain") == "",
@@ -400,7 +492,8 @@ def main() -> int:
             )
 
     # Review closure for the public surfaces whose routing shares or consumes
-    # the repaired path.
+    # the repaired path. Schema v5 adds one rank-deficient active-set case per
+    # physical backend because effective-rank df is now backend-native work.
     for backend in backends:
         payload["closure_cases"].append(
             _post_selection_case(backend, weighted=True, kind="elasticnet")
@@ -410,6 +503,7 @@ def main() -> int:
         )
         payload["closure_cases"].append(_weighted_debiased_case(backend))
         payload["closure_cases"].append(_lassocv_final_refit_case(backend))
+        payload["closure_cases"].append(_rank_deficient_post_selection_case(backend))
 
     payload["status"] = "success"
     text = json.dumps(payload, indent=2, sort_keys=True)
