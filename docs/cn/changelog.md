@@ -60,14 +60,14 @@
 
 ### 新增
 
-- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（obust\）协方差；一路/两路聚类协方差支持 `group_debias=True`；Bartlett、Parzen、Quadratic-Spectral kernel 的 Driscoll-Kraay 协方差；`RandomEffects` 在 quasi-demeaned GLS 分数上的 robust/HC 推断；`PooledOLS` 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
+- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（obust\）协方差；带可选 \group_debias=True\ 的一路/两路聚类协方差；Bartlett、Parzen、Quadratic-Spectral 核的 Driscoll-Kraay 协方差；\RandomEffects\ 在 quasi-demeaned GLS 分数上的 robust/HC 推断；\PooledOLS\ 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
 - **诊断**：classical Hausman FE-vs-RE、pooling F、Breusch-Pagan LM、within/between/overall/adjusted R-squared 与 model F——在 NumPy/CuPy/Torch 上对极端 float64 量级 overflow-safe。
 - **事务式 panel fits**：行保持的 formula prediction 与 fail-closed refit 语义。
 
 ### 修复
 
-- CuPy `maximum.at`/`scatter_max` 对约 1e7..1e308 量级的 float64 返回 `inf`；组内 min/max scatter 现按量级门控（`<= 1e6` 走原生 GPU scatter），两条路径均精确。
-- Torch CUDA SVD 要求精确的 `gesvd` driver，不可用时 fail closed；默认 `gesvdj` driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
+- CuPy \maximum.at\/\scatter_max\ 对约 1e7..1e308 量级的 float64 返回 \inf\；组内 min/max scatter 现按量级门控（\<= 1e6\ 走原生 GPU scatter），两条路径均精确。
+- Torch CUDA SVD 要求精确的 \gesvd\ driver，不可用时 fail closed；默认 \gesvdj\ driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
 - panel coefficient-resolution certificate 改为确定性误差界（不再依赖 LAPACK 版本相关的 SVD 舍入）；无法解析的近共线满秩设计 fail closed，单列 FE 吸收设计与秩亏设计报告实际秩。
 - formula side-array 对齐仅接受原始 formula-data 行数或保留行数两种长度，其余 fail closed。
 - 失败的 panel fit 保留实际执行后端 provenance 并清空 fitted/inference 状态。
@@ -97,7 +97,7 @@ Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator
 
 针对 PR 分支的最新一轮 review-fix 循环继续加固数值与设备路径，并在 exact head `5068da3f` 上重跑完整物理矩阵：
 
-- **双向聚类协方差性能**：精确的逐行 dyadic two-sum fallback（普通均衡面板在约 6.5k 行以上必然触发，10k 行时每次 CuPy fit 约 1000 秒）现在由 residual-acceptance 检查门控——普通设计停留在向量化 Gram 路径，只有真正可恢复的 cancellation residual 才回退到精确行级展开。Tesla P100 上 `pooled_cluster_two_way` 的 10k 行 CuPy fit 从 **约 1018 秒降到约 1.3 秒**（Torch 约 0.2 秒；100k 行约 0.4 秒），`benchmark_panel_stage_c_covariance.py` 的 60 行矩阵约 40 秒完成（此前超时）。
+- **Two-way clustered covariance performance**：精确的逐行 dyadic two-sum fallback（普通均衡面板在约 6.5k 行以上必然触发，10k 行时每次 CuPy fit 约 1000 秒）现在由 residual-acceptance 检查门控——普通设计停留在向量化 Gram 路径，只有真正可恢复的 cancellation residual 才回退到精确行级展开。Tesla P100 上 `pooled_cluster_two_way` 的 10k 行 CuPy fit 从 **约 1018 秒降到约 1.3 秒**（Torch 约 0.2 秒；100k 行约 0.4 秒），`benchmark_panel_stage_c_covariance.py` 的 60 行矩阵约 40 秒完成（此前超时）。
 - **数值加固**：CuPy `maximum.at`/`cupyx.scatter_max` 对 1e7..1e308 量级的 float64 返回 `inf`（CuPy 13.6 实测），组内 min/max scatter 改为顺序 host scatter；Torch CUDA SVD 改用精确 `gesvd` driver（默认 `gesvdj` 会在结构零位置泄漏约 1e-16，被巨大响应放大）；失败的 panel fit 保留实际执行后端 provenance；Student-t(1) 的 p-value 改用良态的 `2 atan(1/x)/pi` 形式，极端统计量（如 |t|=1e154）保留可表示尾部（此前 subtractive survival 在约 1e15 即坍缩为 0）；formula side-array 对齐对超长输入 fail closed。
 - **CuPy 设备亲和性**：后端可用性探测不再切换当前 CUDA device，panel 分配（scatter 目标、dummy 矩阵、行权重、SVD 单位阵）绑定到参考 device；新增物理 device-affinity gate（`validate_panel_cupy_device_affinity_gpu.py`）覆盖 CuPy 与 Torch CUDA。
 - 全部 12 个 physical runner 在 exact head 的 Tesla P100（CuPy 13.6.0 / Torch 2.0.0+cu117）上通过：Stage-C correctness（每后端 35 case + 12 primitive）、focused Fama-MacBeth oracle + certified-Gram provenance、HAC chronology、极端 t(2) 尾部、device affinity、Fama-MacBeth scaling、RHS cancellation、rank precedence、intercept cancellation。产物：`results/pr126_perf_fix_528d967e/`、`results/pr126_review_fix_da3604ee/`。
@@ -134,7 +134,7 @@ Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator
 - 将 panel estimator 中已经存在的 residual-based OLS covariance 分派集中到共享 registry，同时保持各模型原有的 nonrobust scaling、HC1 correction、one-/two-way cluster、HAC、rank/df 约定和 unsupported-name 行为。此阶段不新增 HC0/HC2/HC3 或 Driscoll-Kraay。
 - 在统计上合理的边界内，将 `PanelOLS`、`RandomEffects`、`PooledOLS`、`BetweenOLS`、`FirstDifferenceOLS` 与 `FamaMacBeth` 迁移到共享生命周期 helper；fixed-effect recovery/prediction、Swamy-Arora variance component 与 quasi-demeaning、Fama-MacBeth beta-series covariance 继续保持模型专用实现。
 - 保持现有 formula、缺失行对齐、intercept/effect token、prediction output、summary schema/打印行为、balanced/unbalanced 语义、residual-df 定义以及显式 device 不允许静默 fallback 的契约。
-- 在任何 panel source 重构之前先提交并通过 pre-refactor golden suite，并在重构后持续作为回归 gate；专用 Python 3.9 + Torch 2.0 CPU CI 现在也执行共享 panel metadata/covariance/inference 测试，避免 optional Torch 缺失时相关回归测试被静默跳过。
+- 在任何 panel source 重构之前先提交并通过 pre-refactor golden suite，并在重构后持续作为回归 gate；专用 Python 3.9 + Torch 2.0 CPU CI 现在也执行共享 panel metadata/covariance/inference 测试，避免 optional Torch 缺失时静默跳过。
 
 Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；Stage A 不会把这些尚未实现的能力写成公开支持。
 
