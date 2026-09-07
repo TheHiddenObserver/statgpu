@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Physical CuPy/Torch validation for post-selection OLS inference (#137).
 
-Canonical acceptance covers the original direct-Lasso parity matrix plus the
-public closure surfaces touched by #138: ElasticNet, the generic squared-error
-penalized estimator, LassoCV final refit, preservation of weighted debiased GPU
-inference, rank-deficient active-set refit semantics, Penalty-object AUTO-native
-routing, and empty-active robust reporting. Explicit CUDA/Torch requests must
-fail rather than fall back.
+Schema v7 keeps the original four direct-Lasso post-selection cases and closes
+all production numerical branches added by the repeated canonical review/fix
+loops: ElasticNet/generic sparse Gaussian routing, centered weighted/unweighted
+debiased inference, real weighted multi-alpha LassoCV selection plus final
+refit, rank-deficient design-level SVD refits, Penalty-object AUTO-native
+routing, empty-active robust reporting, and intercept-inclusive simultaneous
+max-|Z| inference.
+
+Explicit CUDA/Torch requests must fail rather than silently fall back. Hosted
+logic tests cover alias/device orthogonality and explicit-CPU heterogeneous input
+conversion; this runner is reserved for branches that require physical CUDA.
 """
 
 from __future__ import annotations
@@ -32,6 +37,24 @@ from statgpu.penalties import get_penalty
 
 _REQUIRED_BACKENDS = ("cupy", "torch")
 _POST_LIMITS = {
+    "penalized_coef": 2e-6,
+    "post_selection_params": 2e-7,
+    "bse": 2e-7,
+    "statistic": 2e-5,
+    "pvalue": 2e-6,
+    "ci": 5e-7,
+}
+_DEBIASED_LIMITS = {
+    "penalized_coef": 2e-6,
+    "params": 5e-5,
+    "bse": 2e-5,
+    "statistic": 5e-4,
+    "pvalue": 5e-4,
+    "ci": 1e-4,
+}
+_CV_LIMITS = {
+    "mse_path": 5e-6,
+    "mean_mse": 2e-6,
     "penalized_coef": 2e-6,
     "post_selection_params": 2e-7,
     "bse": 2e-7,
@@ -110,6 +133,15 @@ def _max_error(a, b) -> float:
     return float(np.max(np.abs(left[finite] - right[finite])))
 
 
+def _assert_limits(label: str, errors: dict[str, float], limits: dict[str, float]):
+    for key, limit in limits.items():
+        value = float(errors[key])
+        if not np.isfinite(value) or value > float(limit):
+            raise AssertionError(
+                f"{label} {key} error {value:.3e} exceeds {float(limit):.3e}"
+            )
+
+
 def _make_post_selection_model(kind: str, *, device: str):
     common = dict(
         alpha=0.05,
@@ -173,23 +205,31 @@ def _assert_post_selection_provenance(gpu, cpu, backend: str, expected_device: s
     return meta, gpu_selected
 
 
+def _post_selection_errors(gpu, cpu):
+    return {
+        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
+        "post_selection_params": _max_error(gpu._params, cpu._params),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+
+
 def _post_selection_case(backend: str, *, weighted: bool, kind: str = "lasso"):
     seed_offset = {"lasso": 0, "elasticnet": 20, "generic_l1": 40}[kind]
     X, y, weights = _problem(seed=137 + seed_offset + int(weighted))
     sw = weights if weighted else None
     cpu = _fit_post_selection(kind, X, y, device="cpu", sample_weight=sw)
 
-    X_native = _native(X, backend)
-    y_native = _native(y, backend)
-    sw_native = None if sw is None else _native(sw, backend)
     requested_device = _requested_device(backend)
     expected_device, version = _runtime(backend)
     gpu = _fit_post_selection(
         kind,
-        X_native,
-        y_native,
+        _native(X, backend),
+        _native(y, backend),
         device=requested_device,
-        sample_weight=sw_native,
+        sample_weight=None if sw is None else _native(sw, backend),
     )
 
     meta, gpu_selected = _assert_post_selection_provenance(
@@ -198,21 +238,8 @@ def _post_selection_case(backend: str, *, weighted: bool, kind: str = "lasso"):
         backend,
         expected_device,
     )
-    errors = {
-        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
-        "post_selection_params": _max_error(gpu._params, cpu._params),
-        "bse": _max_error(gpu._bse, cpu._bse),
-        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
-        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
-        "ci": _max_error(gpu._conf_int, cpu._conf_int),
-    }
-    for key, limit in _POST_LIMITS.items():
-        value = errors[key]
-        if not np.isfinite(value) or value > limit:
-            raise AssertionError(
-                f"{kind} {backend} weighted={weighted} {key} error {value:.3e} "
-                f"exceeds {limit:.3e}"
-            )
+    errors = _post_selection_errors(gpu, cpu)
+    _assert_limits(f"{kind} {backend} weighted={weighted}", errors, _POST_LIMITS)
 
     return {
         "model": kind,
@@ -237,14 +264,7 @@ def _rank_deficient_post_selection_case(backend: str):
     rng = np.random.default_rng(251)
     n = 220
     x = rng.normal(size=n)
-    X = np.column_stack(
-        [
-            x,
-            x,
-            rng.normal(size=n),
-            rng.normal(size=n),
-        ]
-    )
+    X = np.column_stack([x, x, rng.normal(size=n), rng.normal(size=n)])
     y = 0.25 + 2.0 * x + 0.6 * X[:, 2] + rng.normal(scale=0.35, size=n)
     weights = rng.uniform(0.4, 1.7, size=n)
     common = dict(
@@ -290,21 +310,8 @@ def _rank_deficient_post_selection_case(backend: str):
     if gpu_selected != cpu_selected:
         raise AssertionError("rank-deficient active-set identity changed across backends")
 
-    errors = {
-        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
-        "post_selection_params": _max_error(gpu._params, cpu._params),
-        "bse": _max_error(gpu._bse, cpu._bse),
-        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
-        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
-        "ci": _max_error(gpu._conf_int, cpu._conf_int),
-    }
-    for key, limit in _POST_LIMITS.items():
-        value = errors[key]
-        if not np.isfinite(value) or value > limit:
-            raise AssertionError(
-                f"rank-deficient {backend} {key} error {value:.3e} exceeds {limit:.3e}"
-            )
-
+    errors = _post_selection_errors(gpu, cpu)
+    _assert_limits(f"rank-deficient {backend}", errors, _POST_LIMITS)
     return {
         "model": "elasticnet",
         "case": "weighted_rank_deficient_active_refit",
@@ -364,21 +371,8 @@ def _penalty_object_auto_native_case(backend: str):
     if getattr(gpu.penalty, "name", None) != "l1":
         raise AssertionError("Penalty-object identity/name was lost during AUTO routing")
 
-    errors = {
-        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
-        "post_selection_params": _max_error(gpu._params, cpu._params),
-        "bse": _max_error(gpu._bse, cpu._bse),
-        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
-        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
-        "ci": _max_error(gpu._conf_int, cpu._conf_int),
-    }
-    for key, limit in _POST_LIMITS.items():
-        value = errors[key]
-        if not np.isfinite(value) or value > limit:
-            raise AssertionError(
-                f"Penalty-object AUTO {backend} {key} error {value:.3e} exceeds {limit:.3e}"
-            )
-
+    errors = _post_selection_errors(gpu, cpu)
+    _assert_limits(f"Penalty-object AUTO {backend}", errors, _POST_LIMITS)
     return {
         "model": "generic_l1_penalty_object",
         "case": "weighted_auto_native_penalty_object",
@@ -443,21 +437,8 @@ def _empty_active_robust_case(backend: str):
     if int(meta.get("n_selected", -1)) != 0 or int(meta.get("refit_parameter_count", -1)) != 0:
         raise AssertionError(f"empty-active robust metadata is inconsistent: {meta}")
 
-    errors = {
-        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
-        "post_selection_params": _max_error(gpu._params, cpu._params),
-        "bse": _max_error(gpu._bse, cpu._bse),
-        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
-        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
-        "ci": _max_error(gpu._conf_int, cpu._conf_int),
-    }
-    for key, limit in _POST_LIMITS.items():
-        value = errors[key]
-        if not np.isfinite(value) or value > limit:
-            raise AssertionError(
-                f"empty-active robust {backend} {key} error {value:.3e} exceeds {limit:.3e}"
-            )
-
+    errors = _post_selection_errors(gpu, cpu)
+    _assert_limits(f"empty-active robust {backend}", errors, _POST_LIMITS)
     return {
         "model": "generic_l1",
         "case": "empty_active_hc3_no_intercept",
@@ -476,72 +457,55 @@ def _empty_active_robust_case(backend: str):
     }
 
 
-def _weighted_debiased_case(backend: str):
-    X, y, weights = _problem(seed=211)
-    cpu = Lasso(
-        alpha=0.05,
-        solver="fista",
-        compute_inference=False,
-        device="cpu",
-        max_iter=6000,
-        tol=1e-9,
-    ).fit(X, y, sample_weight=weights)
-
-    requested_device = _requested_device(backend)
-    expected_device, version = _runtime(backend)
-    gpu = Lasso(
+def _debiased_case(backend: str, *, weighted: bool):
+    X, y, weights = _problem(seed=211 + int(weighted))
+    sw = weights if weighted else None
+    common = dict(
         alpha=0.05,
         solver="fista",
         inference_method="debiased",
         compute_inference=True,
-        device=requested_device,
         max_iter=6000,
         tol=1e-9,
-    ).fit(
+    )
+    cpu = Lasso(device="cpu", **common).fit(X, y, sample_weight=sw)
+
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    gpu = Lasso(device=requested_device, **common).fit(
         _native(X, backend),
         _native(y, backend),
-        sample_weight=_native(weights, backend),
+        sample_weight=None if sw is None else _native(sw, backend),
     )
     result = gpu._inference_result
     if result is None or result.method != "debiased":
-        raise AssertionError("weighted debiased GPU inference result is missing")
+        raise AssertionError("debiased GPU inference result is missing")
     meta = dict(result.metadata)
     if gpu._selected_backend_name != backend:
-        raise AssertionError("weighted debiased fit backend provenance mismatch")
-    if meta.get("backend_path") != f"{backend}_debiased_weighted":
-        raise AssertionError(f"weighted debiased inference silently changed backend: {meta}")
+        raise AssertionError("debiased fit backend provenance mismatch")
     if meta.get("numerical_backend") != backend:
-        raise AssertionError(f"weighted debiased numerical backend mismatch: {meta}")
+        raise AssertionError(f"debiased numerical backend mismatch: {meta}")
     if str(meta.get("numerical_device")) != expected_device:
-        raise AssertionError(f"weighted debiased numerical device mismatch: {meta}")
+        raise AssertionError(f"debiased numerical device mismatch: {meta}")
     if meta.get("reporting_boundary") != "post_numerical_inference":
-        raise AssertionError(f"weighted debiased reporting boundary mismatch: {meta}")
-    if meta.get("sample_weighted") is not True:
-        raise AssertionError("weighted debiased metadata lost sample_weight provenance")
+        raise AssertionError(f"debiased reporting boundary mismatch: {meta}")
+    if bool(meta.get("sample_weighted")) != bool(weighted):
+        raise AssertionError(f"debiased sample-weight provenance mismatch: {meta}")
+    if weighted and meta.get("backend_path") != f"{backend}_debiased_weighted":
+        raise AssertionError(f"weighted debiased backend path mismatch: {meta}")
 
-    coef_error = _max_error(gpu.coef_, cpu.coef_)
-    if not np.isfinite(coef_error) or coef_error > _POST_LIMITS["penalized_coef"]:
-        raise AssertionError(
-            f"weighted debiased {backend} penalized_coef error {coef_error:.3e} exceeds "
-            f"{_POST_LIMITS['penalized_coef']:.3e}"
-        )
-    expected_dim = X.shape[1] + 1
-    for name, value in (
-        ("params", gpu._params),
-        ("bse", gpu._bse),
-        ("statistic", gpu._tvalues),
-        ("pvalue", gpu._pvalues),
-    ):
-        arr = np.asarray(value, dtype=np.float64)
-        if arr.shape != (expected_dim,) or not np.all(np.isfinite(arr)):
-            raise AssertionError(f"weighted debiased {name} layout/finite check failed")
-    ci = np.asarray(gpu._conf_int, dtype=np.float64)
-    if ci.shape != (expected_dim, 2) or not np.all(np.isfinite(ci)):
-        raise AssertionError("weighted debiased confidence-interval layout/finite check failed")
-
+    errors = {
+        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
+        "params": _max_error(gpu._params, cpu._params),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
+    }
+    _assert_limits(f"debiased {backend} weighted={weighted}", errors, _DEBIASED_LIMITS)
     return {
         "model": "lasso",
-        "case": "weighted_debiased_backend_preservation",
+        "case": "weighted_debiased" if weighted else "unweighted_debiased",
         "backend": backend,
         "backend_version": version,
         "requested_device": requested_device,
@@ -549,27 +513,28 @@ def _weighted_debiased_case(backend: str):
         "executed_device": meta.get("numerical_device"),
         "backend_path": meta.get("backend_path"),
         "reporting_boundary": meta.get("reporting_boundary"),
-        "penalized_coef_error": coef_error,
-        "penalized_coef_limit": _POST_LIMITS["penalized_coef"],
+        "errors": errors,
+        "limits": dict(_DEBIASED_LIMITS),
         "status": "success",
     }
 
 
-def _lassocv_final_refit_case(backend: str):
+def _lassocv_weighted_selection_case(backend: str):
     X, y, weights = _problem(seed=229)
     requested_device = _requested_device(backend)
     expected_device, version = _runtime(backend)
+    alphas = np.asarray([0.12, 0.06, 0.03, 0.015], dtype=np.float64)
     common = dict(
-        alphas=np.asarray([0.05], dtype=np.float64),
-        cv=2,
+        alphas=alphas,
+        cv=3,
         fit_intercept=True,
         compute_inference=True,
         inference_method="post_selection_ols",
         solver="fista",
         cv_solver="fista",
         gpu_cv_mixed_precision=False,
-        max_iter=3000,
-        tol=1e-8,
+        max_iter=5000,
+        tol=1e-9,
         random_state=7,
     )
     cpu = LassoCV(device="cpu", **common).fit(X, y, sample_weight=weights)
@@ -589,23 +554,135 @@ def _lassocv_final_refit_case(backend: str):
         raise AssertionError(f"LassoCV inference device mismatch: {meta}")
     if meta.get("resolved_method") != "post_selection_ols":
         raise AssertionError(f"LassoCV inference method mismatch: {meta}")
-    coef_error = _max_error(gpu.coef_, cpu.coef_)
-    if coef_error > _POST_LIMITS["penalized_coef"]:
+    if float(gpu.alpha_) != float(cpu.alpha_):
         raise AssertionError(
-            f"LassoCV {backend} final-refit coef error {coef_error:.3e} exceeds "
-            f"{_POST_LIMITS['penalized_coef']:.3e}"
+            f"LassoCV selected-alpha mismatch: cpu={cpu.alpha_}, {backend}={gpu.alpha_}"
         )
+    if np.asarray(gpu.alphas_).size <= 1:
+        raise AssertionError("LassoCV physical closure did not execute a multi-alpha path")
+
+    errors = {
+        "mse_path": _max_error(gpu.mse_path_, cpu.mse_path_),
+        "mean_mse": _max_error(gpu.mean_mse_, cpu.mean_mse_),
+        "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
+        "post_selection_params": _max_error(gpu.estimator_._params, cpu.estimator_._params),
+        "bse": _max_error(gpu.estimator_._bse, cpu.estimator_._bse),
+        "statistic": _max_error(gpu.estimator_._tvalues, cpu.estimator_._tvalues),
+        "pvalue": _max_error(gpu.estimator_._pvalues, cpu.estimator_._pvalues),
+        "ci": _max_error(gpu.estimator_._conf_int, cpu.estimator_._conf_int),
+    }
+    _assert_limits(f"weighted multi-alpha LassoCV {backend}", errors, _CV_LIMITS)
     return {
         "model": "lassocv",
-        "case": "weighted_final_refit",
+        "case": "weighted_multi_alpha_selection_final_refit",
         "backend": backend,
         "backend_version": version,
         "requested_device": requested_device,
         "executed_backend": gpu.estimator_._selected_backend_name,
         "executed_device": meta.get("numerical_device"),
         "selected_alpha": float(gpu.alpha_),
-        "penalized_coef_error": coef_error,
-        "penalized_coef_limit": _POST_LIMITS["penalized_coef"],
+        "n_alphas": int(np.asarray(gpu.alphas_).size),
+        "errors": errors,
+        "limits": dict(_CV_LIMITS),
+        "status": "success",
+    }
+
+
+def _simultaneous_intercept_case(backend: str):
+    X, y, weights = _problem(seed=293)
+    B = 96
+    seed = 20260908
+    common = dict(
+        alpha=0.045,
+        solver="fista",
+        inference_method="debiased",
+        compute_inference=True,
+        fit_intercept=True,
+        max_iter=6000,
+        tol=1e-9,
+        enable_simultaneous_inference=True,
+        simultaneous_include_intercept=True,
+        simultaneous_n_bootstrap=B,
+        simultaneous_random_state=seed,
+    )
+    cpu = Lasso(device="cpu", **common).fit(X, y, sample_weight=weights)
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    gpu = Lasso(device=requested_device, **common).fit(
+        _native(X, backend),
+        _native(y, backend),
+        sample_weight=_native(weights, backend),
+    )
+    result = gpu._inference_result
+    if result is None or result.simultaneous_conf_int is None:
+        raise AssertionError("intercept-inclusive simultaneous GPU result is missing")
+    meta = dict(result.metadata)
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"simultaneous debiased backend mismatch: {meta}")
+    if str(meta.get("numerical_device")) != expected_device:
+        raise AssertionError(f"simultaneous debiased device mismatch: {meta}")
+
+    target_mask = np.asarray(result.simultaneous_target_mask, dtype=bool)
+    if target_mask.shape != np.asarray(gpu._params).shape or not np.all(target_mask):
+        raise AssertionError("simultaneous intercept target mask does not include all parameters")
+
+    influence_error = _max_error(
+        gpu._debiased_intercept_influence_cpu,
+        cpu._debiased_intercept_influence_cpu,
+    )
+    if influence_error > 2e-6:
+        raise AssertionError(
+            f"simultaneous intercept influence {backend} error {influence_error:.3e} "
+            "exceeds 2.000e-06"
+        )
+
+    # Reconstruct the exact GPU-model multiplier bootstrap from its reporting
+    # snapshot. This catches the historical feature-only maximum even when CPU
+    # and GPU marginal debiasing have small, legitimate numerical differences.
+    X_design = np.asarray(gpu._X_design, dtype=np.float64)
+    X_feat = X_design[:, 1:]
+    resid = np.asarray(gpu._resid, dtype=np.float64).reshape(-1)
+    M = np.asarray(gpu._debiased_M_cpu, dtype=np.float64)
+    bse = np.asarray(gpu._bse, dtype=np.float64)
+    influence = np.asarray(gpu._debiased_intercept_influence_cpu, dtype=np.float64)
+    n = resid.shape[0]
+    rng = np.random.default_rng(seed)
+    xi = rng.standard_normal(size=(B, n))
+    multiplier_resid = xi * resid.reshape(1, -1)
+    feature_score = (multiplier_resid @ X_feat) @ M.T / float(n)
+    z_feature = feature_score / (bse[1:].reshape(1, -1) + 1e-30)
+    z_intercept = (multiplier_resid @ influence) / (float(bse[0]) + 1e-30)
+    expected_max = np.maximum(np.abs(z_intercept), np.max(np.abs(z_feature), axis=1))
+    expected_critical = float(np.quantile(expected_max, 1.0 - gpu.simultaneous_alpha))
+    critical_error = abs(float(gpu._simultaneous_critical_value) - expected_critical)
+    if critical_error > 1e-12:
+        raise AssertionError(
+            f"simultaneous intercept max-z reconstruction error {critical_error:.3e}"
+        )
+    expected_ci = np.column_stack(
+        [
+            gpu._params - expected_critical * gpu._bse,
+            gpu._params + expected_critical * gpu._bse,
+        ]
+    )
+    ci_reconstruction_error = _max_error(gpu._conf_int_simultaneous, expected_ci)
+    if ci_reconstruction_error > 1e-12:
+        raise AssertionError(
+            "simultaneous intercept CI does not match the intercept-inclusive critical value"
+        )
+
+    return {
+        "model": "lasso",
+        "case": "weighted_debiased_simultaneous_intercept",
+        "backend": backend,
+        "backend_version": version,
+        "requested_device": requested_device,
+        "executed_backend": gpu._selected_backend_name,
+        "executed_device": meta.get("numerical_device"),
+        "intercept_influence_error": influence_error,
+        "intercept_influence_limit": 2e-6,
+        "critical_reconstruction_error": critical_error,
+        "ci_reconstruction_error": ci_reconstruction_error,
         "status": "success",
     }
 
@@ -620,12 +697,15 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
-    backends = tuple(part.strip().lower() for part in args.backends.split(",") if part.strip())
+    backends = tuple(
+        part.strip().lower() for part in args.backends.split(",") if part.strip()
+    )
     if backends != _REQUIRED_BACKENDS:
         raise ValueError("--backends must be exactly 'cupy,torch' in that order")
 
+    set_device("auto")
     payload = {
-        "schema_version": 6,
+        "schema_version": 7,
         "issue": 137,
         "head_sha": _git("rev-parse", "HEAD"),
         "worktree_clean": _git("status", "--porcelain") == "",
@@ -638,18 +718,16 @@ def main() -> int:
     if not payload["worktree_clean"]:
         raise RuntimeError("physical acceptance requires a clean worktree")
 
-    # Preserve the original four direct-Lasso acceptance cases verbatim in
-    # meaning so historical evidence remains comparable.
+    # Preserve the original four direct-Lasso acceptance cases in meaning so
+    # historical evidence remains directly comparable.
     for backend in backends:
         for weighted in (False, True):
             payload["cases"].append(
                 _post_selection_case(backend, weighted=weighted, kind="lasso")
             )
 
-    # Review closure for the public surfaces whose routing shares or consumes
-    # the repaired path. Schema v6 preserves the v5 rank-deficient cases and
-    # adds Penalty-object AUTO-native plus empty-active robust closure per
-    # physical backend.
+    # Nine closure cases per physical backend. Together with the original four
+    # this is the canonical schema-v7 22-case matrix.
     for backend in backends:
         payload["closure_cases"].append(
             _post_selection_case(backend, weighted=True, kind="elasticnet")
@@ -657,11 +735,16 @@ def main() -> int:
         payload["closure_cases"].append(
             _post_selection_case(backend, weighted=True, kind="generic_l1")
         )
-        payload["closure_cases"].append(_weighted_debiased_case(backend))
-        payload["closure_cases"].append(_lassocv_final_refit_case(backend))
+        payload["closure_cases"].append(_debiased_case(backend, weighted=False))
+        payload["closure_cases"].append(_debiased_case(backend, weighted=True))
+        payload["closure_cases"].append(_lassocv_weighted_selection_case(backend))
         payload["closure_cases"].append(_rank_deficient_post_selection_case(backend))
         payload["closure_cases"].append(_penalty_object_auto_native_case(backend))
         payload["closure_cases"].append(_empty_active_robust_case(backend))
+        payload["closure_cases"].append(_simultaneous_intercept_case(backend))
+
+    if len(payload["cases"]) != 4 or len(payload["closure_cases"]) != 18:
+        raise AssertionError("schema-v7 acceptance matrix must contain exactly 22 cases")
 
     payload["status"] = "success"
     text = json.dumps(payload, indent=2, sort_keys=True)
