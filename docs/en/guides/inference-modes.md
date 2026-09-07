@@ -89,6 +89,9 @@ whereas R-squared, adjusted R-squared, F statistics, log-likelihood, AIC, BIC,
 and `Penalized-fit Residual DoF` continue to describe the penalized prediction
 fit. The summary labels these quantities separately so the refit degrees of
 freedom are not mistaken for the penalized-fit diagnostic degrees of freedom.
+For a rank-deficient active design, the refit residual degrees of freedom use
+`n - effective_rank`, not `n - active_column_count`; metadata records
+`refit_rank`, `refit_parameter_count`, and `refit_rank_deficient`.
 
 For `cov_type="nonrobust"`, this path preserves the established classical
 **Student-t** reporting convention. Robust covariance choices exposed by the

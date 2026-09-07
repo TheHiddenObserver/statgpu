@@ -48,7 +48,7 @@ penalized model 先确定 active set；随后 statgpu 在**同一个 fit-resolve
 
 原始 penalized `coef_` 仍然是预测时使用的系数；active-set OLS/WLS 重拟合用于推断与报告，保存在 `_params` / `_inference_result` 等 reporting surface 中。
 
-两次拟合的 diagnostic ownership 也不同。在 `summary()` 中，系数表和 `Post-selection Refit DoF` 属于 active-set refit；R-squared、adjusted R-squared、F statistic、log-likelihood、AIC、BIC 以及 `Penalized-fit Residual DoF` 仍描述 penalized prediction fit。summary 会明确分开标注，避免把 refit 的残差自由度误当成 penalized-fit diagnostics 使用的自由度。
+两次拟合的 diagnostic ownership 也不同。在 `summary()` 中，系数表和 `Post-selection Refit DoF` 属于 active-set refit；R-squared、adjusted R-squared、F statistic、log-likelihood、AIC、BIC 以及 `Penalized-fit Residual DoF` 仍描述 penalized prediction fit。summary 会明确分开标注，避免把 refit 的残差自由度误当成 penalized-fit diagnostics 使用的自由度。若 active design 秩亏，refit residual DoF 使用 `n - effective_rank`，而不是 `n - active_column_count`；metadata 会记录 `refit_rank`、`refit_parameter_count` 与 `refit_rank_deficient`。
 
 在 `cov_type="nonrobust"` 下，这条路径保留既有的经典 **Student-t** 报告语义。estimator 已公开的 robust covariance 选项则复用共享 Gaussian robust-covariance layer，并使用对应的 normal-reference 报告语义。
 
