@@ -127,3 +127,65 @@ def test_empty_no_intercept_active_set_preserves_requested_robust_semantics(cov_
     np.testing.assert_array_equal(model._zvalues, 0.0)
     np.testing.assert_array_equal(model._pvalues, 1.0)
     np.testing.assert_array_equal(model._conf_int, 0.0)
+
+
+def test_weighted_cpu_debiased_is_invariant_to_global_weight_scaling():
+    rng = np.random.default_rng(6138)
+    X = rng.normal(size=(140, 5))
+    beta = np.asarray([1.2, -0.8, 0.45, 0.0, 0.0])
+    y = 0.35 + X @ beta + rng.normal(scale=0.45, size=X.shape[0])
+    weights = rng.uniform(0.35, 1.9, size=X.shape[0])
+
+    common = dict(
+        penalty="l1",
+        alpha=0.045,
+        fit_intercept=True,
+        solver="fista",
+        inference_method="debiased",
+        compute_inference=True,
+        device="cpu",
+        max_iter=4000,
+        tol=1e-9,
+    )
+    reference = PenalizedLinearRegression(**common).fit(
+        X,
+        y,
+        sample_weight=weights,
+    )
+    scaled = PenalizedLinearRegression(**common).fit(
+        X,
+        y,
+        sample_weight=17.0 * weights,
+    )
+
+    for model in (reference, scaled):
+        result = model._inference_result
+        assert result is not None
+        assert result.method == "debiased"
+        assert result.metadata["backend_path"] == "numpy_debiased_weighted"
+        assert result.metadata["sample_weighted"] is True
+        assert result.metadata["numerical_backend"] == "numpy"
+        assert result.metadata["reporting_boundary"] == "post_numerical_inference"
+
+    np.testing.assert_allclose(scaled.coef_, reference.coef_, rtol=0, atol=1e-11)
+    assert scaled.intercept_ == pytest.approx(reference.intercept_, abs=1e-11)
+    np.testing.assert_allclose(scaled._params, reference._params, rtol=1e-10, atol=1e-11)
+    np.testing.assert_allclose(scaled._bse, reference._bse, rtol=1e-10, atol=1e-11)
+    np.testing.assert_allclose(
+        scaled._tvalues,
+        reference._tvalues,
+        rtol=1e-10,
+        atol=1e-11,
+    )
+    np.testing.assert_allclose(
+        scaled._pvalues,
+        reference._pvalues,
+        rtol=1e-10,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        scaled._conf_int,
+        reference._conf_int,
+        rtol=1e-10,
+        atol=1e-11,
+    )
