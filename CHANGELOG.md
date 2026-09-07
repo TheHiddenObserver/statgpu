@@ -2,6 +2,15 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-07
+
+### PR #138 / Issue #137 — Post-selection OLS inference API cleanup
+- Added canonical hardware-neutral `inference_method="post_selection_ols"` for sparse Gaussian Lasso/ElasticNet inference. Legacy `cpu_ols` and `gpu_ols` are deprecated together for one compatibility cycle; `LassoCV` also keeps its older `cpu_ols_inference` / `gpu_ols_inference` spellings as warning compatibility aliases at the CV boundary.
+- Separated statistical-method identity from backend routing: explicit `device="cpu"`, `"cuda"`, or `"torch"` remains authoritative; only genuine estimator/global `device="auto"` may preserve backend-native CuPy or Torch-CUDA input, and post-fit inference reuses the backend/device provenance recorded by the successful penalized fit.
+- `post_selection_ols` performs an unpenalized active-set OLS/WLS refit on the fit-resolved NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. The migration preserves the established nonrobust Student-t reporting convention, the `1e-15` active-set threshold, and inactive-coordinate compatibility placeholders (`SE=0`, statistic `0`, `p=1`, CI `[0, 0]`); those placeholders are not zero-variance inferential claims.
+- Isolated auxiliary post-selection design/residual/scale/df state from the penalized estimator's generic `rsquared`/AIC/BIC/F diagnostic state and tied the auxiliary state into the existing inference-state lifecycle cleanup.
+- Added focused Python 3.9/3.12, Torch-CPU, full CPU, sklearn-maintenance, static/ruff, documentation, and browser regression coverage plus an exact-head physical CuPy/Torch CUDA validator. Hosted checks do not substitute for physical CUDA acceptance; physical validation remains outstanding on the final source SHA and no GPU performance claim is made.
+
 ## Unreleased — 2026-09-06
 
 ### PR #135 — Penalized solver API cleanup
@@ -46,7 +55,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - The subsequent review-fix loops changed valid Fama-MacBeth and shared panel least-squares paths, so the `8c60db00...` P100 artifacts are historical-only for the current branch; fresh exact-head CuPy/Torch CUDA acceptance is required before merge readiness can be promoted.
 - Added maintained Python/R external-definition checks and preserved the historical physical artifacts under `results/pr126_p100_fama_fix/`; legacy Gaussian linear-model inference backend migration is tracked separately in #127.
 - **Two-way clustered covariance performance**: the exact per-row dyadic two-sum fallback (which ordinary balanced panels above ~6.5k rows always triggered, ~1000s per CuPy fit at 10k rows) is now gated by a residual-acceptance check that keeps ordinary designs on the vectorized Gram path and reserves the exact path for genuinely recoverable cancellation residuals; 10k-row CuPy fits drop from ~1018s to ~1.3s and the Stage-C performance benchmark completes instead of timing out.
-- **Numerical hardening**: CuPy `maximum.at`/`scatter_max` return `inf` for float64 magnitudes around 1e7..1e308, so group min/max scatter now uses the sequential host scatter; Torch CUDA SVD requires the exact `gesvd` driver and fails closed with RuntimeError when it is unavailable (the default `gesvdj` driver leaks ~1e-16 into structurally-zero `U` entries that huge responses amplify); failed panel fits retain the executed backend provenance; Student-t(1) p-values use the well-conditioned `2 atan(1/x)/pi` form so extreme statistics keep their representable tail; formula side-array alignment fails closed on over-long inputs.
+- **Numerical hardening**: CuPy `maximum.at`/`scatter_max` return `inf` for float64 magnitudes around 1e7..1e308, so group min/max scatter now uses the sequential host scatter; Torch CUDA SVD requires the exact `gesvd` driver and fails closed with RuntimeError when it is unavailable (the default `gesvdj` leaks ~1e-16 into structurally-zero `U` entries that huge responses amplify); failed panel fits retain the executed backend provenance; Student-t(1) p-values use the well-conditioned `2 atan(1/x)/pi` form so extreme statistics keep their representable tail; formula side-array alignment fails closed on over-long inputs.
 - **CuPy device affinity**: backend availability probes no longer switch the current CUDA device, and panel allocations (scatter targets, dummies, row weights) bind to the reference device; a physical device-affinity gate covers both CuPy and Torch CUDA.
 
 ## 2026-08-08
@@ -54,7 +63,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 ### PR #122 — Panel Tier-1 diagnostics Stage B
 
 - Added structured Panel `fit_statistics_` with parameter-based within/between/overall R², adjusted R², and classical model F statistics while preserving Stage-A inference and legacy df/R² attributes.
-- Added classical pooling F, one-way entity Breusch-Pagan LM (including Baltagi-Li unbalanced panels), and one-way classical FE-vs-RE Hausman with explicit applicability diagnostics.
+- Added classical pooling F, one-way entity Breusch-Pagan LM (including Baltagi-Li unbalanced-panel), and one-way classical FE-vs-RE Hausman with explicit applicability diagnostics.
 - Added NumPy/CuPy/Torch coverage, formula-row alignment, maintained Torch 2.0 CPU tests, executable linearmodels 7.0 definition alignment, and an exact-head physical GPU acceptance runner that rechecks coefficient inference as well as Stage-B diagnostics.
 
 ### PR #121 — CuPy inverse-quantile LUT correctness
