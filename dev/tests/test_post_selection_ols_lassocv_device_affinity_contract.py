@@ -19,6 +19,7 @@ def test_lassocv_cupy_alignment_uses_design_device_for_y_and_weights(monkeypatch
         calls.append((value.label, device_id))
         return _FakeArray(device_id, value.label)
 
+    monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: value is X_cv)
     monkeypatch.setattr(affinity, "_cupy_asarray_on_device", fake_align)
     X_out, y_out, w_out = affinity._align_cupy_cv_inputs(X_cv, y_cv, w_cv)
 
@@ -37,6 +38,7 @@ def test_lassocv_cupy_alignment_handles_missing_weights(monkeypatch):
         calls.append((value.label, device_id))
         return _FakeArray(device_id, value.label)
 
+    monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: value is X_cv)
     monkeypatch.setattr(affinity, "_cupy_asarray_on_device", fake_align)
     X_out, y_out, w_out = affinity._align_cupy_cv_inputs(X_cv, y_cv, None)
 
@@ -44,3 +46,16 @@ def test_lassocv_cupy_alignment_handles_missing_weights(monkeypatch):
     assert y_out.device.id == 2
     assert w_out is None
     assert calls == [("y", 2)]
+
+
+def test_lassocv_affinity_is_transparent_for_synthetic_backend_double(monkeypatch):
+    X_cv = _FakeArray(4, "synthetic-X")
+    y_cv = _FakeArray(0, "synthetic-y")
+    w_cv = _FakeArray(0, "synthetic-w")
+
+    monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: False)
+
+    X_out, y_out, w_out = affinity._align_cupy_cv_inputs(X_cv, y_cv, w_cv)
+    assert X_out is X_cv
+    assert y_out is y_cv
+    assert w_out is w_cv
