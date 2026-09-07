@@ -42,8 +42,10 @@ extreme tails.
 
 ## Sparse penalized-linear inference
 
-For `Lasso` and `ElasticNet`, statistical method identity and execution hardware
-are separate controls. The maintained inference methods are:
+For `Lasso`, `ElasticNet`, and the public generic
+`PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")`
+entry point, statistical method identity and execution hardware are separate
+controls. The maintained inference methods are:
 
 - `debiased` — de-biased/de-sparsified coefficient inference.
 - `post_selection_ols` — heuristic OLS/WLS refit on the active set selected by
@@ -66,6 +68,9 @@ estimator contract:
 - only genuine estimator/global `device="auto"` may preserve an already
   backend-native CuPy or Torch-CUDA input as part of automatic routing.
 
+String and `Penalty`-object forms of the sparse Gaussian penalty participate in
+the same migration and AUTO-routing contract.
+
 Backend reuse is method-specific. `post_selection_ols` always reuses the
 successful fit's recorded `_selected_backend_name` / `_selected_backend_device`,
 and the maintained CuPy/Torch `debiased` routes keep their numerical inference on
@@ -83,20 +88,21 @@ original penalized `coef_` remains the coefficient vector used for prediction;
 the active-set refit is an inferential/reporting object in `_params` /
 `_inference_result`.
 
-The two fits also have different diagnostic ownership. In `summary()`, the
-coefficient table and `Post-selection Refit DoF` belong to the active-set refit,
-whereas R-squared, adjusted R-squared, F statistics, log-likelihood, AIC, BIC,
-and `Penalized-fit Residual DoF` continue to describe the penalized prediction
-fit. The summary labels these quantities separately so the refit degrees of
-freedom are not mistaken for the penalized-fit diagnostic degrees of freedom.
-For a rank-deficient active design, the refit residual degrees of freedom use
-`n - effective_rank`, not `n - active_column_count`; metadata records
+The two fits have separate diagnostic ownership. In `summary()`, the coefficient
+table and `Post-selection Refit DoF` belong to the active-set refit, while
+R-squared, adjusted R-squared, F statistic, log-likelihood, AIC, BIC, and
+`Penalized-fit Residual DoF` continue to describe the penalized prediction fit.
+When the active design is rank deficient, the refit residual degrees of freedom
+are `n - effective_rank`, not `n - active_column_count`; metadata records
 `refit_rank`, `refit_parameter_count`, and `refit_rank_deficient`.
 
 For `cov_type="nonrobust"`, this path preserves the established classical
 **Student-t** reporting convention. Robust covariance choices exposed by the
 estimator use the shared Gaussian robust-covariance layer and its normal-reference
-reporting convention.
+reporting convention. If a no-intercept fit selects no features, all coefficient
+entries are inactive compatibility placeholders; the result still preserves the
+requested covariance/reference family (`nonrobust` -> Student-t, robust/HAC ->
+normal) rather than silently rewriting the request.
 
 The full reporting arrays preserve one compatibility detail from the old
 `cpu_ols` surface: coordinates that were not selected are represented with
