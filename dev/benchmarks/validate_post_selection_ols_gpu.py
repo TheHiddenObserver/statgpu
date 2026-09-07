@@ -71,7 +71,6 @@ def _runtime(backend: str):
 
 
 def _max_error(a, b) -> float:
-    """Compare finite values after requiring identical NaN reporting masks."""
     left = np.asarray(a, dtype=np.float64)
     right = np.asarray(b, dtype=np.float64)
     if left.shape != right.shape:
@@ -81,10 +80,7 @@ def _max_error(a, b) -> float:
     left_nan = np.isnan(left)
     right_nan = np.isnan(right)
     if not np.array_equal(left_nan, right_nan):
-        raise AssertionError(
-            "CPU/GPU inference NaN masks differ; inactive/uninferred coordinates "
-            "must agree exactly before finite-value parity is assessed"
-        )
+        raise AssertionError("CPU/GPU inference NaN masks differ")
     finite = ~left_nan
     if not np.any(finite):
         return 0.0
@@ -139,10 +135,12 @@ def _case(backend: str, *, weighted: bool):
         raise AssertionError(f"reporting boundary mismatch: {meta}")
     if meta.get("resolved_method") != "post_selection_ols":
         raise AssertionError(f"method provenance mismatch: {meta}")
-    if gpu._inference_result.statistic_name != "z":
-        raise AssertionError("post-selection OLS must preserve z-statistic semantics")
-    if gpu._inference_result.distribution != "normal":
-        raise AssertionError("post-selection OLS must preserve normal reference inference")
+    if gpu._inference_result.statistic_name != "t":
+        raise AssertionError("nonrobust post-selection OLS must preserve t-statistic semantics")
+    if gpu._inference_result.distribution != "t":
+        raise AssertionError("nonrobust post-selection OLS must preserve Student-t inference")
+    if not meta.get("inactive_inference_placeholders"):
+        raise AssertionError("inactive-coordinate compatibility metadata is missing")
 
     cpu_selected = cpu._inference_result.metadata["selected_feature_indices"]
     gpu_selected = gpu._inference_result.metadata["selected_feature_indices"]
@@ -150,12 +148,14 @@ def _case(backend: str, *, weighted: bool):
         raise AssertionError(
             f"active-set mismatch: cpu={cpu_selected}, {backend}={gpu_selected}"
         )
+    if meta.get("refit_df_resid") != cpu._inference_result.metadata.get("refit_df_resid"):
+        raise AssertionError("CPU/GPU post-selection residual degrees of freedom differ")
 
     errors = {
         "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
         "post_selection_params": _max_error(gpu._params, cpu._params),
         "bse": _max_error(gpu._bse, cpu._bse),
-        "statistic": _max_error(gpu._zvalues, cpu._zvalues),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
         "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
         "ci": _max_error(gpu._conf_int, cpu._conf_int),
     }
@@ -186,6 +186,7 @@ def _case(backend: str, *, weighted: bool):
         "selected_feature_indices": gpu_selected,
         "statistic_name": gpu._inference_result.statistic_name,
         "distribution": gpu._inference_result.distribution,
+        "refit_df_resid": meta.get("refit_df_resid"),
         "errors": errors,
         "limits": limits,
         "status": "success",
@@ -207,7 +208,7 @@ def main() -> int:
         raise ValueError("--backends must be exactly 'cupy,torch' in that order")
 
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "issue": 137,
         "head_sha": _git("rev-parse", "HEAD"),
         "worktree_clean": _git("status", "--porcelain") == "",
