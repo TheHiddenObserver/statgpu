@@ -90,6 +90,14 @@ from . import _weighted_lassocv_review_contract as _weighted_lassocv_review_cont
 
 _weighted_lassocv_review_contract.install_weighted_lassocv_review_contract()
 
+# Positive constant analytic weights are exactly the unweighted statistical
+# problem. Preserve that identity by delegating them to the maintained fast path.
+from . import (
+    _lassocv_uniform_weight_identity_contract as _lassocv_uniform_weight_identity_contract,
+)
+
+_lassocv_uniform_weight_identity_contract.install_lassocv_uniform_weight_identity_contract()
+
 # LassoCV input preparation must keep response/weights on the concrete CuPy
 # device that owns a native design matrix, matching direct penalized-fit affinity.
 from . import _lassocv_device_affinity_contract as _lassocv_device_affinity_contract
