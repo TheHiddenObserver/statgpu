@@ -1,7 +1,7 @@
 # 推断配置
 
 > 语言: 中文  
-> 最后更新: 2026-09-07  
+> 最后更新: 2026-09-08  
 > 页面定位: 指南文档  
 > 切换: [English](../../en/guides/inference-modes.md)
 
@@ -48,13 +48,17 @@ backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始�
 
 对于 analytic `sample_weight`，维护中的 NumPy/CuPy/Torch `debiased` 路径使用同一个 weighted-centered average-loss 工作问题。因此把所有权重同时乘以任意正的常数，不会改变 penalized fit 或 debiased inference。
 
+加权 `LassoCV` 也使用同一 analytic-weight 约定：默认 alpha grid、每个 training fold 的目标函数、加权 validation MSE 与最终 selected-alpha refit 保持在同一尺度。所有权重都等于同一个正常数时，会直接视为与 unweighted 完全相同的统计问题，避免额外浮点漂移。AUTO 一旦为 CV 解析出具体 CPU/CuPy/Torch backend，最终 `Lasso` refit 也保持在同一 backend；显式 CPU 会在进入 dedicated CV selector 前把异构 GPU 输入统一转换为 NumPy。
+
+对于 debiased simultaneous inference，普通 `_conf_int` 仍然是 marginal interval。`enable_simultaneous_inference=True` 使用 multiplier-bootstrap max-|Z| 校准；当 `simultaneous_include_intercept=True` 时，原始坐标系中的截距 influence **真正参与 bootstrap maximum**，而不只是额外出现在最终区间的输出行中。成功 refit 会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再计算新结果。
+
 ### `post_selection_ols` 实际计算什么？
 
 penalized model 先确定 active set；随后 statgpu 在**同一个 fit-resolved backend** 上，仅使用该 active set 对数据做无惩罚 OLS，存在 sample weights 时做 WLS，再计算对应 covariance 与参考分布推断。
 
 原始 penalized `coef_` 仍然是预测时使用的系数；active-set OLS/WLS 重拟合用于推断与报告，保存在 `_params` / `_inference_result` 等 reporting surface 中。
 
-两次拟合的 diagnostic ownership 也不同。在 `summary()` 中，系数表和 `Post-selection Refit DoF` 属于 active-set refit；R-squared、adjusted R-squared、F statistic、log-likelihood、AIC、BIC 以及 `Penalized-fit Residual DoF` 仍描述 penalized prediction fit。summary 会明确分开标注，避免把 refit 的残差自由度误当成 penalized-fit diagnostics 使用的自由度。若 active design 秩亏，refit residual DoF 使用 `n - effective_rank`，而不是 `n - active_column_count`；metadata 会记录 `refit_rank`、`refit_parameter_count` 与 `refit_rank_deficient`。
+两次拟合的 diagnostic ownership 也不同。在 `summary()` 中，系数表和 `Post-selection Refit DoF` 属于 active-set refit；R-squared、adjusted R-squared、F statistic、log-likelihood、AIC、BIC 以及 `Penalized-fit Residual DoF` 仍描述 penalized prediction fit。summary 会明确分开标注，避免把 refit 的残差自由度误当成 penalized-fit diagnostics 使用的自由度。若 active design 秩亏，refit residual DoF 使用 `n - effective_rank`，而不是 `n - active_column_count`；系数重拟合与 covariance bread 都使用 design-level Moore-Penrose/SVD 计算，避免通过 normal equations 把条件数平方。metadata 会记录 `refit_rank`、`refit_parameter_count` 与 `refit_rank_deficient`。
 
 在 `cov_type="nonrobust"` 下，这条路径保留既有的经典 **Student-t** 报告语义。estimator 已公开的 robust covariance 选项则复用共享 Gaussian robust-covariance layer，并使用对应的 normal-reference 报告语义。若模型不含截距且 active set 为空，所有参数坐标都只是 inactive compatibility placeholder；result 仍保留调用者请求的 covariance/reference family（`nonrobust` -> Student-t，robust/HAC -> normal），不会把 robust 请求静默改写成 nonrobust。
 
