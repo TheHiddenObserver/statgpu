@@ -73,6 +73,148 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             inference_method=inference_method,
         )
 
+    @staticmethod
+    def _weighted_sparse_gpu_working_data(
+        X,
+        y,
+        sample_weight,
+        *,
+        fit_intercept,
+        xp,
+        n_eff,
+    ):
+        """Map analytic-weight Gaussian data to an equivalent unweighted problem.
+
+        The CPU sparse Gaussian path minimizes the weighted squared loss divided
+        by ``sum(sample_weight)`` after weighted centering.  The shared GPU FISTA
+        kernel is unweighted and divides by ``n_samples``.  Scaling the
+        weighted-centered rows by ``sqrt(n_samples / sum(weight))`` makes those
+        two objectives identical while preserving the existing fused GPU solver.
+        """
+        n_samples = int(X.shape[0])
+        if fit_intercept:
+            X_mean = xp.sum(X * sample_weight[:, None], axis=0) / n_eff
+            y_mean = xp.sum(y * sample_weight) / n_eff
+            X_centered = X - X_mean
+            y_centered = y - y_mean
+        else:
+            X_mean = None
+            y_mean = None
+            X_centered = X
+            y_centered = y
+
+        row_scale = xp.sqrt(
+            sample_weight * (float(n_samples) / float(n_eff))
+        )
+        return (
+            X_centered * row_scale[:, None],
+            y_centered * row_scale,
+            X_mean,
+            y_mean,
+        )
+
+    def _fit_gpu_backend(self, X, y, sample_weight=None, backend_name="cupy"):
+        """Fit Gaussian sparse models with CPU-equivalent analytic weights.
+
+        Weighted L1/ElasticNet fits use the same average-loss objective as the
+        NumPy path.  Other solver/penalty combinations delegate unchanged to the
+        maintained shared backend implementation.
+        """
+        penalty_name = str(
+            getattr(self._penalty, "name", self.penalty)
+        ).lower()
+        solver_name = self._selected_solver or self._select_solver(
+            self._loss, backend_name=backend_name
+        )
+        if (
+            sample_weight is None
+            or penalty_name not in ("l1", "elasticnet", "en")
+            or solver_name not in ("fista", "fista_bb")
+        ):
+            return super()._fit_gpu_backend(
+                X,
+                y,
+                sample_weight,
+                backend_name=backend_name,
+            )
+
+        from statgpu.backends import _to_numpy
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        from statgpu.linear_model.penalized._fit_mixin import (
+            _validate_sample_weight_backend,
+        )
+
+        xp = _get_xp(backend_name)
+        X_arr = xp_asarray(X, dtype=np.float64, xp=xp, ref_arr=X)
+        y_arr = xp_asarray(y, dtype=np.float64, xp=xp, ref_arr=y).reshape(-1)
+        sample_weight_arr = xp_asarray(
+            sample_weight,
+            dtype=X_arr.dtype,
+            xp=xp,
+            ref_arr=X_arr,
+        ).reshape(-1)
+        n_samples, n_features = X_arr.shape
+        n_eff = _validate_sample_weight_backend(
+            sample_weight_arr,
+            n_samples,
+            backend_name,
+        )
+        original_intercept = bool(self._effective_intercept)
+        X_work, y_work, X_mean, y_mean = (
+            self._weighted_sparse_gpu_working_data(
+                X_arr,
+                y_arr,
+                sample_weight_arr,
+                fit_intercept=original_intercept,
+                xp=xp,
+                n_eff=n_eff,
+            )
+        )
+
+        # The transformed problem already contains the correct weighted
+        # centering, so the shared unweighted kernel must not center a second
+        # time.  Its n_samples normalization is exactly compensated by the row
+        # scaling above.  Disable in-kernel inference so post-fit inference runs
+        # once on the original X/y/sample_weight with restored intercept
+        # semantics.
+        saved_use_intercept = self._use_intercept
+        saved_compute_inference = self._compute_inference_enabled
+        cache_sentinel = object()
+        saved_cv_cache = getattr(self, "_cv_cache", cache_sentinel)
+        self._use_intercept = False
+        self._compute_inference_enabled = False
+        if saved_cv_cache is not cache_sentinel:
+            del self._cv_cache
+        try:
+            super()._fit_gpu_backend(
+                X_work,
+                y_work,
+                None,
+                backend_name=backend_name,
+            )
+        finally:
+            self._use_intercept = saved_use_intercept
+            self._compute_inference_enabled = saved_compute_inference
+            if saved_cv_cache is not cache_sentinel:
+                self._cv_cache = saved_cv_cache
+
+        coef = np.asarray(self.coef_, dtype=np.float64)
+        self.coef_ = coef
+        if original_intercept:
+            X_mean_np = np.asarray(_to_numpy(X_mean), dtype=np.float64)
+            y_mean_value = float(
+                np.asarray(_to_numpy(y_mean), dtype=np.float64)
+            )
+            self.intercept_ = float(y_mean_value - X_mean_np @ coef)
+            self._params = np.concatenate([[self.intercept_], coef])
+        else:
+            self.intercept_ = 0.0
+            self._params = coef.copy()
+        self._nobs = int(n_samples)
+        self._df_resid = int(
+            n_samples - (n_features + int(original_intercept))
+        )
+
     def _fit_diagnostic_state(self):
         """Return response/residual state and optional L2 analytic weights."""
         if self._y is None or self._resid is None:
