@@ -19,8 +19,8 @@ from statgpu.linear_model._gaussian_inference import (
 )
 
 # Preserve the maintained pre-migration active-set boundary. An API cleanup
-# should not silently turn solver-scale numerical dust into selected variables.
-_POST_SELECTION_ACTIVE_TOL = 1e-10
+# should not silently change which solver-scale coefficients count as selected.
+_POST_SELECTION_ACTIVE_TOL = 1e-15
 
 
 def _selected_device(model, backend_name: str) -> str:
@@ -67,21 +67,21 @@ def _active_design(X_native, selected_idx, *, fit_intercept: bool, backend_name:
     return np.column_stack([np.ones(n, dtype=X_native.dtype), features])
 
 
-def _normal_nonrobust_inference(
+def _classical_nonrobust_inference(
     X_work,
     params_native,
-    resid_work,
     scale_native,
     *,
     backend_name: str,
     selected_device: str,
+    df_resid: int,
 ):
-    """Preserve the pre-migration normal/z post-selection reporting contract.
+    """Compute the maintained classical Student-t post-selection report.
 
-    The old unified ``cpu_ols`` / ``gpu_ols`` path performed an active-set
-    unpenalized refit and reported z/normal inference.  The API migration keeps
-    that statistical definition while moving the same numerical work to the
-    fit-resolved NumPy/CuPy/Torch backend.
+    The pre-migration ``cpu_ols`` path used a classical OLS covariance and
+    Student-t reference distribution. The hardware-neutral API keeps that
+    reporting contract while moving the numerical work to the fit-resolved
+    NumPy/CuPy/Torch backend.
     """
     XtX = X_work.T @ X_work
     bread_inv = _inverse_or_pinv(XtX, backend_name)
@@ -93,10 +93,11 @@ def _normal_nonrobust_inference(
     statistic_native = params_native / (bse_native + 1e-30)
     pvalues_native, critical = _reference_inference(
         statistic_native,
-        distribution="normal",
+        distribution="t",
         alpha=0.05,
         backend=backend_name,
         device=selected_device,
+        df=df_resid,
     )
     conf_int_native = _stack(
         [
@@ -189,8 +190,8 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         resid_work = y_work
         df_resid = n
         scale_native = xp.sum(resid_work * resid_work) / float(df_resid)
-        resolved_cov_type = str(getattr(model, "_cov_type", "nonrobust"))
-        resolved_distribution = "normal"
+        resolved_cov_type = "nonrobust"
+        resolved_distribution = "t"
         numerical_metadata = {
             "numerical_backend": backend_name,
             "numerical_device": selected_device,
@@ -209,13 +210,13 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         hac_maxlags = getattr(model, "_hac_maxlags", None)
 
         if cov_type == "nonrobust":
-            bse_sel, stat_sel, pvalues_sel, ci_sel = _normal_nonrobust_inference(
+            bse_sel, stat_sel, pvalues_sel, ci_sel = _classical_nonrobust_inference(
                 X_work,
                 params_native,
-                resid_work,
                 scale_native,
                 backend_name=backend_name,
                 selected_device=selected_device,
+                df_resid=df_resid,
             )
             params_sel = np.asarray(_to_numpy(params_native), dtype=np.float64)
             numerical_metadata = {
@@ -225,7 +226,7 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
                 "reporting_boundary": "post_numerical_inference",
             }
             resolved_cov_type = "nonrobust"
-            resolved_distribution = "normal"
+            resolved_distribution = "t"
         else:
             gaussian = compute_gaussian_inference(
                 X_work,
@@ -250,20 +251,20 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
             ci_sel = np.asarray(gaussian.conf_int, dtype=np.float64)
             numerical_metadata = dict(gaussian.metadata)
             resolved_cov_type = gaussian.cov_type
-            resolved_distribution = "normal"
+            resolved_distribution = str(gaussian.distribution)
 
     full_dim = p_full + int(bool(model._effective_intercept))
-    # Preserve the fitted penalized values for coordinates that were not
-    # selected, matching the pre-migration reporting contract. Crucially, those
-    # coordinates did not receive an OLS/WLS refit, so their inferential fields
-    # are NaN rather than fake zero-variance [0, 0] intervals.
+    # Preserve the established full-layout placeholders for coordinates that
+    # were not selected. These zeros/ones are compatibility placeholders, not
+    # zero-variance inferential claims; the selected_feature_indices metadata is
+    # authoritative about which coordinates actually received OLS/WLS inference.
     params = coef_penalized.copy()
     if model._effective_intercept:
         params = np.concatenate([[float(model.intercept_)], params])
-    bse = np.full(full_dim, np.nan, dtype=np.float64)
-    statistic = np.full(full_dim, np.nan, dtype=np.float64)
-    pvalues = np.full(full_dim, np.nan, dtype=np.float64)
-    conf_int = np.full((full_dim, 2), np.nan, dtype=np.float64)
+    bse = np.zeros(full_dim, dtype=np.float64)
+    statistic = np.zeros(full_dim, dtype=np.float64)
+    pvalues = np.ones(full_dim, dtype=np.float64)
+    conf_int = np.zeros((full_dim, 2), dtype=np.float64)
 
     if model._effective_intercept and k:
         params[0] = params_sel[0]
@@ -301,20 +302,21 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         "selected_feature_indices": selected_idx.tolist(),
         "active_set_tolerance": _POST_SELECTION_ACTIVE_TOL,
         "sample_weighted": sample_weight is not None,
-        "compatibility_reference_distribution": "normal",
+        "inactive_inference_placeholders": True,
     }
+    statistic_name = "t" if resolved_distribution == "t" else "z"
     result = ParameterInferenceResult(
         method="post_selection_ols",
         feature_names=model._inference_feature_names(),
         params=params,
         bse=bse,
         statistic=statistic,
-        statistic_name="z",
+        statistic_name=statistic_name,
         pvalues=pvalues,
         conf_int=conf_int,
         cov_type=resolved_cov_type,
         distribution=resolved_distribution,
-        df=None,
+        df=float(df_resid) if resolved_distribution == "t" else None,
         metadata=metadata,
     )
     result.apply_to(model)
