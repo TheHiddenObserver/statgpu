@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-09-06  
+> Last updated: 2026-09-08  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/lasso.md)
 
@@ -55,6 +55,7 @@ Validity notes:
 
 - `post_selection_ols` is a heuristic post-selection diagnostic. Its intervals should not be interpreted as general selective-inference confidence intervals after choosing variables from the same data.
 - The ordinary `debiased` `_conf_int` is marginal per coefficient. Simultaneous/joint family-wise coverage requires the dedicated simultaneous inference path.
+- Rank-deficient active refits use the effective design rank for residual degrees of freedom and a design-level Moore-Penrose/SVD refit rather than squaring the condition number through normal equations.
 
 ### Device/backend rule
 
@@ -70,6 +71,29 @@ Backend reuse is method-specific. `post_selection_ols` reuses the successful fit
 `debiased` routes keep their numerical inference on the executed GPU backend.
 Residual `bootstrap` currently uses CPU-native residual refits, so an explicit GPU
 `device` controls the penalized fit but does not make bootstrap GPU-native.
+
+With analytic weights, direct Lasso and debiased inference use the same
+weighted-centered average-loss convention on NumPy/CuPy/Torch, so multiplying all
+weights by one positive constant does not change the statistical problem.
+`LassoCV` uses the same convention for the default alpha grid, every weighted
+training fold, validation MSE, and final refit. Constant positive weights take the
+exact unweighted CV path. Once AUTO resolves a concrete backend for CV, the final
+selected-alpha `Lasso` refit remains on that backend.
+
+### Simultaneous debiased inference
+
+With `enable_simultaneous_inference=True`, Lasso calibrates a multiplier-bootstrap
+max-|Z| critical value. The ordinary `_conf_int` remains marginal; the joint
+intervals are stored separately in `_conf_int_simultaneous`.
+
+`simultaneous_include_intercept=False` calibrates the family over feature
+coefficients only. With `simultaneous_include_intercept=True`, the fitted
+original-coordinate intercept is part of the bootstrap maximum itself, using the
+same weighted/unweighted working problem that supplies its marginal standard
+error. It is therefore not merely an extra output row receiving a feature-only
+critical value. Every successful refit clears any previous simultaneous critical
+value, target mask, intervals, and precision/influence state before publishing the
+new result.
 
 ## Parameters
 
@@ -90,7 +114,7 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 | `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level. |
 | `simultaneous_n_bootstrap` | `1000` | Multiplier-bootstrap draws for max-|Z| calibration. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap. |
-| `simultaneous_include_intercept` | `False` | Whether the simultaneous target set includes the intercept. |
+| `simultaneous_include_intercept` | `False` | Whether the intercept is included in both the simultaneous target set and max-|Z| calibration family. |
 | `device` | `"auto"` | Execution device: `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | CPU parallelism where supported. |
 | `compute_inference` | `True` | Whether to compute post-fit inference. |
@@ -142,6 +166,7 @@ m_sim = Lasso(
     simultaneous_alpha=0.05,
     simultaneous_n_bootstrap=1000,
     simultaneous_random_state=7,
+    simultaneous_include_intercept=True,
 )
 m_sim.fit(X, y)
 ci_marginal = m_sim._conf_int
@@ -158,7 +183,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - Inference (if enabled): `_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`, `_inference_result`
 - Under `inference_method="post_selection_ols"`, `coef_` remains penalized while `_params` contains the active-set OLS/WLS refit embedded in the full parameter layout.
 - Under `inference_method="debiased"`, summary/statistical reporting uses z-style semantics (`z`, `P>|z|`), and `_conf_int` is marginal per coefficient.
-- With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target set (`maxz_bootstrap`).
+- With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target family (`maxz_bootstrap`); when the intercept is included it also participates in the max-|Z| calibration.
 - Methods: `fit`, `predict`, `score`, `summary`
 - Common diagnostics include `aic` and `bic` when available.
 
@@ -171,7 +196,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - When should I use `debiased`? Prefer it when you need coefficient-level inference in high-dimensional sparse settings, subject to the method's assumptions.
 - Is `post_selection_ols` a valid selective-inference confidence procedure? No. Treat it as a post-selection diagnostic.
 - Are ordinary `debiased` intervals simultaneous/joint confidence regions? No. Ordinary `_conf_int` values are marginal. Enable the dedicated simultaneous path when family-wise intervals are required.
-- How do I enable simultaneous intervals? Set `enable_simultaneous_inference=True` with `inference_method="debiased"` and `simultaneous_method="maxz_bootstrap"`.
+- How do I include the intercept in simultaneous coverage? Set `simultaneous_include_intercept=True`; the intercept then participates in the bootstrap max-|Z| calibration as well as the reported joint interval set.
 
 ## External Validation
 
