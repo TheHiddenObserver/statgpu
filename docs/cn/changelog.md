@@ -1,9 +1,23 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-06<br>
+> 最后更新：2026-09-07<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — Post-selection OLS 推断 API 清理（PR #138 / Issue #137）
+
+### 变更
+
+- 为稀疏 Gaussian `Lasso`/`ElasticNet` 推断增加与硬件无关的 canonical `inference_method="post_selection_ols"`。旧 `cpu_ols` 与 `gpu_ols` 同时进入一个兼容周期的弃用阶段；`LassoCV` 还会在 CV 边界继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并以 warning compatibility alias 归一化到同一方法。
+- 将“统计方法是什么”与“在哪个 backend 执行”分离：显式 `device="cpu"`、`"cuda"`、`"torch"` 继续具有权威性；只有 estimator/global 都处于真正 `device="auto"` 时才允许保留输入已有的 CuPy 或 Torch-CUDA native backend；post-fit inference 复用成功 penalized fit 已记录的 backend/device provenance，而不会从原始输入重新猜测。
+- `post_selection_ols` 在 fit-resolved NumPy/CuPy/Torch backend 上对 penalized fit 选出的 active set 做无惩罚 OLS/WLS 重拟合，同时保留原 penalized `coef_` 用于预测。迁移保持既有 nonrobust Student-t 报告语义、`1e-15` active-set threshold，以及未选坐标的兼容占位（`SE=0`、统计量 `0`、`p=1`、CI `[0, 0]`）；这些占位不表示“零方差”或“精确为零”的统计结论。
+- 将 post-selection auxiliary design/residual/scale/df 状态与 penalized estimator 的通用 `rsquared`/AIC/BIC/F 诊断状态隔离，并接入既有 inference-state lifecycle cleanup，避免 refit 或 `set_params` 后残留 stale auxiliary state。
+
+### 验证
+
+- 增加 Python 3.9/3.12、Torch-CPU、完整 CPU、sklearn maintenance、static/ruff、documentation 与 browser focused regression coverage，并提供 exact-head physical CuPy/Torch CUDA validator。
+- Hosted checks 不等价于 physical CUDA acceptance；最终 source SHA 的物理 CUDA 验证仍待执行。本变更不做 GPU 性能声明。
 
 ## 未发布 — Penalized solver API 清理（PR #135）
 
