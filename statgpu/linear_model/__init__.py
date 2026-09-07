@@ -65,6 +65,16 @@ from . import _penalized_inference_api_contract as _penalized_inference_api_cont
 
 _penalized_inference_api_contract.install_penalized_inference_api_contract()
 
+# A fresh full-diff review after physical acceptance found two cross-path gaps:
+# generic squared-error sparse estimators were not receiving the same migration
+# contract, and the first weighted GPU objective fix disabled backend-native
+# debiased inference. Install the focused closure after the main API migration.
+from . import (
+    _post_selection_ols_review_fix_contract as _post_selection_ols_review_fix_contract,
+)
+
+_post_selection_ols_review_fix_contract.install_post_selection_ols_review_fix_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',

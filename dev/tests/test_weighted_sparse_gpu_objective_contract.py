@@ -1,8 +1,10 @@
 import numpy as np
 import pytest
 
+from statgpu.inference._results import DebiasedInferenceResult
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
+import statgpu.linear_model._post_selection_ols_review_fix_contract as review_fix
 
 
 @pytest.mark.parametrize("fit_intercept", [False, True])
@@ -94,24 +96,31 @@ def test_weighted_sparse_gpu_working_problem_is_weight_scale_invariant(fit_inter
         assert scaled[3] == pytest.approx(baseline[3], rel=2e-15, abs=2e-15)
 
 
-def test_weighted_sparse_gpu_dispatch_restores_public_fit_semantics(monkeypatch):
+def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(monkeypatch):
     rng = np.random.default_rng(140)
     X = rng.normal(size=(41, 3))
     y = rng.normal(size=41)
     weights = rng.uniform(0.3, 2.2, size=41)
-    model = PenalizedLinearRegression(
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
         penalty="l1",
         alpha=0.05,
         fit_intercept=True,
         compute_inference=True,
+        inference_method="debiased",
         solver="fista",
+        device="cpu",
     )
+    model._penalty = model._resolve_penalty()
+    model._loss = model._resolve_loss()
     model._selected_solver = "fista"
+    model._selected_backend_name = "numpy"
+    model._selected_backend_device = "cpu"
     original_cache = {"contract": "preserve"}
     model._cv_cache = original_cache
     captured = {}
 
-    def fake_parent_fit(
+    def fake_base_fit(
         self,
         X_work,
         y_work,
@@ -121,21 +130,47 @@ def test_weighted_sparse_gpu_dispatch_restores_public_fit_semantics(monkeypatch)
         assert sample_weight is None
         assert backend_name == "numpy"
         assert self._effective_intercept is False
-        assert self._compute_inference_enabled is False
+        # This is the regression guard: the first weighted fix incorrectly
+        # disabled inference here, causing the outer fit to fall through to the
+        # CPU-oriented post-fit debiased helper.
+        assert self._compute_inference_enabled is True
         assert not hasattr(self, "_cv_cache")
         captured["X_work"] = np.asarray(X_work).copy()
         captured["y_work"] = np.asarray(y_work).copy()
-        self.coef_ = np.array([0.35, -0.15, 0.08], dtype=np.float64)
+
+        coef = np.array([0.35, -0.15, 0.08], dtype=np.float64)
+        theta = coef + np.array([0.01, -0.005, 0.002], dtype=np.float64)
+        bse = np.array([0.08, 0.07, 0.09], dtype=np.float64)
+        statistic = theta / bse
+        pvalues = np.array([0.02, 0.04, 0.3], dtype=np.float64)
+        conf_int = np.column_stack([theta - 1.96 * bse, theta + 1.96 * bse])
+        self.coef_ = coef
         self.intercept_ = 0.0
-        self._params = self.coef_.copy()
+        self._debiased_M_cpu = np.eye(coef.size)
+        result = DebiasedInferenceResult(
+            method="debiased",
+            params=theta,
+            bse=bse,
+            statistic=statistic,
+            statistic_name="z",
+            pvalues=pvalues,
+            conf_int=conf_int,
+            distribution="normal",
+            precision_method="nodewise_lasso",
+            metadata={
+                "backend_path": "numpy_debiased",
+                "precision_cache_hit": False,
+            },
+        )
+        result.apply_to(self)
+        resid = np.asarray(y_work) - np.asarray(X_work) @ coef
+        self._X_design = np.asarray(X_work).copy()
+        self._y = np.asarray(y_work).copy()
+        self._resid = resid
         self._nobs = int(X_work.shape[0])
         self._df_resid = int(X_work.shape[0] - X_work.shape[1])
 
-    monkeypatch.setattr(
-        PenalizedGeneralizedLinearModel,
-        "_fit_gpu_backend",
-        fake_parent_fit,
-    )
+    monkeypatch.setattr(review_fix, "_BASE_GPU_FIT", fake_base_fit)
 
     model._fit_gpu_backend(
         X,
@@ -151,12 +186,6 @@ def test_weighted_sparse_gpu_dispatch_restores_public_fit_semantics(monkeypatch)
     expected_y_mean = float(np.average(y, weights=weights))
     expected_intercept = expected_y_mean - expected_X_mean @ model.coef_
     assert model.intercept_ == pytest.approx(expected_intercept, rel=0, abs=1e-14)
-    np.testing.assert_allclose(
-        model._params,
-        np.concatenate([[expected_intercept], model.coef_]),
-        rtol=0,
-        atol=1e-14,
-    )
     assert model._df_resid == X.shape[0] - X.shape[1] - 1
 
     X_expected, y_expected, _, _ = (
@@ -171,3 +200,15 @@ def test_weighted_sparse_gpu_dispatch_restores_public_fit_semantics(monkeypatch)
     )
     np.testing.assert_allclose(captured["X_work"], X_expected, rtol=0, atol=0)
     np.testing.assert_allclose(captured["y_work"], y_expected, rtol=0, atol=0)
+
+    result = model._inference_result
+    assert result.method == "debiased"
+    assert result.metadata["backend_path"] == "numpy_debiased_weighted"
+    assert result.metadata["sample_weighted"] is True
+    assert result.metadata["reporting_boundary"] == "post_numerical_inference"
+    assert model._params.shape == (X.shape[1] + 1,)
+    assert model._bse.shape == model._params.shape
+    assert model._pvalues.shape == model._params.shape
+    assert model._conf_int.shape == (model._params.size, 2)
+    assert model._params[0] == pytest.approx(expected_intercept, rel=0, abs=1e-14)
+    assert np.all(np.isfinite(model._bse))

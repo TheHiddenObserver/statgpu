@@ -49,6 +49,52 @@ def test_sparse_gaussian_inherited_fit_actually_installs_auto_native_device_wrap
     assert model.device == "auto"
 
 
+def test_generic_sparse_gaussian_fit_installs_same_auto_native_device_wrapper(
+    monkeypatch,
+):
+    X, y = _gaussian_data(seed=141)
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l1",
+        device="auto",
+        compute_inference=False,
+    )
+    observed = {}
+
+    monkeypatch.setattr(
+        inference_contract,
+        "_input_native_device",
+        lambda owner, value: Device.CUDA if owner is model else None,
+    )
+
+    def stop_at_backend_resolution(backend="auto"):
+        observed["device"] = model._device
+        raise RuntimeError("generic backend-resolution sentinel")
+
+    monkeypatch.setattr(model, "_get_backend", stop_at_backend_resolution)
+
+    with pytest.raises(RuntimeError, match="generic backend-resolution sentinel"):
+        model.fit(X, y)
+
+    assert observed["device"] == Device.CUDA
+    assert model._device == Device.AUTO
+    assert model.device == "auto"
+
+
+def test_generic_sparse_gaussian_legacy_alias_warns_and_normalizes():
+    with pytest.warns(FutureWarning, match="post_selection_ols") as caught:
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error",
+            penalty="l1",
+            inference_method="gpu_ols",
+            compute_inference=False,
+            device="cpu",
+        )
+    assert len(caught) == 1
+    assert model.inference_method == "gpu_ols"
+    assert model._inference_method == "post_selection_ols"
+
+
 def test_ridge_is_outside_sparse_gaussian_auto_native_pin_scope(monkeypatch):
     ridge = Ridge(device="auto", compute_inference=False)
     fake_cupy = object()
