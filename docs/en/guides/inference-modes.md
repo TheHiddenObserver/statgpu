@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-09-07  
+> Last updated: 2026-09-08  
 > This page: Guide  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -84,6 +84,22 @@ use the same weighted-centered average-loss working problem. Multiplying every
 weight by the same positive constant therefore leaves both the penalized fit and
 the debiased inference unchanged.
 
+Weighted `LassoCV` uses that same analytic-weight convention for its default
+alpha grid, every training-fold objective, weighted validation MSE, and the final
+selected-alpha refit. Positive constant weights are treated as the exact
+unweighted statistical problem, avoiding artificial floating-point differences.
+Once AUTO routing resolves a concrete CPU/CuPy/Torch backend for CV, the final
+`Lasso` refit stays on that same backend; explicit CPU also converts heterogeneous
+GPU-resident inputs to NumPy before entering the dedicated CV selector.
+
+For debiased simultaneous inference, ordinary `_conf_int` remains marginal.
+`enable_simultaneous_inference=True` uses multiplier-bootstrap max-|Z|
+calibration. When `simultaneous_include_intercept=True`, the original-coordinate
+intercept influence is part of the bootstrap maximum itself, not merely an extra
+reported interval row. A successful refit clears the previous fit's simultaneous
+critical value, target mask, joint intervals, and precision/influence state before
+computing the new result.
+
 ### What `post_selection_ols` computes
 
 The penalized model first selects an active set. statgpu then refits an
@@ -98,7 +114,9 @@ table and `Post-selection Refit DoF` belong to the active-set refit, while
 R-squared, adjusted R-squared, F statistic, log-likelihood, AIC, BIC, and
 `Penalized-fit Residual DoF` continue to describe the penalized prediction fit.
 When the active design is rank deficient, the refit residual degrees of freedom
-are `n - effective_rank`, not `n - active_column_count`; metadata records
+are `n - effective_rank`, not `n - active_column_count`; the coefficient refit
+and covariance bread use a design-level Moore-Penrose/SVD calculation rather
+than squaring the condition number through normal equations. Metadata records
 `refit_rank`, `refit_parameter_count`, and `refit_rank_deficient`.
 
 For `cov_type="nonrobust"`, this path preserves the established classical
