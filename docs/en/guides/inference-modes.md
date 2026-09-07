@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-09-06  
+> Last updated: 2026-09-07  
 > This page: Guide  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -74,10 +74,22 @@ make a second backend decision from the raw input container.
 
 The penalized model first selects an active set. statgpu then refits an
 **unpenalized OLS or WLS model on exactly that active set** on the fit-resolved
-backend and computes the requested Gaussian covariance/reference-distribution
-inference there. The original penalized `coef_` remains the coefficient vector
-used for prediction; the active-set refit is an inferential/reporting object in
-`_params` / `_inference_result`.
+backend and computes covariance/reference-distribution inference there. The
+original penalized `coef_` remains the coefficient vector used for prediction;
+the active-set refit is an inferential/reporting object in `_params` /
+`_inference_result`.
+
+For `cov_type="nonrobust"`, this path preserves the established classical
+**Student-t** reporting convention. Robust covariance choices exposed by the
+estimator use the shared Gaussian robust-covariance layer and its normal-reference
+reporting convention.
+
+The full reporting arrays preserve one compatibility detail from the old
+`cpu_ols` surface: coordinates that were not selected are represented with
+`SE=0`, statistic `0`, `p=1`, and `[0, 0]` confidence-interval placeholders.
+Those values are **not inferential claims that the coefficient is known exactly**.
+Use `_inference_result.metadata["selected_feature_indices"]` to identify the
+coordinates that actually received the active-set OLS/WLS calculation.
 
 This remains a post-selection diagnostic. Ordinary OLS/WLS intervals formed
 after choosing variables from the same data are not general selective-inference
