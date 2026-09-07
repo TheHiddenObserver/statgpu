@@ -1,7 +1,10 @@
 import numpy as np
 import pytest
 
-from statgpu.linear_model import Lasso
+from statgpu._config import Device
+from statgpu.linear_model import Lasso, LassoCV
+import statgpu.linear_model._penalized_inference_api_contract as inference_contract
+import statgpu.linear_model.wrappers._lasso as lasso_wrapper
 
 
 def _data(seed=24, n=180, p=10):
@@ -171,3 +174,65 @@ def test_rank_deficient_active_refit_uses_effective_rank_df():
     np.testing.assert_allclose(
         model._conf_int, reference.conf_int(), rtol=1e-8, atol=1e-10
     )
+
+
+@pytest.mark.parametrize(
+    "target,device_name",
+    [(Device.CUDA, "cuda"), (Device.TORCH, "torch")],
+)
+def test_lassocv_auto_native_target_pins_cv_and_final_refit(
+    monkeypatch,
+    target,
+    device_name,
+):
+    X = np.zeros((8, 2), dtype=np.float64)
+    y = np.zeros(8, dtype=np.float64)
+    model = LassoCV(
+        alphas=np.asarray([0.05], dtype=np.float64),
+        cv=2,
+        compute_inference=False,
+        device="auto",
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        inference_contract,
+        "_input_native_device",
+        lambda estimator, value: target,
+    )
+    monkeypatch.setattr(model, "_get_compute_device", lambda: model._device)
+
+    def fake_prepare(X_arg, y_arg, sw_arg, resolved_device):
+        captured["prepare_device"] = resolved_device
+        return X_arg, y_arg, sw_arg
+
+    monkeypatch.setattr(model, "_prepare_cv_inputs_for_resolved_device", fake_prepare)
+
+    def fake_select(X_arg, y_arg, **kwargs):
+        captured["cv_device"] = kwargs["device"]
+        return {
+            "alpha": 0.05,
+            "alphas": np.asarray([0.05], dtype=np.float64),
+            "mse_path": np.asarray([[1.0, 1.0]], dtype=np.float64),
+            "mean_mse": np.asarray([1.0], dtype=np.float64),
+        }
+
+    monkeypatch.setattr(lasso_wrapper, "_select_lasso_alpha_cv", fake_select)
+
+    def fake_lasso_fit(self, X_arg, y_arg, sample_weight=None):
+        captured["final_device"] = self._device
+        self.coef_ = np.zeros(X.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        self._fitted = True
+        return self
+
+    monkeypatch.setattr(Lasso, "fit", fake_lasso_fit)
+
+    model.fit(X, y)
+
+    assert captured["prepare_device"] == device_name
+    assert captured["cv_device"] == device_name
+    assert captured["final_device"] == target
+    assert model.estimator_._device == target
+    assert model._device == Device.AUTO
