@@ -6,8 +6,9 @@ This contract keeps several cross-path public boundaries aligned with #137:
   string penalty names, so warning normalization and AUTO native-input routing
   are identical for both constructor forms and follow the current public value
   rather than stale resolved state from a previous fit;
-* sparse-Gaussian inference-enabled estimators fail closed when the outer public
-  finite-input guard rejects a refit before the inner fit transaction starts;
+* sparse-Gaussian inference-enabled estimators fail closed when either the outer
+  public finite-input guard rejects a refit before the inner fit transaction, or
+  a later post-fit inference failure escapes after coefficients were mutated;
 * a no-intercept fit with an empty active set preserves the caller's requested
   covariance/reference-distribution semantics instead of silently claiming
   ``nonrobust`` Student-t inference;
@@ -47,6 +48,7 @@ _FIFTH_REVIEW_MARKER = "__statgpu_pr138_fifth_review_contract__"
 _CPU_DEBIASED_MARKER = "__statgpu_pr138_centered_cpu_debiased_contract__"
 _GPU_DEBIASED_MARKER = "__statgpu_pr138_centered_gpu_debiased_contract__"
 _SPARSE_RESET_MARKER = "__statgpu_pr138_sparse_inference_finite_reset__"
+_SPARSE_FIT_TRANSACTION_MARKER = "__statgpu_pr138_sparse_inference_fit_transaction__"
 _SPARSE_GAUSSIAN_PENALTIES = frozenset({"l1", "elasticnet", "en"})
 _ORIGINAL_POST_SELECTION = _post_selection.compute_post_selection_ols_inference
 _ORIGINAL_CPU_DEBIASED = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
@@ -109,6 +111,48 @@ def _install_sparse_inference_public_validation_reset() -> None:
     setattr(_reset_fit_state, _SPARSE_RESET_MARKER, True)
     _reset_fit_state._statgpu_original = current_reset
     PenalizedGeneralizedLinearModel._reset_fit_state = _reset_fit_state
+
+
+def _install_sparse_inference_fit_transaction(cls) -> None:
+    """Invalidate sparse-inference state when any inner fit/inference stage fails."""
+    current = getattr(cls, "fit", None)
+    if current is None or getattr(current, _SPARSE_FIT_TRANSACTION_MARKER, False):
+        return
+
+    @functools.wraps(current)
+    def _fit_with_sparse_inference_transaction(
+        self,
+        X=None,
+        y=None,
+        sample_weight=None,
+        formula=None,
+        data=None,
+        **kwargs,
+    ):
+        sparse_inference = (
+            bool(getattr(self, "compute_inference", False))
+            and _supports_sparse_gaussian_migration(self)
+        )
+        try:
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+                **kwargs,
+            )
+        except Exception:
+            # Backend/device cleanup remains owned by the existing inner fit
+            # transaction. This wrapper is state-only so cleanup never runs twice.
+            if sparse_inference:
+                _invalidate_failed_sparse_inference_fit(self)
+            raise
+
+    setattr(_fit_with_sparse_inference_transaction, _SPARSE_FIT_TRANSACTION_MARKER, True)
+    _fit_with_sparse_inference_transaction._statgpu_original = current
+    cls.fit = _fit_with_sparse_inference_transaction
 
 
 @functools.wraps(_ORIGINAL_POST_SELECTION)
@@ -320,6 +364,8 @@ def install_post_selection_ols_fifth_review_contract():
         _api_contract.compute_post_selection_ols_inference = _compute_post_selection_ols_inference
 
     _install_sparse_inference_public_validation_reset()
+    _install_sparse_inference_fit_transaction(PenalizedGeneralizedLinearModel)
+    _install_sparse_inference_fit_transaction(PenalizedLinearRegression)
 
     current_cpu = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
     if not getattr(current_cpu, _CPU_DEBIASED_MARKER, False):
