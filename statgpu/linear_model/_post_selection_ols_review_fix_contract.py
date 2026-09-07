@@ -171,10 +171,14 @@ def _finalize_weighted_debiased_result(
 
     if original_intercept:
         feature_block = X_arr * row_scale.reshape(-1, 1)
-        full_design = xp.concatenate(
-            [row_scale.reshape(-1, 1), feature_block],
-            axis=1,
-        )
+        intercept_block = row_scale.reshape(-1, 1)
+        if backend_name == "torch":
+            full_design = xp.cat([intercept_block, feature_block], dim=1)
+        else:
+            full_design = xp.concatenate(
+                [intercept_block, feature_block],
+                axis=1,
+            )
         bread_inv = _inverse_or_pinv(full_design.T @ full_design, backend_name)
         se_intercept_native = xp.sqrt(xp.abs(scale_native * bread_inv[0, 0]))
         intercept_native = xp_asarray(

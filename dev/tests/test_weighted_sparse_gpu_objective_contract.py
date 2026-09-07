@@ -7,6 +7,12 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 import statgpu.linear_model._post_selection_ols_review_fix_contract as review_fix
 
 
+def _as_numpy(value):
+    if hasattr(value, "detach"):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
 @pytest.mark.parametrize("fit_intercept", [False, True])
 def test_weighted_sparse_gpu_working_problem_matches_cpu_objective(fit_intercept):
     rng = np.random.default_rng(138)
@@ -96,7 +102,14 @@ def test_weighted_sparse_gpu_working_problem_is_weight_scale_invariant(fit_inter
         assert scaled[3] == pytest.approx(baseline[3], rel=2e-15, abs=2e-15)
 
 
-def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(monkeypatch):
+@pytest.mark.parametrize("backend_name", ["numpy", "torch"])
+def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
+    monkeypatch,
+    backend_name,
+):
+    if backend_name == "torch":
+        pytest.importorskip("torch")
+
     rng = np.random.default_rng(140)
     X = rng.normal(size=(41, 3))
     y = rng.normal(size=41)
@@ -114,7 +127,7 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(mon
     model._penalty = model._resolve_penalty()
     model._loss = model._resolve_loss()
     model._selected_solver = "fista"
-    model._selected_backend_name = "numpy"
+    model._selected_backend_name = backend_name
     model._selected_backend_device = "cpu"
     original_cache = {"contract": "preserve"}
     model._cv_cache = original_cache
@@ -128,15 +141,12 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(mon
         backend_name="cupy",
     ):
         assert sample_weight is None
-        assert backend_name == "numpy"
+        assert backend_name == model._selected_backend_name
         assert self._effective_intercept is False
-        # This is the regression guard: the first weighted fix incorrectly
-        # disabled inference here, causing the outer fit to fall through to the
-        # CPU-oriented post-fit debiased helper.
         assert self._compute_inference_enabled is True
         assert not hasattr(self, "_cv_cache")
-        captured["X_work"] = np.asarray(X_work).copy()
-        captured["y_work"] = np.asarray(y_work).copy()
+        captured["X_work"] = _as_numpy(X_work).copy()
+        captured["y_work"] = _as_numpy(y_work).copy()
 
         coef = np.array([0.35, -0.15, 0.08], dtype=np.float64)
         theta = coef + np.array([0.01, -0.005, 0.002], dtype=np.float64)
@@ -158,17 +168,19 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(mon
             distribution="normal",
             precision_method="nodewise_lasso",
             metadata={
-                "backend_path": "numpy_debiased",
+                "backend_path": f"{backend_name}_debiased",
                 "precision_cache_hit": False,
             },
         )
         result.apply_to(self)
-        resid = np.asarray(y_work) - np.asarray(X_work) @ coef
-        self._X_design = np.asarray(X_work).copy()
-        self._y = np.asarray(y_work).copy()
+        X_np = _as_numpy(X_work)
+        y_np = _as_numpy(y_work)
+        resid = y_np - X_np @ coef
+        self._X_design = X_np.copy()
+        self._y = y_np.copy()
         self._resid = resid
-        self._nobs = int(X_work.shape[0])
-        self._df_resid = int(X_work.shape[0] - X_work.shape[1])
+        self._nobs = int(X_np.shape[0])
+        self._df_resid = int(X_np.shape[0] - X_np.shape[1])
 
     monkeypatch.setattr(review_fix, "_BASE_GPU_FIT", fake_base_fit)
 
@@ -176,7 +188,7 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(mon
         X,
         y,
         sample_weight=weights,
-        backend_name="numpy",
+        backend_name=backend_name,
     )
 
     assert model._effective_intercept is True
@@ -198,13 +210,14 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(mon
             n_eff=float(np.sum(weights)),
         )
     )
-    np.testing.assert_allclose(captured["X_work"], X_expected, rtol=0, atol=0)
-    np.testing.assert_allclose(captured["y_work"], y_expected, rtol=0, atol=0)
+    np.testing.assert_allclose(captured["X_work"], X_expected, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(captured["y_work"], y_expected, rtol=1e-14, atol=1e-14)
 
     result = model._inference_result
     assert result.method == "debiased"
-    assert result.metadata["backend_path"] == "numpy_debiased_weighted"
+    assert result.metadata["backend_path"] == f"{backend_name}_debiased_weighted"
     assert result.metadata["sample_weighted"] is True
+    assert result.metadata["numerical_backend"] == backend_name
     assert result.metadata["reporting_boundary"] == "post_numerical_inference"
     assert model._params.shape == (X.shape[1] + 1,)
     assert model._bse.shape == model._params.shape
