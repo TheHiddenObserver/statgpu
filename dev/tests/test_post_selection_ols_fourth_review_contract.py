@@ -121,3 +121,53 @@ def test_post_selection_formula_weight_alignment_and_feature_names():
         formula_model._inference_result.metadata["selected_feature_indices"]
         == direct_model._inference_result.metadata["selected_feature_indices"]
     )
+
+
+def test_rank_deficient_active_refit_uses_effective_rank_df():
+    sm = pytest.importorskip("statsmodels.api")
+    from statgpu.linear_model.penalized._post_selection_ols import (
+        compute_post_selection_ols_inference,
+    )
+
+    rng = np.random.default_rng(26)
+    n = 90
+    x = rng.normal(size=n)
+    X = np.column_stack([x, x])
+    y = 0.75 + 1.8 * x + rng.normal(scale=0.3, size=n)
+
+    model = Lasso(
+        alpha=0.05,
+        compute_inference=False,
+        fit_intercept=True,
+        device="cpu",
+        max_iter=4000,
+        tol=1e-9,
+    ).fit(X, y)
+    # Force the post-selection diagnostic to include both exactly collinear
+    # coordinates. This isolates the refit rank contract from Lasso's choice of
+    # one representative coordinate in a particular solver run.
+    model.coef_ = np.asarray([0.2, 0.2], dtype=np.float64)
+    model._selected_backend_name = "numpy"
+    model._selected_backend_device = "cpu"
+    model.inference_method = "post_selection_ols"
+    model._inference_method = "post_selection_ols"
+
+    compute_post_selection_ols_inference(model, X, y)
+
+    design = np.column_stack([np.ones(n), X])
+    reference = sm.OLS(y, design).fit()
+    rank = int(np.linalg.matrix_rank(design))
+    assert rank == 2 < design.shape[1]
+    assert model._post_selection_df_resid == n - rank
+    assert model._inference_result.df == pytest.approx(float(n - rank))
+    meta = model._inference_result.metadata
+    assert meta["refit_rank"] == rank
+    assert meta["refit_parameter_count"] == design.shape[1]
+    assert meta["refit_rank_deficient"] is True
+
+    np.testing.assert_allclose(model._params, reference.params, rtol=1e-9, atol=1e-10)
+    np.testing.assert_allclose(model._bse, reference.bse, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(model._pvalues, reference.pvalues, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(
+        model._conf_int, reference.conf_int(), rtol=1e-8, atol=1e-10
+    )

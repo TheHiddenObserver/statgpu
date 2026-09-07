@@ -67,6 +67,19 @@ def _active_design(X_native, selected_idx, *, fit_intercept: bool, backend_name:
     return np.column_stack([np.ones(n, dtype=X_native.dtype), features])
 
 
+def _matrix_rank(X_work, backend_name: str) -> int:
+    """Return the active-design rank using the executed numerical backend."""
+    if backend_name == "torch":
+        import torch
+
+        return int(torch.linalg.matrix_rank(X_work).item())
+    if backend_name == "cupy":
+        import cupy as cp
+
+        return int(cp.linalg.matrix_rank(X_work).item())
+    return int(np.linalg.matrix_rank(np.asarray(X_work)))
+
+
 def _classical_nonrobust_inference(
     X_work,
     params_native,
@@ -161,10 +174,11 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         y_work = y_native * sqrt_sw
 
     k = int(X_work.shape[1])
-    if k >= n and k > 0:
+    fit_rank = 0 if k == 0 else _matrix_rank(X_work, backend_name)
+    if fit_rank >= n:
         raise ValueError(
             "post_selection_ols requires positive residual degrees of freedom; "
-            f"selected design has {k} parameters for {n} observations."
+            f"selected design has effective rank {fit_rank} for {n} observations."
         )
 
     if k == 0:
@@ -191,7 +205,7 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         params_native = _inverse_or_pinv(XtX, backend_name) @ Xty
         resid_native = y_native - X_design @ params_native
         resid_work = y_work - X_work @ params_native
-        df_resid = n - k
+        df_resid = n - fit_rank
         scale_native = xp.sum(resid_work * resid_work) / float(df_resid)
         cov_type = str(getattr(model, "_cov_type", "nonrobust")).lower()
         hac_maxlags = getattr(model, "_hac_maxlags", None)
@@ -292,6 +306,9 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         "active_set_tolerance": _POST_SELECTION_ACTIVE_TOL,
         "sample_weighted": sample_weight is not None,
         "inactive_inference_placeholders": True,
+        "refit_parameter_count": int(k),
+        "refit_rank": int(fit_rank),
+        "refit_rank_deficient": bool(fit_rank < k),
         "refit_df_resid": int(df_resid),
         "refit_scale": post_scale,
         "refit_nobs": n,
