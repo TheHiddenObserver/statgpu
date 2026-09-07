@@ -26,8 +26,17 @@ _CONSTRUCTOR_MARKER = "__statgpu_penalized_inference_deprecation__"
 _FIT_MARKER = "__statgpu_post_selection_fit_device__"
 _ROUTER_MARKER = "__statgpu_post_selection_router__"
 _VALIDATOR_MARKER = "__statgpu_post_selection_validator__"
+_STATE_CLEANUP_MARKER = "__statgpu_post_selection_state_cleanup__"
 _SOLVER_WARNING_MARKER = "__statgpu_post_selection_solver_warning_bridge__"
 _SPARSE_GAUSSIAN_PENALTIES = frozenset({"l1", "elasticnet", "en"})
+_POST_SELECTION_STATE_FIELDS = (
+    "_post_selection_X_design",
+    "_post_selection_y",
+    "_post_selection_resid",
+    "_post_selection_scale",
+    "_post_selection_df_resid",
+    "_post_selection_nobs",
+)
 
 
 def _iter_subclasses(cls):
@@ -59,11 +68,7 @@ def _explicit_argument(signature, self, args, kwargs, name):
 
 
 def _supports_sparse_gaussian_migration(self) -> bool:
-    """Whether #137's hardware-neutral migration applies to this estimator.
-
-    The canonical method is deliberately scoped to squared-error L1/ElasticNet
-    models. Existing non-Gaussian inference validation must remain unchanged.
-    """
+    """Whether #137's hardware-neutral migration applies to this estimator."""
     loss_name = str(getattr(self, "loss", "squared_error")).strip().lower()
     penalty_obj = getattr(self, "_penalty", None)
     penalty_name = str(
@@ -223,6 +228,22 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
     cls.__init__ = wrapped
 
 
+def _install_state_cleanup():
+    original = PenalizedGeneralizedLinearModel._clear_inference_state
+    if getattr(original, _STATE_CLEANUP_MARKER, False):
+        return
+
+    @functools.wraps(original)
+    def wrapped(self):
+        result = original(self)
+        for name in _POST_SELECTION_STATE_FIELDS:
+            self.__dict__.pop(name, None)
+        return result
+
+    setattr(wrapped, _STATE_CLEANUP_MARKER, True)
+    PenalizedGeneralizedLinearModel._clear_inference_state = wrapped
+
+
 def _install_inference_validator():
     original = PenalizedGeneralizedLinearModel._validate_inference_request
     if getattr(original, _VALIDATOR_MARKER, False):
@@ -293,7 +314,6 @@ def _input_native_device(self, X):
 
 
 def _fit_input_from_call(args, kwargs):
-    """Return the public ``fit`` X argument without trusting wrapped signatures."""
     if "X" in kwargs:
         return kwargs["X"]
     if args:
@@ -305,10 +325,6 @@ def _install_fit_device_contract(cls):
     original = getattr(cls, "fit", None)
     if original is None:
         return
-    # Marker checks must be class-local. BaseEstimator.__init_subclass__ installs
-    # a concrete finite-validation ``fit`` on each subclass, so an inherited
-    # marker on the base must not cause Lasso/ElasticNet's own wrapper to be
-    # skipped.
     local_fit = cls.__dict__.get("fit")
     if local_fit is not None and getattr(local_fit, _FIT_MARKER, False):
         return
@@ -339,13 +355,10 @@ def _install_fit_device_contract(cls):
 def install_penalized_inference_api_contract():
     """Install the #137 Gaussian-sparse migration without widening old GLM scope."""
     _install_solver_warning_bridge()
+    _install_state_cleanup()
     _install_inference_validator()
     _install_post_fit_router()
 
-    # BaseEstimator.__init_subclass__ materializes a finite-validation ``fit`` on
-    # each concrete estimator. Install both constructor and fit wrappers on every
-    # concrete penalized-linear subclass; runtime scope checks make the fit layer
-    # a transparent no-op outside squared-error L1/ElasticNet models.
     _install_fit_device_contract(PenalizedLinearRegression)
     for cls in _iter_subclasses(PenalizedLinearRegression):
         if not cls.__module__.startswith("statgpu.linear_model"):
