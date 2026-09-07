@@ -25,7 +25,9 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 
 ## 稀疏 penalized-linear 推断
 
-对于 `Lasso` 与 `ElasticNet`，**统计方法是什么**与**在哪个设备上执行**是两个独立控制维度。当前维护的推断方法包括：
+对于 `Lasso`、`ElasticNet`，以及公开 generic
+`PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")`
+入口，**统计方法是什么**与**在哪个设备上执行**是两个独立控制维度。当前维护的推断方法包括：
 
 - `debiased`：去偏 / de-sparsified 系数推断；
 - `post_selection_ols`：在 penalized fit 选出的 active set 上做启发式 OLS/WLS 重拟合；
@@ -40,6 +42,8 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 - 显式 `device="torch"`：只允许 Torch CUDA，不可用时 fail closed；
 - 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
 
+稀疏 Gaussian penalty 使用字符串还是公开 `Penalty` 对象，不会改变上述 migration 与 AUTO routing 契约。
+
 backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend。相比之下，residual `bootstrap` 当前仍使用 CPU-native residual refit。因此显式 GPU `device` 会控制 penalized fit 的执行位置，但不应被理解成 bootstrap 也变成 GPU-native。
 
 ### `post_selection_ols` 实际计算什么？
@@ -50,7 +54,7 @@ penalized model 先确定 active set；随后 statgpu 在**同一个 fit-resolve
 
 两次拟合的 diagnostic ownership 也不同。在 `summary()` 中，系数表和 `Post-selection Refit DoF` 属于 active-set refit；R-squared、adjusted R-squared、F statistic、log-likelihood、AIC、BIC 以及 `Penalized-fit Residual DoF` 仍描述 penalized prediction fit。summary 会明确分开标注，避免把 refit 的残差自由度误当成 penalized-fit diagnostics 使用的自由度。若 active design 秩亏，refit residual DoF 使用 `n - effective_rank`，而不是 `n - active_column_count`；metadata 会记录 `refit_rank`、`refit_parameter_count` 与 `refit_rank_deficient`。
 
-在 `cov_type="nonrobust"` 下，这条路径保留既有的经典 **Student-t** 报告语义。estimator 已公开的 robust covariance 选项则复用共享 Gaussian robust-covariance layer，并使用对应的 normal-reference 报告语义。
+在 `cov_type="nonrobust"` 下，这条路径保留既有的经典 **Student-t** 报告语义。estimator 已公开的 robust covariance 选项则复用共享 Gaussian robust-covariance layer，并使用对应的 normal-reference 报告语义。若模型不含截距且 active set 为空，所有参数坐标都只是 inactive compatibility placeholder；result 仍保留调用者请求的 covariance/reference family（`nonrobust` -> Student-t，robust/HAC -> normal），不会把 robust 请求静默改写成 nonrobust。
 
 完整 reporting array 还保留旧 `cpu_ols` surface 的一个兼容细节：**未被 active set 选中的坐标**会以 `SE=0`、统计量 `0`、`p=1`、置信区间 `[0, 0]` 作为占位。这些值**不表示该系数被“精确证明为 0”或方差真的为 0**。应使用 `_inference_result.metadata["selected_feature_indices"]` 判断哪些坐标实际执行了 active-set OLS/WLS 推断。
 
