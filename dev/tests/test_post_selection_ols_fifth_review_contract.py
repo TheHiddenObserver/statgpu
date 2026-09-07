@@ -74,6 +74,30 @@ def test_penalty_object_participates_in_pre_fit_auto_native_scope(
     assert inference_contract._input_native_device(model, fake_cupy) == Device.CUDA
 
 
+def test_pre_fit_scope_prefers_current_public_sparse_penalty_over_stale_resolved_state():
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l1",
+        inference_method="post_selection_ols",
+        compute_inference=False,
+        device="auto",
+    )
+    model._penalty = get_penalty("l2", alpha=0.05)
+    assert inference_contract._supports_sparse_gaussian_migration(model) is True
+
+
+def test_pre_fit_scope_rejects_stale_sparse_state_after_public_penalty_changes_to_l2():
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="l2",
+        inference_method="post_selection_ols",
+        compute_inference=False,
+        device="auto",
+    )
+    model._penalty = get_penalty("l1", alpha=0.05)
+    assert inference_contract._supports_sparse_gaussian_migration(model) is False
+
+
 def test_lassocv_set_params_legacy_alias_warns_normalizes_and_invalidates():
     model = LassoCV(inference_method="post_selection_ols", compute_inference=False)
     model._fitted = True
