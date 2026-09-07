@@ -150,12 +150,13 @@ def _finalize_weighted_debiased_result(
     backend_name: str,
     original_intercept: bool,
     simultaneous_requested: bool,
+    sample_weighted: bool = True,
 ):
-    """Restore intercept/layout after backend-native debiased coefficient inference."""
+    """Restore intercept/layout after centered backend-native debiased inference."""
     base_result = getattr(model, "_inference_result", None)
     if base_result is None or str(getattr(base_result, "method", "")).lower() != "debiased":
         raise RuntimeError(
-            "weighted sparse debiased inference did not produce the required "
+            "sparse debiased inference did not produce the required "
             "backend-native result; refusing an inference fallback"
         )
 
@@ -243,10 +244,11 @@ def _finalize_weighted_debiased_result(
         model._compute_simultaneous_ci_maxz_bootstrap()
 
     metadata = dict(getattr(base_result, "metadata", {}) or {})
+    if sample_weighted:
+        metadata["backend_path"] = f"{backend_name}_debiased_weighted"
     metadata.update(
         {
-            "backend_path": f"{backend_name}_debiased_weighted",
-            "sample_weighted": True,
+            "sample_weighted": bool(sample_weighted),
             "numerical_backend": backend_name,
             "numerical_device": getattr(model, "_selected_backend_device", None),
             "reporting_backend": "numpy",
