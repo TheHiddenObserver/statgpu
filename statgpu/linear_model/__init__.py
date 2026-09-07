@@ -83,6 +83,15 @@ from . import (
 
 _post_selection_ols_fifth_review_contract.install_post_selection_ols_fifth_review_contract()
 
+# Intercept-inclusive debiased simultaneous inference must include the
+# original-coordinate intercept influence in the max-|Z| bootstrap statistic,
+# not merely in the reported interval rows.
+from . import (
+    _debiased_simultaneous_intercept_contract as _debiased_simultaneous_intercept_contract,
+)
+
+_debiased_simultaneous_intercept_contract.install_debiased_simultaneous_intercept_contract()
+
 # Weighted LassoCV historically centered sqrt-weighted rows and truncated
 # sum(weights) to an integer path normalizer. Map weighted folds to an exactly
 # equivalent row-count problem while leaving the unweighted fast path untouched.
