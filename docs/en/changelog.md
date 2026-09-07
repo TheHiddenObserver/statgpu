@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-09-07<br>
+> Last updated: 2026-09-08<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -9,16 +9,19 @@
 
 ### Changed
 
-- Added canonical hardware-neutral `inference_method="post_selection_ols"` for sparse Gaussian `Lasso`/`ElasticNet` inference. Legacy `cpu_ols` and `gpu_ols` are deprecated together for one compatibility cycle; `LassoCV` also keeps its older `cpu_ols_inference` / `gpu_ols_inference` spellings as warning compatibility aliases at the CV boundary.
-- Statistical-method identity is separate from backend routing: explicit `device="cpu"`, `"cuda"`, or `"torch"` remains authoritative; only genuine estimator/global `device="auto"` may preserve backend-native CuPy or Torch-CUDA input, and post-fit inference reuses the backend/device provenance recorded by the successful penalized fit.
-- `post_selection_ols` performs an unpenalized active-set OLS/WLS refit on the fit-resolved NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. The migration preserves the established nonrobust Student-t reporting convention, the `1e-15` active-set threshold, and inactive-coordinate compatibility placeholders (`SE=0`, statistic `0`, `p=1`, CI `[0, 0]`); those placeholders are not zero-variance inferential claims.
-- Auxiliary post-selection design/residual/scale/df state is isolated from the penalized estimator's generic `rsquared`/AIC/BIC/F diagnostic state and participates in the existing inference-state lifecycle cleanup.
-- Weighted non-Gaussian sparse GLMs keep their existing loss-specific sample-weight-aware solver routes; the Gaussian weighted-centering/sqrt-weight working transform is gated strictly to squared-error L1/ElasticNet fits.
+- Added canonical hardware-neutral `inference_method="post_selection_ols"` for sparse Gaussian `Lasso`, `ElasticNet`, and the public generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface. Legacy `cpu_ols` / `gpu_ols` are one-cycle `FutureWarning` aliases; `LassoCV` keeps its older `cpu_ols_inference` / `gpu_ols_inference` spellings at the CV compatibility boundary.
+- Statistical-method identity is orthogonal to execution hardware. Explicit `device="cpu"`, `"cuda"`, or `"torch"` remains authoritative even for heterogeneous input containers; only genuine AUTO policy may preserve native CuPy/Torch-CUDA input. LassoCV now keeps CV and selected-alpha final refit on one resolved backend and aligns CuPy response/weight arrays to the design's concrete CUDA ordinal.
+- `post_selection_ols` performs an unpenalized active-set OLS/WLS refit on the fit-recorded NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. Nonrobust inference retains Student-t semantics and the historical inactive-coordinate placeholders. Rank-deficient active designs use effective rank for residual df plus a design-level Moore-Penrose/SVD refit and covariance bread; robust/HAC and empty-active no-intercept cases preserve their requested covariance/reference family.
+- Kept active-refit diagnostic state separate from penalized-fit R-squared/F/log-likelihood/AIC/BIC ownership. `summary()` reports penalized-fit and post-selection residual DoF separately, formula fitting preserves categorical/missing-row/sample-weight alignment, and failed refits fail closed instead of retaining prior or partially updated fit/inference state.
+- Unified sparse-Gaussian analytic-weight semantics across direct NumPy/CuPy/Torch fits and weighted LassoCV. Weighted centering is performed on original observations before the equivalent `sqrt(w * n / sum(w))` row transform; default CV alpha grids, fold objectives, weighted validation MSE, and final refits share the same convention. Positive constant weights are the exact unweighted CV problem. Weighted non-Gaussian sparse GLMs remain on their loss-specific sample-weight-aware objectives.
+- Unified debiased inference around the same centered average-loss working problem on NumPy/CuPy/Torch, so omitted weights, all-one weights, and globally rescaled analytic weights are consistent. Intercept-inclusive simultaneous max-|Z| inference now includes the original-coordinate intercept influence in the bootstrap maximum itself, and successful refits clear stale simultaneous/precision state before publishing a new result.
+- String and public `Penalty`-object forms participate in the same sparse-Gaussian migration and AUTO-routing contract. Clone/get-params/set-params, warning call sites, LassoCV final-refit ownership, backend/device provenance, formula routing, and failure transactions are covered by maintained regressions.
 
 ### Validation
 
-- Added focused Python 3.9/3.12, Torch-CPU, full CPU, sklearn-maintenance, static/ruff, documentation, and browser regression coverage plus an exact-head physical CuPy/Torch CUDA validator.
-- Physical CUDA acceptance is recorded against an immutable source SHA in the PR evidence; hosted checks do not substitute for it. No GPU performance claim is made.
+- Hosted validation covers Python 3.9/3.12, Torch 2.0 CPU, the full CPU suite, scikit-learn 1.2.2/1.3.2/current maintenance compatibility, static/ruff, documentation, release packaging, and benchmark-frontend contracts.
+- `dev/benchmarks/validate_post_selection_ols_gpu.py` is the final physical-CUDA gate and is now schema v7 with **22 cases**: the original four direct-Lasso cases plus 18 CuPy/Torch closure cases for ElasticNet/generic sparse Gaussian, weighted and unweighted debiased inference, real weighted multi-alpha LassoCV selection/final refit, rank-deficient SVD refits, Penalty-object AUTO routing, empty-active HC3, and intercept-inclusive simultaneous max-|Z| inference. Existing post-selection numerical tolerances are not relaxed.
+- Earlier Tesla P100 artifacts remain immutable evidence only for the exact historical SHAs they validated. Because subsequent review/fix loops changed valid production numerical paths, current-source physical acceptance is still **pending an exact clean-head schema-v7 22/22 CuPy/Torch CUDA run**. Hosted checks do not substitute for that gate, and no GPU performance claim is made.
 
 ## Unreleased — Penalized solver API cleanup (PR #135)
 
@@ -72,7 +75,7 @@
 ### Optimized
 
 - Two-way clustered covariance at 10k rows dropped from ~1000 s to ~1.3 s per CuPy fit on Tesla P100 after an over-broad row-expansion fallback was replaced by a residual-acceptance check that keeps ordinary balanced panels on the vectorized Gram path.
-- Fama-MacBeth resident-array scaling (P100, this release's artifact): CuPy/Torch GPU-over-NumPy median-time ratios **1.314/0.706** micro, **0.174/0.126** medium, **0.092/0.084** large — Torch faster than NumPy at every scale (1.4×/7.9×/11.9×), CuPy crossing over from the medium workload onward, every measured case in one `gram-certified` batch with zero SVD fallbacks.
+- Fama-MacBeth resident-array scaling (P100, this release's artifact): CuPy/Torch GPU-over-NumPy median-time ratios **1.314/0.706** micro, **0.174/0.126** medium, **0.092/0.084** large — Torch faster than NumPy at every scale (1.4×/7.9×/11.9×), CuPy crossing over from the medium workload onward, every measured case in one `gram-certified` batch with zero SVD fallbacks in every measured GPU scale.
 
 ### Validation
 
