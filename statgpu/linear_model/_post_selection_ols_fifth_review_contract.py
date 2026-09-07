@@ -9,9 +9,11 @@ This contract keeps several cross-path public boundaries aligned with #137:
 * a no-intercept fit with an empty active set preserves the caller's requested
   covariance/reference-distribution semantics instead of silently claiming
   ``nonrobust`` Student-t inference;
-* weighted sparse-Gaussian CPU debiased inference uses the same analytic-weight
-  average-loss working problem as the maintained CuPy/Torch paths, restoring
-  global weight-scale invariance and CPU/GPU statistical-definition parity.
+* sparse-Gaussian debiased inference uses one centered average-loss working
+  problem whenever an intercept is fitted, with analytic weights represented by
+  the same ``sqrt(w * n / sum(w))`` row scaling on NumPy/CuPy/Torch. This makes
+  omitted weights, all-ones weights, and globally rescaled weights statistically
+  consistent while preserving backend-native numerical inference.
 
 The project installs review contracts after the primary implementation modules;
 patch the already-bound runtime owners so public wrappers and generic penalized
@@ -25,6 +27,7 @@ import functools
 import numpy as np
 
 from statgpu.backends import _to_numpy
+from statgpu.backends._utils import _get_xp, xp_asarray
 from statgpu.linear_model import _penalized_inference_api_contract as _api_contract
 from statgpu.linear_model import (
     _post_selection_ols_review_fix_contract as _weighted_review_contract,
@@ -36,10 +39,13 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 
 
 _FIFTH_REVIEW_MARKER = "__statgpu_pr138_fifth_review_contract__"
-_CPU_DEBIASED_MARKER = "__statgpu_pr138_weighted_cpu_debiased_contract__"
+_CPU_DEBIASED_MARKER = "__statgpu_pr138_centered_cpu_debiased_contract__"
+_GPU_DEBIASED_MARKER = "__statgpu_pr138_centered_gpu_debiased_contract__"
 _SPARSE_GAUSSIAN_PENALTIES = frozenset({"l1", "elasticnet", "en"})
 _ORIGINAL_POST_SELECTION = _post_selection.compute_post_selection_ols_inference
 _ORIGINAL_CPU_DEBIASED = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
+_ORIGINAL_CUPY_DEBIASED = PenalizedGeneralizedLinearModel._compute_inference_debiased_gpu
+_ORIGINAL_TORCH_DEBIASED = PenalizedGeneralizedLinearModel._compute_inference_debiased_torch
 
 
 def _supports_sparse_gaussian_migration(self) -> bool:
@@ -75,27 +81,18 @@ def _compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     return result
 
 
-@functools.wraps(_ORIGINAL_CPU_DEBIASED)
-def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
-    """Run weighted CPU debiased inference on the shared average-loss problem."""
-    backend_name = str(getattr(self, "_selected_backend_name", "numpy")).lower()
-    if (
-        sample_weight is None
-        or backend_name != "numpy"
-        or not _supports_sparse_gaussian_migration(self)
-    ):
-        return _ORIGINAL_CPU_DEBIASED(
-            self,
-            X,
-            y,
-            sample_weight=sample_weight,
-        )
-
+def _debiased_working_data_numpy(self, X, y, sample_weight):
     X_arr = np.asarray(_to_numpy(X), dtype=np.float64)
     y_arr = np.asarray(_to_numpy(y), dtype=np.float64).reshape(-1)
-    sw_arr = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
     n_samples = int(X_arr.shape[0])
-    n_eff = _validate_sample_weight_backend(sw_arr, n_samples, "numpy")
+    sample_weighted = sample_weight is not None
+    if sample_weighted:
+        sw_arr = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
+        n_eff = _validate_sample_weight_backend(sw_arr, n_samples, "numpy")
+    else:
+        sw_arr = np.ones(n_samples, dtype=np.float64)
+        n_eff = float(n_samples)
+
     original_intercept = bool(self._effective_intercept)
     X_work, y_work, _, _ = PenalizedLinearRegression._weighted_sparse_gpu_working_data(
         X_arr,
@@ -106,6 +103,43 @@ def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
         n_eff=n_eff,
     )
     row_scale = np.sqrt(sw_arr * (float(n_samples) / float(n_eff)))
+    return (
+        X_arr,
+        y_arr,
+        X_work,
+        y_work,
+        row_scale,
+        original_intercept,
+        sample_weighted,
+    )
+
+
+@functools.wraps(_ORIGINAL_CPU_DEBIASED)
+def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
+    """Run CPU debiased inference on the shared centered average-loss problem."""
+    backend_name = str(getattr(self, "_selected_backend_name", "numpy")).lower()
+    if backend_name != "numpy" or not _supports_sparse_gaussian_migration(self):
+        return _ORIGINAL_CPU_DEBIASED(
+            self,
+            X,
+            y,
+            sample_weight=sample_weight,
+        )
+
+    (
+        X_arr,
+        _,
+        X_work,
+        y_work,
+        row_scale,
+        original_intercept,
+        sample_weighted,
+    ) = _debiased_working_data_numpy(self, X, y, sample_weight)
+
+    # With neither intercept nor weights, the maintained CPU implementation is
+    # already exactly the required working problem.
+    if not original_intercept and not sample_weighted:
+        return _ORIGINAL_CPU_DEBIASED(self, X, y, sample_weight=None)
 
     saved_use_intercept = self._use_intercept
     simultaneous_attr = hasattr(self, "enable_simultaneous_inference")
@@ -135,8 +169,92 @@ def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
         backend_name="numpy",
         original_intercept=original_intercept,
         simultaneous_requested=simultaneous_requested,
+        sample_weighted=sample_weighted,
     )
     return None
+
+
+def _compute_centered_gpu_debiased(
+    self,
+    X,
+    y,
+    coef,
+    *,
+    backend_name: str,
+    original,
+):
+    """Center an unweighted intercept design before backend-native debiasing."""
+    if not _supports_sparse_gaussian_migration(self) or not bool(self._effective_intercept):
+        return original(self, X, y, coef)
+
+    xp = _get_xp(backend_name)
+    X_arr = xp_asarray(X, dtype=np.float64, xp=xp, ref_arr=X)
+    y_arr = xp_asarray(y, dtype=np.float64, xp=xp, ref_arr=X).reshape(-1)
+    coef_arr = xp_asarray(coef, dtype=X_arr.dtype, xp=xp, ref_arr=X_arr).reshape(-1)
+    n_samples = int(X_arr.shape[0])
+    X_work = X_arr - xp.mean(X_arr, axis=0)
+    y_work = y_arr - xp.mean(y_arr)
+    row_scale = xp_asarray(
+        np.ones(n_samples, dtype=np.float64),
+        dtype=X_arr.dtype,
+        xp=xp,
+        ref_arr=X_arr,
+    ).reshape(-1)
+
+    saved_use_intercept = self._use_intercept
+    simultaneous_attr = hasattr(self, "enable_simultaneous_inference")
+    simultaneous_requested = (
+        bool(getattr(self, "enable_simultaneous_inference", False))
+        if simultaneous_attr
+        else False
+    )
+    self._use_intercept = False
+    if simultaneous_attr:
+        self.enable_simultaneous_inference = False
+    try:
+        original(self, X_work, y_work, coef_arr)
+    finally:
+        self._use_intercept = saved_use_intercept
+        if simultaneous_attr:
+            self.enable_simultaneous_inference = simultaneous_requested
+
+    _weighted_review_contract._finalize_weighted_debiased_result(
+        self,
+        X_arr=X_arr,
+        y_work=y_work,
+        X_work=X_work,
+        row_scale=row_scale,
+        coef_native=coef_arr,
+        backend_name=backend_name,
+        original_intercept=True,
+        simultaneous_requested=simultaneous_requested,
+        sample_weighted=False,
+    )
+    return None
+
+
+@functools.wraps(_ORIGINAL_CUPY_DEBIASED)
+def _compute_inference_debiased_gpu(self, X_gpu, y_gpu, coef_gpu):
+    return _compute_centered_gpu_debiased(
+        self,
+        X_gpu,
+        y_gpu,
+        coef_gpu,
+        backend_name="cupy",
+        original=_ORIGINAL_CUPY_DEBIASED,
+    )
+
+
+@functools.wraps(_ORIGINAL_TORCH_DEBIASED)
+def _compute_inference_debiased_torch(self, X_torch, y_torch, coef_torch):
+    return _compute_centered_gpu_debiased(
+        self,
+        X_torch,
+        y_torch,
+        coef_torch,
+        backend_name="torch",
+        original=_ORIGINAL_TORCH_DEBIASED,
+    )
 
 
 def install_post_selection_ols_fifth_review_contract():
@@ -150,11 +268,22 @@ def install_post_selection_ols_fifth_review_contract():
         _post_selection.compute_post_selection_ols_inference = _compute_post_selection_ols_inference
         _api_contract.compute_post_selection_ols_inference = _compute_post_selection_ols_inference
 
-    current_debiased = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
-    if not getattr(current_debiased, _CPU_DEBIASED_MARKER, False):
+    current_cpu = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
+    if not getattr(current_cpu, _CPU_DEBIASED_MARKER, False):
         setattr(_compute_post_fit_debiased_inference, _CPU_DEBIASED_MARKER, True)
         PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference = (
             _compute_post_fit_debiased_inference
+        )
+
+    current_gpu = PenalizedGeneralizedLinearModel._compute_inference_debiased_gpu
+    if not getattr(current_gpu, _GPU_DEBIASED_MARKER, False):
+        setattr(_compute_inference_debiased_gpu, _GPU_DEBIASED_MARKER, True)
+        setattr(_compute_inference_debiased_torch, _GPU_DEBIASED_MARKER, True)
+        PenalizedGeneralizedLinearModel._compute_inference_debiased_gpu = (
+            _compute_inference_debiased_gpu
+        )
+        PenalizedGeneralizedLinearModel._compute_inference_debiased_torch = (
+            _compute_inference_debiased_torch
         )
 
 
