@@ -90,6 +90,12 @@ from . import _weighted_lassocv_review_contract as _weighted_lassocv_review_cont
 
 _weighted_lassocv_review_contract.install_weighted_lassocv_review_contract()
 
+# LassoCV input preparation must keep response/weights on the concrete CuPy
+# device that owns a native design matrix, matching direct penalized-fit affinity.
+from . import _lassocv_device_affinity_contract as _lassocv_device_affinity_contract
+
+_lassocv_device_affinity_contract.install_lassocv_device_affinity_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
