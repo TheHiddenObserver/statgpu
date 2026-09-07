@@ -153,14 +153,8 @@ def test_empty_no_intercept_active_set_preserves_requested_robust_semantics(cov_
     np.testing.assert_array_equal(model._conf_int, 0.0)
 
 
-def test_weighted_cpu_debiased_is_invariant_to_global_weight_scaling():
-    rng = np.random.default_rng(6138)
-    X = rng.normal(size=(140, 5))
-    beta = np.asarray([1.2, -0.8, 0.45, 0.0, 0.0])
-    y = 0.35 + X @ beta + rng.normal(scale=0.45, size=X.shape[0])
-    weights = rng.uniform(0.35, 1.9, size=X.shape[0])
-
-    common = dict(
+def _debiased_cpu_common():
+    return dict(
         penalty="l1",
         alpha=0.045,
         fit_intercept=True,
@@ -171,6 +165,47 @@ def test_weighted_cpu_debiased_is_invariant_to_global_weight_scaling():
         max_iter=4000,
         tol=1e-9,
     )
+
+
+def _debiased_data(seed=6138):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(140, 5))
+    beta = np.asarray([1.2, -0.8, 0.45, 0.0, 0.0])
+    y = 0.35 + X @ beta + rng.normal(scale=0.45, size=X.shape[0])
+    weights = rng.uniform(0.35, 1.9, size=X.shape[0])
+    return X, y, weights
+
+
+def _assert_debiased_results_close(left, right, *, atol=1e-11):
+    np.testing.assert_allclose(left.coef_, right.coef_, rtol=1e-10, atol=atol)
+    assert left.intercept_ == pytest.approx(right.intercept_, abs=atol)
+    np.testing.assert_allclose(left._params, right._params, rtol=1e-10, atol=atol)
+    np.testing.assert_allclose(left._bse, right._bse, rtol=1e-10, atol=atol)
+    np.testing.assert_allclose(left._tvalues, right._tvalues, rtol=1e-10, atol=atol)
+    np.testing.assert_allclose(left._pvalues, right._pvalues, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(left._conf_int, right._conf_int, rtol=1e-10, atol=atol)
+
+
+def test_debiased_all_ones_weights_match_unweighted_intercept_inference():
+    X, y, _ = _debiased_data(seed=6137)
+    common = _debiased_cpu_common()
+    unweighted = PenalizedLinearRegression(**common).fit(X, y)
+    ones = PenalizedLinearRegression(**common).fit(
+        X,
+        y,
+        sample_weight=np.ones(X.shape[0], dtype=np.float64),
+    )
+
+    assert unweighted._inference_result.metadata["sample_weighted"] is False
+    assert unweighted._inference_result.metadata["backend_path"] == "cpu_debiased"
+    assert ones._inference_result.metadata["sample_weighted"] is True
+    assert ones._inference_result.metadata["backend_path"] == "numpy_debiased_weighted"
+    _assert_debiased_results_close(ones, unweighted)
+
+
+def test_weighted_cpu_debiased_is_invariant_to_global_weight_scaling():
+    X, y, weights = _debiased_data()
+    common = _debiased_cpu_common()
     reference = PenalizedLinearRegression(**common).fit(
         X,
         y,
@@ -191,25 +226,4 @@ def test_weighted_cpu_debiased_is_invariant_to_global_weight_scaling():
         assert result.metadata["numerical_backend"] == "numpy"
         assert result.metadata["reporting_boundary"] == "post_numerical_inference"
 
-    np.testing.assert_allclose(scaled.coef_, reference.coef_, rtol=0, atol=1e-11)
-    assert scaled.intercept_ == pytest.approx(reference.intercept_, abs=1e-11)
-    np.testing.assert_allclose(scaled._params, reference._params, rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(scaled._bse, reference._bse, rtol=1e-10, atol=1e-11)
-    np.testing.assert_allclose(
-        scaled._tvalues,
-        reference._tvalues,
-        rtol=1e-10,
-        atol=1e-11,
-    )
-    np.testing.assert_allclose(
-        scaled._pvalues,
-        reference._pvalues,
-        rtol=1e-10,
-        atol=1e-12,
-    )
-    np.testing.assert_allclose(
-        scaled._conf_int,
-        reference._conf_int,
-        rtol=1e-10,
-        atol=1e-11,
-    )
+    _assert_debiased_results_close(scaled, reference)
