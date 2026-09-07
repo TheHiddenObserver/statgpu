@@ -143,7 +143,7 @@ model_gpu_torch.fit(X, y)
 
 Post-selection OLS 仍是启发式方法，不提供一般 selective-inference coverage。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
 
-设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。拟合后推断复用 fit-resolved backend，而不会重新从原始输入检测一次。
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用 fit-resolved backend；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend。residual `bootstrap` 当前仍是 CPU-native residual-refit 路径；显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
 
 对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终 full-data refit；各折模型仍仅用于估计和评分。
 

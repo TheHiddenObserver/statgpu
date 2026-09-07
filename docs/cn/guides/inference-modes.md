@@ -40,7 +40,7 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 - 显式 `device="torch"`：只允许 Torch CUDA，不可用时 fail closed；
 - 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
 
-penalized fit 成功后，拟合后系数推断复用这次 fit 已记录的 `_selected_backend_name` / `_selected_backend_device`，不会再根据原始输入容器重新猜一次 backend。
+backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend。相比之下，residual `bootstrap` 当前仍使用 CPU-native residual refit。因此显式 GPU `device` 会控制 penalized fit 的执行位置，但不应被理解成 bootstrap 也变成 GPU-native。
 
 ### `post_selection_ols` 实际计算什么？
 

@@ -66,9 +66,13 @@ estimator contract:
 - only genuine estimator/global `device="auto"` may preserve an already
   backend-native CuPy or Torch-CUDA input as part of automatic routing.
 
-After a successful penalized fit, post-fit coefficient inference reuses that
-fit's recorded `_selected_backend_name` / `_selected_backend_device`; it does not
-make a second backend decision from the raw input container.
+Backend reuse is method-specific. `post_selection_ols` always reuses the
+successful fit's recorded `_selected_backend_name` / `_selected_backend_device`,
+and the maintained CuPy/Torch `debiased` routes keep their numerical inference on
+the executed GPU backend. Residual `bootstrap`, by contrast, currently uses a
+CPU-native residual-refit implementation. An explicit GPU `device` therefore
+controls the penalized fit but must not be interpreted as making residual
+bootstrap GPU-native.
 
 ### What `post_selection_ols` computes
 

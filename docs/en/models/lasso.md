@@ -65,7 +65,11 @@ Validity notes:
 - explicit `device="torch"` -> Torch CUDA only, failing closed if unavailable;
 - only genuine estimator/global `device="auto"` may preserve an already backend-native CuPy or Torch-CUDA input during automatic routing.
 
-After fit succeeds, post-fit coefficient inference reuses `_selected_backend_name` / `_selected_backend_device`; it does not make a second backend decision from the raw input container.
+Backend reuse is method-specific. `post_selection_ols` reuses the successful fit's
+`_selected_backend_name` / `_selected_backend_device`, and maintained CuPy/Torch
+`debiased` routes keep their numerical inference on the executed GPU backend.
+Residual `bootstrap` currently uses CPU-native residual refits, so an explicit GPU
+`device` controls the penalized fit but does not make bootstrap GPU-native.
 
 ## Parameters
 

@@ -67,7 +67,7 @@ penalized fit 先选出 active feature set。随后 statgpu 在**成功拟合已
 - 显式 `device="torch"` -> 只允许 Torch CUDA，不可用时 fail closed；
 - 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
 
-fit 成功以后，拟合后系数推断复用 `_selected_backend_name` / `_selected_backend_device`，不会再根据原始输入容器重新猜一次 backend。
+backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断保留在实际执行的 GPU backend。residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
 
 ## 参数（Parameters）
 
