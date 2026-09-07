@@ -155,8 +155,8 @@ def _finalize_weighted_debiased_result(
     base_result = getattr(model, "_inference_result", None)
     if base_result is None or str(getattr(base_result, "method", "")).lower() != "debiased":
         raise RuntimeError(
-            "weighted sparse GPU debiased inference did not produce a backend-native "
-            "result; refusing a post-fit CPU fallback"
+            "weighted sparse debiased inference did not produce the required "
+            "backend-native result; refusing an inference fallback"
         )
 
     xp = _get_xp(backend_name)
