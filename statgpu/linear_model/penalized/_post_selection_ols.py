@@ -8,6 +8,7 @@ from statgpu.backends import _to_numpy
 from statgpu.inference._results import ParameterInferenceResult
 from statgpu.linear_model._gaussian_inference import (
     _as_backend_array,
+    _compute_single_native,
     _diag,
     _inverse_or_pinv,
     _maximum,
@@ -80,6 +81,19 @@ def _matrix_rank(X_work, backend_name: str) -> int:
     return int(np.linalg.matrix_rank(np.asarray(X_work)))
 
 
+def _design_pinv(X_work, backend_name: str):
+    """Compute a design-level Moore-Penrose inverse without squaring condition."""
+    if backend_name == "torch":
+        import torch
+
+        return torch.linalg.pinv(X_work)
+    if backend_name == "cupy":
+        import cupy as cp
+
+        return cp.linalg.pinv(X_work)
+    return np.linalg.pinv(np.asarray(X_work))
+
+
 def _classical_nonrobust_inference(
     X_work,
     params_native,
@@ -119,6 +133,56 @@ def _classical_nonrobust_inference(
         np.asarray(_to_numpy(statistic_native), dtype=np.float64),
         np.asarray(_to_numpy(pvalues_native), dtype=np.float64),
         np.asarray(_to_numpy(conf_int_native), dtype=np.float64),
+    )
+
+
+def _rank_deficient_inference(
+    X_work,
+    params_native,
+    resid_work,
+    scale_native,
+    *,
+    backend_name: str,
+    selected_device: str,
+    df_resid: int,
+    cov_type: str,
+    hac_maxlags,
+    design_pinv,
+):
+    """Use the design SVD for covariance as well as the refit coefficients."""
+    XtX = X_work.T @ X_work
+    # X^+ (X^+)^T == (X^T X)^+ mathematically, but computing it from the
+    # design SVD avoids the condition-number squaring that broke exact
+    # collinearity on maintained NumPy 1.26 environments.
+    bread_inv = design_pinv @ design_pinv.T
+    (
+        bse_native,
+        statistic_native,
+        pvalues_native,
+        conf_int_native,
+        distribution,
+        _method,
+    ) = _compute_single_native(
+        X_work,
+        params_native,
+        resid_work,
+        scale_native,
+        XtX=XtX,
+        bread_inv=bread_inv,
+        backend=backend_name,
+        device=selected_device,
+        df_resid=df_resid,
+        cov_type=cov_type,
+        hac_maxlags=hac_maxlags,
+        ridge_alpha=0.0,
+        alpha=0.05,
+    )
+    return (
+        np.asarray(_to_numpy(bse_native), dtype=np.float64),
+        np.asarray(_to_numpy(statistic_native), dtype=np.float64),
+        np.asarray(_to_numpy(pvalues_native), dtype=np.float64),
+        np.asarray(_to_numpy(conf_int_native), dtype=np.float64),
+        str(distribution),
     )
 
 
@@ -202,7 +266,13 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     else:
         XtX = X_work.T @ X_work
         Xty = X_work.T @ y_work
-        params_native = _inverse_or_pinv(XtX, backend_name) @ Xty
+        rank_deficient = fit_rank < k
+        design_pinv = _design_pinv(X_work, backend_name) if rank_deficient else None
+        params_native = (
+            design_pinv @ y_work
+            if rank_deficient
+            else _inverse_or_pinv(XtX, backend_name) @ Xty
+        )
         resid_native = y_native - X_design @ params_native
         resid_work = y_work - X_work @ params_native
         df_resid = n - fit_rank
@@ -210,7 +280,34 @@ def compute_post_selection_ols_inference(model, X, y, sample_weight=None):
         cov_type = str(getattr(model, "_cov_type", "nonrobust")).lower()
         hac_maxlags = getattr(model, "_hac_maxlags", None)
 
-        if cov_type == "nonrobust":
+        if rank_deficient:
+            (
+                bse_sel,
+                stat_sel,
+                pvalues_sel,
+                ci_sel,
+                resolved_distribution,
+            ) = _rank_deficient_inference(
+                X_work,
+                params_native,
+                resid_work,
+                scale_native,
+                backend_name=backend_name,
+                selected_device=selected_device,
+                df_resid=df_resid,
+                cov_type=cov_type,
+                hac_maxlags=hac_maxlags,
+                design_pinv=design_pinv,
+            )
+            params_sel = np.asarray(_to_numpy(params_native), dtype=np.float64)
+            numerical_metadata = {
+                "numerical_backend": backend_name,
+                "numerical_device": selected_device,
+                "reporting_backend": "numpy",
+                "reporting_boundary": "post_numerical_inference",
+            }
+            resolved_cov_type = cov_type
+        elif cov_type == "nonrobust":
             bse_sel, stat_sel, pvalues_sel, ci_sel = _classical_nonrobust_inference(
                 X_work,
                 params_native,
