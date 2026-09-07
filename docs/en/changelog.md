@@ -75,7 +75,7 @@
 ### Optimized
 
 - Two-way clustered covariance at 10k rows dropped from ~1000 s to ~1.3 s per CuPy fit on Tesla P100 after an over-broad row-expansion fallback was replaced by a residual-acceptance check that keeps ordinary balanced panels on the vectorized Gram path.
-- Fama-MacBeth resident-array scaling (P100, this release's artifact): CuPy/Torch GPU-over-NumPy median-time ratios **1.314/0.706** micro, **0.174/0.126** medium, **0.092/0.084** large — Torch faster than NumPy at every scale (1.4×/7.9×/11.9×), CuPy crossing over from the medium workload onward, every measured case in one `gram-certified` batch with zero SVD fallbacks in every measured GPU scale.
+- Fama-MacBeth resident-array scaling (P100, this release's artifact): CuPy/Torch GPU-over-NumPy median-time ratios **1.314/0.706** micro, **0.174/0.126** medium, **0.092/0.084** large — Torch faster than NumPy at every scale (1.4×/7.9×/11.9×), CuPy crossing over from the medium workload onward, every measured case in one `gram-certified` batch with zero SVD fallbacks.
 
 ### Validation
 
