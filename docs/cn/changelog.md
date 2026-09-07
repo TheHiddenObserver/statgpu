@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-07<br>
+> 最后更新：2026-09-08<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -9,16 +9,19 @@
 
 ### 变更
 
-- 为稀疏 Gaussian `Lasso`/`ElasticNet` 推断增加与硬件无关的 canonical `inference_method="post_selection_ols"`。旧 `cpu_ols` 与 `gpu_ols` 同时进入一个兼容周期的弃用阶段；`LassoCV` 还会在 CV 边界继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并以 warning compatibility alias 归一化到同一方法。
-- 将“统计方法是什么”与“在哪个 backend 执行”分离：显式 `device="cpu"`、`"cuda"`、`"torch"` 继续具有权威性；只有 estimator/global 都处于真正 `device="auto"` 时才允许保留输入已有的 CuPy 或 Torch-CUDA native backend；post-fit inference 复用成功 penalized fit 已记录的 backend/device provenance，而不会从原始输入重新猜测。
-- `post_selection_ols` 在 fit-resolved NumPy/CuPy/Torch backend 上对 penalized fit 选出的 active set 做无惩罚 OLS/WLS 重拟合，同时保留原 penalized `coef_` 用于预测。迁移保持既有 nonrobust Student-t 报告语义、`1e-15` active-set threshold，以及未选坐标的兼容占位（`SE=0`、统计量 `0`、`p=1`、CI `[0, 0]`）；这些占位不表示“零方差”或“精确为零”的统计结论。
-- 将 post-selection auxiliary design/residual/scale/df 状态与 penalized estimator 的通用 `rsquared`/AIC/BIC/F 诊断状态隔离，并接入既有 inference-state lifecycle cleanup，避免 refit 或 `set_params` 后残留 stale auxiliary state。
-- weighted 非 Gaussian sparse GLM 继续走各自 loss-specific、sample-weight-aware 的既有 solver 路径；Gaussian 的 weighted-centering/sqrt-weight working transform 只允许用于 squared-error L1/ElasticNet 拟合。
+- 为稀疏 Gaussian `Lasso`、`ElasticNet` 以及公开 generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface 增加与硬件无关的 canonical `inference_method="post_selection_ols"`。旧 `cpu_ols` / `gpu_ols` 作为一个兼容周期的 `FutureWarning` alias 保留；`LassoCV` 在 CV compatibility boundary 继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法。
+- “统计方法是什么”与“在哪个硬件执行”严格正交。显式 `device="cpu"`、`"cuda"` 或 `"torch"` 即使面对异构 input container 仍具有权威性；只有真正的 AUTO policy 才允许保留 native CuPy/Torch-CUDA 输入。LassoCV 现在让 CV 与 selected-alpha final refit 固定在同一 resolved backend，并把 CuPy response/weight 对齐到 design 的具体 CUDA ordinal。
+- `post_selection_ols` 在 fit-recorded NumPy/CuPy/Torch backend 上执行无惩罚 active-set OLS/WLS refit，同时保留 penalized `coef_` 用于预测。nonrobust 继续使用 Student-t 与历史 inactive-coordinate placeholder。rank-deficient active design 使用 effective rank 计算 residual df，并通过 design-level Moore-Penrose/SVD 完成系数 refit 与 covariance bread；robust/HAC 以及 empty-active no-intercept case 保留调用者请求的 covariance/reference family。
+- active-refit diagnostic state 与 penalized-fit 的 R-squared/F/log-likelihood/AIC/BIC ownership 分离。`summary()` 分开报告 penalized-fit 与 post-selection residual DoF；formula 路径保持 categorical/missing-row/sample-weight 对齐；失败 refit fail closed，不保留上一轮成功 fit 或当前半成品 inference state。
+- 统一 sparse-Gaussian analytic-weight 语义：NumPy/CuPy/Torch direct fit 与 weighted LassoCV 都先在原始 observation 上 weighted-center，再使用等价的 `sqrt(w * n / sum(w))` row transform。默认 CV alpha grid、fold objective、weighted validation MSE 与 final refit 使用同一约定；所有权重为同一正常数时精确等价于 unweighted CV。weighted 非 Gaussian sparse GLM 继续保留各自 loss-specific、sample-weight-aware objective。
+- NumPy/CuPy/Torch `debiased` 统一到同一个 centered average-loss working problem，使 omitted weights、all-one weights 与全局等比例缩放 analytic weights 的结果一致。intercept-inclusive simultaneous max-|Z| inference 现在让原始坐标系 intercept influence 真正进入 bootstrap maximum；成功 refit 会先清除 stale simultaneous/precision state 再发布新结果。
+- 字符串与公开 `Penalty` 对象形式共享同一个 sparse-Gaussian migration 与 AUTO-routing contract。clone/get-params/set-params、warning call site、LassoCV final-refit ownership、backend/device provenance、formula routing 与 failure transaction 都有 maintained regression 覆盖。
 
 ### 验证
 
-- 增加 Python 3.9/3.12、Torch-CPU、完整 CPU、sklearn maintenance、static/ruff、documentation 与 browser focused regression coverage，并提供 exact-head physical CuPy/Torch CUDA validator。
-- 物理 CUDA acceptance 以 PR evidence 中记录的 immutable exact source SHA 为准；hosted checks 不替代物理验证。本变更不做 GPU 性能声明。
+- hosted validation 覆盖 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU suite、scikit-learn 1.2.2/1.3.2/current maintenance compatibility、static/ruff、documentation、release package 与 benchmark-frontend contract。
+- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终 physical-CUDA gate，目前为 **schema v7 / 22 cases**：保留原始 4 个 direct-Lasso case，并增加 18 个 CuPy/Torch closure case，覆盖 ElasticNet/generic sparse Gaussian、weighted/unweighted debiased、真实 weighted multi-alpha LassoCV selection+final refit、rank-deficient SVD refit、Penalty-object AUTO routing、empty-active HC3 与 intercept-inclusive simultaneous max-|Z|。既有 post-selection 数值 tolerance 没有放宽。
+- 之前 Tesla P100 artifact 只继续作为各自历史 exact SHA 的不可变证据。后续 review/fix loop 已修改有效 production numerical path，因此当前 source 的 physical acceptance 仍然 **等待 final exact clean-head schema-v7 22/22 CuPy/Torch CUDA rerun**。hosted checks 不替代该 gate，本变更也不做 GPU 性能声明。
 
 ## 未发布 — Penalized solver API 清理（PR #135）
 
@@ -57,14 +60,14 @@
 
 ### 新增
 
-- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（obust\）协方差；带可选 \group_debias=True\ 的一路/两路聚类协方差；Bartlett、Parzen、Quadratic-Spectral 核的 Driscoll-Kraay 协方差；\RandomEffects\ 在 quasi-demeaned GLS 分数上的 robust/HC 推断；\PooledOLS\ 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
+- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（obust\）协方差；一路/两路聚类协方差支持 `group_debias=True`；Bartlett、Parzen、Quadratic-Spectral kernel 的 Driscoll-Kraay 协方差；`RandomEffects` 在 quasi-demeaned GLS 分数上的 robust/HC 推断；`PooledOLS` 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
 - **诊断**：classical Hausman FE-vs-RE、pooling F、Breusch-Pagan LM、within/between/overall/adjusted R-squared 与 model F——在 NumPy/CuPy/Torch 上对极端 float64 量级 overflow-safe。
 - **事务式 panel fits**：行保持的 formula prediction 与 fail-closed refit 语义。
 
 ### 修复
 
-- CuPy \maximum.at\/\scatter_max\ 对约 1e7..1e308 量级的 float64 返回 \inf\；组内 min/max scatter 现按量级门控（\<= 1e6\ 走原生 GPU scatter），两条路径均精确。
-- Torch CUDA SVD 要求精确的 \gesvd\ driver，不可用时 fail closed；默认 \gesvdj\ driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
+- CuPy `maximum.at`/`scatter_max` 对约 1e7..1e308 量级的 float64 返回 `inf`；组内 min/max scatter 现按量级门控（`<= 1e6` 走原生 GPU scatter），两条路径均精确。
+- Torch CUDA SVD 要求精确的 `gesvd` driver，不可用时 fail closed；默认 `gesvdj` driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
 - panel coefficient-resolution certificate 改为确定性误差界（不再依赖 LAPACK 版本相关的 SVD 舍入）；无法解析的近共线满秩设计 fail closed，单列 FE 吸收设计与秩亏设计报告实际秩。
 - formula side-array 对齐仅接受原始 formula-data 行数或保留行数两种长度，其余 fail closed。
 - 失败的 panel fit 保留实际执行后端 provenance 并清空 fitted/inference 状态。
@@ -131,7 +134,7 @@ Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator
 - 将 panel estimator 中已经存在的 residual-based OLS covariance 分派集中到共享 registry，同时保持各模型原有的 nonrobust scaling、HC1 correction、one-/two-way cluster、HAC、rank/df 约定和 unsupported-name 行为。此阶段不新增 HC0/HC2/HC3 或 Driscoll-Kraay。
 - 在统计上合理的边界内，将 `PanelOLS`、`RandomEffects`、`PooledOLS`、`BetweenOLS`、`FirstDifferenceOLS` 与 `FamaMacBeth` 迁移到共享生命周期 helper；fixed-effect recovery/prediction、Swamy-Arora variance component 与 quasi-demeaning、Fama-MacBeth beta-series covariance 继续保持模型专用实现。
 - 保持现有 formula、缺失行对齐、intercept/effect token、prediction output、summary schema/打印行为、balanced/unbalanced 语义、residual-df 定义以及显式 device 不允许静默 fallback 的契约。
-- 在任何 panel source 重构之前先提交并通过 pre-refactor golden suite，并在重构后持续作为回归 gate；专用 Python 3.9 + Torch 2.0 CPU CI 现在也执行共享 panel metadata/covariance/inference 测试，避免 optional Torch 缺失时静默跳过。
+- 在任何 panel source 重构之前先提交并通过 pre-refactor golden suite，并在重构后持续作为回归 gate；专用 Python 3.9 + Torch 2.0 CPU CI 现在也执行共享 panel metadata/covariance/inference 测试，避免 optional Torch 缺失时相关回归测试被静默跳过。
 
 Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；Stage A 不会把这些尚未实现的能力写成公开支持。
 
