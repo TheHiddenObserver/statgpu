@@ -1,9 +1,23 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-09-06<br>
+> Last updated: 2026-09-07<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## Unreleased — Post-selection OLS inference API cleanup (PR #138 / Issue #137)
+
+### Changed
+
+- Added canonical hardware-neutral `inference_method="post_selection_ols"` for sparse Gaussian `Lasso`/`ElasticNet` inference. Legacy `cpu_ols` and `gpu_ols` are deprecated together for one compatibility cycle; `LassoCV` also keeps its older `cpu_ols_inference` / `gpu_ols_inference` spellings as warning compatibility aliases at the CV boundary.
+- Statistical-method identity is separate from backend routing: explicit `device="cpu"`, `"cuda"`, or `"torch"` remains authoritative; only genuine estimator/global `device="auto"` may preserve backend-native CuPy or Torch-CUDA input, and post-fit inference reuses the backend/device provenance recorded by the successful penalized fit.
+- `post_selection_ols` performs an unpenalized active-set OLS/WLS refit on the fit-resolved NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. The migration preserves the established nonrobust Student-t reporting convention, the `1e-15` active-set threshold, and inactive-coordinate compatibility placeholders (`SE=0`, statistic `0`, `p=1`, CI `[0, 0]`); those placeholders are not zero-variance inferential claims.
+- Auxiliary post-selection design/residual/scale/df state is isolated from the penalized estimator's generic `rsquared`/AIC/BIC/F diagnostic state and participates in the existing inference-state lifecycle cleanup.
+
+### Validation
+
+- Added focused Python 3.9/3.12, Torch-CPU, full CPU, sklearn-maintenance, static/ruff, documentation, and browser regression coverage plus an exact-head physical CuPy/Torch CUDA validator.
+- Hosted checks do not substitute for physical CUDA acceptance. Physical validation remains outstanding on the final source SHA; no GPU performance claim is made.
 
 ## Unreleased — Penalized solver API cleanup (PR #135)
 
