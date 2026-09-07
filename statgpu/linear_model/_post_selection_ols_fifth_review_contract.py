@@ -6,6 +6,8 @@ This contract keeps several cross-path public boundaries aligned with #137:
   string penalty names, so warning normalization and AUTO native-input routing
   are identical for both constructor forms and follow the current public value
   rather than stale resolved state from a previous fit;
+* sparse-Gaussian inference-enabled estimators fail closed when the outer public
+  finite-input guard rejects a refit before the inner fit transaction starts;
 * a no-intercept fit with an empty active set preserves the caller's requested
   covariance/reference-distribution semantics instead of silently claiming
   ``nonrobust`` Student-t inference;
@@ -36,11 +38,15 @@ from statgpu.linear_model.penalized import _post_selection_ols as _post_selectio
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._fit_mixin import _validate_sample_weight_backend
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
+from statgpu.linear_model.penalized._no_inference_cleanup_contract import (
+    _invalidate_failed_no_inference_fit,
+)
 
 
 _FIFTH_REVIEW_MARKER = "__statgpu_pr138_fifth_review_contract__"
 _CPU_DEBIASED_MARKER = "__statgpu_pr138_centered_cpu_debiased_contract__"
 _GPU_DEBIASED_MARKER = "__statgpu_pr138_centered_gpu_debiased_contract__"
+_SPARSE_RESET_MARKER = "__statgpu_pr138_sparse_inference_finite_reset__"
 _SPARSE_GAUSSIAN_PENALTIES = frozenset({"l1", "elasticnet", "en"})
 _ORIGINAL_POST_SELECTION = _post_selection.compute_post_selection_ols_inference
 _ORIGINAL_CPU_DEBIASED = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
@@ -56,6 +62,53 @@ def _supports_sparse_gaussian_migration(self) -> bool:
         penalty_obj = getattr(self, "_penalty", "")
     penalty_name = str(getattr(penalty_obj, "name", penalty_obj)).strip().lower()
     return loss_name == "squared_error" and penalty_name in _SPARSE_GAUSSIAN_PENALTIES
+
+
+def _invalidate_failed_sparse_inference_fit(estimator) -> None:
+    """Clear every result-bearing sparse-inference state after rejected refit."""
+    _invalidate_failed_no_inference_fit(estimator)
+    estimator._penalty = None
+    estimator._loss = None
+    estimator._lla_n_iters_ = 0
+    estimator._init_coef = None
+    if hasattr(estimator, "_init_intercept"):
+        estimator._init_intercept = None
+    estimator._conf_int_simultaneous = None
+    estimator._simultaneous_enabled = False
+    estimator._debiased_M_cpu = None
+    for name in (
+        "_simultaneous_critical_value",
+        "_simultaneous_target_mask",
+        "_simultaneous_method",
+        "_simultaneous_alpha",
+        "_simultaneous_n_bootstrap",
+    ):
+        estimator.__dict__.pop(name, None)
+
+
+def _install_sparse_inference_public_validation_reset() -> None:
+    """Extend the existing finite-validation reset to sparse Gaussian inference."""
+    current_reset = getattr(PenalizedGeneralizedLinearModel, "_reset_fit_state", None)
+    if getattr(current_reset, _SPARSE_RESET_MARKER, False):
+        return
+
+    def _reset_fit_state(self):
+        sparse_inference = (
+            bool(getattr(self, "compute_inference", False))
+            and _supports_sparse_gaussian_migration(self)
+        )
+        # Preserve the already-installed allocator/device cleanup and unrelated
+        # L2/no-inference reset semantics exactly once.
+        result = current_reset(self) if callable(current_reset) else None
+        if sparse_inference:
+            _invalidate_failed_sparse_inference_fit(self)
+        return result
+
+    if callable(current_reset):
+        functools.update_wrapper(_reset_fit_state, current_reset)
+    setattr(_reset_fit_state, _SPARSE_RESET_MARKER, True)
+    _reset_fit_state._statgpu_original = current_reset
+    PenalizedGeneralizedLinearModel._reset_fit_state = _reset_fit_state
 
 
 @functools.wraps(_ORIGINAL_POST_SELECTION)
@@ -105,7 +158,6 @@ def _debiased_working_data_numpy(self, X, y, sample_weight):
     row_scale = np.sqrt(sw_arr * (float(n_samples) / float(n_eff)))
     return (
         X_arr,
-        y_arr,
         X_work,
         y_work,
         row_scale,
@@ -128,7 +180,6 @@ def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
 
     (
         X_arr,
-        _,
         X_work,
         y_work,
         row_scale,
@@ -267,6 +318,8 @@ def install_post_selection_ols_fifth_review_contract():
         setattr(_compute_post_selection_ols_inference, _FIFTH_REVIEW_MARKER, True)
         _post_selection.compute_post_selection_ols_inference = _compute_post_selection_ols_inference
         _api_contract.compute_post_selection_ols_inference = _compute_post_selection_ols_inference
+
+    _install_sparse_inference_public_validation_reset()
 
     current_cpu = PenalizedGeneralizedLinearModel._compute_post_fit_debiased_inference
     if not getattr(current_cpu, _CPU_DEBIASED_MARKER, False):
