@@ -12,12 +12,14 @@ execution backend and must convert heterogeneous GPU-resident X/y/weights to
 NumPy before the dedicated CV selector runs.  This mirrors direct penalized-fit
 semantics instead of asking the CV helper to reinterpret the input container.
 
-Finally, once LassoCV has resolved a concrete CPU/CuPy/Torch device for CV, the
-selected-alpha full-data Lasso refit must use that same device.  Temporarily pin
-the estimator's private runtime device after CV preparation and restore the
-caller's public AUTO/explicit request transactionally around ``fit``.  This
-matches the shared ``cv_refit_device`` contract used by the other maintained CV
-estimators and prevents a second AUTO decision during final refit.
+Finally, once LassoCV AUTO routing has resolved a concrete CPU/CuPy/Torch target,
+the selected-alpha full-data Lasso refit must use that same target.  Reuse the
+existing #137 fit-device transaction instead of adding another ``fit`` wrapper:
+native CuPy/Torch-CUDA input keeps its input-native priority when global AUTO is
+active, while plain input resolves through the normal statgpu global-device
+policy.  The existing transaction then pins the concrete device for both CV and
+final refit and restores the caller-owned ``device='auto'`` state in ``finally``.
+This preserves the warning stack discipline established by #135.
 
 Maintenance tests also exercise synthetic backend doubles that intentionally do
 not expose CuPy's concrete ``.device.id`` contract.  Those are not physical
@@ -32,13 +34,14 @@ import functools
 from statgpu._config import Device
 from statgpu.backends import _is_cupy_array
 from statgpu.backends._utils import _cupy_asarray_on_device
+from statgpu.linear_model import _penalized_inference_api_contract as _api_contract
 from statgpu.linear_model.cv._lasso_cv import LassoCV
 
 
 _AFFINITY_MARKER = "__statgpu_pr138_lassocv_cupy_affinity__"
-_FIT_AFFINITY_MARKER = "__statgpu_pr138_lassocv_refit_affinity__"
+_AUTO_REFIT_MARKER = "__statgpu_pr138_lassocv_auto_refit_device__"
 _ORIGINAL_PREPARE = LassoCV._prepare_cv_inputs_for_resolved_device
-_ORIGINAL_FIT = LassoCV.fit
+_ORIGINAL_INPUT_NATIVE_DEVICE = _api_contract._input_native_device
 
 
 def _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv):
@@ -75,6 +78,16 @@ def _convert_cpu_cv_inputs(self, X_cv, y_cv, sample_weight_cv):
     return X_cpu, y_cpu, weight_cpu
 
 
+def _input_native_or_resolved_lassocv_device(self, X):
+    """Return one concrete AUTO target for the whole LassoCV fit transaction."""
+    target = _ORIGINAL_INPUT_NATIVE_DEVICE(self, X)
+    if target is not None:
+        return target
+    if isinstance(self, LassoCV) and getattr(self, "_device", None) is Device.AUTO:
+        return self._get_compute_device()
+    return None
+
+
 @functools.wraps(_ORIGINAL_PREPARE)
 def _prepare_cv_inputs_for_resolved_device(
     self,
@@ -98,24 +111,11 @@ def _prepare_cv_inputs_for_resolved_device(
             f"LassoCV resolved an unsupported execution device {device_name!r}."
         ) from exc
 
-    # Pin the private runtime device from this point through final refit.  The
-    # outer transactional fit wrapper below restores the caller-owned request.
-    self._device = resolved_device
-
     if resolved_device is Device.CPU:
         return _convert_cpu_cv_inputs(self, X_cv, y_cv, sample_weight_cv)
     if resolved_device is Device.CUDA:
         return _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv)
     return X_cv, y_cv, sample_weight_cv
-
-
-@functools.wraps(_ORIGINAL_FIT)
-def _fit_with_resolved_refit_affinity(self, *args, **kwargs):
-    requested_device = self._device
-    try:
-        return _ORIGINAL_FIT(self, *args, **kwargs)
-    finally:
-        self._device = requested_device
 
 
 def install_lassocv_device_affinity_contract():
@@ -126,14 +126,19 @@ def install_lassocv_device_affinity_contract():
             _prepare_cv_inputs_for_resolved_device
         )
 
-    current_fit = LassoCV.fit
-    if not getattr(current_fit, _FIT_AFFINITY_MARKER, False):
-        setattr(_fit_with_resolved_refit_affinity, _FIT_AFFINITY_MARKER, True)
-        LassoCV.fit = _fit_with_resolved_refit_affinity
+    current_resolver = _api_contract._input_native_device
+    if not getattr(current_resolver, _AUTO_REFIT_MARKER, False):
+        setattr(
+            _input_native_or_resolved_lassocv_device,
+            _AUTO_REFIT_MARKER,
+            True,
+        )
+        _api_contract._input_native_device = _input_native_or_resolved_lassocv_device
 
 
 __all__ = [
     "install_lassocv_device_affinity_contract",
     "_align_cupy_cv_inputs",
     "_convert_cpu_cv_inputs",
+    "_input_native_or_resolved_lassocv_device",
 ]
