@@ -57,14 +57,14 @@
 
 ### 新增
 
-- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（robust）协方差；带可选 `group_debias=True` 的一路/两路聚类协方差；Bartlett、Parzen、Quadratic-Spectral 核的 Driscoll-Kraay 协方差；`RandomEffects` 在 quasi-demeaned GLS 分数上的 robust/HC 推断；`PooledOLS` 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
+- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（obust\）协方差；带可选 \group_debias=True\ 的一路/两路聚类协方差；Bartlett、Parzen、Quadratic-Spectral 核的 Driscoll-Kraay 协方差；\RandomEffects\ 在 quasi-demeaned GLS 分数上的 robust/HC 推断；\PooledOLS\ 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
 - **诊断**：classical Hausman FE-vs-RE、pooling F、Breusch-Pagan LM、within/between/overall/adjusted R-squared 与 model F——在 NumPy/CuPy/Torch 上对极端 float64 量级 overflow-safe。
 - **事务式 panel fits**：行保持的 formula prediction 与 fail-closed refit 语义。
 
 ### 修复
 
-- CuPy `maximum.at`/`scatter_max` 对约 1e7..1e308 量级的 float64 返回 `inf`；组内 min/max scatter 现按量级门控（`<= 1e6` 走原生 GPU scatter），两条路径均精确。
-- Torch CUDA SVD 要求精确的 `gesvd` driver，不可用时 fail closed；默认 `gesvdj` driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
+- CuPy \maximum.at\/\scatter_max\ 对约 1e7..1e308 量级的 float64 返回 \inf\；组内 min/max scatter 现按量级门控（\<= 1e6\ 走原生 GPU scatter），两条路径均精确。
+- Torch CUDA SVD 要求精确的 \gesvd\ driver，不可用时 fail closed；默认 \gesvdj\ driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
 - panel coefficient-resolution certificate 改为确定性误差界（不再依赖 LAPACK 版本相关的 SVD 舍入）；无法解析的近共线满秩设计 fail closed，单列 FE 吸收设计与秩亏设计报告实际秩。
 - formula side-array 对齐仅接受原始 formula-data 行数或保留行数两种长度，其余 fail closed。
 - 失败的 panel fit 保留实际执行后端 provenance 并清空 fitted/inference 状态。
