@@ -13,11 +13,12 @@
 - 将“统计方法是什么”与“在哪个 backend 执行”分离：显式 `device="cpu"`、`"cuda"`、`"torch"` 继续具有权威性；只有 estimator/global 都处于真正 `device="auto"` 时才允许保留输入已有的 CuPy 或 Torch-CUDA native backend；post-fit inference 复用成功 penalized fit 已记录的 backend/device provenance，而不会从原始输入重新猜测。
 - `post_selection_ols` 在 fit-resolved NumPy/CuPy/Torch backend 上对 penalized fit 选出的 active set 做无惩罚 OLS/WLS 重拟合，同时保留原 penalized `coef_` 用于预测。迁移保持既有 nonrobust Student-t 报告语义、`1e-15` active-set threshold，以及未选坐标的兼容占位（`SE=0`、统计量 `0`、`p=1`、CI `[0, 0]`）；这些占位不表示“零方差”或“精确为零”的统计结论。
 - 将 post-selection auxiliary design/residual/scale/df 状态与 penalized estimator 的通用 `rsquared`/AIC/BIC/F 诊断状态隔离，并接入既有 inference-state lifecycle cleanup，避免 refit 或 `set_params` 后残留 stale auxiliary state。
+- weighted 非 Gaussian sparse GLM 继续走各自 loss-specific、sample-weight-aware 的既有 solver 路径；Gaussian 的 weighted-centering/sqrt-weight working transform 只允许用于 squared-error L1/ElasticNet 拟合。
 
 ### 验证
 
 - 增加 Python 3.9/3.12、Torch-CPU、完整 CPU、sklearn maintenance、static/ruff、documentation 与 browser focused regression coverage，并提供 exact-head physical CuPy/Torch CUDA validator。
-- Hosted checks 不等价于 physical CUDA acceptance；最终 source SHA 的物理 CUDA 验证仍待执行。本变更不做 GPU 性能声明。
+- 物理 CUDA acceptance 以 PR evidence 中记录的 immutable exact source SHA 为准；hosted checks 不替代物理验证。本变更不做 GPU 性能声明。
 
 ## 未发布 — Penalized solver API 清理（PR #135）
 
@@ -56,14 +57,14 @@
 
 ### 新增
 
-- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（obust\）协方差；带可选 \group_debias=True\ 的一路/两路聚类协方差；Bartlett、Parzen、Quadratic-Spectral 核的 Driscoll-Kraay 协方差；\RandomEffects\ 在 quasi-demeaned GLS 分数上的 robust/HC 推断；\PooledOLS\ 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
+- **Panel Tier-1 Stage C 协方差与推断**：面向变换类 panel estimators 的 HC0/HC2/HC3 与 legacy HC1（robust）协方差；带可选 `group_debias=True` 的一路/两路聚类协方差；Bartlett、Parzen、Quadratic-Spectral 核的 Driscoll-Kraay 协方差；`RandomEffects` 在 quasi-demeaned GLS 分数上的 robust/HC 推断；`PooledOLS` 的 legacy row-order HAC（支持有序 categorical 时间顺序）。
 - **诊断**：classical Hausman FE-vs-RE、pooling F、Breusch-Pagan LM、within/between/overall/adjusted R-squared 与 model F——在 NumPy/CuPy/Torch 上对极端 float64 量级 overflow-safe。
 - **事务式 panel fits**：行保持的 formula prediction 与 fail-closed refit 语义。
 
 ### 修复
 
-- CuPy \maximum.at\/\scatter_max\ 对约 1e7..1e308 量级的 float64 返回 \inf\；组内 min/max scatter 现按量级门控（\<= 1e6\ 走原生 GPU scatter），两条路径均精确。
-- Torch CUDA SVD 要求精确的 \gesvd\ driver，不可用时 fail closed；默认 \gesvdj\ driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
+- CuPy `maximum.at`/`scatter_max` 对约 1e7..1e308 量级的 float64 返回 `inf`；组内 min/max scatter 现按量级门控（`<= 1e6` 走原生 GPU scatter），两条路径均精确。
+- Torch CUDA SVD 要求精确的 `gesvd` driver，不可用时 fail closed；默认 `gesvdj` driver 会在结构零位置泄漏 ~1e-16，被巨大响应放大成错误系数。
 - panel coefficient-resolution certificate 改为确定性误差界（不再依赖 LAPACK 版本相关的 SVD 舍入）；无法解析的近共线满秩设计 fail closed，单列 FE 吸收设计与秩亏设计报告实际秩。
 - formula side-array 对齐仅接受原始 formula-data 行数或保留行数两种长度，其余 fail closed。
 - 失败的 panel fit 保留实际执行后端 provenance 并清空 fitted/inference 状态。

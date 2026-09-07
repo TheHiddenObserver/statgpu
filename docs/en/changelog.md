@@ -13,11 +13,12 @@
 - Statistical-method identity is separate from backend routing: explicit `device="cpu"`, `"cuda"`, or `"torch"` remains authoritative; only genuine estimator/global `device="auto"` may preserve backend-native CuPy or Torch-CUDA input, and post-fit inference reuses the backend/device provenance recorded by the successful penalized fit.
 - `post_selection_ols` performs an unpenalized active-set OLS/WLS refit on the fit-resolved NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. The migration preserves the established nonrobust Student-t reporting convention, the `1e-15` active-set threshold, and inactive-coordinate compatibility placeholders (`SE=0`, statistic `0`, `p=1`, CI `[0, 0]`); those placeholders are not zero-variance inferential claims.
 - Auxiliary post-selection design/residual/scale/df state is isolated from the penalized estimator's generic `rsquared`/AIC/BIC/F diagnostic state and participates in the existing inference-state lifecycle cleanup.
+- Weighted non-Gaussian sparse GLMs keep their existing loss-specific sample-weight-aware solver routes; the Gaussian weighted-centering/sqrt-weight working transform is gated strictly to squared-error L1/ElasticNet fits.
 
 ### Validation
 
 - Added focused Python 3.9/3.12, Torch-CPU, full CPU, sklearn-maintenance, static/ruff, documentation, and browser regression coverage plus an exact-head physical CuPy/Torch CUDA validator.
-- Hosted checks do not substitute for physical CUDA acceptance. Physical validation remains outstanding on the final source SHA; no GPU performance claim is made.
+- Physical CUDA acceptance is recorded against an immutable source SHA in the PR evidence; hosted checks do not substitute for it. No GPU performance claim is made.
 
 ## Unreleased — Penalized solver API cleanup (PR #135)
 
@@ -136,7 +137,7 @@ Stage B diagnostics and Stage C covariance expansion remain pending under Issue 
 ### PR #116 — Torch LogisticRegressionCV strict-CUDA repair
 
 - Fixed the maintained Torch strict-CUDA `LogisticRegressionCV` failure in the batched GPU IRLS path. Mixed-precision CV now allocates parameters and ridge diagonals in the active working dtype, and coefficient/intercept paths remain backend-native through validation scoring.
-- Added regression coverage for float32 and float64 CV, weighted/unweighted execution, intercept/no-intercept paths, and the full selector consumer. A dedicated Python 3.9 + Torch 2.0 CPU CI job prevents the optional Torch regression suite from silently skipping.
+- Added regression coverage for float32 and float64 CV, weighted/unweighted execution, intercept/no-intercept paths, and the full selector consumer. A dedicated Python 3.9 + Torch 2.0 CPU CI job prevents the optional-Torch regression suite from silently skipping.
 - Physical validation ran on exact numerical implementation head `e6e4846b06604ed53e65fc9afd9054bd5777098f` using Tesla P100-SXM2-16GB, Python 3.9.16, PyTorch 2.0.0+cu117 / CUDA 11.7, and CuPy 13.6.0. All four focused Torch CUDA cases selected the same `C=0.2` as the CPU reference; the largest mean-loss difference was below `6.2e-8`, with the float64 path agreeing to machine precision.
 - The canonical six-family rerun recorded all 18 statgpu NumPy/CuPy/Torch backend rows as successful, with zero failed candidates/folds and converged final refits. `LogisticRegressionCV` selected `C=0.1` on NumPy, CuPy, Torch, and sklearn; the Torch/NumPy validation-loss difference was below `4.7e-8`.
 - The historical pre-fix P100 source remains immutable and registered. The post-fix exact-head source is registered separately from `results/pr116_p100/cv_benchmark_pr116_p100.json`; `focused_validation.json` remains validation-only evidence rather than dashboard timing data.
@@ -158,7 +159,7 @@ Related: Issue #112 and pull request #116.
 
 ### Cross-validation, inference, and estimator contracts
 
-- Made `RidgeCV`, `ElasticNetCV`, and `LogisticRegressionCV` failure-safe: stale state is cleared before fitting and selected parameters are published only after the final full-data refit succeeds.
+- Made `RidgeCV`, `ElasticNetCV`, and `LogisticRegressionCV` fits failure-safe: stale state is cleared before fitting and selected parameters are published only after the final full-data refit succeeds.
 - Preserved explicit Torch/CuPy requests and pinned `device="auto"` final refits to the backend selected during cross-validation.
 - Updated Logistic and Elastic Net default regularization grids to incorporate analytic weights and satisfy integer-weight row-replication equivalence.
 - Preserved declared validation losses and analytic weights in penalized CV; programming, shape, CUDA OOM, and device errors are no longer converted into candidate `NaN` values or unrelated MSE fallback.
@@ -213,10 +214,10 @@ Related: Issue #45, Issue #81, Issue #82, Issue #83, and pull request #87.
 
 ### Cross-validation and grouped penalties
 
-- Requested CoxPHCV two-stage and successive-halving controls now execute one
+- Requested CoxPHCV two-stage or successive-halving controls now execute one
   explicit exhaustive full-precision candidate pass, preserving deterministic
-  selection while avoiding repeated complete-grid fitting.
-- One-shot `CoxPHCV.cv_splits` iterators are reusable across repeated fit,
+  selection while avoiding repeated complete grid fit.
+- One-shot `CoxPHCV.cv_splits` iterator is reusable across repeated fit,
   scikit-learn clone, parameter reconstruction, and pickle.
 - Public Group Lasso and Adaptive Group Lasso use the generic loss-gradient and
   exact group-proximal path consistently across supported backends.

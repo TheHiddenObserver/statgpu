@@ -50,6 +50,17 @@ def _runtime_inference_method(model) -> str:
 def _is_weighted_sparse_fast_path(model, sample_weight, backend_name: str) -> bool:
     if sample_weight is None:
         return False
+    # The centered/sqrt-weight working transform below is an algebraic identity
+    # only for the quadratic Gaussian objective.  The wrapper is installed on
+    # the generic PGLM class, so fail this predicate before looking at the
+    # sparse penalty/solver for Logistic/Poisson/Gamma/etc. Those losses must
+    # keep their own sample_weight-aware backend objective unchanged.
+    loss_obj = getattr(model, "_loss", None)
+    loss_name = str(
+        getattr(loss_obj, "name", getattr(model, "loss", ""))
+    ).strip().lower()
+    if loss_name != "squared_error":
+        return False
     penalty_name = str(
         getattr(
             getattr(model, "_penalty", None),

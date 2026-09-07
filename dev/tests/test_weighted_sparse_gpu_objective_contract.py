@@ -235,3 +235,70 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
     assert model._conf_int.shape == (model._params.size, 2)
     assert model._params[0] == pytest.approx(expected_intercept, rel=0, abs=1e-14)
     assert np.all(np.isfinite(model._bse))
+
+
+@pytest.mark.parametrize(
+    "loss_name,solver_name",
+    [("logistic", "fista"), ("poisson", "fista_bb")],
+)
+@pytest.mark.parametrize("backend_name", ["cupy", "torch"])
+def test_weighted_sparse_review_fix_does_not_hijack_non_gaussian_losses(
+    monkeypatch,
+    loss_name,
+    solver_name,
+    backend_name,
+):
+    rng = np.random.default_rng(141)
+    X = rng.normal(size=(32, 3))
+    if loss_name == "logistic":
+        y = (rng.random(32) > 0.4).astype(float)
+    else:
+        y = rng.poisson(np.exp(0.1 + 0.1 * X[:, 0])).astype(float)
+    weights = rng.uniform(0.2, 1.8, size=32)
+    model = PenalizedGeneralizedLinearModel(
+        loss=loss_name,
+        penalty="l1",
+        alpha=0.02,
+        fit_intercept=True,
+        compute_inference=False,
+        solver=solver_name,
+        device="cpu",
+    )
+    model._penalty = model._resolve_penalty()
+    model._loss = model._resolve_loss()
+    model._selected_solver = solver_name
+    captured = {}
+
+    def fail_gaussian_transform(*args, **kwargs):
+        raise AssertionError("non-Gaussian weighted fit entered Gaussian transform")
+
+    def fake_base_fit(
+        self,
+        X_arg,
+        y_arg,
+        sample_weight=None,
+        backend_name="cupy",
+    ):
+        captured["X"] = X_arg
+        captured["y"] = y_arg
+        captured["sample_weight"] = sample_weight
+        captured["backend_name"] = backend_name
+
+    monkeypatch.setattr(
+        PenalizedLinearRegression,
+        "_weighted_sparse_gpu_working_data",
+        staticmethod(fail_gaussian_transform),
+    )
+    monkeypatch.setattr(review_fix, "_BASE_GPU_FIT", fake_base_fit)
+
+    model._fit_gpu_backend(
+        X,
+        y,
+        sample_weight=weights,
+        backend_name=backend_name,
+    )
+
+    assert captured["X"] is X
+    assert captured["y"] is y
+    assert captured["sample_weight"] is weights
+    assert captured["backend_name"] == backend_name
