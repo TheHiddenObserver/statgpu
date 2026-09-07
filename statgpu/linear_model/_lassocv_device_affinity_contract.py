@@ -1,4 +1,4 @@
-"""Concrete-device affinity for LassoCV CuPy preparation.
+"""Concrete-device and explicit-CPU affinity for LassoCV preparation.
 
 LassoCV resolves a backend before entering its dedicated CV selector.  When a
 native CuPy design lives on a non-current CUDA device, BaseEstimator._to_cupy
@@ -7,15 +7,22 @@ the current device.  Direct Gaussian/penalized fits already realign those
 operands to the design's concrete device.  Apply the same rule to LassoCV so
 AUTO-native CuPy input cannot create cross-device CV arithmetic.
 
+The inverse boundary matters as well: an explicit/resolved CPU request owns the
+execution backend and must convert heterogeneous GPU-resident X/y/weights to
+NumPy before the dedicated CV selector runs.  This mirrors direct penalized-fit
+semantics instead of asking the CV helper to reinterpret the input container.
+
 Maintenance tests also exercise synthetic backend doubles that intentionally do
 not expose CuPy's concrete ``.device.id`` contract.  Those are not physical
-CuPy arrays and must remain transparent to this production-only affinity layer.
+CuPy arrays and must remain transparent to the production-only CUDA affinity
+layer.
 """
 
 from __future__ import annotations
 
 import functools
 
+from statgpu._config import Device
 from statgpu.backends import _is_cupy_array
 from statgpu.backends._utils import _cupy_asarray_on_device
 from statgpu.linear_model.cv._lasso_cv import LassoCV
@@ -47,6 +54,18 @@ def _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv):
     return X_cv, y_aligned, weight_aligned
 
 
+def _convert_cpu_cv_inputs(self, X_cv, y_cv, sample_weight_cv):
+    """Convert all dedicated-CV operands to NumPy for an authoritative CPU target."""
+    X_cpu = self._to_array(X_cv, Device.CPU, backend="numpy")
+    y_cpu = self._to_array(y_cv, Device.CPU, backend="numpy")
+    weight_cpu = (
+        None
+        if sample_weight_cv is None
+        else self._to_array(sample_weight_cv, Device.CPU, backend="numpy")
+    )
+    return X_cpu, y_cpu, weight_cpu
+
+
 @functools.wraps(_ORIGINAL_PREPARE)
 def _prepare_cv_inputs_for_resolved_device(
     self,
@@ -62,7 +81,10 @@ def _prepare_cv_inputs_for_resolved_device(
         sample_weight,
         device_name,
     )
-    if str(device_name).strip().lower() == "cuda":
+    resolved = str(device_name).strip().lower()
+    if resolved == Device.CPU.value:
+        return _convert_cpu_cv_inputs(self, X_cv, y_cv, sample_weight_cv)
+    if resolved == Device.CUDA.value:
         return _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv)
     return X_cv, y_cv, sample_weight_cv
 
@@ -78,4 +100,5 @@ def install_lassocv_device_affinity_contract():
 __all__ = [
     "install_lassocv_device_affinity_contract",
     "_align_cupy_cv_inputs",
+    "_convert_cpu_cv_inputs",
 ]
