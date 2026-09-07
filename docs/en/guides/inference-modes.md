@@ -83,6 +83,13 @@ original penalized `coef_` remains the coefficient vector used for prediction;
 the active-set refit is an inferential/reporting object in `_params` /
 `_inference_result`.
 
+The two fits also have different diagnostic ownership. In `summary()`, the
+coefficient table and `Post-selection Refit DoF` belong to the active-set refit,
+whereas R-squared, adjusted R-squared, F statistics, log-likelihood, AIC, BIC,
+and `Penalized-fit Residual DoF` continue to describe the penalized prediction
+fit. The summary labels these quantities separately so the refit degrees of
+freedom are not mistaken for the penalized-fit diagnostic degrees of freedom.
+
 For `cov_type="nonrobust"`, this path preserves the established classical
 **Student-t** reporting convention. Robust covariance choices exposed by the
 estimator use the shared Gaussian robust-covariance layer and its normal-reference
