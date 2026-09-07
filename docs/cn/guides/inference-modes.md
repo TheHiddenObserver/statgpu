@@ -46,6 +46,8 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 
 backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend。相比之下，residual `bootstrap` 当前仍使用 CPU-native residual refit。因此显式 GPU `device` 会控制 penalized fit 的执行位置，但不应被理解成 bootstrap 也变成 GPU-native。
 
+对于 analytic `sample_weight`，维护中的 NumPy/CuPy/Torch `debiased` 路径使用同一个 weighted-centered average-loss 工作问题。因此把所有权重同时乘以任意正的常数，不会改变 penalized fit 或 debiased inference。
+
 ### `post_selection_ols` 实际计算什么？
 
 penalized model 先确定 active set；随后 statgpu 在**同一个 fit-resolved backend** 上，仅使用该 active set 对数据做无惩罚 OLS，存在 sample weights 时做 WLS，再计算对应 covariance 与参考分布推断。
