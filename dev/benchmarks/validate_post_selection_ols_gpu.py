@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Physical CuPy/Torch validation for post-selection OLS inference (#137).
 
-This validator is intentionally separate from hosted CPU CI. Canonical physical
-acceptance requires both public explicit-GPU routes, fitted-backend provenance,
-active-set identity, and coefficient/SE/statistic/p-value/CI parity with the
-NumPy reference. Explicit CUDA/Torch requests must fail rather than fall back.
+Canonical acceptance covers the original direct-Lasso parity matrix plus the
+public closure surfaces touched by #138: ElasticNet, the generic squared-error
+penalized estimator, LassoCV final refit, and preservation of weighted debiased
+GPU inference. Explicit CUDA/Torch requests must fail rather than fall back.
 """
 
 from __future__ import annotations
@@ -19,9 +19,22 @@ from pathlib import Path
 
 import numpy as np
 
-from statgpu.linear_model import Lasso
+from statgpu.linear_model import (
+    ElasticNet,
+    Lasso,
+    LassoCV,
+    PenalizedGeneralizedLinearModel,
+)
 
 _REQUIRED_BACKENDS = ("cupy", "torch")
+_POST_LIMITS = {
+    "penalized_coef": 2e-6,
+    "post_selection_params": 2e-7,
+    "bse": 2e-7,
+    "statistic": 2e-5,
+    "pvalue": 2e-6,
+    "ci": 5e-7,
+}
 
 
 def _git(*args: str) -> str:
@@ -70,6 +83,10 @@ def _runtime(backend: str):
     return f"cuda:{device_id}", torch.__version__
 
 
+def _requested_device(backend: str) -> str:
+    return "cuda" if backend == "cupy" else "torch"
+
+
 def _max_error(a, b) -> float:
     left = np.asarray(a, dtype=np.float64)
     right = np.asarray(b, dtype=np.float64)
@@ -89,8 +106,8 @@ def _max_error(a, b) -> float:
     return float(np.max(np.abs(left[finite] - right[finite])))
 
 
-def _fit(X, y, *, device: str, sample_weight=None):
-    model = Lasso(
+def _make_post_selection_model(kind: str, *, device: str):
+    common = dict(
         alpha=0.05,
         solver="fista",
         inference_method="post_selection_ols",
@@ -99,29 +116,28 @@ def _fit(X, y, *, device: str, sample_weight=None):
         max_iter=6000,
         tol=1e-9,
     )
+    if kind == "lasso":
+        return Lasso(**common)
+    if kind == "elasticnet":
+        return ElasticNet(l1_ratio=0.7, **common)
+    if kind == "generic_l1":
+        return PenalizedGeneralizedLinearModel(
+            loss="squared_error",
+            penalty="l1",
+            **common,
+        )
+    raise ValueError(f"unknown post-selection model kind: {kind}")
+
+
+def _fit_post_selection(kind: str, X, y, *, device: str, sample_weight=None):
+    model = _make_post_selection_model(kind, device=device)
     model.fit(X, y, sample_weight=sample_weight)
     if model._inference_result is None:
-        raise AssertionError("post-selection OLS inference result is missing")
+        raise AssertionError(f"{kind} post-selection OLS inference result is missing")
     return model
 
 
-def _case(backend: str, *, weighted: bool):
-    X, y, weights = _problem(seed=137 + int(weighted))
-    sw = weights if weighted else None
-    cpu = _fit(X, y, device="cpu", sample_weight=sw)
-
-    X_native = _native(X, backend)
-    y_native = _native(y, backend)
-    sw_native = None if sw is None else _native(sw, backend)
-    requested_device = "cuda" if backend == "cupy" else "torch"
-    expected_device, version = _runtime(backend)
-    gpu = _fit(
-        X_native,
-        y_native,
-        device=requested_device,
-        sample_weight=sw_native,
-    )
-
+def _assert_post_selection_provenance(gpu, cpu, backend: str, expected_device: str):
     meta = dict(gpu._inference_result.metadata)
     if gpu._selected_backend_name != backend:
         raise AssertionError(
@@ -150,7 +166,34 @@ def _case(backend: str, *, weighted: bool):
         )
     if meta.get("refit_df_resid") != cpu._inference_result.metadata.get("refit_df_resid"):
         raise AssertionError("CPU/GPU post-selection residual degrees of freedom differ")
+    return meta, gpu_selected
 
+
+def _post_selection_case(backend: str, *, weighted: bool, kind: str = "lasso"):
+    seed_offset = {"lasso": 0, "elasticnet": 20, "generic_l1": 40}[kind]
+    X, y, weights = _problem(seed=137 + seed_offset + int(weighted))
+    sw = weights if weighted else None
+    cpu = _fit_post_selection(kind, X, y, device="cpu", sample_weight=sw)
+
+    X_native = _native(X, backend)
+    y_native = _native(y, backend)
+    sw_native = None if sw is None else _native(sw, backend)
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    gpu = _fit_post_selection(
+        kind,
+        X_native,
+        y_native,
+        device=requested_device,
+        sample_weight=sw_native,
+    )
+
+    meta, gpu_selected = _assert_post_selection_provenance(
+        gpu,
+        cpu,
+        backend,
+        expected_device,
+    )
     errors = {
         "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
         "post_selection_params": _max_error(gpu._params, cpu._params),
@@ -159,23 +202,16 @@ def _case(backend: str, *, weighted: bool):
         "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
         "ci": _max_error(gpu._conf_int, cpu._conf_int),
     }
-    limits = {
-        "penalized_coef": 2e-6,
-        "post_selection_params": 2e-7,
-        "bse": 2e-7,
-        "statistic": 2e-5,
-        "pvalue": 2e-6,
-        "ci": 5e-7,
-    }
-    for key, limit in limits.items():
+    for key, limit in _POST_LIMITS.items():
         value = errors[key]
         if not np.isfinite(value) or value > limit:
             raise AssertionError(
-                f"{backend} weighted={weighted} {key} error {value:.3e} "
+                f"{kind} {backend} weighted={weighted} {key} error {value:.3e} "
                 f"exceeds {limit:.3e}"
             )
 
     return {
+        "model": kind,
         "case": "weighted" if weighted else "unweighted",
         "backend": backend,
         "backend_version": version,
@@ -188,7 +224,141 @@ def _case(backend: str, *, weighted: bool):
         "distribution": gpu._inference_result.distribution,
         "refit_df_resid": meta.get("refit_df_resid"),
         "errors": errors,
-        "limits": limits,
+        "limits": dict(_POST_LIMITS),
+        "status": "success",
+    }
+
+
+def _weighted_debiased_case(backend: str):
+    X, y, weights = _problem(seed=211)
+    cpu = Lasso(
+        alpha=0.05,
+        solver="fista",
+        compute_inference=False,
+        device="cpu",
+        max_iter=6000,
+        tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
+
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    gpu = Lasso(
+        alpha=0.05,
+        solver="fista",
+        inference_method="debiased",
+        compute_inference=True,
+        device=requested_device,
+        max_iter=6000,
+        tol=1e-9,
+    ).fit(
+        _native(X, backend),
+        _native(y, backend),
+        sample_weight=_native(weights, backend),
+    )
+    result = gpu._inference_result
+    if result is None or result.method != "debiased":
+        raise AssertionError("weighted debiased GPU inference result is missing")
+    meta = dict(result.metadata)
+    if gpu._selected_backend_name != backend:
+        raise AssertionError("weighted debiased fit backend provenance mismatch")
+    if meta.get("backend_path") != f"{backend}_debiased_weighted":
+        raise AssertionError(f"weighted debiased inference silently changed backend: {meta}")
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"weighted debiased numerical backend mismatch: {meta}")
+    if str(meta.get("numerical_device")) != expected_device:
+        raise AssertionError(f"weighted debiased numerical device mismatch: {meta}")
+    if meta.get("reporting_boundary") != "post_numerical_inference":
+        raise AssertionError(f"weighted debiased reporting boundary mismatch: {meta}")
+    if meta.get("sample_weighted") is not True:
+        raise AssertionError("weighted debiased metadata lost sample_weight provenance")
+
+    coef_error = _max_error(gpu.coef_, cpu.coef_)
+    if not np.isfinite(coef_error) or coef_error > _POST_LIMITS["penalized_coef"]:
+        raise AssertionError(
+            f"weighted debiased {backend} penalized_coef error {coef_error:.3e} exceeds "
+            f"{_POST_LIMITS['penalized_coef']:.3e}"
+        )
+    expected_dim = X.shape[1] + 1
+    for name, value in (
+        ("params", gpu._params),
+        ("bse", gpu._bse),
+        ("statistic", gpu._tvalues),
+        ("pvalue", gpu._pvalues),
+    ):
+        arr = np.asarray(value, dtype=np.float64)
+        if arr.shape != (expected_dim,) or not np.all(np.isfinite(arr)):
+            raise AssertionError(f"weighted debiased {name} layout/finite check failed")
+    ci = np.asarray(gpu._conf_int, dtype=np.float64)
+    if ci.shape != (expected_dim, 2) or not np.all(np.isfinite(ci)):
+        raise AssertionError("weighted debiased confidence-interval layout/finite check failed")
+
+    return {
+        "model": "lasso",
+        "case": "weighted_debiased_backend_preservation",
+        "backend": backend,
+        "backend_version": version,
+        "requested_device": requested_device,
+        "executed_backend": gpu._selected_backend_name,
+        "executed_device": meta.get("numerical_device"),
+        "backend_path": meta.get("backend_path"),
+        "reporting_boundary": meta.get("reporting_boundary"),
+        "penalized_coef_error": coef_error,
+        "penalized_coef_limit": _POST_LIMITS["penalized_coef"],
+        "status": "success",
+    }
+
+
+def _lassocv_final_refit_case(backend: str):
+    X, y, weights = _problem(seed=229)
+    requested_device = _requested_device(backend)
+    expected_device, version = _runtime(backend)
+    common = dict(
+        alphas=np.asarray([0.05], dtype=np.float64),
+        cv=2,
+        fit_intercept=True,
+        compute_inference=True,
+        inference_method="post_selection_ols",
+        solver="fista",
+        cv_solver="fista",
+        gpu_cv_mixed_precision=False,
+        max_iter=3000,
+        tol=1e-8,
+        random_state=7,
+    )
+    cpu = LassoCV(device="cpu", **common).fit(X, y, sample_weight=weights)
+    gpu = LassoCV(device=requested_device, **common).fit(
+        _native(X, backend),
+        _native(y, backend),
+        sample_weight=_native(weights, backend),
+    )
+    if gpu.estimator_ is None or gpu.estimator_._inference_result is None:
+        raise AssertionError("LassoCV final refit inference result is missing")
+    meta = dict(gpu.estimator_._inference_result.metadata)
+    if gpu.estimator_._selected_backend_name != backend:
+        raise AssertionError("LassoCV final refit executed on the wrong backend")
+    if meta.get("numerical_backend") != backend:
+        raise AssertionError(f"LassoCV inference backend mismatch: {meta}")
+    if str(meta.get("numerical_device")) != expected_device:
+        raise AssertionError(f"LassoCV inference device mismatch: {meta}")
+    if meta.get("resolved_method") != "post_selection_ols":
+        raise AssertionError(f"LassoCV inference method mismatch: {meta}")
+    coef_error = _max_error(gpu.coef_, cpu.coef_)
+    if coef_error > _POST_LIMITS["penalized_coef"]:
+        raise AssertionError(
+            f"LassoCV {backend} final-refit coef error {coef_error:.3e} exceeds "
+            f"{_POST_LIMITS['penalized_coef']:.3e}"
+        )
+    return {
+        "model": "lassocv",
+        "case": "weighted_final_refit",
+        "backend": backend,
+        "backend_version": version,
+        "requested_device": requested_device,
+        "executed_backend": gpu.estimator_._selected_backend_name,
+        "executed_device": meta.get("numerical_device"),
+        "selected_alpha": float(gpu.alpha_),
+        "penalized_coef_error": coef_error,
+        "penalized_coef_limit": _POST_LIMITS["penalized_coef"],
         "status": "success",
     }
 
@@ -208,7 +378,7 @@ def main() -> int:
         raise ValueError("--backends must be exactly 'cupy,torch' in that order")
 
     payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         "issue": 137,
         "head_sha": _git("rev-parse", "HEAD"),
         "worktree_clean": _git("status", "--porcelain") == "",
@@ -216,13 +386,30 @@ def main() -> int:
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "cases": [],
+        "closure_cases": [],
     }
     if not payload["worktree_clean"]:
         raise RuntimeError("physical acceptance requires a clean worktree")
 
+    # Preserve the original four direct-Lasso acceptance cases verbatim in
+    # meaning so historical evidence remains comparable.
     for backend in backends:
         for weighted in (False, True):
-            payload["cases"].append(_case(backend, weighted=weighted))
+            payload["cases"].append(
+                _post_selection_case(backend, weighted=weighted, kind="lasso")
+            )
+
+    # Review closure for the public surfaces whose routing shares or consumes
+    # the repaired path.
+    for backend in backends:
+        payload["closure_cases"].append(
+            _post_selection_case(backend, weighted=True, kind="elasticnet")
+        )
+        payload["closure_cases"].append(
+            _post_selection_case(backend, weighted=True, kind="generic_l1")
+        )
+        payload["closure_cases"].append(_weighted_debiased_case(backend))
+        payload["closure_cases"].append(_lassocv_final_refit_case(backend))
 
     payload["status"] = "success"
     text = json.dumps(payload, indent=2, sort_keys=True)
