@@ -1,4 +1,4 @@
-"""Correct intercept inclusion for debiased max-|Z| simultaneous inference.
+"""Correct intercept inclusion and lifecycle for debiased simultaneous inference.
 
 The maintained multiplier bootstrap historically included the intercept in the
 reported simultaneous-CI target rows but not in the bootstrap maximum itself.
@@ -6,6 +6,10 @@ For the centered weighted/unweighted debiased paths used by PR #138, recover the
 intercept influence from the same raw weighted design and bread that produce its
 marginal standard error, then include that standardized influence score in the
 max-|Z| statistic.
+
+Every new fit must also clear result-bearing debiased/simultaneous state.  Without
+that reset, a successful refit with simultaneous inference disabled could
+republish the previous fit's joint interval through a new debiased result.
 
 Feature-only simultaneous inference is delegated unchanged.
 """
@@ -30,11 +34,13 @@ from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 _SIMULTANEOUS_MARKER = "__statgpu_pr138_simultaneous_intercept_maxz__"
 _FINALIZER_MARKER = "__statgpu_pr138_simultaneous_intercept_finalizer__"
 _INVALIDATION_MARKER = "__statgpu_pr138_simultaneous_intercept_invalidation__"
+_CLEAR_MARKER = "__statgpu_pr138_simultaneous_state_clear__"
 _ORIGINAL_SIMULTANEOUS = (
     PenalizedGeneralizedLinearModel._compute_simultaneous_ci_maxz_bootstrap
 )
 _ORIGINAL_FINALIZER = _weighted_contract._finalize_weighted_debiased_result
 _ORIGINAL_INVALIDATE = _fifth_contract._invalidate_failed_sparse_inference_fit
+_ORIGINAL_CLEAR = PenalizedGeneralizedLinearModel._clear_inference_state
 
 
 def _compute_simultaneous_ci_maxz_bootstrap(self):
@@ -234,12 +240,36 @@ def _finalize_weighted_debiased_result(
     return result
 
 
+def _clear_inference_state(self):
+    """Clear all result-bearing marginal and simultaneous inference state."""
+    result = _ORIGINAL_CLEAR(self)
+    self._conf_int_simultaneous = None
+    self._simultaneous_enabled = False
+    self._debiased_M_cpu = None
+    self.__dict__.pop("_debiased_intercept_influence_cpu", None)
+    for name in (
+        "_simultaneous_critical_value",
+        "_simultaneous_target_mask",
+        "_simultaneous_method",
+        "_simultaneous_alpha",
+        "_simultaneous_n_bootstrap",
+    ):
+        self.__dict__.pop(name, None)
+    return result
+
+
 def _invalidate_failed_sparse_inference_fit(estimator) -> None:
     _ORIGINAL_INVALIDATE(estimator)
     estimator.__dict__.pop("_debiased_intercept_influence_cpu", None)
 
 
 def install_debiased_simultaneous_intercept_contract() -> None:
+    current_clear = PenalizedGeneralizedLinearModel._clear_inference_state
+    if not getattr(current_clear, _CLEAR_MARKER, False):
+        wrapped_clear = functools.wraps(_ORIGINAL_CLEAR)(_clear_inference_state)
+        setattr(wrapped_clear, _CLEAR_MARKER, True)
+        PenalizedGeneralizedLinearModel._clear_inference_state = wrapped_clear
+
     current_sim = PenalizedGeneralizedLinearModel._compute_simultaneous_ci_maxz_bootstrap
     if not getattr(current_sim, _SIMULTANEOUS_MARKER, False):
         setattr(_compute_simultaneous_ci_maxz_bootstrap, _SIMULTANEOUS_MARKER, True)
