@@ -75,6 +75,16 @@ from . import (
 
 _post_selection_ols_review_fix_contract.install_post_selection_ols_review_fix_contract()
 
+# A later independent review found two pre-fit/empty-active boundaries that are
+# easiest to express as runtime contracts over the already-installed migration:
+# Penalty-object constructors must participate in the same AUTO/warning scope,
+# and empty no-intercept refits must preserve requested covariance semantics.
+from . import (
+    _post_selection_ols_fifth_review_contract as _post_selection_ols_fifth_review_contract,
+)
+
+_post_selection_ols_fifth_review_contract.install_post_selection_ols_fifth_review_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
