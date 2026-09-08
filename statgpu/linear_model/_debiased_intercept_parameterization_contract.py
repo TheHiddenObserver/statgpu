@@ -1,8 +1,8 @@
 """Coherent original-coordinate intercept inference for centered debiased Lasso.
 
 The sparse-Gaussian debiased paths estimate feature coefficients on a centered
-working design.  A reported intercept must therefore be transformed with the
-same debiased feature vector.  Publishing the penalized-fit intercept next to
+working design. A reported intercept must therefore be transformed with the
+same debiased feature vector. Publishing the penalized-fit intercept next to
 debiased slopes breaks the elementary feature-translation identity and gives
 intercept marginal/simultaneous inference a different parameterization.
 
@@ -12,10 +12,10 @@ fit, while inference reporting uses
     intercept_db = intercept_pen - xbar_w @ (theta_db - beta_pen).
 
 The intercept influence is derived from the same centered nodewise precision
-matrix ``M`` used by the debiased slopes.  CuPy/Torch retain the local native
-``M`` and ``theta_db`` only through the reporting finalizer, so the intercept
-numerical calculation stays on the executed backend before the established
-NumPy reporting snapshot.
+matrix ``M`` used by the debiased slopes. CuPy/Torch retain the local native
+``M`` and ``theta_db`` only through the reporting finalizer, so intercept
+numerics stay on the executed backend before the established NumPy reporting
+snapshot.
 """
 
 from __future__ import annotations
@@ -164,6 +164,35 @@ def _native_debiased_state(model, backend_name: str, *, X_work, feature_params):
     return M_native, theta_native
 
 
+def _native_intercept_report(
+    z_native,
+    se_native,
+    intercept_value: float,
+    backend_name: str,
+    ref_arr,
+):
+    """Run intercept reference-distribution work on the executed array device."""
+    if backend_name == "cupy":
+        import cupy as cp
+
+        device_id = int(ref_arr.device.id)
+        with cp.cuda.Device(device_id):
+            return _weighted_contract._normal_intercept_report(
+                z_native,
+                se_native,
+                intercept_value,
+                backend_name,
+                ref_arr,
+            )
+    return _weighted_contract._normal_intercept_report(
+        z_native,
+        se_native,
+        intercept_value,
+        backend_name,
+        ref_arr,
+    )
+
+
 def _publish_coherent_intercept(
     model,
     result,
@@ -176,11 +205,11 @@ def _publish_coherent_intercept(
     backend_name: str,
     simultaneous_requested: bool,
 ):
-    """Replace the mixed penalized/debiased intercept slot with one parameterization."""
+    """Insert one coherent debiased intercept into a feature-only result."""
     xp = _get_xp(backend_name)
     n = int(X_work.shape[0])
     p = int(X_work.shape[1])
-    feature_params = np.asarray(result.params, dtype=np.float64).reshape(-1)[1:]
+    feature_params = np.asarray(result.params, dtype=np.float64).reshape(-1)
     if feature_params.shape[0] != p:
         raise RuntimeError(
             "debiased feature result does not match the centered working design"
@@ -233,8 +262,8 @@ def _publish_coherent_intercept(
         theta_native - coef_native
     )
 
-    # theta_db = beta_pen + M X_work' r_work / n.  Combining this score
-    # with ybar_w - xbar_w theta_db yields q_i/n as the original-coordinate
+    # theta_db = beta_pen + M X_work' r_work / n. Combining this score with
+    # ybar_w - xbar_w theta_db gives q_i/n as the original-coordinate
     # intercept influence against the centered working residual r_work_i.
     q_native = row_scale - X_work @ (M_native.T @ x_mean)
     influence_native = q_native / float(max(n, 1))
@@ -257,7 +286,7 @@ def _publish_coherent_intercept(
     intercept_value = float(
         np.asarray(_to_numpy(intercept_native), dtype=np.float64)
     )
-    p_intercept, ci_intercept = _weighted_contract._normal_intercept_report(
+    p_intercept, ci_intercept = _native_intercept_report(
         z_native,
         se_native,
         intercept_value,
@@ -267,17 +296,28 @@ def _publish_coherent_intercept(
     se_intercept = float(np.asarray(_to_numpy(se_native), dtype=np.float64))
     z_intercept = float(np.asarray(_to_numpy(z_native), dtype=np.float64))
 
-    params = np.asarray(result.params, dtype=np.float64).copy()
-    bse = np.asarray(result.bse, dtype=np.float64).copy()
-    statistic = np.asarray(result.statistic, dtype=np.float64).copy()
-    pvalues = np.asarray(result.pvalues, dtype=np.float64).copy()
-    conf_int = np.asarray(result.conf_int, dtype=np.float64).copy()
+    feature_bse = np.asarray(result.bse, dtype=np.float64).reshape(-1)
+    feature_statistic = np.asarray(result.statistic, dtype=np.float64).reshape(-1)
+    feature_pvalues = np.asarray(result.pvalues, dtype=np.float64).reshape(-1)
+    feature_conf_int = np.asarray(result.conf_int, dtype=np.float64)
+    if (
+        feature_bse.shape[0] != p
+        or feature_statistic.shape[0] != p
+        or feature_pvalues.shape[0] != p
+        or feature_conf_int.shape != (p, 2)
+    ):
+        raise RuntimeError(
+            "debiased feature inference layout does not match the centered design"
+        )
 
-    params[0] = intercept_value
-    bse[0] = se_intercept
-    statistic[0] = z_intercept
-    pvalues[0] = p_intercept
-    conf_int[0] = np.asarray(ci_intercept, dtype=np.float64).reshape(2)
+    params = np.concatenate([[intercept_value], feature_params])
+    bse = np.concatenate([[se_intercept], feature_bse])
+    statistic = np.concatenate([[z_intercept], feature_statistic])
+    pvalues = np.concatenate([[p_intercept], feature_pvalues])
+    conf_int = np.vstack([
+        np.asarray(ci_intercept, dtype=np.float64).reshape(1, 2),
+        feature_conf_int,
+    ])
 
     include_intercept_simultaneous = bool(
         simultaneous_requested
@@ -295,6 +335,13 @@ def _publish_coherent_intercept(
     else:
         model.__dict__.pop("_debiased_intercept_influence_cpu", None)
 
+    # The simultaneous helper consumes a reporting snapshot of the centered
+    # design with the weighted intercept influence column first.
+    model._X_design = np.column_stack([
+        np.asarray(_to_numpy(row_scale), dtype=np.float64).reshape(-1),
+        np.asarray(_to_numpy(X_work), dtype=np.float64),
+    ])
+    model._df_resid = n - (p + 1)
     model._params = params
     model._bse = bse
     model._tvalues = statistic
@@ -376,9 +423,9 @@ def _finalize_weighted_debiased_result(
         )
 
     try:
-        # Suppress the older intercept-inclusive simultaneous calculation until
-        # the coherent intercept estimate/influence has replaced its historical
-        # penalized-intercept reporting slot.
+        # The maintained finalizer owns feature debiasing/reporting. Ask it for
+        # the feature-only layout so the historical penalized-intercept/raw-OLS
+        # calculation never runs; then insert the coherent intercept exactly once.
         result = _ORIGINAL_FINALIZER(
             model,
             X_arr=X_arr,
@@ -387,7 +434,7 @@ def _finalize_weighted_debiased_result(
             row_scale=row_scale,
             coef_native=coef_native,
             backend_name=backend_name,
-            original_intercept=True,
+            original_intercept=False,
             simultaneous_requested=False,
             sample_weighted=sample_weighted,
         )
