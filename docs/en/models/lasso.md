@@ -67,11 +67,21 @@ Validity notes:
 - only genuine estimator/global `device="auto"` may preserve an already backend-native CuPy or Torch-CUDA input during automatic routing.
 
 Backend reuse is method-specific. `post_selection_ols` reuses the successful fit's
-`_selected_backend_name` / `_selected_backend_device`, and maintained CuPy/Torch
-`debiased` routes keep their numerical inference on the executed GPU backend,
-including scalar normal-reference critical values. Residual `bootstrap` currently
-uses CPU-native residual refits, so an explicit GPU `device` controls the
-penalized fit but does not make bootstrap GPU-native.
+`_selected_backend_name` / `_selected_backend_device`. Maintained CuPy/Torch
+**marginal** `debiased` inference stays on the executed GPU backend, including
+scalar normal-reference critical values.
+
+For centered `fit_intercept=True` debiased inference, simultaneous multiplier-
+bootstrap max-|Z| calibration also stays on the same concrete CuPy/Torch device
+before the NumPy reporting snapshot. The result records
+`simultaneous_numerical_backend`, `simultaneous_numerical_device`,
+`simultaneous_reporting_backend="numpy"`, and
+`simultaneous_reporting_boundary="post_numerical_inference"`. The historical
+`fit_intercept=False` simultaneous path still uses its pre-existing generic
+reporting-stage helper and is not claimed as GPU-native by this PR.
+
+Residual `bootstrap` currently uses CPU-native residual refits, so an explicit
+GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
 
 With analytic weights, direct Lasso and debiased inference use the same
 weighted-centered average-loss convention on NumPy/CuPy/Torch, so multiplying all
@@ -112,9 +122,11 @@ intervals are stored separately in `_conf_int_simultaneous`.
 coefficients only. With `simultaneous_include_intercept=True`, the same centered-
 nodewise original-coordinate intercept influence used by the marginal debiased
 SE is part of the bootstrap maximum itself. It is therefore not merely an extra
-output row receiving a feature-only critical value. Every successful refit clears
-any previous simultaneous critical value, target mask, intervals, and
-precision/influence state before publishing the new result.
+output row receiving a feature-only critical value. On CuPy/Torch with
+`fit_intercept=True`, this centered simultaneous calculation is backend-native as
+described above. Every successful refit clears any previous simultaneous critical
+value, target mask, intervals, and precision/influence state before publishing
+the new result.
 
 ## Parameters
 
