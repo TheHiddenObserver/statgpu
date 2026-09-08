@@ -60,18 +60,11 @@ _penalized_solver_api_contract.install_penalized_solver_api_contract()
 
 # Keep statistical method identity separate from execution hardware. The
 # historical cpu_ols/gpu_ols values remain one-cycle compatibility aliases for
-# the canonical post_selection_ols inference method.
+# the canonical post_selection_ols inference method. This same constructor layer
+# validates Lasso simultaneous alpha/bootstrap controls before backend dispatch.
 from . import _penalized_inference_api_contract as _penalized_inference_api_contract
 
 _penalized_inference_api_contract.install_penalized_inference_api_contract()
-
-# Public simultaneous controls must fail identically before NumPy/CuPy/Torch
-# dispatch rather than relying on backend-specific numerical helper behavior.
-from . import (
-    _lasso_simultaneous_validation_contract as _lasso_simultaneous_validation_contract,
-)
-
-_lasso_simultaneous_validation_contract.install_lasso_simultaneous_validation_contract()
 
 # A fresh full-diff review after physical acceptance found two cross-path gaps:
 # generic squared-error sparse estimators were not receiving the same migration
