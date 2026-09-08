@@ -10,6 +10,9 @@ This contract keeps several cross-path public boundaries aligned with #137:
   public finite-input guard rejects a refit before the inner fit transaction, a
   later post-fit inference failure escapes after coefficients were mutated, or a
   post-selection refit reaches a non-representable reporting surface;
+* post-selection CuPy refit/inference is bound to the concrete device recorded by
+  the successful penalized fit, so a non-current-device design cannot acquire
+  current-device rank/SVD/covariance temporaries after fit returns;
 * a no-intercept fit with an empty active set preserves the caller's requested
   covariance/reference-distribution semantics instead of silently claiming
   ``nonrobust`` Student-t inference;
@@ -100,8 +103,6 @@ def _install_sparse_inference_public_validation_reset() -> None:
             bool(getattr(self, "compute_inference", False))
             and _supports_sparse_gaussian_migration(self)
         )
-        # Preserve the already-installed allocator/device cleanup and unrelated
-        # L2/no-inference reset semantics exactly once.
         result = current_reset(self) if callable(current_reset) else None
         if sparse_inference:
             _invalidate_failed_sparse_inference_fit(self)
@@ -145,8 +146,6 @@ def _install_sparse_inference_fit_transaction(cls) -> None:
                 **kwargs,
             )
         except Exception:
-            # Backend/device cleanup remains owned by the existing inner fit
-            # transaction. This wrapper is state-only so cleanup never runs twice.
             if sparse_inference:
                 _invalidate_failed_sparse_inference_fit(self)
             raise
@@ -206,20 +205,50 @@ def _validate_post_selection_reporting_result(result) -> None:
         raise FloatingPointError(
             "post_selection_ols produced invalid residual degrees of freedom"
         )
-    if refit_scale is None or not np.isfinite(float(refit_scale)) or float(refit_scale) < 0.0:
+    if (
+        refit_scale is None
+        or not np.isfinite(float(refit_scale))
+        or float(refit_scale) < 0.0
+    ):
         raise FloatingPointError(
             "post_selection_ols produced an invalid refit scale"
         )
 
 
+def _run_post_selection_on_fit_device(model, X, y, sample_weight=None):
+    """Execute the whole active-refit numerical transaction on the fit device."""
+    backend_name = str(getattr(model, "_selected_backend_name", "")).strip().lower()
+    if backend_name != "cupy":
+        return _ORIGINAL_POST_SELECTION(model, X, y, sample_weight=sample_weight)
+
+    selected = str(getattr(model, "_selected_backend_device", "") or "")
+    if not selected.startswith("cuda:"):
+        raise RuntimeError(
+            "post_selection_ols CuPy inference is missing concrete fit-device provenance"
+        )
+    try:
+        device_id = int(selected.split(":", 1)[1])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"post_selection_ols has invalid CuPy fit-device provenance: {selected!r}"
+        ) from exc
+
+    import cupy as cp
+
+    with cp.cuda.Device(device_id):
+        return _ORIGINAL_POST_SELECTION(model, X, y, sample_weight=sample_weight)
+
+
 @functools.wraps(_ORIGINAL_POST_SELECTION)
 def _compute_post_selection_ols_inference(model, X, y, sample_weight=None):
-    result = _ORIGINAL_POST_SELECTION(model, X, y, sample_weight=sample_weight)
+    result = _run_post_selection_on_fit_device(
+        model,
+        X,
+        y,
+        sample_weight=sample_weight,
+    )
     metadata = dict(getattr(result, "metadata", {}) or {})
 
-    # With no intercept and no selected features, every public parameter slot is
-    # an inactive compatibility placeholder. There is no covariance matrix to
-    # compute, but the result must not rewrite an HC/HAC request to nonrobust/t.
     if int(metadata.get("n_selected", -1)) == 0 and not bool(model._effective_intercept):
         cov_type = str(getattr(model, "_cov_type", "nonrobust")).strip().lower()
         distribution = "t" if cov_type == "nonrobust" else "normal"
@@ -236,10 +265,6 @@ def _compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     try:
         _validate_post_selection_reporting_result(result)
     except Exception:
-        # _ORIGINAL_POST_SELECTION publishes before returning. For direct private
-        # helper use, remove the invalid reporting snapshot immediately; normal
-        # estimator.fit callers then additionally hit the outer failure transaction
-        # and clear all fitted prediction state.
         model._clear_inference_state()
         raise
     return result
@@ -298,8 +323,6 @@ def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
         sample_weighted,
     ) = _debiased_working_data_numpy(self, X, y, sample_weight)
 
-    # With neither intercept nor weights, the maintained CPU implementation is
-    # already exactly the required working problem.
     if not original_intercept and not sample_weighted:
         return _ORIGINAL_CPU_DEBIASED(self, X, y, sample_weight=None)
 
@@ -456,4 +479,5 @@ def install_post_selection_ols_fifth_review_contract():
 __all__ = [
     "install_post_selection_ols_fifth_review_contract",
     "_validate_post_selection_reporting_result",
+    "_run_post_selection_on_fit_device",
 ]
