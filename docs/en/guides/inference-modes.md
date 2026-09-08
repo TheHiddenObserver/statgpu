@@ -80,9 +80,13 @@ distribution calls are pinned to the executed CuPy/Torch backend (and Torch
 concrete device) instead of re-resolving a Python scalar to NumPy.
 
 For centered `fit_intercept=True` debiased inference, PR #138 also keeps the
-dedicated simultaneous multiplier-bootstrap max-|Z| calculation on that same
-concrete CuPy/Torch device before the NumPy reporting snapshot. The structured
-result records `simultaneous_numerical_backend`,
+expensive simultaneous multiplier-bootstrap stage on that same concrete
+CuPy/Torch device. The coherent marginal result has already taken its established
+O(p) NumPy reporting snapshot; only those small marginal parameter/SE arrays are
+mapped back to the execution device. The B×n multiplier draws, feature/intercept
+scores, max-|Z| reduction, quantile calibration, and joint confidence-interval
+numerics then remain backend-native before the joint result is snapshotted for
+reporting. The structured result records `simultaneous_numerical_backend`,
 `simultaneous_numerical_device`, `simultaneous_reporting_backend="numpy"`, and
 `simultaneous_reporting_boundary="post_numerical_inference"`. The historical
 `fit_intercept=False` simultaneous path still uses the pre-existing generic
@@ -123,13 +127,15 @@ refit, so the same ownership distinction applies there too.
 
 For debiased simultaneous inference, ordinary `_conf_int` remains marginal.
 `enable_simultaneous_inference=True` uses multiplier-bootstrap max-|Z|
-calibration. When `simultaneous_include_intercept=True`, the same centered-
-nodewise original-coordinate intercept influence used by the marginal SE is part
-of the bootstrap maximum itself, not merely an extra reported interval row. On
-CuPy/Torch with `fit_intercept=True`, that centered simultaneous calculation is
-backend-native as described above. A successful refit clears the previous fit's
-simultaneous critical value, target mask, joint intervals, and precision/influence
-state before computing the new result.
+calibration. `simultaneous_alpha` must lie strictly in `(0, 1)` and
+`simultaneous_n_bootstrap` must be positive; these controls are validated before
+NumPy/CuPy/Torch backend dispatch. When `simultaneous_include_intercept=True`,
+the same centered-nodewise original-coordinate intercept influence used by the
+marginal SE is part of the bootstrap maximum itself, not merely an extra reported
+interval row. On CuPy/Torch with `fit_intercept=True`, that centered simultaneous
+calculation is backend-native as described above. A successful refit clears the
+previous fit's simultaneous critical value, target mask, joint intervals, and
+precision/influence state before computing the new result.
 
 ### What `post_selection_ols` computes
 
