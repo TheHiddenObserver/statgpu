@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from statgpu.linear_model import LassoCV
+from statgpu.linear_model import _lassocv_device_affinity_contract as affinity
 from statgpu.linear_model.cv._lasso_cv import _validate_lassocv_selection_details
 from statgpu.linear_model.wrappers import _lasso as lasso_impl
 
@@ -131,3 +134,27 @@ def test_lassocv_no_complete_evidence_fails_before_final_refit(monkeypatch):
     assert model._fitted is False
     assert model.alpha_ is None
     assert model.estimator_ is None
+
+
+def test_shared_selector_keeps_torch_cpu_inputs_transparent(monkeypatch):
+    X = SimpleNamespace(device="cpu")
+    y = object()
+    observed = {}
+
+    def synthetic_selector(X_arg, y_arg, *args, **kwargs):
+        observed["X"] = X_arg
+        observed["y"] = y_arg
+        return 0.25
+
+    monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: False)
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: value is X)
+    monkeypatch.setattr(affinity, "_ORIGINAL_SELECT", synthetic_selector)
+
+    selected = affinity._select_lasso_alpha_cv_on_design_device(
+        X,
+        y,
+        device="cpu",
+    )
+
+    assert selected == pytest.approx(0.25)
+    assert observed == {"X": X, "y": y}
