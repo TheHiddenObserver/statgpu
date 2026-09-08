@@ -417,7 +417,7 @@ class LassoCV(CVEstimatorBase):
         )
         details = _validate_lassocv_selection_details(
             details,
-            n_samples=int(X_cv.shape[0]),
+            n_samples=int(X.shape[0]),
         )
 
         # Keep candidate CV results local until the final full-data refit
