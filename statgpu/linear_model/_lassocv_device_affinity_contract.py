@@ -14,17 +14,24 @@ reference array is supplied. Bind the entire selector transaction to the design'
 concrete device so a design on, for example, ``cuda:3`` cannot later acquire
 ``cuda:0`` indices or FISTA buffers merely because device 0 was current.
 
-Every genuine multi-alpha selector must also select from complete finite CV
-evidence. A candidate that failed numerically on one or more folds must not
-become eligible merely because its remaining finite folds have a small mean.
-Only candidates with finite MSE on every actually executed fold are eligible; if
-none remain, selection fails closed. Applying the same rule to weighted and
-unweighted calls preserves the public identity that positive constant analytic
-weights are exactly the unweighted statistical problem. Degenerate no-selection
-paths (single alpha, too few rows, or fewer than two executed folds) preserve
-their historical refit semantics. The evidence check derives the fold count from
-the returned MSE matrix instead of re-reading ``cv_splits`` so one-shot
-iterables/generators remain valid public inputs.
+Within the public ``LassoCV.fit`` transaction, genuine multi-alpha selection must
+also use complete finite CV evidence. A candidate that failed numerically on one
+or more folds must not become eligible merely because its remaining finite folds
+have a small mean. Only candidates with finite MSE on every actually executed
+fold are eligible; if none remain, selection fails closed. Applying the same rule
+to weighted and unweighted LassoCV calls preserves the public identity that
+positive constant analytic weights are exactly the unweighted statistical
+problem. Degenerate no-selection paths (single alpha, too few rows, or fewer
+than two executed folds) preserve their historical refit semantics. The evidence
+check derives the fold count from the returned MSE matrix instead of re-reading
+``cv_splits`` so one-shot iterables/generators remain valid public inputs.
+
+The finite-evidence policy is deliberately scoped to ``LassoCV.fit`` via a
+context-local marker. Other internal consumers of the shared private selector,
+such as knockoff feature-selection utilities, retain their existing selection
+semantics. The concrete-device context remains safe to share because it changes
+only where already-selected backend operations allocate, not what candidate is
+selected.
 
 The inverse boundary matters as well: an explicit/resolved CPU request owns the
 execution backend and must convert heterogeneous GPU-resident X/y/weights to
@@ -33,12 +40,11 @@ semantics instead of asking the CV helper to reinterpret the input container.
 
 Finally, once LassoCV AUTO routing has resolved a concrete CPU/CuPy/Torch target,
 the selected-alpha full-data Lasso refit must use that same target. Reuse the
-existing #137 fit-device transaction instead of adding another ``fit`` wrapper:
-native CuPy/Torch-CUDA input keeps its input-native priority when global AUTO is
-active, while plain input resolves through the normal statgpu global-device
-policy. The existing transaction then pins the concrete device for both CV and
+existing #137 fit-device transaction instead of adding another device-routing
+wrapper: native CuPy/Torch-CUDA input keeps its input-native priority when global
+AUTO is active, while plain input resolves through the normal statgpu global-
+device policy. The existing transaction pins the concrete device for both CV and
 final refit and restores the caller-owned ``device='auto'`` state in ``finally``.
-This preserves the warning stack discipline established by #135.
 
 Maintenance tests also exercise synthetic backend doubles that intentionally do
 not expose real CuPy/Torch concrete-device protocols. Those doubles remain
@@ -47,6 +53,7 @@ transparent to the production-only GPU affinity layer.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 import functools
 
 import numpy as np
@@ -62,9 +69,15 @@ from statgpu.linear_model.wrappers import _lasso as _lasso_impl
 _AFFINITY_MARKER = "__statgpu_pr138_lassocv_device_affinity__"
 _AUTO_REFIT_MARKER = "__statgpu_pr138_lassocv_auto_refit_device__"
 _SELECTOR_AFFINITY_MARKER = "__statgpu_pr138_lassocv_selector_device_affinity__"
+_FIT_SCOPE_MARKER = "__statgpu_pr138_lassocv_selection_scope__"
+_LASSOCV_SELECTION_SCOPE = ContextVar(
+    "statgpu_pr138_lassocv_selection_scope",
+    default=False,
+)
 _ORIGINAL_PREPARE = LassoCV._prepare_cv_inputs_for_resolved_device
 _ORIGINAL_INPUT_NATIVE_DEVICE = _api_contract._input_native_device
 _ORIGINAL_SELECT = _lasso_impl._select_lasso_alpha_cv
+_ORIGINAL_LASSOCV_FIT = LassoCV.fit
 
 
 def _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv):
@@ -100,9 +113,6 @@ def _align_torch_cv_inputs(X_cv, y_cv, sample_weight_cv):
         raise RuntimeError(
             "LassoCV Torch preparation did not preserve a concrete CUDA design device."
         )
-    # A native design can legally live on a non-current ordinal because the
-    # generic target string ``cuda`` treats every CUDA tensor as already placed.
-    # Bind all side arrays to the exact design device before CV arithmetic.
     y_aligned = _move_torch_tensor(y_cv, device=device_name)
     weight_aligned = (
         None
@@ -181,7 +191,6 @@ def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
         )
     n_folds_evaluated = int(mse_path.shape[1])
 
-    # These are intentional no-selection paths in the underlying selector.
     if n_samples < 4 or alphas.size <= 1 or n_folds_evaluated < 2:
         return result
 
@@ -205,7 +214,7 @@ def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
 
 
 def _call_selector_with_evidence(X, y, args, kwargs):
-    """Run the installed selector and validate multi-alpha finite evidence."""
+    """Run the selector and validate multi-alpha finite evidence."""
     requested_details = bool(kwargs.get("return_details", False))
     call_kwargs = kwargs
     if not requested_details:
@@ -219,9 +228,15 @@ def _call_selector_with_evidence(X, y, args, kwargs):
     return result
 
 
+def _selector_call_in_scope(X, y, args, kwargs):
+    if _LASSOCV_SELECTION_SCOPE.get():
+        return _call_selector_with_evidence(X, y, args, kwargs)
+    return _ORIGINAL_SELECT(X, y, *args, **kwargs)
+
+
 @functools.wraps(_ORIGINAL_SELECT)
 def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
-    """Run the whole dedicated selector on the concrete device that owns X."""
+    """Bind selector allocation to X's device; validate evidence only for LassoCV."""
     if _is_cupy_array(X):
         import cupy as cp
 
@@ -231,7 +246,7 @@ def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
                 "LassoCV CuPy selector requires a concrete design device."
             )
         with cp.cuda.Device(int(device_id)):
-            return _call_selector_with_evidence(X, y, args, kwargs)
+            return _selector_call_in_scope(X, y, args, kwargs)
 
     if _is_torch_array(X):
         import torch
@@ -243,9 +258,18 @@ def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
                 "LassoCV Torch selector requires a concrete CUDA design device."
             )
         with torch.cuda.device(device):
-            return _call_selector_with_evidence(X, y, args, kwargs)
+            return _selector_call_in_scope(X, y, args, kwargs)
 
-    return _call_selector_with_evidence(X, y, args, kwargs)
+    return _selector_call_in_scope(X, y, args, kwargs)
+
+
+@functools.wraps(_ORIGINAL_LASSOCV_FIT)
+def _fit_with_lassocv_selection_scope(self, *args, **kwargs):
+    token = _LASSOCV_SELECTION_SCOPE.set(True)
+    try:
+        return _ORIGINAL_LASSOCV_FIT(self, *args, **kwargs)
+    finally:
+        _LASSOCV_SELECTION_SCOPE.reset(token)
 
 
 def install_lassocv_device_affinity_contract():
@@ -274,6 +298,11 @@ def install_lassocv_device_affinity_contract():
         )
         _lasso_impl._select_lasso_alpha_cv = _select_lasso_alpha_cv_on_design_device
 
+    current_fit = LassoCV.fit
+    if not getattr(current_fit, _FIT_SCOPE_MARKER, False):
+        setattr(_fit_with_lassocv_selection_scope, _FIT_SCOPE_MARKER, True)
+        LassoCV.fit = _fit_with_lassocv_selection_scope
+
 
 __all__ = [
     "install_lassocv_device_affinity_contract",
@@ -283,4 +312,5 @@ __all__ = [
     "_input_native_or_resolved_lassocv_device",
     "_select_lasso_alpha_cv_on_design_device",
     "_validate_weighted_cv_selection_evidence",
+    "_LASSOCV_SELECTION_SCOPE",
 ]
