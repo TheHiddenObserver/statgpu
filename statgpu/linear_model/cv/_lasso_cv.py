@@ -53,10 +53,30 @@ def _validate_lassocv_selection_details(details, *, n_samples: int):
             "fold; refusing to select alpha"
         )
 
+    complete_rows = mse_path[complete]
+    if np.any(complete_rows < 0.0):
+        raise FloatingPointError(
+            "LassoCV produced a negative validation MSE; refusing to select alpha"
+        )
+
+    # MSE is non-negative, so divide before summing to avoid an intermediate
+    # float64 overflow when every fold score is finite but close to DBL_MAX.
+    candidate_means = np.sum(
+        complete_rows / float(n_folds_evaluated),
+        axis=1,
+    )
+    finite_mean = np.isfinite(candidate_means)
+    if not np.any(finite_mean):
+        raise FloatingPointError(
+            "LassoCV produced no candidate with a finite aggregate validation MSE"
+        )
+
+    complete_indices = np.flatnonzero(complete)
+    eligible_indices = complete_indices[finite_mean]
+    eligible_means = candidate_means[finite_mean]
     mean_mse = np.full(alphas.size, np.nan, dtype=np.float64)
-    mean_mse[complete] = np.mean(mse_path[complete], axis=1)
-    eligible_indices = np.flatnonzero(complete)
-    best_local = int(np.argmin(mean_mse[complete]))
+    mean_mse[eligible_indices] = eligible_means
+    best_local = int(np.argmin(eligible_means))
     best_index = int(eligible_indices[best_local])
 
     checked = dict(details)
