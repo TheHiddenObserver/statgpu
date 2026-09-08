@@ -27,12 +27,14 @@ from pathlib import Path
 import numpy as np
 
 from statgpu._config import Device, set_device
+import statgpu.inference._distributions_backend as _distribution_module
 from statgpu.linear_model import (
     ElasticNet,
     Lasso,
     LassoCV,
     PenalizedGeneralizedLinearModel,
 )
+import statgpu.linear_model._debiased_intercept_parameterization_contract as _intercept_contract
 from statgpu.penalties import get_penalty
 
 _REQUIRED_BACKENDS = ("cupy", "torch")
@@ -140,6 +142,15 @@ def _assert_limits(label: str, errors: dict[str, float], limits: dict[str, float
             raise AssertionError(
                 f"{label} {key} error {value:.3e} exceeds {float(limit):.3e}"
             )
+
+
+def _distribution_backend_name(distribution) -> str:
+    sf_name = type(getattr(distribution, "_sf", None)).__name__
+    return {
+        "CuPySpecialFunctions": "cupy",
+        "TorchSpecialFunctions": "torch",
+        "ScipySpecialFunctions": "numpy",
+    }.get(sf_name, sf_name or "unknown")
 
 
 def _make_post_selection_model(kind: str, *, device: str):
@@ -472,11 +483,32 @@ def _debiased_case(backend: str, *, weighted: bool):
 
     requested_device = _requested_device(backend)
     expected_device, version = _runtime(backend)
-    gpu = Lasso(device=requested_device, **common).fit(
-        _native(X, backend),
-        _native(y, backend),
-        sample_weight=None if sw is None else _native(sw, backend),
-    )
+    distribution_backends = []
+    real_resolve = _distribution_module.DistributionProxy._resolve
+
+    def guarded_resolve(proxy, kwargs, *arrays):
+        distribution = real_resolve(proxy, kwargs, *arrays)
+        if _intercept_contract._DISTRIBUTION_ROUTE.get() is not None:
+            resolved = _distribution_backend_name(distribution)
+            distribution_backends.append(resolved)
+            if resolved != backend:
+                raise AssertionError(
+                    f"debiased distribution fallback: expected={backend}, resolved={resolved}"
+                )
+        return distribution
+
+    _distribution_module.DistributionProxy._resolve = guarded_resolve
+    try:
+        gpu = Lasso(device=requested_device, **common).fit(
+            _native(X, backend),
+            _native(y, backend),
+            sample_weight=None if sw is None else _native(sw, backend),
+        )
+    finally:
+        _distribution_module.DistributionProxy._resolve = real_resolve
+    if not distribution_backends:
+        raise AssertionError("debiased GPU inference did not execute distribution helpers")
+
     result = gpu._inference_result
     if result is None or result.method != "debiased":
         raise AssertionError("debiased GPU inference result is missing")
@@ -493,6 +525,10 @@ def _debiased_case(backend: str, *, weighted: bool):
         raise AssertionError(f"debiased sample-weight provenance mismatch: {meta}")
     if weighted and meta.get("backend_path") != f"{backend}_debiased_weighted":
         raise AssertionError(f"weighted debiased backend path mismatch: {meta}")
+    if meta.get("intercept_estimator") != "centered_debiased":
+        raise AssertionError(f"debiased intercept estimator metadata mismatch: {meta}")
+    if meta.get("intercept_influence") != "centered_nodewise":
+        raise AssertionError(f"debiased intercept influence metadata mismatch: {meta}")
 
     errors = {
         "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
@@ -513,6 +549,7 @@ def _debiased_case(backend: str, *, weighted: bool):
         "executed_device": meta.get("numerical_device"),
         "backend_path": meta.get("backend_path"),
         "reporting_boundary": meta.get("reporting_boundary"),
+        "distribution_backends": distribution_backends,
         "errors": errors,
         "limits": dict(_DEBIASED_LIMITS),
         "status": "success",
@@ -545,6 +582,8 @@ def _lassocv_weighted_selection_case(backend: str):
     )
     if gpu.estimator_ is None or gpu.estimator_._inference_result is None:
         raise AssertionError("LassoCV final refit inference result is missing")
+    if getattr(gpu, "_inference_result", None) is None:
+        raise AssertionError("LassoCV outer inference result is missing")
     meta = dict(gpu.estimator_._inference_result.metadata)
     if gpu.estimator_._selected_backend_name != backend:
         raise AssertionError("LassoCV final refit executed on the wrong backend")
@@ -554,6 +593,11 @@ def _lassocv_weighted_selection_case(backend: str):
         raise AssertionError(f"LassoCV inference device mismatch: {meta}")
     if meta.get("resolved_method") != "post_selection_ols":
         raise AssertionError(f"LassoCV inference method mismatch: {meta}")
+    if dict(gpu._inference_result.metadata) != meta:
+        raise AssertionError("LassoCV outer inference metadata differs from final estimator")
+    for attr in ("_params", "_bse", "_tvalues", "_pvalues", "_conf_int"):
+        if _max_error(getattr(gpu, attr), getattr(gpu.estimator_, attr)) != 0.0:
+            raise AssertionError(f"LassoCV outer {attr} differs from final estimator")
     if float(gpu.alpha_) != float(cpu.alpha_):
         raise AssertionError(
             f"LassoCV selected-alpha mismatch: cpu={cpu.alpha_}, {backend}={gpu.alpha_}"
@@ -565,11 +609,11 @@ def _lassocv_weighted_selection_case(backend: str):
         "mse_path": _max_error(gpu.mse_path_, cpu.mse_path_),
         "mean_mse": _max_error(gpu.mean_mse_, cpu.mean_mse_),
         "penalized_coef": _max_error(gpu.coef_, cpu.coef_),
-        "post_selection_params": _max_error(gpu.estimator_._params, cpu.estimator_._params),
-        "bse": _max_error(gpu.estimator_._bse, cpu.estimator_._bse),
-        "statistic": _max_error(gpu.estimator_._tvalues, cpu.estimator_._tvalues),
-        "pvalue": _max_error(gpu.estimator_._pvalues, cpu.estimator_._pvalues),
-        "ci": _max_error(gpu.estimator_._conf_int, cpu.estimator_._conf_int),
+        "post_selection_params": _max_error(gpu._params, cpu._params),
+        "bse": _max_error(gpu._bse, cpu._bse),
+        "statistic": _max_error(gpu._tvalues, cpu._tvalues),
+        "pvalue": _max_error(gpu._pvalues, cpu._pvalues),
+        "ci": _max_error(gpu._conf_int, cpu._conf_int),
     }
     _assert_limits(f"weighted multi-alpha LassoCV {backend}", errors, _CV_LIMITS)
     return {
@@ -582,6 +626,7 @@ def _lassocv_weighted_selection_case(backend: str):
         "executed_device": meta.get("numerical_device"),
         "selected_alpha": float(gpu.alpha_),
         "n_alphas": int(np.asarray(gpu.alphas_).size),
+        "outer_inference_surface": True,
         "errors": errors,
         "limits": dict(_CV_LIMITS),
         "status": "success",
