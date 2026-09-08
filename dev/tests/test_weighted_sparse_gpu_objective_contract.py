@@ -4,6 +4,7 @@ import pytest
 from statgpu.inference._results import DebiasedInferenceResult
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
+import statgpu.linear_model._debiased_intercept_parameterization_contract as intercept_contract
 import statgpu.linear_model._post_selection_ols_review_fix_contract as review_fix
 
 
@@ -151,6 +152,7 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
 
         coef = np.array([0.35, -0.15, 0.08], dtype=np.float64)
         theta = coef + np.array([0.01, -0.005, 0.002], dtype=np.float64)
+        captured["theta"] = theta.copy()
         bse = np.array([0.08, 0.07, 0.09], dtype=np.float64)
         statistic = theta / bse
         pvalues = np.array([0.02, 0.04, 0.3], dtype=np.float64)
@@ -158,6 +160,15 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
         self.coef_ = coef
         self.intercept_ = 0.0
         self._debiased_M_cpu = np.eye(coef.size)
+        if backend_name == "torch":
+            self.__dict__[intercept_contract._NATIVE_M] = torch.eye(
+                coef.size,
+                dtype=torch.float64,
+            )
+            self.__dict__[intercept_contract._NATIVE_THETA] = torch.as_tensor(
+                theta,
+                dtype=torch.float64,
+            )
         result = DebiasedInferenceResult(
             method="debiased",
             params=theta,
@@ -206,8 +217,13 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
     assert model._cv_cache is original_cache
     expected_X_mean = np.average(X, axis=0, weights=weights)
     expected_y_mean = float(np.average(y, weights=weights))
-    expected_intercept = expected_y_mean - expected_X_mean @ model.coef_
-    assert model.intercept_ == pytest.approx(expected_intercept, rel=0, abs=1e-14)
+    expected_prediction_intercept = expected_y_mean - expected_X_mean @ model.coef_
+    expected_inference_intercept = expected_y_mean - expected_X_mean @ captured["theta"]
+    assert model.intercept_ == pytest.approx(
+        expected_prediction_intercept,
+        rel=0,
+        abs=1e-14,
+    )
     assert model._df_resid == X.shape[0] - X.shape[1] - 1
 
     X_expected, y_expected, _, _ = (
@@ -229,11 +245,18 @@ def test_weighted_sparse_gpu_review_fix_preserves_backend_debiased_inference(
     assert result.metadata["sample_weighted"] is True
     assert result.metadata["numerical_backend"] == backend_name
     assert result.metadata["reporting_boundary"] == "post_numerical_inference"
+    assert result.metadata["intercept_estimator"] == "centered_debiased"
+    assert result.metadata["intercept_influence"] == "centered_nodewise"
     assert model._params.shape == (X.shape[1] + 1,)
     assert model._bse.shape == model._params.shape
     assert model._pvalues.shape == model._params.shape
     assert model._conf_int.shape == (model._params.size, 2)
-    assert model._params[0] == pytest.approx(expected_intercept, rel=0, abs=1e-14)
+    assert model._params[0] == pytest.approx(
+        expected_inference_intercept,
+        rel=0,
+        abs=1e-14,
+    )
+    assert not hasattr(model, "_debiased_intercept_influence_cpu")
     assert np.all(np.isfinite(model._bse))
 
 
