@@ -149,6 +149,48 @@ def test_lassocv_resolved_cpu_converts_all_operands_to_numpy_backend(monkeypatch
     ]
 
 
+def test_lassocv_resolved_torch_aligns_side_arrays_to_design_device(monkeypatch):
+    model = LassoCV(device="torch", compute_inference=False)
+    X = object()
+    y = object()
+    weight = object()
+    X_cv = _FakeTorchArray("cuda:4", "X")
+    y_cv = _FakeTorchArray("cuda:0", "y")
+    w_cv = _FakeTorchArray("cuda:0", "w")
+    converted = {X: X_cv, y: y_cv, weight: w_cv}
+    conversion_calls = []
+    move_calls = []
+
+    def fake_to_array(value, device=None, backend=None):
+        conversion_calls.append((value, device, backend))
+        return converted[value]
+
+    def fake_move(value, device=None, dtype=None, pin_memory=False):
+        move_calls.append((value.label, device))
+        return _FakeTorchArray(device, value.label)
+
+    monkeypatch.setattr(model, "_to_array", fake_to_array)
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: value is X_cv)
+    monkeypatch.setattr(affinity, "_move_torch_tensor", fake_move)
+
+    X_out, y_out, w_out = model._prepare_cv_inputs_for_resolved_device(
+        X,
+        y,
+        weight,
+        "torch",
+    )
+
+    assert X_out is X_cv
+    assert y_out.device == "cuda:4"
+    assert w_out.device == "cuda:4"
+    assert conversion_calls == [
+        (X, Device.TORCH, "torch"),
+        (y, Device.TORCH, "torch"),
+        (weight, Device.TORCH, "torch"),
+    ]
+    assert move_calls == [("y", "cuda:4"), ("w", "cuda:4")]
+
+
 def test_lassocv_auto_resolved_backend_is_pinned_through_final_refit(monkeypatch):
     rng = np.random.default_rng(13817)
     X = rng.normal(size=(36, 4))
