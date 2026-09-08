@@ -44,13 +44,15 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 
 稀疏 Gaussian penalty 使用字符串还是公开 `Penalty` 对象，不会改变上述 migration 与 AUTO routing 契约。
 
-backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend。相比之下，residual `bootstrap` 当前仍使用 CPU-native residual refit。因此显式 GPU `device` 会控制 penalized fit 的执行位置，但不应被理解成 bootstrap 也变成 GPU-native。
+backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend。这里也包括 normal-reference 的标量临界值：debiased GPU inference 内部的 scalar distribution call 会固定到实际执行的 CuPy/Torch backend（Torch 同时固定 concrete device），不会因为输入只是 Python scalar 而重新 AUTO 解析到 NumPy。相比之下，residual `bootstrap` 当前仍使用 CPU-native residual refit。因此显式 GPU `device` 会控制 penalized fit 的执行位置，但不应被理解成 bootstrap 也变成 GPU-native。
 
 对于 analytic `sample_weight`，维护中的 NumPy/CuPy/Torch `debiased` 路径使用同一个 weighted-centered average-loss 工作问题。因此把所有权重同时乘以任意正的常数，不会改变 penalized fit 或 debiased inference。
 
-加权 `LassoCV` 也使用同一 analytic-weight 约定：默认 alpha grid、每个 training fold 的目标函数、加权 validation MSE 与最终 selected-alpha refit 保持在同一尺度。所有权重都等于同一个正常数时，会直接视为与 unweighted 完全相同的统计问题，避免额外浮点漂移。AUTO 一旦为 CV 解析出具体 CPU/CuPy/Torch backend，最终 `Lasso` refit 也保持在同一 backend；显式 CPU 会在进入 dedicated CV selector 前把异构 GPU 输入统一转换为 NumPy。
+当模型包含截距时，debiased inference 还明确区分 prediction 与 inference 的参数 ownership。公开 `coef_` 与 `intercept_` 始终属于 **penalized prediction fit**；推断/reporting 使用 debiased slope `theta_db = _params[1:]`，以及与它属于同一个原始坐标系参数化的截距 `_params[0] = ybar_w - xbar_w @ theta_db`。因此 `_bse[0]`、第一个 z-statistic/p-value 以及 `_conf_int[0]` 对应的是这个 debiased reporting intercept，而不是 prediction `intercept_`。这使特征平移保持一致：若设计矩阵每列平移常数向量 `c`，debiased slope 不变，而 inference intercept 按 `-c @ theta_db` 平移。metadata 会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。
 
-对于 debiased simultaneous inference，普通 `_conf_int` 仍然是 marginal interval。`enable_simultaneous_inference=True` 使用 multiplier-bootstrap max-|Z| 校准；当 `simultaneous_include_intercept=True` 时，原始坐标系中的截距 influence **真正参与 bootstrap maximum**，而不只是额外出现在最终区间的输出行中。成功 refit 会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再计算新结果。
+加权 `LassoCV` 也使用同一 analytic-weight 约定：默认 alpha grid、每个 training fold 的目标函数、加权 validation MSE 与最终 selected-alpha refit 保持在同一尺度。所有权重都等于同一个正常数时，会直接视为与 unweighted 完全相同的统计问题，避免额外浮点漂移。AUTO 一旦为 CV 解析出具体 CPU/CuPy/Torch backend，最终 `Lasso` refit 也保持在同一 backend；显式 CPU 会在进入 dedicated CV selector 前把异构 GPU 输入统一转换为 NumPy。若最终 refit 产生 inference，外层 `LassoCV` 会暴露与 final `estimator_` 相同的 structured `_inference_result` 以及匹配的 `_params`/SE/statistic/p-value/CI reporting surface；其公开 `coef_`/`intercept_` 仍属于 penalized prediction refit，因此同样遵循上述 ownership 区分。
+
+对于 debiased simultaneous inference，普通 `_conf_int` 仍然是 marginal interval。`enable_simultaneous_inference=True` 使用 multiplier-bootstrap max-|Z| 校准；当 `simultaneous_include_intercept=True` 时，与 marginal SE 相同的 centered-nodewise 原始坐标系截距 influence **真正参与 bootstrap maximum**，而不只是额外出现在最终区间的输出行中。成功 refit 会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再计算新结果。
 
 ### `post_selection_ols` 实际计算什么？
 
