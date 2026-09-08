@@ -1,3 +1,4 @@
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -18,6 +19,20 @@ class _FakeTorchArray:
     def __init__(self, device, label):
         self.device = device
         self.label = label
+
+
+class _FakeDeviceContext:
+    def __init__(self, label, events):
+        self.label = label
+        self.events = events
+
+    def __enter__(self):
+        self.events.append(("enter", self.label))
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.events.append(("exit", self.label))
+        return False
 
 
 def test_lassocv_cupy_alignment_uses_design_device_for_y_and_weights(monkeypatch):
@@ -189,6 +204,66 @@ def test_lassocv_resolved_torch_aligns_side_arrays_to_design_device(monkeypatch)
         (weight, Device.TORCH, "torch"),
     ]
     assert move_calls == [("y", "cuda:4"), ("w", "cuda:4")]
+
+
+def test_lassocv_cupy_selector_binds_entire_transaction_to_design_device(monkeypatch):
+    X = _FakeArray(3, "X")
+    y = object()
+    events = []
+
+    fake_cupy = SimpleNamespace(
+        cuda=SimpleNamespace(
+            Device=lambda device_id: _FakeDeviceContext(("cupy", int(device_id)), events)
+        )
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: value is X)
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: False)
+
+    def delegate(X_arg, y_arg, *args, **kwargs):
+        assert X_arg is X
+        assert y_arg is y
+        assert events == [("enter", ("cupy", 3))]
+        return "selected"
+
+    monkeypatch.setattr(affinity, "_ORIGINAL_SELECT", delegate)
+    result = affinity._select_lasso_alpha_cv_on_design_device(X, y, cv_folds=3)
+
+    assert result == "selected"
+    assert events == [
+        ("enter", ("cupy", 3)),
+        ("exit", ("cupy", 3)),
+    ]
+
+
+def test_lassocv_torch_selector_binds_entire_transaction_to_design_device(monkeypatch):
+    X = _FakeTorchArray("cuda:5", "X")
+    y = object()
+    events = []
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            device=lambda device: _FakeDeviceContext(("torch", str(device)), events)
+        )
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: False)
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: value is X)
+
+    def delegate(X_arg, y_arg, *args, **kwargs):
+        assert X_arg is X
+        assert y_arg is y
+        assert events == [("enter", ("torch", "cuda:5"))]
+        return "selected"
+
+    monkeypatch.setattr(affinity, "_ORIGINAL_SELECT", delegate)
+    result = affinity._select_lasso_alpha_cv_on_design_device(X, y, cv_folds=3)
+
+    assert result == "selected"
+    assert events == [
+        ("enter", ("torch", "cuda:5")),
+        ("exit", ("torch", "cuda:5")),
+    ]
 
 
 def test_lassocv_auto_resolved_backend_is_pinned_through_final_refit(monkeypatch):
