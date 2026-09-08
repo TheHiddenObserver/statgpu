@@ -7,11 +7,13 @@ That is not an acceptable execution path once the centered/intercept-capable
 simultaneous procedure is part of the explicit GPU closure.
 
 This focused contract intercepts only the centered fit-intercept finalizer. The
-marginal debiased calculation remains owned by the existing implementation; when
-simultaneous inference is requested on CuPy/Torch, multiplier scores, max-|Z|,
-quantile calibration, and target confidence intervals are computed on the same
-concrete device before the established NumPy reporting snapshot is published.
-CPU behavior and historical no-intercept simultaneous behavior are unchanged.
+marginal debiased calculation remains owned by the existing implementation and
+keeps its established O(p) NumPy reporting snapshot. When simultaneous inference
+is requested on CuPy/Torch, only those small marginal parameter/SE arrays are
+mapped back to the execution device; the B×n multiplier draws, scores, max-|Z|,
+quantile calibration, and target confidence-interval numerics are computed on the
+same concrete device before the joint reporting snapshot is published. CPU
+behavior and historical no-intercept simultaneous behavior are unchanged.
 """
 
 from __future__ import annotations
