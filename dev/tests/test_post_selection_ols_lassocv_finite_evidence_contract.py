@@ -26,10 +26,7 @@ def _details_with_partial_failure():
 
 
 def test_lassocv_requires_complete_finite_fold_evidence():
-    checked = _validate_lassocv_selection_details(
-        _details_with_partial_failure(),
-        n_samples=12,
-    )
+    checked = _validate_lassocv_selection_details(_details_with_partial_failure())
 
     assert checked["alpha"] == pytest.approx(0.05)
     assert np.isnan(checked["mean_mse"][0])
@@ -48,7 +45,7 @@ def test_lassocv_fails_when_no_candidate_has_complete_finite_evidence():
     }
 
     with pytest.raises(FloatingPointError, match="finite validation MSE on every fold"):
-        _validate_lassocv_selection_details(details, n_samples=12)
+        _validate_lassocv_selection_details(details)
 
 
 def test_lassocv_single_alpha_degenerate_path_remains_unchanged():
@@ -59,7 +56,7 @@ def test_lassocv_single_alpha_degenerate_path_remains_unchanged():
         "mean_mse": np.asarray([np.nan], dtype=np.float64),
     }
 
-    checked = _validate_lassocv_selection_details(details, n_samples=12)
+    checked = _validate_lassocv_selection_details(details)
     assert checked is details
 
 
@@ -77,7 +74,7 @@ def test_lassocv_finite_large_fold_scores_aggregate_without_overflow():
         "mean_mse": np.asarray([np.inf, np.inf], dtype=np.float64),
     }
 
-    checked = _validate_lassocv_selection_details(details, n_samples=12)
+    checked = _validate_lassocv_selection_details(details)
     assert checked["alpha"] == pytest.approx(0.05)
     assert np.all(np.isfinite(checked["mean_mse"]))
     assert checked["mean_mse"][0] == pytest.approx(1.0e308)
@@ -96,7 +93,7 @@ def test_lassocv_negative_validation_mse_fails_closed():
     }
 
     with pytest.raises(FloatingPointError, match="negative validation MSE"):
-        _validate_lassocv_selection_details(details, n_samples=12)
+        _validate_lassocv_selection_details(details)
 
 
 def test_lassocv_fit_applies_complete_evidence_before_final_refit(monkeypatch):
@@ -112,7 +109,7 @@ def test_lassocv_fit_applies_complete_evidence_before_final_refit(monkeypatch):
 
     def successful_refit(self, X_arg, y_arg, sample_weight=None):
         refit["alpha"] = float(self.alpha)
-        self.coef_ = np.zeros(X_arg.shape[1], dtype=np.float64)
+        self.coef_ = np.zeros(np.asarray(X_arg).shape[1], dtype=np.float64)
         self.intercept_ = 0.0
         self.n_iter_ = 1
         self._fitted = True
@@ -132,6 +129,35 @@ def test_lassocv_fit_applies_complete_evidence_before_final_refit(monkeypatch):
     assert model.alpha_ == pytest.approx(0.05)
     assert np.isnan(model.mean_mse_[0])
     np.testing.assert_allclose(model.mean_mse_[1:], [0.21, 0.39])
+
+
+def test_lassocv_evidence_guard_preserves_list_like_X_compatibility(monkeypatch):
+    X = [[0.0, 1.0] for _ in range(12)]
+    y = np.zeros(12, dtype=np.float64)
+
+    def synthetic_selector(X_arg, y_arg, **kwargs):
+        assert isinstance(X_arg, np.ndarray)
+        assert kwargs["return_details"] is True
+        return _details_with_partial_failure()
+
+    def successful_refit(self, X_arg, y_arg, sample_weight=None):
+        self.coef_ = np.zeros(np.asarray(X_arg).shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        self._fitted = True
+        return self
+
+    monkeypatch.setattr(lasso_impl, "_select_lasso_alpha_cv", synthetic_selector)
+    monkeypatch.setattr(lasso_impl.Lasso, "fit", successful_refit)
+
+    model = LassoCV(
+        alphas=[0.1, 0.05, 0.01],
+        cv=3,
+        device="cpu",
+        compute_inference=False,
+    ).fit(X, y)
+
+    assert model.alpha_ == pytest.approx(0.05)
 
 
 def test_lassocv_no_complete_evidence_fails_before_final_refit(monkeypatch):
