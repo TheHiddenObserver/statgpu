@@ -25,6 +25,46 @@ from statgpu.linear_model.wrappers._lasso import (
 from statgpu.cross_validation._base import hash_cv_data as _hash_data
 
 
+def _validate_lassocv_selection_details(details, *, n_samples: int):
+    """Require complete finite fold evidence for genuine multi-alpha selection.
+
+    The shared private selector has other internal consumers, so the stricter
+    selection policy belongs at the public ``LassoCV`` boundary. Candidates with
+    a non-finite validation MSE on any executed fold are ineligible. Degenerate
+    paths that do not perform genuine multi-alpha CV keep their historical
+    single-refit semantics.
+    """
+    if not isinstance(details, dict):
+        raise RuntimeError("LassoCV selector must return structured details")
+
+    alphas = np.asarray(details.get("alphas", ()), dtype=np.float64).reshape(-1)
+    mse_path = np.asarray(details.get("mse_path", ()), dtype=np.float64)
+    if mse_path.ndim != 2 or mse_path.shape[0] != alphas.size:
+        raise RuntimeError("LassoCV returned an inconsistent validation-MSE layout")
+
+    n_folds_evaluated = int(mse_path.shape[1])
+    if int(n_samples) < 4 or alphas.size <= 1 or n_folds_evaluated < 2:
+        return details
+
+    complete = np.all(np.isfinite(mse_path), axis=1)
+    if not np.any(complete):
+        raise FloatingPointError(
+            "LassoCV produced no candidate with finite validation MSE on every "
+            "fold; refusing to select alpha"
+        )
+
+    mean_mse = np.full(alphas.size, np.nan, dtype=np.float64)
+    mean_mse[complete] = np.mean(mse_path[complete], axis=1)
+    eligible_indices = np.flatnonzero(complete)
+    best_local = int(np.argmin(mean_mse[complete]))
+    best_index = int(eligible_indices[best_local])
+
+    checked = dict(details)
+    checked["alpha"] = float(alphas[best_index])
+    checked["mean_mse"] = mean_mse
+    return checked
+
+
 # =============================================================================
 # LassoCV Class
 # =============================================================================
@@ -354,6 +394,10 @@ class LassoCV(CVEstimatorBase):
             cd_kkt_check_every=effective_cd_kkt,
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
+        )
+        details = _validate_lassocv_selection_details(
+            details,
+            n_samples=int(X_cv.shape[0]),
         )
 
         # Keep candidate CV results local until the final full-data refit
