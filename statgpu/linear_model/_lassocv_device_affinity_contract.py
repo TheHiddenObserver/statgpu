@@ -14,6 +14,14 @@ reference array is supplied. Bind the entire selector transaction to the design'
 concrete device so a design on, for example, ``cuda:3`` cannot later acquire
 ``cuda:0`` indices or FISTA buffers merely because device 0 was current.
 
+The reviewed weighted selector must also select from complete finite CV evidence.
+A candidate that failed numerically on one or more folds must not become eligible
+merely because its remaining finite folds have a small mean. For genuine
+multi-alpha weighted CV, only candidates with finite MSE on every fold are
+eligible; if none remain, selection fails closed. Degenerate no-selection paths
+(single alpha, too few rows, or fewer than two folds) preserve their historical
+refit semantics.
+
 The inverse boundary matters as well: an explicit/resolved CPU request owns the
 execution backend and must convert heterogeneous GPU-resident X/y/weights to
 NumPy before the dedicated CV selector runs. This mirrors direct penalized-fit
@@ -36,6 +44,8 @@ transparent to the production-only GPU affinity layer.
 from __future__ import annotations
 
 import functools
+
+import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import _is_cupy_array, _is_torch_array
@@ -152,6 +162,69 @@ def _prepare_cv_inputs_for_resolved_device(
     return X_cv, y_cv, sample_weight_cv
 
 
+def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
+    """Return details whose selected alpha is supported by every requested fold."""
+    if kwargs.get("sample_weight") is None or not isinstance(result, dict):
+        return result
+
+    alphas = np.asarray(result.get("alphas", ()), dtype=np.float64).reshape(-1)
+    mse_path = np.asarray(result.get("mse_path", ()), dtype=np.float64)
+    n_samples = int(getattr(X, "shape", (0,))[0])
+    cv_splits = kwargs.get("cv_splits")
+    n_folds_requested = (
+        len(cv_splits)
+        if cv_splits is not None
+        else int(kwargs.get("cv_folds", 5))
+    )
+
+    # These are intentional no-selection paths in the underlying selector.
+    if n_samples < 4 or alphas.size <= 1 or n_folds_requested < 2:
+        return result
+
+    if mse_path.ndim != 2 or mse_path.shape[0] != alphas.size:
+        raise RuntimeError(
+            "weighted LassoCV returned an inconsistent validation-MSE layout"
+        )
+    if mse_path.shape[1] != n_folds_requested:
+        raise RuntimeError(
+            "weighted LassoCV validation-MSE columns do not match the requested folds"
+        )
+
+    complete = np.all(np.isfinite(mse_path), axis=1)
+    if not np.any(complete):
+        raise FloatingPointError(
+            "weighted LassoCV produced no candidate with finite validation MSE "
+            "on every fold; refusing to select alpha"
+        )
+
+    mean_mse = np.full(alphas.size, np.nan, dtype=np.float64)
+    mean_mse[complete] = np.mean(mse_path[complete], axis=1)
+    eligible_indices = np.flatnonzero(complete)
+    best_local = int(np.argmin(mean_mse[complete]))
+    best_index = int(eligible_indices[best_local])
+
+    checked = dict(result)
+    checked["alpha"] = float(alphas[best_index])
+    checked["mean_mse"] = mean_mse
+    return checked
+
+
+def _call_selector_with_evidence(X, y, args, kwargs):
+    """Run the installed selector and validate weighted multi-alpha evidence."""
+    requested_details = bool(kwargs.get("return_details", False))
+    weighted = kwargs.get("sample_weight") is not None
+    call_kwargs = kwargs
+    if weighted and not requested_details:
+        call_kwargs = dict(kwargs)
+        call_kwargs["return_details"] = True
+
+    result = _ORIGINAL_SELECT(X, y, *args, **call_kwargs)
+    result = _validate_weighted_cv_selection_evidence(X, result, kwargs=call_kwargs)
+    if weighted and not requested_details:
+        return float(result["alpha"])
+    return result
+
+
 @functools.wraps(_ORIGINAL_SELECT)
 def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
     """Run the whole dedicated selector on the concrete device that owns X."""
@@ -164,7 +237,7 @@ def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
                 "LassoCV CuPy selector requires a concrete design device."
             )
         with cp.cuda.Device(int(device_id)):
-            return _ORIGINAL_SELECT(X, y, *args, **kwargs)
+            return _call_selector_with_evidence(X, y, args, kwargs)
 
     if _is_torch_array(X):
         import torch
@@ -176,9 +249,9 @@ def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
                 "LassoCV Torch selector requires a concrete CUDA design device."
             )
         with torch.cuda.device(device):
-            return _ORIGINAL_SELECT(X, y, *args, **kwargs)
+            return _call_selector_with_evidence(X, y, args, kwargs)
 
-    return _ORIGINAL_SELECT(X, y, *args, **kwargs)
+    return _call_selector_with_evidence(X, y, args, kwargs)
 
 
 def install_lassocv_device_affinity_contract():
@@ -215,4 +288,5 @@ __all__ = [
     "_convert_cpu_cv_inputs",
     "_input_native_or_resolved_lassocv_device",
     "_select_lasso_alpha_cv_on_design_device",
+    "_validate_weighted_cv_selection_evidence",
 ]
