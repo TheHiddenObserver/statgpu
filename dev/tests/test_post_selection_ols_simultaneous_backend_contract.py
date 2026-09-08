@@ -1,3 +1,4 @@
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -91,6 +92,55 @@ def test_native_simultaneous_maxz_uses_torch_backend_and_target_mask(include_int
         expected[1:, 1] = result.params[1:] + critical * result.bse[1:]
         assert not hasattr(model, "_debiased_intercept_influence_cpu")
     np.testing.assert_allclose(result.simultaneous_conf_int, expected, rtol=0, atol=1e-12)
+
+
+def test_native_simultaneous_cupy_enters_design_device_context(monkeypatch):
+    state = {"active": False, "device": None}
+    sentinel = object()
+
+    class _FakeDeviceContext:
+        def __init__(self, device_id):
+            self.device_id = int(device_id)
+
+        def __enter__(self):
+            assert not state["active"]
+            state["active"] = True
+            state["device"] = self.device_id
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            state["active"] = False
+            return False
+
+    fake_cupy = SimpleNamespace(
+        cuda=SimpleNamespace(Device=lambda device_id: _FakeDeviceContext(device_id))
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    def fake_on_device(*args, **kwargs):
+        assert state["active"] is True
+        assert state["device"] == 4
+        assert kwargs["backend_name"] == "cupy"
+        return sentinel
+
+    monkeypatch.setattr(native_sim, "_native_simultaneous_maxz_on_device", fake_on_device)
+    X_work = SimpleNamespace(device=SimpleNamespace(id=4))
+
+    output = native_sim._native_simultaneous_maxz(
+        object(),
+        object(),
+        X_arr=object(),
+        y_work=object(),
+        X_work=X_work,
+        row_scale=object(),
+        coef_native=object(),
+        M_native=object(),
+        backend_name="cupy",
+    )
+
+    assert output is sentinel
+    assert state["active"] is False
+    assert state["device"] == 4
 
 
 def test_gpu_simultaneous_finalizer_suppresses_inner_cpu_simultaneous(monkeypatch):
