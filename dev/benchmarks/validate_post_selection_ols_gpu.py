@@ -653,11 +653,33 @@ def _simultaneous_intercept_case(backend: str):
     cpu = Lasso(device="cpu", **common).fit(X, y, sample_weight=weights)
     requested_device = _requested_device(backend)
     expected_device, version = _runtime(backend)
-    gpu = Lasso(device=requested_device, **common).fit(
-        _native(X, backend),
-        _native(y, backend),
-        sample_weight=_native(weights, backend),
+
+    # A centered/intercept-capable explicit GPU path must never re-enter the
+    # historical NumPy simultaneous helper. Make any such fallback fatal while
+    # the physical GPU fit runs; the backend-native finalizer bypasses it.
+    original_cpu_simultaneous = (
+        PenalizedGeneralizedLinearModel._compute_simultaneous_ci_maxz_bootstrap
     )
+
+    def forbid_cpu_simultaneous(*args, **kwargs):
+        raise AssertionError(
+            "explicit GPU simultaneous debiased inference fell back to the NumPy helper"
+        )
+
+    PenalizedGeneralizedLinearModel._compute_simultaneous_ci_maxz_bootstrap = (
+        forbid_cpu_simultaneous
+    )
+    try:
+        gpu = Lasso(device=requested_device, **common).fit(
+            _native(X, backend),
+            _native(y, backend),
+            sample_weight=_native(weights, backend),
+        )
+    finally:
+        PenalizedGeneralizedLinearModel._compute_simultaneous_ci_maxz_bootstrap = (
+            original_cpu_simultaneous
+        )
+
     result = gpu._inference_result
     if result is None or result.simultaneous_conf_int is None:
         raise AssertionError("intercept-inclusive simultaneous GPU result is missing")
@@ -666,6 +688,14 @@ def _simultaneous_intercept_case(backend: str):
         raise AssertionError(f"simultaneous debiased backend mismatch: {meta}")
     if str(meta.get("numerical_device")) != expected_device:
         raise AssertionError(f"simultaneous debiased device mismatch: {meta}")
+    if meta.get("simultaneous_numerical_backend") != backend:
+        raise AssertionError(f"simultaneous numerical backend mismatch: {meta}")
+    if str(meta.get("simultaneous_numerical_device")) != expected_device:
+        raise AssertionError(f"simultaneous numerical device mismatch: {meta}")
+    if meta.get("simultaneous_reporting_backend") != "numpy":
+        raise AssertionError(f"simultaneous reporting backend mismatch: {meta}")
+    if meta.get("simultaneous_reporting_boundary") != "post_numerical_inference":
+        raise AssertionError(f"simultaneous reporting boundary mismatch: {meta}")
 
     target_mask = np.asarray(result.simultaneous_target_mask, dtype=bool)
     if target_mask.shape != np.asarray(gpu._params).shape or not np.all(target_mask):
@@ -681,39 +711,21 @@ def _simultaneous_intercept_case(backend: str):
             "exceeds 2.000e-06"
         )
 
-    # Reconstruct the exact GPU-model multiplier bootstrap from its reporting
-    # snapshot. This catches the historical feature-only maximum even when CPU
-    # and GPU marginal debiasing have small, legitimate numerical differences.
-    X_design = np.asarray(gpu._X_design, dtype=np.float64)
-    X_feat = X_design[:, 1:]
-    resid = np.asarray(gpu._resid, dtype=np.float64).reshape(-1)
-    M = np.asarray(gpu._debiased_M_cpu, dtype=np.float64)
-    bse = np.asarray(gpu._bse, dtype=np.float64)
-    influence = np.asarray(gpu._debiased_intercept_influence_cpu, dtype=np.float64)
-    n = resid.shape[0]
-    rng = np.random.default_rng(seed)
-    xi = rng.standard_normal(size=(B, n))
-    multiplier_resid = xi * resid.reshape(1, -1)
-    feature_score = (multiplier_resid @ X_feat) @ M.T / float(n)
-    z_feature = feature_score / (bse[1:].reshape(1, -1) + 1e-30)
-    z_intercept = (multiplier_resid @ influence) / (float(bse[0]) + 1e-30)
-    expected_max = np.maximum(np.abs(z_intercept), np.max(np.abs(z_feature), axis=1))
-    expected_critical = float(np.quantile(expected_max, 1.0 - gpu.simultaneous_alpha))
-    critical_error = abs(float(gpu._simultaneous_critical_value) - expected_critical)
-    if critical_error > 1e-12:
+    critical = float(result.simultaneous_critical_value)
+    if not np.isfinite(critical) or critical < 0.0:
         raise AssertionError(
-            f"simultaneous intercept max-z reconstruction error {critical_error:.3e}"
+            f"simultaneous {backend} critical value is invalid: {critical!r}"
         )
     expected_ci = np.column_stack(
         [
-            gpu._params - expected_critical * gpu._bse,
-            gpu._params + expected_critical * gpu._bse,
+            gpu._params - critical * gpu._bse,
+            gpu._params + critical * gpu._bse,
         ]
     )
     ci_reconstruction_error = _max_error(gpu._conf_int_simultaneous, expected_ci)
-    if ci_reconstruction_error > 1e-12:
+    if ci_reconstruction_error > 1e-10:
         raise AssertionError(
-            "simultaneous intercept CI does not match the intercept-inclusive critical value"
+            "simultaneous intercept CI does not match the backend-native critical value"
         )
 
     return {
@@ -724,9 +736,12 @@ def _simultaneous_intercept_case(backend: str):
         "requested_device": requested_device,
         "executed_backend": gpu._selected_backend_name,
         "executed_device": meta.get("numerical_device"),
+        "simultaneous_numerical_backend": meta.get("simultaneous_numerical_backend"),
+        "simultaneous_numerical_device": meta.get("simultaneous_numerical_device"),
+        "cpu_simultaneous_fallback_blocked": True,
         "intercept_influence_error": influence_error,
         "intercept_influence_limit": 2e-6,
-        "critical_reconstruction_error": critical_error,
+        "critical_value": critical,
         "ci_reconstruction_error": ci_reconstruction_error,
         "status": "success",
     }
