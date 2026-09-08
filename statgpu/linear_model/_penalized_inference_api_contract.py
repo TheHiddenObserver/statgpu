@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import inspect
 import math
+import operator
 import warnings
 
 from statgpu._config import Device, _get_configured_device
@@ -96,7 +97,15 @@ def _validate_lasso_simultaneous_controls(cls, self) -> None:
     if not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
         raise ValueError("simultaneous_alpha must be in (0, 1).")
 
-    n_bootstrap = int(getattr(self, "simultaneous_n_bootstrap", 1000))
+    raw_n_bootstrap = getattr(self, "simultaneous_n_bootstrap", 1000)
+    if isinstance(raw_n_bootstrap, bool):
+        raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
+    try:
+        n_bootstrap = operator.index(raw_n_bootstrap)
+    except TypeError as exc:
+        raise ValueError(
+            "simultaneous_n_bootstrap must be a positive integer."
+        ) from exc
     if n_bootstrap <= 0:
         raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
 
