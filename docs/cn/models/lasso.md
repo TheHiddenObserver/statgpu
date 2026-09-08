@@ -88,7 +88,7 @@ residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GP
 
 设置 `enable_simultaneous_inference=True` 后，Lasso 使用 multiplier-bootstrap max-|Z| 临界值。普通 `_conf_int` 仍然是 marginal interval；联合区间单独保存在 `_conf_int_simultaneous`。
 
-`simultaneous_alpha` 必须严格位于 `(0, 1)`，`simultaneous_n_bootstrap` 必须为正；这两个条件会在 NumPy/CuPy/Torch backend dispatch 之前统一验证。
+`simultaneous_alpha` 必须严格位于 `(0, 1)`，`simultaneous_n_bootstrap` 必须为正整数；这两个条件会在 NumPy/CuPy/Torch backend dispatch 之前统一验证。
 
 `simultaneous_include_intercept=False` 时 family 只包含 feature coefficients。设置为 `True` 时，与 marginal debiased SE 相同的 centered-nodewise 原始坐标系 intercept influence **真正进入 bootstrap max-|Z| calibration**；它不再只是一个额外输出行却套用 feature-only 临界值。对于 CuPy/Torch 且 `fit_intercept=True` 的 centered 路径，这个 simultaneous 计算会按上文在 backend-native device 上执行。每次成功 refit 都会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再发布新结果。
 
@@ -208,7 +208,7 @@ ci_simul = m_sim._conf_int_simultaneous
 ## 外部验证（External Validation）
 
 - `dev/benchmarks/validate_post_selection_ols_gpu.py`
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`（历史 hardware-bearing API benchmark）
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`：canonical `post_selection_ols` CPU/CuPy end-to-end parity 与完整 fit+inference timing benchmark。
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
