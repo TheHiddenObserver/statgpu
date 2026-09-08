@@ -134,10 +134,24 @@ def _compute_simultaneous_ci_maxz_bootstrap(self):
         )
         filled += bsz
 
+    if not np.all(np.isfinite(max_stats)):
+        raise FloatingPointError(
+            "simultaneous debiased inference produced non-finite bootstrap "
+            "max-|Z| statistics"
+        )
+
     critical = float(np.quantile(max_stats, 1.0 - alpha_sim))
+    if not np.isfinite(critical) or critical < 0.0:
+        raise FloatingPointError(
+            "simultaneous debiased inference produced a non-finite critical value"
+        )
     conf_sim = np.array(self._conf_int, copy=True, dtype=np.float64)
     conf_sim[:, 0] = params - critical * bse
     conf_sim[:, 1] = params + critical * bse
+    if not np.all(np.isfinite(conf_sim)):
+        raise FloatingPointError(
+            "simultaneous debiased inference produced non-finite confidence intervals"
+        )
 
     self._conf_int_simultaneous = conf_sim
     self._simultaneous_critical_value = critical
