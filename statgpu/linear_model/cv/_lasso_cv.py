@@ -25,14 +25,16 @@ from statgpu.linear_model.wrappers._lasso import (
 from statgpu.cross_validation._base import hash_cv_data as _hash_data
 
 
-def _validate_lassocv_selection_details(details, *, n_samples: int):
+def _validate_lassocv_selection_details(details):
     """Require complete finite fold evidence for genuine multi-alpha selection.
 
     The shared private selector has other internal consumers, so the stricter
     selection policy belongs at the public ``LassoCV`` boundary. Candidates with
     a non-finite validation MSE on any executed fold are ineligible. Degenerate
     paths that do not perform genuine multi-alpha CV keep their historical
-    single-refit semantics.
+    single-refit semantics. The selector already represents those degenerate
+    cases with fewer than two evaluated MSE columns, so this guard does not need
+    to inspect the caller's input container or sample count.
     """
     if not isinstance(details, dict):
         raise RuntimeError("LassoCV selector must return structured details")
@@ -43,7 +45,7 @@ def _validate_lassocv_selection_details(details, *, n_samples: int):
         raise RuntimeError("LassoCV returned an inconsistent validation-MSE layout")
 
     n_folds_evaluated = int(mse_path.shape[1])
-    if int(n_samples) < 4 or alphas.size <= 1 or n_folds_evaluated < 2:
+    if alphas.size <= 1 or n_folds_evaluated < 2:
         return details
 
     complete = np.all(np.isfinite(mse_path), axis=1)
@@ -415,10 +417,7 @@ class LassoCV(CVEstimatorBase):
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
-        details = _validate_lassocv_selection_details(
-            details,
-            n_samples=int(X.shape[0]),
-        )
+        details = _validate_lassocv_selection_details(details)
 
         # Keep candidate CV results local until the final full-data refit
         # succeeds, matching the failure-safe contract of the other CV classes.
