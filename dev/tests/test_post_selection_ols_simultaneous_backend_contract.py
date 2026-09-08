@@ -48,6 +48,25 @@ def _fixture(torch, *, include_intercept=True):
     return model, result, X_raw, y_work, X_work, row_scale, coef, M
 
 
+def _run_torch_fixture(torch, *, include_intercept=True):
+    model, result, X_raw, y_work, X_work, row_scale, coef, M = _fixture(
+        torch,
+        include_intercept=include_intercept,
+    )
+    native_sim._native_simultaneous_maxz(
+        model,
+        result,
+        X_arr=X_raw,
+        y_work=y_work,
+        X_work=X_work,
+        row_scale=row_scale,
+        coef_native=coef,
+        M_native=M,
+        backend_name="torch",
+    )
+    return model, result
+
+
 @pytest.mark.parametrize("include_intercept", [False, True])
 def test_native_simultaneous_maxz_uses_torch_backend_and_target_mask(include_intercept):
     torch = pytest.importorskip("torch")
@@ -92,6 +111,22 @@ def test_native_simultaneous_maxz_uses_torch_backend_and_target_mask(include_int
         expected[1:, 1] = result.params[1:] + critical * result.bse[1:]
         assert not hasattr(model, "_debiased_intercept_influence_cpu")
     np.testing.assert_allclose(result.simultaneous_conf_int, expected, rtol=0, atol=1e-12)
+
+
+def test_native_simultaneous_torch_seed_is_repeatable():
+    torch = pytest.importorskip("torch")
+    _, first = _run_torch_fixture(torch, include_intercept=True)
+    _, second = _run_torch_fixture(torch, include_intercept=True)
+
+    assert first.simultaneous_critical_value == pytest.approx(
+        second.simultaneous_critical_value,
+        rel=0,
+        abs=0,
+    )
+    np.testing.assert_array_equal(
+        first.simultaneous_conf_int,
+        second.simultaneous_conf_int,
+    )
 
 
 def test_native_simultaneous_cupy_enters_design_device_context(monkeypatch):
