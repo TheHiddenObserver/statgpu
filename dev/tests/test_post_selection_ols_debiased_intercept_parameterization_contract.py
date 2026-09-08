@@ -14,7 +14,7 @@ def _problem(seed=20260908):
     return X, y, weight
 
 
-def _fit(X, y, weight):
+def _fit(X, y, weight, *, simultaneous=False):
     return Lasso(
         alpha=0.12,
         fit_intercept=True,
@@ -24,6 +24,10 @@ def _fit(X, y, weight):
         device="cpu",
         max_iter=6000,
         tol=1e-9,
+        enable_simultaneous_inference=simultaneous,
+        simultaneous_include_intercept=simultaneous,
+        simultaneous_n_bootstrap=48,
+        simultaneous_random_state=20260908,
     ).fit(X, y, sample_weight=weight)
 
 
@@ -63,11 +67,12 @@ def test_debiased_reporting_intercept_obeys_feature_translation_identity():
 
     assert original._inference_result.metadata["intercept_estimator"] == "centered_debiased"
     assert original._inference_result.metadata["intercept_influence"] == "centered_nodewise"
+    assert not hasattr(original, "_debiased_intercept_influence_cpu")
 
 
 def test_weighted_debiased_intercept_and_se_match_centered_nodewise_influence():
     X, y, weight = _problem(seed=20260909)
-    model = _fit(X, y, weight)
+    model = _fit(X, y, weight, simultaneous=True)
 
     n = X.shape[0]
     n_eff = float(np.sum(weight))
