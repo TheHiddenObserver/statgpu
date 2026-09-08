@@ -173,6 +173,49 @@ def test_native_simultaneous_torch_matches_fixed_multiplier_oracle(monkeypatch):
     )
 
 
+def test_native_simultaneous_rejects_nonfinite_bootstrap_draws_before_quantile(
+    monkeypatch,
+):
+    torch = pytest.importorskip("torch")
+    model, result, X_raw, y_work, X_work, row_scale, coef, M = _fixture(
+        torch,
+        include_intercept=True,
+    )
+    xi = torch.zeros(
+        (model.simultaneous_n_bootstrap, X_work.shape[0]),
+        dtype=X_work.dtype,
+    )
+    xi[0, :] = torch.finfo(X_work.dtype).max
+    assert bool(torch.all(torch.isfinite(xi)))
+
+    def extreme_finite_random(backend_name, *, shape, ref_arr, rng):
+        assert backend_name == "torch"
+        assert tuple(shape) == tuple(xi.shape)
+        assert ref_arr is X_work
+        return xi
+
+    monkeypatch.setattr(native_sim, "_random_normal", extreme_finite_random)
+
+    with pytest.raises(
+        FloatingPointError,
+        match=r"non-finite bootstrap max-\|Z\| statistics",
+    ):
+        native_sim._native_simultaneous_maxz(
+            model,
+            result,
+            X_arr=X_raw,
+            y_work=y_work,
+            X_work=X_work,
+            row_scale=row_scale,
+            coef_native=coef,
+            M_native=M,
+            backend_name="torch",
+        )
+
+    assert result.simultaneous_conf_int is None
+    assert result.simultaneous_critical_value is None
+
+
 def test_native_simultaneous_torch_seed_is_repeatable():
     torch = pytest.importorskip("torch")
     _, first = _run_torch_fixture(torch, include_intercept=True)
