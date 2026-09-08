@@ -63,6 +63,42 @@ def test_lassocv_single_alpha_degenerate_path_remains_unchanged():
     assert checked is details
 
 
+def test_lassocv_finite_large_fold_scores_aggregate_without_overflow():
+    details = {
+        "alpha": 0.1,
+        "alphas": np.asarray([0.1, 0.05], dtype=np.float64),
+        "mse_path": np.asarray(
+            [
+                [1.0e308, 1.0e308],
+                [9.0e307, 9.0e307],
+            ],
+            dtype=np.float64,
+        ),
+        "mean_mse": np.asarray([np.inf, np.inf], dtype=np.float64),
+    }
+
+    checked = _validate_lassocv_selection_details(details, n_samples=12)
+    assert checked["alpha"] == pytest.approx(0.05)
+    assert np.all(np.isfinite(checked["mean_mse"]))
+    assert checked["mean_mse"][0] == pytest.approx(1.0e308)
+    assert checked["mean_mse"][1] == pytest.approx(9.0e307)
+
+
+def test_lassocv_negative_validation_mse_fails_closed():
+    details = {
+        "alpha": 0.1,
+        "alphas": np.asarray([0.1, 0.05], dtype=np.float64),
+        "mse_path": np.asarray(
+            [[0.2, 0.3], [-1.0e-12, 0.1]],
+            dtype=np.float64,
+        ),
+        "mean_mse": np.asarray([0.25, 0.05], dtype=np.float64),
+    }
+
+    with pytest.raises(FloatingPointError, match="negative validation MSE"):
+        _validate_lassocv_selection_details(details, n_samples=12)
+
+
 def test_lassocv_fit_applies_complete_evidence_before_final_refit(monkeypatch):
     X = np.zeros((12, 2), dtype=np.float64)
     y = np.zeros(12, dtype=np.float64)
