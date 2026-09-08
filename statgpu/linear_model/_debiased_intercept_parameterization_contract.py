@@ -230,6 +230,26 @@ def _native_intercept_report(
         )
 
 
+def _validate_finite_intercept_report(
+    intercept_value: float,
+    se_intercept: float,
+    p_intercept: float,
+    ci_intercept,
+) -> np.ndarray:
+    """Fail closed before publishing a non-representable intercept report."""
+    ci = np.asarray(ci_intercept, dtype=np.float64).reshape(2)
+    values = np.asarray(
+        [intercept_value, se_intercept, p_intercept, ci[0], ci[1]],
+        dtype=np.float64,
+    )
+    if not np.all(np.isfinite(values)):
+        raise FloatingPointError(
+            "debiased intercept inference produced non-finite estimate, standard "
+            "error, p-value, or confidence interval"
+        )
+    return ci
+
+
 def _publish_coherent_intercept(
     model,
     result,
@@ -330,6 +350,12 @@ def _publish_coherent_intercept(
     )
     se_intercept = float(np.asarray(_to_numpy(se_native), dtype=np.float64))
     z_intercept = float(np.asarray(_to_numpy(z_native), dtype=np.float64))
+    ci_intercept = _validate_finite_intercept_report(
+        intercept_value,
+        se_intercept,
+        p_intercept,
+        ci_intercept,
+    )
 
     feature_bse = np.asarray(result.bse, dtype=np.float64).reshape(-1)
     feature_statistic = np.asarray(result.statistic, dtype=np.float64).reshape(-1)
@@ -350,7 +376,7 @@ def _publish_coherent_intercept(
     statistic = np.concatenate([[z_intercept], feature_statistic])
     pvalues = np.concatenate([[p_intercept], feature_pvalues])
     conf_int = np.vstack([
-        np.asarray(ci_intercept, dtype=np.float64).reshape(1, 2),
+        ci_intercept.reshape(1, 2),
         feature_conf_int,
     ])
 
