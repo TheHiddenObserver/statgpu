@@ -19,7 +19,7 @@ def test_simultaneous_alpha_rejected_before_backend_dispatch(device, alpha):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
-@pytest.mark.parametrize("n_bootstrap", [0, -1, -20])
+@pytest.mark.parametrize("n_bootstrap", [0, -1, -20, 1.5, 32.0, "32", True])
 def test_simultaneous_bootstrap_count_rejected_before_backend_dispatch(
     device,
     n_bootstrap,
@@ -36,6 +36,18 @@ def test_simultaneous_bootstrap_count_rejected_before_backend_dispatch(
             simultaneous_n_bootstrap=n_bootstrap,
             device=device,
         )
+
+
+def test_simultaneous_bootstrap_count_accepts_numpy_integer():
+    model = Lasso(
+        alpha=0.1,
+        inference_method="debiased",
+        compute_inference=True,
+        enable_simultaneous_inference=True,
+        simultaneous_n_bootstrap=np.int64(32),
+        device="cpu",
+    )
+    assert int(model.simultaneous_n_bootstrap) == 32
 
 
 def test_disabled_simultaneous_preserves_constructor_compatibility():
@@ -66,3 +78,9 @@ def test_set_params_reuses_simultaneous_validation_contract():
 
     with pytest.raises(ValueError, match=r"simultaneous_alpha must be in \(0, 1\)"):
         model.set_params(simultaneous_alpha=0.0)
+
+    with pytest.raises(
+        ValueError,
+        match="simultaneous_n_bootstrap must be a positive integer",
+    ):
+        model.set_params(simultaneous_n_bootstrap=4.5)
