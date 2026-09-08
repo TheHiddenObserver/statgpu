@@ -17,10 +17,12 @@ concrete device so a design on, for example, ``cuda:3`` cannot later acquire
 The reviewed weighted selector must also select from complete finite CV evidence.
 A candidate that failed numerically on one or more folds must not become eligible
 merely because its remaining finite folds have a small mean. For genuine
-multi-alpha weighted CV, only candidates with finite MSE on every fold are
-eligible; if none remain, selection fails closed. Degenerate no-selection paths
-(single alpha, too few rows, or fewer than two folds) preserve their historical
-refit semantics.
+multi-alpha weighted CV, only candidates with finite MSE on every actually
+executed fold are eligible; if none remain, selection fails closed. Degenerate
+no-selection paths (single alpha, too few rows, or fewer than two executed folds)
+preserve their historical refit semantics. The evidence check derives the fold
+count from the returned MSE matrix instead of re-reading ``cv_splits`` so
+one-shot iterables/generators remain valid public inputs.
 
 The inverse boundary matters as well: an explicit/resolved CPU request owns the
 execution backend and must convert heterogeneous GPU-resident X/y/weights to
@@ -163,32 +165,23 @@ def _prepare_cv_inputs_for_resolved_device(
 
 
 def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
-    """Return details whose selected alpha is supported by every requested fold."""
+    """Return details whose selected alpha is supported by every executed fold."""
     if kwargs.get("sample_weight") is None or not isinstance(result, dict):
         return result
 
     alphas = np.asarray(result.get("alphas", ()), dtype=np.float64).reshape(-1)
     mse_path = np.asarray(result.get("mse_path", ()), dtype=np.float64)
     n_samples = int(getattr(X, "shape", (0,))[0])
-    cv_splits = kwargs.get("cv_splits")
-    n_folds_requested = (
-        len(cv_splits)
-        if cv_splits is not None
-        else int(kwargs.get("cv_folds", 5))
-    )
-
-    # These are intentional no-selection paths in the underlying selector.
-    if n_samples < 4 or alphas.size <= 1 or n_folds_requested < 2:
-        return result
 
     if mse_path.ndim != 2 or mse_path.shape[0] != alphas.size:
         raise RuntimeError(
             "weighted LassoCV returned an inconsistent validation-MSE layout"
         )
-    if mse_path.shape[1] != n_folds_requested:
-        raise RuntimeError(
-            "weighted LassoCV validation-MSE columns do not match the requested folds"
-        )
+    n_folds_evaluated = int(mse_path.shape[1])
+
+    # These are intentional no-selection paths in the underlying selector.
+    if n_samples < 4 or alphas.size <= 1 or n_folds_evaluated < 2:
+        return result
 
     complete = np.all(np.isfinite(mse_path), axis=1)
     if not np.any(complete):
