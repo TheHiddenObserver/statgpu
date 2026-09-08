@@ -1,3 +1,4 @@
+import sys
 import types
 
 import numpy as np
@@ -192,3 +193,46 @@ def test_direct_post_selection_nonfinite_report_is_removed_before_error(monkeypa
     assert model._pvalues is None
     assert model._conf_int is None
     assert not hasattr(model, "_post_selection_resid")
+
+
+def test_post_selection_cupy_numerical_call_uses_recorded_fit_device(monkeypatch):
+    events = []
+
+    class FakeDevice:
+        def __init__(self, device_id):
+            self.device_id = int(device_id)
+
+        def __enter__(self):
+            events.append(("enter", self.device_id))
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            events.append(("exit", self.device_id))
+            return False
+
+    fake_cupy = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(Device=FakeDevice)
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    model = types.SimpleNamespace(
+        _selected_backend_name="cupy",
+        _selected_backend_device="cuda:4",
+    )
+    sentinel = object()
+
+    def delegate(owner, X_arg, y_arg, sample_weight=None):
+        assert owner is model
+        assert events == [("enter", 4)]
+        return sentinel
+
+    monkeypatch.setattr(fifth_contract, "_ORIGINAL_POST_SELECTION", delegate)
+    result = fifth_contract._run_post_selection_on_fit_device(
+        model,
+        object(),
+        object(),
+        sample_weight=object(),
+    )
+
+    assert result is sentinel
+    assert events == [("enter", 4), ("exit", 4)]
