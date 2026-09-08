@@ -123,7 +123,7 @@ max-|Z| critical value. The ordinary `_conf_int` remains marginal; the joint
 intervals are stored separately in `_conf_int_simultaneous`.
 
 `simultaneous_alpha` must lie strictly in `(0, 1)` and
-`simultaneous_n_bootstrap` must be positive. These controls are validated before
+`simultaneous_n_bootstrap` must be a positive integer. These controls are validated before
 NumPy/CuPy/Torch backend dispatch.
 
 `simultaneous_include_intercept=False` calibrates the family over feature
@@ -153,7 +153,7 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 | `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only). |
 | `simultaneous_method` | `"maxz_bootstrap"` | Simultaneous-inference method; currently `maxz_bootstrap`. |
 | `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level; must be strictly in `(0, 1)` when simultaneous inference is enabled. |
-| `simultaneous_n_bootstrap` | `1000` | Positive multiplier-bootstrap draw count for max-|Z| calibration when simultaneous inference is enabled. |
+| `simultaneous_n_bootstrap` | `1000` | Positive integer multiplier-bootstrap draw count for max-|Z| calibration when simultaneous inference is enabled. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap. |
 | `simultaneous_include_intercept` | `False` | Whether the debiased intercept is included in both the simultaneous target set and max-|Z| calibration family. |
 | `device` | `"auto"` | Execution device: `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
@@ -243,7 +243,7 @@ ci_simul = m_sim._conf_int_simultaneous
 ## External Validation
 
 - `dev/benchmarks/validate_post_selection_ols_gpu.py`
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` (historical hardware-bearing API benchmark)
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` — canonical `post_selection_ols` CPU/CuPy end-to-end parity and complete fit+inference timing benchmark.
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
