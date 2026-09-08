@@ -6,7 +6,7 @@ working design/residual to NumPy before invoking the generic max-|Z| bootstrap.
 That is not an acceptable execution path once the centered/intercept-capable
 simultaneous procedure is part of the explicit GPU closure.
 
-This focused contract intercepts only the centered fit-intercept finalizer.  The
+This focused contract intercepts only the centered fit-intercept finalizer. The
 marginal debiased calculation remains owned by the existing implementation; when
 simultaneous inference is requested on CuPy/Torch, multiplier scores, max-|Z|,
 quantile calibration, and target confidence intervals are computed on the same
@@ -92,7 +92,54 @@ def _native_simultaneous_maxz(
     M_native,
     backend_name: str,
 ):
-    """Compute centered max-|Z| inference on one concrete GPU backend."""
+    """Compute centered max-|Z| inference on X_work's concrete GPU device."""
+    backend_name = str(backend_name).strip().lower()
+    if backend_name == "cupy":
+        import cupy as cp
+
+        device_id = getattr(getattr(X_work, "device", None), "id", None)
+        if device_id is None:
+            raise RuntimeError(
+                "backend-native simultaneous CuPy inference requires a concrete design device"
+            )
+        with cp.cuda.Device(int(device_id)):
+            return _native_simultaneous_maxz_on_device(
+                model,
+                result,
+                X_arr=X_arr,
+                y_work=y_work,
+                X_work=X_work,
+                row_scale=row_scale,
+                coef_native=coef_native,
+                M_native=M_native,
+                backend_name=backend_name,
+            )
+    return _native_simultaneous_maxz_on_device(
+        model,
+        result,
+        X_arr=X_arr,
+        y_work=y_work,
+        X_work=X_work,
+        row_scale=row_scale,
+        coef_native=coef_native,
+        M_native=M_native,
+        backend_name=backend_name,
+    )
+
+
+def _native_simultaneous_maxz_on_device(
+    model,
+    result,
+    *,
+    X_arr,
+    y_work,
+    X_work,
+    row_scale,
+    coef_native,
+    M_native,
+    backend_name: str,
+):
+    """Numerical body; CuPy callers enter the design-owned device first."""
     xp = _get_xp(backend_name)
     n = int(X_work.shape[0])
     p = int(X_work.shape[1])
@@ -189,7 +236,15 @@ def _native_simultaneous_maxz(
         random_state=random_state,
         ref_arr=X_work,
     )
-    max_stats = xp.empty((B,), dtype=X_work.dtype, device=X_work.device) if backend_name == "torch" else xp.empty((B,), dtype=X_work.dtype)
+    if backend_name == "torch":
+        max_stats = xp.empty(
+            (B,),
+            dtype=X_work.dtype,
+            device=X_work.device,
+        )
+    else:
+        # CuPy callers are already inside X_work.device's Device context.
+        max_stats = xp.empty((B,), dtype=X_work.dtype)
     chunk = min(256, B)
     filled = 0
     while filled < B:
