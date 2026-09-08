@@ -102,6 +102,15 @@ from . import (
 
 _debiased_intercept_parameterization_contract.install_debiased_intercept_parameterization_contract()
 
+# For centered fit-intercept CuPy/Torch debiased inference, the simultaneous
+# multiplier bootstrap must stay on the concrete execution device rather than
+# re-entering the historical NumPy reporting helper.
+from . import (
+    _debiased_simultaneous_backend_contract as _debiased_simultaneous_backend_contract,
+)
+
+_debiased_simultaneous_backend_contract.install_debiased_simultaneous_backend_contract()
+
 # Weighted LassoCV historically centered sqrt-weighted rows and truncated
 # sum(weights) to an integer path normalizer. Map weighted folds to an exactly
 # equivalent row-count problem while leaving the unweighted fast path untouched.
