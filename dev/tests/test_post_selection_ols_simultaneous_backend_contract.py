@@ -113,6 +113,66 @@ def test_native_simultaneous_maxz_uses_torch_backend_and_target_mask(include_int
     np.testing.assert_allclose(result.simultaneous_conf_int, expected, rtol=0, atol=1e-12)
 
 
+def test_native_simultaneous_torch_matches_fixed_multiplier_oracle(monkeypatch):
+    torch = pytest.importorskip("torch")
+    model, result, X_raw, y_work, X_work, row_scale, coef, M = _fixture(
+        torch,
+        include_intercept=True,
+    )
+    rng = np.random.default_rng(20260914)
+    xi_np = rng.standard_normal(size=(model.simultaneous_n_bootstrap, X_work.shape[0]))
+    xi_t = torch.as_tensor(xi_np, dtype=X_work.dtype)
+    calls = {"count": 0}
+
+    def fixed_random(backend_name, *, shape, ref_arr, rng):
+        assert backend_name == "torch"
+        assert tuple(shape) == tuple(xi_t.shape)
+        assert ref_arr is X_work
+        calls["count"] += 1
+        return xi_t
+
+    monkeypatch.setattr(native_sim, "_random_normal", fixed_random)
+
+    X_raw_np = X_raw.numpy()
+    X_work_np = X_work.numpy()
+    y_work_np = y_work.numpy()
+    coef_np = coef.numpy()
+    resid_np = y_work_np - X_work_np @ coef_np
+    n = X_work_np.shape[0]
+    x_mean_np = X_raw_np.mean(axis=0)
+    M_np = M.numpy()
+    q_np = np.ones(n, dtype=np.float64) - X_work_np @ (M_np.T @ x_mean_np)
+    influence_np = q_np / float(n)
+    multiplier_resid = xi_np * resid_np.reshape(1, -1)
+    feature_score = (multiplier_resid @ X_work_np) @ M_np.T / float(n)
+    z_feature = feature_score / result.bse[1:].reshape(1, -1)
+    z_intercept = (multiplier_resid @ influence_np) / float(result.bse[0])
+    max_stats = np.maximum(
+        np.max(np.abs(z_feature), axis=1),
+        np.abs(z_intercept),
+    )
+    expected_critical = float(np.quantile(max_stats, 1.0 - model.simultaneous_alpha))
+
+    native_sim._native_simultaneous_maxz(
+        model,
+        result,
+        X_arr=X_raw,
+        y_work=y_work,
+        X_work=X_work,
+        row_scale=row_scale,
+        coef_native=coef,
+        M_native=M,
+        backend_name="torch",
+    )
+
+    assert calls["count"] == 1
+    assert result.simultaneous_critical_value == pytest.approx(
+        expected_critical,
+        rel=0,
+        abs=2e-12,
+    )
+
+
 def test_native_simultaneous_torch_seed_is_repeatable():
     torch = pytest.importorskip("torch")
     _, first = _run_torch_fixture(torch, include_intercept=True)
