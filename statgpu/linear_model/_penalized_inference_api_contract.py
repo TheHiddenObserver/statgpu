@@ -86,9 +86,58 @@ def _is_lassocv_instance(self) -> bool:
     )
 
 
+def _is_modern_lasso_class(cls) -> bool:
+    return (
+        cls.__name__ == "Lasso"
+        and cls.__module__ == "statgpu.linear_model.wrappers._lasso"
+    )
+
+
+def _validate_positive_integer_bootstrap_count(value) -> int:
+    if isinstance(value, bool):
+        raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
+    try:
+        count = operator.index(value)
+    except TypeError as exc:
+        raise ValueError(
+            "simultaneous_n_bootstrap must be a positive integer."
+        ) from exc
+    if count <= 0:
+        raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
+    return int(count)
+
+
+def _validate_lasso_simultaneous_argument_values(
+    cls,
+    signature,
+    self,
+    args,
+    kwargs,
+) -> None:
+    """Validate raw Lasso joint-inference values before __init__ coerces them."""
+    if not _is_modern_lasso_class(cls):
+        return
+    try:
+        bound = signature.bind_partial(self, *args, **kwargs)
+    except TypeError:
+        # Preserve the constructor's own argument-binding error and message.
+        return
+    bound.apply_defaults()
+    if not bool(bound.arguments.get("enable_simultaneous_inference", False)):
+        return
+
+    alpha = float(bound.arguments.get("simultaneous_alpha", 0.05))
+    if not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
+        raise ValueError("simultaneous_alpha must be in (0, 1).")
+
+    _validate_positive_integer_bootstrap_count(
+        bound.arguments.get("simultaneous_n_bootstrap", 1000)
+    )
+
+
 def _validate_lasso_simultaneous_controls(cls, self) -> None:
-    """Validate modern Lasso joint-inference controls in its existing wrapper."""
-    if cls.__name__ != "Lasso" or cls.__module__ != "statgpu.linear_model.wrappers._lasso":
+    """Validate normalized Lasso joint-inference state after construction."""
+    if not _is_modern_lasso_class(cls):
         return
     if not bool(getattr(self, "enable_simultaneous_inference", False)):
         return
@@ -97,17 +146,9 @@ def _validate_lasso_simultaneous_controls(cls, self) -> None:
     if not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
         raise ValueError("simultaneous_alpha must be in (0, 1).")
 
-    raw_n_bootstrap = getattr(self, "simultaneous_n_bootstrap", 1000)
-    if isinstance(raw_n_bootstrap, bool):
-        raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
-    try:
-        n_bootstrap = operator.index(raw_n_bootstrap)
-    except TypeError as exc:
-        raise ValueError(
-            "simultaneous_n_bootstrap must be a positive integer."
-        ) from exc
-    if n_bootstrap <= 0:
-        raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
+    _validate_positive_integer_bootstrap_count(
+        getattr(self, "simultaneous_n_bootstrap", 1000)
+    )
 
 
 def _constructor_warning_policy():
@@ -206,6 +247,14 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
         explicit, value = _explicit_argument(
             signature, self, args, kwargs, "inference_method"
         )
+        if depth == 0:
+            _validate_lasso_simultaneous_argument_values(
+                cls,
+                signature,
+                self,
+                args,
+                kwargs,
+            )
 
         setattr(self, _CONSTRUCTOR_DEPTH_ATTR, depth + 1)
         try:
