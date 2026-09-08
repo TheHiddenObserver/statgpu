@@ -14,15 +14,17 @@ reference array is supplied. Bind the entire selector transaction to the design'
 concrete device so a design on, for example, ``cuda:3`` cannot later acquire
 ``cuda:0`` indices or FISTA buffers merely because device 0 was current.
 
-The reviewed weighted selector must also select from complete finite CV evidence.
-A candidate that failed numerically on one or more folds must not become eligible
-merely because its remaining finite folds have a small mean. For genuine
-multi-alpha weighted CV, only candidates with finite MSE on every actually
-executed fold are eligible; if none remain, selection fails closed. Degenerate
-no-selection paths (single alpha, too few rows, or fewer than two executed folds)
-preserve their historical refit semantics. The evidence check derives the fold
-count from the returned MSE matrix instead of re-reading ``cv_splits`` so
-one-shot iterables/generators remain valid public inputs.
+Every genuine multi-alpha selector must also select from complete finite CV
+evidence. A candidate that failed numerically on one or more folds must not
+become eligible merely because its remaining finite folds have a small mean.
+Only candidates with finite MSE on every actually executed fold are eligible; if
+none remain, selection fails closed. Applying the same rule to weighted and
+unweighted calls preserves the public identity that positive constant analytic
+weights are exactly the unweighted statistical problem. Degenerate no-selection
+paths (single alpha, too few rows, or fewer than two executed folds) preserve
+their historical refit semantics. The evidence check derives the fold count from
+the returned MSE matrix instead of re-reading ``cv_splits`` so one-shot
+iterables/generators remain valid public inputs.
 
 The inverse boundary matters as well: an explicit/resolved CPU request owns the
 execution backend and must convert heterogeneous GPU-resident X/y/weights to
@@ -166,7 +168,7 @@ def _prepare_cv_inputs_for_resolved_device(
 
 def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
     """Return details whose selected alpha is supported by every executed fold."""
-    if kwargs.get("sample_weight") is None or not isinstance(result, dict):
+    if not isinstance(result, dict):
         return result
 
     alphas = np.asarray(result.get("alphas", ()), dtype=np.float64).reshape(-1)
@@ -175,7 +177,7 @@ def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
 
     if mse_path.ndim != 2 or mse_path.shape[0] != alphas.size:
         raise RuntimeError(
-            "weighted LassoCV returned an inconsistent validation-MSE layout"
+            "LassoCV returned an inconsistent validation-MSE layout"
         )
     n_folds_evaluated = int(mse_path.shape[1])
 
@@ -186,8 +188,8 @@ def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
     complete = np.all(np.isfinite(mse_path), axis=1)
     if not np.any(complete):
         raise FloatingPointError(
-            "weighted LassoCV produced no candidate with finite validation MSE "
-            "on every fold; refusing to select alpha"
+            "LassoCV produced no candidate with finite validation MSE on every "
+            "fold; refusing to select alpha"
         )
 
     mean_mse = np.full(alphas.size, np.nan, dtype=np.float64)
@@ -203,17 +205,16 @@ def _validate_weighted_cv_selection_evidence(X, result, *, kwargs):
 
 
 def _call_selector_with_evidence(X, y, args, kwargs):
-    """Run the installed selector and validate weighted multi-alpha evidence."""
+    """Run the installed selector and validate multi-alpha finite evidence."""
     requested_details = bool(kwargs.get("return_details", False))
-    weighted = kwargs.get("sample_weight") is not None
     call_kwargs = kwargs
-    if weighted and not requested_details:
+    if not requested_details:
         call_kwargs = dict(kwargs)
         call_kwargs["return_details"] = True
 
     result = _ORIGINAL_SELECT(X, y, *args, **call_kwargs)
     result = _validate_weighted_cv_selection_evidence(X, result, kwargs=call_kwargs)
-    if weighted and not requested_details:
+    if not requested_details:
         return float(result["alpha"])
     return result
 
