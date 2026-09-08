@@ -328,6 +328,33 @@ def test_weighted_lassocv_single_alpha_degenerate_path_remains_unchanged():
     assert checked is details
 
 
+def test_weighted_lassocv_evidence_guard_does_not_reread_generator_cv_splits():
+    X = np.zeros((12, 2), dtype=np.float64)
+    details = {
+        "alpha": 0.1,
+        "alphas": np.asarray([0.1, 0.05]),
+        "mse_path": np.asarray([[0.20, 0.21], [0.10, 0.11]]),
+        "mean_mse": np.asarray([0.205, 0.105]),
+    }
+
+    def split_generator():
+        yield np.arange(0, 6), np.arange(6, 9)
+        yield np.arange(3, 12), np.arange(0, 3)
+
+    splits = split_generator()
+    # Simulate the underlying selector having already consumed the one-shot
+    # iterable before the evidence guard receives the returned details.
+    list(splits)
+
+    checked = affinity._validate_weighted_cv_selection_evidence(
+        X,
+        details,
+        kwargs={"sample_weight": np.ones(12), "cv_splits": splits},
+    )
+    assert checked["alpha"] == pytest.approx(0.05)
+    np.testing.assert_allclose(checked["mean_mse"], [0.205, 0.105])
+
+
 def test_lassocv_auto_resolved_backend_is_pinned_through_final_refit(monkeypatch):
     rng = np.random.default_rng(13817)
     X = rng.normal(size=(36, 4))
