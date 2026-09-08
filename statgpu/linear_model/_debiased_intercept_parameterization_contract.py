@@ -15,11 +15,14 @@ The intercept influence is derived from the same centered nodewise precision
 matrix ``M`` used by the debiased slopes. CuPy/Torch retain the local native
 ``M`` and ``theta_db`` only through the reporting finalizer, so intercept
 numerics stay on the executed backend before the established NumPy reporting
-snapshot.
+snapshot. Scalar reference-distribution calls made by the maintained GPU
+implementation are routed through the same context-local backend/device rather
+than letting a Python scalar re-resolve them to NumPy.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 import functools
 
@@ -27,6 +30,7 @@ import numpy as np
 
 from statgpu.backends import _to_numpy
 from statgpu.backends._utils import _get_xp, xp_asarray
+import statgpu.inference._distributions_backend as _distribution_module
 from statgpu.linear_model import (
     _post_selection_ols_review_fix_contract as _weighted_contract,
 )
@@ -38,13 +42,19 @@ _STATS_MARKER = "__statgpu_pr138_debiased_native_stats_capture__"
 _GPU_MARKER = "__statgpu_pr138_debiased_native_gpu_capture__"
 _FIT_MARKER = "__statgpu_pr138_debiased_native_fit_lifetime__"
 _FINALIZER_MARKER = "__statgpu_pr138_debiased_intercept_parameterization__"
+_DISTRIBUTION_MARKER = "__statgpu_pr138_debiased_distribution_backend__"
 _CAPTURE_OWNER = ContextVar(
     "statgpu_pr138_debiased_capture_owner",
+    default=None,
+)
+_DISTRIBUTION_ROUTE = ContextVar(
+    "statgpu_pr138_debiased_distribution_route",
     default=None,
 )
 
 _ORIGINAL_STATS = PenalizedGeneralizedLinearModel._debiased_stats_from_M
 _ORIGINAL_FINALIZER = _weighted_contract._finalize_weighted_debiased_result
+_ORIGINAL_DISTRIBUTION_RESOLVE = _distribution_module.DistributionProxy._resolve
 
 _NATIVE_M = "_statgpu_debiased_M_native_work"
 _NATIVE_THETA = "_statgpu_debiased_theta_native_work"
@@ -55,6 +65,38 @@ _MISSING = object()
 def _clear_native_work(estimator) -> None:
     estimator.__dict__.pop(_NATIVE_M, None)
     estimator.__dict__.pop(_NATIVE_THETA, None)
+
+
+@functools.wraps(_ORIGINAL_DISTRIBUTION_RESOLVE)
+def _distribution_resolve(self, kwargs, *arrays):
+    """Honor the active debiased backend for scalar AUTO distribution calls."""
+    route = _DISTRIBUTION_ROUTE.get()
+    if route is not None and "backend" not in kwargs:
+        backend_name, device_name = route
+        kwargs["backend"] = backend_name
+        if backend_name == "torch" and device_name is not None and "device" not in kwargs:
+            kwargs["device"] = device_name
+    return _ORIGINAL_DISTRIBUTION_RESOLVE(self, kwargs, *arrays)
+
+
+@contextmanager
+def _distribution_backend_context(backend_name: str, ref_arr):
+    """Bind scalar distribution calls to the executed debiased backend/device."""
+    backend_name = str(backend_name).strip().lower()
+    device_name = None
+    if backend_name == "torch":
+        device_name = str(ref_arr.device)
+    token = _DISTRIBUTION_ROUTE.set((backend_name, device_name))
+    try:
+        if backend_name == "cupy":
+            import cupy as cp
+
+            with cp.cuda.Device(int(ref_arr.device.id)):
+                yield
+        else:
+            yield
+    finally:
+        _DISTRIBUTION_ROUTE.reset(token)
 
 
 @functools.wraps(_ORIGINAL_STATS)
@@ -93,14 +135,20 @@ def _debiased_stats_from_M(
     return result
 
 
-def _capture_native_gpu_call(current):
+def _capture_native_gpu_call(current, backend_name: str):
     @functools.wraps(current)
     def wrapped(self, *args, **kwargs):
-        token = _CAPTURE_OWNER.set(self)
+        ref_arr = args[0] if args else kwargs.get("X_gpu", kwargs.get("X_torch"))
+        if ref_arr is None:
+            raise RuntimeError(
+                "debiased GPU inference requires a concrete design array for backend routing"
+            )
+        owner_token = _CAPTURE_OWNER.set(self)
         try:
-            return current(self, *args, **kwargs)
+            with _distribution_backend_context(backend_name, ref_arr):
+                return current(self, *args, **kwargs)
         finally:
-            _CAPTURE_OWNER.reset(token)
+            _CAPTURE_OWNER.reset(owner_token)
             if not bool(getattr(self, _DEFER_CLEAR, False)):
                 _clear_native_work(self)
 
@@ -172,25 +220,14 @@ def _native_intercept_report(
     ref_arr,
 ):
     """Run intercept reference-distribution work on the executed array device."""
-    if backend_name == "cupy":
-        import cupy as cp
-
-        device_id = int(ref_arr.device.id)
-        with cp.cuda.Device(device_id):
-            return _weighted_contract._normal_intercept_report(
-                z_native,
-                se_native,
-                intercept_value,
-                backend_name,
-                ref_arr,
-            )
-    return _weighted_contract._normal_intercept_report(
-        z_native,
-        se_native,
-        intercept_value,
-        backend_name,
-        ref_arr,
-    )
+    with _distribution_backend_context(backend_name, ref_arr):
+        return _weighted_contract._normal_intercept_report(
+            z_native,
+            se_native,
+            intercept_value,
+            backend_name,
+            ref_arr,
+        )
 
 
 def _publish_coherent_intercept(
@@ -458,6 +495,11 @@ def _finalize_weighted_debiased_result(
 
 
 def install_debiased_intercept_parameterization_contract() -> None:
+    current_resolve = _distribution_module.DistributionProxy._resolve
+    if not getattr(current_resolve, _DISTRIBUTION_MARKER, False):
+        setattr(_distribution_resolve, _DISTRIBUTION_MARKER, True)
+        _distribution_module.DistributionProxy._resolve = _distribution_resolve
+
     current_stats = PenalizedGeneralizedLinearModel._debiased_stats_from_M
     if not getattr(current_stats, _STATS_MARKER, False):
         setattr(_debiased_stats_from_M, _STATS_MARKER, True)
@@ -468,11 +510,12 @@ def install_debiased_intercept_parameterization_contract() -> None:
     current_gpu = PenalizedGeneralizedLinearModel._compute_inference_debiased_gpu
     if not getattr(current_gpu, _GPU_MARKER, False):
         PenalizedGeneralizedLinearModel._compute_inference_debiased_gpu = (
-            _capture_native_gpu_call(current_gpu)
+            _capture_native_gpu_call(current_gpu, "cupy")
         )
         PenalizedGeneralizedLinearModel._compute_inference_debiased_torch = (
             _capture_native_gpu_call(
-                PenalizedGeneralizedLinearModel._compute_inference_debiased_torch
+                PenalizedGeneralizedLinearModel._compute_inference_debiased_torch,
+                "torch",
             )
         )
 
