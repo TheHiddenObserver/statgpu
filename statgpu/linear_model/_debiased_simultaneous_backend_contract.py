@@ -266,6 +266,15 @@ def _native_simultaneous_maxz_on_device(
         max_stats[filled : filled + bsz] = batch_max
         filled += bsz
 
+    all_finite = bool(
+        np.asarray(_to_numpy(xp.all(xp.isfinite(max_stats)))).reshape(-1)[0]
+    )
+    if not all_finite:
+        raise FloatingPointError(
+            "backend-native simultaneous debiased inference produced non-finite "
+            "bootstrap max-|Z| statistics"
+        )
+
     critical_native = xp.quantile(max_stats, 1.0 - alpha)
     critical = float(np.asarray(_to_numpy(critical_native), dtype=np.float64))
     if not np.isfinite(critical) or critical < 0.0:
