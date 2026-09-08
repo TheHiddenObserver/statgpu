@@ -23,10 +23,12 @@ NumPy snapshot. This is a reporting boundary, not a CPU inference fallback.
 `reporting_backend="numpy"`, and
 `reporting_boundary="post_numerical_inference"` for this shared path.
 
-Explicit `device="cuda"` and `device="torch"` requests do not silently downgrade
-Gaussian inference to NumPy. Missing or invalid executed-backend provenance fails
-closed. `device="auto"` is the only mode that may select among available backends
-automatically.
+For the shared squared-error L2/Ridge path above, explicit `device="cuda"` and
+`device="torch"` requests do not silently downgrade that inference to NumPy.
+Missing or invalid executed-backend provenance fails closed. `device="auto"` is
+the only mode that may select among available backends automatically. This
+guarantee is scoped to the backend-native paths described here and below;
+method-specific exceptions such as residual bootstrap are called out explicitly.
 
 Supported covariance choices on the Gaussian path are:
 
