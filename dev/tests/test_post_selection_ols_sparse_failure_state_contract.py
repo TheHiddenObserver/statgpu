@@ -3,10 +3,12 @@ import types
 import numpy as np
 import pytest
 
+from statgpu.inference._results import ParameterInferenceResult
 from statgpu.linear_model import (
     PenalizedGeneralizedLinearModel,
     PenalizedLinearRegression,
 )
+from statgpu.linear_model import _post_selection_ols_fifth_review_contract as fifth_contract
 
 
 def _problem(seed=8138):
@@ -135,3 +137,58 @@ def test_generic_sparse_postfit_inference_failure_invalidates_current_fit():
         model.fit(X, y)
 
     _assert_sparse_fit_state_cleared(model)
+
+
+def test_direct_post_selection_nonfinite_report_is_removed_before_error(monkeypatch):
+    X, y = _problem(seed=8141)
+    model = PenalizedLinearRegression(
+        penalty="l1",
+        alpha=0.04,
+        fit_intercept=True,
+        solver="fista",
+        inference_method="post_selection_ols",
+        compute_inference=True,
+        device="cpu",
+        max_iter=4000,
+        tol=1e-9,
+    ).fit(X, y)
+    penalized_coef = model.coef_.copy()
+
+    def publish_bad_result(owner, X_arg, y_arg, sample_weight=None):
+        n_params = X_arg.shape[1] + 1
+        params = np.zeros(n_params, dtype=np.float64)
+        bse = np.ones(n_params, dtype=np.float64)
+        bse[1] = np.inf
+        result = ParameterInferenceResult(
+            method="post_selection_ols",
+            feature_names=owner._inference_feature_names(),
+            params=params,
+            bse=bse,
+            statistic=np.zeros(n_params, dtype=np.float64),
+            statistic_name="t",
+            pvalues=np.full(n_params, 0.5, dtype=np.float64),
+            conf_int=np.column_stack([-np.ones(n_params), np.ones(n_params)]),
+            cov_type="nonrobust",
+            distribution="t",
+            df=float(X_arg.shape[0] - n_params),
+            metadata={
+                "n_selected": n_params - 1,
+                "refit_df_resid": X_arg.shape[0] - n_params,
+                "refit_scale": 1.0,
+            },
+        )
+        result.apply_to(owner)
+        owner._post_selection_resid = np.ones(X_arg.shape[0], dtype=np.float64)
+        return result
+
+    monkeypatch.setattr(fifth_contract, "_ORIGINAL_POST_SELECTION", publish_bad_result)
+    with pytest.raises(FloatingPointError, match="non-finite"):
+        fifth_contract._compute_post_selection_ols_inference(model, X, y)
+
+    assert model._fitted is True
+    np.testing.assert_allclose(model.coef_, penalized_coef, rtol=0, atol=0)
+    assert model._inference_result is None
+    assert model._bse is None
+    assert model._pvalues is None
+    assert model._conf_int is None
+    assert not hasattr(model, "_post_selection_resid")
