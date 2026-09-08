@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-09-06<br>
+> Last updated: 2026-09-08<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
@@ -143,9 +143,11 @@ For `post_selection_ols`, the penalized model first determines the active set. s
 
 Post-selection OLS remains heuristic and does not provide general selective-inference coverage. Inference is conditional on selected regularization parameters and does not alter the fitted penalized coefficients.
 
-Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend. Residual `bootstrap` remains a CPU-native residual-refit path; an explicit GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
+Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` remains a CPU-native residual-refit path; an explicit GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
 
-For `ElasticNetCV`, `compute_inference=True` applies inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only.
+For `debiased` inference with an intercept, public `coef_`/`intercept_` remain the **penalized prediction fit**. Inference reporting uses debiased slopes `_params[1:]` and their matching original-coordinate intercept `_params[0] = ybar_w - xbar_w @ _params[1:]`; the first SE/z/p-value/CI row therefore belongs to this debiased reporting intercept rather than prediction `intercept_`. The result metadata records `intercept_estimator="centered_debiased"` and `intercept_influence="centered_nodewise"`. Analytic weights use the same weighted-centered average-loss problem across NumPy/CuPy/Torch, so global positive weight rescaling leaves this inference unchanged.
+
+For `ElasticNetCV`, `compute_inference=True` applies inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only; inspect the final `estimator_` for its structured inference result.
 
 ## Solver and Inference Semantics
 
@@ -162,9 +164,9 @@ After fitting, the following attributes are available:
 | Attribute | Description |
 |-----------|-------------|
 | `coef_` | Estimated penalized coefficients used for prediction |
-| `intercept_` | Fitted intercept |
+| `intercept_` | Penalized fitted intercept used for prediction |
 | `n_iter_` | Number of iterations until convergence |
-| `_params` | Inference/reporting parameter vector when inference succeeds; for `post_selection_ols`, this is the active-set OLS/WLS refit embedded in the full parameter layout |
+| `_params` | Inference/reporting parameter vector when inference succeeds; for `debiased`, contains the coherent debiased intercept plus debiased slopes; for `post_selection_ols`, contains the active-set OLS/WLS refit embedded in the full parameter layout |
 | `_inference_result` | Structured inference result and numerical-backend metadata |
 | `aic` | Akaike Information Criterion when available |
 | `bic` | Bayesian Information Criterion when available |
