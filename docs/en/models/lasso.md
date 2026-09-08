@@ -71,11 +71,15 @@ Backend reuse is method-specific. `post_selection_ols` reuses the successful fit
 **marginal** `debiased` inference stays on the executed GPU backend, including
 scalar normal-reference critical values.
 
-For centered `fit_intercept=True` debiased inference, simultaneous multiplier-
-bootstrap max-|Z| calibration also stays on the same concrete CuPy/Torch device
-before the NumPy reporting snapshot. The result records
-`simultaneous_numerical_backend`, `simultaneous_numerical_device`,
-`simultaneous_reporting_backend="numpy"`, and
+For centered `fit_intercept=True` debiased inference, the expensive simultaneous
+multiplier-bootstrap stage also stays on the same concrete CuPy/Torch device. The
+coherent marginal result has already taken its established O(p) NumPy reporting
+snapshot; only those small marginal parameter/SE arrays are mapped back to the
+execution device. The B×n multiplier draws, feature/intercept scores, max-|Z|
+reduction, quantile calibration, and joint confidence-interval numerics then
+remain backend-native before the joint result is snapshotted for reporting. The
+result records `simultaneous_numerical_backend`,
+`simultaneous_numerical_device`, `simultaneous_reporting_backend="numpy"`, and
 `simultaneous_reporting_boundary="post_numerical_inference"`. The historical
 `fit_intercept=False` simultaneous path still uses its pre-existing generic
 reporting-stage helper and is not claimed as GPU-native by this PR.
@@ -118,6 +122,10 @@ With `enable_simultaneous_inference=True`, Lasso calibrates a multiplier-bootstr
 max-|Z| critical value. The ordinary `_conf_int` remains marginal; the joint
 intervals are stored separately in `_conf_int_simultaneous`.
 
+`simultaneous_alpha` must lie strictly in `(0, 1)` and
+`simultaneous_n_bootstrap` must be positive. These controls are validated before
+NumPy/CuPy/Torch backend dispatch.
+
 `simultaneous_include_intercept=False` calibrates the family over feature
 coefficients only. With `simultaneous_include_intercept=True`, the same centered-
 nodewise original-coordinate intercept influence used by the marginal debiased
@@ -144,8 +152,8 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 | `bootstrap_random_state` | `None` | RNG seed for residual-bootstrap inference. |
 | `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only). |
 | `simultaneous_method` | `"maxz_bootstrap"` | Simultaneous-inference method; currently `maxz_bootstrap`. |
-| `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level. |
-| `simultaneous_n_bootstrap` | `1000` | Multiplier-bootstrap draws for max-|Z| calibration. |
+| `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level; must be strictly in `(0, 1)` when simultaneous inference is enabled. |
+| `simultaneous_n_bootstrap` | `1000` | Positive multiplier-bootstrap draw count for max-|Z| calibration when simultaneous inference is enabled. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap. |
 | `simultaneous_include_intercept` | `False` | Whether the debiased intercept is included in both the simultaneous target set and max-|Z| calibration family. |
 | `device` | `"auto"` | Execution device: `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
