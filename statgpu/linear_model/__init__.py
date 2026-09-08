@@ -102,6 +102,15 @@ from . import (
 
 _debiased_intercept_parameterization_contract.install_debiased_intercept_parameterization_contract()
 
+# The centered debiased reporting surface must fail closed if feature or
+# intercept parameter/SE/p-value/CI arrays are non-representable. Keep signed
+# infinite statistics available for the maintained zero-variance semantics.
+from . import (
+    _debiased_marginal_finite_contract as _debiased_marginal_finite_contract,
+)
+
+_debiased_marginal_finite_contract.install_debiased_marginal_finite_contract()
+
 # For centered fit-intercept CuPy/Torch debiased inference, the simultaneous
 # multiplier bootstrap must stay on the concrete execution device rather than
 # re-entering the historical NumPy reporting helper.
