@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import math
 import warnings
 
 from statgpu._config import Device, _get_configured_device
@@ -82,6 +83,22 @@ def _is_lassocv_instance(self) -> bool:
     return cls.__name__ == "LassoCV" and cls.__module__.startswith(
         "statgpu.linear_model.cv"
     )
+
+
+def _validate_lasso_simultaneous_controls(cls, self) -> None:
+    """Validate modern Lasso joint-inference controls in its existing wrapper."""
+    if cls.__name__ != "Lasso" or cls.__module__ != "statgpu.linear_model.wrappers._lasso":
+        return
+    if not bool(getattr(self, "enable_simultaneous_inference", False)):
+        return
+
+    alpha = float(getattr(self, "simultaneous_alpha", 0.05))
+    if not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
+        raise ValueError("simultaneous_alpha must be in (0, 1).")
+
+    n_bootstrap = int(getattr(self, "simultaneous_n_bootstrap", 1000))
+    if n_bootstrap <= 0:
+        raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
 
 
 def _constructor_warning_policy():
@@ -192,6 +209,8 @@ def _install_constructor_contract(cls, *, allow_lassocv_legacy=False):
 
         if depth != 0:
             return result
+
+        _validate_lasso_simultaneous_controls(cls, self)
 
         runtime_value = getattr(self, "inference_method", value)
         migration_applies = allow_lassocv_legacy or _supports_sparse_gaussian_migration(self)
