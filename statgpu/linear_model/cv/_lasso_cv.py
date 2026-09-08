@@ -193,7 +193,22 @@ class LassoCV(CVEstimatorBase):
         self.n_iter_ = None
         self.estimator_ = None
         self.cv_solver_ = None
-        for attr in ("_bse", "_pvalues", "_tvalues", "_conf_int"):
+        for attr in (
+            "_params",
+            "_bse",
+            "_pvalues",
+            "_tvalues",
+            "_zvalues",
+            "_conf_int",
+            "_inference_result",
+            "_conf_int_simultaneous",
+            "_simultaneous_enabled",
+            "_simultaneous_method",
+            "_simultaneous_alpha",
+            "_simultaneous_n_bootstrap",
+            "_simultaneous_critical_value",
+            "_simultaneous_target_mask",
+        ):
             self.__dict__.pop(attr, None)
 
     def _prepare_cv_inputs_for_resolved_device(
@@ -382,10 +397,9 @@ class LassoCV(CVEstimatorBase):
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
         self.cv_solver_ = effective_cv_solver
 
-        for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
-            val = getattr(estimator, attr, None)
-            if val is not None:
-                setattr(self, attr, np.asarray(val))
+        inference_result = getattr(estimator, "_inference_result", None)
+        if inference_result is not None:
+            inference_result.apply_to(self)
 
         self._fitted = True
         return self
