@@ -14,6 +14,12 @@ class _FakeArray:
         self.label = label
 
 
+class _FakeTorchArray:
+    def __init__(self, device, label):
+        self.device = device
+        self.label = label
+
+
 def test_lassocv_cupy_alignment_uses_design_device_for_y_and_weights(monkeypatch):
     X_cv = _FakeArray(3, "X")
     y_cv = _FakeArray(0, "y")
@@ -53,14 +59,58 @@ def test_lassocv_cupy_alignment_handles_missing_weights(monkeypatch):
     assert calls == [("y", 2)]
 
 
+def test_lassocv_torch_alignment_uses_exact_design_device_for_y_and_weights(monkeypatch):
+    X_cv = _FakeTorchArray("cuda:3", "X")
+    y_cv = _FakeTorchArray("cuda:0", "y")
+    w_cv = _FakeTorchArray("cuda:0", "w")
+    calls = []
+
+    def fake_move(value, device=None, dtype=None, pin_memory=False):
+        calls.append((value.label, device))
+        return _FakeTorchArray(device, value.label)
+
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: value is X_cv)
+    monkeypatch.setattr(affinity, "_move_torch_tensor", fake_move)
+    X_out, y_out, w_out = affinity._align_torch_cv_inputs(X_cv, y_cv, w_cv)
+
+    assert X_out is X_cv
+    assert y_out.device == "cuda:3"
+    assert w_out.device == "cuda:3"
+    assert calls == [("y", "cuda:3"), ("w", "cuda:3")]
+
+
+def test_lassocv_torch_alignment_handles_missing_weights(monkeypatch):
+    X_cv = _FakeTorchArray("cuda:2", "X")
+    y_cv = _FakeTorchArray("cuda:0", "y")
+    calls = []
+
+    def fake_move(value, device=None, dtype=None, pin_memory=False):
+        calls.append((value.label, device))
+        return _FakeTorchArray(device, value.label)
+
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: value is X_cv)
+    monkeypatch.setattr(affinity, "_move_torch_tensor", fake_move)
+    X_out, y_out, w_out = affinity._align_torch_cv_inputs(X_cv, y_cv, None)
+
+    assert X_out is X_cv
+    assert y_out.device == "cuda:2"
+    assert w_out is None
+    assert calls == [("y", "cuda:2")]
+
+
 def test_lassocv_affinity_is_transparent_for_synthetic_backend_double(monkeypatch):
     X_cv = _FakeArray(4, "synthetic-X")
     y_cv = _FakeArray(0, "synthetic-y")
     w_cv = _FakeArray(0, "synthetic-w")
 
     monkeypatch.setattr(affinity, "_is_cupy_array", lambda value: False)
+    monkeypatch.setattr(affinity, "_is_torch_array", lambda value: False)
 
     X_out, y_out, w_out = affinity._align_cupy_cv_inputs(X_cv, y_cv, w_cv)
+    assert X_out is X_cv
+    assert y_out is y_cv
+    assert w_out is w_cv
+    X_out, y_out, w_out = affinity._align_torch_cv_inputs(X_cv, y_cv, w_cv)
     assert X_out is X_cv
     assert y_out is y_cv
     assert w_out is w_cv
