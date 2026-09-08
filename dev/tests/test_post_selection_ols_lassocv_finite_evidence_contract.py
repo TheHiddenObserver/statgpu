@@ -78,3 +78,53 @@ def test_unweighted_scalar_selector_request_is_validated_via_details(monkeypatch
 
     assert observed["return_details"] is True
     assert selected == pytest.approx(0.05)
+
+
+def test_shared_selector_outside_lassocv_scope_keeps_original_selection_semantics(
+    monkeypatch,
+):
+    X = np.zeros((12, 2), dtype=np.float64)
+    y = np.zeros(12, dtype=np.float64)
+    observed = {}
+
+    def synthetic_selector(X_arg, y_arg, *args, **kwargs):
+        observed["return_details"] = kwargs.get("return_details")
+        return 0.1
+
+    monkeypatch.setattr(affinity, "_ORIGINAL_SELECT", synthetic_selector)
+    assert affinity._LASSOCV_SELECTION_SCOPE.get() is False
+    selected = affinity._select_lasso_alpha_cv_on_design_device(
+        X,
+        y,
+        cv_folds=3,
+        return_details=False,
+    )
+
+    assert selected == pytest.approx(0.1)
+    assert observed["return_details"] is False
+
+
+def test_lassocv_fit_scope_enables_evidence_guard_and_restores_context(monkeypatch):
+    X = np.zeros((12, 2), dtype=np.float64)
+    y = np.zeros(12, dtype=np.float64)
+
+    def synthetic_selector(X_arg, y_arg, *args, **kwargs):
+        assert kwargs.get("return_details") is True
+        return _details_with_partial_failure()
+
+    def synthetic_fit(self):
+        assert affinity._LASSOCV_SELECTION_SCOPE.get() is True
+        return affinity._select_lasso_alpha_cv_on_design_device(
+            X,
+            y,
+            cv_folds=3,
+            return_details=False,
+        )
+
+    monkeypatch.setattr(affinity, "_ORIGINAL_SELECT", synthetic_selector)
+    monkeypatch.setattr(affinity, "_ORIGINAL_LASSOCV_FIT", synthetic_fit)
+
+    assert affinity._LASSOCV_SELECTION_SCOPE.get() is False
+    selected = affinity._fit_with_lassocv_selection_scope(object())
+    assert selected == pytest.approx(0.05)
+    assert affinity._LASSOCV_SELECTION_SCOPE.get() is False
