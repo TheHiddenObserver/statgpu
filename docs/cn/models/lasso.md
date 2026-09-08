@@ -70,7 +70,7 @@ penalized fit 先选出 active feature set。随后 statgpu 在**成功拟合已
 
 backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`。维护中的 CuPy/Torch **marginal `debiased`** 推断保留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。
 
-对于 `fit_intercept=True` 的 centered debiased inference，simultaneous multiplier-bootstrap max-|Z| 校准也会留在同一个 concrete CuPy/Torch device 上，并在完成后才做 NumPy reporting snapshot。result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 和 `simultaneous_reporting_boundary="post_numerical_inference"`。历史 `fit_intercept=False` simultaneous 路径仍使用既有 generic reporting-stage helper，本 PR **不把该旧路径宣称为 GPU-native**。
+对于 `fit_intercept=True` 的 centered debiased inference，计算量最大的 simultaneous multiplier-bootstrap 阶段也会留在同一个 concrete CuPy/Torch device 上。coherent marginal result 此时已经按既有 reporting contract 形成 O(p) 的 NumPy `params`/SE snapshot；只有这些很小的 marginal 数组会重新映射回执行 device。随后 B×n multiplier draws、feature/intercept score、max-|Z| reduction、quantile calibration 和 joint CI 数值计算都保持 backend-native，最后再对 joint result 做 NumPy reporting snapshot。result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 和 `simultaneous_reporting_boundary="post_numerical_inference"`。历史 `fit_intercept=False` simultaneous 路径仍使用既有 generic reporting-stage helper，本 PR **不把该旧路径宣称为 GPU-native**。
 
 residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
 
@@ -87,6 +87,8 @@ residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GP
 ### Debiased simultaneous inference
 
 设置 `enable_simultaneous_inference=True` 后，Lasso 使用 multiplier-bootstrap max-|Z| 临界值。普通 `_conf_int` 仍然是 marginal interval；联合区间单独保存在 `_conf_int_simultaneous`。
+
+`simultaneous_alpha` 必须严格位于 `(0, 1)`，`simultaneous_n_bootstrap` 必须为正；这两个条件会在 NumPy/CuPy/Torch backend dispatch 之前统一验证。
 
 `simultaneous_include_intercept=False` 时 family 只包含 feature coefficients。设置为 `True` 时，与 marginal debiased SE 相同的 centered-nodewise 原始坐标系 intercept influence **真正进入 bootstrap max-|Z| calibration**；它不再只是一个额外输出行却套用 feature-only 临界值。对于 CuPy/Torch 且 `fit_intercept=True` 的 centered 路径，这个 simultaneous 计算会按上文在 backend-native device 上执行。每次成功 refit 都会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再发布新结果。
 
@@ -106,8 +108,8 @@ residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GP
 | `bootstrap_random_state` | `None` | residual-bootstrap 随机种子。 |
 | `enable_simultaneous_inference` | `False` | 是否启用 simultaneous inference（仅 `debiased`）。 |
 | `simultaneous_method` | `"maxz_bootstrap"` | simultaneous inference 方法；当前为 `maxz_bootstrap`。 |
-| `simultaneous_alpha` | `0.05` | simultaneous family-wise error level。 |
-| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 抽样次数。 |
+| `simultaneous_alpha` | `0.05` | simultaneous family-wise error level；启用 simultaneous inference 时必须严格位于 `(0, 1)`。 |
+| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 的正整数抽样次数；启用 simultaneous inference 时必须大于 0。 |
 | `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
 | `simultaneous_include_intercept` | `False` | 是否把 debiased intercept 同时纳入 simultaneous target set 与 max-|Z| calibration family。 |
 | `device` | `"auto"` | 执行设备：`auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
