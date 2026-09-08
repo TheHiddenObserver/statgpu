@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
+import statgpu.inference._distributions_backend as distribution_module
 from statgpu.linear_model import Lasso
+import statgpu.linear_model._debiased_intercept_parameterization_contract as intercept_contract
 
 
 def _problem(seed=20260908):
@@ -203,3 +205,42 @@ def test_weighted_debiased_formula_matches_retained_matrix_problem():
     assert formula_model._inference_result.feature_names == expected_names
     assert formula_model._nobs == y_direct.shape[0] == n - 3
     assert formula_model._inference_result.metadata["intercept_estimator"] == "centered_debiased"
+
+
+def test_debiased_scalar_distribution_route_is_context_local(monkeypatch):
+    calls = []
+
+    def fake_resolve(proxy, kwargs, *arrays):
+        calls.append((proxy._name, dict(kwargs), arrays))
+        return "resolved"
+
+    monkeypatch.setattr(
+        intercept_contract,
+        "_ORIGINAL_DISTRIBUTION_RESOLVE",
+        fake_resolve,
+    )
+    proxy = distribution_module.DistributionProxy("norm")
+
+    token = intercept_contract._DISTRIBUTION_ROUTE.set(("torch", "cpu"))
+    try:
+        assert proxy._resolve({}, 0.975) == "resolved"
+    finally:
+        intercept_contract._DISTRIBUTION_ROUTE.reset(token)
+    assert calls[-1][1] == {"backend": "torch", "device": "cpu"}
+
+    token = intercept_contract._DISTRIBUTION_ROUTE.set(("cupy", None))
+    try:
+        assert proxy._resolve({}, 0.975) == "resolved"
+    finally:
+        intercept_contract._DISTRIBUTION_ROUTE.reset(token)
+    assert calls[-1][1] == {"backend": "cupy"}
+
+    token = intercept_contract._DISTRIBUTION_ROUTE.set(("torch", "cpu"))
+    try:
+        assert proxy._resolve({"backend": "numpy"}, 0.975) == "resolved"
+    finally:
+        intercept_contract._DISTRIBUTION_ROUTE.reset(token)
+    assert calls[-1][1] == {"backend": "numpy"}
+
+    assert proxy._resolve({}, 0.975) == "resolved"
+    assert calls[-1][1] == {}
