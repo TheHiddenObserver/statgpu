@@ -15,6 +15,7 @@ on:
       - 'statgpu/linear_model/_post_selection_ols_fifth_review_contract.py'
       - 'statgpu/linear_model/_debiased_simultaneous_intercept_contract.py'
       - 'statgpu/linear_model/_debiased_intercept_parameterization_contract.py'
+      - 'statgpu/linear_model/_debiased_simultaneous_backend_contract.py'
       - 'statgpu/linear_model/_weighted_lassocv_review_contract.py'
       - 'statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py'
       - 'statgpu/linear_model/_lassocv_device_affinity_contract.py'
@@ -157,6 +158,7 @@ jobs:
             statgpu/linear_model/_post_selection_ols_fifth_review_contract.py \
             statgpu/linear_model/_debiased_simultaneous_intercept_contract.py \
             statgpu/linear_model/_debiased_intercept_parameterization_contract.py \
+            statgpu/linear_model/_debiased_simultaneous_backend_contract.py \
             statgpu/linear_model/_weighted_lassocv_review_contract.py \
             statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py \
             statgpu/linear_model/_lassocv_device_affinity_contract.py \
@@ -213,6 +215,7 @@ jobs:
             statgpu/linear_model/_post_selection_ols_fifth_review_contract.py \
             statgpu/linear_model/_debiased_simultaneous_intercept_contract.py \
             statgpu/linear_model/_debiased_intercept_parameterization_contract.py \
+            statgpu/linear_model/_debiased_simultaneous_backend_contract.py \
             statgpu/linear_model/_weighted_lassocv_review_contract.py \
             statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py \
             statgpu/linear_model/_lassocv_device_affinity_contract.py \
