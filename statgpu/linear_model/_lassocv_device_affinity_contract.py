@@ -17,7 +17,9 @@ concrete device so a design on, for example, ``cuda:3`` cannot later acquire
 Finite-CV-evidence selection policy belongs to ``LassoCV.fit`` itself, not this
 shared selector wrapper. Other private consumers of ``_select_lasso_alpha_cv``
 (such as knockoff feature-selection helpers) therefore retain their existing
-selection semantics. This module changes only execution-device ownership.
+selection semantics. This module changes only execution-device ownership. Torch
+CPU tensors are deliberately transparent here: only Torch CUDA designs need a
+CUDA device context.
 
 The inverse boundary matters as well: an explicit/resolved CPU request owns the
 execution backend and must convert heterogeneous GPU-resident X/y/weights to
@@ -155,7 +157,7 @@ def _prepare_cv_inputs_for_resolved_device(
 
 @functools.wraps(_ORIGINAL_SELECT)
 def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
-    """Run the whole dedicated selector on the concrete device that owns X."""
+    """Run GPU selector allocations on the concrete device that owns X."""
     if _is_cupy_array(X):
         import cupy as cp
 
@@ -168,14 +170,13 @@ def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
             return _ORIGINAL_SELECT(X, y, *args, **kwargs)
 
     if _is_torch_array(X):
-        import torch
-
         device = getattr(X, "device", None)
         device_name = str(device or "")
         if not device_name.startswith("cuda"):
-            raise RuntimeError(
-                "LassoCV Torch selector requires a concrete CUDA design device."
-            )
+            return _ORIGINAL_SELECT(X, y, *args, **kwargs)
+
+        import torch
+
         with torch.cuda.device(device):
             return _ORIGINAL_SELECT(X, y, *args, **kwargs)
 
