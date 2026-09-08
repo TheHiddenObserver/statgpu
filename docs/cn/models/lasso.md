@@ -68,7 +68,11 @@ penalized fit 先选出 active feature set。随后 statgpu 在**成功拟合已
 - 显式 `device="torch"` -> 只允许 Torch CUDA，不可用时 fail closed；
 - 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
 
-backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断保留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
+backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`。维护中的 CuPy/Torch **marginal `debiased`** 推断保留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。
+
+对于 `fit_intercept=True` 的 centered debiased inference，simultaneous multiplier-bootstrap max-|Z| 校准也会留在同一个 concrete CuPy/Torch device 上，并在完成后才做 NumPy reporting snapshot。result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 和 `simultaneous_reporting_boundary="post_numerical_inference"`。历史 `fit_intercept=False` simultaneous 路径仍使用既有 generic reporting-stage helper，本 PR **不把该旧路径宣称为 GPU-native**。
+
+residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
 
 对于 analytic weights，direct Lasso 与 debiased inference 在 NumPy/CuPy/Torch 上都使用同一个 weighted-centered average-loss 约定，因此把所有权重乘以同一个正常数不会改变统计问题。`LassoCV` 的默认 alpha grid、每个 weighted training fold、validation MSE 与 final refit 也遵循同一约定；常数正权重直接走与 unweighted 完全相同的 CV 路径。AUTO 一旦为 CV 解析出具体 backend，最终 selected-alpha `Lasso` refit 也保持在该 backend。
 
@@ -84,7 +88,7 @@ backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟
 
 设置 `enable_simultaneous_inference=True` 后，Lasso 使用 multiplier-bootstrap max-|Z| 临界值。普通 `_conf_int` 仍然是 marginal interval；联合区间单独保存在 `_conf_int_simultaneous`。
 
-`simultaneous_include_intercept=False` 时 family 只包含 feature coefficients。设置为 `True` 时，与 marginal debiased SE 相同的 centered-nodewise 原始坐标系 intercept influence **真正进入 bootstrap max-|Z| calibration**；它不再只是一个额外输出行却套用 feature-only 临界值。每次成功 refit 都会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再发布新结果。
+`simultaneous_include_intercept=False` 时 family 只包含 feature coefficients。设置为 `True` 时，与 marginal debiased SE 相同的 centered-nodewise 原始坐标系 intercept influence **真正进入 bootstrap max-|Z| calibration**；它不再只是一个额外输出行却套用 feature-only 临界值。对于 CuPy/Torch 且 `fit_intercept=True` 的 centered 路径，这个 simultaneous 计算会按上文在 backend-native device 上执行。每次成功 refit 都会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再发布新结果。
 
 ## 参数（Parameters）
 
