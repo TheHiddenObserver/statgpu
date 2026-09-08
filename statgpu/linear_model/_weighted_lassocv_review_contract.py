@@ -418,7 +418,7 @@ def _weighted_select_lasso_alpha_cv(
                 check_every=8,
             )
             for fold_idx in range(n_folds):
-                coefs_np = np.asarray(coefs_batch[fold_idx], dtype=np.float64)
+                coefs_np = np.asarray(_to_numpy(coefs_batch[fold_idx]), dtype=np.float64)
                 if fit_intercept:
                     X_mean_np = np.asarray(_to_numpy(X_mean_folds[fold_idx]), dtype=np.float64)
                     y_mean_np = float(np.asarray(_to_numpy(y_mean_folds[fold_idx]), dtype=np.float64))
@@ -426,11 +426,14 @@ def _weighted_select_lasso_alpha_cv(
                 else:
                     intercepts_np = np.zeros(coefs_np.shape[0], dtype=np.float64)
                 X_val, y_val, sw_val = eval_payload[fold_idx]
+                # batch_mse is the maintained CPU scoring/reporting boundary for
+                # LassoCV. Keep the already-snapshotted path on NumPy here rather
+                # than uploading it only for batch_mse to copy it back to host.
                 mse = _lasso_impl._batch_mse_cv(
                     X_val,
                     y_val,
-                    backend.asarray(coefs_np, dtype=X_val.dtype),
-                    backend.asarray(intercepts_np, dtype=X_val.dtype),
+                    coefs_np,
+                    intercepts_np,
                     sample_weight=sw_val,
                 )
                 mse_path[alpha_order_desc, fold_idx] = np.asarray(mse, dtype=np.float64)
