@@ -72,15 +72,25 @@ String and `Penalty`-object forms of the sparse Gaussian penalty participate in
 the same migration and AUTO-routing contract.
 
 Backend reuse is method-specific. `post_selection_ols` always reuses the
-successful fit's recorded `_selected_backend_name` / `_selected_backend_device`,
-and the maintained CuPy/Torch `debiased` routes keep their numerical inference on
-the executed GPU backend. This includes scalar normal-reference critical values:
-inside debiased GPU inference, scalar distribution calls are pinned to the
-executed CuPy/Torch backend (and Torch concrete device) instead of re-resolving a
-Python scalar to NumPy. Residual `bootstrap`, by contrast, currently uses a
-CPU-native residual-refit implementation. An explicit GPU `device` therefore
-controls the penalized fit but must not be interpreted as making residual
-bootstrap GPU-native.
+successful fit's recorded `_selected_backend_name` / `_selected_backend_device`.
+The maintained CuPy/Torch **marginal** `debiased` routes keep their numerical
+coefficient inference on the executed GPU backend. This includes scalar
+normal-reference critical values: inside debiased GPU inference, scalar
+distribution calls are pinned to the executed CuPy/Torch backend (and Torch
+concrete device) instead of re-resolving a Python scalar to NumPy.
+
+For centered `fit_intercept=True` debiased inference, PR #138 also keeps the
+dedicated simultaneous multiplier-bootstrap max-|Z| calculation on that same
+concrete CuPy/Torch device before the NumPy reporting snapshot. The structured
+result records `simultaneous_numerical_backend`,
+`simultaneous_numerical_device`, `simultaneous_reporting_backend="numpy"`, and
+`simultaneous_reporting_boundary="post_numerical_inference"`. The historical
+`fit_intercept=False` simultaneous path still uses the pre-existing generic
+reporting-stage helper and is **not** claimed as GPU-native by this PR.
+
+Residual `bootstrap`, likewise, currently uses a CPU-native residual-refit
+implementation. An explicit GPU `device` therefore controls the penalized fit
+but must not be interpreted as making residual bootstrap GPU-native.
 
 With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
 use the same weighted-centered average-loss working problem. Multiplying every
@@ -115,10 +125,11 @@ For debiased simultaneous inference, ordinary `_conf_int` remains marginal.
 `enable_simultaneous_inference=True` uses multiplier-bootstrap max-|Z|
 calibration. When `simultaneous_include_intercept=True`, the same centered-
 nodewise original-coordinate intercept influence used by the marginal SE is part
-of the bootstrap maximum itself, not merely an extra reported interval row. A
-successful refit clears the previous fit's simultaneous critical value, target
-mask, joint intervals, and precision/influence state before computing the new
-result.
+of the bootstrap maximum itself, not merely an extra reported interval row. On
+CuPy/Torch with `fit_intercept=True`, that centered simultaneous calculation is
+backend-native as described above. A successful refit clears the previous fit's
+simultaneous critical value, target mask, joint intervals, and precision/influence
+state before computing the new result.
 
 ### What `post_selection_ols` computes
 
