@@ -7,13 +7,15 @@ debiased slopes breaks the elementary feature-translation identity and gives
 intercept marginal/simultaneous inference a different parameterization.
 
 This contract keeps ``coef_``/``intercept_`` owned by the penalized prediction
-fit, while the inference result reports
+fit, while inference reporting uses
 
     intercept_db = intercept_pen - xbar_w @ (theta_db - beta_pen).
 
-Its influence is derived from the same centered nodewise precision ``M`` used by
-the debiased slopes.  CuPy/Torch keep the local native ``M`` and ``theta_db``
-only until the reporting finalizer consumes them, then release those references.
+The intercept influence is derived from the same centered nodewise precision
+matrix ``M`` used by the debiased slopes.  CuPy/Torch retain the local native
+``M`` and ``theta_db`` only through the reporting finalizer, so the intercept
+numerical calculation stays on the executed backend before the established
+NumPy reporting snapshot.
 """
 
 from __future__ import annotations
@@ -29,26 +31,25 @@ from statgpu.linear_model import (
     _post_selection_ols_review_fix_contract as _weighted_contract,
 )
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
 
 
 _STATS_MARKER = "__statgpu_pr138_debiased_native_stats_capture__"
 _GPU_MARKER = "__statgpu_pr138_debiased_native_gpu_capture__"
 _FIT_MARKER = "__statgpu_pr138_debiased_native_fit_lifetime__"
 _FINALIZER_MARKER = "__statgpu_pr138_debiased_intercept_parameterization__"
-_CAPTURE_OWNER: ContextVar[object | None] = ContextVar(
+_CAPTURE_OWNER = ContextVar(
     "statgpu_pr138_debiased_capture_owner",
     default=None,
 )
 
 _ORIGINAL_STATS = PenalizedGeneralizedLinearModel._debiased_stats_from_M
-_ORIGINAL_GPU = PenalizedGeneralizedLinearModel._compute_inference_debiased_gpu
-_ORIGINAL_TORCH = PenalizedGeneralizedLinearModel._compute_inference_debiased_torch
-_ORIGINAL_FIT_GPU = PenalizedGeneralizedLinearModel._fit_gpu_backend
 _ORIGINAL_FINALIZER = _weighted_contract._finalize_weighted_debiased_result
 
 _NATIVE_M = "_statgpu_debiased_M_native_work"
 _NATIVE_THETA = "_statgpu_debiased_theta_native_work"
 _DEFER_CLEAR = "_statgpu_debiased_native_defer_clear"
+_MISSING = object()
 
 
 def _clear_native_work(estimator) -> None:
@@ -57,9 +58,35 @@ def _clear_native_work(estimator) -> None:
 
 
 @functools.wraps(_ORIGINAL_STATS)
-def _debiased_stats_from_M(X, resid, beta_hat, M, backend_name):
-    result = _ORIGINAL_STATS(X, resid, beta_hat, M, backend_name)
+def _debiased_stats_from_M(
+    M,
+    Sigma_hat,
+    sigma2,
+    coef,
+    X,
+    y,
+    intercept,
+    fit_intercept,
+    n,
+    xp,
+    arr_norm,
+):
+    """Capture native precision/feature estimates while GPU debiasing is active."""
+    result = _ORIGINAL_STATS(
+        M,
+        Sigma_hat,
+        sigma2,
+        coef,
+        X,
+        y,
+        intercept,
+        fit_intercept,
+        n,
+        xp,
+        arr_norm,
+    )
     owner = _CAPTURE_OWNER.get()
+    backend_name = str(getattr(xp, "__name__", "")).lower()
     if owner is not None and backend_name in {"cupy", "torch"}:
         setattr(owner, _NATIVE_M, M)
         setattr(owner, _NATIVE_THETA, result[0])
@@ -78,48 +105,53 @@ def _capture_native_gpu_call(current):
                 _clear_native_work(self)
 
     setattr(wrapped, _GPU_MARKER, True)
+    wrapped._statgpu_original = current
     return wrapped
 
 
-@functools.wraps(_ORIGINAL_FIT_GPU)
-def _fit_gpu_backend(self, X, y, sample_weight=None, backend_name="cupy"):
-    """Keep weighted native debiasing state alive through the outer finalizer."""
-    defer = sample_weight is not None
-    previous = self.__dict__.get(_DEFER_CLEAR, None)
-    if defer:
-        setattr(self, _DEFER_CLEAR, True)
-    try:
-        return _ORIGINAL_FIT_GPU(
-            self,
-            X,
-            y,
-            sample_weight,
-            backend_name=backend_name,
+def _wrap_fit_gpu_backend(current):
+    @functools.wraps(current)
+    def wrapped(self, X, y, sample_weight=None, backend_name="cupy"):
+        method = str(
+            getattr(
+                self,
+                "_inference_method",
+                getattr(self, "inference_method", ""),
+            )
+        ).strip().lower()
+        defer = bool(
+            sample_weight is not None
+            and bool(getattr(self, "_compute_inference_enabled", False))
+            and "debiased" in method
+            and bool(getattr(self, "_effective_intercept", False))
         )
-    finally:
+        previous = self.__dict__.get(_DEFER_CLEAR, _MISSING)
         if defer:
-            if previous is None:
+            setattr(self, _DEFER_CLEAR, True)
+        try:
+            return current(
+                self,
+                X,
+                y,
+                sample_weight,
+                backend_name=backend_name,
+            )
+        finally:
+            if previous is _MISSING:
                 self.__dict__.pop(_DEFER_CLEAR, None)
             else:
                 setattr(self, _DEFER_CLEAR, previous)
-        _clear_native_work(self)
+            _clear_native_work(self)
+
+    setattr(wrapped, _FIT_MARKER, True)
+    wrapped._statgpu_original = current
+    return wrapped
 
 
-def _native_debiased_state(model, backend_name: str, *, X_work, params_feature):
-    xp = _get_xp(backend_name)
+def _native_debiased_state(model, backend_name: str, *, X_work, feature_params):
     if backend_name == "numpy":
-        M_native = xp_asarray(
-            model._debiased_M_cpu,
-            dtype=np.float64,
-            xp=xp,
-            ref_arr=X_work,
-        )
-        theta_native = xp_asarray(
-            params_feature,
-            dtype=np.float64,
-            xp=xp,
-            ref_arr=X_work,
-        ).reshape(-1)
+        M_native = np.asarray(model._debiased_M_cpu, dtype=np.float64)
+        theta_native = np.asarray(feature_params, dtype=np.float64).reshape(-1)
         return M_native, theta_native
 
     M_native = getattr(model, _NATIVE_M, None)
@@ -132,7 +164,7 @@ def _native_debiased_state(model, backend_name: str, *, X_work, params_feature):
     return M_native, theta_native
 
 
-def _correct_intercept_result(
+def _publish_coherent_intercept(
     model,
     result,
     *,
@@ -144,15 +176,27 @@ def _correct_intercept_result(
     backend_name: str,
     simultaneous_requested: bool,
 ):
+    """Replace the mixed penalized/debiased intercept slot with one parameterization."""
     xp = _get_xp(backend_name)
     n = int(X_work.shape[0])
+    p = int(X_work.shape[1])
     feature_params = np.asarray(result.params, dtype=np.float64).reshape(-1)[1:]
+    if feature_params.shape[0] != p:
+        raise RuntimeError(
+            "debiased feature result does not match the centered working design"
+        )
+
     M_native, theta_native = _native_debiased_state(
         model,
         backend_name,
         X_work=X_work,
-        params_feature=feature_params,
+        feature_params=feature_params,
     )
+    if tuple(M_native.shape) != (p, p):
+        raise RuntimeError(
+            "debiased precision matrix does not match the centered working design"
+        )
+
     coef_native = xp_asarray(
         coef_native,
         dtype=X_work.dtype,
@@ -165,24 +209,35 @@ def _correct_intercept_result(
         xp=xp,
         ref_arr=X_work,
     ).reshape(-1)
+    if backend_name != "numpy":
+        theta_native = xp_asarray(
+            theta_native,
+            dtype=X_work.dtype,
+            xp=xp,
+            ref_arr=X_work,
+        ).reshape(-1)
 
-    # row_scale^2 = w * n / sum(w), so its sum is n and this is the
-    # unweighted/weighted original-design mean in one expression.
-    x_mean = xp.sum(X_arr * (row_scale * row_scale).reshape(-1, 1), axis=0) / float(n)
-    penalized_intercept_native = xp_asarray(
+    # row_scale**2 = w * n / sum(w), so dividing the weighted raw-design
+    # reduction by n recovers xbar_w for both weighted and unweighted paths.
+    x_mean = xp.sum(
+        X_arr * (row_scale * row_scale).reshape(-1, 1),
+        axis=0,
+    ) / float(n)
+    intercept_pen_native = xp_asarray(
         [float(model.intercept_)],
         dtype=X_work.dtype,
         xp=xp,
         ref_arr=X_work,
     ).reshape(-1)[0]
-    intercept_native = penalized_intercept_native - x_mean @ (
-        theta_native.reshape(-1) - coef_native
+    intercept_native = intercept_pen_native - x_mean @ (
+        theta_native - coef_native
     )
 
-    # theta_db = beta_pen + M X_work' r_work / n. Combining that score with
-    # ybar_w - xbar_w theta_db gives the original-coordinate intercept score.
+    # theta_db = beta_pen + M X_work' r_work / n.  Combining this score
+    # with ybar_w - xbar_w theta_db yields q_i/n as the original-coordinate
+    # intercept influence against the centered working residual r_work_i.
     q_native = row_scale - X_work @ (M_native.T @ x_mean)
-    influence_native = q_native / float(n)
+    influence_native = q_native / float(max(n, 1))
 
     resid_work = y_work - X_work @ coef_native
     s_hat = int(
@@ -195,22 +250,20 @@ def _correct_intercept_result(
     )
     scale_native = xp.sum(resid_work * resid_work) / float(max(n - s_hat, 1))
     se_native = xp.sqrt(
-        xp.abs(
-            scale_native
-            * xp.sum(q_native * q_native)
-            / float(max(n * n, 1))
-        )
-    )
+        xp.abs(scale_native * xp.sum(q_native * q_native))
+    ) / float(max(n, 1))
     z_native = intercept_native / (se_native + 1e-30)
+
+    intercept_value = float(
+        np.asarray(_to_numpy(intercept_native), dtype=np.float64)
+    )
     p_intercept, ci_intercept = _weighted_contract._normal_intercept_report(
         z_native,
         se_native,
-        intercept_native,
+        intercept_value,
         backend_name,
         X_work,
     )
-
-    intercept = float(np.asarray(_to_numpy(intercept_native), dtype=np.float64))
     se_intercept = float(np.asarray(_to_numpy(se_native), dtype=np.float64))
     z_intercept = float(np.asarray(_to_numpy(z_native), dtype=np.float64))
 
@@ -219,7 +272,8 @@ def _correct_intercept_result(
     statistic = np.asarray(result.statistic, dtype=np.float64).copy()
     pvalues = np.asarray(result.pvalues, dtype=np.float64).copy()
     conf_int = np.asarray(result.conf_int, dtype=np.float64).copy()
-    params[0] = intercept
+
+    params[0] = intercept_value
     bse[0] = se_intercept
     statistic[0] = z_intercept
     pvalues[0] = p_intercept
@@ -268,10 +322,12 @@ def _correct_intercept_result(
             "_simultaneous_critical_value",
             None,
         )
-        result.simultaneous_target_mask = np.asarray(
-            model._simultaneous_target_mask,
-            dtype=bool,
-        ).copy()
+        target_mask = getattr(model, "_simultaneous_target_mask", None)
+        result.simultaneous_target_mask = (
+            None
+            if target_mask is None
+            else np.asarray(target_mask, dtype=bool).copy()
+        )
 
     result.apply_to(model)
     return result
@@ -291,25 +347,39 @@ def _finalize_weighted_debiased_result(
     simultaneous_requested: bool,
     sample_weighted: bool = True,
 ):
-    # Suppress the older intercept-inclusive simultaneous call until the
-    # coherent intercept parameter/influence below has replaced the historical
-    # penalized-intercept reporting slot.
-    result = _ORIGINAL_FINALIZER(
-        model,
-        X_arr=X_arr,
-        y_work=y_work,
-        X_work=X_work,
-        row_scale=row_scale,
-        coef_native=coef_native,
-        backend_name=backend_name,
-        original_intercept=original_intercept,
-        simultaneous_requested=(simultaneous_requested and not original_intercept),
-        sample_weighted=sample_weighted,
-    )
+    """Finalize debiased reporting with one coherent intercept parameterization."""
+    if not original_intercept:
+        model.__dict__.pop("_debiased_intercept_influence_cpu", None)
+        return _ORIGINAL_FINALIZER(
+            model,
+            X_arr=X_arr,
+            y_work=y_work,
+            X_work=X_work,
+            row_scale=row_scale,
+            coef_native=coef_native,
+            backend_name=backend_name,
+            original_intercept=False,
+            simultaneous_requested=simultaneous_requested,
+            sample_weighted=sample_weighted,
+        )
+
     try:
-        if not original_intercept:
-            return result
-        return _correct_intercept_result(
+        # Suppress the older intercept-inclusive simultaneous calculation until
+        # the coherent intercept estimate/influence has replaced its historical
+        # penalized-intercept reporting slot.
+        result = _ORIGINAL_FINALIZER(
+            model,
+            X_arr=X_arr,
+            y_work=y_work,
+            X_work=X_work,
+            row_scale=row_scale,
+            coef_native=coef_native,
+            backend_name=backend_name,
+            original_intercept=True,
+            simultaneous_requested=False,
+            sample_weighted=sample_weighted,
+        )
+        return _publish_coherent_intercept(
             model,
             result,
             X_arr=X_arr,
@@ -343,10 +413,12 @@ def install_debiased_intercept_parameterization_contract() -> None:
             )
         )
 
-    current_fit = PenalizedGeneralizedLinearModel._fit_gpu_backend
-    if not getattr(current_fit, _FIT_MARKER, False):
-        setattr(_fit_gpu_backend, _FIT_MARKER, True)
-        PenalizedGeneralizedLinearModel._fit_gpu_backend = _fit_gpu_backend
+    for cls in (PenalizedGeneralizedLinearModel, PenalizedLinearRegression):
+        current_fit = cls.__dict__.get("_fit_gpu_backend")
+        if current_fit is None:
+            current_fit = getattr(cls, "_fit_gpu_backend")
+        if not getattr(current_fit, _FIT_MARKER, False):
+            cls._fit_gpu_backend = _wrap_fit_gpu_backend(current_fit)
 
     current_finalizer = _weighted_contract._finalize_weighted_debiased_result
     if not getattr(current_finalizer, _FINALIZER_MARKER, False):
