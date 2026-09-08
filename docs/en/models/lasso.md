@@ -68,9 +68,10 @@ Validity notes:
 
 Backend reuse is method-specific. `post_selection_ols` reuses the successful fit's
 `_selected_backend_name` / `_selected_backend_device`, and maintained CuPy/Torch
-`debiased` routes keep their numerical inference on the executed GPU backend.
-Residual `bootstrap` currently uses CPU-native residual refits, so an explicit GPU
-`device` controls the penalized fit but does not make bootstrap GPU-native.
+`debiased` routes keep their numerical inference on the executed GPU backend,
+including scalar normal-reference critical values. Residual `bootstrap` currently
+uses CPU-native residual refits, so an explicit GPU `device` controls the
+penalized fit but does not make bootstrap GPU-native.
 
 With analytic weights, direct Lasso and debiased inference use the same
 weighted-centered average-loss convention on NumPy/CuPy/Torch, so multiplying all
@@ -80,6 +81,27 @@ training fold, validation MSE, and final refit. Constant positive weights take t
 exact unweighted CV path. Once AUTO resolves a concrete backend for CV, the final
 selected-alpha `Lasso` refit remains on that backend.
 
+### Debiased intercept ownership
+
+With `inference_method="debiased"`, prediction and inference intentionally expose
+different intercept estimates. Public `coef_` and `intercept_` remain the
+**penalized prediction fit**. Inference reporting uses
+`theta_db = _params[1:]` and the matching original-coordinate intercept
+`_params[0] = ybar_w - xbar_w @ theta_db`.
+
+Consequently, `_bse[0]`, the first z-statistic/p-value, and `_conf_int[0]` describe
+the debiased reporting intercept, not `intercept_`. Shifting every feature by a
+constant vector `c` leaves the debiased slopes unchanged and shifts `_params[0]`
+by `-c @ theta_db`, preserving one coherent parameterization. The structured
+result records `intercept_estimator="centered_debiased"` and
+`intercept_influence="centered_nodewise"` in metadata.
+
+For `LassoCV(compute_inference=True, inference_method="debiased")`, the outer CV
+estimator exposes the same final-refit `_inference_result` and matching
+`_params`/SE/statistic/p-value/CI reporting surface as `estimator_`. Its public
+`coef_`/`intercept_` still belong to the penalized selected-alpha prediction
+refit.
+
 ### Simultaneous debiased inference
 
 With `enable_simultaneous_inference=True`, Lasso calibrates a multiplier-bootstrap
@@ -87,13 +109,12 @@ max-|Z| critical value. The ordinary `_conf_int` remains marginal; the joint
 intervals are stored separately in `_conf_int_simultaneous`.
 
 `simultaneous_include_intercept=False` calibrates the family over feature
-coefficients only. With `simultaneous_include_intercept=True`, the fitted
-original-coordinate intercept is part of the bootstrap maximum itself, using the
-same weighted/unweighted working problem that supplies its marginal standard
-error. It is therefore not merely an extra output row receiving a feature-only
-critical value. Every successful refit clears any previous simultaneous critical
-value, target mask, intervals, and precision/influence state before publishing the
-new result.
+coefficients only. With `simultaneous_include_intercept=True`, the same centered-
+nodewise original-coordinate intercept influence used by the marginal debiased
+SE is part of the bootstrap maximum itself. It is therefore not merely an extra
+output row receiving a feature-only critical value. Every successful refit clears
+any previous simultaneous critical value, target mask, intervals, and
+precision/influence state before publishing the new result.
 
 ## Parameters
 
@@ -114,7 +135,7 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 | `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level. |
 | `simultaneous_n_bootstrap` | `1000` | Multiplier-bootstrap draws for max-|Z| calibration. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap. |
-| `simultaneous_include_intercept` | `False` | Whether the intercept is included in both the simultaneous target set and max-|Z| calibration family. |
+| `simultaneous_include_intercept` | `False` | Whether the debiased intercept is included in both the simultaneous target set and max-|Z| calibration family. |
 | `device` | `"auto"` | Execution device: `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | CPU parallelism where supported. |
 | `compute_inference` | `True` | Whether to compute post-fit inference. |
@@ -179,11 +200,11 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## Outputs
 
-- Penalized fit: `intercept_`, `coef_`, `n_iter_`
+- Penalized prediction fit: `intercept_`, `coef_`, `n_iter_`
 - Inference (if enabled): `_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`, `_inference_result`
 - Under `inference_method="post_selection_ols"`, `coef_` remains penalized while `_params` contains the active-set OLS/WLS refit embedded in the full parameter layout.
-- Under `inference_method="debiased"`, summary/statistical reporting uses z-style semantics (`z`, `P>|z|`), and `_conf_int` is marginal per coefficient.
-- With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target family (`maxz_bootstrap`); when the intercept is included it also participates in the max-|Z| calibration.
+- Under `inference_method="debiased"`, `_params[1:]` contains debiased slopes and `_params[0]` contains their matching original-coordinate debiased intercept; `_conf_int` is marginal per reported parameter.
+- With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target family (`maxz_bootstrap`); when the debiased intercept is included it also participates in the max-|Z| calibration.
 - Methods: `fit`, `predict`, `score`, `summary`
 - Common diagnostics include `aic` and `bic` when available.
 
@@ -193,10 +214,11 @@ ci_simul = m_sim._conf_int_simultaneous
 - Should CPU users set `cpu_solver`? No. Use `solver`; `cpu_solver` is a deprecated compatibility argument from the previous CPU/GPU-split API.
 - Should I choose `cpu_ols` or `gpu_ols` based on hardware? No. Both are deprecated aliases for `post_selection_ols`. Choose the statistical method with `inference_method` and the execution location with `device`.
 - Does `post_selection_ols` change `coef_`? No. Prediction keeps the penalized coefficients; the active-set refit lives in inference/reporting fields such as `_params` and `_inference_result`.
+- Why can `intercept_` differ from `_params[0]` under `debiased`? `intercept_` belongs to the penalized prediction fit, while `_params[0]` is the intercept paired with the debiased slope vector used by statistical reporting.
 - When should I use `debiased`? Prefer it when you need coefficient-level inference in high-dimensional sparse settings, subject to the method's assumptions.
 - Is `post_selection_ols` a valid selective-inference confidence procedure? No. Treat it as a post-selection diagnostic.
 - Are ordinary `debiased` intervals simultaneous/joint confidence regions? No. Ordinary `_conf_int` values are marginal. Enable the dedicated simultaneous path when family-wise intervals are required.
-- How do I include the intercept in simultaneous coverage? Set `simultaneous_include_intercept=True`; the intercept then participates in the bootstrap max-|Z| calibration as well as the reported joint interval set.
+- How do I include the intercept in simultaneous coverage? Set `simultaneous_include_intercept=True`; the debiased intercept then participates in the bootstrap max-|Z| calibration as well as the reported joint interval set.
 
 ## External Validation
 
