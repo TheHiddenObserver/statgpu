@@ -74,7 +74,10 @@ the same migration and AUTO-routing contract.
 Backend reuse is method-specific. `post_selection_ols` always reuses the
 successful fit's recorded `_selected_backend_name` / `_selected_backend_device`,
 and the maintained CuPy/Torch `debiased` routes keep their numerical inference on
-the executed GPU backend. Residual `bootstrap`, by contrast, currently uses a
+the executed GPU backend. This includes scalar normal-reference critical values:
+inside debiased GPU inference, scalar distribution calls are pinned to the
+executed CuPy/Torch backend (and Torch concrete device) instead of re-resolving a
+Python scalar to NumPy. Residual `bootstrap`, by contrast, currently uses a
 CPU-native residual-refit implementation. An explicit GPU `device` therefore
 controls the penalized fit but must not be interpreted as making residual
 bootstrap GPU-native.
@@ -84,21 +87,38 @@ use the same weighted-centered average-loss working problem. Multiplying every
 weight by the same positive constant therefore leaves both the penalized fit and
 the debiased inference unchanged.
 
+Debiased inference also has explicit parameter ownership when an intercept is
+fitted. Public `coef_` and `intercept_` remain the **penalized prediction fit**.
+Inference reporting uses the debiased slope vector `theta_db = _params[1:]` and
+the matching original-coordinate intercept
+`_params[0] = ybar_w - xbar_w @ theta_db`. Therefore `_bse[0]`, the first
+z-statistic/p-value, and `_conf_int[0]` refer to that debiased reporting
+intercept, not to prediction `intercept_`. This preserves the ordinary feature-
+translation identity: shifting the design by a constant vector `c` shifts the
+reported debiased intercept by `-c @ theta_db` while leaving the debiased slopes
+unchanged. Metadata records `intercept_estimator="centered_debiased"` and
+`intercept_influence="centered_nodewise"`.
+
 Weighted `LassoCV` uses that same analytic-weight convention for its default
 alpha grid, every training-fold objective, weighted validation MSE, and the final
 selected-alpha refit. Positive constant weights are treated as the exact
 unweighted statistical problem, avoiding artificial floating-point differences.
 Once AUTO routing resolves a concrete CPU/CuPy/Torch backend for CV, the final
 `Lasso` refit stays on that same backend; explicit CPU also converts heterogeneous
-GPU-resident inputs to NumPy before entering the dedicated CV selector.
+GPU-resident inputs to NumPy before entering the dedicated CV selector. If the
+final refit produces inference, the outer `LassoCV` exposes the same structured
+`_inference_result` and matching `_params`/SE/statistic/p-value/CI reporting
+surface. Its public `coef_`/`intercept_` still belong to the penalized prediction
+refit, so the same ownership distinction applies there too.
 
 For debiased simultaneous inference, ordinary `_conf_int` remains marginal.
 `enable_simultaneous_inference=True` uses multiplier-bootstrap max-|Z|
-calibration. When `simultaneous_include_intercept=True`, the original-coordinate
-intercept influence is part of the bootstrap maximum itself, not merely an extra
-reported interval row. A successful refit clears the previous fit's simultaneous
-critical value, target mask, joint intervals, and precision/influence state before
-computing the new result.
+calibration. When `simultaneous_include_intercept=True`, the same centered-
+nodewise original-coordinate intercept influence used by the marginal SE is part
+of the bootstrap maximum itself, not merely an extra reported interval row. A
+successful refit clears the previous fit's simultaneous critical value, target
+mask, joint intervals, and precision/influence state before computing the new
+result.
 
 ### What `post_selection_ols` computes
 
