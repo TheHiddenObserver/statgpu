@@ -279,10 +279,22 @@ def _publish_coherent_intercept(
     pvalues[0] = p_intercept
     conf_int[0] = np.asarray(ci_intercept, dtype=np.float64).reshape(2)
 
-    model._debiased_intercept_influence_cpu = np.asarray(
-        _to_numpy(influence_native),
-        dtype=np.float64,
-    ).reshape(-1)
+    include_intercept_simultaneous = bool(
+        simultaneous_requested
+        and getattr(
+            model,
+            "simultaneous_include_intercept",
+            getattr(model, "_simultaneous_include_intercept", False),
+        )
+    )
+    if include_intercept_simultaneous:
+        model._debiased_intercept_influence_cpu = np.asarray(
+            _to_numpy(influence_native),
+            dtype=np.float64,
+        ).reshape(-1)
+    else:
+        model.__dict__.pop("_debiased_intercept_influence_cpu", None)
+
     model._params = params
     model._bse = bse
     model._tvalues = statistic
