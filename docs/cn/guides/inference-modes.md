@@ -13,7 +13,7 @@
 
 既有公开 reporting 契约保持不变：所有数值推断完成后，推断结果以及 estimator 的 reporting 属性（`_params`、`_bse`、`_tvalues`、`_pvalues`、`_conf_int`）才进行一次最终 NumPy snapshot。这个转换是 reporting boundary，而不是 CPU inference fallback。共享路径会在 `_inference_result.metadata` 中记录 `numerical_backend`、`numerical_device`、`reporting_backend="numpy"` 和 `reporting_boundary="post_numerical_inference"`。
 
-显式 `device="cuda"` 或 `device="torch"` 时，Gaussian inference 不会静默降级到 NumPy。若缺失或出现非法的实际执行 backend provenance，则直接 fail closed。只有 `device="auto"` 允许自动选择可用 backend。
+对于上述 squared-error L2/Ridge 共享路径，显式 `device="cuda"` 或 `device="torch"` 时不会把该推断静默降级到 NumPy。若缺失或出现非法的实际执行 backend provenance，则直接 fail closed。只有 `device="auto"` 允许自动选择可用 backend。这个保证只覆盖本文明确说明为 backend-native 的路径；像 residual bootstrap 这样的 method-specific 例外会在对应位置单独说明。
 
 Gaussian 路径支持：
 
