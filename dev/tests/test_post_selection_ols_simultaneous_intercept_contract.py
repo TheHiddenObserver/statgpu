@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from statgpu.linear_model import Lasso
+import statgpu.linear_model._debiased_simultaneous_intercept_contract as sim_contract
 
 
 def _problem(seed=91381, n=84):
@@ -136,3 +139,52 @@ def test_successful_refit_without_simultaneous_clears_previous_joint_state():
     assert result.simultaneous_conf_int is None
     assert result.simultaneous_critical_value is None
     assert result.simultaneous_target_mask is None
+
+
+def test_cpu_simultaneous_rejects_nonfinite_bootstrap_draws_before_quantile(
+    monkeypatch,
+):
+    n = 6
+    p = 2
+    B = 32
+    X_feat = np.ones((n, p), dtype=np.float64)
+    model = SimpleNamespace(
+        simultaneous_include_intercept=True,
+        _effective_intercept=True,
+        _debiased_M_cpu=np.eye(p, dtype=np.float64),
+        _y=np.zeros(n, dtype=np.float64),
+        _resid=np.ones(n, dtype=np.float64),
+        _bse=np.ones(p + 1, dtype=np.float64),
+        _params=np.zeros(p + 1, dtype=np.float64),
+        _conf_int=np.zeros((p + 1, 2), dtype=np.float64),
+        _X_design=np.column_stack([np.ones(n, dtype=np.float64), X_feat]),
+        _nobs=n,
+        _debiased_intercept_influence_cpu=np.ones(n, dtype=np.float64) / float(n),
+        simultaneous_alpha=0.05,
+        simultaneous_n_bootstrap=B,
+        simultaneous_random_state=20260908,
+    )
+    xi = np.zeros((B, n), dtype=np.float64)
+    xi[0, :] = np.finfo(np.float64).max
+    assert np.all(np.isfinite(xi))
+
+    class _ExtremeFiniteRng:
+        def standard_normal(self, size):
+            assert tuple(size) == xi.shape
+            return xi
+
+    monkeypatch.setattr(
+        sim_contract.np.random,
+        "default_rng",
+        lambda seed: _ExtremeFiniteRng(),
+    )
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(
+            FloatingPointError,
+            match=r"non-finite bootstrap max-\|Z\| statistics",
+        ):
+            sim_contract._compute_simultaneous_ci_maxz_bootstrap(model)
+
+    assert not hasattr(model, "_conf_int_simultaneous")
+    assert not hasattr(model, "_simultaneous_critical_value")
