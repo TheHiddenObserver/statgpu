@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 import statgpu.inference._distributions_backend as distribution_module
+from statgpu.inference._results import DebiasedInferenceResult
 from statgpu.linear_model import Lasso
 import statgpu.linear_model._debiased_intercept_parameterization_contract as intercept_contract
 
@@ -205,6 +208,44 @@ def test_weighted_debiased_formula_matches_retained_matrix_problem():
     assert formula_model._inference_result.feature_names == expected_names
     assert formula_model._nobs == y_direct.shape[0] == n - 3
     assert formula_model._inference_result.metadata["intercept_estimator"] == "centered_debiased"
+
+
+def test_debiased_intercept_recovery_overflow_fails_before_publish():
+    model = SimpleNamespace(
+        intercept_=1.0e308,
+        _debiased_M_cpu=np.eye(1, dtype=np.float64),
+        _X_design=np.zeros((4, 1), dtype=np.float64),
+        simultaneous_include_intercept=False,
+    )
+    result = DebiasedInferenceResult(
+        params=np.asarray([1.0e308], dtype=np.float64),
+        bse=np.asarray([1.0], dtype=np.float64),
+        statistic=np.asarray([1.0e308], dtype=np.float64),
+        pvalues=np.asarray([0.0], dtype=np.float64),
+        conf_int=np.asarray([[1.0e308, 1.0e308]], dtype=np.float64),
+    )
+    X_arr = np.asarray([[1.0e308], [0.0], [0.0], [0.0]], dtype=np.float64)
+    X_work = np.zeros((4, 1), dtype=np.float64)
+    y_work = np.ones(4, dtype=np.float64)
+    row_scale = np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    coef = np.zeros(1, dtype=np.float64)
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(FloatingPointError, match="non-finite estimate"):
+            intercept_contract._publish_coherent_intercept(
+                model,
+                result,
+                X_arr=X_arr,
+                y_work=y_work,
+                X_work=X_work,
+                row_scale=row_scale,
+                coef_native=coef,
+                backend_name="numpy",
+                simultaneous_requested=False,
+            )
+
+    assert not hasattr(model, "_params")
+    np.testing.assert_array_equal(result.params, np.asarray([1.0e308]))
 
 
 def test_debiased_scalar_distribution_route_is_context_local(monkeypatch):
