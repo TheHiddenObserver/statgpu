@@ -117,8 +117,8 @@ from . import (
 
 _lassocv_uniform_weight_identity_contract.install_lassocv_uniform_weight_identity_contract()
 
-# LassoCV input preparation must keep response/weights on the concrete CuPy
-# device that owns a native design matrix, matching direct penalized-fit affinity.
+# LassoCV input preparation must keep response/weights on the concrete CuPy or
+# Torch CUDA device that owns a native design matrix, matching direct fit affinity.
 from . import _lassocv_device_affinity_contract as _lassocv_device_affinity_contract
 
 _lassocv_device_affinity_contract.install_lassocv_device_affinity_contract()
