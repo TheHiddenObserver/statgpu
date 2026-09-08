@@ -1,0 +1,127 @@
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from statgpu.inference._results import DebiasedInferenceResult
+from statgpu.linear_model import _debiased_simultaneous_backend_contract as native_sim
+import statgpu.linear_model._debiased_intercept_parameterization_contract as intercept_contract
+
+
+def _fixture(torch, *, include_intercept=True):
+    X_raw = torch.tensor(
+        [
+            [1.5, -0.5],
+            [0.2, 1.1],
+            [-0.7, 0.4],
+            [1.0, 0.8],
+            [-1.2, -0.3],
+            [0.4, -1.0],
+        ],
+        dtype=torch.float64,
+    )
+    X_work = X_raw - X_raw.mean(dim=0)
+    y_raw = torch.tensor([1.3, 0.2, -0.4, 1.1, -1.0, 0.3], dtype=torch.float64)
+    y_work = y_raw - y_raw.mean()
+    row_scale = torch.ones(X_raw.shape[0], dtype=torch.float64)
+    coef = torch.tensor([0.45, -0.2], dtype=torch.float64)
+    M = torch.eye(2, dtype=torch.float64)
+    params = np.asarray([0.35, 0.5, -0.25], dtype=np.float64)
+    bse = np.asarray([0.12, 0.1, 0.11], dtype=np.float64)
+    marginal = np.column_stack([params - 1.96 * bse, params + 1.96 * bse])
+    result = DebiasedInferenceResult(
+        params=params,
+        bse=bse,
+        statistic=params / bse,
+        pvalues=np.asarray([0.01, 0.02, 0.04]),
+        conf_int=marginal,
+        metadata={"numerical_backend": "torch", "numerical_device": "cpu"},
+    )
+    model = SimpleNamespace(
+        simultaneous_n_bootstrap=32,
+        simultaneous_alpha=0.05,
+        simultaneous_random_state=20260908,
+        simultaneous_include_intercept=include_intercept,
+        simultaneous_method="maxz_bootstrap",
+    )
+    return model, result, X_raw, y_work, X_work, row_scale, coef, M
+
+
+@pytest.mark.parametrize("include_intercept", [False, True])
+def test_native_simultaneous_maxz_uses_torch_backend_and_target_mask(include_intercept):
+    torch = pytest.importorskip("torch")
+    model, result, X_raw, y_work, X_work, row_scale, coef, M = _fixture(
+        torch,
+        include_intercept=include_intercept,
+    )
+    marginal = np.asarray(result.conf_int).copy()
+
+    output = native_sim._native_simultaneous_maxz(
+        model,
+        result,
+        X_arr=X_raw,
+        y_work=y_work,
+        X_work=X_work,
+        row_scale=row_scale,
+        coef_native=coef,
+        M_native=M,
+        backend_name="torch",
+    )
+
+    assert output is result
+    assert result.metadata["simultaneous_numerical_backend"] == "torch"
+    assert result.metadata["simultaneous_numerical_device"] == "cpu"
+    assert result.metadata["simultaneous_reporting_backend"] == "numpy"
+    assert result.metadata["simultaneous_reporting_boundary"] == "post_numerical_inference"
+    assert np.isfinite(result.simultaneous_critical_value)
+    assert result.simultaneous_critical_value >= 0.0
+
+    mask = np.asarray(result.simultaneous_target_mask, dtype=bool)
+    expected_mask = np.asarray([include_intercept, True, True], dtype=bool)
+    np.testing.assert_array_equal(mask, expected_mask)
+
+    expected = marginal.copy()
+    critical = float(result.simultaneous_critical_value)
+    if include_intercept:
+        expected[:, 0] = result.params - critical * result.bse
+        expected[:, 1] = result.params + critical * result.bse
+        assert hasattr(model, "_debiased_intercept_influence_cpu")
+    else:
+        expected[1:, 0] = result.params[1:] - critical * result.bse[1:]
+        expected[1:, 1] = result.params[1:] + critical * result.bse[1:]
+        assert not hasattr(model, "_debiased_intercept_influence_cpu")
+    np.testing.assert_allclose(result.simultaneous_conf_int, expected, rtol=0, atol=1e-12)
+
+
+def test_gpu_simultaneous_finalizer_suppresses_inner_cpu_simultaneous(monkeypatch):
+    torch = pytest.importorskip("torch")
+    model, result, X_raw, y_work, X_work, row_scale, coef, M = _fixture(
+        torch,
+        include_intercept=True,
+    )
+    setattr(model, intercept_contract._NATIVE_M, M)
+    observed = {}
+
+    def fake_marginal_finalizer(model_arg, **kwargs):
+        observed["simultaneous_requested"] = kwargs["simultaneous_requested"]
+        return result
+
+    monkeypatch.setattr(native_sim, "_ORIGINAL_FINALIZER", fake_marginal_finalizer)
+
+    output = native_sim._finalize_weighted_debiased_result(
+        model,
+        X_arr=X_raw,
+        y_work=y_work,
+        X_work=X_work,
+        row_scale=row_scale,
+        coef_native=coef,
+        backend_name="torch",
+        original_intercept=True,
+        simultaneous_requested=True,
+        sample_weighted=True,
+    )
+
+    assert output is result
+    assert observed["simultaneous_requested"] is False
+    assert result.metadata["simultaneous_numerical_backend"] == "torch"
+    assert result.simultaneous_conf_int is not None
