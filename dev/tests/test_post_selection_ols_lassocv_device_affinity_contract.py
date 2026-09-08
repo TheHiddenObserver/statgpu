@@ -2,6 +2,7 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from statgpu._config import Device
 from statgpu.linear_model import LassoCV
@@ -264,6 +265,67 @@ def test_lassocv_torch_selector_binds_entire_transaction_to_design_device(monkey
         ("enter", ("torch", "cuda:5")),
         ("exit", ("torch", "cuda:5")),
     ]
+
+
+def test_weighted_lassocv_excludes_candidate_with_nonfinite_fold_evidence():
+    X = np.zeros((12, 2), dtype=np.float64)
+    details = {
+        "alpha": 0.1,
+        "alphas": np.asarray([0.1, 0.05, 0.01]),
+        "mse_path": np.asarray(
+            [
+                [0.01, np.nan, 0.01],
+                [0.20, 0.22, 0.21],
+                [0.40, 0.39, 0.38],
+            ]
+        ),
+        "mean_mse": np.asarray([0.01, 0.21, 0.39]),
+    }
+
+    checked = affinity._validate_weighted_cv_selection_evidence(
+        X,
+        details,
+        kwargs={"sample_weight": np.ones(12), "cv_folds": 3},
+    )
+
+    assert checked["alpha"] == pytest.approx(0.05)
+    assert np.isnan(checked["mean_mse"][0])
+    assert checked["mean_mse"][1] == pytest.approx(0.21)
+    assert checked["mean_mse"][2] == pytest.approx(0.39)
+
+
+def test_weighted_lassocv_fails_when_no_candidate_has_complete_finite_evidence():
+    X = np.zeros((12, 2), dtype=np.float64)
+    details = {
+        "alpha": 0.1,
+        "alphas": np.asarray([0.1, 0.05]),
+        "mse_path": np.asarray([[0.1, np.nan, 0.2], [np.nan, 0.3, 0.2]]),
+        "mean_mse": np.asarray([0.15, 0.25]),
+    }
+
+    with pytest.raises(FloatingPointError, match="finite validation MSE on every fold"):
+        affinity._validate_weighted_cv_selection_evidence(
+            X,
+            details,
+            kwargs={"sample_weight": np.ones(12), "cv_folds": 3},
+        )
+
+
+def test_weighted_lassocv_single_alpha_degenerate_path_remains_unchanged():
+    X = np.zeros((12, 2), dtype=np.float64)
+    details = {
+        "alpha": 0.1,
+        "alphas": np.asarray([0.1]),
+        "mse_path": np.asarray([[np.nan]]),
+        "mean_mse": np.asarray([np.nan]),
+    }
+
+    checked = affinity._validate_weighted_cv_selection_evidence(
+        X,
+        details,
+        kwargs={"sample_weight": np.ones(12), "cv_folds": 3},
+    )
+    assert checked is details
 
 
 def test_lassocv_auto_resolved_backend_is_pinned_through_final_refit(monkeypatch):
