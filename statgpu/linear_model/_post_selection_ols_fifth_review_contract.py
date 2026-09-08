@@ -7,8 +7,9 @@ This contract keeps several cross-path public boundaries aligned with #137:
   are identical for both constructor forms and follow the current public value
   rather than stale resolved state from a previous fit;
 * sparse-Gaussian inference-enabled estimators fail closed when either the outer
-  public finite-input guard rejects a refit before the inner fit transaction, or
-  a later post-fit inference failure escapes after coefficients were mutated;
+  public finite-input guard rejects a refit before the inner fit transaction, a
+  later post-fit inference failure escapes after coefficients were mutated, or a
+  post-selection refit reaches a non-representable reporting surface;
 * a no-intercept fit with an empty active set preserves the caller's requested
   covariance/reference-distribution semantics instead of silently claiming
   ``nonrobust`` Student-t inference;
@@ -155,6 +156,62 @@ def _install_sparse_inference_fit_transaction(cls) -> None:
     cls.fit = _fit_with_sparse_inference_transaction
 
 
+def _validate_post_selection_reporting_result(result) -> None:
+    """Reject non-representable active-refit inference before it is accepted."""
+    params = np.asarray(result.params, dtype=np.float64).reshape(-1)
+    bse = np.asarray(result.bse, dtype=np.float64).reshape(-1)
+    statistic = np.asarray(result.statistic, dtype=np.float64).reshape(-1)
+    pvalues = np.asarray(result.pvalues, dtype=np.float64).reshape(-1)
+    conf_int = np.asarray(result.conf_int, dtype=np.float64)
+    n_params = int(params.shape[0])
+
+    if (
+        bse.shape != (n_params,)
+        or statistic.shape != (n_params,)
+        or pvalues.shape != (n_params,)
+        or conf_int.shape != (n_params, 2)
+    ):
+        raise RuntimeError(
+            "post_selection_ols reporting arrays have inconsistent shapes"
+        )
+
+    if not (
+        np.all(np.isfinite(params))
+        and np.all(np.isfinite(bse))
+        and np.all(np.isfinite(statistic))
+        and np.all(np.isfinite(pvalues))
+        and np.all(np.isfinite(conf_int))
+    ):
+        raise FloatingPointError(
+            "post_selection_ols produced non-finite parameter estimates, standard "
+            "errors, statistics, p-values, or confidence intervals"
+        )
+    if np.any(bse < 0.0):
+        raise FloatingPointError(
+            "post_selection_ols produced a negative standard error"
+        )
+    if np.any((pvalues < 0.0) | (pvalues > 1.0)):
+        raise FloatingPointError(
+            "post_selection_ols produced a p-value outside [0, 1]"
+        )
+    if np.any(conf_int[:, 0] > conf_int[:, 1]):
+        raise FloatingPointError(
+            "post_selection_ols produced a reversed confidence interval"
+        )
+
+    metadata = dict(getattr(result, "metadata", {}) or {})
+    refit_df = metadata.get("refit_df_resid")
+    refit_scale = metadata.get("refit_scale")
+    if refit_df is None or int(refit_df) <= 0:
+        raise FloatingPointError(
+            "post_selection_ols produced invalid residual degrees of freedom"
+        )
+    if refit_scale is None or not np.isfinite(float(refit_scale)) or float(refit_scale) < 0.0:
+        raise FloatingPointError(
+            "post_selection_ols produced an invalid refit scale"
+        )
+
+
 @functools.wraps(_ORIGINAL_POST_SELECTION)
 def _compute_post_selection_ols_inference(model, X, y, sample_weight=None):
     result = _ORIGINAL_POST_SELECTION(model, X, y, sample_weight=sample_weight)
@@ -175,6 +232,16 @@ def _compute_post_selection_ols_inference(model, X, y, sample_weight=None):
             else None
         )
         result.apply_to(model)
+
+    try:
+        _validate_post_selection_reporting_result(result)
+    except Exception:
+        # _ORIGINAL_POST_SELECTION publishes before returning. For direct private
+        # helper use, remove the invalid reporting snapshot immediately; normal
+        # estimator.fit callers then additionally hit the outer failure transaction
+        # and clear all fitted prediction state.
+        model._clear_inference_state()
+        raise
     return result
 
 
@@ -386,4 +453,7 @@ def install_post_selection_ols_fifth_review_contract():
         )
 
 
-__all__ = ["install_post_selection_ols_fifth_review_contract"]
+__all__ = [
+    "install_post_selection_ols_fifth_review_contract",
+    "_validate_post_selection_reporting_result",
+]
