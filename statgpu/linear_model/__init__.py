@@ -92,6 +92,16 @@ from . import (
 
 _debiased_simultaneous_intercept_contract.install_debiased_simultaneous_intercept_contract()
 
+# Centered debiased slopes and the reported intercept must belong to the same
+# original-coordinate parameterization. Keep prediction intercept_/coef_
+# penalized while inference reports ybar_w - xbar_w @ theta_db and uses the same
+# nodewise precision for its marginal/joint influence.
+from . import (
+    _debiased_intercept_parameterization_contract as _debiased_intercept_parameterization_contract,
+)
+
+_debiased_intercept_parameterization_contract.install_debiased_intercept_parameterization_contract()
+
 # Weighted LassoCV historically centered sqrt-weighted rows and truncated
 # sum(weights) to an integer path normalizer. Map weighted folds to an exactly
 # equivalent row-count problem while leaving the unweighted fast path untouched.
