@@ -246,12 +246,10 @@ def _publish_coherent_intercept(
             ref_arr=X_work,
         ).reshape(-1)
 
-    # row_scale**2 = w * n / sum(w), so dividing the weighted raw-design
-    # reduction by n recovers xbar_w for both weighted and unweighted paths.
-    x_mean = xp.sum(
-        X_arr * (row_scale * row_scale).reshape(-1, 1),
-        axis=0,
-    ) / float(n)
+    # row_scale**2 = w * n / sum(w), so a vector-matrix reduction divided by n
+    # recovers xbar_w without materializing an n-by-p weighted design temporary.
+    row_weight = row_scale * row_scale
+    x_mean = (row_weight @ X_arr) / float(n)
     intercept_pen_native = xp_asarray(
         [float(model.intercept_)],
         dtype=X_work.dtype,
