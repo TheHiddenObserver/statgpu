@@ -68,15 +68,23 @@ penalized fit 先选出 active feature set。随后 statgpu 在**成功拟合已
 - 显式 `device="torch"` -> 只允许 Torch CUDA，不可用时 fail closed；
 - 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
 
-backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断保留在实际执行的 GPU backend。residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
+backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`；维护中的 CuPy/Torch `debiased` 路径也会把数值推断保留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。residual `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
 
 对于 analytic weights，direct Lasso 与 debiased inference 在 NumPy/CuPy/Torch 上都使用同一个 weighted-centered average-loss 约定，因此把所有权重乘以同一个正常数不会改变统计问题。`LassoCV` 的默认 alpha grid、每个 weighted training fold、validation MSE 与 final refit 也遵循同一约定；常数正权重直接走与 unweighted 完全相同的 CV 路径。AUTO 一旦为 CV 解析出具体 backend，最终 selected-alpha `Lasso` refit 也保持在该 backend。
+
+### Debiased intercept ownership
+
+使用 `inference_method="debiased"` 时，prediction 与 inference 会有意暴露两套不同 ownership 的 intercept。公开 `coef_` 与 `intercept_` 始终属于 **penalized prediction fit**；推断/reporting 使用 `theta_db = _params[1:]`，以及与该 slope vector属于同一个原始坐标系参数化的截距 `_params[0] = ybar_w - xbar_w @ theta_db`。
+
+因此 `_bse[0]`、第一个 z-statistic/p-value 与 `_conf_int[0]` 描述的是 debiased reporting intercept，而不是 `intercept_`。若设计矩阵每列平移常数向量 `c`，debiased slope保持不变，而 `_params[0]` 按 `-c @ theta_db` 平移，从而保持一个 coherent parameterization。structured result 的 metadata 会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。
+
+对于 `LassoCV(compute_inference=True, inference_method="debiased")`，外层 CV estimator 会暴露与 final `estimator_` 相同的 `_inference_result` 与匹配的 `_params`/SE/statistic/p-value/CI reporting surface；公开 `coef_`/`intercept_` 仍属于 selected-alpha penalized prediction refit。
 
 ### Debiased simultaneous inference
 
 设置 `enable_simultaneous_inference=True` 后，Lasso 使用 multiplier-bootstrap max-|Z| 临界值。普通 `_conf_int` 仍然是 marginal interval；联合区间单独保存在 `_conf_int_simultaneous`。
 
-`simultaneous_include_intercept=False` 时 family 只包含 feature coefficients。设置为 `True` 时，原始坐标系中的 fitted intercept **真正进入 bootstrap max-|Z| calibration**，并使用与其 marginal standard error 相同的 weighted/unweighted working problem；它不再只是一个额外输出行却套用 feature-only 临界值。每次成功 refit 都会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再发布新结果。
+`simultaneous_include_intercept=False` 时 family 只包含 feature coefficients。设置为 `True` 时，与 marginal debiased SE 相同的 centered-nodewise 原始坐标系 intercept influence **真正进入 bootstrap max-|Z| calibration**；它不再只是一个额外输出行却套用 feature-only 临界值。每次成功 refit 都会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再发布新结果。
 
 ## 参数（Parameters）
 
@@ -97,7 +105,7 @@ backend 复用保证按推断方法区分：`post_selection_ols` 复用成功拟
 | `simultaneous_alpha` | `0.05` | simultaneous family-wise error level。 |
 | `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier bootstrap 抽样次数。 |
 | `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
-| `simultaneous_include_intercept` | `False` | 是否把截距同时纳入 simultaneous target set 与 max-|Z| calibration family。 |
+| `simultaneous_include_intercept` | `False` | 是否把 debiased intercept 同时纳入 simultaneous target set 与 max-|Z| calibration family。 |
 | `device` | `"auto"` | 执行设备：`auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 适用 CPU 路径的并行度。 |
 | `compute_inference` | `True` | 是否计算拟合后推断。 |
@@ -162,11 +170,11 @@ ci_simul = m_sim._conf_int_simultaneous
 
 ## 输出（Outputs）
 
-- penalized fit：`intercept_`, `coef_`, `n_iter_`
+- penalized prediction fit：`intercept_`, `coef_`, `n_iter_`
 - 推断（启用时）：`_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`, `_inference_result`
 - `inference_method="post_selection_ols"` 时，`coef_` 仍为 penalized coefficients，而 `_params` 保存嵌入完整参数布局的 active-set OLS/WLS 重拟合结果；
-- `inference_method="debiased"` 时，普通 `_conf_int` 为单变量 marginal interval；
-- 开启 simultaneous inference 后，`_conf_int_simultaneous` 给出配置 target family 上的联合区间；截距被包含时也会参与 max-|Z| 校准；
+- `inference_method="debiased"` 时，`_params[1:]` 保存 debiased slopes，`_params[0]` 保存与它们匹配的原始坐标系 debiased intercept；普通 `_conf_int` 对每个 reporting parameter是 marginal interval；
+- 开启 simultaneous inference 后，`_conf_int_simultaneous` 给出配置 target family 上的联合区间；debiased intercept被包含时也会参与 max-|Z| 校准；
 - 方法：`fit`, `predict`, `score`, `summary`
 - 可用时还包括 `aic`、`bic` 等诊断。
 
@@ -180,6 +188,8 @@ ci_simul = m_sim._conf_int_simultaneous
   不应该。两者都是 `post_selection_ols` 的 deprecated alias。统计方法由 `inference_method` 选择，执行位置由 `device` 选择。
 - **`post_selection_ols` 会改变 `coef_` 吗？**  
   不会。预测继续使用 penalized coefficients；active-set 重拟合保存在 `_params`、`_inference_result` 等推断/reporting 字段中。
+- **为什么 `debiased` 下 `intercept_` 可能和 `_params[0]` 不同？**  
+  `intercept_` 属于 penalized prediction fit；`_params[0]` 是与 debiased slope vector配套的 inference intercept。
 - **`debiased` 适用于什么场景？**  
   适用于高维稀疏设置下需要系数级推断的场景，但仍依赖对应理论假设。
 - **`post_selection_ols` 能当严格 selective-inference 置信程序吗？**  
@@ -187,7 +197,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - **普通 `debiased` 区间是联合区间吗？**  
   不是。普通 `_conf_int` 是 marginal interval；需要联合控制时使用 dedicated simultaneous path。
 - **如何把截距纳入联合覆盖？**  
-  设置 `simultaneous_include_intercept=True`；截距会同时进入 bootstrap max-|Z| 校准和最终联合区间 target set。
+  设置 `simultaneous_include_intercept=True`；debiased intercept会同时进入 bootstrap max-|Z| 校准和最终联合区间 target set。
 
 ## 外部验证（External Validation）
 
