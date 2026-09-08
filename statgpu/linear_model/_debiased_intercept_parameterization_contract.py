@@ -335,11 +335,17 @@ def _publish_coherent_intercept(
     else:
         model.__dict__.pop("_debiased_intercept_influence_cpu", None)
 
-    # The simultaneous helper consumes a reporting snapshot of the centered
-    # design with the weighted intercept influence column first.
+    # The feature-only finalizer has already created the reporting snapshot of
+    # X_work. Reuse it and transfer only the n-vector row_scale; copying X_work
+    # again would duplicate the largest GPU-to-host reporting transfer.
+    feature_design_cpu = np.asarray(model._X_design, dtype=np.float64)
+    if feature_design_cpu.shape != (n, p):
+        raise RuntimeError(
+            "debiased feature reporting design does not match the centered work design"
+        )
     model._X_design = np.column_stack([
         np.asarray(_to_numpy(row_scale), dtype=np.float64).reshape(-1),
-        np.asarray(_to_numpy(X_work), dtype=np.float64),
+        feature_design_cpu,
     ])
     model._df_resid = n - (p + 1)
     model._params = params
