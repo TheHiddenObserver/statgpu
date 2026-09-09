@@ -29,7 +29,7 @@ $$
 \hat\kappa_j\in\partial|\hat\beta_j|,
 $$
 
-so the score is intentionally not zero as it would be for unpenalized OLS. The resulting shrinkage bias is the central reason why one cannot simply take the raw Lasso coefficient, attach an ordinary OLS-style standard error, and expect a centered Gaussian statistic. In high-dimensional regimes, the regularization scale is typically large enough that this bias is not automatically negligible on the $n^{-1/2}$ inferential scale. Sparse estimators such as Lasso also have non-smooth, parameter-dependent limiting behavior rather than the simple fixed-model OLS distribution used by classical Wald inference (van de Geer et al., 2014; Javanmard & Montanari, 2014).
+so the score of the unpenalized loss is intentionally not zero as it would be for unpenalized OLS. The resulting shrinkage bias is the central reason why one cannot simply take the raw Lasso coefficient, attach an ordinary OLS-style standard error, and expect a centered Gaussian statistic. In high-dimensional regimes, the regularization scale is typically large enough that this bias is not automatically negligible on the $n^{-1/2}$ inferential scale. Sparse estimators such as Lasso also have non-smooth, parameter-dependent limiting behavior rather than the simple fixed-model OLS distribution used by classical Wald inference (van de Geer et al., 2014; Javanmard & Montanari, 2014).
 
 **Selection uncertainty is a second, distinct issue.** It becomes especially important if one takes the active set chosen by Lasso and then refits OLS on that same data. Ordinary OLS intervals after data-driven variable selection generally do not account for the selection step. That is why statgpu labels `post_selection_ols` as a diagnostic rather than a general selective-inference procedure.
 
@@ -49,7 +49,7 @@ statgpu therefore exposes several inference modes with different purposes. They 
 
 The method name does **not** choose the execution device. `device="cpu"`, `device="cuda"`, and `device="torch"` are authoritative; only genuine `device="auto"` may preserve a backend-native CuPy or Torch-CUDA input as part of automatic routing.
 
-For formal coefficient inference after Lasso, `debiased` is the main statgpu path. For prediction or feature selection only, set `compute_inference=False` and avoid paying for an inference procedure you do not need.
+For coefficient inference after Lasso, `debiased` is the main statgpu path. For prediction or feature selection only, set `compute_inference=False` and avoid paying for an inference procedure you do not need.
 
 ## Minimal de-biased inference example
 
@@ -78,6 +78,8 @@ print(model._conf_int)
 
 The penalized coefficients remain available in `coef_`. Inference reporting uses the de-biased parameter vector, so a penalized coefficient and its de-biased inferential estimate need not be numerically identical.
 
+If `alpha` is selected with `LassoCV`, statgpu first completes cross-validation and then computes inference only on the final full-data refit at the selected `alpha`. The resulting intervals and p-values are therefore **conditional on the selected tuning value**. The current implementation does not add a separate correction for the uncertainty introduced by using the same data to choose `alpha`.
+
 ## What de-biasing changes
 
 Let the fitted Lasso coefficient vector be $\hat\beta$, with residual vector
@@ -93,7 +95,7 @@ $$
 = \hat\beta + \frac{1}{n} M X^\top r,
 $$
 
-where $M$ is a data-dependent decorrelation matrix intended to approximate an inverse of the feature Gram/covariance matrix. This is the de-biased/de-sparsified Lasso construction developed in closely related forms by Zhang & Zhang (2014), van de Geer et al. (2014), and Javanmard & Montanari (2014).
+where $M$ is a data-dependent approximate precision/decorrelation matrix intended to approximate an inverse of the feature Gram/covariance matrix. This is the de-biased/de-sparsified Lasso construction developed in closely related forms by Zhang & Zhang (2014), van de Geer et al. (2014), and Javanmard & Montanari (2014).
 
 The reason the correction helps becomes clearer by writing the linear model as $y=X\beta^0+\varepsilon$ and defining $\widehat\Sigma=X^\top X/n$. Ignoring the intercept notation for the moment,
 
@@ -106,11 +108,11 @@ $$
 \left(\hat\beta-\beta^0\right).
 $$
 
-The first term is a noise-driven approximately Gaussian term. The second is the remaining regularization/nuisance-estimation error. If $M\widehat\Sigma$ is sufficiently close to the identity and the required sparsity/design conditions make the remainder small, the leading shrinkage bias is removed on the inferential scale. This decomposition is the core reason the de-biased estimator can support asymptotically normal coefficient-wise inference even though the original Lasso estimator generally cannot.
+The first term is a noise-driven approximately Gaussian term. The second is the remaining approximation/remainder term from $M\widehat\Sigma\ne I$. If $M\widehat\Sigma$ is sufficiently close to the identity and the required sparsity/design conditions make the remainder small, the leading shrinkage bias is removed on the inferential scale. This decomposition is the core reason the de-biased estimator can support asymptotically normal coefficient-wise inference even though the original Lasso estimator generally cannot.
 
 The correction does **not** mean that the original sparse Lasso estimate has become unpenalized. `coef_` is still the fitted penalized model used for prediction. The de-biased vector is an inference object used for coefficient-wise uncertainty reporting.
 
-## How statgpu constructs the decorrelation matrix
+## How statgpu constructs the approximate precision matrix
 
 The node-wise construction follows the approximate precision-matrix idea used by de-sparsified Lasso methods; see van de Geer et al. (2014) and the related low-dimensional projection construction of Zhang & Zhang (2014).
 
@@ -125,15 +127,23 @@ $$
 \left\lVert x_j-X_{-j}\gamma\right\rVert_2^2
 +
 \lambda_{\mathrm{nw}}\lVert\gamma\rVert_1
-\right\},
+\right\}.
 $$
 
-using
+In the underlying theory, the node-wise penalties are tuning parameters whose required order is typically of the form
+
+$$
+\lambda_j \asymp \sqrt{\frac{\log p}{n}}
+$$
+
+up to constants and the chosen scaling convention; the original de-sparsified-Lasso theory does not prescribe the exact statgpu formula below. **statgpu's current implementation choice** is
 
 $$
 \lambda_{\mathrm{nw}}
 = \hat\sigma\sqrt{\frac{2\log(\max(p,2))}{n}}.
 $$
+
+Here $\hat\sigma$ is the noise-scale estimate produced by the current fitted Lasso path. This formula should therefore be read as an implementation-level tuning rule with the expected high-dimensional order, not as a verbatim theorem statement from van de Geer et al. or Zhang & Zhang.
 
 Embed $\hat\gamma_j$ back into $p$ coordinates by defining $\tilde\gamma_j\in\mathbb R^p$ with $(\tilde\gamma_j)_j=0$ and the fitted node-wise coefficients in the remaining positions. Then let
 
@@ -150,7 +160,7 @@ C_j
 =\frac{x_j^\top z_j}{n}.
 $$
 
-The $j$th decorrelation row is therefore written compactly as
+The $j$th row of $M$ is therefore written compactly as
 
 $$
 \boxed{
@@ -178,15 +188,15 @@ This matrix expression is exactly the same implementation rule as placing $1/C_j
 
 ### CPU and GPU implementations solve the same statistical problem
 
-The formula above is **not CPU-specific**. The maintained NumPy, CuPy, and Torch debiased paths use the same node-wise penalty scale, the same $\hat\gamma_j$, $C_j$, and $M$ definitions, and the same downstream de-biasing/variance formulas.
+The formula above is **not CPU-specific**. The maintained NumPy, CuPy, and Torch debiased paths use the same statgpu node-wise penalty rule, the same $\hat\gamma_j$, $C_j$, and $M$ definitions, and the same downstream de-biasing/variance formulas.
 
 The difference is computational:
 
 - the CPU path solves the node-wise Lasso problems one feature at a time;
 - the CuPy and Torch paths form the corresponding Gram subproblems in batches and run batched FISTA-style node-wise solves on the concrete GPU device;
-- batching changes execution and memory traffic, not the statistical definition of the decorrelation matrix.
+- batching changes execution and memory traffic, not the statistical definition of the approximate precision matrix.
 
-Numerical convergence of the node-wise optimization is necessary, but it does not replace the sparsity, design, and noise assumptions behind de-biased inference.
+Numerical convergence of the node-wise optimization is necessary, but it does not replace the sparsity, design, noise, and tuning-rate assumptions behind de-biased inference.
 
 ## Standard errors, z statistics, and marginal intervals
 
@@ -226,9 +236,9 @@ Its standard error and influence representation are therefore tied to the same c
 
 ## From marginal intervals to simultaneous coverage
 
-A 95% marginal interval controls the error probability for **one coefficient at a time**. If many coordinates are reported together, the probability that at least one interval misses its target can be much larger than 5%. Under independence, for example, $m$ separate 95% intervals would have joint coverage $(0.95)^m$, not 0.95. A Bonferroni correction is a simple way to recover family-wise protection, but it can be conservative because it does not exploit the dependence structure among the de-biased coefficient statistics.
+A 95% marginal interval controls the error probability for **one coefficient at a time**. If many coordinates are reported together, the probability that at least one interval misses its target can be much larger than 5%. Under independence, for example, $m$ separate 95% intervals would have simultaneous coverage $(0.95)^m$, not 0.95. A Bonferroni correction is a simple way to recover family-wise protection, but it can be conservative because it does not exploit the dependence structure among the de-biased coefficient statistics.
 
-High-dimensional simultaneous-inference methods instead calibrate the distribution of the **maximum** standardized error over the requested target set. Bootstrap-assisted simultaneous inference for de-sparsified Lasso estimators is developed, for example, by Zhang & Cheng (2017) and Dezeure, Bühlmann & Zhang (2017). The max statistic automatically reflects dependence among coordinates rather than treating every coefficient as an isolated test.
+High-dimensional simultaneous-inference methods instead calibrate the distribution of the **maximum** standardized error over the requested target set. Bootstrap-assisted simultaneous inference for de-sparsified Lasso estimators is developed, for example, by Zhang & Cheng (2017) and Dezeure, Bühlmann & Zhang (2017). The max statistic reflects dependence among coordinates rather than calibrating every coefficient in isolation.
 
 ### max-|Z| multiplier-bootstrap calibration
 
@@ -251,7 +261,7 @@ simultaneous = model._conf_int_simultaneous
 critical = model._simultaneous_critical_value
 ```
 
-The method draws independent standard-normal multipliers $\xi_i$, forms bootstrap score perturbations from the fitted residuals, and records the maximum absolute standardized perturbation over the requested target family. Schematically,
+The method draws independent standard-normal multipliers $\xi_i$, forms bootstrap score perturbations from the fitted residuals, and records the maximum absolute standardized perturbation over the requested target set. Schematically,
 
 $$
 T^*
@@ -269,7 +279,7 @@ $$
 \pm c_{1-\alpha}\widehat{\mathrm{se}}_j.
 $$
 
-Because the critical value is calibrated for the maximum over the whole target family, these intervals are designed for simultaneous/family-wise coverage and are normally wider than the corresponding marginal intervals. As with the marginal de-biased procedure, the theoretical guarantee still depends on the relevant high-dimensional assumptions; the bootstrap does not make those assumptions disappear.
+Because the critical value is calibrated for the maximum over the whole target set, these intervals are designed for simultaneous/family-wise coverage and are normally wider than the corresponding marginal intervals. As with the marginal de-biased procedure, the theoretical guarantee still depends on the relevant high-dimensional assumptions; the bootstrap does not make those assumptions disappear.
 
 ### Simultaneous-inference controls
 
@@ -280,22 +290,22 @@ Because the critical value is calibrated for the maximum over the whole target f
 | `simultaneous_alpha` | `0.05` | Family-wise error level used to select the common critical value. |
 | `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws. |
 | `simultaneous_random_state` | `None` | Seed for reproducible multiplier draws. |
-| `simultaneous_include_intercept` | `False` | Include the centered de-biased intercept in both the bootstrap max-|Z| target and the reported joint interval family. |
+| `simultaneous_include_intercept` | `False` | Include the centered de-biased intercept in both the bootstrap max-|Z| target and the reported simultaneous interval set. |
 
 `enable_simultaneous_inference=True` requires `compute_inference=True`, `inference_method="debiased"`, and `simultaneous_method="maxz_bootstrap"`. `simultaneous_alpha` must lie strictly in `(0, 1)` and `simultaneous_n_bootstrap` must be positive; unsupported combinations fail instead of silently returning ordinary marginal intervals.
 
-### Intercept-inclusive simultaneous family
+### Intercept-inclusive simultaneous target set
 
-When `simultaneous_include_intercept=True`, the same centered-nodewise original-coordinate intercept influence used by the marginal standard error participates in the bootstrap maximum itself. The intercept is therefore not merely an extra row receiving a feature-only critical value: it is part of the calibrated joint target family.
+When `simultaneous_include_intercept=True`, the same centered-nodewise original-coordinate intercept influence used by the marginal standard error participates in the bootstrap maximum itself. The intercept is therefore not merely an extra row receiving a feature-only critical value: it is part of the calibrated simultaneous target set.
 
-The default remains `False`, so callers who only need simultaneous coverage over the feature vector do not pay for an enlarged target family.
+The default remains `False`, so callers who only need simultaneous coverage over the feature vector do not pay for an enlarged target set.
 
 ## Simultaneous intervals are not p-value adjustment
 
 These operations answer related but different questions:
 
 - `_conf_int` gives coefficient-wise marginal intervals.
-- `_conf_int_simultaneous` uses a common max-|Z| critical value for an interval family.
+- `_conf_int_simultaneous` uses a common max-|Z| critical value for an interval set.
 - `model.adjust_pvalues(method="bh")` or module-level `adjust_pvalues(...)` applies a multiple-testing correction to an existing vector of p-values.
 - `model.combine_pvalues(...)` asks whether a set of p-values contains global evidence; it does not construct simultaneous coefficient intervals.
 
@@ -309,7 +319,7 @@ For `post_selection_ols`, inference always reuses the successful penalized fit's
 
 For `debiased`, the maintained marginal CuPy/Torch paths likewise keep their numerical coefficient inference on the executed GPU backend. The established reporting layer remains NumPy-oriented: final arrays such as `_bse`, `_pvalues`, `_conf_int`, and structured result metadata are snapshotted to host-side reporting objects only after numerical inference is complete.
 
-For centered `fit_intercept=True` simultaneous inference on CuPy/Torch, the expensive B×n multiplier draws, feature/intercept scores, max-|Z| reduction, quantile calibration, and joint confidence-interval numerics remain on the same concrete GPU device before the final reporting snapshot. The historical `fit_intercept=False` simultaneous path still uses the pre-existing generic reporting-stage helper and is not claimed as GPU-native by the PR #138 contract.
+For centered `fit_intercept=True` simultaneous inference on CuPy/Torch, the expensive B×n multiplier draws, feature/intercept scores, max-|Z| reduction, quantile calibration, and simultaneous confidence-interval numerics remain on the same concrete GPU device before the final reporting snapshot. The historical `fit_intercept=False` simultaneous path still uses the pre-existing generic reporting-stage helper and is not claimed as GPU-native by the PR #138 contract.
 
 Residual `bootstrap` is different: its current residual-refit implementation is CPU-native. A GPU `device` on the estimator therefore does not imply that residual-bootstrap resampling/refits are GPU-native.
 
@@ -363,8 +373,10 @@ De-biased inference can be substantially more expensive than fitting the origina
 
 - Ordinary post-selection OLS/WLS intervals are not general selective-inference intervals.
 - Residual bootstrap is not a universal correction for model-selection uncertainty.
-- Marginal de-biased intervals do not provide joint coverage without simultaneous calibration.
+- `LassoCV` final-refit inference does not automatically account for uncertainty from selecting `alpha` by cross-validation.
+- Marginal de-biased intervals do not provide simultaneous coverage without simultaneous calibration.
 - Simultaneous max-|Z| intervals do not replace FDR procedures such as Benjamini-Hochberg when FDR is the scientific target.
+- The exact statgpu node-wise penalty formula is an implementation tuning rule, not a theorem that all valid de-biased-Lasso procedures must use the same constant or noise-scale estimate.
 - Numerical convergence, GPU execution, and a small KKT residual do not prove that the high-dimensional assumptions required for de-biased inference hold for a dataset.
 - The historical `fit_intercept=False` simultaneous path is not claimed as GPU-native merely because a GPU was used for the penalized/de-biased fit.
 
