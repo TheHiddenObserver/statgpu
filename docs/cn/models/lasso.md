@@ -212,7 +212,7 @@ model = Lasso(
 
 前面的参数表是教学用的选择指南；这里列出当前 `Lasso` 封装类的完整构造函数和模型方法/属性清单。
 
-### 构造函数
+### Constructor
 
 ```python
 Lasso(
