@@ -4,7 +4,7 @@
 > **最后更新：** 2026-09-09  
 > **后端：** NumPy、CuPy、PyTorch
 
-`statgpu.inference` 模块提供常用统计推断工具，包括概率分布、多重检验、排列检验和自助法。所有继承自 `BaseEstimator` 的公开 statgpu 估计器还会继承一组**估计器绑定的推断辅助方法**；这些方法会根据估计器当前的设备设置解析默认计算后端。
+`statgpu.inference` 模块提供常用统计推断工具，包括概率分布、多重检验、排列检验和自助法（bootstrap）。所有继承自 `BaseEstimator` 的公开 statgpu 估计器还会继承一组**估计器绑定的推断辅助方法**；这些方法会根据估计器当前的设备设置解析默认计算后端。
 
 ## 快速参考
 
@@ -15,7 +15,7 @@ from statgpu.inference import norm, poisson, t, adjust_pvalues, combine_pvalues,
 | 函数/类 | 说明 |
 |---|---|
 | `norm`, `t`, `chi2`, `f`, `beta`, `gamma`, `poisson`, `binom`, `uniform`, `expon`, `cauchy`, `laplace`, `logistic`, `lognorm`, `weibull_min` | 分布对象（与 SciPy 兼容的 API） |
-| `get_distribution(name, backend=...)` | 按名称动态获取分布对象 |
+| `get_distribution(name, backend=...)` | 按名称获取指定后端的分布对象 |
 | `adjust_pvalues(pvals, method=...)` | 多重检验 p 值校正 |
 | `combine_pvalues(pvals, method=...)` | 合并多个 p 值，构造全局检验 |
 | `permutation_test(statistic, X, y, ...)` | 基于排列的假设检验 |
@@ -24,7 +24,7 @@ from statgpu.inference import norm, poisson, t, adjust_pvalues, combine_pvalues,
 
 ## 估计器绑定的推断辅助方法
 
-每个公开 `BaseEstimator` 子类都继承下列模型上下文包装方法。`Ridge`、`Lasso`、`ElasticNet` 等模型不需要各自重新实现这些通用功能。
+每个公开 `BaseEstimator` 子类都继承下列模型上下文辅助方法。`Ridge`、`Lasso`、`ElasticNet` 等模型不需要各自重新实现这些通用功能。
 
 | 估计器方法 | 签名 | 模型上下文行为 |
 |---|---|---|
@@ -132,7 +132,7 @@ p = norm.cdf(x)  # 自动使用 Torch 后端
 | `poisson` | `mu` | rvs, cdf, sf, ppf, pmf |
 | `binom` | `n, p` | rvs, cdf, sf, ppf, pmf |
 
-### 动态查找
+### 按名称获取分布
 
 ```python
 from statgpu.inference import get_distribution
@@ -165,7 +165,7 @@ reject, pvals_adj = adjust_pvalues(pvals, method='bh')
 reject, pvals_adj = adjust_pvalues(pvals, method='bonferroni')
 ```
 
-### combine_pvalues（全局 p 值）
+### combine_pvalues（p 值合并与全局检验）
 
 ```python
 from statgpu.inference import combine_pvalues
@@ -206,7 +206,7 @@ print(f"p 值: {result.pvalue:.4f}")
 
 ---
 
-## 自助法
+## 自助法（Bootstrap）
 
 ```python
 from statgpu.inference import bootstrap_statistic
@@ -227,7 +227,7 @@ print(f"95% CI: [{result.confidence_interval.low:.4f}, {result.confidence_interv
 
 ---
 
-## R 兼容性
+## R 风格接口
 
 从 R 迁移的用户可以使用 R 风格的函数名：
 
