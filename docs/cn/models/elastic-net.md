@@ -36,7 +36,7 @@ Elastic Net 同时施加两种偏好：
 两个参数控制这种权衡：
 
 - `alpha` 控制**总正则化强度**；
-- `l1_ratio` 控制**正则化类型的混合比例**。
+- `l1_ratio` 控制 **L1 惩罚在总惩罚中的占比**。
 
 ```text
 l1_ratio = 0.0        0.5             1.0
@@ -113,7 +113,7 @@ print("Elastic Net:", np.round(elastic.coef_, 2))
 
 ## 如何理解结果？
 
-- `coef_[j] == 0` 表示在当前 `alpha` 与 `l1_ratio` 下，该变量没有进入拟合的线性预测器。
+- `coef_[j] == 0` 表示在当前 `alpha` 与 `l1_ratio` 下，该变量没有进入拟合的线性预测子。
 - 非零系数仍经过收缩，不能当作未惩罚 OLS 系数。
 - `intercept_` 不受惩罚。
 - `predict(X_new)` 返回连续预测。
@@ -124,19 +124,19 @@ print("Elastic Net:", np.round(elastic.coef_, 2))
 
 ## 关键参数应该怎么选？
 
-这里是正常工作流的**精选参数表**。完整构造函数参数见[完整 API 参考](#完整-api-参考)。
+这里是正常分析流程的**精选参数表**。完整构造函数参数见[完整 API 参考](#完整-api-参考)。
 
 | 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
 | `alpha` | `1.0` | 总正则化强度；越大收缩越强，也可能删除更多变量。建议通过验证选择。 |
-| `l1_ratio` | `0.5` | L1/L2 混合比例；接近 1 更像 Lasso，接近 0 更像 Ridge。最好与 `alpha` 联合调参。 |
+| `l1_ratio` | `0.5` | L1 惩罚占比；接近 1 更像 Lasso，接近 0 更像 Ridge。最好与 `alpha` 联合调参。 |
 | `fit_intercept` | `True` | 一般保持开启，除非理论上固定截距或设计矩阵已有截距。 |
 | `device` | `"auto"` | 小问题使用 CPU 最简单；规模足够大时 GPU 更有意义。 |
 | `solver` | `"fista"` | 当前非光滑目标的稳定默认值；改变它主要影响数值算法和性能。 |
 | `stopping` | `"coef_delta"` | 更关心最优性诊断时可使用 `"kkt"`。 |
 | `compute_inference` | `False` | 普通预测/选择时保持关闭；需要支持的拟合后推断时再开启。 |
 
-多数正则化工作流应先标准化连续特征，因为 L1/L2 都直接作用于系数大小。
+多数正则化分析流程应先标准化连续特征，因为 L1/L2 都直接作用于系数大小。
 
 ## 与 Ridge 和 Lasso 比较
 
@@ -148,7 +148,7 @@ print("Elastic Net:", np.round(elastic.coef_, 2))
 | 主要调参 | `alpha` | `alpha` | `alpha` + `l1_ratio` |
 | 直观理解 | 稳定 | 选择 | 选择 + 稳定 |
 
-## CPU、GPU、Formula、加权拟合与热启动
+## CPU、GPU、公式接口、加权拟合与热启动
 
 ```python
 from statgpu.linear_model import ElasticNet
@@ -162,7 +162,7 @@ model = ElasticNet(
 ).fit(X, y)
 ```
 
-`fit()` 支持 `sample_weight=`，并通过 `**kwargs` 转发共享的 `formula=` / `data=` 接口。单次拟合还可以通过 `initial_coef=` 进行**热启动（warm start）**：
+`fit()` 支持 `sample_weight=`，并通过 `**kwargs` 转发共享的 `formula=` / `data=` 公式接口。单次拟合还可以通过 `initial_coef=` 进行**热启动（warm start）**：
 
 ```python
 warm = ElasticNet(alpha=0.08, l1_ratio=0.5).fit(
@@ -177,12 +177,12 @@ warm = ElasticNet(alpha=0.08, l1_ratio=0.5).fit(
 | `solver` 值 | CPU | CuPy / Torch | 说明 |
 |---|:---:|:---:|---|
 | `fista`（默认） | 支持 | 支持 | 推荐的近端梯度路径 |
-| `auto` | FISTA | FISTA | 当前平方误差 + Elastic Net 的自动分发 |
+| `auto` | FISTA | FISTA | 当前平方误差 + Elastic Net 的自动分派 |
 | `fista_bb` | 支持 | 支持 | 使用自适应谱步长 |
 | `admm` | 支持 | 支持 | 替代拆分路径；仅支持均匀样本权重 |
 | `coordinate_descent` | 支持 | 不支持 | 仅 CPU 的兼容坐标下降路径 |
 
-`newton`、`lbfgs`、`irls`、`exact` 会被当前非光滑 Elastic Net 估计器接口拒绝。一次直接 `ElasticNet.fit` 中，`solver` 是权威的算法选择参数；`cpu_solver` 仅作为旧版/共享路径的兼容控制保留，不会选择直接拟合算法。新代码应使用 `solver`。
+`newton`、`lbfgs`、`irls`、`exact` 会被当前非光滑 Elastic Net 估计器接口拒绝。一次直接 `ElasticNet.fit` 中，`solver` 是直接拟合算法的正式选择参数；`cpu_solver` 仅作为旧版/共享路径的兼容控制保留，不会选择直接拟合算法。新代码应使用 `solver`。
 
 KKT 条件为
 
@@ -200,9 +200,9 @@ $$
 
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
-| `debiased`（默认推断方法） | 去偏后的系数推断 | 依赖去偏理论假设；推断条件于选定的正则化参数 |
+| `debiased`（默认推断方法） | 纠偏后的系数推断 | 依赖纠偏理论假设；推断条件于选定的正则化参数 |
 | `post_selection_ols` | 在拟合阶段确定的 NumPy/CuPy/Torch 后端上做未惩罚活跃集 OLS/WLS 重拟合 | 启发式选择后诊断，不是一般的选择性推断保证 |
-| `bootstrap` | 重采样替代路径 | 计算更昂贵，并依赖相应的自助法假设 |
+| `bootstrap` | 残差自助法替代路径 | 计算更昂贵，并依赖相应的自助法假设 |
 
 `post_selection_ols` 是与硬件无关的规范名称。旧 `cpu_ols` / `gpu_ols` 是处于弃用期的兼容别名，会发出 `FutureWarning` 并映射到 `post_selection_ols`；执行后端仍由独立的 `device` 控制。选择后重拟合会复用成功惩罚拟合记录的后端/设备，而不是重新根据原始输入判断后端。
 
@@ -221,9 +221,9 @@ $$
 
 ## 完整 API 参考
 
-前面的参数表是教学用选择指南；这里列出当前 `ElasticNet` 包装器的完整构造函数和模型方法/属性清单。
+前面的参数表是教学用选择指南；这里列出当前 `ElasticNet` 封装类的完整构造函数和模型方法/属性清单。
 
-### Constructor
+### 构造函数
 
 ```python
 ElasticNet(
@@ -250,7 +250,7 @@ ElasticNet(
 | 参数 | 默认值 | API 含义 |
 |---|---:|---|
 | `alpha` | `1.0` | 总正则化强度。 |
-| `l1_ratio` | `0.5` | L1 混合比例；0 更像 Ridge，1 更像 Lasso。 |
+| `l1_ratio` | `0.5` | L1 惩罚占比；0 更像 Ridge，1 更像 Lasso。 |
 | `fit_intercept` | `True` | 拟合不受惩罚的截距。 |
 | `max_iter` | `1000` | 最大求解迭代数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
@@ -262,14 +262,14 @@ ElasticNet(
 | `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
 | `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存的 GPU 内存。 |
 | `compute_inference` | `False` | 执行所选拟合后推断。 |
-| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`、规范的 `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` 提示并映射到 `post_selection_ols`。 |
+| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`（纠偏）、规范的 `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` 提示并映射到 `post_selection_ols`。 |
 | `cov_type` | `"nonrobust"` | 所选推断路径使用协方差估计时的约定。 |
 | `hac_maxlags` | `None` | 所选推断方法支持 HAC 时的滞后阶数。 |
 <!-- API-CONSTRUCTOR-END:ElasticNet -->
 
 ### `fit`
 
-包装器的直接签名为：
+封装类的直接签名为：
 
 ```python
 model.fit(
@@ -289,8 +289,8 @@ model.fit(
 | `y` | 一维连续因变量。 |
 | `sample_weight` | 可选的非负分析权重；部分求解器有额外限制。 |
 | `initial_coef` | 可选的热启动系数向量，每个特征一个值。 |
-| `formula` | 通过 `**kwargs` 转发的 Patsy 风格 Formula。 |
-| `data` | Formula 接口使用的 DataFrame。 |
+| `formula` | 通过 `**kwargs` 转发的 Patsy 风格公式。 |
+| `data` | 公式接口使用的 DataFrame。 |
 
 `fit()` 返回 `self`。
 
@@ -301,7 +301,7 @@ model.fit(
 | `predict` | `predict(X, return_cpu=True)` | 连续预测；`return_cpu=False` 可让 GPU 预测结果保留在实际后端。 |
 | `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
 | `summary` | `summary()` | 打印系数/推断摘要；要求模型已拟合且推断结果可用。 |
-| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换构造参数状态。 |
+| `get_params` / `set_params` | scikit-learn 风格工具 | 查看或替换构造参数状态。 |
 
 继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、后端解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。
 
@@ -317,15 +317,15 @@ model.fit(
 | `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
 | `llf`, `aic`, `bic` | 所需结果状态可用时的高斯拟合诊断量。 |
 | `_bse` | 所选推断方法的标准误。 |
-| `_tvalues` | 使用 t 型语义的推断路径统计量。 |
-| `_zvalues` | 去偏推断的 z 型统计量。 |
+| `_tvalues` | 使用 t 型统计量的推断路径所保存的统计量。 |
+| `_zvalues` | 纠偏推断的 z 型统计量。 |
 | `_pvalues` | 推断成功时的系数 p 值。 |
 | `_conf_int` | 推断成功时的系数置信区间。 |
 | `_inference_result` | 结构化推断结果与元数据。 |
 
 ## 验证
 
-当前维护的验证覆盖 Elastic Net 目标函数、求解器/KKT 行为、CPU/GPU 路径、后端原生的 `post_selection_ols`、拟合后推断、热启动，以及 `ElasticNetCV` 最终重拟合推断约定。
+当前维护的验证覆盖 Elastic Net 目标函数、求解器/KKT 行为、CPU/GPU 路径、在拟合确定的后端上执行的 `post_selection_ols`、拟合后推断、热启动，以及 `ElasticNetCV` 最终重拟合推断约定。
 
 ## 参考文献
 
