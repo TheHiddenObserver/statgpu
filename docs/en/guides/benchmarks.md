@@ -1,13 +1,13 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-08-07
+> Last updated: 2026-09-08
 > This page: Benchmark index  
 > Switch: [Chinese](../../cn/guides/benchmarks.md)
 
 ## Benchmark Dashboard
 
-- **Interactive dashboard**: [Open Dashboard](/dashboard/)
+- **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
 - **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
 
 The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Live source/run counts are read from the dashboard inventory rather than maintained as long-lived prose. **Snapshot (2026-08-07):** the canonical bundle has 9 registered/available/parsed sources and 1,796 normalized runs.
@@ -59,7 +59,9 @@ npm run test:e2e:production
 ## Inference
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - Compares `cpu_ols_inference` vs `gpu_ols_inference`
+  - Benchmarks canonical `inference_method="post_selection_ols"` end to end on NumPy CPU and CuPy CUDA.
+  - Reports complete fit+inference timing plus CPU/CuPy parity for penalized coefficients, active-refit parameters, SE/statistic/p-value/CI, active-set identity, and inference backend/device provenance.
+  - It is not an inference-only speedup benchmark; hardware is selected with `device`, not with `inference_method`.
 
 ## Nonparametric
 

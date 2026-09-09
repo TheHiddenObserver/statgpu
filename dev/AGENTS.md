@@ -2,7 +2,17 @@
 
 本文件用于帮助后续 coding agent 快速理解 `statgpu` 项目。它是项目导览，不是用户手册；修改代码前仍应阅读相关源码和文档。
 
-自动开发的阻塞 gate、退出状态和 review/fix 协议以 `.claude/workflows/new-module-dev.md` 及 `.claude/skills/` 下对应 skill 为准。若本文和 `.claude` workflow/skill 有冲突，开发任务中优先执行 `.claude` 的硬约束，并在结果中说明差异。
+自动开发、review 与 benchmark 的 canonical agent 协议位于：
+
+- `.claude/skills/new-module-dev/SKILL.md`
+- `.claude/skills/code-review/SKILL.md`
+- `.claude/skills/benchmark/SKILL.md`
+
+各 skill 的 supporting reference 按需加载。旧的 `.claude/skills/*.md` 平铺文件仅作为历史链接兼容指针。旧 Markdown-era workflow 的说明已移到 `.claude/legacy/new-module-dev-workflow.md`；`.claude/workflows/` 保留给 Claude Code Dynamic Workflow scripts，不作为 policy/document archive。若本文和 canonical skill 有冲突，开发任务中优先执行 canonical skill，并在结果中说明差异。
+
+根目录 `CLAUDE.md` 是 Claude Code 的小型 bootstrap：它把 forked/general-purpose agent 引导到本文件和 canonical skills，而不是复制这里的规则。
+
+`code-review` 使用 `context: fork`；Claude Code >= 2.1.218 可用 `background: false` 显式保持阻塞式 review。更早版本的 forked skill 本来就默认阻塞 invoking turn，因此**不存在“为了 blocking 必须升级到 2.1.218”**的要求。
 
 ## 项目概览
 
@@ -20,7 +30,7 @@
 - `statgpu/penalties/`: L1、L2、ElasticNet、SCAD、MCP、adaptive/group penalty 注册表。
 - `statgpu/glm_core/`: GLM loss、family/link、IRLS、融合 kernel。
 - `statgpu/cross_validation/`: 通用 CV 框架（CVEstimatorBase、kfold_indices、hash_cv_data）。
-- `statgpu/linear_model/`: 线性模型 API 层，含 `wrappers/`（13 个模型）、`penalized/`（mixin 架构）、`cv/`（CV wrappers）、`legacy/`。
+- `statgpu/linear_model/`: 线性模型 API 层，含 `wrappers/`、`penalized/`（mixin 架构）、`cv/`（CV wrappers）、`legacy/`。
 - `statgpu/survival/`: CoxPH 和 CoxPHCV，含 Breslow/Efron ties 及 GPU 相关实现。
 - `statgpu/inference/`: 分布 API、多重检验、p 值合并、bootstrap、permutation test。
 - `statgpu/nonparametric/`: KDE、核回归、带宽选择、核岭回归、样条。
@@ -40,69 +50,50 @@
 
 ## GPU 内存管理规则
 
-所有持有 GPU 缓存张量的 estimator 必须实现 `gpu_memory_cleanup` 模式：
+当 estimator 自己持有可回收的 GPU cache/buffer，并公开 `gpu_memory_cleanup` 能力时，应沿用现有生命周期，而不是为所有 GPU-capable estimator 强行新增同一套析构逻辑：
 
-- 构造函数接受 `gpu_memory_cleanup: bool = False` 参数。
-- 实现 `_cleanup_cuda_memory()` 和 `_cleanup_torch_memory()` 方法，在 `gpu_memory_cleanup=True` 时释放 CuPy/Torch 缓存。
-- 实现 `__del__` 确保对象被 GC 时触发清理。
-- 在公开方法（如 `pdf()`、`predict()`、`score()`）末尾调用清理，而非 `fit()` 末尾（fit 后的缓存需供后续 predict 使用）。
+- 构造函数/基类按该 estimator 的现有 public contract 暴露 `gpu_memory_cleanup`；
+- 复用已有 `_cleanup_cuda_memory()` / `_cleanup_torch_memory()` 或共享 cleanup hook；
+- 不在需要保留 fitted cache 供后续 `predict()` / `score()` / inference 使用的边界过早清理；
+- 如果实现 `__del__`，保持 best-effort、无异常逃逸，并确认不会重复释放或依赖解释器退出顺序；
+- 新增 cleanup 行为属于 memory/device contract，必须测试不会改变数值结果或 fitted-state 生命周期。
 
-参考实现：`statgpu/linear_model/_logistic.py:134-145`。
-
-```python
-def _cleanup_cuda_memory(self):
-    if not self.gpu_memory_cleanup:
-        return
-    try:
-        import cupy as cp
-        cp.get_default_memory_pool().free_all_blocks()
-        cp.get_default_pinned_memory_pool().free_all_blocks()
-    except Exception:
-        pass
-
-def _cleanup_torch_memory(self):
-    if not self.gpu_memory_cleanup:
-        return
-    try:
-        import torch
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-    except Exception:
-        pass
-```
+当前参考实现可查看 `statgpu/linear_model/wrappers/_logistic.py`、`statgpu/linear_model/penalized/_fit_mixin.py`、`statgpu/survival/_cox.py` 等实际维护路径；不要引用已删除的 `statgpu/linear_model/_logistic.py`。
 
 ## 通用开发硬规则
 
-以下规则来自 `dev/plans/PLAN_UNIFIED.md` 和 `.claude` workflow/skill 中较稳定的项目约束，适用于后续功能开发和重构：
+以下规则适用于后续功能开发和重构，但由 impact classification 决定哪些 gate 真正激活。**Impact-driven 不等于 capability 自己缩窄默认 DoD**：
 
-- 所有新增或修改的统计方法必须同时实现 NumPy、CuPy、Torch 三后端；CPU-only 工作不算完成。若某端暂不可行，必须获得用户明确批准，并记录原因、用户可见失败行为、测试 skip 条件和后续补齐路径。
+- **新增或实质改变 shared numerical/statistical capability** 时，statgpu 的默认 backend contract 是 **NumPy + CuPy + Torch**。除非 task/issue 已明确给出合理的更窄能力，或用户明确批准 backend deferral，否则三后端实现/验证都是 completion gate；CPU-only 可以是中间阶段，但不能被称为完整新 capability。deferral 必须记录原因、用户可见失败行为、确定性测试/skip 条件和后续 scope。
+- **新增 tunable loss x penalty capability** 时，默认 completion contract 同时包含 **direct fit + CV path/grid/folds/scoring/selection/final refit**。只有该能力统计上确实 non-tunable，或用户明确批准 CV deferral，才可以不做 CV。不能通过“不声明 CV”来绕过默认 closure。
+- **API-only、deprecation-only、docs-only 或不改变 numerical dispatch 的窄 refactor** 不要求重新实现或扩展无关 backend/CV/inference 能力；应验证已有 support claim 与相关 dispatch/clone/refit 没有被破坏。这是 impact-driven scope 收敛的主要用途。
 - 显式 `device="cuda"` 或 `device="torch"` 不允许静默回退 CPU；fallback、approximate inference、dtype/device 变化必须是公开契约的一部分，并在错误、warning 或结果字段中可见。
-- 直接 `fit()` 支持的 tunable loss x penalty 能力，默认也必须支持 CV 层，包括 alpha/lambda/C 路径、fold scoring、best parameter selection 和 refit；除非该能力明确 non-tunable 或用户批准延期。
-- 公共统计 estimator 若暴露 `compute_inference`、`summary()`、covariance、standard errors、p-values、confidence intervals，或该模型家族通常要求推断，则必须实现 inference 或显式声明 estimation-only，并补清晰错误行为、测试、文档和后续任务。
+- inference 是 blocking gate 当且仅当当前 public API/docs 声明 inference，或本次变更触及 `compute_inference`、`summary()`、covariance、SE、p-value、CI、inference result/backend behavior。一个没有 inference public contract 的 prediction-oriented estimator 可以合法 estimation-only；不要仅因为外部包提供 inference 就自动扩大 statgpu scope。
 - Formula-facing 方法必须验证 R-style/patsy 兼容，包括 intercept、categorical reference level、interaction/transform、missing data、列名和列顺序；暂不支持的语法要有明确失败模式和文档说明。
-- 新增 inference、stopping rule、影响数值的 memory behavior 或 estimator 行为时，外部基线检查应尽可能全面：推断/统计优先对齐 `statsmodels`，估计器和预测一致性优先对齐 `sklearn`，关键统计方法补充 R 基线；能覆盖 coef/bse/p/CI/AIC/BIC/LLF、预测、目标函数或 KKT 的场景应尽量覆盖。
+- 新增 inference、stopping rule、solver dispatch、影响数值的 memory behavior 或 estimator 行为时，外部/analytic baseline 应覆盖本次 active contract；能覆盖 coef/bse/p/CI/AIC/BIC/LLF、预测、目标函数或 KKT 的场景按需覆盖。
 - 外部比较必须使用显式对齐设置，包括相同特征集、ties/solver、正则化参数和收敛参数，如 `alpha`、`C`、`max_iter`、`tol`。
-- 外部比较前必须确认 objective normalization 和 penalty scale。若 `statgpu` 优化 `n^{-1} sum_i loss_i + lambda * penalty`，而外部框架优化 `sum_i loss_i + lambda * penalty`，测试应使用等价 penalty 映射（如 `lambda_external = n * lambda`），不要为了强行对齐外部框架而修改 `statgpu` 的 loss 定义。
-- strict inference 是默认主线；strict 失败默认应报错，只有用户显式启用 fallback/downgrade 时才降级。
-- 当前 strict 对齐阈值基线：`coef <= 1e-6`、`bse <= 1e-3`、`p-value <= 5e-2`。
-- 关键 inference 输出字段应保持 CPU/GPU 一致，例如 `coef`、`bse`、`t/z`、`p`、`CI`、`AIC/BIC/LLF` 等。
-- CUDA 分层规则保持有效：模型层不要到处散落直接 `cupy` import，优先复用 `statgpu/backends/`、`BaseEstimator` 和已有后端工具。
-- 每个新方法的准入标准是 implementation、tests、external comparison 或 benchmark、docs update 同步完成；性能相关 benchmark 脚本优先放 `dev/benchmarks/`，结果写入 `results/*.json`，GPU 计时必须包含 CuPy/Torch synchronize。
-- 新模型推荐流程：先明确接口契约，再做 CPU 实现，然后补 GPU 路径和 strict inference，接着补导出、测试、外部一致性、benchmark、英文优先/中文跟进文档。
-- 用户可见能力变更后，要保持 README、USAGE、英文/中文 docs 和 changelog 的能力描述一致。
-- 工程 gate 的方向是 nightly 覆盖 lint/type/test，monthly stable 额外覆盖外部一致性矩阵、benchmark non-regression 和文档同步；本地改动至少要说明已跑或未跑的相关验证。
+- 外部比较前必须确认 objective normalization 和 penalty scale。若 `statgpu` 优化 `n^{-1} sum_i loss_i + lambda * penalty`，而外部框架优化 `sum_i loss_i + lambda * penalty`，测试应使用等价 penalty 映射，不要为了强行对齐外部框架而修改 `statgpu` 的 loss 定义。
+- strict inference/fallback 的默认策略以具体 estimator 的 public contract 为准；strict path 失败时不得静默降级成看似成功的 approximate result。
+- 历史 external-alignment 阈值（如 `coef <= 1e-6`、`bse <= 1e-3`、`p-value <= 5e-2`）只在对应维护测试/validator 明确采用时才是 acceptance contract，不应当作所有统计方法的普适阈值。
+- 关键 inference 输出字段在声明 backend parity 时应保持语义一致，例如 `coef`、`bse`、`t/z`、`p`、`CI`、`AIC/BIC/LLF` 等。
+- CUDA 分层规则保持有效：模型层不要无目的散落直接 `cupy` import，优先复用 `statgpu/backends/`、`BaseEstimator` 和已有后端工具；确有 kernel/device-specific 需求时可保留显式 backend code。
+- 新 numerical method 的准入标准通常是 implementation、targeted tests、external/analytic comparison 或 benchmark（按 active gate）、docs update 同步完成；API/docs-only change 不应为了仪式性 completion 被强制生成无意义 benchmark。
+- 用户可见能力变更后，要保持 README、USAGE、英文/中文 docs 和 changelog 中相关 capability claim 一致；只更新真正受影响的表面。
+- 本地改动至少要说明已跑或未跑的相关验证，不要把 skipped GPU test 表述成 physical GPU evidence。
 
 ## 文档写作约束
 
-`dev/plans/PLAN_UNIFIED.md` 对文档有硬要求。新增或修改用户可见能力时，文档不能只写一句 API 说明，应按能力范围补齐以下内容：
+新增或修改用户可见能力时，文档不能只写一句 API 说明，但页面结构要按受众分层，而不是强制所有模型页复制同一 reference-first 模板：
 
-- 文档更新顺序默认 EN-first、CN-follow：先更新 `docs/en/` 和英文入口，再同步 `docs/cn/` 中文页或中文相关入口。
+- 文档更新顺序默认 EN-first、CN-follow；维护中英文对应页时保持 capability claim 和概念结构一致，但不要求逐字翻译。
 - README、USAGE、EN/CN docs、changelog 中的能力声明必须一致，不能出现某处宣称支持、另一处仍写未支持的状态。
-- 模型页应尽量包含：Overview、Path、Objective Function、Estimating Equation、Covariance/Inference、Parameters、CPU+GPU Examples、strict/approx difference、Outputs、FAQ、External Validation、References。
-- 涉及 strict/approx 两条路径时，必须明确默认策略、fallback 条件、数值阈值或适用边界，避免让用户误以为 approximate 是默认严格推断。
-- 涉及设备或后端时，示例应覆盖 CPU、CuPy/CUDA、Torch 中适用的路径；暂不支持的后端要写清限制。
-- 涉及外部基线时，文档应说明对齐对象和设置，例如 `statsmodels`、`sklearn`、R 包、solver/ties/regularization/tolerance 等。
-- benchmark 或远程实验结果进入文档时，应附可审计产物路径，例如 `results/*.json` 和简短 markdown summary，而不是只写口头结论。
+- **learner-facing model page** 优先按“问题/动机 → 直觉 → 何时使用/替代方案 → 必要模型/目标函数 → 自包含示例 → 结果解释 → 参数选择 → pitfalls → advanced/reference”组织；solver/backend 实现细节通常放后面。
+- learner page 的 `Key parameters` 可以是教学精选，但 public API reference/inventory 必须完整，或明确链接到 canonical complete API reference；不能以 learner-first 为由静默丢参数、方法或重要 fitted attributes。
+- reference/implementation page 可以保持 reference-first，不需要强行套 learner 叙事。
+- 涉及 strict/approx 两条路径时，必须明确默认策略、fallback 条件、适用边界和用户可见状态，避免让用户误以为 approximate 是严格推断。
+- 涉及设备或后端时，示例只覆盖对该页面真正有帮助的路径；完整 backend capability 可链接到统一 device/backend reference，暂不支持的后端要写清限制。
+- 涉及外部基线时，文档应说明对齐对象和关键设置，例如 `statsmodels`、`sklearn`、R 包、solver/ties/regularization/tolerance 以及 objective-scale mapping。
+- benchmark 或远程实验结果进入文档时，应附可审计产物路径/commit/environment，而不是只写口头速度结论。
 - 引用统计方法、论文、R 包或外部 API 时，应保留 References 或链接，避免只写实现细节不写统计来源。
 
 ## 常复用代码
@@ -122,7 +113,7 @@ def _cleanup_torch_memory(self):
 - `docs/en/models/README.md`: 模型覆盖范围和当前限制的较新摘要。
 - `docs/en/guides/device-and-memory.md`: 设备选择、GPU 内存和后端规则。
 
-新增或修改用户可见能力时，通常需要同步更新相关 `docs/en/models/*.md`、`docs/cn/models/*.md`、`docs/en/changelog.md`、`docs/cn/changelog.md` 或入口文档。
+新增或修改用户可见能力时，通常需要同步更新受影响的 `docs/en/models/*.md`、`docs/cn/models/*.md`、changelog 或入口文档；不要机械修改与本次 capability 无关的页面。
 
 ## Changelog 写作规范
 
@@ -320,4 +311,4 @@ GPU、远程、benchmark、R 对比类脚本较多，通常不应在本地无目
 - 优先沿用现有 sklearn 风格 API、后端抽象、solver/penalty 注册表和文档结构。
 - 新增 estimator 时尽量继承或模仿现有 `BaseEstimator`、`linear_model` 和 `glm_core` 模式。
 - 新增后端相关逻辑时，要同时考虑 NumPy、CuPy、Torch 的数组类型、设备纯度和结果转回 NumPy 的边界。
-- 新增统计方法时，至少补充针对性单元测试；若涉及 GPU 或性能，再补充 benchmark 或远程验证脚本。
+- 新增统计方法时，至少补充针对性单元测试；新 shared numerical capability 的三后端 closure 仍是默认 DoD；若涉及性能，再补充相应 benchmark，而不是无条件跑与任务无关的远程矩阵。

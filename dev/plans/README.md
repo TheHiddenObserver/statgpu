@@ -8,11 +8,15 @@ There is no single global precedence order across documents with different respo
 
 ### Hard development and completion gates
 
-1. Applicable `.claude/workflows/` and `.claude/skills/` protocol.
+1. Applicable canonical Claude Code skills under `.claude/skills/<skill-name>/SKILL.md` (especially `new-module-dev`, `code-review`, and `benchmark`) and their referenced supporting files.
 2. `dev/AGENTS.md`.
 3. The mandatory checklist in [`TO_DO.md`](TO_DO.md), which summarizes but does not weaken the two sources above.
 
-Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override these hard gates. Any approved exception must follow the explicit approval/deferral contract in the applicable workflow and `dev/AGENTS.md`.
+Legacy flat `.claude/skills/*.md` files are compatibility pointers for historical links, not authoritative entrypoints. The old Markdown-era workflow note now lives at `.claude/legacy/new-module-dev-workflow.md`; `.claude/workflows/` is reserved for Claude Code Dynamic Workflow scripts and is not a policy/document archive.
+
+Roadmap priorities, issue scope, and module plans may narrow a task, but they may not weaken or override active/default hard gates. Impact classification in the canonical skills prevents an API-only/refactor-only change from reopening unrelated backend/CV/inference/formula/performance work. It does **not** permit a genuinely new shared numerical capability to define away the repository defaults: NumPy/CuPy/Torch closure is the default, and a new tunable loss x penalty capability closes direct fit + CV by default. A legitimate narrower capability or deferral must be explicit under the applicable skill contract. Any approved exception follows the approval/deferral contract in the canonical skill and `dev/AGENTS.md`.
+
+For `code-review`, Claude Code >= 2.1.218 supports explicit `background: false`; earlier forked skills already block the invoking turn by default. The version boundary is a frontmatter-feature boundary, not a minimum version for blocking review semantics.
 
 ### Current public capability
 
@@ -24,7 +28,7 @@ Use [`ROADMAP.md`](ROADMAP.md). It selects what should be worked on next; it doe
 
 ### Executable scope and dependencies
 
-Use open GitHub issues and active pull requests, summarized in [`ISSUES.md`](ISSUES.md). Issues may split or narrow roadmap packages but may not declare completion below repository hard gates.
+Use open GitHub issues and active pull requests, summarized in [`ISSUES.md`](ISSUES.md). Issues may split or narrow roadmap packages but may not declare completion below repository hard gates. When an issue intentionally defines a narrower backend/non-tunable contract, state that explicitly rather than relying on omission.
 
 ### Research and historical context
 
@@ -52,7 +56,7 @@ The release baseline does not imply that every historical plan item is complete.
 |---|---|---|
 | `ROADMAP.md` | Canonical priority source | Current priorities, sequencing, dependencies, and roadmap-level definition of done. |
 | `ISSUES.md` | Canonical navigation | Maps roadmap work packages to executable GitHub issues and dependency order. GitHub issue state remains authoritative for execution. |
-| `TO_DO.md` | Mandatory summary checklist | Compact hard-gate checklist plus active queue; subordinate to `.claude` and `dev/AGENTS.md`, not a weaker alternative. |
+| `TO_DO.md` | Mandatory summary checklist | Compact hard-gate checklist plus active queue; subordinate to canonical `.claude/skills/*/SKILL.md` and `dev/AGENTS.md`, not a weaker alternative. |
 | `gaussian_inference_backend_native_plan.md` | Active implementation plan | Issue #127: backend-native Gaussian linear-model numerical inference, consumer inventory, provenance, precision, validator, and review/fix contract. |
 | `panel_framework_proposal.md` | Delivered-design/reference document | Panel architecture/design context. Validate against 0.2.5 implementation and #93 evidence; do not treat old unchecked work as current scope. |
 | `panel_p1_stage_c_covariance_plan.md` | Delivered phase reference | Stage-C covariance design and acceptance context for the 0.2.5 Panel line; useful for provenance/review, not a new implementation queue. |
@@ -81,15 +85,15 @@ A roadmap item becomes executable only after it has a GitHub issue defining:
 - user/developer problem;
 - scope and explicit non-goals;
 - public API and failure behavior;
-- NumPy/CuPy/Torch backend contract;
-- direct-fit/CV closure for tunable capabilities;
+- backend/device contract, with NumPy/CuPy/Torch as the default for a new shared statistical/numerical capability unless a narrower scope/deferral is explicit;
+- direct-fit/CV closure for a new tunable loss x penalty capability unless the capability is explicitly non-tunable or an approved CV deferral applies;
 - inference/formula implications where applicable;
 - external baselines and normalization/alignment settings;
-- unit/regression/compatibility and physical-GPU validation;
+- unit/regression/compatibility and physical-GPU validation when those gates are active/default for the capability;
 - validator/evidence provenance where remote acceptance is active;
-- documentation/benchmark deliverables;
-- dependencies and completion criteria.
+- documentation/benchmark deliverables when applicable;
+- dependencies, approved exceptions, and completion criteria.
 
-Do not mark a module complete using only implementation count or passing CPU smoke tests. Completion is contract-based, evidence-based, and subject to hard workflow gates.
+Do not mark a module complete using only implementation count or passing CPU smoke tests when active/default numerical/backend gates require stronger evidence. Completion is contract-based, evidence-based, and subject to impact-activated plus repository-default workflow gates.
 
 Conversely, do not treat stale unchecked planning text as proof that released numerical work is absent. Reconcile plans/issues against merged implementation and acceptance evidence before reopening production scope.

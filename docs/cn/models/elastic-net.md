@@ -1,13 +1,13 @@
-# 弹性网络（Elastic Net）
+# Elastic Net 弹性网络
 
 > Language: Chinese (中文)  
-> Last updated: 2026-09-04<br>
+> Last updated: 2026-09-08<br>
 > This page: 模型文档  
 > Language switch: [English](../../en/models/elastic-net.md)
 
 ## 概述
 
-`ElasticNet` 结合了 L1 和 L2 正则化，在稀疏特征选择（Lasso）和系数收缩（Ridge）之间取得平衡。支持 CPU、CuPy GPU 和 PyTorch GPU 后端，可灵活选择设备。
+`ElasticNet` 结合 L1 与 L2 正则化，在稀疏特征选择（Lasso）和系数收缩（Ridge）之间取得平衡。支持 CPU、CuPy GPU 与 PyTorch GPU。直接拟合统一使用**与后端无关的 `solver` 接口**；`device` 只负责决定在哪里执行。
 
 ## 路径
 
@@ -23,72 +23,49 @@ $$
 
 其中：
 - `alpha` (α) 控制整体正则化强度
-- `l1_ratio` (λ) 混合 L1 和 L2：λ=1 为 Lasso，λ=0 为 Ridge
-- 损失函数缩放因子 `1/(2n)` 使 `alpha` 的解释与样本量无关
+- `l1_ratio` (λ) 混合 L1 与 L2：λ=1 为 Lasso，λ=0 为 Ridge
+- `1/(2n)` 表示公开 `alpha` 使用 average-loss 尺度
 
-**正则化缩放说明**：`ElasticNet` 与 `Ridge` 均采用相同的平均损失尺度。因此当 `l1_ratio=0` 时，`ElasticNet(alpha)` 等价于 `Ridge(alpha)`；公开参数 `alpha` 不需要再乘以样本量。
+**正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一 average-loss convention，因此 `l1_ratio=0` 时，相同公开 `alpha` 下二者使用一致的 L2 penalty scale。
 
 ## 估计方程
 
-Elastic Net 估计量求解以下一阶最优性（KKT）条件：
+Elastic Net 满足一阶最优性条件：
 
 $$
-\frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0
+\frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-其中 $\partial\|\hat{\beta}\|_1$ 是 L1 范数的次微分：
-- 当 $\hat{\beta}_j \neq 0$ 时：$\text{sign}(\hat{\beta}_j)$
-- 当 $\hat{\beta}_j = 0$ 时：$[-1, 1]$ 中的任意值
-
-收敛时，KKT 残差（次梯度违反）满足：
-$$
-\left| \frac{1}{n} X_j^\top(y - X\hat{\beta}) - \alpha(1-\lambda)\hat{\beta}_j \right| \leq \alpha\lambda \quad \forall j
-$$
+对**直接单次拟合**，`solver` 是所有后端上的权威算法选择器。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU direct-fit solver。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 ## 估计算法
 
-Elastic Net 通过 **FISTA**（快速迭代收缩阈值算法）求解，这是一种带有 Nesterov 动量加速的 proximal gradient 方法。
+默认路径使用 **FISTA**（快速迭代收缩阈值算法），即带 Nesterov 加速的 proximal-gradient 方法。其他求解器是否可用取决于公开 solver compatibility contract。
 
 ### 关键优化洞察
 
-L2 正则化项**仅在 proximal 步中处理**，不在梯度计算中处理：
+Elastic Net 的 L1/L2 由 proximal operator 共同处理：
 
 ```python
-# 仅计算 RSS 的梯度（L2 单独处理）
+# average squared-error 梯度
 grad = (X.T @ X @ w - X.T @ y) / n
 
-# Proximal 步：软阈值 + L2 缩放
-w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (1 + alpha * (1 - l1_ratio) * step)
+# Elastic Net proximal step
+w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
+    1 + alpha * (1 - l1_ratio) * step
+)
 ```
-
-这避免了冗余计算并提高了数值稳定性。
 
 ### 收敛判据
 
-通过 `stopping` 参数提供两种停止模式：
+`stopping` 提供两种停止模式：
 
 | 模式 | 说明 |
 |------|------|
-| `coef_delta` | 当 `||w_new - w_old||_∞ < tol` 时停止 |
-| `kkt` | 当 KKT 次梯度违反 < tol 时停止 |
+| `coef_delta` | 系数变化低于 `tol` 时停止 |
+| `kkt` | KKT 次梯度违反低于配置阈值时停止 |
 
-对于 `kkt` 模式，最优性条件为：
-- 对于非零系数：`|∇f + α(1-λ)w + αλ·sign(w)| < tol`
-- 对于零系数：`|∇f + α(1-λ)w| ≤ αλ`
-
-**注意**：数值优化中 KKT 违反 ~1e-2 是可接受的；不需要精确为零。
-
-## 求解器支持
-
-| `solver` 值 | CPU | CuPy / Torch | 说明 |
-|---|:---:|:---:|---|
-| `fista`（默认） | 支持 | 支持 | 推荐的近端优化路径 |
-| `auto` | FISTA | FISTA | squared-error + Elastic Net 当前的自动分发 |
-| `fista_bb` | 支持 | 支持 | 自适应谱步长 |
-| `admm` | 支持 | 支持 | 拆分求解替代路径；只支持均匀样本权重 |
-| `coordinate_descent` | 支持 | 不支持 | CPU-only 兼容路径 |
-
-Elastic Net 含非光滑 L1 部分，因此会拒绝 `newton`、`lbfgs`、`irls` 与 `exact`。单模型拟合时，`cpu_solver` 不会覆盖 `solver`。完整迭代公式见[求解器指南](../guides/solver-algorithms.md)。
+数值收敛只表示声明的优化问题被求解到相应精度，并不构成另一种统计近似模型。
 
 ## 参数
 
@@ -102,76 +79,83 @@ Elastic Net 含非光滑 L1 部分，因此会拒绝 `newton`、`lbfgs`、`irls`
 | `stopping` | `"coef_delta"` | `"coef_delta"` 或 `"kkt"` 停止准则 |
 | `device` | `"auto"` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"` |
 | `n_jobs` | `None` | 适用 CPU 路径的并行度 |
-| `solver` | `"fista"` | 后端感知的优化方法 |
-| `cpu_solver` | `"fista"` | CPU 求解器覆盖选项 |
+| `solver` | `"fista"` | 与后端无关的 direct-fit 优化方法 |
+| `cpu_solver` | `"fista"` | **Deprecated compatibility parameter**；新代码请使用 `solver` |
 | `lipschitz_L` | `None` | 可选的用户指定 Lipschitz 常数 |
 | `gpu_memory_cleanup` | `False` | 在支持的后端上于拟合后释放内存池 |
 | `compute_inference` | `False` | 计算拟合后系数推断 |
-| `inference_method` | `"debiased"` | `"debiased"`、`"cpu_ols"` 或 `"bootstrap"` |
+| `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"`；`cpu_ols` / `gpu_ols` 暂时作为 deprecated alias 接受 |
 | `cov_type` | `"nonrobust"` | 适用方法中的协方差约定 |
 | `hac_maxlags` | `None` | 支持 HAC 时使用的滞后阶数 |
 
-公开 wrapper 不接受单独的 `backend`、`warm_start` 或 `random_state`
-构造参数。后端由 `device` 控制；单次拟合的 warm start 可通过
-`fit(initial_coef=...)` 提供。
+公开 wrapper 不接受单独的 `backend`、`warm_start` 或 `random_state` 构造参数。后端由 `device` 控制；单次 warm start 可通过 `fit(initial_coef=...)` 提供。
 
 ## CPU/GPU 示例
 
 ```python
 from statgpu.linear_model import ElasticNet
 
-# CPU (NumPy)
-model_cpu = ElasticNet(alpha=0.1, l1_ratio=0.5, device="cpu")
+# CPU：solver 选择算法，device 选择执行后端。
+model_cpu = ElasticNet(
+    alpha=0.1,
+    l1_ratio=0.5,
+    device="cpu",
+    solver="fista",
+)
 model_cpu.fit(X, y)
 print(f"R²: {model_cpu.score(X, y):.4f}")
 
-# GPU (CuPy)
+# GPU 仍使用同一个 solver 接口
 model_gpu_cupy = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="cuda",
-    gpu_memory_cleanup=True
+    alpha=0.1,
+    l1_ratio=0.5,
+    device="cuda",
+    solver="fista",
+    gpu_memory_cleanup=True,
 )
 model_gpu_cupy.fit(X, y)
 
-# GPU (PyTorch)
 model_gpu_torch = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="torch"
+    alpha=0.1,
+    l1_ratio=0.5,
+    device="torch",
+    solver="fista",
 )
 model_gpu_torch.fit(X, y)
 ```
 
-后端性能取决于样本量、特征维数、dtype、硬件、数据驻留位置和传输成本。不要仅依据固定阈值选择后端；应对实际目标工作负载进行 benchmark。
+后端性能取决于样本量、特征维数、dtype、硬件、数据驻留位置与传输成本。应针对实际工作负载 benchmark。
 
 ## 协方差/推断
 
-`ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，将通过共享的
-penalized-linear 推断引擎执行拟合后推断。默认
-`inference_method="debiased"` 使用 nodewise Lasso 构造偏误校正估计量、标准误、
-z 统计量、p 值与 95% 置信区间；推断成功后可调用 `summary()`。
+`ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，通过共享 penalized-linear inference engine 执行拟合后推断。默认 `inference_method="debiased"` 使用 nodewise Lasso 构造 bias-corrected estimator、标准误、z 统计量、p 值与置信区间；推断成功后可调用 `summary()`。
 
 | 参数 | 默认值 | 含义 |
 |------|--------|------|
 | `compute_inference` | `False` | 启用拟合后系数推断 |
-| `inference_method` | `"debiased"` | `"debiased"`、`"cpu_ols"` 或 `"bootstrap"` |
+| `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"` |
 | `cov_type` | `"nonrobust"` | 在相应推断方法中使用的协方差约定 |
 | `hac_maxlags` | `None` | 所选方法支持 HAC 时使用的滞后阶数 |
 
-NumPy、CuPy 与 Torch 拟合路径均已实现 debiased 推断。CPU 验证属于托管测试套件；
-每个精确发布候选仍必须通过 CuPy 与 Torch 的物理 CUDA 远程验证。
-Post-selection OLS 只是启发式方法，不保证有效的选择后覆盖率。推断以已选定的正则化
-参数为条件，不会改变原 penalized coefficient。
+`post_selection_ols` 是与硬件无关的 canonical active-set diagnostic。统一 wrapper 中历史 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**，一个兼容周期内仍接受并发出 `FutureWarning`，随后归一化到 `post_selection_ols`；它们不负责选择设备。
 
-对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio`
-选定后的全数据最终重拟合；各折模型仍仅用于估计和评分。
+`post_selection_ols` 会先使用 penalized model 的 fitted coefficients 确定 active set，再在成功拟合所记录的 backend 上，只对该 active set 做无惩罚 OLS；传入 `sample_weight` 时做 WLS。原始 penalized `coef_` 保持不变并继续用于预测，active-set 重拟合通过 `_params` / `_inference_result` 等字段参与推断与报告。
+
+Post-selection OLS 仍是启发式方法，不提供一般 selective-inference coverage。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
+
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用 fit-resolved backend；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。residual `bootstrap` 当前仍是 CPU-native residual-refit 路径；显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
+
+对于带截距的 `debiased` inference，公开 `coef_`/`intercept_` 继续属于 **penalized prediction fit**。推断/reporting 使用 debiased slopes `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p-value/CI 描述的是该 debiased reporting intercept，而不是 prediction `intercept_`。result metadata 会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。analytic weights 在 NumPy/CuPy/Torch 上使用同一个 weighted-centered average-loss 问题，因此整体乘以正常数不会改变这套推断。
+
+对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终 full-data refit；各折模型仍仅用于估计和评分，应从最终 `estimator_` 读取 structured inference result。
 
 ## 求解器与推断语义
 
-默认估计器使用 FISTA 优化声明的 Elastic Net 目标函数。`stopping` 仅改变
-收敛诊断（`coef_delta` 或 KKT violation），并不定义不同的统计近似模式。
+对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期 hardware-split API 的 deprecated compatibility 参数，新代码不应继续使用。
 
-`compute_inference=False` 只返回 penalized estimate。设置
-`compute_inference=True` 后，原拟合系数保持不变，并在拟合完成后运行所选推断方法。
-独立 `ElasticNet` wrapper 与 `ElasticNetCV` 的最终全数据重拟合都直接支持该契约；
-用户不需要仅为了 debiased inference 而切换到其他估计器类。
+同样，需要 active-set OLS/WLS diagnostic 时应使用 `inference_method="post_selection_ols"`，而不是根据硬件去选 `cpu_ols` 或 `gpu_ols`；后两者只是同一个统计方法的 deprecated aliases。
+
+`compute_inference=False` 只返回 penalized estimate；开启推断后保留同一拟合系数，再运行所选 post-fit inference method。
 
 ## 输出属性
 
@@ -179,17 +163,19 @@ Post-selection OLS 只是启发式方法，不保证有效的选择后覆盖率�
 
 | 属性 | 说明 |
 |------|------|
-| `coef_` | 估计的系数（形状：n_features） |
-| `intercept_` | 拟合的截距 |
+| `coef_` | 用于预测的 penalized coefficients |
+| `intercept_` | 用于预测的 penalized fitted intercept |
 | `n_iter_` | 收敛所需迭代次数 |
-| `aic` | 推断结果提供时的 Akaike 信息准则 |
-| `bic` | 推断结果提供时的 Bayesian 信息准则 |
+| `_params` | 推断成功时的 reporting 参数向量；`debiased` 下包含 coherent debiased intercept 与 debiased slopes；`post_selection_ols` 下是嵌入完整参数布局的 active-set OLS/WLS 重拟合 |
+| `_inference_result` | structured inference result 与数值 backend metadata |
+| `aic` | 可用时的 Akaike 信息准则 |
+| `bic` | 可用时的 Bayesian 信息准则 |
 
 方法：`fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
 ## 数值验证
 
-维护中的回归测试会按 dtype 和求解路径选择相应容差，检查支持后端之间以及与参考实现的数值一致性。物理 CUDA 验证仍属于 exact-head handoff；不存在适用于所有工作负载的统一系数误差阈值或加速比。
+维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；post-selection OLS API 迁移与 active-set OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
 
 ## 参考文献
 

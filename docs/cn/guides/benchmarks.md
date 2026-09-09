@@ -1,13 +1,13 @@
 # 基准脚本索引
 
 > 语言：中文  
-> 最后更新：2026-08-07
+> 最后更新：2026-09-08
 > 页面定位：基准脚本索引  
 > 切换：[English](../../en/guides/benchmarks.md)
 
 ## 交互式基准面板
 
-- **打开面板**：[Benchmark Dashboard](/dashboard/)
+- **打开面板**：[Benchmark Dashboard](../../assets/benchmarks/index.html)
 - **使用说明**：[筛选、图表、指标与复现](../../en/guides/statgpu_benchmark_dashboard.md)
 
 当前 canonical dashboard 只注册日期不早于 **2026-06-01** 的 benchmark source，共包含：
@@ -64,8 +64,9 @@ npm run test:e2e:production
 ## 推断相关
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - 对比 `cpu_ols_inference` 与 `gpu_ols_inference`
-  - 输出时间以及 `coef/bse/t/p/conf_int` 差异
+  - 使用 canonical `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整 fit + inference transaction 做基准和数值对照；
+  - 输出 penalized coefficients、active-refit parameters、SE/statistic/p-value/CI、active-set identity 以及 inference backend/device provenance 的 CPU/CuPy parity；
+  - 这不是 inference-only 加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
 
 当前 dashboard 中已接入的 inference 还包括 Ordered Logit/Probit、Quantile kernel/bootstrap、penalized-logistic HC0/oracle 和 penalized-linear bootstrap。CV 前端 contract 已经实现，但在新的合格 CV source 接入前显示为 `CV (0)`。
 

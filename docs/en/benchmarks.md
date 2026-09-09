@@ -1,7 +1,7 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-05-07
+> Last updated: 2026-09-08
 > This page: Benchmark index  
 > Switch: [Chinese](../cn/benchmarks.md)
 
@@ -10,7 +10,9 @@ Language switch: [Chinese](../cn/benchmarks.md)
 ## Inference
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - Compares `cpu_ols_inference` vs `gpu_ols_inference`
+  - Benchmarks canonical `inference_method="post_selection_ols"` end to end on NumPy CPU and CuPy CUDA.
+  - Reports complete fit+inference timing plus CPU/CuPy parity for penalized coefficients, active-refit parameters, SE/statistic/p-value/CI, active-set identity, and inference backend/device provenance.
+  - It is not an inference-only speedup benchmark; hardware is selected with `device`, not with `inference_method`.
 
 ## Nonparametric
 
