@@ -114,7 +114,7 @@ $$
 
 ## statgpu 如何构造近似精度矩阵？
 
-这里采用的是纠偏 Lasso 中通过**逐节点 Lasso（nodewise Lasso）**构造近似精度矩阵的思路；可参见 van de Geer et al. (2014)，以及 Zhang & Zhang (2014) 的相关低维投影（low-dimensional projection）/偏差校正构造。
+这里采用的是纠偏 Lasso 中通过**逐节点 Lasso（node-wise Lasso；文献中也常写作 nodewise LASSO）**构造近似精度矩阵的思路；可参见 van de Geer et al. (2014)，以及 Zhang & Zhang (2014) 的相关低维投影（low-dimensional projection）/偏差校正构造。
 
 对每个特征 $j$，statgpu 用逐节点 Lasso 把 $x_j$ 对其余列 $X_{-j}$ 做稀疏回归：
 
