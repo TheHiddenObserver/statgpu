@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English
-> Last updated: 2026-09-06
+> Last updated: 2026-09-09
 > Switch: [简体中文](../../cn/models/ridge.md)
 
 ## What problem does it solve?
@@ -150,7 +150,7 @@ With the fixed seed above, the first two OLS coefficients are roughly `0.32` and
 - `score(X, y)` returns $R^2$; it also accepts `sample_weight=`.
 - A smaller coefficient does not mean the feature became less scientifically important; part of the change may be regularization bias introduced for stability.
 
-If coefficient uncertainty matters, construct the model with `compute_inference=True`. Ridge exposes standard errors, test statistics, p-values, and confidence intervals under the supported covariance choices, but inference is conditional on the chosen `alpha`.
+If coefficient uncertainty matters, `compute_inference=True` exposes a **fixed-`alpha` Wald-style reporting layer for the penalized Ridge estimator**. It does not de-bias the Ridge coefficients. The shrinkage bias that stabilizes the estimator is still present, so these p-values and intervals should not be read as ordinary finite-sample OLS inference for the unpenalized population coefficient. If `alpha` is chosen by `RidgeCV` or another tuning procedure, the final-refit inference is conditional on that selected value and does not add an extra correction for tuning uncertainty.
 
 ## Key parameters and how to choose them
 
@@ -161,8 +161,8 @@ This table is intentionally **curated** for normal use. The exhaustive construct
 | `alpha` | `1.0` | Main modeling choice. Larger values shrink coefficients more strongly. For predictive work, choose it with `RidgeCV` or another validation procedure rather than from training fit alone. |
 | `fit_intercept` | `True` | Keep it unless theory fixes the intercept at zero or your design already includes one. |
 | `device` | `"auto"` | Use `"cpu"` for small/medium problems and compatibility; use `"cuda"` or `"torch"` when the workload is large enough to justify GPU transfer and setup cost. |
-| `compute_inference` | `True` | Disable when you only need prediction/coefficients and want to avoid inference work. |
-| `cov_type` | `"nonrobust"` | Use HC variants for heteroskedasticity and HAC when ordered observations may be serially correlated. |
+| `compute_inference` | `True` | Disable when you only need prediction/coefficients. When enabled, the reported uncertainty is conditional on the fitted Ridge/tuning configuration. |
+| `cov_type` | `"nonrobust"` | Use HC variants for heteroskedasticity and HAC when ordered observations may be serially correlated. These choices change the covariance calculation; they do not remove Ridge shrinkage bias. |
 | `solver` | `"exact"` | The dense direct Ridge path and normal default. Change it mainly for controlled numerical experiments or special workloads. |
 
 ### Scale your predictors
@@ -178,14 +178,14 @@ For most regularized workflows, standardize continuous predictors before fitting
 | OLS / `LinearRegression` | no shrinkage | no | the design is stable and you want the unpenalized linear estimator |
 | **Ridge** | L2 shrinkage | usually no | predictors are correlated and you want stable prediction while retaining all variables |
 | [Lasso](lasso.md) | L1 shrinkage | yes | a sparse model / feature selection is important |
-| [Elastic Net](elastic-net.md) | L1 + L2 | yes | you want sparsity but correlated predictors should be treated more stably than pure Lasso |
+| [Elastic Net](elastic-net.md) | L1 + L2 | yes when the L1 component is positive | you want sparsity but correlated predictors should be treated more stably than pure Lasso |
 
 A useful mental model is:
 
 - **OLS:** fit only.
 - **Ridge:** fit + shrink.
 - **Lasso:** fit + shrink + select.
-- **Elastic Net:** fit + shrink + select, with extra stability for correlated features.
+- **Elastic Net:** fit + shrink + select when its L1 component is nonzero, with extra stability for correlated features.
 
 ## CPU, GPU, formula, and weighted fitting
 
@@ -230,7 +230,22 @@ For a direct `Ridge.fit`, `solver` is the authoritative algorithm selector. `cpu
 
 Supported covariance choices are `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, and `hac`. With `compute_inference=True`, the reporting surface includes `_bse`, `_tvalues`, `_pvalues`, and `_conf_int` along with fit diagnostics such as `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, and `bic` when defined.
 
+For the nonrobust path, statgpu uses the covariance of the penalized linear estimator,
+
+$$
+\widehat{\operatorname{Var}}(\hat\beta_\alpha)
+=\hat\sigma^2 B_\alpha X^\top X B_\alpha,
+\qquad
+B_\alpha=(X^\top X+n\alpha I)^{-1}
+$$
+
+on the centered, unweighted scale shown above (with the corresponding weighted normalization when analytic weights are used). The current reporting convention then uses a Student-t reference; robust/HAC paths use sandwich covariance with a normal reference. These are maintained Wald-style reporting conventions for a fixed penalized fit. They do **not** imply that the Ridge shrinkage bias has been removed or that the finite-sample OLS t distribution has been recovered.
+
 For weighted inference, the numerical design uses the same analytic-weight convention as fitting. Numerical covariance and reference-distribution calculations remain on the executed NumPy/CuPy/Torch backend before reporting arrays are snapshotted to NumPy.
+
+`RidgeCV(compute_inference=True)` selects `alpha` first and then performs inference only on the final full-data refit. The reported uncertainty is conditional on the selected `alpha`; the current implementation does not add a separate correction for cross-validation tuning uncertainty.
+
+**Fit diagnostics are compatibility diagnostics, not penalty-aware selection criteria.** `rsquared_adj`, `fvalue`, `f_pvalue`, `aic`, and `bic` use the stored penalized-fit residual state together with ordinary parameter counts/residual degrees of freedom. They do not replace the parameter count by the Ridge effective degrees of freedom such as a smoother trace, and they do not account for tuning `alpha`. Use them as descriptive/reporting quantities, not as a penalty-aware alternative to validation or cross-validation.
 
 **Comparing `alpha` with scikit-learn.** statgpu uses the average-loss objective shown above. scikit-learn Ridge uses an unnormalized residual sum of squares. For coefficient comparisons:
 
@@ -246,7 +261,9 @@ Using the same numerical `alpha` in both libraries therefore compares different 
 - **Do not compare coefficient magnitudes before considering feature scale.** Standardization is often essential.
 - **Do not copy `alpha` directly from another library.** Check that the objective normalization matches.
 - **Regularization does not repair model misspecification.** It does not make a nonlinear, dependent, or confounded model scientifically valid.
+- **Do not read Ridge p-values as ordinary OLS p-values for an unpenalized coefficient.** The current reporting layer does not remove shrinkage bias.
 - **Small p-values after choosing `alpha` are not a substitute for a complete model-selection argument.** Treat inference as conditional on the regularization choice unless your procedure explicitly accounts for tuning.
+- **Do not use the compatibility AIC/BIC/F outputs as if they used Ridge effective degrees of freedom.** They currently use ordinary parameter-count conventions.
 
 ## Complete API reference
 
@@ -280,7 +297,7 @@ Ridge(
 | `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | Parallelism hint where the selected path uses it. |
 | `gpu_memory_cleanup` | `False` | Best-effort release of cached GPU memory after fit. |
-| `compute_inference` | `True` | Compute post-fit standard errors/tests/intervals and summary state. |
+| `compute_inference` | `True` | Compute fixed-fit Ridge standard-error/test/interval reporting and summary state. |
 | `cov_type` | `"nonrobust"` | `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, or `hac`. |
 | `hac_maxlags` | `None` | Maximum HAC lag; used only with `cov_type="hac"`. |
 | `max_iter` | `1000` | Maximum iterations for iterative solver paths. |
@@ -331,13 +348,13 @@ The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `
 | `intercept_` | Fitted unpenalized intercept. |
 | `n_iter_` | Iteration count; the direct exact path reports one solve. |
 | `n_features_in_` | Number of fitted input features when published by the fit path. |
-| `rsquared`, `rsquared_adj` | $R^2$ and adjusted $R^2$ from the stored fitted state. |
-| `fvalue`, `f_pvalue` | Classical joint fit statistic and p-value when defined. |
-| `llf`, `aic`, `bic` | Gaussian log-likelihood and information criteria when the required fitted/inference state is available. |
-| `_bse` | Coefficient standard errors when `compute_inference=True`. |
-| `_tvalues` | Ridge t-style test statistics when inference is available. |
-| `_pvalues` | Two-sided coefficient p-values when inference is available. |
-| `_conf_int` | Coefficient confidence intervals when inference is available. |
+| `rsquared`, `rsquared_adj` | $R^2$ and ordinary-count adjusted $R^2$ from the stored penalized-fit state; not an effective-DoF correction. |
+| `fvalue`, `f_pvalue` | Compatibility joint-fit diagnostic using ordinary parameter-count/residual-DoF conventions; not a penalty-aware classical F test. |
+| `llf`, `aic`, `bic` | Plug-in Gaussian fit diagnostics using the stored fit and ordinary parameter counts; not Ridge-effective-DoF or tuning-aware criteria. |
+| `_bse` | Fixed-fit coefficient standard errors when `compute_inference=True`; shrinkage bias is not removed. |
+| `_tvalues` | Ridge t-style reporting statistics when inference is available. |
+| `_pvalues` | Two-sided fixed-fit Ridge p-values under the selected reporting convention. |
+| `_conf_int` | Fixed-fit Ridge Wald-style coefficient intervals under the selected reporting convention. |
 | `_inference_result` | Structured inference result/metadata used by the reporting layer. |
 
 Underscore-prefixed inference arrays are established reporting attributes in the current release, but code that needs long-term schema stability should prefer documented high-level reporting interfaces where possible.
