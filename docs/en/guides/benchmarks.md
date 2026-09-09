@@ -7,7 +7,7 @@
 
 ## Benchmark Dashboard
 
-- **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+- **Interactive dashboard**: [Open Dashboard](/dashboard/)
 - **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
 
 The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Live source/run counts are read from the dashboard inventory rather than maintained as long-lived prose. **Snapshot (2026-08-07):** the canonical bundle has 9 registered/available/parsed sources and 1,796 normalized runs.
