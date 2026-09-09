@@ -121,6 +121,15 @@ from . import (
 
 _debiased_simultaneous_backend_contract.install_debiased_simultaneous_backend_contract()
 
+# The historical CPU feature-only max-|Z| helper predates the newer fail-closed
+# simultaneous paths. Reject non-representable joint publications uniformly at
+# the final method boundary without changing the established calibration path.
+from . import (
+    _debiased_simultaneous_reporting_finite_contract as _debiased_simultaneous_reporting_finite_contract,
+)
+
+_debiased_simultaneous_reporting_finite_contract.install_debiased_simultaneous_reporting_finite_contract()
+
 # Weighted LassoCV historically centered sqrt-weighted rows and truncated
 # sum(weights) to an integer path normalizer. Map weighted folds to an exactly
 # equivalent row-count problem while leaving the unweighted fast path untouched.
